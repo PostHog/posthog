@@ -10,12 +10,25 @@ budget sourced from Django settings is read at resolve time, not frozen at impor
 which keeps the limiter backend swappable.
 """
 
-from collections.abc import Callable
-from dataclasses import dataclass
+from collections.abc import Callable, Mapping
+from dataclasses import dataclass, field
+from enum import Enum
+from math import floor
 
 # (count, period_seconds) — one rate constraint. A policy may carry several; they are all enforced
 # together, so you can cap the hour AND smooth per-minute bursts on the same key.
 RateLimit = tuple[int, float]
+
+
+class Priority(Enum):
+    """How sheddable a call is when the shared budget gets tight. All priorities draw from the SAME
+    per-key counter — the lane only changes how much headroom must stay free for the call to be
+    admitted, so deferrable bulk traffic (``BATCH``) is denied before critical traffic as the budget
+    fills, without ever splitting the budget into separate buckets."""
+
+    CRITICAL = "critical"  # may use the whole budget — never shed
+    NORMAL = "normal"  # default — yields a small reserve to CRITICAL
+    BATCH = "batch"  # deferrable bulk — yields the largest reserve, shed first
 
 
 @dataclass(frozen=True)
@@ -26,16 +39,37 @@ class RatePolicy:
     each process would otherwise get the full budget, so N processes together would allow N× the
     shared limit. The fallback is best-effort only — the consumer's reactive backoff (e.g. honoring
     a 429) is the real backstop.
+
+    ``reserve`` maps a :class:`Priority` to the fraction of each window's budget that must remain
+    free for a call of that priority to be admitted. A priority absent from the map reserves nothing
+    (0.0), so an empty ``reserve`` keeps every call critical-equivalent — exactly the pre-priority
+    behavior. Fractions are validated to ``[0, 1)`` (1.0 would reserve the whole window and deny the
+    priority forever).
     """
 
     limits: tuple[RateLimit, ...]
     in_memory_divider: int = 1
+    reserve: Mapping[Priority, float] = field(default_factory=dict)
 
     def __post_init__(self) -> None:
         # A policy with no limits would let every call through, defeating the point. Reject it at
         # definition time rather than surfacing an opaque "min() arg is empty" deep in the facade.
         if not self.limits:
             raise ValueError("RatePolicy.limits must declare at least one (count, period_seconds) limit")
+        for priority, fraction in self.reserve.items():
+            if not (0.0 <= fraction < 1.0):
+                raise ValueError(f"RatePolicy.reserve[{priority.name}] must be in [0, 1), got {fraction}")
+
+    def reserve_fraction(self, priority: Priority) -> float:
+        """Reserved-headroom fraction for ``priority`` — 0.0 when the priority isn't configured."""
+        return self.reserve.get(priority, 0.0)
+
+    def reserve_amount(self, priority: Priority, count: int) -> int:
+        """Units of a window of size ``count`` this priority must leave free: ``floor(fraction * count)``.
+        floor (not round/ceil) so a 0 fraction reserves exactly 0, keeping the no-reserve path
+        bit-identical to pre-priority behavior. Single source for both admission (backend) and
+        validation (facade), so the two can't drift."""
+        return floor(self.reserve_fraction(priority) * count)
 
 
 PolicyProvider = Callable[[], RatePolicy]

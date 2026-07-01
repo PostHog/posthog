@@ -222,8 +222,13 @@ def _extract_text_from_message_payload(message: dict[str, Any]) -> str | None:
         return content.strip()
 
     if isinstance(content, list):
+        # Only text after the last tool_use is the final answer; text before it is interim narration.
+        last_tool_use = -1
+        for i, part in enumerate(content):
+            if isinstance(part, dict) and part.get("type") == "tool_use":
+                last_tool_use = i
         text_parts: list[str] = []
-        for part in content:
+        for part in content[last_tool_use + 1 :]:
             if not isinstance(part, dict):
                 continue
             if part.get("type") == "text" and isinstance(part.get("text"), str):

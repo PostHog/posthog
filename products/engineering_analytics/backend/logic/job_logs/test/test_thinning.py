@@ -1,6 +1,6 @@
 from parameterized import parameterized
 
-from products.engineering_analytics.backend.logic.job_logs.thinning import ThinningConfig, thin_log
+from products.engineering_analytics.backend.logic.job_logs.thinning import ThinningConfig, thin_log, thin_log_lines
 
 _CAP = ThinningConfig().max_lines
 
@@ -46,3 +46,22 @@ class TestThinLog:
 
         content = [line for line in out.splitlines() if "lines omitted" not in line]
         assert len(content) <= _CAP
+
+    def test_thin_log_lines_anchors_kept_lines_to_original_positions(self):
+        # Each kept line keeps its 1-based original position (the only durable anchor once the full
+        # log expires); omission markers carry None. A regression here makes a thinned line
+        # unlocatable in the real log.
+        noise = [f"downloading package {i}" for i in range(2000)]
+        lines = thin_log_lines("\n".join([*noise, "##[error]Process completed with exit code 1."]))
+
+        last = lines[-1]
+        assert last.text == "##[error]Process completed with exit code 1."
+        assert last.original_line_number == 2001  # 2000 noise lines (1..2000), then the failure at 2001
+        assert any(line.original_line_number is None and "lines omitted" in line.text for line in lines)
+
+    def test_thin_log_lines_numbers_every_line_when_under_cap(self):
+        assert [(line.text, line.original_line_number) for line in thin_log_lines("a\nb\nc")] == [
+            ("a", 1),
+            ("b", 2),
+            ("c", 3),
+        ]

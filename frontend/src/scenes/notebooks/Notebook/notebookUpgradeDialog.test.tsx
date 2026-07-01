@@ -66,7 +66,7 @@ describe('notebookUpgradeDialog', () => {
         expect(isMarkdownNotebookContent(convertedContent)).toBe(true)
         expect(getMarkdownNotebookMarkdown(convertedContent)).toEqual(`# Activation
 
-<Query query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[]}}} />`)
+<Query hideFilters query={{"kind":"InsightVizNode","source":{"kind":"TrendsQuery","series":[]}}} />`)
     })
 
     it('embeds comment threads from range-anchored comments during conversion', () => {
