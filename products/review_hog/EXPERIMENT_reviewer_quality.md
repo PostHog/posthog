@@ -3,7 +3,7 @@
 > **Working scratchpad. Survives compaction — update the Run Log + Decisions as we go.**
 > Companion to `ARCHITECTURE.md`. Scope = the **reviewer stage only** (chunking + perspective topology).
 > The **validator is held constant** (current strict validator) — out of scope this round.
-> Model held constant: **GPT-5.5 Codex @ xhigh** for reviewers (matches the old ReviewHog). Reviewer-Claude-vs-GPT is a later round.
+> Model held constant: **Claude Opus 4.8 @ xhigh** for reviewers (switched back from GPT-5.5 Codex, which was unreliable). Reviewer-model comparison is a later round; the old ReviewHog yardstick below was produced with GPT-5.5, so coverage differences may partly reflect the model, not just topology.
 
 ## Goal & priority order
 
@@ -88,8 +88,9 @@ One `.md` per run in `playground/reviewhog-quality-iterations/<label>[-<n>].md`,
 
 - **Config snapshot** (chunking constants, topology flag, model/effort) + PR head + timestamp.
 - **Funnel:** raw issues found (pre-dedup, summed over perspective results) → after dedup → passed validator.
-- **Cost/time:** total GPT-5.5 tokens (in+out, from local `$ai_generation`) + Claude tokens (dedup/validate) + wall-clock;
-  chunk count; review-unit count (chunks × perspectives [× passes]).
+- **Cost/time:** total `$ai_generation` tokens (in+out, from local events, broken down per model) + wall-clock;
+  chunk count; review-unit count (chunks × perspectives [× passes]). Reviewer and dedup/validate now both run
+  on Claude, so tokens no longer split cleanly by role — the review-unit count is the reliable reviewer-cost proxy.
 - **Findings list:** every finding (file:lines, priority, category, title, body) + validator verdict — the raw material
   for coverage-vs-old mapping.
 
@@ -130,7 +131,7 @@ All behind flags defaulting to current behavior → **no prod migration, no prod
 
 ## Cost/time expectations (rough)
 
-Review sandboxes per run at gpt-5.5 xhigh: C0/C2 = 3 (1 chunk × 3); C1/C3 = ~9 (≈3 chunks × 3). Sequential (C2/C3)
+Review sandboxes per run at Claude Opus 4.8 xhigh: C0/C2 = 3 (1 chunk × 3); C1/C3 = ~9 (≈3 chunks × 3). Sequential (C2/C3)
 same sandbox count but serialized → longer wall-clock. So C3 is the most expensive/slowest; C0 the cheapest. × runs-per-config.
 
 ## Scoring & final analysis (#6)
@@ -143,7 +144,7 @@ better-of-two and note variance.
 
 ## Decisions (locked)
 
-- Test PR = **#62096** (frozen, best discriminator). Validator = current (unchanged). Model = gpt-5.5 xhigh.
+- Test PR = **#62096** (frozen, best discriminator). Validator = current (unchanged). Model = Claude Opus 4.8 xhigh (Codex was unreliable).
 - **2 runs per config** (5 configs → 10 runs; add a 3rd if a config's two runs diverge). Control `C0` = current settings.
 - **Quality scored by an LLM judge vs the old 10 findings**; user reviews at the end.
 - **C4-completeness is IN** (5 configs total).
@@ -153,6 +154,6 @@ better-of-two and note variance.
 
 ## Run log
 
-| label                     | run | date | chunks | raw→dedup→valid | gpt5.5 tok | claude tok | wall-clock | dump file | notes |
-| ------------------------- | --- | ---- | ------ | --------------- | ---------- | ---------- | ---------- | --------- | ----- |
-| _(fill as runs complete)_ |     |      |        |                 |            |            |            |           |       |
+| label                     | run | date | chunks | raw→dedup→valid | total tok | wall-clock | dump file | notes |
+| ------------------------- | --- | ---- | ------ | --------------- | --------- | ---------- | --------- | ----- |
+| _(fill as runs complete)_ |     |      |        |                 |           |            |           |       |
