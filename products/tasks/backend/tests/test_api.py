@@ -3888,6 +3888,58 @@ class TestTaskRunAPI(BaseTaskAPITest):
             delete_progress=True,
         )
 
+    @parameterized.expand(
+        [
+            (
+                "prefers_last_non_empty_text_part",
+                {
+                    "text": "I'll pull DAU.\n\nHere's your answer.",
+                    "text_parts": ["I'll pull DAU.", "Here's your answer."],
+                },
+                "Here's your answer.",
+            ),
+            (
+                "falls_back_to_text_when_parts_only_blank",
+                {"text": "actual message", "text_parts": ["", "   "]},
+                "actual message",
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
+    def test_relay_message_text_selection(self, _name, payload, expected_posted_text, mock_execute_relay):
+        from posthog.models.integration import Integration
+
+        from products.slack_app.backend.models import SlackThreadTaskMapping
+
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        mock_execute_relay.return_value = "relay-selected"
+
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T_SLACK",
+            channel="C123",
+            thread_ts="1234.5678",
+            task=task,
+            task_run=run,
+            mentioning_slack_user_id="U123",
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_execute_relay.assert_called_once_with(
+            run_id=str(run.id),
+            text=expected_posted_text,
+            delete_progress=True,
+        )
+
     @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
     def test_relay_message_skips_when_no_slack_mapping(self, mock_execute_relay):
         task = self.create_task()
