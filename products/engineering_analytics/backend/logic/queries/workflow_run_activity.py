@@ -15,8 +15,10 @@ from posthog.hogql import ast
 from products.engineering_analytics.backend.facade.contracts import WorkflowRunActivity, WorkflowRunActivityPoint
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 
-# The chart plots a point per run and needs enough span to cover the window; far higher than the
-# run-detail table's cap so the scatter and focus-lens brush see multiple days on busy workflows.
+# The chart plots a point per run and needs enough span to cover the window: an order of magnitude
+# above the run-detail table's cap (workflow_run_list._LIMIT = 200) so the scatter and focus-lens
+# brush still see multiple days on busy workflows where the smaller cap collapses to a sub-day slice.
+# Revisit this alongside that table cap if it changes materially, so the chart keeps spanning the window.
 _LIMIT = 2000
 
 _SELECT = f"""
