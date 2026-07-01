@@ -73,39 +73,58 @@ class TestNotebooks(APIBaseTest, QueryMatchingTest):
 
     @parameterized.expand(
         [
-            ("without_content", None, None),
+            ("without_content", None, None, None),
             (
                 "with_content",
                 {"some": "kind", "of": "tip", "tap": "content"},
                 "some kind of tip tap content",
+                None,
+            ),
+            (
+                "with_markdown_content",
+                {
+                    "type": "doc",
+                    "content": [
+                        {
+                            "type": "ph-markdown-notebook",
+                            "attrs": {"nodeId": "markdown-notebook-v2", "markdown": "# Test\n\nBody"},
+                        }
+                    ],
+                },
+                "# Test\n\nBody",
+                "# Test\n\nBody",
             ),
         ]
     )
-    def test_create_a_notebook(self, _, content: dict | None, text_content: str | None) -> None:
+    def test_create_a_notebook(
+        self, _, content: dict | None, text_content: str | None, expected_markdown: str | None
+    ) -> None:
         response = self.client.post(
             f"/api/projects/{self.team.id}/notebooks",
             data={"content": content, "text_content": text_content},
         )
         assert response.status_code == status.HTTP_201_CREATED
-        assert response.json() == {
-            "id": response.json()["id"],
-            "short_id": response.json()["short_id"],
+        response_json = response.json()
+        assert response_json == {
+            "id": response_json["id"],
+            "short_id": response_json["short_id"],
             "content": content,
             "text_content": text_content,
+            "markdown": expected_markdown,
             "title": None,
             "version": 0,
-            "created_at": mock.ANY,
-            "created_by": response.json()["created_by"],
+            "created_at": response_json["created_at"],
+            "created_by": response_json["created_by"],
             "deleted": False,
-            "last_modified_at": mock.ANY,
-            "last_modified_by": response.json()["last_modified_by"],
+            "last_modified_at": response_json["last_modified_at"],
+            "last_modified_by": response_json["last_modified_by"],
             "user_access_level": "manager",
             "parent_resource": None,
         }
 
         self.assert_notebook_activity(
             [
-                self.created_activity(item_id=response.json()["short_id"], short_id=response.json()["short_id"]),
+                self.created_activity(item_id=response_json["short_id"], short_id=response_json["short_id"]),
             ],
         )
 

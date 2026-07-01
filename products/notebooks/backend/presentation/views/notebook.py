@@ -77,6 +77,12 @@ _NOTEBOOK_FIELD_HELP_TEXTS = {
     "deleted": {"help_text": "Whether the notebook has been soft-deleted."},
 }
 
+_NOTEBOOK_MARKDOWN_SCHEMA = {
+    "type": "string",
+    "nullable": True,
+    "description": "Markdown source for markdown notebooks, or `null` for legacy rich-text notebooks.",
+}
+
 _PARENT_RESOURCE_SCHEMA = {
     "type": "object",
     "nullable": True,
@@ -117,6 +123,9 @@ class NotebookMinimalSerializer(serializers.ModelSerializer, UserAccessControlSe
 
 
 class NotebookSerializer(NotebookMinimalSerializer):
+    markdown = serializers.SerializerMethodField(
+        help_text="Markdown source for markdown notebooks, or `null` for legacy rich-text notebooks."
+    )
     parent_resource = serializers.SerializerMethodField(
         help_text=(
             "Parent resource this notebook is attached to, or `null`. Returns "
@@ -133,6 +142,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
             "title",
             "content",
             "text_content",
+            "markdown",
             "version",
             "deleted",
             "created_at",
@@ -146,6 +156,7 @@ class NotebookSerializer(NotebookMinimalSerializer):
         read_only_fields = [
             "id",
             "short_id",
+            "markdown",
             "created_at",
             "created_by",
             "last_modified_at",
@@ -161,6 +172,10 @@ class NotebookSerializer(NotebookMinimalSerializer):
                 "help_text": "Version number for optimistic concurrency control. Must match the current version when updating content."
             },
         }
+
+    @extend_schema_field(_NOTEBOOK_MARKDOWN_SCHEMA)
+    def get_markdown(self, obj: Notebook) -> str | None:
+        return markdown_collab.get_markdown_notebook_markdown(obj.content)
 
     @extend_schema_field(_PARENT_RESOURCE_SCHEMA)
     def get_parent_resource(self, obj: Notebook) -> dict | None:

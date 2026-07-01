@@ -14,6 +14,21 @@ const sampleDoc = {
     ],
 }
 
+const sampleMarkdown =
+    '# Sample Notebook\n\nOriginal paragraph.\n\n<Query query={{"kind":"SavedInsightNode","shortId":"abc123"}} />'
+const sampleMarkdownDoc = {
+    type: 'doc',
+    content: [
+        {
+            type: 'ph-markdown-notebook',
+            attrs: {
+                nodeId: 'markdown-notebook-v2',
+                markdown: sampleMarkdown,
+            },
+        },
+    ],
+}
+
 // ---------- Input schema -----------------------------------------------------
 
 describe('NotebookEditSchema', () => {
@@ -27,13 +42,42 @@ describe('NotebookEditSchema', () => {
         expect(result.success).toBe(false)
     })
 
-    it('accepts a minimal valid payload', () => {
+    it('rejects identical old_markdown and new_markdown', () => {
+        const result = NotebookEditSchema.safeParse({
+            short_id: 'abc',
+            old_markdown: 'same',
+            new_markdown: 'same',
+        })
+        expect(result.success).toBe(false)
+    })
+
+    it('accepts a minimal valid JSON payload', () => {
         const result = NotebookEditSchema.safeParse({
             short_id: 'abc',
             old_value: { type: 'text', text: 'a' },
             new_value: { type: 'text', text: 'b' },
         })
         expect(result.success).toBe(true)
+    })
+
+    it('accepts a minimal valid markdown payload', () => {
+        const result = NotebookEditSchema.safeParse({
+            short_id: 'abc',
+            old_markdown: '# Old',
+            new_markdown: '# New',
+        })
+        expect(result.success).toBe(true)
+    })
+
+    it('rejects payloads that mix markdown and JSON edit modes', () => {
+        const result = NotebookEditSchema.safeParse({
+            short_id: 'abc',
+            old_markdown: '# Old',
+            new_markdown: '# New',
+            old_value: { type: 'text', text: 'a' },
+            new_value: { type: 'text', text: 'b' },
+        })
+        expect(result.success).toBe(false)
     })
 
     it('accepts replace_all', () => {
@@ -50,9 +94,9 @@ describe('NotebookEditSchema', () => {
 // ---------- editHandler — handler-level smoke test --------------------------
 
 interface MockState {
-    notebookContent: typeof sampleDoc | Record<string, unknown> | null
+    notebookContent: typeof sampleDoc | typeof sampleMarkdownDoc | Record<string, unknown> | null
     version: number
-    saveCalls: Array<{ body: any }>
+    saveCalls: Array<{ path?: string; body: any }>
     getCalls: number
     /**
      * Queued POST responses. Each entry is either a successful body (returned
@@ -62,7 +106,7 @@ interface MockState {
 }
 
 function createMockContext(state: MockState): Context {
-    const requestMock = vi.fn(async (opts: { method: string; body?: any }) => {
+    const requestMock = vi.fn(async (opts: { method: string; path?: string; body?: any }) => {
         if (opts.method === 'GET') {
             state.getCalls++
             return {
@@ -72,8 +116,8 @@ function createMockContext(state: MockState): Context {
                 title: 'Original',
             }
         }
-        // POST → collab/save
-        state.saveCalls.push({ body: opts.body })
+        // POST → collab/save or collab/markdown_save
+        state.saveCalls.push({ path: opts.path, body: opts.body })
         const response = state.saveResponses.shift()
         if (!response) {
             throw new Error('No queued response for save call')
@@ -95,6 +139,59 @@ function createMockContext(state: MockState): Context {
 }
 
 describe('editHandler', () => {
+    it('happy path: replaces markdown text by value and returns the updated notebook', async () => {
+        const nextMarkdown = sampleMarkdown.replace('Original paragraph.', 'Edited markdown paragraph.')
+        const updatedNotebook = {
+            short_id: 'aBcD1234',
+            content: sampleMarkdownDoc,
+            markdown: nextMarkdown,
+            version: 8,
+            title: 'Original',
+        }
+        const state: MockState = {
+            notebookContent: sampleMarkdownDoc,
+            version: 7,
+            saveCalls: [],
+            getCalls: 0,
+            saveResponses: [{ ok: true, body: updatedNotebook }],
+        }
+        const context = createMockContext(state)
+
+        const result = await editHandler(context, {
+            short_id: 'aBcD1234',
+            old_markdown: 'Original paragraph.',
+            new_markdown: 'Edited markdown paragraph.',
+        })
+
+        expect(result).toEqual(updatedNotebook)
+        expect(state.saveCalls).toHaveLength(1)
+        expect(state.saveCalls[0]!.path).toContain('/collab/markdown_save/')
+        expect(state.saveCalls[0]!.body.version).toBe(7)
+        expect(state.saveCalls[0]!.body.steps).toBeUndefined()
+        expect(state.saveCalls[0]!.body.text_content).toBe(nextMarkdown)
+        expect(state.saveCalls[0]!.body.content.content[0].attrs.markdown).toBe(nextMarkdown)
+    })
+
+    it('throws when markdown edit mode is used on a legacy rich-text notebook', async () => {
+        const state: MockState = {
+            notebookContent: sampleDoc,
+            version: 7,
+            saveCalls: [],
+            getCalls: 0,
+            saveResponses: [],
+        }
+        const context = createMockContext(state)
+
+        await expect(
+            editHandler(context, {
+                short_id: 'aBcD1234',
+                old_markdown: 'First paragraph.',
+                new_markdown: 'First paragraph EDITED.',
+            })
+        ).rejects.toThrow(/not a markdown notebook/)
+        expect(state.saveCalls).toHaveLength(0)
+    })
+
     it('happy path: replaces a text node by value and returns the updated notebook', async () => {
         const updatedNotebook = {
             short_id: 'aBcD1234',
