@@ -270,9 +270,9 @@ tools:
             all accounts; the value a specific account holds for a definition is managed separately via the account
             custom property value tools. Use `custom-property-definitions-retrieve` to fetch a single definition by id.
             To list or filter accounts by a custom property value in bulk, take a definition `id` from this tool and
-            query it via HogQL against `system.accounts`, selecting `custom_properties.values.<backtick-quoted definition
-            id>` and filtering it `IS NOT NULL`. The per-account value tools return one account at a time; this HogQL
-            path scales to all accounts.
+            query it via HogQL against `system.accounts`, selecting `custom_properties.values.<backtick-quoted
+            definition id>` and filtering it `IS NOT NULL`. The per-account value tools return one account at a time;
+            this HogQL path scales to all accounts.
         feature_flag: customer-analytics-csp
     custom-property-definitions-partial-update:
         operation: custom_property_definitions_partial_update
