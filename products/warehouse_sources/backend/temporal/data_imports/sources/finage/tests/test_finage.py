@@ -89,6 +89,24 @@ class TestFetchJson:
         # Terminal statuses are surfaced immediately — never retried.
         assert session.get.call_count == 1
 
+    def test_terminal_error_message_strips_apikey_but_keeps_matchable_prefix(self) -> None:
+        response = mock.Mock(spec=requests.Response)
+        response.status_code = 403
+        response.reason = "Forbidden"
+        response.url = (
+            "https://api.finage.co.uk/agg/stock/AAPL/1/day/2020-01-01/2024-01-01?apikey=secret123&limit=50000"
+        )
+        session = mock.Mock()
+        session.get.return_value = response
+        with pytest.raises(requests.HTTPError) as exc_info:
+            finage._fetch_json(session, "/agg/stock/AAPL", "secret123", mock.Mock())
+        message = str(exc_info.value)
+        # The raw key must never reach the error message (and thus the non-retryable error logs).
+        assert "secret123" not in message
+        assert "apikey" not in message
+        # The prefix `get_non_retryable_errors` matches on must survive the sanitization.
+        assert "403 Client Error: Forbidden for url: https://api.finage.co.uk" in message
+
     def test_retries_then_succeeds_on_5xx(self) -> None:
         session = mock.Mock()
         session.get.side_effect = [_response(500), _response(503), _response(200, {"ok": True})]

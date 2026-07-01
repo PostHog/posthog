@@ -77,9 +77,17 @@ def _fetch_json(
     if response.status_code == 429 or response.status_code >= 500:
         raise FinageRetryableError(f"Finage API error (retryable): status={response.status_code}, path={path}")
 
-    # 401 (bad/missing key) and 403 (plan doesn't cover this data) are permanent — surface them via
-    # raise_for_status so `get_non_retryable_errors` can match and stop the sync.
-    response.raise_for_status()
+    # 401 (bad/missing key) and 403 (plan doesn't cover this data) are permanent — surface them as an
+    # HTTPError so `get_non_retryable_errors` can match and stop the sync. The URL query carries the raw
+    # apikey, so strip it: the default `raise_for_status` message embeds the full URL (credential and all)
+    # into the exception, which is then written to error logs. Dropping the query keeps the matchable
+    # `... for url: https://api.finage.co.uk/<path>` prefix without leaking the key.
+    if response.status_code >= 400:
+        safe_url = (response.url or "").split("?", 1)[0]
+        raise requests.HTTPError(
+            f"{response.status_code} Client Error: {response.reason} for url: {safe_url}",
+            response=response,
+        )
 
     return response.json()
 
