@@ -4504,7 +4504,7 @@ class TestFeatureFlag(APIBaseTest, ClickhouseTestMixin):
     def test_update_group_feature_flag_key_updates_usage_dashboard(
         self, mock_report_user_action, mock_personhog_client
     ):
-        mock_personhog_client.return_value.get_group_type_mappings_by_project_ids.return_value = MagicMock(results=[])
+        mock_personhog_client.return_value.get_group_type_mappings_by_project_id.return_value = MagicMock(mappings=[])
         create = self.client.post(
             f"/api/projects/{self.team.id}/feature_flags/",
             {
