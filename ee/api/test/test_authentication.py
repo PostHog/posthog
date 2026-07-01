@@ -1,7 +1,7 @@
 import os
 import uuid
 import datetime
-from typing import cast
+from typing import Any, cast
 from urllib.parse import parse_qs, urlparse
 
 import pytest
@@ -246,9 +246,9 @@ class TestEEAuthenticationAPI(APILicensedTest):
 
     @parameterized.expand(
         [
-            ("auth_failed", AuthFailed("google-oauth2", "bad")),
-            ("missing_parameter", AuthMissingParameter("google-oauth2", "code")),
-            ("connection_error", AuthConnectionError("google-oauth2", "cert verify failed")),
+            ("auth_failed", AuthFailed(cast(Any, "google-oauth2"), "bad")),
+            ("missing_parameter", AuthMissingParameter(cast(Any, "google-oauth2"), "code")),
+            ("connection_error", AuthConnectionError(cast(Any, "google-oauth2"), "cert verify failed")),
         ]
     )
     def test_unreachable_or_misconfigured_sso_provider_redirects(self, _name, exception):
