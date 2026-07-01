@@ -180,7 +180,7 @@ export const maxThreadLogic = kea<maxThreadLogicType>([
             // at send time even when no context-chip UI is rendered (a fresh conversation never
             // mounts it itself).
             posthogAiContextLogic({ conversationId }),
-            ['attachments as sandboxAttachments'],
+            ['mergedAttachments as sandboxAttachments'],
             // Surfaces the sandbox stream's input-area state to components outside ThreadView's
             // BindLogic subtree (the input area renders for LangGraph conversations too, so they
             // can't bind the keyed stream logic themselves).

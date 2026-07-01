@@ -49,6 +49,16 @@ export interface ToolInvocation {
     meta?: unknown
 }
 
+/**
+ * A tool lifecycle transition delivered to a `useToolStream` / `toolStreamLogic` subscriber. Carries
+ * the merged `ToolInvocation` plus its resolved registry key (the inner sub-tool for PostHog's
+ * single-exec MCP server), so subscribers can match by resolved key or raw tool name.
+ */
+export interface ToolStreamEvent {
+    invocation: ToolInvocation
+    resolvedKey: string
+}
+
 export type ThreadItemType =
     | 'human_message'
     | 'assistant_message'

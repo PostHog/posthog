@@ -16,6 +16,7 @@ import {
     type ReasoningEffortEnumApi,
 } from 'products/tasks/frontend/generated/api.schemas'
 
+import { runContextLogic } from './runContextLogic'
 import type { runInteractionLogicType } from './runInteractionLogicType'
 import { isTerminalRunStatus, runStreamLogic } from './runStreamLogic'
 
@@ -29,6 +30,10 @@ export interface RunInteractionLogicProps {
     /** Called with the new run's id after a terminal-run send starts a fresh run, so the surface can
      * re-point selection to it (the run lifecycle / selection is a tasks-scene concern, injected here). */
     onRunStarted?: (runId: string) => void
+    /** Which `runContextLogic` instance to read attached context from. Defaults to `runId` (a task
+     * viewer's stream key); a host whose context store is keyed differently (Max keys by conversation
+     * id) passes that key so injected context rides along with the send. */
+    contextStreamKey?: string
 }
 
 /** The follow-up staged in the "Up next" buffer while the agent is mid-turn. */
@@ -69,6 +74,8 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
             ['currentProjectId'],
             runStreamLogic({ streamKey: props.runId }),
             ['currentRunStatus', 'pendingPermissionRequest', 'respondingToPermission', 'isThinking'],
+            runContextLogic({ streamKey: props.contextStreamKey ?? props.runId }),
+            ['attachedContext'],
         ],
         actions: [
             runStreamLogic({ streamKey: props.runId }),
@@ -284,10 +291,17 @@ export const runInteractionLogic = kea<runInteractionLogicType>([
                     })
                     actions.setSentEffort(values.selectedEffort)
                 }
+                // Send structured `attached_context` references, never a built `<posthog_context>` block —
+                // the backend `ContextService` owns that template. Only attach when non-empty so a plain
+                // message stays a plain message.
+                const attachedContext = values.attachedContext
                 await tasksRunsCommandCreate(String(values.currentProjectId), props.taskId, props.runId, {
                     jsonrpc: '2.0',
                     method: 'user_message',
-                    params: { content },
+                    params: {
+                        content,
+                        ...(attachedContext.length > 0 ? { attached_context: attachedContext } : {}),
+                    },
                 })
                 // The SSE echo (`pushHumanMessage`) reopens the turn.
                 actions.pushHumanMessage(content)

@@ -7,6 +7,7 @@ import { initKeaTests } from '~/test/init'
 
 import { tasksRunCreate, tasksRunsCommandCreate } from 'products/tasks/frontend/generated/api'
 
+import { runContextLogic } from './runContextLogic'
 import { runInteractionLogic } from './runInteractionLogic'
 import { runStreamLogic } from './runStreamLogic'
 
@@ -418,6 +419,27 @@ describe('runInteractionLogic', () => {
         // The failed send re-stages 'first' in front of 'second', preserving order, and toasts.
         expect(lemonToast.error).toHaveBeenCalled()
         expect(logic.values.queuedMessages).toEqual([{ id: expect.any(String), content: 'first\n\nsecond' }])
+    })
+
+    it('rides injected context along with the message as structured attached_context', async () => {
+        // A consumer injected context into the store keyed by this run — it must ride the send, and the
+        // frontend sends structured refs (the backend builds the <posthog_context> block), never a string.
+        const context = runContextLogic({ streamKey: RUN_ID })
+        context.mount()
+        context.actions.registerContextSource('scene', [{ type: 'dashboard', id: 7, name: 'Growth' }])
+
+        setThinking(false)
+        logic.actions.setComposerFormValues({ draft: 'ship it' })
+        await expectLogic(logic, () => {
+            logic.actions.submitComposerForm()
+        }).toFinishAllListeners()
+
+        expect(tasksRunsCommandCreate).toHaveBeenCalledWith('997', TASK_ID, RUN_ID, {
+            jsonrpc: '2.0',
+            method: 'user_message',
+            params: { content: 'ship it', attached_context: [{ type: 'dashboard', id: 7, name: 'Growth' }] },
+        })
+        context.unmount()
     })
 
     it('no-ops on submit with an empty draft', async () => {

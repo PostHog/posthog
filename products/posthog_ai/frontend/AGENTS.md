@@ -18,12 +18,13 @@ them. There are four tiers, split along dependency/side-effect boundaries (not c
 preserves code-splitting). Consumers pick the **lowest tier** that does the job. The full decision table,
 import rule, and copy-paste recipes live in the consumer-facing [`README.md`](./README.md); the summary:
 
-| Tier                           | Module                                              | What's in it                                                                                                                                                                                |
-| ------------------------------ | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| **1 — Prepackaged surfaces**   | `api/readableRun` + `api/runSurface` + `api/runner` | `ReadonlyRunSurface` (lazy, code-split read-only embed); the `RunSurface` compound (`Root` + slots, eager) for custom layouts; `EmbeddedRunner` (lazy TaskTracker product for inline hosts) |
-| **2 — Compound primitives**    | `api/primitives`                                    | `Thread` + atoms, `ThreadView`, `Composer.*`, `QueuedMessageList`, `RunLogSkeleton`, activity primitives + `RunActivity`, message presenters, permission/question/resource surfaces         |
-| **3 — Headless logic + types** | `api/logics` + `api/types`                          | `runStreamLogic`, `runInteractionLogic`, status + thinking helpers; folded-thread + tool types                                                                                              |
-| **4 — Extension seam**         | `api/tools`                                         | `toolRegistry`, `registerToolRenderers`, `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, diff helpers                                            |
+| Tier                            | Module                                              | What's in it                                                                                                                                                                                            |
+| ------------------------------- | --------------------------------------------------- | ------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| **1 — Prepackaged surfaces**    | `api/readableRun` + `api/runSurface` + `api/runner` | `ReadonlyRunSurface` (lazy, code-split read-only embed); the `RunSurface` compound (`Root` + slots, eager) for custom layouts; `EmbeddedRunner` (lazy TaskTracker product for inline hosts)             |
+| **2 — Compound primitives**     | `api/primitives`                                    | `Thread` + atoms, `ThreadView`, `Composer.*`, `QueuedMessageList`, `RunLogSkeleton`, activity primitives + `RunActivity`, message presenters, permission/question/resource surfaces                     |
+| **2 — Context + tool bindings** | `api/context`                                       | `useAgentContext`/`AgentContext` (frontend context injection) and `useToolStream`/`ToolStreamListener` (react to streamed tool lifecycle) — a thin React lane that pulls only the two logics + resolver |
+| **3 — Headless logic + types**  | `api/logics` + `api/types`                          | `runStreamLogic`, `runInteractionLogic`, `runContextLogic`, `toolStreamLogic`, status + thinking helpers; folded-thread + tool + context types                                                          |
+| **4 — Extension seam**          | `api/tools`                                         | `toolRegistry`, `registerToolRenderers`, `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, diff helpers                                                        |
 
 **Why the split, not one flat barrel:** the tool registry registers built-ins at module load — a top-level
 side effect that is _not_ tree-shaken. A single barrel statically re-exports it alongside the
@@ -70,10 +71,19 @@ The headline exports per module:
   scene), activity primitives, message
   presenters, and the permission/question/resource surfaces.
 - **`api/logics`** — **`runStreamLogic`** (SSE stream + thread projection, see §3),
-  **`runInteractionLogic`** (Max-agnostic follow-up/queue facade), status helpers
+  **`runInteractionLogic`** (Max-agnostic follow-up/queue facade), **`runContextLogic`** (the
+  multi-source context store; `attachedContext` is what a send path forwards), **`toolStreamLogic`**
+  (selector view over streamed tool invocations, keyed by resolved key / raw name), status helpers
   (`isTerminalRunStatus`, `INITIAL_PERMISSION_MODE`), and thinking-message helpers. Imports only
   `logics/*` + `utils/*` — never a component or the registry, so it's the clean headless lane.
-- **`api/types`** — folded-thread + tool domain types (pure types).
+- **`api/context`** — the React bindings on top of those two logics: **`useAgentContext`** /
+  **`AgentContext`** register a source of typed context references for a run (frontend context
+  injection; the backend `ContextService` builds the `<posthog_context>` block — the frontend never
+  does), and **`useToolStream`** / **`ToolStreamListener`** react to streamed tool lifecycle for a
+  specific set of tools (matched by resolved key or raw name). A thin lane: it pulls only the logics +
+  the pure resolver, so injecting context or listening for tool changes never drags the presenter chunk.
+- **`api/types`** — folded-thread + tool + context domain types (pure types), plus the pure
+  `resolveToolCall` / `agentContextKey` helpers.
 - **`api/tools`** — **`toolRegistry`**, **`registerToolRenderers`** (the generic per-product seam, see §2),
   `lookupToolRenderer`, `GenericMcpToolRenderer`, `DataToolRow`, `ToolActivity`, `FilePath`, and the
   diff/exec helpers. Isolated here because importing it pulls the side-effectful registry chunk.
@@ -156,8 +166,9 @@ api/                # public API facade — the contract (import api/<module>, n
   runSurface.ts     #   Tier 1: RunSurface compound (Root + slots, eager) for custom layouts
   runner.ts         #   Tier 1: EmbeddedRunner (lazy TaskTracker product) for inline hosts
   primitives.ts     #   Tier 2: Composer, Thread + atoms, ThreadView, QueuedMessageList, presenters, perm/question/resource
-  logics.ts         #   Tier 3: runStreamLogic, runInteractionLogic, status + thinking helpers (headless)
-  types.ts          #   Tier 3: folded-thread + tool domain types (pure types)
+  context.ts        #   Tier 2: useAgentContext/AgentContext (context injection) + useToolStream/ToolStreamListener (tool subscription)
+  logics.ts         #   Tier 3: runStreamLogic, runInteractionLogic, runContextLogic, toolStreamLogic, status + thinking helpers (headless)
+  types.ts          #   Tier 3: folded-thread + tool + context domain types (pure types)
   tools.ts          #   Tier 4: toolRegistry + registerToolRenderers seam (side-effectful — isolated)
 components/         # RunSurfaceImpl (the RunSurface compound, heavy chunk); ReadonlyRunSurfaceImpl (prepackaged
                     #   read-only layout) + ReadonlyRunSurface (its lazy wrapper, replaces the old RunViewer.tsx);

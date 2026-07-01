@@ -16,5 +16,17 @@ export type { RunStreamLogicProps, RunSseStatus, RunStatus } from '../logics/run
 export { runInteractionLogic } from '../logics/runInteractionLogic'
 export type { RunInteractionLogicProps, QueuedMessage } from '../logics/runInteractionLogic'
 
+// --- Context store (frontend context injection) ---
+// Multi-source store keyed by `streamKey`; `attachedContext` is what a send path forwards. Populate it
+// with the React bindings in ./context, or drive it directly from another logic.
+export { runContextLogic } from '../logics/runContextLogic'
+export type { RunContextLogicProps } from '../logics/runContextLogic'
+
+// --- Tool-stream selectors (non-React tool subscription) ---
+// Selector view over streamed tool invocations, keyed by resolved key / raw name. For a component,
+// prefer the `useToolStream` hook in ./context.
+export { toolStreamLogic } from '../logics/toolStreamLogic'
+export type { ToolStreamLogicProps, ResolvedInvocation } from '../logics/toolStreamLogic'
+
 // --- Thinking-message helpers ---
 export { getThinkingMessageFromResponse, getRandomThinkingMessage, THINKING_MESSAGES } from '../utils/thinkingMessages'

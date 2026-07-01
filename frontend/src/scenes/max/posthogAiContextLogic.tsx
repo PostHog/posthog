@@ -7,6 +7,8 @@ import { IconDashboard, IconGraph, IconNotebook } from '@posthog/icons'
 import { IconAction, IconEvent } from 'lib/lemon-ui/icons'
 import { sceneLogic } from 'scenes/sceneLogic'
 
+import { runContextLogic } from 'products/posthog_ai/frontend/api/logics'
+
 import { AttachedContext, MaxContextInput, MaxContextType } from './maxTypes'
 import type { posthogAiContextLogicType } from './posthogAiContextLogicType'
 
@@ -85,8 +87,16 @@ export const posthogAiContextLogic = kea<posthogAiContextLogicType>([
     props({} as PosthogAiContextLogicProps),
     key((props) => props.conversationId),
     path((key) => ['scenes', 'max', 'posthogAiContextLogic', key]),
-    connect(() => ({
-        values: [sceneLogic, ['activeSceneLogic']],
+    connect((props: PosthogAiContextLogicProps) => ({
+        // The surface's generic context store (keyed by the same conversation id) is the second writer:
+        // any consumer that injects context via `useAgentContext` / `runContextLogic` flows in through
+        // `mergedAttachments`, alongside this logic's scene-pull + TaxonomicFilter attachments.
+        values: [
+            sceneLogic,
+            ['activeSceneLogic'],
+            runContextLogic({ streamKey: props.conversationId }),
+            ['attachedContext as surfaceAttachedContext'],
+        ],
     })),
     actions({
         /** Dedup-add. Called by scene sync AND by the TaxonomicFilter affordance. */
@@ -116,6 +126,25 @@ export const posthogAiContextLogic = kea<posthogAiContextLogicType>([
         ],
     }),
     selectors({
+        // Two parallel writers merged into the list `askMax` sends: this logic's own `attachments`
+        // (scene-pull + TaxonomicFilter) plus the surface store's imperatively-injected context. Deduped
+        // by `attachedContextKey`; text items pass through (repeated text is intentional).
+        mergedAttachments: [
+            (s) => [s.attachments, s.surfaceAttachedContext],
+            (attachments, surfaceAttachedContext): AttachedContext[] => {
+                const merged: AttachedContext[] = [...attachments]
+                const seen = new Set(attachments.map(attachedContextKey))
+                for (const item of surfaceAttachedContext) {
+                    const key = attachedContextKey(item)
+                    if (item.type !== 'text' && seen.has(key)) {
+                        continue
+                    }
+                    seen.add(key)
+                    merged.push(item)
+                }
+                return merged
+            },
+        ],
         chipsForDisplay: [
             (s) => [s.attachments],
             // No onRemove closures here — removal dispatches `detach(key)` on the consumer's
