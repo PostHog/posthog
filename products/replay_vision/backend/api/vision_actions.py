@@ -397,7 +397,9 @@ class RunObservationSerializer(serializers.Serializer):
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_title(self, obs: ReplayObservation) -> str | None:
         result = obs.scanner_result if isinstance(obs.scanner_result, dict) else {}
-        output = result.get("model_output") if isinstance(result.get("model_output"), dict) else {}
+        output = result.get("model_output")
+        if not isinstance(output, dict):
+            return None
         title = output.get("title")
         return title if isinstance(title, str) and title.strip() else None
 
