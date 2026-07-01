@@ -36,7 +36,7 @@ ROLES=(
 )
 
 # Pin to the same chschema build as bin/hclexp; override via repo variable.
-HCLEXP_IMAGE="${HCLEXP_IMAGE:-ghcr.io/posthog/chschema:sha-1871283}"
+HCLEXP_IMAGE="${HCLEXP_IMAGE:-ghcr.io/posthog/chschema:sha-c0affa0}"
 
 # hclexp that can reach ClickHouse on the host's published ports. Prefer a local
 # binary; otherwise a container sharing the host network namespace so localhost

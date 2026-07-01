@@ -62,8 +62,9 @@ bash posthog/clickhouse/hcl/check-live.sh "$DUMP"  # step 2
 
 Remaining drift means a migration changed the live schema without the HCL being updated (or vice
 versa). Fix the migration to match the HCL, or — if the change is intended — edit the layer, rerun
-`gen-golden.sh`/`gen-sql.sh`, and add the migration (the normal change flow below). Step 2 defaults to
-**warn-only** (`VERIFY_LIVE_WARN=1`) during the pilot; set `VERIFY_LIVE_WARN=0` to enforce.
+`gen-golden.sh`/`gen-sql.sh`, and add the migration (the normal change flow below). Step 2 is
+**enforced** (drift fails the smoke); export `VERIFY_LIVE_WARN=1` to make it informational while
+reconciling a new role.
 
 LOGS is compared against `golden/local-<role>.hcl`; until a `local-logs` golden is seeded (introspect
 the live local logs node, then curate), the script skips LOGS with a notice. OPS is enforced via the
@@ -89,7 +90,7 @@ HCL=posthog/clickhouse/hcl
 $HCL/bin/hclexp -help
 # it is equivalent to:
 docker run --rm -v "$PWD:/work" -v "${TMPDIR:-/tmp}:${TMPDIR:-/tmp}" -w /work \
-  ghcr.io/posthog/chschema:sha-1871283 -help
+  ghcr.io/posthog/chschema:sha-c0affa0 -help
 ```
 
 (For faster local iteration you can build the binary — `go build -o hclexp ./cmd/hclexp` in
