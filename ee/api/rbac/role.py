@@ -18,12 +18,8 @@ from ee.models.rbac.role import Role, RoleMembership
 
 
 def role_memberships_prefetch() -> Prefetch:
-    """Prefetch a role's memberships with the relations `OrganizationMemberSerializer` reads.
-
-    `get_has_social_auth` / `get_is_2fa_enabled` rely on prefetched `social_auth`,
-    `totpdevice_set`, and `webauthn_credentials` (mirroring `OrganizationMemberViewSet`).
-    Without this, serializing role members fires a per-member query that fans out across
-    every role and member and can exhaust the DB connection pool.
+    """Prefetch role members with the relations the member serializer reads, so listing roles
+    doesn't fire a per-member social-auth/2FA query.
     """
     return Prefetch(
         "roles",
@@ -74,8 +70,7 @@ class RoleSerializer(serializers.ModelSerializer):
         serializers.ListField(child=serializers.DictField(), help_text="Members assigned to this role")
     )
     def get_members(self, role: Role):
-        # `role.roles` is the reverse relation to `RoleMembership`; `RoleViewSet` prefetches it
-        # (see `role_memberships_prefetch`) so listing reuses the cache instead of an N+1 per member.
+        # role.roles are the memberships; reuse RoleViewSet's prefetch instead of re-querying per role.
         return RoleMembershipSerializer(role.roles.all(), many=True).data
 
     @extend_schema_field(serializers.BooleanField())

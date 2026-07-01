@@ -185,9 +185,6 @@ class TestRoleAPI(APILicensedTest):
         self.assertEqual(res.json()["code"], "unique")
 
     def test_listing_roles_does_not_scale_queries_with_member_count(self):
-        # Serializing role members must reuse the viewset's prefetch instead of firing a
-        # per-member query (the social-auth / 2FA lookups). A regression here reintroduces the
-        # N+1 that fans out across every role member and exhausts the DB connection pool.
         self.organization_membership.level = OrganizationMembership.Level.ADMIN
         self.organization_membership.save()
         role = Role.objects.create(name="Engineering", organization=self.organization)
@@ -216,6 +213,7 @@ class TestRoleAPI(APILicensedTest):
         self.assertEqual(res.status_code, status.HTTP_200_OK)
         self.assertEqual(len(members_for_role(res)), 6)
 
+        # Constant query count as members grow: the social-auth/2FA lookups are prefetched, not N+1.
         self.assertEqual(len(few_members.captured_queries), len(more_members.captured_queries))
 
     def test_returns_correct_results_by_organization(self):
