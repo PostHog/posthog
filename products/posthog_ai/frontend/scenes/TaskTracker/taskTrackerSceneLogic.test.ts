@@ -10,11 +10,11 @@ import { taskTrackerSceneLogic } from './taskTrackerSceneLogic'
 describe('taskTrackerSceneLogic', () => {
     let logic: ReturnType<typeof taskTrackerSceneLogic.build>
     let createBody: Record<string, any> | null
-    let runCalled: boolean
+    let runBody: Record<string, any> | null
 
     beforeEach(() => {
         createBody = null
-        runCalled = false
+        runBody = null
         useMocks({
             get: {
                 '/api/projects/:team/tasks/': { results: [], count: 0 },
@@ -26,8 +26,8 @@ describe('taskTrackerSceneLogic', () => {
                     createBody = (await request.json()) as Record<string, any>
                     return [200, { id: 'new-task', ...createBody }]
                 },
-                '/api/projects/:team/tasks/:id/run/': () => {
-                    runCalled = true
+                '/api/projects/:team/tasks/:id/run/': async ({ request }) => {
+                    runBody = (await request.json()) as Record<string, any>
                     return [200, { id: 'new-task' }]
                 },
             },
@@ -55,7 +55,13 @@ describe('taskTrackerSceneLogic', () => {
             repository: null,
             github_integration: null,
         })
-        expect(runCalled).toBe(true)
+        // Interactive so the sandbox event stream survives across turns (follow-ups stream), and the
+        // typed message is seeded as turn 1 (interactive runs boot with the agent pulling it from run
+        // state). Dropping either regresses follow-up streaming / loses the first prompt.
+        expect(runBody).toMatchObject({
+            mode: 'interactive',
+            pending_user_message: 'do the thing',
+        })
         expect(router.values.location.pathname).toContain('/tasks/new-task')
     })
 

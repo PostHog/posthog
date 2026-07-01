@@ -7,7 +7,11 @@ import api from 'lib/api'
 import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { uuid } from 'lib/utils/dom'
 
-import { ClaudeRuntimeAdapterEnumApi, ReasoningEffortEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import {
+    ClaudeRuntimeAdapterEnumApi,
+    ReasoningEffortEnumApi,
+    TaskExecutionModeEnumApi,
+} from 'products/tasks/frontend/generated/api.schemas'
 
 import { runStreamLogic } from '../../api/logics'
 import type { SuggestionGroup, SuggestionItem } from '../../api/primitives'
@@ -235,6 +239,13 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                     runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
                     model,
                     reasoning_effort: resolveEffortForModel(reasoningEffort, model),
+                    // Interactive keeps the sandbox agent-server's event stream open across turns, so
+                    // follow-up messages stream their reply over the same SSE (background runs seal the
+                    // stream after the first turn). Interactive runs boot with the agent-server pulling
+                    // pending_user_message from run state (the workflow doesn't forward it), so seed the
+                    // typed message as turn 1 — otherwise the first prompt is lost and the run idles.
+                    mode: TaskExecutionModeEnumApi.Interactive,
+                    pending_user_message: description,
                 })
 
                 // Attach the real ids to the optimistic creation so the detail page adopts this seeded stream
