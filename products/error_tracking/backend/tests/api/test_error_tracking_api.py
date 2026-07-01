@@ -262,6 +262,20 @@ class TestErrorTracking(APIBaseTest):
         assert ErrorTrackingIssueFingerprintV2.objects.filter(fingerprint="fingerprint_two", version=1).exists()
         assert ErrorTrackingIssue.objects.count() == 1
 
+    def test_issue_merge_returns_not_found_when_source_issue_is_stale(self):
+        issue_one = self.create_issue(fingerprints=["fingerprint_one"])
+        issue_two = self.create_issue(fingerprints=["fingerprint_two"])
+        ErrorTrackingIssue.objects.filter(id=issue_two.id).delete()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/error_tracking/issues/{issue_one.id}/merge",
+            data={"ids": [issue_two.id]},
+        )
+
+        assert response.status_code == 404
+        assert ErrorTrackingIssue.objects.filter(id=issue_one.id).exists()
+        assert ErrorTrackingIssueFingerprintV2.objects.get(fingerprint="fingerprint_one").issue_id == issue_one.id
+
     def test_issue_merge_requires_ids(self):
         issue = self.create_issue(fingerprints=["fingerprint_one"])
 
