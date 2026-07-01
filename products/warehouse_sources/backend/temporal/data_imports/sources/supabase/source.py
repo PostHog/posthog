@@ -33,6 +33,18 @@ _SourceField = (
 # connection failures. Users need the connection pooler host instead.
 _SUPABASE_DIRECT_HOST_RE = re.compile(r"^db\.[a-z0-9]+\.supabase\.co$", re.IGNORECASE)
 
+# The Supabase dashboard shows `https://<ref>.supabase.co` as the "Project URL" — that's the
+# REST/API endpoint, not a Postgres host. Pasting it (often with the scheme) into the host field
+# just yields an opaque DNS failure, so detect it and point users at the actual database host.
+_SUPABASE_PROJECT_HOST_RE = re.compile(r"^(?P<ref>[a-z0-9]+)\.supabase\.co$", re.IGNORECASE)
+
+
+def _strip_host_scheme(host: str) -> str:
+    """Reduce a pasted value to a bare host: drop any URL scheme, path, and surrounding whitespace."""
+    stripped = re.sub(r"^[a-z][a-z0-9+.-]*://", "", (host or "").strip(), flags=re.IGNORECASE)
+    return stripped.split("/", 1)[0]
+
+
 _SUPABASE_POOLER_HOST_CAPTION = (
     "For standard syncs, use the **Session pooler** host (Project settings → Database → "
     "Connection pooling), e.g. `aws-0-<region>.pooler.supabase.com`, with username "
@@ -87,6 +99,16 @@ class SupabaseSource(PostgresSource):
     def validate_credentials(
         self, config: PostgresSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
+        project_host = _SUPABASE_PROJECT_HOST_RE.match(_strip_host_scheme(config.host or ""))
+        if project_host:
+            ref = project_host.group("ref")
+            return False, (
+                f"'{_strip_host_scheme(config.host or '')}' looks like your Supabase project URL, not a database "
+                "host. For standard syncs use the Session pooler host (aws-0-<region>.pooler.supabase.com) with "
+                f"username postgres.{ref}; for change data capture use the direct host db.{ref}.supabase.co and "
+                "enable Supabase's IPv4 add-on."
+            )
+
         # The direct host (IPv6-only by default) is the only host that supports logical
         # replication, so CDC users need it. We let the real connection attempt decide
         # reachability — it succeeds when the IPv4 add-on is enabled — and only swap in a
