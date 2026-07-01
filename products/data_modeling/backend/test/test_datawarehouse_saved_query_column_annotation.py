@@ -6,11 +6,13 @@ from django.db import IntegrityError
 from posthog.models.scoping import team_scope
 
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
-from products.data_modeling.backend.models.saved_query_column_annotation import SavedQueryColumnAnnotation
+from products.data_modeling.backend.models.datawarehouse_saved_query_column_annotation import (
+    DataWarehouseSavedQueryColumnAnnotation,
+)
 
 
 @pytest.mark.django_db
-class TestSavedQueryColumnAnnotation(BaseTest):
+class TestDataWarehouseSavedQueryColumnAnnotation(BaseTest):
     def _saved_query(self, name: str) -> DataWarehouseSavedQuery:
         return DataWarehouseSavedQuery.objects.create(
             name=name,
@@ -23,29 +25,29 @@ class TestSavedQueryColumnAnnotation(BaseTest):
         second = self._saved_query("second_view")
 
         with team_scope(self.team.id):
-            SavedQueryColumnAnnotation.objects.create(
+            DataWarehouseSavedQueryColumnAnnotation.objects.create(
                 team=self.team,
                 saved_query=first,
                 column_name="revenue",
                 description="Total revenue",
-                description_source=SavedQueryColumnAnnotation.DescriptionSource.CANONICAL,
+                description_source=DataWarehouseSavedQueryColumnAnnotation.DescriptionSource.CANONICAL,
             )
 
             # Same column name on a different saved query is allowed — the constraint is composite.
-            SavedQueryColumnAnnotation.objects.create(
+            DataWarehouseSavedQueryColumnAnnotation.objects.create(
                 team=self.team,
                 saved_query=second,
                 column_name="revenue",
                 description="Total revenue",
-                description_source=SavedQueryColumnAnnotation.DescriptionSource.CANONICAL,
+                description_source=DataWarehouseSavedQueryColumnAnnotation.DescriptionSource.CANONICAL,
             )
 
             # A duplicate (saved_query, column_name) is rejected.
             with pytest.raises(IntegrityError):
-                SavedQueryColumnAnnotation.objects.create(
+                DataWarehouseSavedQueryColumnAnnotation.objects.create(
                     team=self.team,
                     saved_query=first,
                     column_name="revenue",
                     description="Different description, same column",
-                    description_source=SavedQueryColumnAnnotation.DescriptionSource.AI_GENERATED,
+                    description_source=DataWarehouseSavedQueryColumnAnnotation.DescriptionSource.AI_GENERATED,
                 )

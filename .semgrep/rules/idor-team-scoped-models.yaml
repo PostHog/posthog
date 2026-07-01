@@ -105,6 +105,7 @@ rules:
                               |DataWarehouseManagedViewSet
                               |DataWarehouseModelPath
                               |DataWarehouseSavedQuery
+                              |DataWarehouseSavedQueryColumnAnnotation
                               |DataWarehouseSavedQueryDraft
                               |DataWarehouseSavedQueryFolder
                               |DataWarehouseTable
@@ -210,7 +211,6 @@ rules:
                               |SandboxEnvironment
                               |ScoreDefinition
                               |SavedHeatmap
-                              |SavedQueryColumnAnnotation
                               |ScheduledChange
                               |SessionGroupSummary
                               |SessionRecording
@@ -375,6 +375,7 @@ rules:
                         |DataWarehouseManagedViewSet
                         |DataWarehouseModelPath
                         |DataWarehouseSavedQuery
+                        |DataWarehouseSavedQueryColumnAnnotation
                         |DataWarehouseSavedQueryDraft
                         |DataWarehouseSavedQueryFolder
                         |DataWarehouseTable
@@ -476,7 +477,6 @@ rules:
                         |SandboxEnvironment
                         |ScoreDefinition
                         |SavedHeatmap
-                        |SavedQueryColumnAnnotation
                         |ScheduledChange
                         |SessionGroupSummary
                         |SessionRecording

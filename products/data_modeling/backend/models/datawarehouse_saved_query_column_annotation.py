@@ -6,7 +6,7 @@ from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDTMode
 from products.warehouse_sources.backend.facade.models import WarehouseColumnAnnotation
 
 
-class SavedQueryColumnAnnotation(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
+class DataWarehouseSavedQueryColumnAnnotation(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
     """Semantic description of a data warehouse saved query (view) or one of its columns, surfaced to the AI agent.
 
     One row per (saved_query, column). An empty `column_name` is the view-level annotation. Mirrors
