@@ -1046,6 +1046,29 @@ class TestTaskAPI(BaseTaskAPITest):
         task = Task.objects.get(id=data["id"])
         self.assertEqual(task.origin_product, Task.OriginProduct.USER_CREATED)
 
+    def test_create_task_with_hogdesk_origin_product(self):
+        # HogDesk creates Code tasks from a support ticket's Code chat with this
+        # origin. Ensure the value round-trips through the API — the serializer
+        # validates origin_product against OriginProduct.choices and 400s an
+        # unknown value, so this is the regression that guards the enum addition.
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "New Task",
+                "description": "New Description",
+                "origin_product": "hogdesk",
+                "repository": "posthog/posthog",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertEqual(data["origin_product"], Task.OriginProduct.HOGDESK)
+
+        task = Task.objects.get(id=data["id"])
+        self.assertEqual(task.origin_product, Task.OriginProduct.HOGDESK)
+
     def test_create_task_with_github_user_integration(self):
         user_integration = _grant_user_github_access(self.user)
 
