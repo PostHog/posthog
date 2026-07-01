@@ -3923,6 +3923,52 @@ class TestGetRowsToSync:
         # The temp-file signal is actionable, so it propagates rather than being swallowed.
         mock_capture.assert_not_called()
 
+    @pytest.mark.parametrize(
+        "should_use_incremental_field,expect_raise",
+        [
+            # Full-table sync: the COUNT is a full scan while extraction streams sequentially via a
+            # server cursor, so a statement_timeout here says nothing about whether extraction will
+            # succeed. It must degrade to an unknown total (0), not fail setup with a raw, retryable
+            # QueryCanceled that floods error tracking and Temporal re-attempts forever.
+            (False, False),
+            # Incremental sync: the COUNT shares its WHERE with the chunked read, so the timeout is
+            # predictive — re-raise so the caller surfaces the "add an index" guidance.
+            (True, True),
+        ],
+    )
+    def test_statement_timeout_degrades_for_full_table_but_re_raises_for_incremental(
+        self, should_use_incremental_field, expect_raise
+    ):
+        logger = structlog.get_logger()
+
+        cursor = mock.MagicMock()
+        cursor.execute.side_effect = psycopg.errors.QueryCanceled("canceling statement due to statement timeout")
+        count_query = _build_count_query("public", "users", False, None, None, None)
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.capture_exception"
+        ) as mock_capture:
+            if expect_raise:
+                with pytest.raises(psycopg.errors.QueryCanceled):
+                    _get_rows_to_sync(
+                        cast(Any, cursor),
+                        count_query,
+                        logger,
+                        should_use_incremental_field=should_use_incremental_field,
+                    )
+            else:
+                assert (
+                    _get_rows_to_sync(
+                        cast(Any, cursor),
+                        count_query,
+                        logger,
+                        should_use_incremental_field=should_use_incremental_field,
+                    )
+                    == 0
+                )
+
+        mock_capture.assert_not_called()
+
 
 class TestPartitionedTableChunkSizing:
     """Incremental reads use per-child partition queries; no parent FETCH chunk cap."""
