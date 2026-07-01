@@ -2,15 +2,64 @@ import { useActions, useValues } from 'kea'
 
 import { IconArchive, IconChevronRight } from '@posthog/icons'
 
-import { NotificationActionButton, ReadToggleIcon } from 'lib/components/NotificationsMenu/NotificationActionButton'
-import { NotificationRow } from 'lib/components/NotificationsMenu/NotificationRow'
-import { getNotificationIcon } from 'lib/components/NotificationsMenu/notificationToasts'
+import {
+    NotificationActionButton,
+    ROW_ACTION_REVEAL_CLASSES,
+} from 'lib/components/NotificationsMenu/NotificationActionButton'
+import {
+    NotificationReadToggle,
+    NotificationRow,
+    NotificationTitle,
+} from 'lib/components/NotificationsMenu/NotificationRow'
 import { dayjs } from 'lib/dayjs'
 
 import {
     NotificationGroup,
     sidePanelNotificationsLogic,
 } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
+
+function NotificationGroupControls({
+    count,
+    allRead,
+    expanded,
+    readOnly,
+    hasArchivable,
+    onToggleRead,
+    onToggleExpand,
+    onArchive,
+}: {
+    count: number
+    allRead: boolean
+    expanded: boolean
+    readOnly: boolean
+    hasArchivable: boolean
+    onToggleRead: (e: React.MouseEvent) => void
+    onToggleExpand: (e: React.MouseEvent) => void
+    onArchive: (e: React.MouseEvent) => void
+}): JSX.Element {
+    return (
+        <div className="shrink-0 flex items-center gap-1">
+            <span className="text-[10px] text-muted bg-fill-highlight-100 px-1.5 py-px rounded">{count}</span>
+            {!readOnly && hasArchivable && (
+                <NotificationActionButton
+                    icon={<IconArchive className="size-4" />}
+                    tooltip="Archive group"
+                    onClick={onArchive}
+                    tone="danger"
+                    className={ROW_ACTION_REVEAL_CLASSES}
+                />
+            )}
+            {!readOnly && <NotificationReadToggle read={allRead} onToggle={onToggleRead} target="group" />}
+            <button
+                className="shrink-0 flex size-5 items-center justify-center rounded text-secondary hover:bg-fill-highlight-200 hover:text-primary"
+                onClick={onToggleExpand}
+                aria-label={expanded ? 'Collapse group' : 'Expand group'}
+            >
+                <IconChevronRight className={`size-4 transition-transform ${expanded ? 'rotate-90' : ''}`} />
+            </button>
+        </div>
+    )
+}
 
 export function NotificationGroupRow({
     group,
@@ -58,59 +107,33 @@ export function NotificationGroupRow({
     return (
         <div className="flex flex-col">
             <div
-                className={`group/row flex items-start gap-2.5 p-2 rounded cursor-pointer transition-colors ${
+                className={`group/row flex items-start gap-2 p-2 rounded cursor-pointer transition-colors ${
                     allRead ? 'hover:bg-fill-highlight-100' : 'bg-fill-highlight-50 hover:bg-fill-highlight-100'
                 }`}
                 onClick={handleExpand}
             >
-                <div className="shrink-0 mt-0.5">{getNotificationIcon(group.representative.notification_type)}</div>
                 <div className="flex-1 min-w-0">
-                    <div className="flex items-start justify-between gap-1">
-                        <span className={`text-xs leading-snug ${allRead ? 'text-secondary' : 'font-semibold'}`}>
-                            {group.representative.title}
-                        </span>
-                        <div className="flex items-center gap-1 shrink-0">
-                            <span className="text-[10px] text-muted bg-fill-highlight-100 px-1.5 py-px rounded">
-                                {group.count}
-                            </span>
-                            {!readOnly && (
-                                <NotificationActionButton
-                                    className="group/read"
-                                    tooltip={allRead ? 'Mark group as unread' : 'Mark group as read'}
-                                    onClick={handleToggleRead}
-                                    icon={<ReadToggleIcon read={allRead} />}
-                                />
-                            )}
-                            {!readOnly && (
-                                <div className="ml-1 min-w-[26px] min-h-[26px] flex">
-                                    {group.has_archivable && (
-                                        <NotificationActionButton
-                                            icon={<IconArchive className="size-4" />}
-                                            tooltip="Archive group"
-                                            onClick={handleArchive}
-                                            tone="danger"
-                                        />
-                                    )}
-                                </div>
-                            )}
-                            <NotificationActionButton
-                                icon={
-                                    <IconChevronRight
-                                        className={`size-4 transition-transform ${isExpanded ? 'rotate-90' : ''}`}
-                                    />
-                                }
-                                ariaLabel={isExpanded ? 'Collapse group' : 'Expand group'}
-                                onClick={handleExpand}
-                            />
-                        </div>
-                    </div>
-                    <div className="text-xs text-secondary mt-0.5 line-clamp-1">
+                    <NotificationTitle
+                        notificationType={group.representative.notification_type}
+                        title={group.representative.title}
+                    />
+                    <div className="text-xs text-secondary mt-2 line-clamp-1">
                         {group.count} notifications · latest {dayjs(group.last_seen).fromNow()}
                     </div>
                 </div>
+                <NotificationGroupControls
+                    count={group.count}
+                    allRead={allRead}
+                    expanded={isExpanded}
+                    readOnly={readOnly}
+                    hasArchivable={group.has_archivable}
+                    onToggleRead={handleToggleRead}
+                    onToggleExpand={handleExpand}
+                    onArchive={handleArchive}
+                />
             </div>
             {isExpanded && (
-                <div className="pl-6 pr-1 flex flex-col gap-px border-l-2 border-fill-highlight-100 ml-3 my-1">
+                <div className="ml-3 pl-3 flex flex-col gap-1 border-l-2 border-fill-highlight-100 my-1">
                     {isLoading && !group.full_children_loaded && <div className="text-xs text-muted p-2">Loading…</div>}
                     {group.children.map((child) => (
                         <NotificationRow

@@ -14,12 +14,14 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { BillableBadge } from '../components/BillableBadge'
+import { BranchFilter } from '../components/BranchFilter'
 import { DistributionBar } from '../components/DistributionBar'
 import { RunActivityChart } from '../components/RunActivityChart'
 import { RunnerBadge, RunsTable, formatCost } from '../components/runTables'
 import { WorkflowHealthHeader } from '../components/WorkflowHealthHeader'
 import type { WorkflowRunnerCostApi } from '../generated/api.schemas'
 import { githubWorkflowUrl } from '../lib/github'
+import { SHARED_DEFAULT_DATE_FROM, engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import { WorkflowRunRow, WorkflowRunsLogicProps, workflowRunsLogic } from './workflowRunsLogic'
 
 /** Where a workflow's CI spend goes, split by runner tier — a small table (not bespoke chips) so it reads
@@ -107,7 +109,6 @@ export function WorkflowRunsScene(): JSX.Element {
         runJobs,
         runJobsLoading,
         expandedRunKeys,
-        dateFrom,
         loadFailed,
         sourceId,
         repoOwner,
@@ -117,7 +118,9 @@ export function WorkflowRunsScene(): JSX.Element {
         costSummary,
         runsTruncated,
     } = useValues(workflowRunsLogic)
-    const { loadRuns, setRunExpanded, setDateRange } = useActions(workflowRunsLogic)
+    const { loadRuns, setRunExpanded } = useActions(workflowRunsLogic)
+    const { dateFrom, dateTo } = useValues(engineeringAnalyticsFiltersLogic)
+    const { setDateRange } = useActions(engineeringAnalyticsFiltersLogic)
 
     const githubUrl = githubWorkflowUrl(repoOwner, repoName, workflowName)
 
@@ -205,15 +208,19 @@ export function WorkflowRunsScene(): JSX.Element {
                     </LemonButton>
                 }
             />
-            {/* One window scopes both the cost breakdown and the runs list below. */}
+            {/* One window + branch scope the cost breakdown and the runs list below — the same scope as the
+                Workflows tab, so numbers match after drilling in (a missing branch filter here read as more
+                runs than the tab showed). */}
             <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs font-semibold tracking-wide text-secondary uppercase">Window</span>
                 <DateFilter
                     dateFrom={dateFrom}
-                    onChange={(from, to) => setDateRange(from ?? '-30d', to ?? null)}
+                    dateTo={dateTo}
+                    onChange={(from, to) => setDateRange(from ?? SHARED_DEFAULT_DATE_FROM, to ?? null)}
                     dateOptions={WORKFLOW_DATE_OPTIONS}
                     size="small"
                 />
+                <BranchFilter />
             </div>
             <WorkflowHealthHeader summary={healthSummary} cost={costSummary} truncated={runsTruncated} />
             <RunActivityChart runs={runRows} truncated={runsTruncated} />

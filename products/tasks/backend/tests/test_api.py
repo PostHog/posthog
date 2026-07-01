@@ -300,6 +300,25 @@ class TestTaskCreatorScoping(BaseTaskAPITest):
         self.assertIn(str(mine.id), ids)
         self.assertIn(str(scout_task.id), ids)
 
+    def test_list_onboarding_tasks_owned_by_another_user(self):
+        # Onboarding tasks are the shared getting-started task: team-scoped, so they show
+        # in everyone's Tasks list regardless of which user the task was created under.
+        other_user = self.create_organization_user("onboarding-owner")
+        onboarding_task = Task.objects.create(
+            team=self.team,
+            created_by=other_user,
+            title="Onboarding Task",
+            description="Getting started",
+            origin_product=Task.OriginProduct.ONBOARDING,
+        )
+        mine = self.create_task("Mine", created_by=self.user)
+
+        response = self.client.get("/api/projects/@current/tasks/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = {t["id"] for t in response.json()["results"]}
+        self.assertIn(str(mine.id), ids)
+        self.assertIn(str(onboarding_task.id), ids)
+
     def test_retrieve_signals_scout_task_owned_by_another_user_is_visible(self):
         other_user = self.create_organization_user("scout-owner")
         task = Task.objects.create(
@@ -1026,6 +1045,29 @@ class TestTaskAPI(BaseTaskAPITest):
 
         task = Task.objects.get(id=data["id"])
         self.assertEqual(task.origin_product, Task.OriginProduct.USER_CREATED)
+
+    def test_create_task_with_hogdesk_origin_product(self):
+        # HogDesk creates Code tasks from a support ticket's Code chat with this
+        # origin. Ensure the value round-trips through the API — the serializer
+        # validates origin_product against OriginProduct.choices and 400s an
+        # unknown value, so this is the regression that guards the enum addition.
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "New Task",
+                "description": "New Description",
+                "origin_product": "hogdesk",
+                "repository": "posthog/posthog",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertEqual(data["origin_product"], Task.OriginProduct.HOGDESK)
+
+        task = Task.objects.get(id=data["id"])
+        self.assertEqual(task.origin_product, Task.OriginProduct.HOGDESK)
 
     def test_create_task_with_github_user_integration(self):
         user_integration = _grant_user_github_access(self.user)
@@ -3287,6 +3329,11 @@ class TestTaskAutomationAPI(BaseTaskAPITest):
 
 
 class TestTaskRunAPI(BaseTaskAPITest):
+    def test_list_runs_with_malformed_task_id_returns_404(self):
+        # A non-UUID task id in the URL must 404, not 500 through the UUIDField filter.
+        response = self.client.get("/api/projects/@current/tasks/not-a-uuid/runs/")
+        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
+
     @patch("products.tasks.backend.models.TaskRun.publish_stream_state_event")
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
     def test_update_run_status_publishes_stream_state_event(self, mock_signal, mock_publish_stream_state_event):
@@ -3318,12 +3365,18 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "sandbox_memory_gb": 8,
                 "sandbox_ttl_seconds": 1800,
                 "inactivity_timeout_seconds": 600,
+                "use_modal_directory_resume_snapshots": True,
+                "snapshot_external_id": "im-real",
+                "snapshot_kind": "directory",
+                "snapshot_mount_path": "/tmp",
             },
         )
 
         # A caller cannot escalate to the creator's integration, flip authorship, repoint the
-        # credential-propagation target at a sandbox they control, or inflate the run's compute /
-        # lifetime to provision an oversized, long-lived sandbox. Non-protected keys still merge.
+        # credential-propagation target at a sandbox they control, inflate the run's compute /
+        # lifetime to provision an oversized, long-lived sandbox, or turn the run into a wizard run
+        # (which would mint a write-scoped wizard token into the sandbox), change rollout
+        # decisions, or change Modal resume snapshot metadata. Non-protected keys still merge.
         response = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
             {
@@ -3335,6 +3388,11 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "sandbox_memory_gb": 512,
                     "sandbox_ttl_seconds": 86400,
                     "inactivity_timeout_seconds": 86400,
+                    "wizard_config": {},
+                    "use_modal_directory_resume_snapshots": False,
+                    "snapshot_external_id": "im-attacker",
+                    "snapshot_kind": "directory",
+                    "snapshot_mount_path": "/tmp/workspace",
                     "scratch": "ok",
                 }
             },
@@ -3349,18 +3407,38 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["sandbox_memory_gb"] == 8
         assert run.state["sandbox_ttl_seconds"] == 1800
         assert run.state["inactivity_timeout_seconds"] == 600
+        assert "wizard_config" not in run.state  # caller cannot mark a run as a wizard run
+        assert run.state["use_modal_directory_resume_snapshots"] is True
+        assert run.state["snapshot_external_id"] == "im-real"
+        assert run.state["snapshot_kind"] == "directory"
+        assert run.state["snapshot_mount_path"] == "/tmp"
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
 
         # Nor can a caller remove a protected key to force a fallback or unguarded path.
         response = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
-            {"state": {}, "state_remove_keys": ["github_credential_source", "sandbox_id", "scratch"]},
+            {
+                "state": {},
+                "state_remove_keys": [
+                    "github_credential_source",
+                    "sandbox_id",
+                    "use_modal_directory_resume_snapshots",
+                    "snapshot_external_id",
+                    "snapshot_kind",
+                    "snapshot_mount_path",
+                    "scratch",
+                ],
+            },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         run.refresh_from_db()
         assert run.state["github_credential_source"] == "caller_token"  # protected key survives removal
         assert run.state["sandbox_id"] == "sb-real"  # protected key survives removal
+        assert run.state["use_modal_directory_resume_snapshots"] is True  # protected key survives removal
+        assert run.state["snapshot_external_id"] == "im-real"  # protected key survives removal
+        assert run.state["snapshot_kind"] == "directory"  # protected key survives removal
+        assert run.state["snapshot_mount_path"] == "/tmp"  # protected key survives removal
         assert "scratch" not in run.state  # non-protected key removed
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
@@ -3858,6 +3936,58 @@ class TestTaskRunAPI(BaseTaskAPITest):
         mock_execute_relay.assert_called_once_with(
             run_id=str(run.id),
             text="Which license should I use?",
+            delete_progress=True,
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "prefers_last_non_empty_text_part",
+                {
+                    "text": "I'll pull DAU.\n\nHere's your answer.",
+                    "text_parts": ["I'll pull DAU.", "Here's your answer."],
+                },
+                "Here's your answer.",
+            ),
+            (
+                "falls_back_to_text_when_parts_only_blank",
+                {"text": "actual message", "text_parts": ["", "   "]},
+                "actual message",
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
+    def test_relay_message_text_selection(self, _name, payload, expected_posted_text, mock_execute_relay):
+        from posthog.models.integration import Integration
+
+        from products.slack_app.backend.models import SlackThreadTaskMapping
+
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        mock_execute_relay.return_value = "relay-selected"
+
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T_SLACK",
+            channel="C123",
+            thread_ts="1234.5678",
+            task=task,
+            task_run=run,
+            mentioning_slack_user_id="U123",
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_execute_relay.assert_called_once_with(
+            run_id=str(run.id),
+            text=expected_posted_text,
             delete_progress=True,
         )
 
@@ -5567,6 +5697,45 @@ class TestTaskRunSessionLogsAPI(BaseTaskAPITest):
         self.assertEqual(response["X-Filtered-Count"], "10")
         self.assertEqual(response["X-Matching-Count"], "10")
         self.assertEqual(response["X-Has-More"], "true")
+
+    def test_session_logs_caps_page_size_by_bytes(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        entries = [
+            self._make_session_update_entry("agent_message", "2026-01-01T00:00:00Z", text="x" * 400),
+            self._make_session_update_entry("agent_message", "2026-01-01T00:00:01Z", text="x" * 400),
+            self._make_session_update_entry("agent_message", "2026-01-01T00:00:02Z", text="x" * 5000),
+            self._make_session_update_entry("agent_message", "2026-01-01T00:00:03Z", text="x" * 400),
+        ]
+        self._seed_log(task, run, entries)
+
+        with patch("products.tasks.backend.presentation.views.api.SESSION_LOG_PAGE_MAX_BYTES", 600):
+            collected: list = []
+            offset = 0
+            pages = 0
+            oversized_returned_alone = False
+            while True:
+                response = self.client.get(self._events_url(task, run) + f"?limit=100&offset={offset}")
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                page = response.json()
+                self.assertGreaterEqual(len(page), 1)
+                if any(len(json.dumps(e)) > 600 for e in page):
+                    self.assertEqual(len(page), 1)
+                    oversized_returned_alone = True
+                collected.extend(page)
+                offset += len(page)
+                pages += 1
+                if response["X-Has-More"] != "true":
+                    break
+
+        self.assertGreater(pages, 1)
+        self.assertTrue(oversized_returned_alone)
+        self.assertEqual(response["X-Total-Count"], "4")
+        self.assertEqual(
+            [e["timestamp"] for e in collected],
+            [f"2026-01-01T00:00:0{i}Z" for i in range(4)],
+        )
 
     def test_session_logs_offset(self):
         task = self.create_task()

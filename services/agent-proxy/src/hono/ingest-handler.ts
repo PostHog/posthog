@@ -41,6 +41,20 @@ import {
 } from '../lib/types.js'
 import { observeStreamIngestEvents } from './metrics.js'
 
+// Diagnostic (temporary): records when request-body chunks arrive at the Node
+// process, to tell a live upload (chunks spread across the request lifetime)
+// from a body buffered upstream and delivered in one burst at request close.
+// The sandbox holds one long-lived chunked POST open for the whole turn; if
+// chunks only land when that request closes, the stall is upstream of this
+// process. Remove once the buffering hop is pinned down.
+interface IngestBodyTiming {
+    startedAt: number
+    firstChunkAt: number | null
+    lastChunkAt: number | null
+    chunks: number
+    bytes: number
+}
+
 // ---------------------------------------------------------------------------
 // Route handler (exported; wired in app.ts)
 // ---------------------------------------------------------------------------
@@ -90,9 +104,17 @@ export async function handleIngest(
     const streamKey = getStreamKey(claims.runId)
     const redisStream = new TaskRunRedisStream(streamKey, redis)
 
+    const bodyTiming: IngestBodyTiming = {
+        startedAt: Date.now(),
+        firstChunkAt: null,
+        lastChunkAt: null,
+        chunks: 0,
+        bytes: 0,
+    }
+
     let result: EventIngestResult
     try {
-        result = await ingestEventLines(redisStream, claims, token, config, c.req.raw)
+        result = await ingestEventLines(redisStream, claims, token, config, c.req.raw, bodyTiming)
     } catch (err: unknown) {
         if (err instanceof EventIngestBadRequest) {
             return c.json({ error: err.message }, 400)
@@ -119,6 +141,17 @@ export async function handleIngest(
         accepted: result.accepted,
         duplicate: result.duplicate,
         lastSeq: result.last_accepted_seq,
+        // Body-arrival timing. Live upload: firstChunkMs small, chunkSpanMs
+        // large. Buffered upstream: firstChunkMs ~= lastChunkMs, chunkSpanMs ~0
+        // (every chunk lands together when the request closes).
+        chunks: bodyTiming.chunks,
+        bodyBytes: bodyTiming.bytes,
+        firstChunkMs: bodyTiming.firstChunkAt === null ? null : bodyTiming.firstChunkAt - bodyTiming.startedAt,
+        lastChunkMs: bodyTiming.lastChunkAt === null ? null : bodyTiming.lastChunkAt - bodyTiming.startedAt,
+        chunkSpanMs:
+            bodyTiming.firstChunkAt === null || bodyTiming.lastChunkAt === null
+                ? null
+                : bodyTiming.lastChunkAt - bodyTiming.firstChunkAt,
     })
 
     return c.json(
@@ -140,7 +173,8 @@ async function ingestEventLines(
     claims: SandboxEventIngestTokenPayload,
     originalToken: string,
     config: Config,
-    rawRequest: Request
+    rawRequest: Request,
+    bodyTiming: IngestBodyTiming
 ): Promise<EventIngestResult> {
     const result: EventIngestResult = {
         accepted: 0,
@@ -152,7 +186,7 @@ async function ingestEventLines(
     let completionLineFinalSeq: number | null = null
 
     try {
-        for await (const line of iterRequestLines(rawRequest)) {
+        for await (const line of iterRequestLines(rawRequest, claims.runId, bodyTiming)) {
             const parsed = parseIngestLine(line)
 
             if (parsed.kind === 'complete') {
@@ -260,7 +294,7 @@ function parseIngestLine(line: string): IngestLine {
 // Streaming NDJSON body reader (mirrors _iter_request_lines)
 // ---------------------------------------------------------------------------
 
-async function* iterRequestLines(request: Request): AsyncGenerator<string> {
+async function* iterRequestLines(request: Request, run: string, timing: IngestBodyTiming): AsyncGenerator<string> {
     const body = request.body
     if (body === null) {
         return
@@ -276,6 +310,20 @@ async function* iterRequestLines(request: Request): AsyncGenerator<string> {
             const { done, value } = await reader.read()
 
             if (value !== undefined && value.length > 0) {
+                const chunkAt = Date.now()
+                if (timing.firstChunkAt === null) {
+                    timing.firstChunkAt = chunkAt
+                }
+                timing.lastChunkAt = chunkAt
+                timing.chunks += 1
+                timing.bytes += value.length
+                logger.debug('ingest:body_chunk', {
+                    run,
+                    chunk: timing.chunks,
+                    bytes: value.length,
+                    sinceStartMs: chunkAt - timing.startedAt,
+                })
+
                 requestSize += value.length
                 if (requestSize > MAX_REQUEST_BYTES) {
                     throw new EventIngestPayloadTooLarge('Event ingest request is too large')

@@ -23,7 +23,7 @@ export function NotificationsPanel(): JSX.Element {
         groups,
         archivedGroups,
         archivedLoaded,
-        inAppUnreadCount,
+        loadedUnreadCount,
         importantChangesLoading,
         hasMoreNotifications,
         hasMoreArchived,
@@ -63,8 +63,8 @@ export function NotificationsPanel(): JSX.Element {
                     onClick={() => setActiveTab('unread')}
                 >
                     Unread
-                    {inAppUnreadCount > 0 && (
-                        <span className="ml-1 text-[10px] text-danger font-bold">{inAppUnreadCount}</span>
+                    {loadedUnreadCount > 0 && (
+                        <span className="ml-1 text-[10px] text-danger font-bold">{loadedUnreadCount}</span>
                     )}
                 </button>
                 <button
@@ -76,7 +76,7 @@ export function NotificationsPanel(): JSX.Element {
                     Archived
                 </button>
             </div>
-            {!isArchivedTab && (inAppUnreadCount > 0 || hasArchivableNotifications) && (
+            {!isArchivedTab && (loadedUnreadCount > 0 || hasArchivableNotifications) && (
                 <div className="ml-auto">
                     <DropdownMenu>
                         <DropdownMenuTrigger
@@ -91,7 +91,7 @@ export function NotificationsPanel(): JSX.Element {
                             }
                         />
                         <DropdownMenuContent align="end" className="w-auto min-w-max">
-                            {inAppUnreadCount > 0 && (
+                            {loadedUnreadCount > 0 && (
                                 <DropdownMenuItem onClick={() => markAllAsRead()}>
                                     <IconCheckCircle />
                                     Mark all as read

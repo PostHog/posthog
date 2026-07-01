@@ -1,14 +1,9 @@
 ---
 name: signals-scout-web-analytics
 description: >
-  Focused Signals scout for PostHog projects with web traffic. Watches the acquisition
-  and site-health layer the web analytics product reports on: per-channel session volume
-  diverging from the site's own rhythm (an acquisition source silently collapsing or
-  surging), attribution breakage (paid/campaign traffic reclassifying into Direct or
-  Unknown when tagging breaks), landing pages that break (bounce-rate steps, 404 spikes,
-  entry-path cliffs), and page-performance regressions (web vitals p75 steps). Emits
-  findings only when they clear the confidence bar; otherwise writes durable memory and
-  closes out empty. Self-contained peer in the signals-scout-* fleet.
+  Signals scout for PostHog web traffic. Watches per-channel session volume, attribution
+  breakage, landing-page health (bounce / 404 steps), and web vitals regressions against the
+  site's own baseline.
 compatibility: >
   Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
   (mostly read-only, plus signal_scout_internal:write). Assumes the signals-scout MCP
