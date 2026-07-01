@@ -11,6 +11,7 @@ import { BridgePage } from 'lib/components/BridgePage/BridgePage'
 import { HeartHog, MailHog } from 'lib/components/hedgehogs'
 import { supportLogic } from 'lib/components/Support/supportLogic'
 import { Spinner } from 'lib/lemon-ui/Spinner/Spinner'
+import { inStorybook, inStorybookTestRunner } from 'lib/utils/dom'
 import { urls } from 'scenes/urls'
 
 import { verifyEmailLogic } from '../../verifyEmailLogic'
@@ -170,10 +171,10 @@ function VerifyEmail(): JSX.Element {
                         {view === 'success' && (
                             <div aria-hidden className="VerifyEmail__ProgressBar">
                                 <div
-                                    className={clsx(
-                                        'VerifyEmail__ProgressBarTrack',
-                                        process.env.STORYBOOK && 'VerifyEmail__ProgressBarTrack--static'
-                                    )}
+                                    className={clsx('VerifyEmail__ProgressBarTrack', {
+                                        'VerifyEmail__ProgressBarTrack--static':
+                                            inStorybook() || inStorybookTestRunner(),
+                                    })}
                                 />
                             </div>
                         )}

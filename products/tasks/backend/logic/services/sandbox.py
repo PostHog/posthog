@@ -146,6 +146,7 @@ def build_agent_runtime_env_prefix(
     reasoning_effort: str | None = None,
     event_ingest_token: str | None = None,
     event_ingest_url: str | None = None,
+    event_ingest_keep_stream_open: bool = False,
 ) -> str:
     env_vars = {
         "POSTHOG_CODE_INTERACTION_ORIGIN": interaction_origin,
@@ -155,6 +156,7 @@ def build_agent_runtime_env_prefix(
         "POSTHOG_CODE_REASONING_EFFORT": reasoning_effort,
         "POSTHOG_TASK_RUN_EVENT_INGEST_TOKEN": event_ingest_token,
         "POSTHOG_TASK_RUN_EVENT_INGEST_URL": event_ingest_url,
+        "POSTHOG_TASK_RUN_EVENT_INGEST_KEEP_STREAM_OPEN": "true" if event_ingest_keep_stream_open else None,
     }
     assignments = " ".join(
         f"{name}={shlex.quote(value)}" for name, value in env_vars.items() if value is not None and value != ""
@@ -265,6 +267,7 @@ class SandboxBase(ABC):
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
         event_ingest_url: str | None = None,
+        event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
     ) -> None:
