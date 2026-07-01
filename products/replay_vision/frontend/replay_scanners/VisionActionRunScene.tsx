@@ -105,6 +105,8 @@ function VisionActionRunScene(): JSX.Element {
 
             {run.synthesized_markdown ? (
                 <LemonMarkdown className="text-base">{run.synthesized_markdown}</LemonMarkdown>
+            ) : run.status === 'running' ? (
+                <div className="text-muted italic">This run is in progress — check back shortly for the summary.</div>
             ) : (
                 <LemonBanner type={run.status === 'failed' ? 'error' : 'info'}>
                     <div className="font-semibold">
