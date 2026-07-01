@@ -461,6 +461,35 @@ describe('ingest-handler', () => {
         expect(body).toMatchObject({ accepted: 1, duplicate: 0, last_accepted_seq: 1 })
     })
 
+    it('writes complete NDJSON lines before the request body closes', async () => {
+        const config = makeConfig()
+        const encoder = new TextEncoder()
+        let controller!: ReadableStreamDefaultController<Uint8Array>
+        const body = new ReadableStream<Uint8Array>({
+            start(c) {
+                controller = c
+            },
+        })
+
+        const resPromise = handleIngest(makeContext({ body }), fakeRedis as unknown as Redis, config, [] as CryptoKey[])
+
+        controller.enqueue(encoder.encode(`${JSON.stringify({ seq: 1, event: { type: 'first-live' } })}\n`))
+
+        await vi.waitFor(async () => {
+            const entries = await fakeRedis.xrange(getStreamKey(RUN_ID))
+            expect(entries).toHaveLength(1)
+            expect(entries[0]?.[1].data).toContain('"first-live"')
+        })
+
+        controller.enqueue(encoder.encode(`${JSON.stringify({ seq: 2, event: { type: 'second-live' } })}\n`))
+        controller.close()
+
+        const res = await resPromise
+        expect(res.status).toBe(200)
+        const responseBody = await decodeJson(res)
+        expect(responseBody).toMatchObject({ accepted: 2, duplicate: 0, last_accepted_seq: 2 })
+    })
+
     it('accepts multiple sequential events', async () => {
         const config = makeConfig()
         const lines =
