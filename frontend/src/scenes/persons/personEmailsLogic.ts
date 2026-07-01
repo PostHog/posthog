@@ -1,4 +1,4 @@
-import { kea, key, path, props, selectors } from 'kea'
+import { kea, key, path, props } from 'kea'
 import { lazyLoaders } from 'kea-loaders'
 
 import { getPersonMessageAssets, MessageAsset } from 'products/workflows/frontend/Workflows/messageAssetsApi'
@@ -27,10 +27,4 @@ export const personEmailsLogic = kea<personEmailsLogicType>([
             },
         ],
     })),
-    selectors({
-        workflowIds: [
-            (s) => [s.emails],
-            (emails: MessageAsset[]): string[] => Array.from(new Set(emails.map((e) => e.function_id))),
-        ],
-    }),
 ])

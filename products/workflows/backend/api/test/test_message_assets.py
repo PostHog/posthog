@@ -273,7 +273,22 @@ class TestPersonEmails(ClickhouseTestMixin, APIBaseTest):
         assert row["subject"] == "Hello"
         assert row["recipient"] == "p@example.com"
         assert row["function_id"] == str(self.hog_flow.pk)
+        # Workflow name is enriched from Postgres so the tab shows "Test Flow" instead of a UUID.
+        # A regression here would put raw workflow IDs in front of users.
+        assert row["function_name"] == self.hog_flow.name
         assert "html" not in row
+
+    def test_function_name_empty_when_workflow_deleted(self):
+        create_message_asset(
+            team_id=self.team.pk,
+            function_id="00000000-0000-0000-0000-000000000abc",
+            invocation_id="inv-orphan",
+            person_id=str(self.person.uuid),
+        )
+        row = self._emails().json()[0]
+        # No HogFlow row → the frontend falls back to function_id for display, so this must be blank
+        # rather than a stale name or a database lookup error.
+        assert row["function_name"] == ""
 
     def test_isolated_from_other_persons(self):
         self._seed("mine")

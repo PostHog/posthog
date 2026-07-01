@@ -1,6 +1,7 @@
 import json
 import uuid
 import builtins
+import dataclasses
 from datetime import UTC, datetime, timedelta
 from typing import Any, List, Optional, TypeVar, Union, cast  # noqa: UP035
 
@@ -85,6 +86,7 @@ from products.workflows.backend.api.message_assets import (
     fetch_message_assets_for_person,
     workflow_email_assets_ui_enabled,
 )
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 logger = structlog.get_logger(__name__)
 tracer = trace.get_tracer(__name__)
@@ -1487,7 +1489,18 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             after=after_date,
             before=before_date,
         )
-        return response.Response(MessageAssetSerializer(data, many=True).data)
+        # Single lookup for every workflow referenced by this page of rows so the tab shows
+        # human-readable names instead of raw UUIDs. Deleted workflows drop out of the map
+        # and the row's `function_name` stays empty — the frontend falls back to `function_id`.
+        # HogFlow.id is a UUID column; ClickHouse function_id is a plain string, so coerce
+        # both sides to string when building the lookup dict.
+        function_ids = {row.function_id for row in data}
+        name_by_id = {
+            str(pk): name
+            for pk, name in HogFlow.objects.filter(team_id=self.team_id, id__in=function_ids).values_list("id", "name")
+        }
+        enriched = [dataclasses.replace(row, function_name=name_by_id.get(row.function_id, "")) for row in data]
+        return response.Response(MessageAssetSerializer(enriched, many=True).data)
 
     @action(methods=["GET"], detail=False)
     def lifecycle(self, request: request.Request) -> response.Response:

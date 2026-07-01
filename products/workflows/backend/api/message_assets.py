@@ -80,6 +80,9 @@ class MessageAsset:
     subject: str
     status: str
     sent_at: datetime
+    # Human-readable workflow name; enriched by the endpoint before serialization.
+    # Left blank when the workflow no longer exists so the frontend falls back to function_id.
+    function_name: str = ""
 
 
 class MessageAssetSerializer(serializers.Serializer):
@@ -90,6 +93,11 @@ class MessageAssetSerializer(serializers.Serializer):
     function_id = serializers.CharField(
         help_text="The workflow id that sent this email — used to navigate from a person's "
         "Emails tab back into the originating workflow."
+    )
+    function_name = serializers.CharField(
+        help_text="Human-readable workflow name for display. Empty when the workflow has been deleted; "
+        "clients should fall back to function_id in that case.",
+        allow_blank=True,
     )
     parent_run_id = serializers.CharField(
         help_text="The batch run this email belongs to, for batch-triggered workflows. Empty for event-triggered runs."

@@ -12,6 +12,8 @@ export interface MessageAsset {
     action_id: string
     /** Workflow id that sent this email — used by the person Emails tab to navigate back. */
     function_id: string
+    /** Workflow name; empty when the workflow has been deleted (fall back to function_id). */
+    function_name: string
     /** HogFlowBatchJob id for batch-triggered sends; empty for event-triggered runs. */
     parent_run_id: string
     kind: string

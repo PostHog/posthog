@@ -60,7 +60,7 @@ export function PersonEmailsTab({ teamId, personId }: PersonEmailsTabProps): JSX
                                 )}`}
                                 onClick={(e) => e.stopPropagation()}
                             >
-                                {asset.function_id}
+                                {asset.function_name || asset.function_id}
                             </Link>
                         ),
                     },

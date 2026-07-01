@@ -1,6 +1,7 @@
 import re
 import json
 import uuid as uuid_mod
+import dataclasses
 from datetime import timedelta
 from typing import Optional, cast
 
@@ -1632,7 +1633,8 @@ class HogFlowViewSet(TeamAndOrgViewSetMixin, LogEntryMixin, AppMetricsMixin, vie
             after=after_date,
             before=before_date,
         )
-        return Response(MessageAssetSerializer(data, many=True).data)
+        enriched = [dataclasses.replace(row, function_name=obj.name) for row in data]
+        return Response(MessageAssetSerializer(enriched, many=True).data)
 
     @extend_schema(
         operation_id="hog_flows_asset_content_retrieve",

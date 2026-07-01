@@ -569,6 +569,8 @@ export interface MessageAssetApi {
     action_id: string
     /** The workflow id that sent this email — used to navigate from a person's Emails tab back into the originating workflow. */
     function_id: string
+    /** Human-readable workflow name for display. Empty when the workflow has been deleted; clients should fall back to function_id in that case. */
+    function_name: string
     /** The batch run this email belongs to, for batch-triggered workflows. Empty for event-triggered runs. */
     parent_run_id: string
     /** Asset kind. Currently always 'email'. */
