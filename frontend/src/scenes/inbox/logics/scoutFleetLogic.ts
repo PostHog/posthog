@@ -19,7 +19,6 @@ import {
     computeFleetSummary,
     computeScoutRollups,
     FleetSummary,
-    getScoutOrigin,
     prettifyScoutSkillName,
     SCOUT_RUNS_WINDOW_HOURS,
     ScoutRollup,
@@ -283,8 +282,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
         ],
         customScoutCount: [
             (s) => [s.scoutConfigs],
-            (scoutConfigs): number =>
-                scoutConfigs?.filter((config) => getScoutOrigin(config.skill_name) === 'custom').length ?? 0,
+            (scoutConfigs): number => scoutConfigs?.filter((config) => config.scout_origin === 'custom').length ?? 0,
         ],
     }),
 
@@ -324,7 +322,7 @@ export const scoutFleetLogic = kea<scoutFleetLogicType>([
                     // Archiving the skill is the permanent off switch: the coordinator won't re-seed a
                     // tombstoned skill or re-create its config. Only custom scouts are deletable — the UI
                     // offers canonical ones disable instead, since a deleted canonical scout can't be re-added.
-                    if (teamId && getScoutOrigin(config.skill_name) === 'custom') {
+                    if (teamId && config.scout_origin === 'custom') {
                         try {
                             await llmSkillsNameArchiveCreate(String(teamId), config.skill_name)
                         } catch (error: any) {

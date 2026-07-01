@@ -98,7 +98,7 @@ export function ScoutRowCard({
                                     <IconArrowUpRight className="size-3.5" />
                                 </Link>
                             </Tooltip>
-                            <ScoutOriginBadge skillName={config.skill_name} />
+                            <ScoutOriginBadge origin={config.scout_origin} />
                         </div>
                     </div>
                     <div className="flex items-center gap-1 whitespace-nowrap text-[11px] text-muted">

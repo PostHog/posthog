@@ -2,12 +2,7 @@ import { IconTrash } from '@posthog/icons'
 import { LemonButton, LemonDialog, LemonSelect, LemonSwitch, Tooltip } from '@posthog/lemon-ui'
 
 import { SignalScoutConfig, SignalScoutConfigUpdate } from '../../../types'
-import {
-    formatRunInterval,
-    getScoutOrigin,
-    prettifyScoutSkillName,
-    RUN_INTERVAL_OPTIONS,
-} from '../../../utils/scoutRunsWindow'
+import { formatRunInterval, prettifyScoutSkillName, RUN_INTERVAL_OPTIONS } from '../../../utils/scoutRunsWindow'
 
 interface ScoutConfigControlsProps {
     config: SignalScoutConfig
@@ -73,7 +68,7 @@ export function ScoutConfigForm({ config, onUpdate, onDelete, deleting }: ScoutC
             </div>
             {/* Only custom scouts are deletable. A canonical scout would be re-seeded from disk after
                 deletion (and couldn't be re-added from the UI), so its terminal action stays disable. */}
-            {onDelete && getScoutOrigin(config.skill_name) === 'custom' ? (
+            {onDelete && config.scout_origin === 'custom' ? (
                 <div className="flex items-center justify-between gap-4 border-t border-primary pt-2">
                     <div className="flex flex-col min-w-0">
                         <span className="text-xs text-default">Delete scout</span>
