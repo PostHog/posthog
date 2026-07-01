@@ -99,6 +99,18 @@ class TestDataV2Run(APIBaseTest):
         self.notebook = Notebook.objects.create(team=self.team, short_id="nbrun01")
         self.url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/data_v2/run/"
 
+    def _create_runtime(self, server_url=None):
+        return KernelRuntime.objects.create(
+            team=self.team,
+            notebook=self.notebook,
+            notebook_short_id=self.notebook.short_id,
+            user=self.user,
+            status=KernelRuntime.Status.RUNNING,
+            backend=KernelRuntime.Backend.DOCKER,
+            sandbox_id="sbx-1",
+            server_url=server_url,
+        )
+
     @patch("products.notebooks.backend.presentation.views.notebook.is_data_v2_enabled", return_value=True)
     def test_run_without_kernel_returns_409(self, _mock_enabled):
         response = self.client.post(self.url, data={"node_id": "n1", "code": "select 1"}, format="json")
@@ -107,28 +119,38 @@ class TestDataV2Run(APIBaseTest):
         assert run is not None
         self.assertEqual(run.status, NotebookNodeRun.Status.FAILED)
 
-    @patch("products.notebooks.backend.data_v2.get_sandbox_class_for_backend")
+    @patch("products.notebooks.backend.data_v2.requests.post")
     @patch("products.notebooks.backend.presentation.views.notebook.is_data_v2_enabled", return_value=True)
-    def test_run_with_kernel_creates_run_and_dispatches(self, _mock_enabled, mock_get_sandbox_class):
-        KernelRuntime.objects.create(
-            team=self.team,
-            notebook=self.notebook,
-            notebook_short_id=self.notebook.short_id,
-            user=self.user,
-            status=KernelRuntime.Status.RUNNING,
-            backend=KernelRuntime.Backend.DOCKER,
-            sandbox_id="sbx-1",
-        )
-        fake_sandbox = MagicMock()
-        mock_get_sandbox_class.return_value.get_by_id.return_value = fake_sandbox
+    def test_run_dispatches_to_ready_server(self, _mock_enabled, mock_post):
+        self._create_runtime(server_url="http://localhost:12345")
 
-        response = self.client.post(
-            self.url, data={"node_id": "n1", "code": "select count(*) from events"}, format="json"
-        )
+        response = self.client.post(self.url, data={"node_id": "n1", "code": "select 1"}, format="json")
 
         self.assertEqual(response.status_code, 200)
-        self.assertIn("run_id", response.json())
-        run = NotebookNodeRun.objects.for_team(self.team.id).get(id=response.json()["run_id"])
-        self.assertEqual(run.status, NotebookNodeRun.Status.RUNNING)
+        run_id = response.json()["run_id"]
+        self.assertEqual(
+            NotebookNodeRun.objects.for_team(self.team.id).get(id=run_id).status,
+            NotebookNodeRun.Status.RUNNING,
+        )
+        mock_post.assert_called_once()
+        self.assertIn("/run", mock_post.call_args.args[0])
+        self.assertEqual(mock_post.call_args.kwargs["json"]["run_id"], run_id)
+
+    @patch("products.notebooks.backend.data_v2.requests.post")
+    @patch("products.notebooks.backend.data_v2.requests.get")
+    @patch("products.notebooks.backend.data_v2.get_sandbox_class_for_backend")
+    @patch("products.notebooks.backend.presentation.views.notebook.is_data_v2_enabled", return_value=True)
+    def test_run_bootstraps_server_when_absent(self, _mock_enabled, mock_get_sandbox_class, mock_get, mock_post):
+        self._create_runtime(server_url=None)
+        fake_sandbox = MagicMock()
+        fake_sandbox.get_connect_credentials.return_value = MagicMock(url="http://localhost:12345", token=None)
+        mock_get_sandbox_class.return_value.get_by_id.return_value = fake_sandbox
+        mock_get.return_value.status_code = 200
+
+        response = self.client.post(self.url, data={"node_id": "n1", "code": "x"}, format="json")
+
+        self.assertEqual(response.status_code, 200)
         fake_sandbox.write_file.assert_called_once()
         fake_sandbox.execute.assert_called_once()
+        self.assertEqual(KernelRuntime.objects.get(sandbox_id="sbx-1").server_url, "http://localhost:12345")
+        mock_post.assert_called_once()

@@ -888,12 +888,18 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         )
 
         try:
-            dispatch_data_v2_run(notebook, user, run)
+            dispatch_data_v2_run(notebook, user, run, serializer.validated_data["code"])
         except DataV2KernelNotRunning:
             run.status = NotebookNodeRun.Status.FAILED
             run.error = "Kernel is not running. Start the instance first."
             run.save(update_fields=["status", "error", "updated_at"])
             return Response({"detail": "Kernel is not running. Start the instance first."}, status=409)
+        except Exception:
+            logger.exception("notebook_data_v2_run_dispatch_failed", notebook_short_id=notebook.short_id)
+            run.status = NotebookNodeRun.Status.FAILED
+            run.error = "Failed to dispatch run to the kernel."
+            run.save(update_fields=["status", "error", "updated_at"])
+            return Response({"detail": "Failed to dispatch run to the kernel."}, status=503)
 
         return Response({"run_id": str(run.id)})
 

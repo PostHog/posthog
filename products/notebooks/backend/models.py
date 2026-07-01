@@ -171,6 +171,10 @@ class KernelRuntime(UUIDTModel):
     connection_file = models.TextField(null=True, blank=True)
     sandbox_id = models.CharField(max_length=128, null=True, blank=True)
     last_error = models.TextField(null=True, blank=True)
+    # Reachable URL of the in-sandbox DataV2 kernel-server, plus its connect token
+    # (Modal tunnel auth; null for Docker). Set once the kernel-server is started.
+    server_url = models.TextField(null=True, blank=True)
+    server_connect_token = models.TextField(null=True, blank=True)
 
     class Meta:
         db_table = "posthog_kernelruntime"

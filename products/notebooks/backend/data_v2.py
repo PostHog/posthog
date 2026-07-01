@@ -1,22 +1,26 @@
 """Helpers for the revamped-notebooks DataV2 run flow (Journey 1 slice).
 
-The run endpoint dispatches a run to the notebook sandbox, which fabricates a
-result envelope and POSTs it back to the token-authed callback endpoint. The
-callback token is a stateless signed token for the slice; hardening (step 6)
-swaps it for the RS256 sandbox event-ingest JWT used by PostHog Code.
+The backend dispatches a run to the in-sandbox kernel-server with a single HTTP
+POST (mirroring PostHog Code's agent-server), which fabricates a result and POSTs
+it back to the token-authed callback endpoint. The control plane (write_file /
+execute) is used only once, to launch the kernel-server — never per run.
+
+The callback token is a stateless signed token for the slice; hardening swaps it
+for the RS256 sandbox event-ingest JWT used by PostHog Code.
 """
 
-import json
+import time
 
 from django.conf import settings
 from django.core import signing
 
+import requests
 import structlog
 import posthoganalytics
 
 from posthog.models.user import User
-from posthog.models.utils import uuid7
 
+from products.notebooks.backend.data_v2_kernel_server import KERNEL_SERVER_SOURCE
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
 from products.tasks.backend.facade.sandbox import get_sandbox_class_for_backend
 
@@ -26,6 +30,17 @@ REVAMPED_PY_NOTEBOOKS_FLAG = "revamped-py-notebooks"
 
 _CALLBACK_TOKEN_SALT = "notebooks.data_v2.callback"
 _CALLBACK_TOKEN_MAX_AGE_SECONDS = 3600
+
+# The container port the sandbox already exposes (mapped to a host port at create
+# time). Mirrors docker_sandbox.AGENT_SERVER_PORT (47821) and
+# modal_sandbox.AGENT_SERVER_PORT (8080) — the kernel-server binds it inside the sandbox.
+_CONTAINER_PORT_BY_BACKEND = {
+    KernelRuntime.Backend.DOCKER: 47821,
+    KernelRuntime.Backend.MODAL: 8080,
+}
+_KERNEL_SERVER_PATH = "/tmp/nb_data_v2_kernel_server.py"
+_SERVER_READY_TIMEOUT_SECONDS = 15
+_RUN_POST_TIMEOUT_SECONDS = 10
 
 
 class DataV2KernelNotRunning(Exception):
@@ -82,55 +97,72 @@ def _find_running_runtime(notebook: Notebook, user: User | None) -> KernelRuntim
     return runtime
 
 
-def _build_run_snippet(callback_url: str, token: str, envelope: dict) -> str:
-    # Runs in the sandbox with stdlib only (no third-party deps assumed). Values are
-    # embedded via json.dumps so no interpolation can break out of the literals.
-    return (
-        "import json, urllib.request\n"
-        f"_url = {json.dumps(callback_url)}\n"
-        f"_token = {json.dumps(token)}\n"
-        f"_envelope = {json.dumps(envelope)}\n"
-        '_data = json.dumps({"envelope": _envelope}).encode()\n'
-        "_req = urllib.request.Request(\n"
-        "    _url,\n"
-        "    data=_data,\n"
-        '    headers={"Authorization": "Bearer " + _token, "Content-Type": "application/json"},\n'
-        '    method="POST",\n'
-        ")\n"
-        "try:\n"
-        "    urllib.request.urlopen(_req, timeout=15)\n"
-        "except Exception as _exc:\n"
-        '    print("data_v2 callback failed", _exc)\n'
-    )
+def _with_connect_token(url: str, connect_token: str | None) -> str:
+    return f"{url}?_modal_connect_token={connect_token}" if connect_token else url
 
 
-def dispatch_data_v2_run(notebook: Notebook, user: User | None, run: NotebookNodeRun) -> None:
-    """Fabricate the Journey 1 result (42) in the sandbox and have it call back.
+def _wait_for_server_ready(server_url: str, connect_token: str | None) -> None:
+    health_url = _with_connect_token(f"{server_url.rstrip('/')}/health", connect_token)
+    deadline = time.monotonic() + _SERVER_READY_TIMEOUT_SECONDS
+    while time.monotonic() < deadline:
+        try:
+            if requests.get(health_url, timeout=2).status_code == 200:
+                return
+        except requests.RequestException:
+            pass
+        time.sleep(0.3)
+    raise RuntimeError("DataV2 kernel-server did not become ready")
 
-    Slice stand-in for a real in-sandbox kernel-server /run route: writes a stdlib
-    snippet into the sandbox and runs it detached so this call returns immediately.
+
+def ensure_data_v2_server(notebook: Notebook, user: User | None) -> tuple[str, str | None]:
+    """Start the in-sandbox kernel-server once; return its (url, connect_token).
+
+    Idempotent — reuses the URL persisted on the runtime after the first start.
+    This is the only place the control plane (write_file/execute) is used, and only
+    to launch the server, exactly as Code bootstraps its agent-server. Per-run
+    dispatch is a plain HTTP POST.
     """
     runtime = _find_running_runtime(notebook, user)
     if runtime is None:
         raise DataV2KernelNotRunning()
 
+    if runtime.server_url:
+        return runtime.server_url, runtime.server_connect_token
+
     sandbox_class = get_sandbox_class_for_backend(runtime.backend)
     sandbox = sandbox_class.get_by_id(runtime.sandbox_id)
 
-    result_id = str(uuid7())
-    envelope = {
-        "status": "ok",
-        "columns": ["count"],
-        "row_count": 1,
-        "first_page": [[42]],
-        "result_id": result_id,
-    }
-    token = mint_callback_token(str(run.id), notebook.team_id)
-    callback_url = build_callback_url(str(run.id))
-    snippet = _build_run_snippet(callback_url, token, envelope)
+    port = _CONTAINER_PORT_BY_BACKEND.get(runtime.backend, 47821)
+    sandbox.write_file(_KERNEL_SERVER_PATH, KERNEL_SERVER_SOURCE.encode())
+    sandbox.execute(
+        f"nohup python3 {_KERNEL_SERVER_PATH} {port} > /tmp/nb_data_v2_kernel_server.log 2>&1 &",
+        timeout_seconds=15,
+    )
 
-    path = f"/tmp/data_v2_run_{run.id}.py"
-    sandbox.write_file(path, snippet.encode())
-    # Detached (&) so execute returns immediately — the run stays async and the
-    # result arrives via the callback, not this request.
-    sandbox.execute(f"nohup python3 {path} >/tmp/data_v2_run_{run.id}.log 2>&1 &", timeout_seconds=15)
+    credentials = sandbox.get_connect_credentials()
+    _wait_for_server_ready(credentials.url, credentials.token)
+
+    runtime.server_url = credentials.url
+    runtime.server_connect_token = credentials.token
+    runtime.save(update_fields=["server_url", "server_connect_token"])
+    return credentials.url, credentials.token
+
+
+def dispatch_data_v2_run(notebook: Notebook, user: User | None, run: NotebookNodeRun, code: str) -> None:
+    """Dispatch a run to the in-sandbox kernel-server with a single HTTP POST.
+
+    Returns as soon as the server accepts (202); the result arrives via the callback.
+    """
+    server_url, connect_token = ensure_data_v2_server(notebook, user)
+    callback_token = mint_callback_token(str(run.id), notebook.team_id)
+    response = requests.post(
+        _with_connect_token(f"{server_url.rstrip('/')}/run", connect_token),
+        json={
+            "run_id": str(run.id),
+            "code": code,
+            "callback_url": build_callback_url(str(run.id)),
+            "callback_token": callback_token,
+        },
+        timeout=_RUN_POST_TIMEOUT_SECONDS,
+    )
+    response.raise_for_status()
