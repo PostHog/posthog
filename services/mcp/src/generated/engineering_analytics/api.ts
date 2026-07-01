@@ -123,7 +123,7 @@ export const EngineeringAnalyticsWorkflowHealthQueryParams = /* @__PURE__ */ zod
         .string()
         .optional()
         .describe(
-            "Optional exact git branch (head_branch) to scope workflow health to, e.g. 'main'. Omit or leave blank to aggregate across all branches."
+            "Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches."
         ),
     date_from: zod.string().optional().describe("Window start: relative ('-24h', '-7d') or ISO8601. Defaults to -24h."),
     date_to: zod.string().optional().describe('Window end: relative or ISO8601. Defaults to now.'),
@@ -163,7 +163,7 @@ export const EngineeringAnalyticsWorkflowJobsQueryParams = /* @__PURE__ */ zod.o
 })
 
 /**
- * A workflow's estimated CI cost broken down by runner tier over a window (date_from default -30d), highest spend first. Returns an empty list when the job-level source isn't synced.
+ * A workflow's estimated CI cost broken down by runner tier over a window (date_from default -30d), highest spend first. Optionally scope to a single git branch via `branch`. Returns an empty list when the job-level source isn't synced.
  */
 export const EngineeringAnalyticsWorkflowRunnerCostsParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -174,6 +174,12 @@ export const EngineeringAnalyticsWorkflowRunnerCostsParams = /* @__PURE__ */ zod
 })
 
 export const EngineeringAnalyticsWorkflowRunnerCostsQueryParams = /* @__PURE__ */ zod.object({
+    branch: zod
+        .string()
+        .optional()
+        .describe(
+            "Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches."
+        ),
     date_from: zod.string().optional().describe("Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d."),
     date_to: zod.string().optional().describe('Window end: relative or ISO8601. Defaults to now.'),
     repo: zod.string().describe("'owner/name' repository the workflow belongs to."),

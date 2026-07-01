@@ -100,6 +100,9 @@ procs:
         shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-metrics HTTP_SERVER_PORT=6744 ./bin/posthog-node'
         capability: nodejs_metrics
         ready_pattern: 'All systems go'
+        groups:
+            layer: Ingestion pipeline
+            tech: Node
 
     ingestion-traces:
         sandbox: true
@@ -306,6 +309,16 @@ procs:
             layer: Product services
             tech: Rust
 
+    cymbal-notifications:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service cymbal-notifications
+        capability: error_notifications
+        ready_pattern: 'Starting cymbal-notifications consumer'
+        groups:
+            layer: Product services
+            tech: Rust
+
     embedding-worker:
         shell: |-
             bin/wait-for-docker && \
@@ -412,6 +425,9 @@ procs:
             bin/wait-for-docker && \
             bin/start-rust-service capture-logs
         capability: logs_ingestion
+        groups:
+            layer: Ingestion pipeline
+            tech: Rust
 
     batch-import-worker:
         shell: |-
@@ -450,6 +466,9 @@ procs:
         capability: personhog
         ready_pattern: 'etcd init complete'
         autostart: true
+        groups:
+            layer: Product services
+            tech: Rust
 
     personhog-router-leader:
         shell: |-
@@ -457,6 +476,9 @@ procs:
             bin/start-rust-service personhog-router-leader
         capability: personhog
         ready_pattern: 'Metrics server listening on *'
+        groups:
+            layer: Product services
+            tech: Rust
 
     personhog-leader:
         shell: |-
@@ -474,6 +496,9 @@ procs:
             bin/start-rust-service personhog-writer
         capability: personhog
         ready_pattern: 'Metrics server listening on *'
+        groups:
+            layer: Product services
+            tech: Rust
 
     # Behavioral Cohorts stream rebuild (Rust). The shuffler keys clickhouse_events_json into
     # cohort_stream_events; the processor consumes that and emits membership changes. Opt-in

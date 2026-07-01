@@ -6,12 +6,19 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
+import type { ActivityRun } from '../components/RunActivityChart'
 import {
     engineeringAnalyticsWorkflowJobs,
+    engineeringAnalyticsWorkflowRunActivity,
     engineeringAnalyticsWorkflowRunnerCosts,
     engineeringAnalyticsWorkflowRuns,
 } from '../generated/api'
-import type { WorkflowJobApi, WorkflowRunDetailApi, WorkflowRunnerCostApi } from '../generated/api.schemas'
+import type {
+    WorkflowJobApi,
+    WorkflowRunActivityApi,
+    WorkflowRunDetailApi,
+    WorkflowRunnerCostApi,
+} from '../generated/api.schemas'
 import { jobCacheKey } from '../lib/jobs'
 import { type CostSummary, type HealthSummary, computeHealthSummary } from '../lib/runHealth'
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
@@ -51,10 +58,11 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
     props({} as WorkflowRunsLogicProps),
     key((props) => `${props.repoOwner}/${props.repoName}/${props.workflowName}@${props.sourceId ?? ''}`),
 
-    // The shared CI-analytics window scopes both the runs list and the runner-cost breakdown — one window,
-    // never all-time, and the same one the Workflows tab and author page use.
+    // The shared CI-analytics window and branch scope both the runs list and the runner-cost breakdown —
+    // one window and branch, the same the Workflows tab uses, so drilling in from a branch-scoped tab keeps
+    // that scope instead of silently widening back to all branches (which reads as "more runs").
     connect(() => ({
-        values: [engineeringAnalyticsFiltersLogic, ['dateFrom', 'dateTo']],
+        values: [engineeringAnalyticsFiltersLogic, ['dateFrom', 'dateTo', 'appliedBranch']],
     })),
 
     actions({
@@ -77,6 +85,24 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                         repo: `${props.repoOwner}/${props.repoName}`,
                         date_from: values.dateFrom ?? undefined,
                         date_to: values.dateTo ?? undefined,
+                        branch: values.appliedBranch || undefined,
+                        source_id: props.sourceId ?? undefined,
+                    }),
+            },
+        ],
+        // Compact per-run points for the activity chart, over the full window at a higher cap than the runs
+        // table — so the chart spans multiple days (and its focus-lens brush appears) on busy workflows where
+        // the 200-run table would collapse to a sub-day slice.
+        runActivity: [
+            { points: [], truncated: false, limit: 0 } as WorkflowRunActivityApi,
+            {
+                loadRunActivity: async (): Promise<WorkflowRunActivityApi> =>
+                    await engineeringAnalyticsWorkflowRunActivity(projectId(), {
+                        workflow_name: props.workflowName,
+                        repo: `${props.repoOwner}/${props.repoName}`,
+                        date_from: values.dateFrom ?? undefined,
+                        date_to: values.dateTo ?? undefined,
+                        branch: values.appliedBranch || undefined,
                         source_id: props.sourceId ?? undefined,
                     }),
             },
@@ -91,6 +117,7 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                         repo: `${props.repoOwner}/${props.repoName}`,
                         date_from: values.dateFrom ?? undefined,
                         date_to: values.dateTo ?? undefined,
+                        branch: values.appliedBranch || undefined,
                         source_id: props.sourceId ?? undefined,
                     }),
             },
@@ -163,6 +190,26 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                     repoName: run.repo.name,
                 })),
         ],
+        // The activity chart's points, mapped to the shape it plots. Sourced from the higher-capped activity
+        // endpoint (not the 200-run table) so the chart covers the full window and its brush shows.
+        activityRuns: [
+            (s) => [s.runActivity],
+            (runActivity: WorkflowRunActivityApi): ActivityRun[] =>
+                runActivity.points.map((point) => ({
+                    runId: point.run_id,
+                    conclusion: point.conclusion,
+                    startedAt: point.run_started_at,
+                    durationSeconds: point.duration_seconds,
+                    headBranch: point.head_branch,
+                    prNumber: point.pr_number,
+                })),
+        ],
+        // The chart's own cap was hit — it covers only the most recent runs, not the full window. Distinct
+        // from `runsTruncated` (the table's smaller cap), so the chart labels itself honestly.
+        activityTruncated: [
+            (s) => [s.runActivity],
+            (runActivity: WorkflowRunActivityApi): boolean => runActivity.truncated,
+        ],
         // Verdict + headline stats for the health strip above the chart.
         healthSummary: [(s) => [s.runRows], (runRows): HealthSummary => computeHealthSummary(runRows)],
         // Runs list is capped server-side; when hit, run rollups cover only the most recent runs (cost
@@ -220,15 +267,22 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                 actions.loadJobs({ runId, runAttempt })
             }
         },
-        // The shared window scopes both lists — reload them together when it changes.
+        // The shared window scopes all three reads — reload them together when it changes.
         [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => {
             actions.loadRuns()
+            actions.loadRunActivity()
+            actions.loadRunnerCosts()
+        },
+        [engineeringAnalyticsFiltersLogic.actionTypes.setAppliedBranch]: () => {
+            actions.loadRuns()
+            actions.loadRunActivity()
             actions.loadRunnerCosts()
         },
     })),
 
     afterMount(({ actions }) => {
         actions.loadRuns()
+        actions.loadRunActivity()
         actions.loadRunnerCosts()
     }),
 ])

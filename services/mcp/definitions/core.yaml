@@ -456,10 +456,12 @@ tools:
             idempotent: true
         title: Get project
         description: |
-            Retrieve a project and its settings. Pass `@current` as the ID to fetch the caller's active project.
+            Retrieve a project and its settings. Omit the ID to get the caller's active project.
         param_overrides:
             id:
-                description: Project ID, or `@current` to fetch the caller's active project.
+                description: Project ID. If omitted, returns the caller's active project.
+                optional: true
+                fallback: projectId
                 cast: string-int
         response:
             exclude:

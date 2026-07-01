@@ -86,6 +86,7 @@ the row lists both.
 | campaign_monitor        | HTTP                        | requests                                                        | ✅                          |
 | campayn                 | HTTP                        | requests                                                        | ✅                          |
 | canny                   | HTTP                        | requests                                                        | ✅                          |
+| capsule_crm             | HTTP                        | requests                                                        | ✅                          |
 | care_quality_commission | HTTP                        | requests                                                        | ✅                          |
 | chameleon               | HTTP                        | requests                                                        | ✅                          |
 | chargebee               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
@@ -98,6 +99,7 @@ the row lists both.
 | coingecko               | HTTP                        | requests                                                        | ✅                          |
 | coinmarketcap           | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | commercetools           | HTTP                        | requests                                                        | ✅                          |
+| concord                 | HTTP                        | requests                                                        | ✅                          |
 | confluence              | HTTP                        | requests                                                        | ✅                          |
 | chartmogul              | HTTP                        | requests                                                        | ✅                          |
 | circleci                | HTTP                        | requests                                                        | ✅                          |
@@ -108,6 +110,7 @@ the row lists both.
 | clickhouse              | DB protocol (HTTP-based)    | clickhouse-connect / clickhouse-driver                          | ➖                          |
 | clickup                 | HTTP                        | requests                                                        | ✅                          |
 | clockify                | HTTP                        | requests                                                        | ✅                          |
+| clockodo                | HTTP                        | requests                                                        | ✅                          |
 | close                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | convertkit              | HTTP                        | requests                                                        | ✅                          |
 | convex                  | HTTP                        | requests                                                        | ✅                          |
@@ -137,12 +140,15 @@ the row lists both.
 | eventee                 | HTTP                        | requests                                                        | ✅                          |
 | everhour                | HTTP                        | requests                                                        | ✅                          |
 | exchange_rates_api      | HTTP                        | requests                                                        | ✅                          |
+| ezofficeinventory       | HTTP                        | requests                                                        | ✅                          |
 | factorial               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | fillout                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| finage                  | HTTP                        | requests                                                        | ✅                          |
 | financial_modelling     | HTTP                        | requests                                                        | ✅                          |
 | finnhub                 | HTTP                        | requests                                                        | ✅                          |
 | finnworlds              | HTTP                        | requests                                                        | ✅                          |
 | fleetio                 | HTTP                        | requests                                                        | ✅                          |
+| firehydrant             | HTTP                        | requests                                                        | ✅                          |
 | front                   | HTTP                        | requests                                                        | ✅                          |
 | fullstory               | HTTP                        | requests                                                        | ✅                          |
 | github                  | HTTP + Webhook              | requests + `WebhookSourceManager`                               | ✅ (pull) / ➖ (webhook)    |
@@ -342,7 +348,6 @@ doesn't conflict with concurrent PRs.
 - breezy_hr
 - cal_com
 - campaign_manager_360
-- capsule_crm
 - captain_data
 - cart_com
 - castor_edc
@@ -358,7 +363,6 @@ doesn't conflict with concurrent PRs.
 - cloudbeds
 - coassemble
 - cockroachdb
-- concord
 - configcat
 - constant_contact
 - copper
@@ -389,16 +393,13 @@ doesn't conflict with concurrent PRs.
 - encharge
 - eventzilla
 - expensify
-- ezofficeinventory
 - facebook_pages
 - fastbill
 - fastly
 - fauna
 - feishu
-- finage
 - firebase
 - firebolt
-- firehydrant
 - flexmail
 - flexport
 - float_app

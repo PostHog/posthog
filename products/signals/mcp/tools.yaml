@@ -523,6 +523,25 @@ tools:
             `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `activity-log-list`. Distinct from
             `signals-scout-scratchpad-list`: profile is ground truth from authoritative tables; scratchpad is the
             scout's inferred learnings.
+    signals-scout-run-now:
+        operation: signals_scout_config_run
+        enabled: true
+        scopes:
+            - signal_scout:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: false
+        title: Run a scout now
+        description: >
+            Dispatch one on-demand run of a scout by its config `id`, regardless of its schedule — useful to test a
+            scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously and
+            inherits the scheduled path's guards: it returns 429 if the project is over its Signals credits quota or its
+            daily scout-run budget, and 409 if a run for this scout is already in progress. A manual run counts against
+            the same daily run budget the scheduled runs draw from, so avoid triggering repeated runs of the same scout
+            in a short window — each one consumes the project's scout-run allowance for the day. A manual run does not
+            change the scout's schedule, and a disabled scout can still be run this way (to test before enabling).
+            Returns the workflow id immediately — poll `signals-scout-runs-list` for the resulting run and its findings.
     signals-scout-runs-emission-reports:
         operation: signals_scout_runs_emission_reports
         enabled: true

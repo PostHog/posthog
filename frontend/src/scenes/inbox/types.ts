@@ -200,6 +200,9 @@ export interface SignalTeamConfig {
 
 // ── Scouts (backend SignalScoutConfigViewSet / SignalScoutRunViewSet) ─────────
 
+/** Canonical (PostHog-shipped) vs custom (team-authored) scout, resolved server-side. */
+export type ScoutOrigin = 'canonical' | 'custom'
+
 /** Per-(team, skill) scout config. One row per `signals-scout-*` skill. */
 export interface SignalScoutConfig {
     id: string
@@ -207,6 +210,8 @@ export interface SignalScoutConfig {
     skill_name: string
     /** What this scout investigates, sourced from the skill's `description` metadata. Empty if absent. */
     description: string
+    /** Where this scout came from, resolved by the backend. Only `custom` scouts are deletable. */
+    scout_origin: ScoutOrigin
     /** Whether this scout runs on its schedule. */
     enabled: boolean
     /** Whether the scout writes findings to the inbox. false = dry-run. */

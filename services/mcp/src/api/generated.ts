@@ -19081,6 +19081,31 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface ErrorTrackingBypassRule {
+      /** Unique identifier of the bypass rule. */
+      readonly id: string;
+      /** Property-group filters that define which incoming error events bypass rate limiting. */
+      filters: unknown;
+      /** Position of the rule in the team's ordered list. Rules are evaluated greedily in ascending order. */
+      order_key: number;
+      /** Populated when the rule has been automatically disabled (for example, after its filters failed to evaluate during ingestion). Null while the rule is active. */
+      disabled_data: unknown;
+      /** When the rule was created. */
+      readonly created_at: string;
+      /** When the rule was last updated. */
+      readonly updated_at: string;
+    }
+
+    export interface ErrorTrackingBypassRuleCreateRequest {
+      /** Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter — empty rules are rejected. To stop rate limiting entirely, adjust the rate limit settings instead of creating a match-all bypass rule. */
+      filters: PropertyGroupFilterValue;
+    }
+
+    export interface ErrorTrackingBypassRuleUpdateRequest {
+      /** Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter. Omit to preserve the existing filters. */
+      filters?: PropertyGroupFilterValue;
+    }
+
     export interface ErrorTrackingDateRange {
       /** Start of the date range as an ISO timestamp or relative date such as -7d. Defaults to -7d. */
       date_from?: string;
@@ -30718,6 +30743,7 @@ export namespace Schemas {
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
      * * `support_reply` - Support Reply
+     * * `hogdesk` - HogDesk
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -30735,6 +30761,7 @@ export namespace Schemas {
       SignalReport: 'signal_report',
       SignalsScout: 'signals_scout',
       SupportReply: 'support_reply',
+      Hogdesk: 'hogdesk',
     } as const;
 
     /**
@@ -31299,6 +31326,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ErrorTrackingAssignmentRule[];
+    }
+
+    export interface PaginatedErrorTrackingBypassRuleList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ErrorTrackingBypassRule[];
     }
 
     export interface PaginatedErrorTrackingExternalReferenceResultList {
@@ -35301,9 +35337,9 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Read-only history of one VisionAction execution, backing the per-action run list + summary view.
+     * Lightweight run row for the per-action run list (no report body — that's fetched on retrieve).
      */
-    export interface VisionActionRun {
+    export interface VisionActionRunList {
       readonly id: string;
       /** Run outcome: running, completed, failed, or skipped.
        *
@@ -35319,8 +35355,6 @@ export namespace Schemas {
       readonly scheduled_at: string | null;
       /** Number of observations that fed this run's summary. */
       readonly observation_count: number;
-      /** The synthesized group-summary report in Markdown. Empty until a run completes successfully. */
-      readonly synthesized_markdown: string;
       /**
          * Short human-readable reason a run skipped or failed; null on success.
          * @nullable
@@ -35330,13 +35364,13 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
-    export interface PaginatedVisionActionRunList {
+    export interface PaginatedVisionActionRunListList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: VisionActionRun[];
+      results: VisionActionRunList[];
     }
 
     export interface WarehouseColumnAnnotation {
@@ -36782,6 +36816,26 @@ export namespace Schemas {
       filters?: PropertyGroupFilterValue | null;
       /** User or role to assign matching issues to. */
       assignee?: ErrorTrackingAssignmentRuleAssigneeRequest | null;
+    }
+
+    export interface PatchedErrorTrackingBypassRule {
+      /** Unique identifier of the bypass rule. */
+      readonly id?: string;
+      /** Property-group filters that define which incoming error events bypass rate limiting. */
+      filters?: unknown;
+      /** Position of the rule in the team's ordered list. Rules are evaluated greedily in ascending order. */
+      order_key?: number;
+      /** Populated when the rule has been automatically disabled (for example, after its filters failed to evaluate during ingestion). Null while the rule is active. */
+      disabled_data?: unknown;
+      /** When the rule was created. */
+      readonly created_at?: string;
+      /** When the rule was last updated. */
+      readonly updated_at?: string;
+    }
+
+    export interface PatchedErrorTrackingBypassRuleUpdateRequest {
+      /** Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter. Omit to preserve the existing filters. */
+      filters?: PropertyGroupFilterValue;
     }
 
     /**
@@ -41496,7 +41550,8 @@ export namespace Schemas {
        * * `posthog_ai` - PostHog AI
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
-       * * `support_reply` - Support Reply */
+       * * `support_reply` - Support Reply
+       * * `hogdesk` - HogDesk */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -47151,6 +47206,28 @@ export namespace Schemas {
       results: DashboardTileResult[];
     }
 
+    /**
+     * One recording an action run included in its summary — the 'recordings included' list on the run detail view.
+     */
+    export interface RunObservation {
+      /** Observation id; links to the observation detail view. */
+      readonly id: string;
+      /** Session recording id this observation was made on. */
+      readonly session_id: string;
+      /**
+         * Email of the person in the recorded session, captured at scan time; null if unidentified.
+         * @nullable
+         */
+      readonly recording_subject_email: string | null;
+      /**
+         * Short title from the observation's summary; null if the observation had none.
+         * @nullable
+         */
+      readonly title: string | null;
+      /** When the observation was produced. */
+      readonly created_at: string;
+    }
+
     export interface RunWidgetsResponse {
       /** Per-tile widget run results. */
       results: DashboardWidgetRunResult[];
@@ -48177,6 +48254,22 @@ export namespace Schemas {
       source_id: string;
       /** ISO-8601 timestamp the finding was emitted. */
       emitted_at: string;
+    }
+
+    /**
+     * Response for an on-demand (`run now`) scout dispatch.
+     *
+     * The run executes asynchronously on the Temporal worker, so there is no `SignalScoutRun`
+     * row yet at response time — the bridge row is created once the run's first turn starts.
+     * Poll the scout's runs (`signals-scout-runs-list`) to see the resulting run and its findings.
+     */
+    export interface SignalScoutManualRun {
+      /** The `signals-scout-*` skill that was dispatched. */
+      skill_name: string;
+      /** Temporal workflow id for the dispatched run. The run executes asynchronously; poll the scout's runs to see the resulting run row, its status, and any emitted findings. */
+      workflow_id: string;
+      /** True when a new run was dispatched. The endpoint returns 409 instead when a run for this scout is already in progress. */
+      started: boolean;
     }
 
     /**
@@ -51950,8 +52043,16 @@ export namespace Schemas {
     }
 
     export interface TaskRunRelayMessageRequest {
-      /** @maxLength 10000 */
+      /**
+         * Joined message body. Used when text_parts is absent.
+         * @maxLength 10000
+         */
       text: string;
+      /**
+         * Ordered assistant text blocks. When present, the last non-empty entry is posted instead of text.
+         * @items.maxLength 10000
+         */
+      text_parts?: string[];
     }
 
     export interface TaskRunRelayMessageResponse {
@@ -52127,7 +52228,8 @@ export namespace Schemas {
        * * `posthog_ai` - PostHog AI
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
-       * * `support_reply` - Support Reply */
+       * * `support_reply` - Support Reply
+       * * `hogdesk` - HogDesk */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -53000,6 +53102,38 @@ export namespace Schemas {
       source_table_key: string;
     }
 
+    /**
+     * Full run detail: the list fields plus the synthesized report and the recordings it summarized.
+     */
+    export interface VisionActionRun {
+      readonly id: string;
+      /** Run outcome: running, completed, failed, or skipped.
+       *
+       * * `running` - Running
+       * * `completed` - Completed
+       * * `failed` - Failed
+       * * `skipped` - Skipped */
+      readonly status: VisionActionRunStatusEnum;
+      /**
+         * The scheduled fire time this run was claimed for.
+         * @nullable
+         */
+      readonly scheduled_at: string | null;
+      /** Number of observations that fed this run's summary. */
+      readonly observation_count: number;
+      /**
+         * Short human-readable reason a run skipped or failed; null on success.
+         * @nullable
+         */
+      readonly error_reason: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+      /** The synthesized group-summary report in Markdown. Empty until a run completes successfully. */
+      readonly synthesized_markdown: string;
+      /** Recordings this run included in its summary, in summary order. Empty for runs recorded before this was tracked, and for skipped/failed runs. */
+      readonly observations: readonly RunObservation[];
+    }
+
     export interface VisionQuota {
       /** Total observations the org may complete per calendar month. */
       readonly monthly_quota: number;
@@ -53365,6 +53499,36 @@ export namespace Schemas {
          * @nullable
          */
       estimated_cost_usd: number | null;
+    }
+
+    export interface WorkflowRunActivityPoint {
+      /** GitHub Actions run id. */
+      run_id: number;
+      /**
+         * Run conclusion ('success', 'failure', 'timed_out', 'cancelled', 'skipped', ...), or null while still in progress.
+         * @nullable
+         */
+      conclusion: string | null;
+      /** When the run started. Never null on this endpoint: runs without a parseable start timestamp are excluded from the window (they can't be plotted on the chart's time axis). */
+      run_started_at: string;
+      /**
+         * Wall-clock duration in seconds; null until the run completes.
+         * @nullable
+         */
+      duration_seconds: number | null;
+      /** Git branch the run was triggered on, or '' when unknown. */
+      head_branch: string;
+      /** Attributed pull request number, or 0 when unattributed. */
+      pr_number: number;
+    }
+
+    export interface WorkflowRunActivity {
+      /** Per-run chart points, newest first, capped at `limit`. */
+      points: WorkflowRunActivityPoint[];
+      /** True when more runs matched than the cap; `points` is the newest `limit` runs, so the chart covers only the most recent activity, not the full window. */
+      truncated: boolean;
+      /** Maximum number of run points returned in `points`. */
+      limit: number;
     }
 
     export interface WorkflowRunDetail {
@@ -55586,6 +55750,17 @@ export namespace Schemas {
     };
 
     export type EnvironmentsErrorTrackingAssignmentRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsErrorTrackingBypassRulesListParams = {
     /**
      * Number of results to return per page.
      */
@@ -58093,11 +58268,14 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * Number of results to return per page.
+     * Maximum number of sessions to return per page. Defaults to 100; values above 500 are rejected.
+     * @minimum 1
+     * @maximum 500
      */
     limit?: number;
     /**
-     * The initial index from which to return the results.
+     * Number of sessions to skip before returning results. Combine with limit to page through sessions; the response's has_next flag indicates whether more remain.
+     * @minimum 0
      */
     offset?: number;
     /**
@@ -61625,7 +61803,7 @@ export namespace Schemas {
 
     export type EngineeringAnalyticsWorkflowHealthParams = {
     /**
-     * Optional exact git branch (head_branch) to scope workflow health to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
      */
     branch?: string;
     /**
@@ -61668,7 +61846,38 @@ export namespace Schemas {
     source_id?: string;
     };
 
+    export type EngineeringAnalyticsWorkflowRunActivityParams = {
+    /**
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     */
+    branch?: string;
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * 'owner/name' repository the workflow belongs to.
+     */
+    repo: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    /**
+     * Workflow name to load run activity for.
+     */
+    workflow_name: string;
+    };
+
     export type EngineeringAnalyticsWorkflowRunnerCostsParams = {
+    /**
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     */
+    branch?: string;
     /**
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
      */
@@ -61692,6 +61901,10 @@ export namespace Schemas {
     };
 
     export type EngineeringAnalyticsWorkflowRunsParams = {
+    /**
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     */
+    branch?: string;
     /**
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
      */
@@ -61733,6 +61946,17 @@ export namespace Schemas {
     };
 
     export type ErrorTrackingAssignmentRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type ErrorTrackingBypassRulesListParams = {
     /**
      * Number of results to return per page.
      */
@@ -62125,6 +62349,10 @@ export namespace Schemas {
     };
 
     export type ExperimentSavedMetricsListParams = {
+    /**
+     * Filter to shared metrics whose query references this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference. Use this for reuse discovery (find a metric by what it measures); distinct from 'search', which matches the metric's own name/description/tags.
+     */
+    event?: string;
     /**
      * Number of results to return per page.
      */
@@ -64732,11 +64960,14 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * Number of results to return per page.
+     * Maximum number of sessions to return per page. Defaults to 100; values above 500 are rejected.
+     * @minimum 1
+     * @maximum 500
      */
     limit?: number;
     /**
-     * The initial index from which to return the results.
+     * Number of sessions to skip before returning results. Combine with limit to page through sessions; the response's has_next flag indicates whether more remain.
+     * @minimum 0
      */
     offset?: number;
     /**

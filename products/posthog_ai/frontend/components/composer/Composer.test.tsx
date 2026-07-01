@@ -7,6 +7,7 @@ import { Composer } from './Composer'
 describe('Composer', () => {
     const onChange = jest.fn()
     const onSubmit = jest.fn()
+    const onStop = jest.fn()
 
     beforeEach(() => {
         jest.clearAllMocks()
@@ -74,6 +75,22 @@ describe('Composer', () => {
         const { container } = renderComposer({ value: 'ship it' })
         fireEvent.click(getSend(container))
         expect(onSubmit).toHaveBeenCalledTimes(1)
+    })
+
+    it('turns the send button into a Stop button while a turn is active with empty input', () => {
+        const { container } = renderComposer({ value: '', isTurnActive: true, onStop })
+        // Enabled (no "Type a message first"), and clicking cancels the run rather than submitting the form.
+        expect(getSend(container)).not.toHaveAttribute('aria-disabled', 'true')
+        fireEvent.click(getSend(container))
+        expect(onStop).toHaveBeenCalledTimes(1)
+        expect(onSubmit).not.toHaveBeenCalled()
+    })
+
+    it('sends instead of stopping when a turn is active but the input has text', () => {
+        const { container } = renderComposer({ value: 'follow up', isTurnActive: true, onStop })
+        fireEvent.click(getSend(container))
+        expect(onSubmit).toHaveBeenCalledTimes(1)
+        expect(onStop).not.toHaveBeenCalled()
     })
 
     it('throws when a part is rendered outside Composer.Root', () => {
