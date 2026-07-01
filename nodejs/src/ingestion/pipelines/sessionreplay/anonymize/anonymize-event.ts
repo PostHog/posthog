@@ -66,6 +66,12 @@ export async function anonymizeParsedMessage(
             walkMs: Math.round(scrubMs - timing.decompressMs - timing.recompressMs),
             events: eventCount,
             blurJobs: blurJobs.length,
+            sessionId: parsedMessage.session_id,
+            topic: parsedMessage.metadata.topic,
+            partition: parsedMessage.metadata.partition,
+            offset: parsedMessage.metadata.offset,
+            kafkaTimestamp: parsedMessage.metadata.timestamp,
+            rawSize: parsedMessage.metadata.rawSize,
         })
     }
 
