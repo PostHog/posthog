@@ -13,7 +13,9 @@ class ReplayObservationLabel(UUIDModel):
     observation = models.OneToOneField(
         "replay_vision.ReplayObservation", on_delete=models.CASCADE, related_name="label"
     )
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+")
+    # db_constraint=False on the hot-table FKs (posthog_team / posthog_user): creating a real FK constraint
+    # locks the parent on add, which the migration hot-table policy blocks. Enforcement stays at the ORM level.
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
     is_correct = models.BooleanField(help_text="True if the scanner scored this session correctly, false if not.")
     feedback = models.TextField(
         blank=True,
@@ -21,7 +23,9 @@ class ReplayObservationLabel(UUIDModel):
         help_text="Why the scanner got it wrong / what it should have concluded. Empty for correct labels.",
     )
     # Last user to set or edit the shared label; nulled out rather than cascade-deleted if that user is removed.
-    created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+")
+    created_by = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
