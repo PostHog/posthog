@@ -8,8 +8,11 @@ from unittest.mock import patch
 
 from django.utils import timezone
 
+from clickhouse_driver.errors import ServerException
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
+
+from posthog.exceptions import ClickHouseQueryMemoryLimitExceeded, ClickHouseQueryTimeOut
 
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
@@ -866,9 +869,9 @@ class TestRecalculationAnalytics(BaseTest):
 
         assert captured[0]["properties"]["is_primary"] is False
 
-    def test_transient_failure_emits_no_per_metric_event(self):
-        # The transient except-Exception path re-raises for Temporal to retry; emitting there would
-        # double-count per attempt. The failure is reflected in the run-level event instead.
+    def test_non_final_failure_emits_no_per_metric_event(self):
+        # A non-final attempt re-raises for Temporal to retry; emitting there would double-count a
+        # failure that may still succeed on a later attempt. Only the terminal attempt emits.
         exp = self._experiment(flag_key="an-transient", metrics=[_mean_metric("m1")])
         recalc = self._recalc(exp, metric_uuids=["m1"])
 
@@ -878,9 +881,40 @@ class TestRecalculationAnalytics(BaseTest):
             ) as mock_runner:
                 mock_runner.return_value.run.side_effect = RuntimeError("kaboom")
                 with pytest.raises(RuntimeError, match="kaboom"):
-                    _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO)
+                    _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=False)
 
         assert captured == []
+
+    @parameterized.expand(
+        [
+            ("wrapped_oom", ClickHouseQueryMemoryLimitExceeded(), "out_of_memory"),
+            ("wrapped_timeout", ClickHouseQueryTimeOut(), "timeout"),
+            ("ch_timeout_code", ServerException("timed out", code=159), "timeout"),
+            ("ch_socket_timeout_code", ServerException("socket timed out", code=209), "timeout"),
+            ("ch_memory_limit_code", ServerException("memory limit exceeded", code=241), "out_of_memory"),
+            ("other", RuntimeError("kaboom"), "server_error"),
+        ]
+    )
+    def test_terminal_failure_emits_metric_error_event(self, name, exc, expected_error_type):
+        # On the terminal attempt (retries exhausted) an infra failure emits 'experiment metric error'
+        # with the client-side error_type taxonomy, so recalc failures land on the same dashboards.
+        # Covers both the wrapped exception classes and the raw ServerException code-lookup arm.
+        exp = self._experiment(flag_key=f"an-terminal-{name}", metrics=[_mean_metric("m1")])
+        recalc = self._recalc(exp, metric_uuids=["m1"])
+
+        with _record_captures() as captured:
+            with patch(
+                "products.experiments.backend.temporal.recalculation_logic.ExperimentQueryRunner"
+            ) as mock_runner:
+                mock_runner.return_value.run.side_effect = exc
+                with pytest.raises(type(exc)):
+                    _calculate(exp.id, "m1", str(recalc.id), _QUERY_TO, is_final_attempt=True)
+
+        assert len(captured) == 1
+        assert captured[0]["event"] == "experiment metric error"
+        props = captured[0]["properties"]
+        assert props["error_type"] == expected_error_type
+        assert props["execution_mode"] == "recalculation"
 
     def test_results_refresh_completed_event_on_finish(self):
         exp = self._experiment(flag_key="an-finish", metrics=[_mean_metric("m1")])

@@ -40,6 +40,7 @@ from posthog.auth import (
     IDJagAccessTokenAuthentication,
     OAuthAccessTokenAuthentication,
     PersonalAPIKeyAuthentication,
+    ProjectSecretAPIKeyAuthentication,
     TeamSecretTokenAuthentication,
 )
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
@@ -48,16 +49,17 @@ from posthog.event_usage import report_user_action
 from posthog.exceptions import Conflict
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.dashboard_templates import add_enriched_insights_to_feature_flag_dashboard
+from posthog.helpers.impersonation import is_impersonated
 from posthog.models import Team
 from posthog.models.activity_logging.activity_log import Detail, load_activity, log_activity
 from posthog.models.activity_logging.activity_page import ActivityLogPaginatedResponseSerializer, activity_page_response
-from posthog.models.activity_logging.model_activity import ImpersonatedContext, is_impersonated_session
+from posthog.models.activity_logging.model_activity import ImpersonatedContext
 from posthog.models.person.point_in_time_properties import (
     build_person_properties_at_time,
     get_person_and_distinct_ids_for_identifier,
 )
 from posthog.models.property import Property
-from posthog.permissions import TeamSecretTokenPermission, get_authenticator_scopes
+from posthog.permissions import TeamSecretTokenPermission, get_authenticator_scopes, is_service_auth
 from posthog.ph_client import feature_enabled_or_false
 from posthog.queries.base import determine_parsed_date_for_property_matching
 from posthog.rate_limit import BurstRateThrottle, ClickHouseBurstRateThrottle, ClickHouseSustainedRateThrottle
@@ -684,12 +686,11 @@ class EvaluationContextSerializerMixin(serializers.Serializer):
                 capture_exception(e)
 
     def _log_evaluation_context_change(self, obj: FeatureFlag, before: list[str], after: list[str]) -> None:
-        from loginas.utils import is_impersonated_session
 
         from posthog.models.activity_logging.activity_log import Change, Detail
 
         request = self.context.get("request")
-        was_impersonated = is_impersonated_session(request) if request else False
+        was_impersonated = is_impersonated(request)
 
         log_activity(
             organization_id=obj.team.organization_id,
@@ -2659,6 +2660,7 @@ class FeatureFlagViewSet(
     """
 
     scope_object = "feature_flag"
+    psak_allowed_actions = ["remote_config"]
     # Opt the shared TaggedItemViewSetMixin action into feature_flag:write.
     # Other inheritors of the mixin don't extend write actions and so still
     # reject PAT calls — keeps the scope local to this viewset.
@@ -3353,7 +3355,7 @@ class FeatureFlagViewSet(
         activity_log_entries: list[LogActivityEntry] = []
 
         current_user = request.user if request.user.is_authenticated else None
-        was_impersonated = is_impersonated_session(request)
+        was_impersonated = is_impersonated(request)
 
         for flag in flags_list:
             flag_id = flag.id
@@ -4050,6 +4052,7 @@ class FeatureFlagViewSet(
         required_scopes=["feature_flag:read"],
         authentication_classes=[
             TeamSecretTokenAuthentication,
+            ProjectSecretAPIKeyAuthentication,
         ],
         permission_classes=[TeamSecretTokenPermission],
         throttle_classes=[RemoteConfigThrottle],
@@ -4080,10 +4083,11 @@ class FeatureFlagViewSet(
             return Response(status=status.HTTP_404_NOT_FOUND)
 
         # Remote config usage is tracked for telemetry only (never billed), and only genuine SDK
-        # fetches (team secret token, phs_…) count. Session and personal-key requests are the app's
-        # own preview/decrypt feature, not customer usage, and a session-authenticated GET would
-        # otherwise let a cross-site request inflate the team's usage numbers.
-        should_count = isinstance(request.successful_authenticator, TeamSecretTokenAuthentication)
+        # fetches (legacy team secret token or feature-flag-scoped PSAK, both phs_…) count. Session
+        # and personal-key requests are the app's own preview/decrypt feature, not customer usage,
+        # and a session-authenticated GET would otherwise let a cross-site request inflate the team's
+        # usage numbers.
+        should_count = is_service_auth(request)
 
         if not feature_flag.has_encrypted_payloads:
             payloads = feature_flag.filters.get("payloads", {})

@@ -19,7 +19,8 @@
         "msw": "*"
     },
     "peerDependencies": {
-        "@posthog/icons": "*",
+        "@posthog/icons": "catalog:",
+        "@posthog/quill-primitives": "workspace:*",
         "@storybook/react": "catalog:",
         "@types/react": "*",
         "@types/react-dom": "*",

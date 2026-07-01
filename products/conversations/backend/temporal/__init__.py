@@ -1,3 +1,6 @@
+from products.conversations.backend.temporal.ai_reply.activities.persist_knowledge_gap import (
+    support_persist_knowledge_gap_activity,
+)
 from products.conversations.backend.temporal.coordinator import (
     SupportReplyCoordinatorWorkflow,
     support_collect_eligible_tickets_activity,
@@ -31,6 +34,7 @@ ACTIVITIES = [
     support_validate_activity,
     support_review_reply_activity,
     support_persist_reply_activity,
+    support_persist_knowledge_gap_activity,
     support_record_triage_activity,
     support_collect_eligible_tickets_activity,
 ]

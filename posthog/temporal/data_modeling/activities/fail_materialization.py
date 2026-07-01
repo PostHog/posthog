@@ -9,9 +9,12 @@ from temporalio import activity
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 
-from products.data_modeling.backend.models import Node
-from products.data_modeling.backend.models.data_modeling_job import DataModelingJob, DataModelingJobStatus
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import (
+    DataModelingJob,
+    DataModelingJobStatus,
+    DataWarehouseSavedQuery,
+    Node,
+)
 from products.data_warehouse.backend.facade.api import pause_saved_query_schedule
 
 from .utils import strip_hostname_from_error, update_node_system_properties

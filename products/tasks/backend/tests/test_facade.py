@@ -18,6 +18,7 @@ from products.tasks.backend.facade import (
     warm as warm_facade,
 )
 from products.tasks.backend.models import SandboxEnvironment, Task, TaskRun
+from products.tasks.backend.prompts import WIZARD_PR_AGENT_PROMPT
 
 FACADE_MODULES = [
     "products.tasks.backend.facade.api",
@@ -239,24 +240,39 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(run.state.get("foo"), "bar")
 
     def test_collect_task_run_state_metrics(self):
+        def collect():
+            return facade.collect_task_run_state_metrics(
+                open_statuses=["queued", "in_progress"],
+                age_statuses=["queued", "in_progress"],
+                terminal_statuses=["completed", "failed", "cancelled"],
+                window_seconds=3600,
+            )
+
+        # These are global gauges (no team filter) bucketed by environment too, so other tests' rows can
+        # share a (status, origin_product) key across environments. Measure the delta this test contributes
+        # by summing matching rows across all environments, not an absolute count or a single bucket.
+        def status_total(rows, status, origin_product):
+            return sum(r.value for r in rows if r.status == status and r.origin_product == origin_product)
+
+        queued = (TaskRun.Status.QUEUED.value, Task.OriginProduct.USER_CREATED.value)
+        completed = (TaskRun.Status.COMPLETED.value, Task.OriginProduct.USER_CREATED.value)
+
+        before = collect()
+        created_before = sum(r.value for r in before.created_recently)
+        queued_before = status_total(before.runs_in_status, *queued)
+        terminal_before = status_total(before.terminal_recently, *completed)
+
         task = self._make_task()
         TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
         TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
         TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.COMPLETED)
 
-        metrics = facade.collect_task_run_state_metrics(
-            open_statuses=["queued", "in_progress"],
-            age_statuses=["queued", "in_progress"],
-            terminal_statuses=["completed", "failed", "cancelled"],
-            window_seconds=3600,
-        )
-        open_counts = {(r.status, r.origin_product): r.value for r in metrics.runs_in_status}
-        self.assertEqual(open_counts[(TaskRun.Status.QUEUED.value, Task.OriginProduct.USER_CREATED.value)], 2)
-        # COMPLETED is terminal, not open
-        self.assertNotIn((TaskRun.Status.COMPLETED.value, Task.OriginProduct.USER_CREATED.value), open_counts)
-        terminal_counts = {(r.status, r.origin_product): r.value for r in metrics.terminal_recently}
-        self.assertEqual(terminal_counts[(TaskRun.Status.COMPLETED.value, Task.OriginProduct.USER_CREATED.value)], 1)
-        self.assertEqual(sum(r.value for r in metrics.created_recently), 3)
+        metrics = collect()
+        self.assertEqual(status_total(metrics.runs_in_status, *queued) - queued_before, 2)
+        # COMPLETED is terminal, so it never appears in the open runs_in_status gauge
+        self.assertNotIn(completed, {(r.status, r.origin_product) for r in metrics.runs_in_status})
+        self.assertEqual(status_total(metrics.terminal_recently, *completed) - terminal_before, 1)
+        self.assertEqual(sum(r.value for r in metrics.created_recently) - created_before, 3)
         self.assertTrue(all(r.value >= 0 for r in metrics.oldest_open_age_seconds))
 
     def test_upsert_internal_sandbox_env(self):
@@ -292,3 +308,16 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertTrue(Task.objects.filter(id=created.task_id).exists())
         assert created.latest_run is not None
         self.assertEqual(created.latest_run.task_id, created.task_id)
+
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_create_wizard_cloud_run_seeds_pending_user_message(self, _mock_workflow):
+        Integration.objects.create(team=self.team, kind="github", config={})
+        created = facade.create_wizard_cloud_run(
+            team=self.team,
+            user_id=self.user.id,
+            repository="acme-co/web",
+        )
+        run = TaskRun.objects.get(task_id=created.task_id)
+        # The agent server boots idle; forward_pending_user_message only kicks it off if the run state
+        # carries the prompt. Without this the cloud wizard stalls right after "Started agent".
+        self.assertEqual(run.state.get("pending_user_message"), WIZARD_PR_AGENT_PROMPT)

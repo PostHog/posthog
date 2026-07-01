@@ -12,9 +12,9 @@ from posthog.models import Team
 from posthog.temporal.common.utils import asyncify, close_db_connections
 
 from products.tasks.backend.constants import (
-    BURSTABLE_SANDBOX_RESOURCES_FEATURE_FLAG,
     MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
     MODAL_VM_SANDBOX_FEATURE_FLAG,
+    OVERLAP_CLONE_BOOT_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
 )
 from products.tasks.backend.exceptions import TaskInvalidStateError, TaskRunNotReadyError
@@ -74,9 +74,10 @@ class TaskProcessingContext:
     sandbox_event_ingest_enabled: bool = False
     use_modal_vm_sandbox: bool = False
     use_modal_network_allowlist: bool = False
-    # Captured at workflow start so the provisioned box's resource request is stable across
-    # activity retries (a mid-run flag flip can't change a live sandbox's resources anyway).
-    burstable_sandbox_resources_enabled: bool = False
+    # Burstable by default; the per-run state can opt out to pin a fixed-size box
+    # (request == limit). Captured at workflow start so it's stable across activity retries.
+    burstable_sandbox_resources_enabled: bool = True
+    overlap_clone_boot_enabled: bool = False
 
     @property
     def mode(self) -> str:
@@ -119,6 +120,12 @@ class TaskProcessingContext:
     def run_source(self) -> str | None:
         value = (self.state or {}).get("run_source")
         return value if isinstance(value, str) else None
+
+    @property
+    def wizard_config(self) -> dict | None:
+        """Config for the pre-agent setup-wizard step (set at task creation); None for normal runs."""
+        value = (self.state or {}).get("wizard_config")
+        return value if isinstance(value, dict) else None
 
     def inactivity_timeout(self) -> timedelta:
         """How long the run may sit idle before the workflow times it out.
@@ -315,11 +322,10 @@ def _is_modal_vm_sandbox_enabled(
 
 def _is_burstable_sandbox_resources_enabled(
     *,
-    distinct_id: str,
-    organization_id: str,
     run_id: str,
     state: dict | None = None,
 ) -> bool:
+    # Burstable by default; the per-run state can pin a fixed-size box (request == limit).
     state_override = (state or {}).get("burstable_sandbox_resources_enabled")
     if isinstance(state_override, bool):
         log_with_activity_context(
@@ -328,11 +334,29 @@ def _is_burstable_sandbox_resources_enabled(
             burstable_sandbox_resources_enabled=state_override,
         )
         return state_override
+    return True
+
+
+def _is_overlap_clone_boot_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+    state: dict | None = None,
+) -> bool:
+    state_override = (state or {}).get("overlap_clone_boot_enabled")
+    if isinstance(state_override, bool):
+        log_with_activity_context(
+            "overlap_clone_boot_state_override",
+            run_id=run_id,
+            overlap_clone_boot_enabled=state_override,
+        )
+        return state_override
 
     try:
         enabled = bool(
             posthoganalytics.feature_enabled(
-                BURSTABLE_SANDBOX_RESOURCES_FEATURE_FLAG,
+                OVERLAP_CLONE_BOOT_FEATURE_FLAG,
                 distinct_id=distinct_id,
                 groups={"organization": organization_id},
                 group_properties={"organization": {"id": organization_id}},
@@ -341,13 +365,13 @@ def _is_burstable_sandbox_resources_enabled(
             )
         )
     except Exception as e:
-        log_with_activity_context("burstable_sandbox_resources_flag_check_failed", run_id=run_id, error=str(e))
+        log_with_activity_context("overlap_clone_boot_flag_check_failed", run_id=run_id, error=str(e))
         return False
 
     log_with_activity_context(
-        "burstable_sandbox_resources_flag_checked",
+        "overlap_clone_boot_flag_checked",
         run_id=run_id,
-        burstable_sandbox_resources_enabled=enabled,
+        overlap_clone_boot_enabled=enabled,
     )
     return enabled
 
@@ -472,8 +496,14 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         distinct_id=distinct_id,
         sandbox_environment_id=sandbox_environment_id,
     )
+    # Signals implementation PRs are bot-authored and always benefit from the PR
+    # follow-up loop (fixing CI, replying to and resolving review threads), so they
+    # opt in unconditionally — independent of the org-level `tasks-pr-loop` rollout
+    # that gates other origins. This mirrors the babysitting the Slack coding bot
+    # gets for its PRs.
     pr_loop_enabled = (
-        posthoganalytics.feature_enabled(
+        task.origin_product == Task.OriginProduct.SIGNAL_REPORT
+        or posthoganalytics.feature_enabled(
             "tasks-pr-loop",
             distinct_id=distinct_id,
             groups={"organization": organization_id},
@@ -518,6 +548,15 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         f"use_modal_network_allowlist: {use_modal_network_allowlist} for this task run",
     )
     burstable_sandbox_resources_enabled = _is_burstable_sandbox_resources_enabled(
+        run_id=run_id,
+        state=state,
+    )
+    emit_agent_log(
+        run_id,
+        "debug",
+        f"burstable_sandbox_resources_enabled: {burstable_sandbox_resources_enabled} for this task run",
+    )
+    overlap_clone_boot_enabled = _is_overlap_clone_boot_enabled(
         distinct_id=distinct_id,
         organization_id=organization_id,
         run_id=run_id,
@@ -526,7 +565,7 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
     emit_agent_log(
         run_id,
         "debug",
-        f"burstable_sandbox_resources_enabled: {burstable_sandbox_resources_enabled} for this task run",
+        f"overlap_clone_boot_enabled: {overlap_clone_boot_enabled} for this task run",
     )
     user_github_integration_id = str(task.github_user_integration_id) if task.github_user_integration_id else None
     if user_github_integration_id is None and get_pr_authorship_mode(task, state).value == "user":
@@ -560,4 +599,5 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         use_modal_vm_sandbox=use_modal_vm_sandbox,
         use_modal_network_allowlist=use_modal_network_allowlist,
         burstable_sandbox_resources_enabled=burstable_sandbox_resources_enabled,
+        overlap_clone_boot_enabled=overlap_clone_boot_enabled,
     )

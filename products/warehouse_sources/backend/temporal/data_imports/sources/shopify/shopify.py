@@ -1,4 +1,3 @@
-import os
 import re
 import json
 import dataclasses
@@ -22,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.shopify.ut
 )
 
 from .constants import (
+    SHOPIFY_ACCESS_SCOPES_URL,
     SHOPIFY_ACCESS_TOKEN_CHECK,
     SHOPIFY_ACCESS_TOKEN_GRANT,
     SHOPIFY_ACCESS_TOKEN_URL,
@@ -75,14 +75,31 @@ class ShopifyResumeConfig:
 
 
 class ShopifyPermissionError(Exception):
-    """Exception raised when Shopify access token lacks permissions for specific resources."""
+    """Raised when the access token can't read some resources.
+
+    `missing_permissions` maps resource -> Shopify's GraphQL error; the surface layer turns it
+    into a user message via `missing_permissions_message`.
+    """
 
     def __init__(self, missing_permissions: dict[str, str]):
         self.missing_permissions = missing_permissions
-        message = f"Shopify access token lacks permissions for: {', '.join(missing_permissions.keys())}"
-        if os.getenv("DEBUG") == "1":
-            message = f"Shopify access token lacks permissions for: {missing_permissions}"
-        super().__init__(message)
+        super().__init__(f"Shopify access token lacks permissions for: {', '.join(missing_permissions)}")
+
+
+# Shopify names the scope a denied field needs as "Required access: `read_x` access scope."
+_REQUIRED_SCOPE_RE = re.compile(r"`(read_\w+|write_\w+)`")
+
+
+def missing_permissions_message(missing_permissions: dict[str, str]) -> str:
+    """User-facing summary naming each unreadable resource and the scope it needs."""
+    parts = []
+    for resource, error in missing_permissions.items():
+        scopes = _REQUIRED_SCOPE_RE.findall(error)
+        parts.append(f"{resource} (needs {', '.join(scopes)})" if scopes else resource)
+    return (
+        f"Your Shopify access token can't read {', '.join(parts)}. "
+        "Reconnect your Shopify integration and grant the listed access scopes."
+    )
 
 
 # Shopify's GraphQL Admin API rate-limits on a cost-based leaky bucket, so a single bucket
@@ -319,6 +336,19 @@ def _get_shopify_access_token(shopify_store_id: str, shopify_client_id: str, sho
     return access_res.json()["access_token"]
 
 
+def _get_granted_scopes(store_id: str, sess: requests.Session) -> set[str] | None:
+    """The token's granted scope handles, or None on any failure — best-effort so a blip degrades
+    the query rather than failing the sync."""
+    try:
+        res = sess.get(SHOPIFY_ACCESS_SCOPES_URL.format(store_id))
+        res.raise_for_status()
+        data = res.json()
+    except (requests.RequestException, ValueError):
+        return None
+    scopes = data.get("access_scopes", []) if isinstance(data, dict) else []
+    return {scope["handle"] for scope in scopes if isinstance(scope, dict) and "handle" in scope}
+
+
 def shopify_source(
     shopify_store_id: str,
     shopify_client_id: str,
@@ -342,6 +372,24 @@ def shopify_source(
         graphql_object = SHOPIFY_GRAPHQL_OBJECTS.get(schema_name)
         if not graphql_object:
             raise Exception(f"Shopify object does not exist: {schema_name}")
+
+        # Drop fields the token lacks the scope to read, so a partially scoped token imports the
+        # rest instead of hard-failing on "Access denied for <field>". Falls back to the minimal
+        # query when scopes can't be detected.
+        if graphql_object.protected_query_builder is not None:
+            granted_scopes = _get_granted_scopes(store_id, sess)
+            if granted_scopes is None:
+                granted_scopes = set()
+                logger.warning(
+                    f"Shopify: could not detect granted scopes for {schema_name}; syncing without protected fields"
+                )
+            graphql_object = ShopifyGraphQLObject(
+                name=graphql_object.name,
+                query=graphql_object.protected_query_builder(granted_scopes),
+                display_name=graphql_object.display_name,
+                permissions_query=graphql_object.permissions_query,
+                protected_query_builder=graphql_object.protected_query_builder,
+            )
 
         logger.debug(f"Shopify: reading from resource {schema_name}")
 
@@ -428,25 +476,52 @@ def shopify_source(
     )
 
 
-def validate_credentials(shopify_store_id: str, shopify_client_id: str, shopify_client_secret: str) -> bool:
-    """
-    Validates Shopify API credentials and checks permissions for all required resources.
-    This function will:
-    - Return True if the access token is valid and has all required permissions
-    - Raise ShopifyPermissionError if the access token is valid but lacks permissions for specific resources
-    - Raise Exception if the access token is invalid or there's any other error
+def _format_graphql_errors(errors: Any) -> str:
+    """Join the `message` fields from a Shopify GraphQL `errors` payload into one string."""
+    if isinstance(errors, list):
+        messages = [error.get("message") if isinstance(error, dict) else str(error) for error in errors]
+        joined = "; ".join(message for message in messages if message)
+        if joined:
+            return joined
+    return str(errors)
+
+
+def _authenticated_session(store_id: str, client_id: str, client_secret: str) -> tuple[str, requests.Session]:
+    """Fetch an access token and return the GraphQL URL plus a session that carries it."""
+    api_url = SHOPIFY_API_URL.format(store_id, SHOPIFY_API_VERSION)
+    access_token = _get_shopify_access_token(store_id, client_id, client_secret)
+    sess = make_tracked_session(headers={"Content-Type": "application/json", "X-Shopify-Access-Token": access_token})
+    return api_url, sess
+
+
+def _probe_resource_permission(api_url: str, sess: requests.Session, resource: ShopifyGraphQLObject) -> str | None:
+    """Probe read access to one resource: None if reachable, else the GraphQL error naming the
+    missing scope. Throttle/5xx and HTTP/network failures raise — they aren't permission gaps."""
+    res = sess.post(api_url, json={"query": resource.permissions_query})
+    res.raise_for_status()
+    data = res.json()
+    retryable_error = _get_retryable_error(data)
+    if retryable_error is not None:
+        raise retryable_error
+    if "errors" in data:
+        return _format_graphql_errors(data["errors"])
+    return None
+
+
+def validate_credentials(
+    shopify_store_id: str, shopify_client_id: str, shopify_client_secret: str, resources: list[str] | None = None
+) -> bool:
+    """Validate Shopify credentials.
+
+    - resources=None: only verify the access token, so connecting isn't blocked by a table the
+      user may not sync (per-table scopes are surfaced via `check_endpoint_permissions` instead).
+    - resources=[...]: also verify read access to those resources, raising ShopifyPermissionError
+      naming any whose scope is missing.
     """
     store_id = normalize_store_id(shopify_store_id)
-    api_url = SHOPIFY_API_URL.format(store_id, SHOPIFY_API_VERSION)
-    shopify_access_token = _get_shopify_access_token(store_id, shopify_client_id, shopify_client_secret)
-    sess = make_tracked_session(
-        headers={
-            "Content-Type": "application/json",
-            "X-Shopify-Access-Token": shopify_access_token,
-        }
-    )
+    api_url, sess = _authenticated_session(store_id, shopify_client_id, shopify_client_secret)
 
-    # tests the validity of the access token (valid tokens can always access the shop resource)
+    # A valid token can always read the shop resource.
     try:
         res = sess.post(api_url, json={"query": SHOPIFY_ACCESS_TOKEN_CHECK})
         res.raise_for_status()
@@ -456,19 +531,42 @@ def validate_credentials(shopify_store_id: str, shopify_client_id: str, shopify_
     except Exception as e:
         raise Exception(f"Failed to verify your Shopify credentials: {e}")
 
-    # test fine grained permissions
+    if resources is None:
+        return True
+
     missing_permissions: dict[str, str] = {}
-    for resource_name, resource in SHOPIFY_GRAPHQL_OBJECTS.items():
-        try:
-            res = sess.post(api_url, json={"query": resource.permissions_query})
-            res.raise_for_status()
-            data = res.json()
-            if "errors" in data:
-                missing_permissions[resource_name] = (
-                    f"Failed to verify Shopify access privileges for resource {resource_name}: {data['errors']}"
-                )
-        except Exception as e:
-            missing_permissions[resource_name] = str(e)
+    for name in resources:
+        resource = SHOPIFY_GRAPHQL_OBJECTS.get(resolve_schema_name(name))
+        if resource is None:
+            continue
+        error = _probe_resource_permission(api_url, sess, resource)
+        if error is not None:
+            missing_permissions[name] = error
     if missing_permissions:
         raise ShopifyPermissionError(missing_permissions)
     return True
+
+
+def check_endpoint_permissions(
+    shopify_store_id: str, shopify_client_id: str, shopify_client_secret: str, endpoints: list[str]
+) -> dict[str, str | None]:
+    """Per-endpoint read-scope probe for the schema picker: {name: None} if reachable, else a
+    message naming the missing scope. A throttle/5xx/transport blip on one endpoint leaves that
+    table unknown rather than aborting the batch; only failing to obtain the access token raises."""
+    store_id = normalize_store_id(shopify_store_id)
+    api_url, sess = _authenticated_session(store_id, shopify_client_id, shopify_client_secret)
+    results: dict[str, str | None] = {}
+    for name in endpoints:
+        resource = SHOPIFY_GRAPHQL_OBJECTS.get(resolve_schema_name(name))
+        if resource is None:
+            results[name] = None
+            continue
+        try:
+            error = _probe_resource_permission(api_url, sess, resource)
+        except (ShopifyRetryableError, requests.RequestException):
+            # A throttle/5xx/transport blip on one endpoint isn't a permission verdict. Leave it
+            # unknown (reachable) so the rest of the batch keeps its results instead of the whole
+            # probe aborting — the real scope check still runs when the user adds that schema.
+            error = None
+        results[name] = missing_permissions_message({name: error}) if error is not None else None
+    return results

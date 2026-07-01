@@ -52,7 +52,7 @@ export function createOverflowLaneTTLRefreshStep<T extends OverflowLaneTTLRefres
 
         // TTL refresh doesn't affect routing, so attach it as a pipeline side effect
         // instead of blocking the pipeline on a Redis write.
-        const refreshPromise = overflowRedirectService.handleEventBatch('events', batches)
+        const refreshPromise = overflowRedirectService.handleEventBatch(batches)
 
         return Promise.resolve(inputs.map((input) => ok(input, [refreshPromise])))
     }
