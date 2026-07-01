@@ -743,8 +743,17 @@ export const experimentsCreateBodyNameMax = 400
 export const experimentsCreateBodyDescriptionMax = 3000
 
 export const experimentsCreateBodyArchivedDefault = false
-export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOperatorDefault = `exact`
-export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTypeDefault = `event`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneOperatorDefault = `exact`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneTypeDefault = `event`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwoTypeDefault = `person`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemThreeKeyDefault = `id`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemThreeOperatorDefault = `in`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemThreeTypeDefault = `cohort`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemFourTypeDefault = `element`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemFiveTypeDefault = `session`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSixTypeDefault = `hogql`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSevenTypeDefault = `data_warehouse`
+export const experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemEightTypeDefault = `data_warehouse_person_property`
 export const experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
@@ -990,70 +999,435 @@ export const ExperimentsCreateBody = /* @__PURE__ */ zod
                                     ),
                                 properties: zod
                                     .array(
-                                        zod.object({
-                                            key: zod.string(),
-                                            label: zod.union([zod.string(), zod.null()]).optional(),
-                                            operator: zod
-                                                .union([
-                                                    zod.enum([
-                                                        'exact',
-                                                        'is_not',
-                                                        'icontains',
-                                                        'not_icontains',
-                                                        'regex',
-                                                        'not_regex',
-                                                        'gt',
-                                                        'gte',
-                                                        'lt',
-                                                        'lte',
-                                                        'is_set',
-                                                        'is_not_set',
-                                                        'is_date_exact',
-                                                        'is_date_before',
-                                                        'is_date_after',
-                                                        'between',
-                                                        'not_between',
-                                                        'min',
-                                                        'max',
-                                                        'in',
-                                                        'not_in',
-                                                        'is_cleaned_path_exact',
-                                                        'flag_evaluates_to',
-                                                        'semver_eq',
-                                                        'semver_neq',
-                                                        'semver_gt',
-                                                        'semver_gte',
-                                                        'semver_lt',
-                                                        'semver_lte',
-                                                        'semver_tilde',
-                                                        'semver_caret',
-                                                        'semver_wildcard',
-                                                        'icontains_multi',
-                                                        'not_icontains_multi',
-                                                    ]),
-                                                    zod.null(),
-                                                ])
-                                                .default(
-                                                    experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOperatorDefault
-                                                ),
-                                            type: zod
-                                                .literal('event')
-                                                .default(
-                                                    experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTypeDefault
-                                                )
-                                                .describe('Event properties'),
-                                            value: zod
-                                                .union([
-                                                    zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
-                                                    zod.string(),
-                                                    zod.number(),
-                                                    zod.boolean(),
-                                                    zod.null(),
-                                                ])
-                                                .optional(),
-                                        })
+                                        zod.union([
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod
+                                                    .union([
+                                                        zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneOperatorDefault
+                                                    ),
+                                                type: zod
+                                                    .literal('event')
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneTypeDefault
+                                                    )
+                                                    .describe('Event properties'),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('person')
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwoTypeDefault
+                                                    )
+                                                    .describe('Person properties'),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                cohort_name: zod.union([zod.string(), zod.null()]).optional(),
+                                                key: zod
+                                                    .literal('id')
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemThreeKeyDefault
+                                                    ),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod
+                                                    .union([
+                                                        zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemThreeOperatorDefault
+                                                    ),
+                                                type: zod
+                                                    .literal('cohort')
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemThreeTypeDefault
+                                                    ),
+                                                value: zod.number(),
+                                            }),
+                                            zod.object({
+                                                key: zod.enum(['tag_name', 'text', 'href', 'selector']),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('element')
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemFourTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('session')
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemFiveTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                type: zod
+                                                    .literal('hogql')
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSixTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('data_warehouse')
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSevenTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('data_warehouse_person_property')
+                                                    .default(
+                                                        experimentsCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemEightTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                        ])
                                     )
-                                    .describe('Event property filters. Pass an empty array if no filters needed.'),
+                                    .describe(
+                                        'Property filters to refine exposure. Pass an empty array if no filters needed.'
+                                    ),
                             }),
                             zod.null(),
                         ])
@@ -3133,8 +3507,17 @@ export const experimentsPartialUpdateBodyNameMax = 400
 
 export const experimentsPartialUpdateBodyDescriptionMax = 3000
 
-export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOperatorDefault = `exact`
-export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTypeDefault = `event`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneOperatorDefault = `exact`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneTypeDefault = `event`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwoTypeDefault = `person`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemThreeKeyDefault = `id`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemThreeOperatorDefault = `in`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemThreeTypeDefault = `cohort`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemFourTypeDefault = `element`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemFiveTypeDefault = `session`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSixTypeDefault = `hogql`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSevenTypeDefault = `data_warehouse`
+export const experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemEightTypeDefault = `data_warehouse_person_property`
 export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsPartialUpdateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsPartialUpdateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
@@ -3375,70 +3758,435 @@ export const ExperimentsPartialUpdateBody = /* @__PURE__ */ zod
                                     ),
                                 properties: zod
                                     .array(
-                                        zod.object({
-                                            key: zod.string(),
-                                            label: zod.union([zod.string(), zod.null()]).optional(),
-                                            operator: zod
-                                                .union([
-                                                    zod.enum([
-                                                        'exact',
-                                                        'is_not',
-                                                        'icontains',
-                                                        'not_icontains',
-                                                        'regex',
-                                                        'not_regex',
-                                                        'gt',
-                                                        'gte',
-                                                        'lt',
-                                                        'lte',
-                                                        'is_set',
-                                                        'is_not_set',
-                                                        'is_date_exact',
-                                                        'is_date_before',
-                                                        'is_date_after',
-                                                        'between',
-                                                        'not_between',
-                                                        'min',
-                                                        'max',
-                                                        'in',
-                                                        'not_in',
-                                                        'is_cleaned_path_exact',
-                                                        'flag_evaluates_to',
-                                                        'semver_eq',
-                                                        'semver_neq',
-                                                        'semver_gt',
-                                                        'semver_gte',
-                                                        'semver_lt',
-                                                        'semver_lte',
-                                                        'semver_tilde',
-                                                        'semver_caret',
-                                                        'semver_wildcard',
-                                                        'icontains_multi',
-                                                        'not_icontains_multi',
-                                                    ]),
-                                                    zod.null(),
-                                                ])
-                                                .default(
-                                                    experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOperatorDefault
-                                                ),
-                                            type: zod
-                                                .literal('event')
-                                                .default(
-                                                    experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTypeDefault
-                                                )
-                                                .describe('Event properties'),
-                                            value: zod
-                                                .union([
-                                                    zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
-                                                    zod.string(),
-                                                    zod.number(),
-                                                    zod.boolean(),
-                                                    zod.null(),
-                                                ])
-                                                .optional(),
-                                        })
+                                        zod.union([
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod
+                                                    .union([
+                                                        zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneOperatorDefault
+                                                    ),
+                                                type: zod
+                                                    .literal('event')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneTypeDefault
+                                                    )
+                                                    .describe('Event properties'),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('person')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwoTypeDefault
+                                                    )
+                                                    .describe('Person properties'),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                cohort_name: zod.union([zod.string(), zod.null()]).optional(),
+                                                key: zod
+                                                    .literal('id')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemThreeKeyDefault
+                                                    ),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod
+                                                    .union([
+                                                        zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemThreeOperatorDefault
+                                                    ),
+                                                type: zod
+                                                    .literal('cohort')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemThreeTypeDefault
+                                                    ),
+                                                value: zod.number(),
+                                            }),
+                                            zod.object({
+                                                key: zod.enum(['tag_name', 'text', 'href', 'selector']),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('element')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemFourTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('session')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemFiveTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                type: zod
+                                                    .literal('hogql')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSixTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('data_warehouse')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSevenTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('data_warehouse_person_property')
+                                                    .default(
+                                                        experimentsPartialUpdateBodyExposureCriteriaOneExposureConfigOnePropertiesItemEightTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                        ])
                                     )
-                                    .describe('Event property filters. Pass an empty array if no filters needed.'),
+                                    .describe(
+                                        'Property filters to refine exposure. Pass an empty array if no filters needed.'
+                                    ),
                             }),
                             zod.null(),
                         ])
@@ -5578,8 +6326,17 @@ export const experimentsDuplicateCreateBodyNameMax = 400
 export const experimentsDuplicateCreateBodyDescriptionMax = 3000
 
 export const experimentsDuplicateCreateBodyArchivedDefault = false
-export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOperatorDefault = `exact`
-export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTypeDefault = `event`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneOperatorDefault = `exact`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneTypeDefault = `event`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwoTypeDefault = `person`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemThreeKeyDefault = `id`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemThreeOperatorDefault = `in`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemThreeTypeDefault = `cohort`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemFourTypeDefault = `element`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemFiveTypeDefault = `session`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSixTypeDefault = `hogql`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSevenTypeDefault = `data_warehouse`
+export const experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemEightTypeDefault = `data_warehouse_person_property`
 export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemOperatorDefault = `exact`
 export const experimentsDuplicateCreateBodyMetricsOneItemCompletionEventOnePropertiesOneItemTypeDefault = `event`
 export const experimentsDuplicateCreateBodyMetricsOneItemDenominatorOnePropertiesOneItemOperatorDefault = `exact`
@@ -5825,70 +6582,435 @@ export const ExperimentsDuplicateCreateBody = /* @__PURE__ */ zod
                                     ),
                                 properties: zod
                                     .array(
-                                        zod.object({
-                                            key: zod.string(),
-                                            label: zod.union([zod.string(), zod.null()]).optional(),
-                                            operator: zod
-                                                .union([
-                                                    zod.enum([
-                                                        'exact',
-                                                        'is_not',
-                                                        'icontains',
-                                                        'not_icontains',
-                                                        'regex',
-                                                        'not_regex',
-                                                        'gt',
-                                                        'gte',
-                                                        'lt',
-                                                        'lte',
-                                                        'is_set',
-                                                        'is_not_set',
-                                                        'is_date_exact',
-                                                        'is_date_before',
-                                                        'is_date_after',
-                                                        'between',
-                                                        'not_between',
-                                                        'min',
-                                                        'max',
-                                                        'in',
-                                                        'not_in',
-                                                        'is_cleaned_path_exact',
-                                                        'flag_evaluates_to',
-                                                        'semver_eq',
-                                                        'semver_neq',
-                                                        'semver_gt',
-                                                        'semver_gte',
-                                                        'semver_lt',
-                                                        'semver_lte',
-                                                        'semver_tilde',
-                                                        'semver_caret',
-                                                        'semver_wildcard',
-                                                        'icontains_multi',
-                                                        'not_icontains_multi',
-                                                    ]),
-                                                    zod.null(),
-                                                ])
-                                                .default(
-                                                    experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOperatorDefault
-                                                ),
-                                            type: zod
-                                                .literal('event')
-                                                .default(
-                                                    experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTypeDefault
-                                                )
-                                                .describe('Event properties'),
-                                            value: zod
-                                                .union([
-                                                    zod.array(zod.union([zod.string(), zod.number(), zod.boolean()])),
-                                                    zod.string(),
-                                                    zod.number(),
-                                                    zod.boolean(),
-                                                    zod.null(),
-                                                ])
-                                                .optional(),
-                                        })
+                                        zod.union([
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod
+                                                    .union([
+                                                        zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneOperatorDefault
+                                                    ),
+                                                type: zod
+                                                    .literal('event')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemOneTypeDefault
+                                                    )
+                                                    .describe('Event properties'),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('person')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemTwoTypeDefault
+                                                    )
+                                                    .describe('Person properties'),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                cohort_name: zod.union([zod.string(), zod.null()]).optional(),
+                                                key: zod
+                                                    .literal('id')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemThreeKeyDefault
+                                                    ),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod
+                                                    .union([
+                                                        zod.enum([
+                                                            'exact',
+                                                            'is_not',
+                                                            'icontains',
+                                                            'not_icontains',
+                                                            'regex',
+                                                            'not_regex',
+                                                            'gt',
+                                                            'gte',
+                                                            'lt',
+                                                            'lte',
+                                                            'is_set',
+                                                            'is_not_set',
+                                                            'is_date_exact',
+                                                            'is_date_before',
+                                                            'is_date_after',
+                                                            'between',
+                                                            'not_between',
+                                                            'min',
+                                                            'max',
+                                                            'in',
+                                                            'not_in',
+                                                            'is_cleaned_path_exact',
+                                                            'flag_evaluates_to',
+                                                            'semver_eq',
+                                                            'semver_neq',
+                                                            'semver_gt',
+                                                            'semver_gte',
+                                                            'semver_lt',
+                                                            'semver_lte',
+                                                            'semver_tilde',
+                                                            'semver_caret',
+                                                            'semver_wildcard',
+                                                            'icontains_multi',
+                                                            'not_icontains_multi',
+                                                        ]),
+                                                        zod.null(),
+                                                    ])
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemThreeOperatorDefault
+                                                    ),
+                                                type: zod
+                                                    .literal('cohort')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemThreeTypeDefault
+                                                    ),
+                                                value: zod.number(),
+                                            }),
+                                            zod.object({
+                                                key: zod.enum(['tag_name', 'text', 'href', 'selector']),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('element')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemFourTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('session')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemFiveTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                type: zod
+                                                    .literal('hogql')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSixTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('data_warehouse')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemSevenTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                            zod.object({
+                                                key: zod.string(),
+                                                label: zod.union([zod.string(), zod.null()]).optional(),
+                                                operator: zod.enum([
+                                                    'exact',
+                                                    'is_not',
+                                                    'icontains',
+                                                    'not_icontains',
+                                                    'regex',
+                                                    'not_regex',
+                                                    'gt',
+                                                    'gte',
+                                                    'lt',
+                                                    'lte',
+                                                    'is_set',
+                                                    'is_not_set',
+                                                    'is_date_exact',
+                                                    'is_date_before',
+                                                    'is_date_after',
+                                                    'between',
+                                                    'not_between',
+                                                    'min',
+                                                    'max',
+                                                    'in',
+                                                    'not_in',
+                                                    'is_cleaned_path_exact',
+                                                    'flag_evaluates_to',
+                                                    'semver_eq',
+                                                    'semver_neq',
+                                                    'semver_gt',
+                                                    'semver_gte',
+                                                    'semver_lt',
+                                                    'semver_lte',
+                                                    'semver_tilde',
+                                                    'semver_caret',
+                                                    'semver_wildcard',
+                                                    'icontains_multi',
+                                                    'not_icontains_multi',
+                                                ]),
+                                                type: zod
+                                                    .literal('data_warehouse_person_property')
+                                                    .default(
+                                                        experimentsDuplicateCreateBodyExposureCriteriaOneExposureConfigOnePropertiesItemEightTypeDefault
+                                                    ),
+                                                value: zod
+                                                    .union([
+                                                        zod.array(
+                                                            zod.union([zod.string(), zod.number(), zod.boolean()])
+                                                        ),
+                                                        zod.string(),
+                                                        zod.number(),
+                                                        zod.boolean(),
+                                                        zod.null(),
+                                                    ])
+                                                    .optional(),
+                                            }),
+                                        ])
                                     )
-                                    .describe('Event property filters. Pass an empty array if no filters needed.'),
+                                    .describe(
+                                        'Property filters to refine exposure. Pass an empty array if no filters needed.'
+                                    ),
                             }),
                             zod.null(),
                         ])

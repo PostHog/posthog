@@ -888,6 +888,72 @@ export interface EventPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export interface PersonPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Person properties */
+    type?: 'person'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface CohortPropertyFilterApi {
+    cohort_name?: string | null
+    key?: 'id'
+    label?: string | null
+    operator?: PropertyOperatorApi | null
+    type?: 'cohort'
+    value: number
+}
+
+export type Key10Api = (typeof Key10Api)[keyof typeof Key10Api]
+
+export const Key10Api = {
+    TagName: 'tag_name',
+    Text: 'text',
+    Href: 'href',
+    Selector: 'selector',
+} as const
+
+export interface ElementPropertyFilterApi {
+    key: Key10Api
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'element'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface SessionPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'session'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface HogQLPropertyFilterApi {
+    key: string
+    label?: string | null
+    type?: 'hogql'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface DataWarehousePropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'data_warehouse'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
+export interface DataWarehousePersonPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    type?: 'data_warehouse_person_property'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export interface ExperimentApiExposureConfigApi {
     /** Custom exposure event name. Required when kind is 'ExperimentEventExposureConfig'. */
     event?: string | null
@@ -895,8 +961,17 @@ export interface ExperimentApiExposureConfigApi {
     id?: number | null
     /** Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure. */
     kind?: Kind1Api | null
-    /** Event property filters. Pass an empty array if no filters needed. */
-    properties: EventPropertyFilterApi[]
+    /** Property filters to refine exposure. Pass an empty array if no filters needed. */
+    properties: (
+        | EventPropertyFilterApi
+        | PersonPropertyFilterApi
+        | CohortPropertyFilterApi
+        | ElementPropertyFilterApi
+        | SessionPropertyFilterApi
+        | HogQLPropertyFilterApi
+        | DataWarehousePropertyFilterApi
+        | DataWarehousePersonPropertyFilterApi
+    )[]
 }
 
 export type MultipleVariantHandlingApi = (typeof MultipleVariantHandlingApi)[keyof typeof MultipleVariantHandlingApi]

@@ -21401,8 +21401,8 @@ export namespace Schemas {
       id?: number | null;
       /** Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure. */
       kind?: Kind1 | null;
-      /** Event property filters. Pass an empty array if no filters needed. */
-      properties: EventPropertyFilter[];
+      /** Property filters to refine exposure. Pass an empty array if no filters needed. */
+      properties: (EventPropertyFilter | PersonPropertyFilter | CohortPropertyFilter | ElementPropertyFilter | SessionPropertyFilter | HogQLPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter)[];
     }
 
     export interface ExperimentApiExposureCriteria {
