@@ -407,17 +407,17 @@ export interface PaginatedErrorTrackingBypassRuleListApi {
 }
 
 export interface ErrorTrackingBypassRuleCreateRequestApi {
-    /** Optional property-group filters that define which incoming error events bypass rate limiting. Omit this field or provide an empty `values` array to create a match-all bypass rule. */
-    filters?: PropertyGroupFilterValueApi
+    /** Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter — empty rules are rejected. To stop rate limiting entirely, adjust the rate limit settings instead of creating a match-all bypass rule. */
+    filters: PropertyGroupFilterValueApi
 }
 
 export interface ErrorTrackingBypassRuleUpdateRequestApi {
-    /** Property-group filters that define which incoming error events bypass rate limiting. Provide an empty `values` array to convert the rule into a match-all bypass. Omit to preserve the existing filters. */
+    /** Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter. Omit to preserve the existing filters. */
     filters?: PropertyGroupFilterValueApi
 }
 
 export interface PatchedErrorTrackingBypassRuleUpdateRequestApi {
-    /** Property-group filters that define which incoming error events bypass rate limiting. Provide an empty `values` array to convert the rule into a match-all bypass. Omit to preserve the existing filters. */
+    /** Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter. Omit to preserve the existing filters. */
     filters?: PropertyGroupFilterValueApi
 }
 

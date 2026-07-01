@@ -3,7 +3,6 @@ from posthog.test.base import APIBaseTest
 from parameterized import parameterized
 from rest_framework import status
 
-from products.error_tracking.backend.logic import match_all_bytecode
 from products.error_tracking.backend.models import ErrorTrackingBypassRule
 
 VALID_FILTERS = {
@@ -43,15 +42,12 @@ class TestBypassRuleAPI(APIBaseTest):
         assert rule.bytecode is not None
         assert len(rule.bytecode) > 0
 
-    def test_create_without_filters_creates_match_all_rule(self) -> None:
+    def test_create_without_filters_returns_400(self) -> None:
         response = self.client.post(self._url(), data={}, format="json")
 
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-        data = response.json()
-        assert data["filters"] == {"type": "AND", "values": []}
-
-        rule = ErrorTrackingBypassRule.objects.get(id=data["id"])
-        assert rule.bytecode is not None
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "filters"
+        assert not ErrorTrackingBypassRule.objects.exists()
 
     def test_create_invalid_filters_returns_400(self) -> None:
         response = self.client.post(self._url(), data={"filters": {"not": "valid"}}, format="json")
@@ -61,24 +57,32 @@ class TestBypassRuleAPI(APIBaseTest):
 
     @parameterized.expand(
         [
+            ("empty_values", {"type": "AND", "values": []}),
             ("empty_object_leaf", {"type": "AND", "values": [{}]}),
             ("keyless_leaf", {"type": "AND", "values": [{"not": "valid"}]}),
             ("empty_nested_group", {"type": "AND", "values": [{"type": "AND", "values": []}]}),
         ]
     )
-    def test_create_valueless_nonempty_filters_returns_400(self, _name: str, filters: dict) -> None:
+    def test_create_rejects_filters_without_values(self, _name: str, filters: dict) -> None:
+        # An empty or keyless filter would compile to a match-all bypass that disables all rate
+        # limiting for the project — the API must reject it, mirroring the UI's disabled Save button.
         response = self.client.post(self._url(), data={"filters": filters}, format="json")
 
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
         assert response.json()["attr"] == "filters"
         assert not ErrorTrackingBypassRule.objects.exists()
 
-    def test_create_explicit_empty_values_creates_match_all_rule(self) -> None:
-        response = self.client.post(self._url(), data={"filters": {"type": "AND", "values": []}}, format="json")
+    def test_update_with_empty_filters_returns_400(self) -> None:
+        rule = ErrorTrackingBypassRule.objects.create(team=self.team, filters=VALID_FILTERS, bytecode=[], order_key=0)
 
-        assert response.status_code == status.HTTP_201_CREATED, response.json()
-        rule = ErrorTrackingBypassRule.objects.get(id=response.json()["id"])
-        assert rule.bytecode == match_all_bytecode()
+        response = self.client.patch(
+            self._url(str(rule.id)), data={"filters": {"type": "AND", "values": []}}, format="json"
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+        assert response.json()["attr"] == "filters"
+        rule.refresh_from_db()
+        assert rule.filters == VALID_FILTERS
 
     def test_update_recompiles_bytecode_and_clears_disabled_data(self) -> None:
         rule = ErrorTrackingBypassRule.objects.create(

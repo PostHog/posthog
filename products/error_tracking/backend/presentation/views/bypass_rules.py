@@ -45,29 +45,28 @@ class ErrorTrackingBypassRuleFiltersField(serializers.JSONField):
         if not isinstance(value, dict):
             raise serializers.ValidationError("Expected an object.")
 
-        if error_tracking_api.has_filter_values(value):
-            try:
-                PropertyGroupFilterValue(**value)
-            except (PydanticValidationError, TypeError) as err:
-                logger.warning("Invalid bypass rule filters payload", exc_info=err)
-                raise serializers.ValidationError("Invalid filters payload.") from err
-        elif value.get("values"):
-            # A non-empty `values` list whose leaves carry no `key` has no usable filter and would
-            # silently compile to a match-all rule that bypasses all rate limiting. Only a genuinely
-            # empty `values` array (or an omitted field) may mean match-all.
-            raise serializers.ValidationError("Invalid filters")
-        elif "values" not in value:
-            raise serializers.ValidationError("Invalid filters")
+        # A bypass rule must target specific exceptions. Empty or keyless filters compile to a
+        # match-all rule that bypasses all rate limiting for the project — use the rate limit
+        # settings to disable rate limiting instead of creating a catch-all bypass rule.
+        if not error_tracking_api.has_filter_values(value):
+            raise serializers.ValidationError("A bypass rule must have at least one filter.")
+
+        try:
+            PropertyGroupFilterValue(**value)
+        except (PydanticValidationError, TypeError) as err:
+            logger.warning("Invalid bypass rule filters payload", exc_info=err)
+            raise serializers.ValidationError("Invalid filters payload.") from err
 
         return value
 
 
 class ErrorTrackingBypassRuleCreateRequestSerializer(serializers.Serializer):
     filters = ErrorTrackingBypassRuleFiltersField(
-        required=False,
+        required=True,
         help_text=(
-            "Optional property-group filters that define which incoming error events bypass rate limiting. "
-            "Omit this field or provide an empty `values` array to create a match-all bypass rule."
+            "Property-group filters that define which incoming error events bypass rate limiting. "
+            "Must contain at least one filter — empty rules are rejected. To stop rate limiting "
+            "entirely, adjust the rate limit settings instead of creating a match-all bypass rule."
         ),
     )
 
@@ -77,8 +76,7 @@ class ErrorTrackingBypassRuleUpdateRequestSerializer(serializers.Serializer):
         required=False,
         help_text=(
             "Property-group filters that define which incoming error events bypass rate limiting. "
-            "Provide an empty `values` array to convert the rule into a match-all bypass. "
-            "Omit to preserve the existing filters."
+            "Must contain at least one filter. Omit to preserve the existing filters."
         ),
     )
 
@@ -145,9 +143,7 @@ class ErrorTrackingBypassRuleViewSet(TeamAndOrgViewSetMixin, viewsets.GenericVie
         responses={201: OpenApiResponse(response=ErrorTrackingBypassRuleSerializer)},
     )
     def create(self, request: ValidatedRequest, *args, **kwargs) -> Response:
-        filters = request.validated_data.get("filters")
-        if filters is None:
-            filters = {"type": "AND", "values": []}
+        filters = request.validated_data["filters"]
         try:
             rule = error_tracking_api.create_bypass_rule(self.team.id, filters=filters)
         except error_tracking_api.InvalidBytecodeError as err:

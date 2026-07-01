@@ -274,7 +274,7 @@ export const getErrorTrackingBypassRulesCreateUrl = (projectId: string) => {
 
 export const errorTrackingBypassRulesCreate = async (
     projectId: string,
-    errorTrackingBypassRuleCreateRequestApi?: ErrorTrackingBypassRuleCreateRequestApi,
+    errorTrackingBypassRuleCreateRequestApi: ErrorTrackingBypassRuleCreateRequestApi,
     options?: RequestInit
 ): Promise<ErrorTrackingBypassRuleApi> => {
     return apiMutator<ErrorTrackingBypassRuleApi>(getErrorTrackingBypassRulesCreateUrl(projectId), {

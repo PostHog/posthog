@@ -3,8 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 
-import { NodeKind, ProductKey } from '~/queries/schema/schema-general'
-import { AnyPropertyFilter, FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
+import { FilterLogicalOperator, UniversalFiltersGroup } from '~/types'
 
 import { rulesLogic } from '../rules/rulesLogic'
 import { ErrorTrackingBypassRule, ErrorTrackingRuleType } from '../rules/types'
@@ -33,7 +32,6 @@ export const bypassRuleModalLogic = kea<bypassRuleModalLogicType>([
         openModal: (rule?: ErrorTrackingBypassRule) => ({ rule: rule ?? null }),
         closeModal: true,
         updateRule: (rule: ErrorTrackingBypassRule) => ({ rule }),
-        increaseDateRange: true,
     }),
 
     reducers({
@@ -46,51 +44,9 @@ export const bypassRuleModalLogic = kea<bypassRuleModalLogicType>([
                 updateRule: (_: ErrorTrackingBypassRule, { rule }: { rule: ErrorTrackingBypassRule }) => rule,
             },
         ],
-        dateRange: [
-            '-7d' as string,
-            {
-                openModal: () => '-7d',
-                updateRule: () => '-7d',
-                increaseDateRange: (state: string) => {
-                    const next: Record<string, string> = { '-7d': '-30d', '-30d': '-90d' }
-                    return next[state] ?? state
-                },
-            },
-        ],
     }),
 
     loaders(({ values }) => ({
-        matchResult: [
-            null as { exceptionCount: number; issueCount: number } | null,
-            {
-                loadMatchCount: async () => {
-                    const filters = values.rule.filters as UniversalFiltersGroup
-                    const properties = (filters.values as AnyPropertyFilter[]) ?? []
-
-                    const query: Record<string, any> = {
-                        kind: NodeKind.EventsQuery,
-                        event: '$exception',
-                        select: ['count()', 'count(distinct properties.$exception_issue_id)'],
-                        after: values.dateRange,
-                        tags: { productKey: ProductKey.ERROR_TRACKING },
-                    }
-
-                    if (properties.length > 0) {
-                        query.fixedProperties = [
-                            { type: filters.type ?? FilterLogicalOperator.And, values: properties },
-                        ]
-                    }
-
-                    const response = (await api.query(query)) as Record<string, any>
-
-                    return {
-                        exceptionCount: response.results?.[0]?.[0] ?? 0,
-                        issueCount: response.results?.[0]?.[1] ?? 0,
-                    }
-                },
-                resetMatchCount: () => null,
-            },
-        ],
         saving: [
             false,
             {
@@ -125,15 +81,6 @@ export const bypassRuleModalLogic = kea<bypassRuleModalLogicType>([
         deleteRuleSuccess: () => {
             actions.closeModal()
             rulesLogic({ ruleType: ErrorTrackingRuleType.Bypass }).actions.loadRules()
-        },
-        openModal: () => {
-            actions.resetMatchCount()
-        },
-        updateRule: () => {
-            actions.resetMatchCount()
-        },
-        increaseDateRange: () => {
-            actions.loadMatchCount()
         },
     })),
 

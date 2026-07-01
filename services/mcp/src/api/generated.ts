@@ -19097,12 +19097,12 @@ export namespace Schemas {
     }
 
     export interface ErrorTrackingBypassRuleCreateRequest {
-      /** Optional property-group filters that define which incoming error events bypass rate limiting. Omit this field or provide an empty `values` array to create a match-all bypass rule. */
-      filters?: PropertyGroupFilterValue;
+      /** Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter — empty rules are rejected. To stop rate limiting entirely, adjust the rate limit settings instead of creating a match-all bypass rule. */
+      filters: PropertyGroupFilterValue;
     }
 
     export interface ErrorTrackingBypassRuleUpdateRequest {
-      /** Property-group filters that define which incoming error events bypass rate limiting. Provide an empty `values` array to convert the rule into a match-all bypass. Omit to preserve the existing filters. */
+      /** Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter. Omit to preserve the existing filters. */
       filters?: PropertyGroupFilterValue;
     }
 
@@ -36819,7 +36819,7 @@ export namespace Schemas {
     }
 
     export interface PatchedErrorTrackingBypassRuleUpdateRequest {
-      /** Property-group filters that define which incoming error events bypass rate limiting. Provide an empty `values` array to convert the rule into a match-all bypass. Omit to preserve the existing filters. */
+      /** Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter. Omit to preserve the existing filters. */
       filters?: PropertyGroupFilterValue;
     }
 
