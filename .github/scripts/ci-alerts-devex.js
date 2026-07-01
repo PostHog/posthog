@@ -363,8 +363,9 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
     const commitThreshold = parseInt(process.env.COMMIT_FAILURE_STREAK_THRESHOLD || '10', 10)
     // Page size for the run fetch. fetchWorkflowRuns pages until the streak is settled, so this only
     // trades round-trips against page size; keep it wide enough to resolve the common case in one page
-    // despite the in-progress/cancelled runs it now drops client-side.
-    const perPage = Math.max(workflowThreshold * 6, 40)
+    // despite the in-progress/cancelled runs it now drops client-side. Clamp to GitHub's per_page max
+    // of 100 (silently capped otherwise) so a tuned-up streak threshold can't quietly lose capacity.
+    const perPage = Math.min(Math.max(workflowThreshold * 6, 40), 100)
     const commitsToFetch = Math.max(commitThreshold * 2, 25)
 
     // Recompute master health from the API and read the Slack incident state (the
