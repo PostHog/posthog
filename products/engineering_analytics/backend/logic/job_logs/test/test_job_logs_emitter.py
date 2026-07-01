@@ -1,4 +1,5 @@
 from datetime import UTC, datetime
+
 from unittest.mock import patch
 
 from opentelemetry.exporter.otlp.proto.common._internal._log_encoder import encode_logs

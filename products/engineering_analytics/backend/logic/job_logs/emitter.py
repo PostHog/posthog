@@ -23,6 +23,7 @@ from opentelemetry.sdk.resources import Resource
 from opentelemetry.trace import TraceFlags
 
 from posthog.security.outbound_proxy import internal_requests_session
+
 from products.engineering_analytics.backend.logic.job_logs.constants import CI_LOGS_SERVICE_NAME as _SERVICE_NAME
 from products.engineering_analytics.backend.logic.job_logs.thinning import ThinnedLine
 
