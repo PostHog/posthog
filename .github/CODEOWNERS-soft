@@ -35,6 +35,16 @@ posthog/temporal/messaging/ @PostHog/team-workflows
 frontend/src/scenes/data-pipelines/ @PostHog/team-workflows
 frontend/src/scenes/hog-functions/ @PostHog/team-workflows
 
+# Platform email infrastructure - owned by @PostHog/team-platform-features
+# The shared SMTP/HTTP send path, email settings, and platform-level emails (e.g. daily/weekly
+# project digests). Product-specific emails keep their own owners via more specific entries
+# (workflows messaging above; weekly digest temporal workflow and AI observability templates below).
+posthog/email.py @PostHog/team-platform-features
+posthog/settings/email.py @PostHog/team-platform-features
+posthog/tasks/email.py @PostHog/team-platform-features
+posthog/tasks/email_utils.py @PostHog/team-platform-features
+posthog/helpers/email_utils.py @PostHog/team-platform-features
+
 # Web Analytics - owned by @PostHog/team-web-analytics
 frontend/src/scenes/web-analytics/** @PostHog/team-web-analytics
 posthog/models/web_preaggregated/** @PostHog/team-web-analytics
