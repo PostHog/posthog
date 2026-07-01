@@ -1,7 +1,9 @@
-import { type FileDiffMetadata, type FileDiffOptions, parsePatchFiles } from '@pierre/diffs'
+import { type ChangeTypes, type FileDiffMetadata, type FileDiffOptions, parsePatchFiles } from '@pierre/diffs'
 import { FileDiff } from '@pierre/diffs/react'
 import { useValues } from 'kea'
 import { useMemo } from 'react'
+
+import { LemonTag, type LemonTagType } from '@posthog/lemon-ui'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
@@ -9,12 +11,50 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 // `themeType`, which we drive off PostHog's own light/dark state.
 const DIFF_THEME = { light: 'github-light', dark: 'github-dark' } as const
 
+// Pierre's own file header uses a colour-coded glyph and a prose-font filename, neither of which reads
+// clearly in our UI. We replace it with a labelled status tag + monospace path, in PostHog's tokens.
+const CHANGE_META: Record<ChangeTypes, { label: string; type: LemonTagType }> = {
+    new: { label: 'Added', type: 'success' },
+    deleted: { label: 'Deleted', type: 'danger' },
+    change: { label: 'Modified', type: 'muted' },
+    'rename-pure': { label: 'Renamed', type: 'highlight' },
+    'rename-changed': { label: 'Renamed', type: 'highlight' },
+}
+
+/** Our own file header (rendered into Pierre's light-DOM header slot): status tag + monospace path + counts. */
+function FileDiffHeader({ file }: { file: FileDiffMetadata }): JSX.Element {
+    const meta = CHANGE_META[file.type] ?? { label: 'Changed', type: 'muted' as const }
+    let additions = 0
+    let deletions = 0
+    for (const hunk of file.hunks) {
+        additions += hunk.additionLines
+        deletions += hunk.deletionLines
+    }
+    const path = file.prevName ? `${file.prevName} → ${file.name}` : file.name
+
+    return (
+        <div className="flex items-center gap-2 min-w-0 border-b border-primary px-3 py-2">
+            <LemonTag size="small" type={meta.type}>
+                {meta.label}
+            </LemonTag>
+            <span className="truncate font-mono text-xs text-secondary" title={path}>
+                {path}
+            </span>
+            <span className="ml-auto flex shrink-0 items-center gap-2 font-mono text-xs tabular-nums">
+                {deletions > 0 && <span className="text-danger">-{deletions}</span>}
+                {additions > 0 && <span className="text-success">+{additions}</span>}
+            </span>
+        </div>
+    )
+}
+
 /**
  * Read-only, GitHub-style rendering of a unified diff string (the branch-vs-default-branch patch the
  * backend returns for a `commit` artefact). Each file in the patch is rendered with `@pierre/diffs`,
- * which gives Shiki syntax highlighting, file headers, and hunk expansion out of the box. Inspection
- * only — no commenting. The worker pool is disabled so highlighting runs without a separately-served
- * worker bundle; diffs are size-bounded by the backend (see `truncated`), so main-thread is fine.
+ * which gives Shiki syntax highlighting and hunk expansion out of the box; we swap its file header for
+ * our own (`renderCustomHeader`) so it reads in PostHog's visual language. Inspection only — no
+ * commenting. The worker pool is disabled so highlighting runs without a separately-served worker
+ * bundle; diffs are size-bounded by the backend (see `truncated`), so main-thread is fine.
  */
 export function PullRequestDiffView({
     diff,
@@ -67,12 +107,17 @@ export function PullRequestDiffView({
         <div className="flex flex-col gap-3">
             {files.map((file) => (
                 // Card chrome around each file so the diff sits in PostHog's visual language (bordered,
-                // rounded surface); @pierre/diffs renders its own header + syntax-highlighted body inside.
+                // rounded surface); @pierre/diffs renders the syntax-highlighted body inside.
                 <div
                     key={`${file.name}-${file.cacheKey ?? file.newObjectId ?? ''}`}
                     className="overflow-hidden rounded-lg border border-primary bg-surface-primary"
                 >
-                    <FileDiff fileDiff={file} options={options} disableWorkerPool />
+                    <FileDiff
+                        fileDiff={file}
+                        options={options}
+                        renderCustomHeader={(fileDiff) => <FileDiffHeader file={fileDiff} />}
+                        disableWorkerPool
+                    />
                 </div>
             ))}
             {truncated ? (

@@ -1,8 +1,8 @@
 import { useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconCode } from '@posthog/icons'
-import { LemonSegmentedButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { IconCode, IconGitBranch } from '@posthog/icons'
+import { LemonSegmentedButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -81,9 +81,16 @@ export function PullRequestDiffPanel({
             }
         >
             <div className="flex flex-col gap-3">
-                <LemonTag type="muted" className="w-fit font-mono">
-                    {commit.repository}@{commit.branch}
-                </LemonTag>
+                <div
+                    className="flex items-center gap-1.5 text-xs text-tertiary"
+                    title={`${commit.repository}@${commit.branch}`}
+                >
+                    <IconGitBranch className="shrink-0" />
+                    <span>
+                        Comparing branch <span className="font-mono text-secondary">{commit.branch}</span> against the
+                        default branch
+                    </span>
+                </div>
                 {loading ? (
                     <div className="flex flex-col gap-2">
                         <LemonSkeleton className="h-8 w-full" />
