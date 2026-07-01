@@ -32,7 +32,7 @@ export function TrendLineOverlay({ trendSeries }: TrendLineOverlayProps): React.
                     }
                     const x = scales.x(labels[i])
                     const y = yScale(rawY as number)
-                    if (!isFinite(x) || !isFinite(y)) {
+                    if (x == null || !isFinite(x) || !isFinite(y)) {
                         continue
                     }
                     points.push(`${x},${y}`)

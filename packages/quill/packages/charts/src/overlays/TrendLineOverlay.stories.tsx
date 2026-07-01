@@ -29,7 +29,7 @@ export const SingleSeriesWithTrend: Story = {
                     theme={theme}
                     config={{
                         barLayout: 'grouped',
-                        showGrid: true,
+                        yAxis: { showGrid: true },
                         trendLines: [{ seriesKey: 'revenue', kind: 'linear' }],
                     }}
                 />
@@ -55,7 +55,7 @@ export const StackedWithTrendLines: Story = {
                     theme={theme}
                     config={{
                         barLayout: 'stacked',
-                        showGrid: true,
+                        yAxis: { showGrid: true },
                         trendLines: [
                             { seriesKey: 'a', kind: 'linear' },
                             { seriesKey: 'b', kind: 'linear' },
