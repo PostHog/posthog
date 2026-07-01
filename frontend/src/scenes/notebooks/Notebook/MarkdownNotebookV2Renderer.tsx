@@ -18,13 +18,14 @@ import {
 import type { MarkdownNotebookCaretPosition, RemoteNotebookCaret } from 'lib/components/MarkdownNotebook/remoteCarets'
 import type { NotebookBlockNode } from 'lib/components/MarkdownNotebook/types'
 import { getInlineText } from 'lib/components/MarkdownNotebook/utils'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { uuid } from 'lib/utils/dom'
 
 import type { NotebookArtifactContent } from '~/queries/schema/schema-assistant-messages'
 
 import { MarkdownNotebookExperimentPicker } from './MarkdownNotebookExperimentPicker'
 import { InlineAIAssistantMessage, InlineAICompletion, InlineNotebookAIRunner } from './MarkdownNotebookInlineAI'
-import { NOTEBOOK_MARKDOWN_REGISTRY } from './markdownNotebookRegistry'
+import { getMarkdownRegistryForFeatureFlags } from './markdownNotebookRegistry'
 import {
     InlineNotebookAIRequest,
     MarkdownNotebookRuntimeContext,
@@ -55,6 +56,8 @@ type MarkdownNotebookV2Props = {
 export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNotebookV2Props): JSX.Element {
     const { isEditable, notebook, markdownEditorValue, markdownEditorInteractionActive, markdownRemoteCarets } =
         useValues(notebookLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const markdownRegistry = useMemo(() => getMarkdownRegistryForFeatureFlags(featureFlags), [featureFlags])
     const {
         handleMarkdownEditorChange,
         setMarkdownEditorInteractionActive,
@@ -576,7 +579,7 @@ export function MarkdownNotebookV2({ debugOpen, onDebugOpenChange }: MarkdownNot
                 remoteValue={remoteMarkdown}
                 remoteVersion={notebook?.version}
                 mode={isEditable ? 'edit' : 'view'}
-                registry={NOTEBOOK_MARKDOWN_REGISTRY}
+                registry={markdownRegistry}
                 extraInsertCommands={isEditable ? buildExtraInsertCommands : undefined}
                 onChange={isEditable ? handleMarkdownNotebookChange : undefined}
                 onConflict={reportMarkdownMergeConflicts}

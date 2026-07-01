@@ -50,6 +50,8 @@ import {
     NotebookPropValue,
 } from 'lib/components/MarkdownNotebook/types'
 import { isNotebookPropValue, toSerializablePropValue } from 'lib/components/MarkdownNotebook/utils'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { type FeatureFlagsSet } from 'lib/logic/featureFlagLogic'
 
 import { NODE_ICONS } from '../nodeIcons'
 import { NotebookNodeContext } from '../Nodes/NotebookNodeContext'
@@ -147,7 +149,9 @@ export const MARKDOWN_NODE_DEFINITIONS: {
     { tagName: 'Python', category: 'Code' },
     { tagName: 'DuckSQL', category: 'SQL', label: 'SQL (DuckDB)' },
     { tagName: 'HogQLSQL', category: 'SQL', label: 'SQL (HogQL)' },
-    { tagName: 'DataV2', category: 'SQL', label: 'Data (v2)' },
+    // insertCommand makes it show in the markdown insert menu; the feature-flag gate in
+    // getMarkdownRegistryForFeatureFlags strips it when revamped-py-notebooks is off.
+    { tagName: 'DataV2', category: 'SQL', label: 'Data (v2)', insertCommand: { aliases: ['data', 'sql'] } },
     { tagName: 'RecordingPlaylist', category: 'Data', label: 'Session recordings' },
     { tagName: 'Experiment', category: 'Experiment' },
     { tagName: 'Image', category: 'Media', EditComponent: ImageEdit },
@@ -224,6 +228,30 @@ export const NOTEBOOK_MARKDOWN_REGISTRY: NotebookComponentRegistry = createMarkd
                 : (getUnknownStringProp(node.props.text) ?? 'Comment'),
     },
 ])
+
+// Node tags that only appear in the markdown insert menu when their feature flag is on.
+// Only insertion is gated — rendering of already-inserted nodes is never gated.
+export function getMarkdownRegistryForFeatureFlags(featureFlags: FeatureFlagsSet): NotebookComponentRegistry {
+    const hiddenTags: string[] = []
+    if (!featureFlags[FEATURE_FLAGS.REVAMPED_PY_NOTEBOOKS]) {
+        hiddenTags.push('DataV2')
+    }
+
+    if (hiddenTags.length === 0) {
+        return NOTEBOOK_MARKDOWN_REGISTRY
+    }
+
+    // Dropping insertCommand hides the node from the insert menu (it filters falsy
+    // insertCommand), while the ViewComponent stays so existing nodes still render.
+    const components = { ...NOTEBOOK_MARKDOWN_REGISTRY.components }
+    for (const tagName of hiddenTags) {
+        const definition = components[tagName]
+        if (definition) {
+            components[tagName] = { ...definition, insertCommand: undefined }
+        }
+    }
+    return { components }
+}
 
 export function getMarkdownNotebookNodeTitle(
     node: NotebookComponentBlockNode,
