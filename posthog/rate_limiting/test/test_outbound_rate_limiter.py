@@ -3,7 +3,7 @@ import pytest
 import posthog.rate_limiting.backends as backends_module
 import posthog.rate_limiting.outbound as outbound_module
 import posthog.rate_limiting.policies as policies_module
-from posthog.rate_limiting import OutboundRateLimiter, RatePolicy, register_policy
+from posthog.rate_limiting import OutboundRateLimiter, Priority, RatePolicy, register_policy
 from posthog.rate_limiting.backends import LimitsBackend
 from posthog.rate_limiting.github import acquire_github_installation, github_installation_key
 from posthog.rate_limiting.policies import resolve_policy
@@ -111,3 +111,66 @@ async def test_github_adapter_registers_policy_and_keys_per_installation():
     # installation so distinct installations draw on independent budgets.
     assert github_installation_key(1) != github_installation_key(2)
     assert await acquire_github_installation(987654321, 1) is True
+
+
+_RESERVE = {Priority.NORMAL: 0.1, Priority.BATCH: 0.3}
+
+
+@pytest.mark.parametrize(
+    "priority,grantable",
+    [
+        # reserve floor = floor(fraction * 10): CRITICAL 0, NORMAL 1, BATCH 3 -> each priority may
+        # consume up to limit - floor before its reserved headroom denies the next call.
+        (Priority.CRITICAL, 10),
+        (Priority.NORMAL, 9),
+        (Priority.BATCH, 7),
+    ],
+)
+async def test_reserved_floor_caps_each_priority(priority, grantable):
+    # The whole point of the lane: a lower priority is denied while headroom is still owed to higher
+    # ones, even though all three draw from the same counter.
+    register_policy("test-reserve", RatePolicy(limits=((10, 3600.0),), reserve=_RESERVE))
+    limiter = _fresh_limiter()
+    # Distinct scope per case — parametrize cases share one Redis-backed counter otherwise.
+    key = f"test-reserve:scope:{priority.value}"
+    grants = [await limiter.acquire(key, priority=priority) for _ in range(11)]
+    assert grants[:grantable] == [True] * grantable
+    assert grants[grantable] is False
+
+
+async def test_batch_shed_before_critical_on_shared_counter():
+    # Fill the non-reserved share with BATCH, then prove BATCH is denied while CRITICAL still draws
+    # from the SAME counter (the reserved floor protected exactly that headroom).
+    register_policy("test-shared", RatePolicy(limits=((10, 3600.0),), reserve={Priority.BATCH: 0.3}))
+    limiter = _fresh_limiter()
+    key = "test-shared:scope:1"
+    assert all([await limiter.acquire(key, priority=Priority.BATCH) for _ in range(7)])
+    assert await limiter.acquire(key, priority=Priority.BATCH) is False
+    assert await limiter.acquire(key, priority=Priority.CRITICAL) is True
+
+
+@pytest.mark.parametrize("priority", [Priority.CRITICAL, Priority.NORMAL, Priority.BATCH])
+async def test_no_reserve_policy_is_priority_blind(priority):
+    # An empty reserve must reproduce the pre-priority behavior for every lane — no headroom held back.
+    register_policy("test-noreserve", RatePolicy(limits=((2, 3600.0),)))
+    limiter = _fresh_limiter()
+    key = f"test-noreserve:scope:{priority.value}"
+    assert [await limiter.acquire(key, priority=priority) for _ in range(3)] == [True, True, False]
+
+
+def test_reserve_inflated_weight_validation():
+    # n plus the reserved floor must fit the limit or it can never be granted — fail loudly, and only
+    # for the priority whose reserve makes it unsatisfiable.
+    register_policy("test-reserve-weight", RatePolicy(limits=((10, 3600.0),), reserve={Priority.BATCH: 0.3}))
+    limiter = _fresh_limiter()
+    key = "test-reserve-weight:scope:1"
+    with pytest.raises(ValueError):
+        limiter.consume_sync(key, 8, priority=Priority.BATCH)  # 8 + floor(0.3*10)=3 -> 11 > 10
+    assert limiter.consume_sync(key, 8, priority=Priority.CRITICAL) is True  # 8 + 0 <= 10
+
+
+@pytest.mark.parametrize("bad_fraction", [-0.1, 1.0, 1.5])
+def test_policy_rejects_out_of_range_reserve(bad_fraction):
+    # A fraction outside [0, 1) is a config error: 1.0 reserves the whole window and denies forever.
+    with pytest.raises(ValueError):
+        RatePolicy(limits=((10, 3600.0),), reserve={Priority.BATCH: bad_fraction})
