@@ -503,6 +503,42 @@ describe('ci-alerts-devex', () => {
         )
     })
 
+    it('pages past a head full of non-terminal runs to reach real failures (regression)', async () => {
+        // A push burst leaves the newest page full of in-progress runs; per_page truncates the raw page
+        // before the client-side status filter, so the completed failures sit on a later page. The
+        // alerter must page to them rather than silently miss the incident (the inverse of the flap).
+        const inProgress = (n) =>
+            Array.from({ length: n }, (_, i) => ({
+                name: 'Backend CI',
+                status: 'in_progress',
+                conclusion: null,
+                head_sha: `ip_${i}`,
+                html_url: `https://github.com/runs/ip/${i}`,
+                created_at: minutes(0).toISOString(),
+                updated_at: minutes(0).toISOString(),
+            }))
+        const failures = runs('Backend CI', Array(5).fill('failure'))
+        const github = {
+            rest: {
+                actions: {
+                    listWorkflowRuns: ({ workflow_id, per_page, page }) => {
+                        if (workflow_id !== 'ci-backend.yml') {
+                            return Promise.resolve({ data: { workflow_runs: runs('Frontend CI', ['success']) } })
+                        }
+                        // First page fills the whole page with in-progress (forcing a second fetch); page 2
+                        // carries the genuine completed failures the raw page-1 truncation hid. A single-page
+                        // fetch (page undefined) only ever sees the in-progress head, so it must miss the incident.
+                        return Promise.resolve({ data: { workflow_runs: page >= 2 ? failures : inProgress(per_page) } })
+                    },
+                },
+                repos: { listCommits: () => Promise.resolve({ data: pushAt(minutes(-3).toISOString()) }) },
+            },
+        }
+        const { outputs } = await run(github)
+        assert.equal(outputs.action, 'create')
+        assert.equal(outputs.blocking_count, '1')
+    })
+
     it('an in-progress run at the head does not mask a real failure streak (regression)', async () => {
         // A just-started run sits atop the fresh page; the 5 completed failures beneath it must still
         // page. Since we now fetch non-terminal runs (no server-side status filter), dropping them

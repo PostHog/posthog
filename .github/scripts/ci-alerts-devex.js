@@ -45,36 +45,52 @@ const STREAK_MAX_GAP_MINUTES = 180
 // GitHub data
 // ---------------------------------------------------------------------------
 
+// The freshest settled runs for a workflow, newest-first.
+//
+// We deliberately do NOT pass `status: 'completed'`. That server-side filter is served from an
+// eventually-consistent index that intermittently returns a page anchored hours/days in the past —
+// so the newest run it reports is stale. The alerter then reads an ancient failure as the newest run
+// and backdates a phantom multi-day outage (opened+resolved in minutes, "red for 70h"). The
+// unfiltered index is fresh, so we read it and drop non-terminal/cancelled runs client-side.
+//
+// The catch: `per_page` truncates the raw page BEFORE our client-side filter, so a head full of
+// in-progress/cancelled runs could push real completed failures off a single page and silently miss
+// an incident. So we page until the leading streak is settled (a kept non-failure bounds the walk)
+// or we hit a bounded cap.
 async function fetchWorkflowRuns(github, owner, repo, workflowFile, perPage) {
-    const { data } = await github.rest.actions.listWorkflowRuns({
-        owner,
-        repo,
-        workflow_id: workflowFile,
-        branch: 'master',
-        event: 'push',
-        per_page: perPage,
-        // NB: deliberately NOT `status: 'completed'`. That server-side filter is served from an
-        // eventually-consistent index that intermittently returns a page anchored hours/days in the
-        // past — so the newest run it reports is stale. The alerter then reads an ancient failure as
-        // the newest run and backdates a phantom multi-day outage (opened+resolved in minutes,
-        // "red for 70h"). The unfiltered index is fresh; we drop non-terminal runs client-side below.
-    })
-
-    // Keep only settled runs with a real conclusion: in-progress/queued are dropped (they must not
-    // count as, nor break, a failure streak — mirroring how unreported commits classify 'unknown'),
-    // and cancelled/skipped never reflect real health (force-pushes, concurrency cancels).
-    return data.workflow_runs
-        .filter((run) => run.status === 'completed')
-        .filter((run) => run.conclusion !== 'cancelled' && run.conclusion !== 'skipped')
-        .map((run) => ({
-            name: run.name,
-            conclusion: run.conclusion,
-            sha: run.head_sha,
-            run_url: run.html_url,
-            updated_at: run.updated_at,
-            created_at: run.created_at, // immutable; updated_at is bumped by re-runs
-            workflow_file: workflowFile,
-        }))
+    const MAX_PAGES = 5
+    const settled = []
+    for (let page = 1; page <= MAX_PAGES; page++) {
+        const { data } = await github.rest.actions.listWorkflowRuns({
+            owner,
+            repo,
+            workflow_id: workflowFile,
+            branch: 'master',
+            event: 'push',
+            per_page: perPage,
+            page,
+        })
+        for (const run of data.workflow_runs) {
+            // In-progress/queued must neither count as nor break a failure streak (mirroring how
+            // unreported commits classify 'unknown'); cancelled/skipped never reflect real health.
+            if (run.status !== 'completed') continue
+            if (run.conclusion === 'cancelled' || run.conclusion === 'skipped') continue
+            settled.push({
+                name: run.name,
+                conclusion: run.conclusion,
+                sha: run.head_sha,
+                run_url: run.html_url,
+                updated_at: run.updated_at,
+                created_at: run.created_at, // immutable; updated_at is bumped by re-runs
+                workflow_file: workflowFile,
+            })
+        }
+        // Once a kept run is a non-failure it terminates the leading streak, so we have all we need.
+        // A short raw page means there are no older runs to fetch.
+        const streakBounded = settled.some((r) => r.conclusion !== 'failure' && r.conclusion !== 'timed_out')
+        if (streakBounded || data.workflow_runs.length < perPage) break
+    }
+    return settled
 }
 
 function countConsecutiveFailures(runs) {
@@ -342,8 +358,9 @@ module.exports = async ({ context, github, core }, { now: _now, slack: _slack, f
     const minutesThreshold = parseInt(process.env.WORKFLOW_FAILURE_MINUTES_THRESHOLD || '20', 10)
     const activityWindowMins = parseInt(process.env.ACTIVITY_WINDOW_MINUTES || '120', 10)
     const commitThreshold = parseInt(process.env.COMMIT_FAILURE_STREAK_THRESHOLD || '10', 10)
-    // Over-fetch: the page now also carries in-progress/cancelled/skipped runs we drop client-side
-    // (see fetchWorkflowRuns), so widen it to still net enough settled runs for the streak walk.
+    // Page size for the run fetch. fetchWorkflowRuns pages until the streak is settled, so this only
+    // trades round-trips against page size; keep it wide enough to resolve the common case in one page
+    // despite the in-progress/cancelled runs it now drops client-side.
     const perPage = Math.max(workflowThreshold * 6, 40)
     const commitsToFetch = Math.max(commitThreshold * 2, 25)
 
