@@ -398,39 +398,6 @@ export const engineeringAnalyticsWorkflowRun = async (
     })
 }
 
-export const getEngineeringAnalyticsWorkflowRunnerCostsUrl = (
-    projectId: string,
-    params: EngineeringAnalyticsWorkflowRunnerCostsParams
-) => {
-    const normalizedParams = new URLSearchParams()
-
-    Object.entries(params || {}).forEach(([key, value]) => {
-        if (value !== undefined) {
-            normalizedParams.append(key, value === null ? 'null' : String(value))
-        }
-    })
-
-    const stringifiedParams = normalizedParams.toString()
-
-    return stringifiedParams.length > 0
-        ? `/api/projects/${projectId}/engineering_analytics/workflow_runner_costs/?${stringifiedParams}`
-        : `/api/projects/${projectId}/engineering_analytics/workflow_runner_costs/`
-}
-
-/**
- * A workflow's estimated CI cost broken down by runner tier over a window (date_from default -30d), highest spend first. Returns an empty list when the job-level source isn't synced.
- */
-export const engineeringAnalyticsWorkflowRunnerCosts = async (
-    projectId: string,
-    params: EngineeringAnalyticsWorkflowRunnerCostsParams,
-    options?: RequestInit
-): Promise<WorkflowRunnerCostApi[]> => {
-    return apiMutator<WorkflowRunnerCostApi[]>(getEngineeringAnalyticsWorkflowRunnerCostsUrl(projectId, params), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getEngineeringAnalyticsWorkflowRunActivityUrl = (
     projectId: string,
     params: EngineeringAnalyticsWorkflowRunActivityParams
@@ -459,6 +426,39 @@ export const engineeringAnalyticsWorkflowRunActivity = async (
     options?: RequestInit
 ): Promise<WorkflowRunActivityApi> => {
     return apiMutator<WorkflowRunActivityApi>(getEngineeringAnalyticsWorkflowRunActivityUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsWorkflowRunnerCostsUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsWorkflowRunnerCostsParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/workflow_runner_costs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/workflow_runner_costs/`
+}
+
+/**
+ * A workflow's estimated CI cost broken down by runner tier over a window (date_from default -30d), highest spend first. Returns an empty list when the job-level source isn't synced.
+ */
+export const engineeringAnalyticsWorkflowRunnerCosts = async (
+    projectId: string,
+    params: EngineeringAnalyticsWorkflowRunnerCostsParams,
+    options?: RequestInit
+): Promise<WorkflowRunnerCostApi[]> => {
+    return apiMutator<WorkflowRunnerCostApi[]>(getEngineeringAnalyticsWorkflowRunnerCostsUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

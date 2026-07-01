@@ -249,39 +249,6 @@ export interface PRLifecycleApi {
     metric_quality?: MetricQualityEnumApi
 }
 
-export interface WorkflowRunActivityPointApi {
-    /** GitHub Actions run id. */
-    run_id: number
-    /**
-     * Run conclusion ('success', 'failure', 'timed_out', 'cancelled', 'skipped', ...), or null while still in progress.
-     * @nullable
-     */
-    conclusion: string | null
-    /**
-     * When the run started, or null for a queued/barely-started run.
-     * @nullable
-     */
-    run_started_at: string | null
-    /**
-     * Wall-clock duration in seconds; null until the run completes.
-     * @nullable
-     */
-    duration_seconds: number | null
-    /** Git branch the run was triggered on, or '' when unknown. */
-    head_branch: string
-    /** Attributed pull request number, or 0 when unattributed. */
-    pr_number: number
-}
-
-export interface WorkflowRunActivityApi {
-    /** Per-run chart points, newest first, capped at `limit`. */
-    points: WorkflowRunActivityPointApi[]
-    /** True when more runs matched than the cap; `points` is the newest `limit` runs, so the chart covers only the most recent activity, not the full window. */
-    truncated: boolean
-    /** Maximum number of run points returned in `points`. */
-    limit: number
-}
-
 export interface WorkflowRunDetailApi {
     /** Repository the run belongs to. */
     repo: RepoRefApi
@@ -655,6 +622,39 @@ export interface WorkflowJobApi {
     estimated_cost_usd: number | null
 }
 
+export interface WorkflowRunActivityPointApi {
+    /** GitHub Actions run id. */
+    run_id: number
+    /**
+     * Run conclusion ('success', 'failure', 'timed_out', 'cancelled', 'skipped', ...), or null while still in progress.
+     * @nullable
+     */
+    conclusion: string | null
+    /**
+     * When the run started, or null for a queued/barely-started run.
+     * @nullable
+     */
+    run_started_at: string | null
+    /**
+     * Wall-clock duration in seconds; null until the run completes.
+     * @nullable
+     */
+    duration_seconds: number | null
+    /** Git branch the run was triggered on, or '' when unknown. */
+    head_branch: string
+    /** Attributed pull request number, or 0 when unattributed. */
+    pr_number: number
+}
+
+export interface WorkflowRunActivityApi {
+    /** Per-run chart points, newest first, capped at `limit`. */
+    points: WorkflowRunActivityPointApi[]
+    /** True when more runs matched than the cap; `points` is the newest `limit` runs, so the chart covers only the most recent activity, not the full window. */
+    truncated: boolean
+    /** Maximum number of run points returned in `points`. */
+    limit: number
+}
+
 export interface WorkflowRunnerCostApi {
     /** 'self_hosted' (billable), 'github_hosted' (free), or 'unknown'. */
     provider: string
@@ -809,29 +809,6 @@ export type EngineeringAnalyticsWorkflowRunParams = {
     source_id?: string
 }
 
-export type EngineeringAnalyticsWorkflowRunnerCostsParams = {
-    /**
-     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
-     */
-    date_from?: string
-    /**
-     * Window end: relative or ISO8601. Defaults to now.
-     */
-    date_to?: string
-    /**
-     * 'owner/name' repository the workflow belongs to.
-     */
-    repo: string
-    /**
-     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
-     */
-    source_id?: string
-    /**
-     * Workflow name to break down cost for.
-     */
-    workflow_name: string
-}
-
 export type EngineeringAnalyticsWorkflowRunActivityParams = {
     /**
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
@@ -851,6 +828,29 @@ export type EngineeringAnalyticsWorkflowRunActivityParams = {
     source_id?: string
     /**
      * Workflow name to load run activity for.
+     */
+    workflow_name: string
+}
+
+export type EngineeringAnalyticsWorkflowRunnerCostsParams = {
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * 'owner/name' repository the workflow belongs to.
+     */
+    repo: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+    /**
+     * Workflow name to break down cost for.
      */
     workflow_name: string
 }
