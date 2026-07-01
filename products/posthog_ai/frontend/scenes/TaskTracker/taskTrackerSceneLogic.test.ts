@@ -19,7 +19,7 @@ describe('taskTrackerSceneLogic', () => {
             get: {
                 '/api/projects/:team/tasks/': { results: [], count: 0 },
                 '/api/projects/:team/tasks/repositories/': { repositories: [] },
-                '/api/projects/:team/integrations/': { results: [] },
+                '/api/environments/:team/integrations/': { results: [] },
             },
             post: {
                 '/api/projects/:team/tasks/': async ({ request }) => {
@@ -34,7 +34,6 @@ describe('taskTrackerSceneLogic', () => {
         })
         initKeaTests()
         logic = taskTrackerSceneLogic()
-        logic.mount()
     })
 
     afterEach(() => {
@@ -44,6 +43,7 @@ describe('taskTrackerSceneLogic', () => {
     // PostHog AI can run without a repo: a description-only submit must still create and run the task with a
     // null repository, not bail. Guards against re-adding a "Repository is required" gate on the send path.
     it('creates and runs a task with no repository selected', async () => {
+        logic.mount()
         logic.actions.setNewTaskData({ description: 'do the thing' })
         logic.actions.submitNewTask()
 
@@ -57,5 +57,28 @@ describe('taskTrackerSceneLogic', () => {
         })
         expect(runCalled).toBe(true)
         expect(router.values.location.pathname).toContain('/tasks/new-task')
+    })
+
+    // The repo picker only renders once `repositoryConfig.integrationId` is set (auto-selected from the
+    // connected GitHub org). Submitting resets the form, wiping that id; without re-deriving it the picker
+    // stays blank for every subsequent new task. Guards that the auto-select is restored after a submit.
+    it('restores the repository integration after a submit so the picker reappears', async () => {
+        useMocks({
+            get: {
+                '/api/environments/:team/integrations/': {
+                    results: [{ id: 7, kind: 'github', display_name: 'acme/widgets', config: {} }],
+                },
+            },
+        })
+        logic.mount()
+        await expectLogic(logic).toFinishAllListeners()
+        // Auto-selected on mount once the integration list loads — the picker is showing.
+        expect(logic.values.newTaskData.repositoryConfig.integrationId).toBe(7)
+
+        logic.actions.setNewTaskData({ description: 'ship it' })
+        logic.actions.submitNewTask()
+        await expectLogic(logic).toFinishAllListeners()
+
+        expect(logic.values.newTaskData.repositoryConfig.integrationId).toBe(7)
     })
 })

@@ -144,6 +144,12 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             cache.activeCreationUnmount?.()
             cache.activeCreationUnmount = undefined
         },
+        // Resetting the form (after a successful submit) wipes the repo selection; immediately re-derive it
+        // (last persisted pick, else the first connected GitHub org) so the composer comes back with the
+        // picker populated rather than blank.
+        resetNewTaskData: () => {
+            actions.maybeAutoSelectIntegration()
+        },
         // Remember the repo/integration whenever the picker changes it to a real selection. Clearing the
         // repo ("No repo" option) is intentionally NOT persisted so the next visit restores the last good pick.
         setNewTaskData: ({ data }) => {
