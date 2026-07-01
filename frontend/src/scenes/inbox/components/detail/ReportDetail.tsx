@@ -28,7 +28,7 @@ import { SignalReportStatusBadge } from '../badges/SignalReportStatusBadge'
 import { hasKnownSourceProduct, knownSourceProductEntries, SourceProductIconRow } from '../badges/sourceProductIcons'
 import { ConventionalCommitScopeTag } from '../cards/ReportCard'
 import { CommitContent } from './artefactTypes'
-import { RightColumnSection } from './DetailSection'
+import { DetailSection } from './DetailSection'
 import { PullRequestDiffPanel } from './PullRequestDiffPanel'
 import { ReportActivitySection } from './ReportActivitySection'
 import { ReportDetailAction, useReportDetailActions } from './ReportDetailActions'
@@ -273,8 +273,9 @@ export function InboxDetailFrame({
 
     const overviewBody = (
         <div className="grid grid-cols-1 @5xl:grid-cols-[minmax(0,80ch)_minmax(22rem,1fr)] gap-5">
-            <div className="min-w-0">
-                <RightColumnSection icon={summary.icon} title={summary.title}>
+            {/* Left: the description (Summary), with the Activity timeline directly beneath it. */}
+            <div className="min-w-0 flex flex-col gap-5">
+                <DetailSection icon={summary.icon} title={summary.title}>
                     {report.summary ? (
                         <LemonMarkdown
                             className="text-sm text-secondary leading-relaxed break-words [&>*+*]:mt-3 [&_li]:my-1 [&_ul]:my-2 [&_ol]:my-2 [&_h1]:mt-5 [&_h2]:mt-5 [&_h3]:mt-4"
@@ -287,7 +288,8 @@ export function InboxDetailFrame({
                             No summary yet – an agent is still investigating.
                         </p>
                     )}
-                </RightColumnSection>
+                </DetailSection>
+                <ReportActivitySection report={report} />
             </div>
 
             <div className="flex flex-col min-w-0 gap-5">
@@ -295,7 +297,7 @@ export function InboxDetailFrame({
                 {children}
                 <SuggestedReviewersSection report={report} />
                 {hasEvidence && (
-                    <RightColumnSection
+                    <DetailSection
                         icon={<IconSearch />}
                         title="Evidence"
                         rightSlot={
@@ -313,10 +315,9 @@ export function InboxDetailFrame({
                                 ))}
                             </div>
                         )}
-                    </RightColumnSection>
+                    </DetailSection>
                 )}
                 <ReportTasksSection report={report} />
-                <ReportActivitySection report={report} />
             </div>
         </div>
     )
@@ -445,12 +446,7 @@ export function ReportDetail({ report, tab }: { report: SignalReport; tab: Inbox
             }
             diffSection={
                 canDiff && commit && latestCommitArtefact ? (
-                    <PullRequestDiffPanel
-                        reportId={report.id}
-                        artefactId={latestCommitArtefact.id}
-                        commit={commit}
-                        prUrl={hasPr ? prFilesUrl(prUrl) : null}
-                    />
+                    <PullRequestDiffPanel reportId={report.id} artefactId={latestCommitArtefact.id} commit={commit} />
                 ) : undefined
             }
         />

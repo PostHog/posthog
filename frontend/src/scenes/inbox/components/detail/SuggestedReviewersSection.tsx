@@ -12,7 +12,7 @@ import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { EnrichedReviewer, SignalReport } from '../../types'
 
 const MAX_VISIBLE_REVIEWERS = 5
-import { RightColumnSection } from './DetailSection'
+import { DetailSection } from './DetailSection'
 import {
     AvailableReviewerOption,
     getReviewerOptionDisplayName,
@@ -105,7 +105,7 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
     }
 
     return (
-        <RightColumnSection
+        <DetailSection
             icon={<IconPeople />}
             title="Reviewers"
             rightSlot={
@@ -221,7 +221,7 @@ export function SuggestedReviewersSection({ report }: { report: SignalReport }):
                     )}
                 </div>
             )}
-        </RightColumnSection>
+        </DetailSection>
     )
 }
 

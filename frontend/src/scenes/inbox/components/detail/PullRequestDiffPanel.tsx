@@ -1,8 +1,8 @@
 import { useValues } from 'kea'
 import { useEffect, useState } from 'react'
 
-import { IconCode, IconExternal } from '@posthog/icons'
-import { LemonButton, LemonSegmentedButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
+import { IconCode } from '@posthog/icons'
+import { LemonSegmentedButton, LemonSkeleton, LemonTag } from '@posthog/lemon-ui'
 
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -12,6 +12,11 @@ import type { CommitDiffResponseApi } from 'products/signals/frontend/generated/
 import { CommitContent } from './artefactTypes'
 import { DetailSection } from './DetailSection'
 import { PullRequestDiffView } from './PullRequestDiffView'
+
+const DIFF_STYLE_OPTIONS = [
+    { value: 'unified' as const, label: 'Unified' },
+    { value: 'split' as const, label: 'Split' },
+]
 
 /**
  * Full-width "Files changed" section: the report's branch diff against the repository default branch,
@@ -23,13 +28,10 @@ export function PullRequestDiffPanel({
     reportId,
     artefactId,
     commit,
-    prUrl,
 }: {
     reportId: string
     artefactId: string
     commit: CommitContent
-    /** PR files URL, when the report has a shipped implementation PR — surfaces an "Open in GitHub" action. */
-    prUrl?: string | null
 }): JSX.Element {
     const { currentTeamId } = useValues(teamLogic)
     const [diff, setDiff] = useState<CommitDiffResponseApi | null>(null)
@@ -70,22 +72,12 @@ export function PullRequestDiffPanel({
             icon={<IconCode />}
             title="Files changed"
             rightSlot={
-                <div className="flex items-center gap-2">
-                    <LemonSegmentedButton
-                        size="small"
-                        value={diffStyle}
-                        onChange={setDiffStyle}
-                        options={[
-                            { value: 'unified', label: 'Unified' },
-                            { value: 'split', label: 'Split' },
-                        ]}
-                    />
-                    {prUrl ? (
-                        <LemonButton type="secondary" size="small" to={prUrl} targetBlank sideIcon={<IconExternal />}>
-                            Open in GitHub
-                        </LemonButton>
-                    ) : null}
-                </div>
+                <LemonSegmentedButton
+                    size="small"
+                    value={diffStyle}
+                    onChange={setDiffStyle}
+                    options={DIFF_STYLE_OPTIONS}
+                />
             }
         >
             <div className="flex flex-col gap-3">
