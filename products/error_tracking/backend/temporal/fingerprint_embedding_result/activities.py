@@ -114,6 +114,23 @@ def _capture_activity_exception(
     capture_exception(error, additional_properties=properties)
 
 
+def _retries_exhausted() -> bool:
+    """Whether this is the workflow's final attempt at the activity.
+
+    The workflow retries this activity, so transient, self-healing failures (PgBouncer
+    ``query_wait_timeout``, deadlocks, ClickHouse capacity pressure) succeed on a later
+    attempt. Reporting them on every attempt floods error tracking and buries genuine
+    failures, so we only capture once retries are exhausted. Outside a Temporal activity
+    (e.g. in tests) we default to reporting.
+    """
+    if not activity.in_activity():
+        return True
+    info = activity.info()
+    maximum_attempts = info.retry_policy.maximum_attempts if info.retry_policy else 0
+    # maximum_attempts == 0 means unlimited retries, so it's never the final attempt.
+    return maximum_attempts != 0 and info.attempt >= maximum_attempts
+
+
 def _input_model_name(inputs: FingerprintEmbeddingResultInputs) -> str:
     return inputs.model_name or select_model_name(inputs.model_names)
 
@@ -356,5 +373,8 @@ def merge_similar_fingerprints_activity(
             closest_fingerprints=closest_fingerprints,
         )
     except Exception as err:
-        _capture_activity_exception(err, inputs, model_name)
+        # Only report once the workflow's retries are exhausted; transient, retryable
+        # failures self-heal on a later attempt and would otherwise flood error tracking.
+        if _retries_exhausted():
+            _capture_activity_exception(err, inputs, model_name)
         raise

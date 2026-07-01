@@ -7,8 +7,10 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
+from django.db import OperationalError
 from django.test import override_settings
 
+from parameterized import parameterized
 from temporalio import activity
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
@@ -24,6 +26,7 @@ from products.error_tracking.backend.temporal.fingerprint_embedding_result.activ
     _model_specific_embeddings_table_name,
     _query_closest_fingerprints,
     _report_closest_fingerprint_metrics,
+    _retries_exhausted,
     _target_embedding_from_inputs,
     _target_embedding_query,
     merge_similar_fingerprints_activity,
@@ -254,6 +257,73 @@ class TestFingerprintEmbeddingResultActivity:
         assert properties["rank_1_distance"] == 0.01
         assert properties["rank_2_fingerprint"] == "fingerprint-2"
         assert properties["rank_3_fingerprint"] == "fingerprint-3"
+
+    @parameterized.expand(
+        [
+            ("not_in_activity", False, None, None, True),
+            ("first_of_four_attempts", True, 1, 4, False),
+            ("last_of_four_attempts", True, 4, 4, True),
+            ("unlimited_retries", True, 7, 0, False),
+        ]
+    )
+    def test_retries_exhausted(
+        self,
+        _name: str,
+        in_activity: bool,
+        attempt: int | None,
+        maximum_attempts: int | None,
+        expected: bool,
+    ) -> None:
+        info = MagicMock(attempt=attempt, retry_policy=MagicMock(maximum_attempts=maximum_attempts))
+        with (
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.activity.in_activity",
+                return_value=in_activity,
+            ),
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.activity.info",
+                return_value=info,
+            ),
+        ):
+            assert _retries_exhausted() is expected
+
+    def test_merge_activity_skips_capture_until_retries_exhausted(self) -> None:
+        with (
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.Team.objects.get",
+                side_effect=OperationalError("query_wait_timeout"),
+            ),
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities._retries_exhausted",
+                return_value=False,
+            ),
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities._capture_activity_exception"
+            ) as capture,
+        ):
+            with pytest.raises(OperationalError):
+                merge_similar_fingerprints_activity(_inputs())
+
+        capture.assert_not_called()
+
+    def test_merge_activity_captures_once_retries_exhausted(self) -> None:
+        with (
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities.Team.objects.get",
+                side_effect=OperationalError("query_wait_timeout"),
+            ),
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities._retries_exhausted",
+                return_value=True,
+            ),
+            patch(
+                "products.error_tracking.backend.temporal.fingerprint_embedding_result.activities._capture_activity_exception"
+            ) as capture,
+        ):
+            with pytest.raises(OperationalError):
+                merge_similar_fingerprints_activity(_inputs())
+
+        capture.assert_called_once()
 
     def test_merge_activity_reports_distances(self) -> None:
         closest_fingerprints = [
