@@ -32,6 +32,7 @@ from posthog.hogql.printer import prepare_and_print_ast
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
+from posthog.models.event.util import create_event as create_event_with_person_id
 from posthog.models.group.util import create_group
 from posthog.models.team import Team
 from posthog.session_recordings.queries.session_recording_list_from_query import (
@@ -4384,6 +4385,40 @@ class TestSessionRecordingsListFromQuery(ClickhouseTestMixin, APIBaseTest):
                 "person_uuid": str(person.uuid),
             },
             expected=[identified_session, anonymous_session],
+        )
+
+    @snapshot_clickhouse_queries
+    def test_person_profile_finds_sessions_with_stale_person_on_events_id(self):
+        # The person-on-events `person_id` is frozen at ingestion, so events captured before
+        # an identity merge keep a stale value. After the merge the distinct_id is owned by the
+        # current person, so resolving through person_distinct_ids must recover the session even
+        # when `person_id` on the event never matches the current person uuid — and even when the
+        # frontend omits distinct_ids (e.g. the 100-distinct_id cap for high-alias persons).
+        merged_id = "merged-distinct-id"
+        person = create_person(team=self.team, distinct_ids=[merged_id])
+
+        stale_session = f"stale-poe-session-{uuid4()}"
+        produce_replay_summary(
+            distinct_id=merged_id,
+            session_id=stale_session,
+            first_timestamp=self.an_hour_ago,
+            team_id=self.team.pk,
+        )
+        # event frozen with a pre-merge person_id that differs from the current person uuid
+        create_event_with_person_id(
+            event_uuid=uuid4(),
+            event="$pageview",
+            team=self.team,
+            distinct_id=merged_id,
+            timestamp=self.an_hour_ago,
+            person_id=uuid4(),
+            properties={"$session_id": stale_session, "$window_id": "1"},
+        )
+
+        # person profile replay tab without distinct_ids: only the person uuid is available
+        self._assert_query_matches_session_ids(
+            query={"person_uuid": str(person.uuid)},
+            expected=[stale_session],
         )
 
     @also_test_with_materialized_columns(person_properties=["email"], verify_no_jsonextract=False)

@@ -44,6 +44,12 @@ class PersonsIdCompareOperation(SessionRecordingsListingBaseQuery):
         now = datetime.now(UTC).replace(tzinfo=None)
 
         if poe_is_active(self._team):
+            # Match events by the frozen person-on-events `person_id` OR by any distinct_id
+            # currently owned by the person. The `person_id` on events is frozen at ingestion,
+            # so events captured before an identity merge keep a stale value and would be missed
+            # by `person_id = {person_id}` alone. Resolving the person's full distinct_id set from
+            # `person_distinct_ids` (deduped to current ownership) recovers those sessions, and
+            # avoids relying on the frontend's capped `distinct_ids` list for high-alias persons.
             return parse_select(
                 """
                 select
@@ -51,7 +57,12 @@ class PersonsIdCompareOperation(SessionRecordingsListingBaseQuery):
                 from
                     events
                 where
-                    person_id = {person_id}
+                    (
+                        person_id = {person_id}
+                        or distinct_id in (
+                            select distinct_id from person_distinct_ids where person_id = {person_id}
+                        )
+                    )
                     and timestamp <= {now}
                     and timestamp >= {date_from}
                     and timestamp <= {date_to}
