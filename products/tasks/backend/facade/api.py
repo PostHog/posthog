@@ -2015,13 +2015,34 @@ def capture_relay_command_telemetry(
 # --- Task run relay (Slack) ---
 
 
+def _pick_relay_text(*, text: str, text_parts: list[str] | None) -> str:
+    """Pick the text to post. If ``text_parts`` has any non-empty entries,
+    the last one wins (that's the post-last-tool-use answer). Otherwise fall
+    back to the joined ``text`` field."""
+    if text_parts:
+        for part in reversed(text_parts):
+            if isinstance(part, str) and part.strip():
+                return part
+    return text
+
+
 def relay_task_run_message(
-    run_id: str | UUID, task_id: str | UUID, team_id: int, *, text: str
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    text: str,
+    text_parts: list[str] | None = None,
 ) -> tuple[str, str | None]:
     """Queue a Slack relay workflow for a run message.
 
     Returns ``(status, relay_id)`` where status is ``"accepted"`` (relay_id set), ``"skipped"``
     (run not found / terminal / no Slack mapping / empty text), or ``"failed"``.
+
+    When ``text_parts`` is provided the last non-empty entry is used — it's the
+    post-last-tool-use answer, and posting only that keeps the interim narration
+    ("Let me check…") out of the Slack thread. Older callers still send just
+    ``text`` and get the previous behavior unchanged.
     """
     from products.slack_app.backend.models import (  # noqa: PLC0415 — cross-product import kept off the api import path
         SlackThreadTaskMapping,
@@ -2036,7 +2057,8 @@ def relay_task_run_message(
     if not SlackThreadTaskMapping.objects.filter(task_run=run).exists():
         return "skipped", None
 
-    trimmed = text.strip()
+    posted_text = _pick_relay_text(text=text, text_parts=text_parts)
+    trimmed = posted_text.strip()
     if not trimmed:
         return "skipped", None
 
