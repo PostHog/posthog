@@ -239,6 +239,38 @@ class TestWindowedCalls:
         assert batches == [[{"id": "c1"}], [{"id": "c2"}]]
         assert "cursor=page2" in session.requested_urls[1]
 
+    def test_empty_window_returns_404(self) -> None:
+        # Gong returns 404 for a date window with no calls; the sync must skip it and
+        # continue to the next window rather than raising.
+        last_value = datetime.now(UTC) - timedelta(days=100)
+        responses = [
+            _FakeResponse(status_code=404, text='{"errors":["No calls found corresponding to the provided filters"]}'),
+            _FakeResponse(json_data={"calls": [{"id": "c1"}]}),
+        ]
+        session = _FakeSession(responses)
+        manager = _FakeResumableManager()
+
+        with mock.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.gong.gong.make_tracked_session",
+            return_value=session,
+        ):
+            batches = list(
+                get_rows(
+                    "key",
+                    "secret",
+                    "calls",
+                    mock.MagicMock(),
+                    manager,
+                    should_use_incremental_field=True,
+                    db_incremental_field_last_value=last_value,
+                )
+            )
+
+        # The empty window yields nothing but does not abort the sync; both windows run.
+        assert batches == [[{"id": "c1"}]]
+        assert len(session.requested_urls) == 2
+        assert len(manager.saved_states) == 2
+
     def test_resume_uses_saved_window_start(self) -> None:
         last_value = datetime.now(UTC) - timedelta(days=80)
         resume_start = datetime.now(UTC) - timedelta(days=10)
