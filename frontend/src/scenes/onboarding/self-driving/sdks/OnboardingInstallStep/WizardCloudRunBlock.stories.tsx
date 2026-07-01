@@ -217,11 +217,18 @@ export const RepoPickerOpen: Story = cloudRunStory({
 /** Run kicked off — non-blocking confirmation; the FAB takes over from here. */
 export const PullRequestQueued: Story = cloudRunStory({
     integrations: [githubIntegration],
-    drive: () => {
+    waitForSelector: '[data-attr="wizard-cloud-run-queued"]',
+    // Fired after "Get started" resolves rather than from `drive` (which races the delayed-mount
+    // effect against the click): the toast + status flip need the install step already mounted.
+    extraPlay: async () => {
+        await waitFor(() => {
+            if (!document.querySelector('[data-attr="wizard-cloud-run-open-pr"]')) {
+                throw new Error('install step not ready')
+            }
+        })
         wizardCloudRunLogic.actions.setSelectedRepository('web')
         wizardCloudRunLogic.actions.startCloudRunSuccess()
     },
-    waitForSelector: '[data-attr="wizard-cloud-run-queued"]',
 })
 
 /** The other half of the same wizard — toggling to "Run it yourself" reveals the CLI command. */
