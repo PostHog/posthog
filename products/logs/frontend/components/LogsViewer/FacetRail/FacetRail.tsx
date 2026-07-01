@@ -1,6 +1,8 @@
 import { useActions, useValues } from 'kea'
 import { useCallback, useMemo, useRef } from 'react'
 
+import { LemonInput } from '@posthog/lemon-ui'
+
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 
@@ -10,7 +12,7 @@ import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsVi
 import { Facet, FacetOption } from './Facet'
 import { facetCountsLogic } from './facetCountsLogic'
 import { facetRailLogic } from './facetRailLogic'
-import { FacetConfig, FacetFilterKey, facetsByGroup, resourceAttributeValues } from './facets'
+import { FacetConfig, FacetFilterKey, facetsByGroup, filterFacetsByName, resourceAttributeValues } from './facets'
 
 const DEFAULT_WIDTH_PX = 240
 const COLLAPSE_THRESHOLD_PX = 120
@@ -26,8 +28,8 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
     const { severityLevels, serviceNames, filterGroup } = useValues(logsViewerFiltersLogic)
     const { facetValues, loadingFacetKeys, facetSearch, visibleFacets } = useValues(facetCountsLogic({ id }))
     const { setFacetSearch } = useActions(facetCountsLogic({ id }))
-    const { collapsedFacets } = useValues(facetRailLogic({ id }))
-    const { toggleFacetValue, toggleFacetCollapsed } = useActions(facetRailLogic({ id }))
+    const { collapsedFacets, facetNameSearch } = useValues(facetRailLogic({ id }))
+    const { toggleFacetValue, toggleFacetCollapsed, setFacetNameSearch } = useActions(facetRailLogic({ id }))
 
     const selectedByKey: Record<FacetFilterKey, string[]> = {
         severityLevels: severityLevels ?? [],
@@ -113,6 +115,9 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
         )
     }
 
+    // Filter the rail by the field-name search, then group — empty groups fall away in facetsByGroup.
+    const displayedGroups = facetsByGroup(filterFacetsByName(visibleFacets, facetNameSearch))
+
     return (
         <div
             ref={railRef}
@@ -122,17 +127,29 @@ export function FacetRail({ id }: FacetRailProps): JSX.Element {
             data-attr="logs-facet-rail"
         >
             <div className="px-2 py-1 border-b">
-                <span className="text-xs font-semibold text-secondary uppercase tracking-wide">Filters</span>
+                <LemonInput
+                    type="search"
+                    size="small"
+                    fullWidth
+                    placeholder="Search facets…"
+                    value={facetNameSearch}
+                    onChange={setFacetNameSearch}
+                    data-attr="logs-facet-rail-search"
+                />
             </div>
             <div className="flex-1 min-h-0 overflow-y-auto p-2">
-                {facetsByGroup(visibleFacets).map(([group, facets]) => (
-                    <div key={group}>
-                        <div className="px-1 pb-1 mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted border-b border-primary">
-                            {group}
+                {displayedGroups.length === 0 && facetNameSearch.trim() ? (
+                    <div className="px-1 text-xs text-muted">No matching facets</div>
+                ) : (
+                    displayedGroups.map(([group, facets]) => (
+                        <div key={group}>
+                            <div className="px-1 pb-1 mb-2 text-[11px] font-semibold uppercase tracking-wider text-muted border-b border-primary">
+                                {group}
+                            </div>
+                            {facets.map(renderFacet)}
                         </div>
-                        {facets.map(renderFacet)}
-                    </div>
-                ))}
+                    ))
+                )}
             </div>
             <Resizer {...resizerLogicProps} visible={false} offset="0.25rem" handleClassName="rounded my-1" />
         </div>

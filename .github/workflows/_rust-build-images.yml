@@ -36,6 +36,11 @@ on:
                 description: 'Whether to push built images to the registry'
                 type: boolean
                 default: true
+        secrets:
+            POSTHOG_API_TOKEN:
+                required: false
+            POSTHOG_DEVEX_PROJECT_API_TOKEN:
+                required: false
         outputs:
             digests:
                 description: 'JSON object mapping image name to digest'

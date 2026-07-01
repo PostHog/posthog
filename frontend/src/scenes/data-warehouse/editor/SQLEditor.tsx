@@ -52,6 +52,8 @@ export enum SQLEditorPanel {
     Output = 'output',
 }
 
+const VARIABLE_QUERY_SYNC_DEBOUNCE_MS = 150
+
 interface SQLEditorProps {
     tabId?: string
     mode?: SQLEditorMode
@@ -96,6 +98,7 @@ export function SQLEditor({
     const showOutputPanel = panel !== SQLEditorPanel.Query
     const showSceneTitle = panel === SQLEditorPanel.Full && mode === SQLEditorMode.FullScene
     const showDatabaseTreePanel = showQueryPanel && shouldShowDatabaseTree
+    const showFullSceneModals = mode === SQLEditorMode.FullScene
 
     const editorSizingLogicProps = useMemo(
         () => ({
@@ -210,7 +213,7 @@ export function SQLEditor({
                         <BindLogic logic={variableModalLogic} props={{ key: dataVisualizationLogicProps.key }}>
                             <BindLogic logic={outputPaneLogic} props={{ tabId }}>
                                 <BindLogic logic={sqlEditorLogic} props={{ tabId, mode, monaco, editor }}>
-                                    <VariablesQuerySync />
+                                    {showQueryPanel ? <VariablesQuerySync /> : null}
                                     {panel === SQLEditorPanel.Output ? (
                                         <div className="flex h-full min-h-0 flex-col overflow-hidden">
                                             <OutputPane
@@ -257,9 +260,13 @@ export function SQLEditor({
                                             </div>
                                         </BindLogic>
                                     )}
-                                    <MaterializationModal tabId={tabId || ''} />
-                                    <AccessControlModal />
-                                    {!mode || mode === SQLEditorMode.FullScene ? <ViewLinkModal /> : null}
+                                    {showFullSceneModals ? (
+                                        <>
+                                            <MaterializationModal tabId={tabId || ''} />
+                                            <AccessControlModal />
+                                            <ViewLinkModal />
+                                        </>
+                                    ) : null}
                                 </BindLogic>
                             </BindLogic>
                         </BindLogic>
@@ -398,6 +405,11 @@ function SQLEditorSceneTitle(): JSX.Element | null {
     const onPrimarySaveClick = (): void => {
         if (saveAsMenuItems.primary.action === 'endpoint') {
             saveAsEndpoint()
+            return
+        }
+
+        if (saveAsMenuItems.primary.action === 'view') {
+            saveAsView()
             return
         }
 
@@ -642,7 +654,9 @@ function SQLEditorSceneTitle(): JSX.Element | null {
                                     saveAsDisabledReason ??
                                     (saveAsMenuItems.primary.action === 'endpoint'
                                         ? saveAsEndpointAccessDisabledReason
-                                        : undefined)
+                                        : saveAsMenuItems.primary.action === 'view'
+                                          ? saveAsViewAccessDisabledReason
+                                          : undefined)
                                 }
                                 sideAction={{
                                     icon: <IconChevronDown />,
@@ -676,7 +690,9 @@ function VariablesQuerySync(): null {
     const { setEditorQuery } = useActions(variablesLogic)
 
     useEffect(() => {
-        setEditorQuery(queryInput ?? '')
+        const timeout = window.setTimeout(() => setEditorQuery(queryInput ?? ''), VARIABLE_QUERY_SYNC_DEBOUNCE_MS)
+
+        return () => window.clearTimeout(timeout)
     }, [queryInput, setEditorQuery])
 
     return null

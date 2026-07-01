@@ -1,25 +1,18 @@
 ---
 name: signals-scout-customer-analytics
 description: >
-  Focused Signals scout for PostHog projects using Customer analytics (the Accounts
-  product — `system.accounts`, where an account is a customer organization keyed by a
-  group). Watches per-account product engagement for churn-risk shapes — an engagement
-  cliff on a named account, dormancy onset, single-threaded champion departure — and the
-  positive inverse, an expansion signal worth an upsell, scoring each account against its
-  own trailing baseline and weighting by whether a human has staked commercial ownership
-  on it (assigned CSM / AE / owner, or a CRM link). Its discriminator is a per-account
-  engagement regression while the fleet holds: one staked account sliding is signal, the
-  whole fleet moving together is someone else's baseline problem. Curates a durable
-  watchlist of commercially-meaningful accounts and balances re-scoring known ones
-  (exploit) against discovering new ones (explore) across runs. Emits findings only when
-  they clear the confidence bar; otherwise writes durable memory and closes out empty.
-  Self-contained peer in the signals-scout-* fleet — no dependencies on other skills.
+  Signals scout for PostHog Customer analytics (Accounts). Watches per-account engagement for
+  churn-risk shapes — engagement cliffs, dormancy, champion departure — and the expansion
+  inverse, weighted by commercial ownership, and files each validated risk as a report in the
+  inbox.
 compatibility: >
-  Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
-  (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes
-  the signals-scout MCP family plus the analytics tools listed in the body's MCP tools
-  section (execute-sql over `system.accounts` and group-keyed `events`, query-trends,
-  query-stickiness, read-data-schema, insight-get, inbox-reports-list).
+  PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
+  (scratchpad) + signal_scout_report:write (report channel), plus the customer-analytics tools
+  in the MCP tools section (execute-sql over `system.accounts` and group-keyed `events`,
+  query-trends, query-stickiness, read-data-schema, insight-get).
+allowed_tools:
+  - emit_report
+  - edit_report
 metadata:
   owner_team: signals
   scope: customer_analytics
@@ -51,7 +44,7 @@ keyed by domain). When the join is empty or thin, there is no per-account engage
 that's a **config gap to note once**, not a finding flood. Always confirm overlap first (see
 Orient).
 
-**What you do NOT do** (other scouts' territory — stay off it to avoid re-emitting their findings):
+**What you do NOT do** (other scouts' territory — stay off it to avoid re-reporting their findings):
 
 - Aggregate, user-grain funnel / retention / lifecycle regressions across all users → `product-analytics`.
 - Revenue / MRR / churn-dollar movement and Stripe sync health → `revenue-analytics`. (A revenue
@@ -66,6 +59,17 @@ watches the lagging revenue signal; neither scores an individual account's traje
 
 You can't score 1,000 accounts every run. Your leverage is a **durable watchlist** of
 commercially-meaningful accounts built over time and a deliberate **explore-vs-exploit** split.
+
+You author reports directly via the report channel (`signals-scout-emit-report` /
+`signals-scout-edit-report`): you've done the research, so you own each report 1:1 end-to-end
+rather than firing weak signals for a pipeline to cluster. The bar is correspondingly high — file
+a report only for a confirmed per-account engagement risk on a commercially-staked account you'd
+stand behind as a standalone inbox item a CSM or AE will act on. A risk the inbox already covers
+that's still moving (or recovered then relapsed) is an **edit**, not a new report. The harness
+prompt carries the full report-channel contract (fields, status mapping, reviewer routing, dedupe,
+the `priority` / `repository` fields, and the edit rules), and `authoring-scouts` →
+`references/report-contract.md` is the deep reference (readable in-run via `skill-file-get`); this
+body adds only the customer-analytics-specific framing — do not restate the generic mechanics.
 
 ## Quick close-out: is there an account roster worth scoring?
 
@@ -89,15 +93,22 @@ coverage compounds across runs instead of restarting cold.
 
 ### Get oriented
 
-Three cheap reads plus the join check cold-start every run:
+Four cheap reads plus the join check cold-start every run:
 
 - `signals-scout-scratchpad-search` (`text=customer_analytics`, high `limit`, then `text=account`)
-  — your watchlist, per-account baselines, the discovered group-type index, and what you've ruled
-  out. Pass a high limit so overdue accounts don't fall out of the round-robin.
+  — your watchlist, per-account baselines, the discovered group-type index, `report:` / `reviewer:`
+  pointers (which report covers a risk, who owns an account), and what you've ruled out. Pass a high
+  limit so overdue accounts don't fall out of the round-robin.
 - `signals-scout-runs-list` (last 7d) — what prior runs scored and ruled out; don't re-score an
   account a recent run already covered.
 - `signals-scout-project-profile-get` — `products_in_use` (confirm `customer_analytics`),
-  `top_events` for fleet-wide volume context.
+  `top_events` for fleet-wide volume context, plus `existing_inbox_reports`.
+- `inbox-reports-list` (`ordering=-updated_at`, `search`=the account name / external_id) — the
+  reports already in the inbox. Your own report-channel reports persist their backing signals under
+  `source_product=signals_scout` (**not** `customer_analytics`), so don't filter
+  `source_product=customer_analytics` — you'd miss every report you authored. A risk on an account
+  you've reported before is an **edit**, not a fresh report; pull the closest matches with
+  `inbox-reports-retrieve` before authoring.
 - **Discover the account group-type index and verify the join.** Don't assume an index. Find which
   `$group_N` the roster keys to, and how many accounts actually have events:
 
@@ -197,7 +208,7 @@ shape. Surface as the human-readable risk ("account X's most active user went da
 Customer analytics is CSM/AE-facing, so the **positive** inverse is in-scope (unlike pure anomaly
 scouts). A staked account whose usage or active-seat count is climbing sharply vs its own baseline
 is an upsell opportunity worth surfacing to the AE. Same query shape as the cliff, inverted
-(`e.wk > e.prev * 2`, WAU growing), with a volume floor. Emit at **P3** — opportunity, not incident.
+(`e.wk > e.prev * 2`, WAU growing), with a volume floor. File at **P3** — opportunity, not incident.
 
 ### Save memory as you go
 
@@ -212,50 +223,66 @@ category in the key prefix so a future run finds it with one `text=` search:
   weekly volume/WAU, cadence, `last_scored` + `next_due`._
 - `baseline:customer_analytics:account:<external_id>` — _the learned normal: weekly event-volume /
   WAU band (median + MAD), so the next run scores cheaply instead of recomputing._
-- `dedupe:customer_analytics:account:<external_id>:<date>` — _a risk already surfaced, with the
+- `dedupe:customer_analytics:account:<external_id>` — _a risk already surfaced, with the
   condition that should re-escalate it (a further drop, or recovery + relapse)._
 - `noise:customer_analytics:account:<external_id>` — _"this account is a known sandbox / migrating
   off / seasonal — its dips are expected."_
+- `report:customer_analytics:account:<external_id>` — _the `report_id` of a report you filed for a
+  risk on this account, so the next run edits it (append_note with the fresh window) instead of
+  duplicating._
+- `reviewer:customer_analytics:<area>` — _a resolved owner (bare lowercase GitHub login) for an
+  account segment / CSM-team surface, so reports route to a human faster._
 
-By run #5 the scratchpad knows the account grain, the join health, the fleet baseline, and the
-handful of accounts worth watching — so a real cliff lands with the right context attached.
+By run #5 the scratchpad knows the account grain, the join health, the fleet baseline, the handful
+of accounts worth watching, and who owns each — so a real cliff lands with the right context
+attached.
 
 ### Decide
 
-Classify each candidate against prior runs and the scratchpad (net-new / material-update /
-already-covered / addressed-or-noise), then:
+The generic report mechanics — search the inbox first (via the
+`report:customer_analytics:account:<external_id>` pointer, else an `inbox-reports-list` search on
+the account's _specific_ name / external_id, not a broad word like `churn`), edit-vs-author, the
+status rules, reviewer routing, non-idempotent dedup, and the `priority` / `repository` fields —
+live in the harness prompt and in `authoring-scouts` → `references/report-contract.md`. Do not
+re-derive them here. This section is only the customer-analytics judgment layered on top:
 
-- **Emit** via `signals-scout-emit-signal` when it clears the bar. A **strong finding**: the
-  account's engagement dropped clearly below its own seasonality-matched baseline (sustained, not a
-  single lumpy week), the **fleet held** over the same window (quantify both — "Acme weekly events
+- **Edit** when a still-live report already tracks the account — a cliff still deepening, a
+  dormancy still unbroken, a champion still gone. A persistent risk is one report across runs: a new
+  complete week confirming it's ongoing is a re-escalation (`append_note` the fresh volume/WAU
+  numbers), not a fresh report per tick.
+- **Author** when nothing live covers the account. A report-worthy finding shows the account's
+  engagement dropped clearly below its own seasonality-matched baseline (sustained, not a single
+  lumpy week), the **fleet held** over the same window (quantify both — "Acme weekly events
   4.2k→1.1k while fleet steady at ~600 active accounts"), the account is **commercially staked**
   (assigned role or CRM link — name it), and the move isn't one departing user mistaken for an
   account-wide cliff. Put the account name, `external_id`, the latest-window numbers, the baseline
-  band, WAU, the assigned owner, and the time window in the evidence. Confidence ≥ 0.8.
-  **Severity:** P2 for a confirmed sustained cliff or dormancy onset on a staked, high-value
-  account; P3 for a single-segment/suggestive move, an unstaked account, or an expansion signal.
-- **Remember** if suggestive but below the bar (confidence < 0.65), or to refresh a baseline.
-- **Skip** if a `noise:` / `addressed:` / `dedupe:` entry already covers it.
+  band, WAU, the assigned owner, and the time window in the `evidence`. These are CSM/AE
+  investigations, not code fixes → `actionability=requires_human_input`. Priority: a confirmed
+  sustained cliff or dormancy onset on a staked, high-value account is **P2**; a
+  single-segment/suggestive move, an unstaked account, or an expansion signal is **P3**.
+- **Remember** if suggestive but below the bar, or to refresh a baseline, or to record what you
+  ruled out and why.
+- **Skip** if a `noise:` / `addressed:` / `dedupe:` entry, or an existing inbox report, already
+  covers it.
 
-Dedupe keys: `account_engagement_cliff:<external_id>`, `account_dormancy:<external_id>`,
-`account_single_threading:<external_id>`, `account_expansion:<external_id>`.
-
-Cross-check `inbox-reports-list` before emitting — if `product-analytics` or `anomaly-detection`
-already reported a fleet-wide move, only emit if your **per-account** angle is materially new.
+Sibling courtesy: a fleet-wide move already reported by `product-analytics` or `anomaly-detection`
+is theirs — author only if your **per-account** angle is materially new, citing the prior report.
+Revenue / MRR movement belongs to `revenue-analytics`; honor their `dedupe:` entries — your unique
+angle is always the per-account engagement frame weighted by commercial ownership.
 
 ### Close out
 
-One paragraph: which accounts you scored, what you added to the watchlist, what risks you emitted,
-what you ruled out and why. The harness saves this as the run summary; future runs read it via
-`signals-scout-runs-list`. Do **not** write a separate "run metadata" scratchpad entry. "Scored the
-due staked accounts, all within baseline, fleet steady" is a real outcome.
+One paragraph: which accounts you scored, what you added to the watchlist, which reports you
+authored or edited, what you ruled out and why. The harness saves this as the run summary; future
+runs read it via `signals-scout-runs-list`. Do **not** write a separate "run metadata" scratchpad
+entry. "Scored the due staked accounts, all within baseline, fleet steady" is a real outcome.
 
 ## Disqualifiers (skip these)
 
 - **Fleet moved together.** If most accounts dropped alongside the watched one, it's not an
   account-health problem — it's capture, an aggregate funnel regression, or a holiday. Hand off
   (`session-replay`/`health-checks` for capture, `product-analytics` for aggregate flows); don't
-  emit it as a per-account churn risk.
+  file it as a per-account churn risk.
 - **Unlinked / thin join.** If the account's `external_id` doesn't match a group key (or the whole
   roster doesn't), there's no engagement to score — config gap, `pattern:join-unlinked` memory, skip.
 - **Unstaked, no CRM link.** An account with no assigned role and no CRM id isn't commercially
@@ -270,8 +297,8 @@ due staked accounts, all within baseline, fleet steady" is a real outcome.
   seasonality-matched baseline (compare same-weekday windows).
 - **Known sandbox / internal / migrating account** — if a `noise:` / `addressed:` entry names it, skip.
 
-When in doubt, refresh the baseline memory instead of emitting. A false churn-risk alarm on a
-named account erodes a CSM's trust fast.
+When in doubt, refresh the baseline memory instead of filing a report. A false churn-risk alarm on
+a named account erodes a CSM's trust fast.
 
 ## MCP tools
 
@@ -288,19 +315,27 @@ Direct (read-only):
   and the events that constitute "engagement" for this project before any SQL.
 - `insight-get` — read any saved Customer-analytics usage insight to learn the team's own
   definition of an active account.
-- `inbox-reports-list` — check whether a fleet-wide move is already reported before emitting.
+  Inbox & reviewer routing (mechanics in `authoring-scouts` → `references/report-contract.md`):
+
+- `inbox-reports-list` / `inbox-reports-retrieve` — the reports already in the inbox; check before
+  authoring so you edit instead of duplicating.
+- `inbox-report-artefacts-list` — a comparable report's artefact log; reviewer precedent.
+- `signals-scout-members-list` — the in-run roster for routing `suggested_reviewers` to an account
+  / CSM-team owner.
 
 Harness-level: `signals-scout-project-profile-get`, `signals-scout-scratchpad-search`,
 `signals-scout-runs-list`, `signals-scout-runs-retrieve` (orientation + dedupe);
-`signals-scout-emit-signal`, `signals-scout-scratchpad-remember`,
-`signals-scout-scratchpad-forget` (emit + memory).
+`signals-scout-emit-report` / `signals-scout-edit-report` (author / edit a report — the
+report-channel contract is in the harness prompt); `signals-scout-scratchpad-remember`,
+`signals-scout-scratchpad-forget` (memory).
 
 ## When to stop
 
 - No roster, or the roster doesn't join to group keys → close out empty (after the quick-close-out memory).
 - You've scored the due watchlist accounts and added a couple of new ones → close out, even if more
   remain. Each run advances the watchlist.
-- A candidate matches a `noise:` / `addressed:` / `dedupe:` entry → skip.
+- A candidate matches a `noise:` / `addressed:` / `dedupe:` entry, or an existing inbox report →
+  edit-or-skip with a one-line note.
 
 Fewer, well-calibrated, fleet-checked per-account risks beat a flood of seasonal or fleet-wide
 false positives.

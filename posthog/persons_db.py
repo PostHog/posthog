@@ -26,8 +26,13 @@ import psycopg
 
 # Local-development fallback only. Every deployment that runs this code injects
 # PERSONS_DB_{WRITER,READER}_URL (charts for prod, conftest for tests), so this is
-# used solely when a developer has neither set locally.
-LOCAL_DEV_PERSONS_DB_URL = "postgres://posthog:posthog@localhost:5432/posthog_persons"
+# used solely when a developer has neither set locally. The host/credentials mirror
+# the Django persons-DB config (posthog/settings/data_stores.py), so the fallback
+# resolves to the same local database whether or not Django is in the loop.
+LOCAL_DEV_PERSONS_DB_URL = (
+    f"postgres://{os.getenv('PGUSER', 'posthog')}:{os.getenv('PGPASSWORD', 'posthog')}"
+    f"@{os.getenv('PGHOST', 'db')}:{os.getenv('PGPORT', '5432')}/posthog_persons"
+)
 
 
 def persons_db_url(*, writer: bool = True) -> str:
@@ -35,8 +40,8 @@ def persons_db_url(*, writer: bool = True) -> str:
 
     The writer uses ``PERSONS_DB_WRITER_URL``; the reader uses
     ``PERSONS_DB_READER_URL`` and falls back to the writer URL when no dedicated
-    reader endpoint is configured (mirroring production). Falls back to a localhost
-    default only when nothing is set, i.e. local development.
+    reader endpoint is configured (mirroring production). Falls back to a local
+    default (derived from the PG* env vars) only when nothing is set, i.e. local development.
     """
     if writer:
         return os.getenv("PERSONS_DB_WRITER_URL") or LOCAL_DEV_PERSONS_DB_URL

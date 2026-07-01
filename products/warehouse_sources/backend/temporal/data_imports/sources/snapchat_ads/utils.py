@@ -2,6 +2,7 @@ import copy
 from collections.abc import Iterable
 from datetime import date, datetime, timedelta
 from typing import Any, Optional
+from zoneinfo import ZoneInfo
 
 import structlog
 from dateutil import parser
@@ -25,11 +26,12 @@ SNAPCHAT_DATE_FORMAT = "%Y-%m-%dT00:00:00"
 RETRYABLE_STATUS_CODES = [429, 500, 503]
 
 
-def fetch_account_currency(ad_account_id: str, access_token: str) -> str | None:
-    """Fetch the currency configured on the Snapchat ad account.
+def fetch_account_metadata(ad_account_id: str, access_token: str) -> tuple[str | None, str | None]:
+    """Fetch the currency and timezone configured on the Snapchat ad account.
 
-    Snapchat stats don't include currency per row (unlike Meta),
-    so we fetch it from the ad account endpoint once per sync.
+    Snapchat stats don't include currency per row (unlike Meta), so we fetch it
+    from the ad account endpoint once per sync. The account timezone is needed to
+    align DAY-granularity stats date boundaries to the account's local midnight.
     """
     try:
         response = make_tracked_session().get(
@@ -43,12 +45,30 @@ def fetch_account_currency(ad_account_id: str, access_token: str) -> str | None:
         if adaccounts:
             account = adaccounts[0].get("adaccount", {})
             currency = account.get("currency")
+            timezone = account.get("timezone")
             if currency:
                 logger.info("snapchat_ads_account_currency", ad_account_id=ad_account_id, currency=currency)
-                return str(currency)
+            return (str(currency) if currency else None, str(timezone) if timezone else None)
     except Exception as e:
-        logger.warning("snapchat_ads_currency_fetch_failed", ad_account_id=ad_account_id, error=str(e))
-    return None
+        logger.warning("snapchat_ads_account_metadata_fetch_failed", ad_account_id=ad_account_id, error=str(e))
+    return (None, None)
+
+
+def format_stats_day_boundary(dt: datetime, account_timezone: str | None) -> str:
+    """Render a stats date boundary the way Snapchat's DAY granularity requires.
+
+    Snapchat rejects the request with a 400 unless start_time/end_time fall on the
+    start of a day in the ad account's timezone, including the correct (DST-aware)
+    UTC offset. A naive timestamp gets misaligned whenever the account isn't in UTC
+    or the range crosses a DST change, so localize each boundary to the account
+    timezone before formatting.
+    """
+    if account_timezone:
+        try:
+            return dt.replace(tzinfo=ZoneInfo(account_timezone)).isoformat()
+        except Exception:
+            logger.warning("snapchat_ads_invalid_account_timezone", timezone=account_timezone)
+    return dt.strftime(SNAPCHAT_DATE_FORMAT)
 
 
 class SnapchatAdsAPIError(Exception):
@@ -116,11 +136,18 @@ class SnapchatDateRangeManager:
 
     @staticmethod
     def generate_chunks(
-        start_date: str, end_date: str, chunk_days: int = MAX_SNAPCHAT_DAYS_TO_QUERY
+        start_date: str,
+        end_date: str,
+        chunk_days: int = MAX_SNAPCHAT_DAYS_TO_QUERY,
+        account_timezone: str | None = None,
     ) -> list[tuple[str, str]]:
         """
         Generate date chunks that respect Snapchat's 31-day limit.
         Returns list of (start_date, end_date) tuples for sequential API calls.
+
+        Day arithmetic stays on naive calendar dates so each chunk spans whole
+        days; the boundaries are localized to ``account_timezone`` only at the
+        formatting step so every boundary picks up its own DST-correct offset.
         """
         start_dt = datetime.fromisoformat(start_date)
         end_dt = datetime.fromisoformat(end_date)
@@ -140,8 +167,8 @@ class SnapchatDateRangeManager:
 
             chunks.append(
                 (
-                    current_start.strftime(SNAPCHAT_DATE_FORMAT),
-                    chunk_end_for_api.strftime(SNAPCHAT_DATE_FORMAT),
+                    format_stats_day_boundary(current_start, account_timezone),
+                    format_stats_day_boundary(chunk_end_for_api, account_timezone),
                 )
             )
 
@@ -231,9 +258,10 @@ class SnapchatStatsResource:
         end_date: str,
         ad_account_id: str,
         chunk_days: int = MAX_SNAPCHAT_DAYS_TO_QUERY,
+        account_timezone: str | None = None,
     ) -> list[dict]:
         """Create chunked resources for date range queries."""
-        date_chunks = SnapchatDateRangeManager.generate_chunks(start_date, end_date, chunk_days)
+        date_chunks = SnapchatDateRangeManager.generate_chunks(start_date, end_date, chunk_days, account_timezone)
         resources = []
 
         for i, (chunk_start, chunk_end) in enumerate(date_chunks):
@@ -300,6 +328,7 @@ class SnapchatStatsResource:
         ad_account_id: str,
         should_use_incremental_field: bool,
         db_incremental_field_last_value: Optional[Any],
+        account_timezone: str | None = None,
     ) -> list[dict]:
         """
         Setup stats resources with proper date chunking.
@@ -309,7 +338,9 @@ class SnapchatStatsResource:
             should_use_incremental_field, db_incremental_field_last_value
         )
 
-        return cls.create_chunked_resources(base_resource_config, starts_at, ends_at, ad_account_id)
+        return cls.create_chunked_resources(
+            base_resource_config, starts_at, ends_at, ad_account_id, account_timezone=account_timezone
+        )
 
 
 class SnapchatAdsPaginator(BasePaginator):

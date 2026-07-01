@@ -1,7 +1,11 @@
 import datetime as dt
+from datetime import datetime
+from typing import cast
 from uuid import UUID, uuid4
+from zoneinfo import ZoneInfo
 
-from posthog.test.base import APIBaseTest, ClickhouseTestMixin
+from freezegun import freeze_time
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_person, flush_persons_and_events
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -432,6 +436,191 @@ class TestHogQLCohortQuery(ClickhouseTestMixin, APIBaseTest):
         self.assertIn("INTERSECT DISTINCT", query_str)
         # Should not use the OR optimization (which would create a single query with OR logic)
         self.assertNotIn("or(", query_str)
+
+    def test_person_metadata_created_at_cohort(self) -> None:
+        cohort_filters = {
+            "type": "AND",
+            "values": [
+                {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "key": "created_at",
+                            "type": "person_metadata",
+                            "value": "2024-01-01",
+                            "operator": "is_date_after",
+                        }
+                    ],
+                }
+            ],
+        }
+        cohort = Cohort.objects.create(
+            team=self.team, name="created after 2024", filters={"properties": cohort_filters}
+        )
+
+        hogql_query = HogQLCohortQuery(cohort=cohort)
+        query_str = hogql_query.query_str("clickhouse")
+
+        self.assertIn("created_at", query_str)
+        # Should compare against the persons table column, not the properties JSON blob
+        self.assertNotIn("properties___created_at", query_str)
+
+    def test_person_metadata_cohort_membership_end_to_end(self) -> None:
+        # Persons need a deterministic created_at in BOTH Postgres and ClickHouse.
+        # _create_person with immediate=True under freeze_time writes both stores; we also
+        # pass created_at explicitly so the assertion stays valid even if Postgres stops
+        # using auto_now_add or default=timezone.now in a future migration.
+        utc = ZoneInfo("UTC")
+        old_dt = datetime(2023, 1, 1, tzinfo=utc)
+        new_dt = datetime(2025, 1, 1, tzinfo=utc)
+        with freeze_time(old_dt):
+            old_person = _create_person(
+                team=self.team,
+                distinct_ids=["old"],
+                properties={"name": "old user"},
+                created_at=old_dt,
+                immediate=True,
+            )
+        with freeze_time(new_dt):
+            new_person = _create_person(
+                team=self.team,
+                distinct_ids=["new"],
+                properties={"name": "new user"},
+                created_at=new_dt,
+                immediate=True,
+            )
+        flush_persons_and_events()
+
+        cohort = cast(
+            Cohort,
+            Cohort.objects.create(
+                team=self.team,
+                name="created after 2024",
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "created_at",
+                                        "type": "person_metadata",
+                                        "value": "2024-06-01",
+                                        "operator": "is_date_after",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            ),
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        from posthog.clickhouse.client.execute import sync_execute
+
+        rows = sync_execute(
+            "SELECT person_id FROM cohortpeople WHERE cohort_id = %(cohort_id)s AND team_id = %(team_id)s "
+            "GROUP BY person_id, cohort_id, team_id, version HAVING sum(sign) > 0",
+            {"cohort_id": cohort.pk, "team_id": self.team.pk},
+        )
+        member_ids = {str(row[0]) for row in rows}
+        self.assertIn(str(new_person.uuid), member_ids)
+        self.assertNotIn(str(old_person.uuid), member_ids)
+
+    def test_person_metadata_cohort_membership_negated_end_to_end(self) -> None:
+        # Mirror of the is_date_after test with is_date_before, so membership inverts: the OLD
+        # person should be in the cohort and the NEW person should not. Covers the operator whose
+        # missing-value default differs in the Rust matcher (the silent-grant class).
+        utc = ZoneInfo("UTC")
+        old_dt = datetime(2023, 1, 1, tzinfo=utc)
+        new_dt = datetime(2025, 1, 1, tzinfo=utc)
+        with freeze_time(old_dt):
+            old_person = _create_person(
+                team=self.team,
+                distinct_ids=["old_neg"],
+                properties={"name": "old user"},
+                created_at=old_dt,
+                immediate=True,
+            )
+        with freeze_time(new_dt):
+            new_person = _create_person(
+                team=self.team,
+                distinct_ids=["new_neg"],
+                properties={"name": "new user"},
+                created_at=new_dt,
+                immediate=True,
+            )
+        flush_persons_and_events()
+
+        cohort = cast(
+            Cohort,
+            Cohort.objects.create(
+                team=self.team,
+                name="created before 2024",
+                filters={
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {
+                                        "key": "created_at",
+                                        "type": "person_metadata",
+                                        "value": "2024-06-01",
+                                        "operator": "is_date_before",
+                                    }
+                                ],
+                            }
+                        ],
+                    }
+                },
+            ),
+        )
+        cohort.calculate_people_ch(pending_version=0)
+
+        from posthog.clickhouse.client.execute import sync_execute
+
+        rows = sync_execute(
+            "SELECT person_id FROM cohortpeople WHERE cohort_id = %(cohort_id)s AND team_id = %(team_id)s "
+            "GROUP BY person_id, cohort_id, team_id, version HAVING sum(sign) > 0",
+            {"cohort_id": cohort.pk, "team_id": self.team.pk},
+        )
+        member_ids = {str(row[0]) for row in rows}
+        self.assertIn(str(old_person.uuid), member_ids)
+        self.assertNotIn(str(new_person.uuid), member_ids)
+
+    def test_person_metadata_realtime_cohort_raises_error(self) -> None:
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="created after 2024 realtime",
+            filters={
+                "properties": {
+                    "type": "AND",
+                    "values": [
+                        {
+                            "type": "AND",
+                            "values": [
+                                {
+                                    "key": "created_at",
+                                    "type": "person_metadata",
+                                    "value": "2024-06-01",
+                                    "operator": "is_date_after",
+                                    "conditionHash": "test_pm_hash",
+                                }
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+
+        hogql_query = HogQLRealtimeCohortQuery(cohort=cohort)
+        with self.assertRaises(ValueError) as ctx:
+            hogql_query.query_str("clickhouse")
+        self.assertIn("person_metadata", str(ctx.exception))
 
     def test_static_cohort_condition_rejects_cross_project_cohort(self) -> None:
         from posthog.models.organization import Organization
@@ -1404,22 +1593,15 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
         hogql_query = HogQLRealtimeCohortQuery(cohort=cohort)
         query_str = hogql_query.query_str("clickhouse")
 
-        # Should have 1 IN clause for ALL merged email properties (yahoo + protonmail + live = 3 hashes)
-        in_clause_count = query_str.lower().count("in(precalculated_person_properties.condition,")
-        self.assertEqual(in_clause_count, 1, "Should have exactly 1 IN clause for all merged email properties")
+        # The whole nested boolean is now evaluated in one scan's HAVING — no set operations.
+        self.assertNotIn("UNION DISTINCT", query_str)
+        self.assertNotIn("INTERSECT DISTINCT", query_str)
+        self.assertIn("maxif(latest_matches", query_str.lower())
 
-        # Verify the IN clause has a tuple with 3 values (all 3 hashes merged)
-        # The pattern will be: tuple(%(hogql_val_X)s, %(hogql_val_Y)s, %(hogql_val_Z)s)
-
-        # Match tuple with exactly 3 comma-separated parameter placeholders
+        # The 3 sibling email properties (yahoo + protonmail + live) still merge into one OR leaf,
+        # so its IN tuple has exactly 3 values.
         tuple_pattern = r"tuple\(%\(hogql_val_\d+\)s,\s*%\(hogql_val_\d+\)s,\s*%\(hogql_val_\d+\)s\)"
-        self.assertRegex(query_str, tuple_pattern, "IN clause should have tuple with 3 values")
-
-        # Should use UNION DISTINCT since we have multiple top-level groups
-        self.assertIn("UNION DISTINCT", query_str)
-
-        # Should have INTERSECT DISTINCT for the AND group (email + name)
-        self.assertIn("INTERSECT DISTINCT", query_str)
+        self.assertRegex(query_str, tuple_pattern, "merged email leaf should be a 3-value IN tuple")
 
     def test_properties_without_condition_hash_are_not_merged(self) -> None:
         """
@@ -1819,10 +2001,10 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
                 ["greaterorequals(countif(equals(latest_matches, 1))"],
             ),
             (
-                # (X OR Y) AND (A OR B): nested OR groups under a top-level AND must NOT collapse
-                # into a flat `>= 4` threshold (that would require all four). Falls through so the
-                # parent path expresses `(X OR Y) INTERSECT (A OR B)` correctly.
-                "nested_or_under_and_falls_through",
+                # (X OR Y) AND (A OR B): nested OR groups under a top-level AND. The boolean-tree
+                # single scan expresses this as `maxIf(...) = 1 AND maxIf(...) = 1`, NOT a flat
+                # `>= 4` threshold (which would wrongly require all four).
+                "nested_or_under_and_single_scan",
                 {
                     "type": "AND",
                     "values": [
@@ -1875,12 +2057,12 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
                         }
                     ],
                 },
-                ["intersect distinct"],
-                ["greaterorequals(countif(equals(latest_matches, 1)), 4)"],
+                ["maxif(latest_matches"],
+                ["intersect distinct", "union distinct"],
             ),
             (
-                # Deeply nested AND-of-AND with different-key (non-mergeable) props → falls through
-                "deeply_nested_falls_through",
+                # Deeply nested AND-of-AND with different-key (non-mergeable) props → single scan
+                "deeply_nested_single_scan",
                 {
                     "type": "AND",
                     "values": [
@@ -1933,8 +2115,8 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
                         }
                     ],
                 },
-                ["intersect distinct"],
-                ["greaterorequals(countif(equals(latest_matches, 1))"],
+                ["maxif(latest_matches"],
+                ["intersect distinct", "union distinct"],
             ),
         ]
     )
@@ -2135,6 +2317,268 @@ class TestHogQLRealtimeCohortQuery(ClickhouseTestMixin, APIBaseTest):
             members = self._realtime_cohort_members(cohort)
             self.assertNotIn(str(flipped_out), members)  # latest write was False
             self.assertIn(str(flipped_in), members)  # latest write was True
+        finally:
+            sync_execute("DROP TABLE IF EXISTS precalculated_person_properties")
+
+    def test_nested_boolean_single_scan_membership(self) -> None:
+        """Execute the nested-boolean single scan and assert membership for `(A AND B) OR (C AND D)`.
+
+        This shape used to fall through to the INTERSECT/UNION DISTINCT path (the OOM source); the
+        boolean-tree single scan must return the same person set without those set operations.
+        """
+        sync_execute(_PRECALCULATED_PERSON_PROPERTIES_TEST_DDL)
+        sync_execute("TRUNCATE TABLE precalculated_person_properties")
+        try:
+            ab, cd, c_only, a_only = uuid4(), uuid4(), uuid4(), uuid4()
+            self._seed_precalculated_person_properties(
+                [
+                    (ab, "exec_A", True),
+                    (ab, "exec_B", True),  # matches first branch
+                    (cd, "exec_C", True),
+                    (cd, "exec_D", True),  # matches second branch
+                    (c_only, "exec_C", True),  # half of second branch only
+                    (a_only, "exec_A", True),  # half of first branch only
+                ]
+            )
+
+            def leaf(key: str, condition_hash: str) -> dict:
+                return {
+                    "key": key,
+                    "type": "person",
+                    "value": "x",
+                    "negation": False,
+                    "operator": "exact",
+                    "conditionHash": condition_hash,
+                }
+
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name="nested",
+                filters={
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "OR",
+                                "values": [
+                                    {"type": "AND", "values": [leaf("k1", "exec_A"), leaf("k2", "exec_B")]},
+                                    {"type": "AND", "values": [leaf("k3", "exec_C"), leaf("k4", "exec_D")]},
+                                ],
+                            }
+                        ],
+                    }
+                },
+            )
+            query_str = HogQLRealtimeCohortQuery(cohort=cohort).query_str("clickhouse")
+            self.assertNotIn("INTERSECT DISTINCT", query_str)
+            self.assertNotIn("UNION DISTINCT", query_str)
+
+            members = self._realtime_cohort_members(cohort)
+            self.assertIn(str(ab), members)  # A AND B
+            self.assertIn(str(cd), members)  # C AND D
+            self.assertNotIn(str(c_only), members)  # C without D
+            self.assertNotIn(str(a_only), members)  # A without B
+        finally:
+            sync_execute("DROP TABLE IF EXISTS precalculated_person_properties")
+
+    def test_nested_boolean_single_scan_and_merged_leaf_membership(self) -> None:
+        """Exercise the AND-merged leaf (countIf(...) = N) inside the boolean tree.
+
+        `(email~@gmail AND email~.com) AND plan` nested under a top-level OR: the same-key email
+        pair merges into one AND-merged leaf, which the tree must render as
+        `countIf(latest_matches = 1 AND condition IN (g, c)) = 2` — a person matching only one of
+        the two merged hashes must be excluded.
+        """
+
+        def leaf(key: str, value: str, operator: str, condition_hash: str) -> dict:
+            return {
+                "key": key,
+                "type": "person",
+                "value": value,
+                "negation": False,
+                "operator": operator,
+                "conditionHash": condition_hash,
+            }
+
+        sync_execute(_PRECALCULATED_PERSON_PROPERTIES_TEST_DDL)
+        sync_execute("TRUNCATE TABLE precalculated_person_properties")
+        try:
+            both, one_only, country_only = uuid4(), uuid4(), uuid4()
+            self._seed_precalculated_person_properties(
+                [
+                    (both, "m_g", True),
+                    (both, "m_c", True),
+                    (both, "plan_x", True),  # matches the AND-merged email pair + plan
+                    (one_only, "m_g", True),
+                    (one_only, "m_c", False),
+                    (one_only, "plan_x", True),  # missed one of the merged hashes
+                    (country_only, "country_y", True),  # matches the other OR branch
+                ]
+            )
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name="and-merged",
+                filters={
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "OR",
+                                "values": [
+                                    {
+                                        "type": "AND",
+                                        "values": [
+                                            {
+                                                "type": "AND",
+                                                "values": [
+                                                    leaf("email", "@gmail", "icontains", "m_g"),
+                                                    leaf("email", ".com", "icontains", "m_c"),
+                                                ],
+                                            },
+                                            {"type": "AND", "values": [leaf("plan", "x", "exact", "plan_x")]},
+                                        ],
+                                    },
+                                    {"type": "AND", "values": [leaf("country", "y", "exact", "country_y")]},
+                                ],
+                            }
+                        ],
+                    }
+                },
+            )
+            query_str = HogQLRealtimeCohortQuery(cohort=cohort).query_str("clickhouse").lower()
+            self.assertNotIn("intersect distinct", query_str)
+            self.assertNotIn("union distinct", query_str)
+            self.assertIn("countif(", query_str)  # AND-merged leaf renders as countIf(...) = N
+
+            members = self._realtime_cohort_members(cohort)
+            self.assertIn(str(both), members)  # matched both merged hashes + plan
+            self.assertIn(str(country_only), members)  # other OR branch
+            self.assertNotIn(str(one_only), members)  # missed one merged hash → AND-merged leaf fails
+        finally:
+            sync_execute("DROP TABLE IF EXISTS precalculated_person_properties")
+
+    def test_nested_negated_leaf_falls_through(self) -> None:
+        """A negated leaf buried in a nested group must force the parent multi-subquery path.
+
+        The single-scan tree can't express negation, so any nested negated person property must
+        make `_build_boolean_tree_query` return None and fall through — not silently drop the
+        negation and produce a wrong cohort.
+        """
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="nested-negated",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [
+                        {
+                            "type": "OR",
+                            "values": [
+                                {
+                                    "type": "OR",
+                                    "values": [
+                                        {
+                                            "key": "email",
+                                            "type": "person",
+                                            "value": "@x",
+                                            "negation": False,
+                                            "operator": "icontains",
+                                            "conditionHash": "nn_h1",
+                                        }
+                                    ],
+                                },
+                                {
+                                    "type": "AND",
+                                    "values": [
+                                        {
+                                            "key": "plan",
+                                            "type": "person",
+                                            "value": "A",
+                                            "negation": False,
+                                            "operator": "exact",
+                                            "conditionHash": "nn_h2",
+                                        },
+                                        {
+                                            "key": "name",
+                                            "type": "person",
+                                            "value": "spam",
+                                            "negation": True,
+                                            "operator": "icontains",
+                                            "conditionHash": "nn_h3",
+                                        },
+                                    ],
+                                },
+                            ],
+                        }
+                    ],
+                }
+            },
+        )
+        query_str = HogQLRealtimeCohortQuery(cohort=cohort).query_str("clickhouse").lower()
+        # Tree path must NOT fire — a negated leaf forces the parent set-operation path.
+        self.assertNotIn("maxif(latest_matches", query_str)
+
+    def test_nested_or_under_and_membership(self) -> None:
+        """Execution test for `(X OR Y) AND (A OR B)` — the shape flagged in the parameterized
+        test as the threshold-flip risk.
+
+        The tree renders it as `maxIf(...X,Y...) = 1 AND maxIf(...A,B...) = 1`, NOT a flat
+        `countIf >= 4` threshold that would wrongly require all four. A person matching only X
+        and A (one from each OR branch) must be IN; one matching X and Y but not A or B must be OUT.
+        """
+        sync_execute(_PRECALCULATED_PERSON_PROPERTIES_TEST_DDL)
+        sync_execute("TRUNCATE TABLE precalculated_person_properties")
+        try:
+            x_and_a, x_and_y, a_and_b, neither = uuid4(), uuid4(), uuid4(), uuid4()
+            self._seed_precalculated_person_properties(
+                [
+                    (x_and_a, "or_X", True),
+                    (x_and_a, "or_A", True),  # one from each OR branch → should match
+                    (x_and_y, "or_X", True),
+                    (x_and_y, "or_Y", True),  # both from first branch, none from second → no match
+                    (a_and_b, "or_A", True),
+                    (a_and_b, "or_B", True),  # both from second branch, none from first → no match
+                    (neither, "or_X", False),  # matches nothing
+                ]
+            )
+
+            def leaf(key: str, condition_hash: str) -> dict:
+                return {
+                    "key": key,
+                    "type": "person",
+                    "value": "x",
+                    "negation": False,
+                    "operator": "exact",
+                    "conditionHash": condition_hash,
+                }
+
+            cohort = Cohort.objects.create(
+                team=self.team,
+                name="or-under-and",
+                filters={
+                    "properties": {
+                        "type": "OR",
+                        "values": [
+                            {
+                                "type": "AND",
+                                "values": [
+                                    {"type": "OR", "values": [leaf("k1", "or_X"), leaf("k2", "or_Y")]},
+                                    {"type": "OR", "values": [leaf("k3", "or_A"), leaf("k4", "or_B")]},
+                                ],
+                            }
+                        ],
+                    }
+                },
+            )
+            query_str = HogQLRealtimeCohortQuery(cohort=cohort).query_str("clickhouse")
+            self.assertNotIn("INTERSECT DISTINCT", query_str)
+            self.assertNotIn("UNION DISTINCT", query_str)
+
+            members = self._realtime_cohort_members(cohort)
+            self.assertIn(str(x_and_a), members)  # one from each OR branch
+            self.assertNotIn(str(x_and_y), members)  # both from first branch only
+            self.assertNotIn(str(a_and_b), members)  # both from second branch only
+            self.assertNotIn(str(neither), members)  # no match
         finally:
             sync_execute("DROP TABLE IF EXISTS precalculated_person_properties")
 

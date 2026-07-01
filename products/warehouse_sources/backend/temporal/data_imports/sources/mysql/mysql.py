@@ -20,7 +20,7 @@ import time
 import datetime
 import collections
 from collections.abc import Callable, Iterator
-from contextlib import contextmanager
+from contextlib import ExitStack, contextmanager
 from typing import Any, TypeVar
 
 from django.conf import settings
@@ -318,6 +318,17 @@ _CANT_CONNECT_TO_SERVER_CODE = 2003
 # Postgres source, which retries its own "SSL connection has been closed unexpectedly" on connect.
 _SSL_UNEXPECTED_EOF_TOKEN = "[SSL: UNEXPECTED_EOF_WHILE_READING]"
 
+# paramiko raises a bare, message-less EOFError from `start_client` when the SSH gateway accepts
+# the TCP connection but closes it during the SSH handshake — a non-SSH service on the port, a
+# bastion refusing PostHog's IPs, or a proxy that resets the stream. sshtunnel doesn't wrap it
+# (it only translates *auth* failures into BaseSSHTunnelForwarderError), so it escapes with an
+# empty `str()`, matching no non-retryable rule and retrying forever. `connect` translates it into
+# this stable, classifiable message (see `MySQLSource.get_non_retryable_errors`) — same
+# gateway-configuration class as a wrapped "Could not establish session to SSH gateway" failure.
+# Distinct from the `[SSL: UNEXPECTED_EOF_WHILE_READING]` token above, which is a transient drop in
+# the *database* TLS handshake (deliberately kept retryable).
+_SSH_HANDSHAKE_EOF_ERROR = "SSH gateway closed the connection during the SSH handshake"
+
 
 def _is_transient_connect_drop(e: BaseException) -> bool:
     """Return True if the connection was dropped mid-handshake — a transient blip.
@@ -367,6 +378,26 @@ def _is_transient_connect_timeout(e: BaseException) -> bool:
     return "timed out" in " ".join(str(arg) for arg in e.args)
 
 
+# pymysql raises this `InternalError` from `_read_packet` when an incoming packet's
+# sequence number doesn't match the expected one (it `_force_close()`s the socket first).
+_PACKET_SEQUENCE_ERROR_PHRASE = "Packet sequence number wrong"
+
+
+def _is_transient_packet_sequence_error(e: BaseException) -> bool:
+    """Return True if the handshake stream desynced mid-exchange — a transient blip.
+
+    A packet-sequence mismatch during connect means the server's handshake reply
+    arrived out of order or truncated (an overloaded server, a proxy/load balancer
+    interfering, a momentary network blip) and pymysql force-closed the dead socket.
+    It's the same transient class as the 2013 drop above and a fresh attempt recovers,
+    but it surfaces as `InternalError`, not `OperationalError`, so it needs its own
+    predicate. Match the stable phrase, not the volatile got/expected packet numbers.
+    """
+    if not isinstance(e, pymysql.err.InternalError):
+        return False
+    return any(_PACKET_SEQUENCE_ERROR_PHRASE in str(arg) for arg in e.args)
+
+
 def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
     """Open a pymysql connection, retrying a transient drop or timeout on connect.
 
@@ -379,14 +410,16 @@ def _connect_with_transient_retry(kwargs: dict[str, Any]) -> pymysql.Connection:
     while True:
         try:
             return pymysql.connect(**kwargs)
-        except pymysql.err.OperationalError as e:
+        except pymysql.err.DatabaseError as e:
             attempt += 1
             if attempt >= _MAX_CONNECT_ATTEMPTS or not (
-                _is_transient_connect_drop(e) or _is_transient_connect_timeout(e)
+                _is_transient_connect_drop(e)
+                or _is_transient_connect_timeout(e)
+                or _is_transient_packet_sequence_error(e)
             ):
                 raise
             structlog.get_logger().warning(
-                "Transient MySQL connect error (drop or timeout); retrying",
+                "Transient MySQL connection error during connect; retrying",
                 attempt=attempt,
                 max_attempts=_MAX_CONNECT_ATTEMPTS,
                 exc_info=e,
@@ -604,7 +637,7 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
         if config.using_ssl:
             ssl_ca = "/etc/ssl/cert.pem" if settings.DEBUG else "/etc/ssl/certs/ca-certificates.crt"
 
-        with open_ssh_tunnel(config) as (host, port):
+        with self._ssh_tunnel_endpoint(config) as (host, port):
             kwargs: dict[str, Any] = {
                 "host": host,
                 "port": port,
@@ -620,6 +653,21 @@ class MySQLImplementation(SQLSourceImplementation[MySQLSourceConfig, pymysql.Con
                 kwargs["read_timeout"] = read_timeout
             with _connect_with_transient_retry(kwargs) as conn:
                 yield conn
+
+    @contextmanager
+    def _ssh_tunnel_endpoint(self, config: MySQLSourceConfig) -> Iterator[tuple[str, int]]:
+        """Yield the `(host, port)` to connect to, going through the SSH tunnel if configured.
+
+        Translates a bare paramiko handshake `EOFError` into `_SSH_HANDSHAKE_EOF_ERROR`. The
+        `yield` sits outside the `except` so a failure raised by the connection body can never be
+        misattributed to the tunnel handshake.
+        """
+        with ExitStack() as stack:
+            try:
+                host, port = stack.enter_context(open_ssh_tunnel(config))
+            except EOFError as e:
+                raise Exception(_SSH_HANDSHAKE_EOF_ERROR) from e
+            yield host, port
 
     # ------------------------------------------------------------------
     # Listing — batch queries run once during `get_schemas`

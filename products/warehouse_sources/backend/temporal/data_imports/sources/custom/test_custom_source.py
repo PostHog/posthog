@@ -1,30 +1,44 @@
 import io
 import gzip
 import json
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any, cast
+from urllib.parse import quote
 
+from freezegun import freeze_time
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
 
+import requests
 from parameterized import parameterized
 from requests import Response
 from urllib3.response import HTTPResponse
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
+    OAUTH2_PERMANENT_ERROR_MARKER,
     APIKeyAuth,
     BearerTokenAuth,
     HttpBasicAuth,
+    OAuth2Auth,
+    OAuth2AuthRequestError,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
     MAX_MANIFEST_RESOURCES,
+    PREVIEW_MAX_FANOUT_PARENTS,
+    PREVIEW_MAX_ROWS,
+    PROBE_CONNECT_TIMEOUT,
     PROBE_MAX_RESOURCES,
+    PROBE_READ_TIMEOUT,
     CustomSource,
     FanoutChain,
     ManifestValidationError,
+    PreviewResponseTooLargeError,
     _fanout_chain,
+    _json_type_label,
+    _PreviewSession,
     _read_capped_text,
+    _redact_secrets,
     _validate_resource_graph,
     manifest_request_hosts,
     validate_manifest_structure,
@@ -33,6 +47,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.custom.sou
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import CustomSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 from products.warehouse_sources.backend.types import IncrementalFieldType
+
+AUTH_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth"
 
 
 def validate_manifest(manifest: Any) -> None:
@@ -168,6 +184,54 @@ class TestValidateManifest(SimpleTestCase):
             ("token", {"type": "bearer", "token": "leaked"}),
             ("api_key", {"type": "api_key", "api_key": "leaked"}),
             ("password", {"type": "http_basic", "username": "alice", "password": "leaked"}),
+            (
+                "client_secret",
+                {
+                    "type": "oauth2",
+                    "client_id": "cid",
+                    "token_url": "https://auth.example.com/t",
+                    "client_secret": "leaked",
+                },
+            ),
+            (
+                "refresh_token",
+                {
+                    "type": "oauth2",
+                    "client_id": "cid",
+                    "token_url": "https://auth.example.com/t",
+                    "grant_type": "refresh_token",
+                    "refresh_token": "leaked",
+                },
+            ),
+            (
+                "access_token",
+                {
+                    "type": "oauth2",
+                    "client_id": "cid",
+                    "token_url": "https://auth.example.com/t",
+                    "access_token": "leaked",
+                },
+            ),
+            # The OAuth2 token-request knobs are forwarded to the token endpoint but stored in the
+            # non-secret manifest, so a secret hidden in them must be rejected too.
+            (
+                "extra_token_request_params.client_secret",
+                {
+                    "type": "oauth2",
+                    "client_id": "cid",
+                    "token_url": "https://auth.example.com/t",
+                    "extra_token_request_params": {"client_secret": "leaked"},
+                },
+            ),
+            (
+                "token_request_headers.Authorization",
+                {
+                    "type": "oauth2",
+                    "client_id": "cid",
+                    "token_url": "https://auth.example.com/t",
+                    "token_request_headers": {"Authorization": "Bearer leaked"},
+                },
+            ),
         ]
     )
     def test_rejects_inline_credentials(self, _name, auth):
@@ -178,6 +242,42 @@ class TestValidateManifest(SimpleTestCase):
         with self.assertRaises(ManifestValidationError) as ctx:
             validate_manifest(manifest)
         assert "must not be embedded" in str(ctx.exception)
+
+    def test_accepts_valid_oauth2_manifest(self):
+        manifest = _minimal_manifest()
+        manifest["client"]["auth"] = {
+            "type": "oauth2",
+            "client_id": "cid",
+            "token_url": "https://auth.example.com/token",
+            "grant_type": "client_credentials",
+        }
+        validate_manifest(manifest)
+
+    @parameterized.expand(
+        [
+            ("missing_client_id", {"type": "oauth2", "token_url": "https://auth.example.com/t"}),
+            ("missing_token_url", {"type": "oauth2", "client_id": "cid"}),
+        ]
+    )
+    def test_rejects_oauth2_missing_required_fields(self, _name, auth):
+        manifest = _minimal_manifest()
+        manifest["client"]["auth"] = auth
+        with self.assertRaises(ManifestValidationError) as ctx:
+            validate_manifest(manifest)
+        assert "OAuth2 auth requires" in str(ctx.exception)
+
+    def test_rejects_oauth2_authorization_code_grant(self):
+        # authorization_code needs an interactive consent flow — out of scope for headless syncs.
+        manifest = _minimal_manifest()
+        manifest["client"]["auth"] = {
+            "type": "oauth2",
+            "client_id": "cid",
+            "token_url": "https://auth.example.com/t",
+            "grant_type": "authorization_code",
+        }
+        with self.assertRaises(ManifestValidationError) as ctx:
+            validate_manifest(manifest)
+        assert "grant_type" in str(ctx.exception)
 
 
 class TestValidateManifestUrls(SimpleTestCase):
@@ -237,6 +337,46 @@ class TestValidateManifestUrls(SimpleTestCase):
         ok, err = validate_manifest_urls(manifest, team_id=999)
         assert ok, err
 
+    @parameterized.expand(
+        [
+            ("https_loopback", "https://127.0.0.1/oauth2/token"),
+            ("https_imds", "https://169.254.169.254/token"),
+            ("http_public", "http://auth.example.com/token"),
+        ]
+    )
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source._is_host_safe",
+        side_effect=lambda host, team_id: (
+            host not in {"127.0.0.1", "169.254.169.254"},
+            None if host not in {"127.0.0.1", "169.254.169.254"} else "blocked",
+        ),
+    )
+    def test_rejects_unsafe_or_http_oauth2_token_url(self, _name: str, token_url: str, _mock):
+        # The token endpoint is vetted like base_url — internal/private hosts and plaintext
+        # http on Cloud are rejected (defense-in-depth alongside the Smokescreen egress proxy).
+        # base_url's host is allowed by the stub so the token_url check is the one under test.
+        manifest = _minimal_manifest()
+        manifest["client"]["auth"] = {"type": "oauth2", "client_id": "cid", "token_url": token_url}
+        ok, err = validate_manifest_urls(manifest, team_id=999)
+        assert not ok
+        assert "token_url" in (err or "")
+
+    @override_settings(CLOUD_DEPLOYMENT="US")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source._is_host_safe",
+        side_effect=lambda host, team_id: (True, None),
+    )
+    def test_accepts_safe_https_oauth2_token_url(self, _mock):
+        manifest = _minimal_manifest()
+        manifest["client"]["auth"] = {
+            "type": "oauth2",
+            "client_id": "cid",
+            "token_url": "https://auth.example.com/oauth2/token",
+        }
+        ok, err = validate_manifest_urls(manifest, team_id=999)
+        assert ok, err
+
 
 class TestCustomSourceAssembleManifest(SimpleTestCase):
     def test_rejects_invalid_json(self):
@@ -283,6 +423,44 @@ class TestCustomSourceAssembleManifest(SimpleTestCase):
         config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()))
         assembled = source._assemble_manifest(config)
         assert "token" not in assembled["client"]["auth"]
+
+    def test_injects_oauth2_secrets_and_preserves_manifest_fields(self):
+        manifest = _minimal_manifest()
+        manifest["client"]["auth"] = {
+            "type": "oauth2",
+            "client_id": "cid",
+            "token_url": "https://auth.example.com/token",
+            "grant_type": "refresh_token",
+            "scopes": "read:users",
+        }
+        source = CustomSource()
+        config = CustomSourceConfig(
+            manifest_json=json.dumps(manifest),
+            auth_oauth2_client_secret="cs_secret",
+            auth_oauth2_refresh_token="rt_secret",
+        )
+        auth = source._assemble_manifest(config)["client"]["auth"]
+        # Secrets injected from the config fields...
+        assert auth["client_secret"] == "cs_secret"
+        assert auth["refresh_token"] == "rt_secret"
+        # ...and the non-secret manifest fields left intact.
+        assert auth["client_id"] == "cid"
+        assert auth["token_url"] == "https://auth.example.com/token"
+        assert auth["grant_type"] == "refresh_token"
+        assert auth["scopes"] == "read:users"
+
+    def test_oauth2_leaves_secrets_absent_when_not_provided(self):
+        manifest = _minimal_manifest()
+        manifest["client"]["auth"] = {
+            "type": "oauth2",
+            "client_id": "cid",
+            "token_url": "https://auth.example.com/token",
+        }
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest))
+        auth = source._assemble_manifest(config)["client"]["auth"]
+        assert "client_secret" not in auth
+        assert "refresh_token" not in auth
 
 
 class TestCustomSourceGetSchemas(SimpleTestCase):
@@ -336,6 +514,16 @@ class TestCustomSourceGetSchemas(SimpleTestCase):
         assert schema.incremental_fields[0]["field_type"] == expected
 
 
+def _oauth2_manifest() -> dict:
+    manifest = _minimal_manifest()
+    manifest["client"]["auth"] = {
+        "type": "oauth2",
+        "client_id": "cid",
+        "token_url": "https://auth.example.com/oauth2/token",
+    }
+    return manifest
+
+
 class TestCustomSourceValidateCredentials(SimpleTestCase):
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
     def test_returns_true_on_2xx(self, mock_session):
@@ -347,6 +535,78 @@ class TestCustomSourceValidateCredentials(SimpleTestCase):
         ok, err = source.validate_credentials(config, team_id=999)
         assert ok, err
         assert err is None
+
+    @patch.object(
+        OAuth2Auth,
+        "_obtain_token",
+        side_effect=OAuth2AuthRequestError(
+            "HTTP 401 from the OAuth2 token endpoint: invalid_client: bad creds",
+            error_code="invalid_client",
+            is_permanent=True,
+        ),
+    )
+    def test_oauth2_probe_permanent_token_error_blocks_with_clear_message(self, _mock_mint):
+        # A bad client_secret / token_url must fail at create time with a pointed token-endpoint
+        # message — not the generic "resource unreachable" of the data probe.
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_oauth2_manifest()), auth_oauth2_client_secret="cs")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert not ok
+        assert "OAuth2 token endpoint rejected" in (err or "")
+        assert "invalid_client" in (err or "")
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
+    @patch.object(
+        OAuth2Auth,
+        "_obtain_token",
+        side_effect=OAuth2AuthRequestError("HTTP 503 from the OAuth2 token endpoint", is_permanent=False),
+    )
+    def test_oauth2_probe_transient_token_error_does_not_block(self, _mock_mint, mock_session):
+        # A 429 / 5xx at the token endpoint during the create-time probe is transient — it must
+        # not block creation; the first real sync retries it. The data probe is skipped entirely
+        # (no minted token to authenticate with), so the probe session is never even built — assert
+        # that, not a mocked 200 that would hide the real fall-through behavior.
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_oauth2_manifest()), auth_oauth2_client_secret="cs")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert ok, err
+        mock_session.assert_not_called()
+
+    @freeze_time("2025-01-01T00:00:00Z")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
+    def test_oauth2_minted_token_joins_probe_redaction(self, mock_session):
+        # The pre-mint runs before the probe session is built, so the freshly-minted access token
+        # (and the static client_secret) are both registered for redaction on the data probe.
+        mock_session.return_value.request.return_value = MagicMock(status_code=200)
+
+        def fake_mint(self_auth, timeout=None):
+            self_auth.token = "minted-xyz"
+            self_auth.token_expiry = datetime.now(UTC) + timedelta(hours=1)
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_oauth2_manifest()), auth_oauth2_client_secret="cs_secret")
+        with patch.object(OAuth2Auth, "_obtain_token", autospec=True, side_effect=fake_mint):
+            ok, err = source.validate_credentials(config, team_id=999)
+        assert ok, err
+        redact = mock_session.call_args.kwargs["redact_values"]
+        assert "cs_secret" in redact
+        assert "minted-xyz" in redact
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
+    def test_probe_body_snippet_redacts_echoed_credential(self, mock_session):
+        # An upstream that echoes the sent credential in its 401/403 body must not leak it into the
+        # user-facing error — the snippet is run through _redact_secrets before being surfaced.
+        response = MagicMock(status_code=401)
+        response.headers = {}
+        response.raw.read.return_value = b"unauthorized: token sk_secret_value is invalid"
+        mock_session.return_value.request.return_value = response
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="sk_secret_value")
+        ok, err = source.validate_credentials(config, team_id=999)
+        assert not ok
+        assert "sk_secret_value" not in (err or "")
+        assert "***" in (err or "")
 
     @parameterized.expand([401, 403])
     @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
@@ -742,6 +1002,35 @@ class TestManifestRequestHosts(SimpleTestCase):
     def test_unparseable_returns_empty(self, _name, raw):
         assert manifest_request_hosts(raw) == frozenset()
 
+    def test_oauth2_token_url_host_is_tracked(self):
+        # The token endpoint receives the stored client_secret, so its host must be in the
+        # re-entry set — otherwise an editor who can't read the secret could repoint token_url
+        # at a host they control while keeping the secret, exfiltrating it past the gate.
+        manifest = json.dumps(
+            {
+                "client": {
+                    "base_url": "https://api.example.com",
+                    "auth": {"type": "oauth2", "client_id": "cid", "token_url": "https://auth.other.net/oauth2/token"},
+                },
+                "resources": [{"name": "r", "endpoint": {"path": "/users"}}],
+            }
+        )
+        assert manifest_request_hosts(manifest) == frozenset({"api.example.com", "auth.other.net"})
+
+    def test_non_oauth2_auth_token_url_is_ignored(self):
+        # A stray token_url on a non-oauth2 auth is inert (no credential goes there), so it
+        # must not register a host and trigger spurious re-entry prompts.
+        manifest = json.dumps(
+            {
+                "client": {
+                    "base_url": "https://api.example.com",
+                    "auth": {"type": "bearer", "token_url": "https://auth.other.net/token"},
+                },
+                "resources": [{"name": "r", "endpoint": {"path": "/users"}}],
+            }
+        )
+        assert manifest_request_hosts(manifest) == frozenset({"api.example.com"})
+
 
 class TestCustomSourceSourceForPipeline(SimpleTestCase):
     def test_invalid_manifest_raises_non_retryable(self):
@@ -882,6 +1171,18 @@ class TestCustomSourceNonRetryableErrors(SimpleTestCase):
         assert "not found in config" in str(ctx.exception)
         assert "not found in config" in CustomSource().get_non_retryable_errors()
 
+    @parameterized.expand(["invalid_client", "invalid_grant"])
+    def test_oauth2_permanent_errors_are_classified_non_retryable(self, error_code):
+        # A permanent OAuth2 token rejection (invalid_client / invalid_grant) surfaces the
+        # standard error code in OAuth2Auth's failure message, and the classifier matches that
+        # substring so the job fails fast instead of burning its whole retry budget.
+        non_retryable = CustomSource().get_non_retryable_errors()
+        assert error_code in non_retryable
+        message = OAuth2AuthRequestError(
+            f"HTTP 401 from the OAuth2 token endpoint: {error_code}: nope", error_code=error_code, is_permanent=True
+        )
+        assert any(key in str(message) for key in non_retryable)
+
 
 def _fanout_manifest() -> dict:
     """A parent (`forms`) + fan-out child (`responses`) that binds the parent's
@@ -909,6 +1210,41 @@ def _fake_resource(name: str) -> MagicMock:
     resource = MagicMock()
     resource.name = name
     return resource
+
+
+class _PageResource:
+    """Iterable stand-in for an engine Resource: yields preset pages (list[dict]),
+    applying any registered ``add_filter`` predicates so the preview's parent cap
+    is exercised the same way the real Resource would apply it."""
+
+    def __init__(self, name: str, pages: list[list[dict[str, Any]]]) -> None:
+        self.name = name
+        self._pages = pages
+        self._filters: list[Any] = []
+
+    def add_filter(self, fn: Any) -> "_PageResource":
+        self._filters.append(fn)
+        return self
+
+    def __iter__(self) -> Any:
+        for page in self._pages:
+            yield [item for item in page if all(f(item) for f in self._filters)]
+
+
+class _CountingResource:
+    """Engine Resource that yields one-row pages lazily and records how many rows
+    it produced, so a test can prove preview abandons the generator at the cap
+    instead of draining it."""
+
+    def __init__(self, name: str, total_rows: int) -> None:
+        self.name = name
+        self.total_rows = total_rows
+        self.produced = 0
+
+    def __iter__(self) -> Any:
+        for index in range(self.total_rows):
+            self.produced = index + 1
+            yield [{"id": index}]
 
 
 def _break_unknown_parent(m: dict) -> None:
@@ -1522,3 +1858,402 @@ class TestCustomSourceIncrementalDatetimeFormat(SimpleTestCase):
 
         child_params = next((p for p in captured if "since" in p), {})
         assert child_params.get("since") == "2026-06-08T12:53:34Z"
+
+
+def _apikey_manifest() -> dict:
+    """A minimal manifest whose auth is an api_key in a query param, so the
+    injected secret is registered for value-based redaction."""
+    manifest = _minimal_manifest()
+    manifest["client"]["auth"] = {"type": "api_key", "name": "key", "location": "query"}
+    return manifest
+
+
+class TestPreviewSession(SimpleTestCase):
+    def test_send_pins_no_redirect_streams_and_default_timeout(self):
+        prepared = requests.Request("GET", "https://acme.example.com/").prepare()
+        response = Response()
+        response.status_code = 200
+        response.raw = MagicMock()
+        response.raw.stream.return_value = iter([b"{}"])
+
+        with patch.object(requests.Session, "send", return_value=response) as parent_send:
+            _PreviewSession().send(prepared)
+
+        forwarded = parent_send.call_args.kwargs
+        assert forwarded["allow_redirects"] is False
+        assert forwarded["stream"] is True
+        assert forwarded["timeout"] == (PROBE_CONNECT_TIMEOUT, PROBE_READ_TIMEOUT)
+
+
+class TestJsonTypeLabel(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("null", None, "null"),
+            ("boolean", True, "boolean"),
+            ("integer", 7, "integer"),
+            ("number", 1.5, "number"),
+            ("string", "x", "string"),
+            ("array", [1, 2], "array"),
+            ("object", {"k": 1}, "object"),
+            ("unknown_falls_back_to_string", (1, 2), "string"),
+        ]
+    )
+    def test_labels_each_json_type(self, _name, value, expected):
+        assert _json_type_label(value) == expected
+
+
+class TestCustomSourcePreviewResource(SimpleTestCase):
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_returns_rows_and_inferred_columns(self, mock_resources):
+        mock_resources.return_value = [
+            _PageResource("users", [[{"id": 1, "name": "a", "active": True}, {"id": 2, "name": "b", "active": None}]])
+        ]
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="abc")
+        result = source.preview_resource(config, team_id=999, resource_name="users")
+
+        assert result.error is None
+        assert result.row_count == 2
+        assert result.rows[0]["id"] == 1
+        assert {column["name"]: column["type"] for column in result.columns} == {
+            "id": "integer",
+            "name": "string",
+            "active": "boolean",
+        }
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_column_type_uses_first_non_null_value(self, mock_resources):
+        mock_resources.return_value = [_PageResource("users", [[{"score": None}, {"score": 7}]])]
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="abc")
+        result = source.preview_resource(config, team_id=999, resource_name="users")
+
+        assert {column["name"]: column["type"] for column in result.columns} == {"score": "integer"}
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_row_cap_stops_generator_early(self, mock_resources):
+        resource = _CountingResource("users", total_rows=100)
+        mock_resources.return_value = [resource]
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="abc")
+        result = source.preview_resource(config, team_id=999, resource_name="users", max_rows=5)
+
+        assert result.row_count == 5
+        assert resource.produced == 5
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_max_rows_clamped_to_hard_cap(self, mock_resources):
+        one_big_page = [[{"id": index} for index in range(PREVIEW_MAX_ROWS + 50)]]
+        mock_resources.return_value = [_PageResource("users", one_big_page)]
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="abc")
+        result = source.preview_resource(config, team_id=999, resource_name="users", max_rows=PREVIEW_MAX_ROWS + 50)
+
+        assert result.row_count == PREVIEW_MAX_ROWS
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_engine_manifest_is_single_page_incremental_stripped_session_injected(self, mock_resources):
+        mock_resources.return_value = [_PageResource("users", [[]])]
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["endpoint"]["incremental"] = {"cursor_path": "updated_at", "start_param": "since"}
+        manifest["resources"][0]["endpoint"]["paginator"] = {"type": "offset", "limit": 100}
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        source.preview_resource(config, team_id=999, resource_name="users")
+
+        engine_manifest = mock_resources.call_args.args[0]
+        endpoint = engine_manifest["resources"][0]["endpoint"]
+        assert endpoint["paginator"] == {"type": "single_page"}
+        assert "incremental" not in endpoint
+        assert isinstance(engine_manifest["client"]["session"], _PreviewSession)
+        assert engine_manifest["client"]["max_retries"] == 1
+        assert mock_resources.call_args.kwargs["db_incremental_field_last_value"] is None
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source._is_host_safe",
+        return_value=(False, "blocked: internal host"),
+    )
+    def test_rejects_unsafe_host(self, _mock):
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="abc")
+        with self.assertRaises(ManifestValidationError):
+            source.preview_resource(config, team_id=999, resource_name="users")
+
+    def test_unknown_resource_raises_value_error(self):
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="abc")
+        with self.assertRaises(ValueError):
+            source.preview_resource(config, team_id=999, resource_name="does_not_exist")
+
+    def test_invalid_json_raises_manifest_validation_error(self):
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json="{not json}")
+        with self.assertRaises(ManifestValidationError):
+            source.preview_resource(config, team_id=999, resource_name="users")
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_fanout_child_runs_ancestors_full_scan(self, mock_resources):
+        mock_resources.return_value = [
+            _PageResource("forms", [[{"id": 1}]]),
+            _PageResource("responses", [[{"token": "t1"}]]),
+        ]
+        manifest = _fanout_manifest()
+        manifest["resources"][0]["endpoint"]["incremental"] = {"cursor_path": "updated_at", "start_param": "since"}
+        manifest["resources"][1]["endpoint"]["incremental"] = {"cursor_path": "submitted_at", "start_param": "since"}
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        result = source.preview_resource(config, team_id=999, resource_name="responses")
+
+        engine_resources = mock_resources.call_args.args[0]["resources"]
+        assert [resource["name"] for resource in engine_resources] == ["forms", "responses"]
+        for resource in engine_resources:
+            assert "incremental" not in resource["endpoint"]
+            assert resource["endpoint"]["paginator"] == {"type": "single_page"}
+        assert result.rows == [{"token": "t1"}]
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source._build_preview_session")
+    def test_fanout_empty_child_caps_parent_requests_through_real_engine(self, mock_build_session):
+        # End-to-end through the real engine: a parent page far larger than the cap,
+        # every child resolving empty. Empty child pages are dropped before the row
+        # reader sees them, so only the parent cap keeps the per-parent child requests
+        # bounded — the regression a fake-page stand-in can't catch.
+        def _response(body: dict) -> Response:
+            resp = Response()
+            resp.status_code = 200
+            resp._content = json.dumps(body).encode()
+            resp.headers["Content-Type"] = "application/json"
+            return resp
+
+        sent_urls: list[str] = []
+
+        def _send(prepared):
+            sent_urls.append(prepared.url)
+            if prepared.url.endswith("/forms"):
+                return _response({"items": [{"id": f"f{index}"} for index in range(PREVIEW_MAX_FANOUT_PARENTS + 20)]})
+            return _response({"items": []})
+
+        session = MagicMock()
+        session.headers = {}
+        session.prepare_request.side_effect = lambda request: request
+        session.send.side_effect = _send
+        mock_build_session.return_value = session
+
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_fanout_manifest()), auth_token="abc")
+        result = source.preview_resource(config, team_id=999, resource_name="responses")
+
+        assert result.row_count == 0
+        child_requests = [url for url in sent_urls if "/responses" in url]
+        assert len(child_requests) == PREVIEW_MAX_FANOUT_PARENTS
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source._is_host_safe",
+        side_effect=lambda hostname, team_id: (hostname == "api.example.com", "blocked: internal host"),
+    )
+    def test_rejects_resource_resolving_to_new_internal_host(self, _mock_safe, mock_resources):
+        manifest = _minimal_manifest()
+        manifest["resources"][0]["endpoint"]["path"] = "https://169.254.169.254/users"
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(manifest), auth_token="abc")
+        with self.assertRaises(ManifestValidationError):
+            source.preview_resource(config, team_id=999, resource_name="users")
+
+        mock_resources.assert_not_called()
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_live_fetch_error_is_returned_and_secret_redacted(self, mock_resources):
+        class _Boom:
+            name = "users"
+
+            def __iter__(self) -> Any:
+                raise RuntimeError("connect failed for https://api.example.com/users?key=supersecret")
+
+        mock_resources.return_value = [_Boom()]
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_apikey_manifest()), auth_api_key="supersecret")
+        result = source.preview_resource(config, team_id=999, resource_name="users")
+
+        assert result.rows == []
+        assert result.row_count == 0
+        assert result.error is not None
+        assert "supersecret" not in result.error
+        assert "***" in result.error
+
+    def test_redact_secrets_redacts_url_encoded_credential(self):
+        secret = "ab/cd+ef=gh"
+        text = f"HTTPError for https://api.example.com/users?key={quote(secret, safe='')}"
+        redacted = _redact_secrets(text, (secret,))
+
+        assert quote(secret, safe="") not in redacted
+        assert "***" in redacted
+
+    @staticmethod
+    def _streamed_response(body_size: int) -> Response:
+        # raw.stream(amt) yields the decoded body in <=amt-byte chunks, like urllib3.
+        response = Response()
+        response.status_code = 200
+        response.raw = MagicMock()
+        payload = b"x" * body_size
+        response.raw.stream.side_effect = lambda amt, **kwargs: (
+            payload[i : i + amt] for i in range(0, len(payload), amt)
+        )
+        return response
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.PREVIEW_READ_CHUNK_BYTES", 16
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.PREVIEW_MAX_TOTAL_BODY_BYTES",
+        100,
+    )
+    def test_preview_session_aborts_oversized_body_without_full_read(self):
+        # A body far over budget must raise AND stop mid-stream — never inflate the
+        # whole thing (the failure mode of a single decode-everything read).
+        yielded = {"chunks": 0}
+
+        def stream(amt, **kwargs):
+            for _ in range(100):
+                yielded["chunks"] += 1
+                yield b"x" * amt
+
+        response = Response()
+        response.status_code = 200
+        response.raw = MagicMock()
+        response.raw.stream.side_effect = stream
+        with patch.object(requests.Session, "send", return_value=response):
+            with self.assertRaises(PreviewResponseTooLargeError):
+                _PreviewSession().send(MagicMock())
+
+        assert yielded["chunks"] <= 100 // 16 + 1
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.PREVIEW_READ_CHUNK_BYTES", 16
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.PREVIEW_MAX_TOTAL_BODY_BYTES",
+        100,
+    )
+    def test_preview_session_enforces_budget_across_requests(self):
+        # Each response is under the budget on its own, but together they exceed it:
+        # the budget is the whole preview's, not per response.
+        responses = [self._streamed_response(60), self._streamed_response(60)]
+        with patch.object(requests.Session, "send", side_effect=responses):
+            session = _PreviewSession()
+            session.send(MagicMock())
+            with self.assertRaises(PreviewResponseTooLargeError):
+                session.send(MagicMock())
+
+    def test_preview_session_returns_capped_body(self):
+        body = b'{"items": [{"id": 1}]}'
+        within_cap = Response()
+        within_cap.status_code = 200
+        within_cap.raw = MagicMock()
+        within_cap.raw.stream.side_effect = lambda amt, **kwargs: (body[i : i + amt] for i in range(0, len(body), amt))
+        with patch.object(requests.Session, "send", return_value=within_cap):
+            response = _PreviewSession().send(MagicMock())
+
+        assert response.json() == {"items": [{"id": 1}]}
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.rest_api_resources")
+    def test_credential_never_appears_in_result(self, mock_resources):
+        mock_resources.return_value = [_PageResource("users", [[{"id": 1}]])]
+        source = CustomSource()
+        config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()), auth_token="topsecret-token")
+        result = source.preview_resource(config, team_id=999, resource_name="users")
+
+        assert "topsecret-token" not in json.dumps(result._asdict())
+
+
+def _classify_non_retryable(error: Exception) -> bool:
+    """Replicate the pipeline's sync-time non-retryable check (substring match on str(error))."""
+    non_retryable_errors = CustomSource().get_non_retryable_errors()
+    return any(key in str(error) for key in non_retryable_errors)
+
+
+class TestCustomSourceOAuth2NonRetryableClassification(SimpleTestCase):
+    @parameterized.expand(
+        [
+            # A token-endpoint failure that carries no standard OAuth error code (a bare 4xx body or
+            # an unfollowed 3xx redirect) used to slip past the old invalid_client/invalid_grant-only
+            # match and retry until the activity budget was exhausted. Drive it through the real raise.
+            ("redirect_302", 302, {}),
+            ("bare_400_no_error_code", 400, {}),
+            # OAuth error codes other than invalid_client/invalid_grant — also permanent, also missed
+            # before. Run them through the real _extract_token_error path.
+            ("unauthorized_client", 400, {"error": "unauthorized_client"}),
+            ("unsupported_grant_type", 400, {"error": "unsupported_grant_type"}),
+            ("invalid_scope", 400, {"error": "invalid_scope"}),
+            ("invalid_request", 400, {"error": "invalid_request"}),
+        ]
+    )
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_permanent_token_status_errors_classified_non_retryable(self, _name, status_code, payload, mock_session):
+        response = MagicMock(status_code=status_code)
+        response.raw.read.return_value = json.dumps(payload).encode()
+        mock_session.return_value.post.return_value = response
+        auth = OAuth2Auth(token_url="https://a/t", client_id="cid", client_secret="cs")
+        with self.assertRaises(OAuth2AuthRequestError) as ctx:
+            auth._obtain_token()
+        assert ctx.exception.is_permanent
+        assert _classify_non_retryable(ctx.exception), str(ctx.exception)
+
+    @parameterized.expand(
+        [
+            # Malformed/unexpected token responses raise permanent errors whose messages share no
+            # phrase with the status-code path — the marker is what makes them all classifiable.
+            ("non_json_body", "non_json"),
+            ("non_dict_body", [1, 2, 3]),
+            ("missing_access_token", {"expires_in": 60}),
+        ]
+    )
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_permanent_token_response_errors_classified_non_retryable(self, _name, body, mock_session):
+        response = MagicMock(status_code=200)
+        if body == "non_json":
+            response.raw.read.return_value = b"not json"
+        else:
+            response.raw.read.return_value = json.dumps(body).encode()
+        mock_session.return_value.post.return_value = response
+        auth = OAuth2Auth(token_url="https://a/t", client_id="cid", client_secret="cs")
+        with self.assertRaises(OAuth2AuthRequestError) as ctx:
+            auth._obtain_token()
+        assert ctx.exception.is_permanent
+        assert _classify_non_retryable(ctx.exception), str(ctx.exception)
+
+    @parameterized.expand(
+        [
+            # The original two codes still match (their dedicated copy is retained).
+            ("invalid_client", 401, {"error": "invalid_client"}),
+            ("invalid_grant", 400, {"error": "invalid_grant"}),
+        ]
+    )
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_known_oauth_codes_still_classified_non_retryable(self, _name, status_code, payload, mock_session):
+        response = MagicMock(status_code=status_code)
+        response.raw.read.return_value = json.dumps(payload).encode()
+        mock_session.return_value.post.return_value = response
+        auth = OAuth2Auth(token_url="https://a/t", client_id="cid", client_secret="cs")
+        with self.assertRaises(OAuth2AuthRequestError) as ctx:
+            auth._obtain_token()
+        assert _classify_non_retryable(ctx.exception), str(ctx.exception)
+
+    @parameterized.expand(
+        [
+            # Transient (429 / 5xx) token errors must stay retryable — the marker is absent, so they
+            # must NOT match. Guards the fix from over-matching the shared token-endpoint phrasing.
+            ("rate_limited_429", 429, {"error": "slow_down"}),
+            ("server_error_503", 503, {}),
+        ]
+    )
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_transient_token_errors_stay_retryable(self, _name, status_code, payload, mock_session):
+        response = MagicMock(status_code=status_code)
+        response.raw.read.return_value = json.dumps(payload).encode()
+        mock_session.return_value.post.return_value = response
+        auth = OAuth2Auth(token_url="https://a/t", client_id="cid", client_secret="cs")
+        with self.assertRaises(OAuth2AuthRequestError) as ctx:
+            auth._obtain_token()
+        assert not ctx.exception.is_permanent
+        assert OAUTH2_PERMANENT_ERROR_MARKER not in str(ctx.exception)
+        assert not _classify_non_retryable(ctx.exception), str(ctx.exception)

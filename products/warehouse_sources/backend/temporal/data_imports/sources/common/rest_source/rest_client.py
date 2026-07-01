@@ -11,7 +11,7 @@ from requests.exceptions import (
     ChunkedEncodingError,
     JSONDecodeError as RequestsJSONDecodeError,
 )
-from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt
+from tenacity import RetryCallState, retry, retry_if_exception_type
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 
@@ -33,6 +33,10 @@ class RESTClientRetryableError(Exception):
 # Upper bound on how long we'll honor a server-provided retry delay, so a
 # misreported header can't stall a worker for an unbounded amount of time.
 MAX_RETRY_AFTER_SECONDS = 300.0
+
+# Attempts for the default sync path. The inline preview overrides this to 1 so a
+# rate-limited endpoint surfaces an error instead of sleeping on `Retry-After`.
+DEFAULT_RETRY_ATTEMPTS = 5
 
 
 def _parse_retry_after(response: Response) -> Optional[float]:
@@ -71,6 +75,15 @@ def _parse_retry_after(response: Response) -> Optional[float]:
     return None
 
 
+def _stop_after_client_attempts(state: RetryCallState) -> bool:
+    # tenacity passes the wrapped call's positional args; for the bound
+    # `_send_request(self, ...)` that's `(client, request, hooks)`, so the
+    # attempt cap reads off the instance and the preview can lower it to 1.
+    client = state.args[0] if state.args else None
+    max_attempts = getattr(client, "_max_retry_attempts", DEFAULT_RETRY_ATTEMPTS)
+    return state.attempt_number >= max_attempts
+
+
 def _retry_wait_seconds(state: RetryCallState) -> float:
     fallback = min(2 ** (state.attempt_number - 1), 60)
     if state.outcome is None or not state.outcome.failed:
@@ -92,11 +105,13 @@ class RESTClient:
         auth: Optional[AuthBase] = None,
         paginator: Optional[BasePaginator] = None,
         session: Optional[Session] = None,
+        max_retry_attempts: int = DEFAULT_RETRY_ATTEMPTS,
     ) -> None:
         self.base_url = base_url or ""
         self.headers = headers or {}
         self.auth = auth
         self.paginator = paginator
+        self._max_retry_attempts = max_retry_attempts
         # Default to the tracked session so every source built on top of
         # `RESTClient` participates in HTTP logging, metrics, and sample
         # capture. Callers can pass a pre-built `Session` for tests or
@@ -165,7 +180,7 @@ class RESTClient:
 
     @retry(
         retry=retry_if_exception_type(RESTClientRetryableError),
-        stop=stop_after_attempt(5),
+        stop=_stop_after_client_attempts,
         wait=_retry_wait_seconds,
         reraise=True,
     )
@@ -196,6 +211,13 @@ class RESTClient:
         try:
             body = response.json()
         except RequestsJSONDecodeError as e:
+            # An empty body on an otherwise-successful response is a complete "no data"
+            # answer (e.g. an endpoint with nothing to return), not a truncated page —
+            # retrying can't conjure rows, so treat it as an empty page and let the
+            # paginator stop. A non-empty body that fails to parse is a partial/truncated
+            # read, which stays retryable.
+            if not response.content or not response.content.strip():
+                return response, None
             raise RESTClientRetryableError(f"Malformed JSON response from {response.url}: {e}") from e
 
         return response, body

@@ -18,6 +18,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import MySQLSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql import (
     _MAX_CONNECT_ATTEMPTS,
+    _SSH_HANDSHAKE_EOF_ERROR,
     STATEMENT_TIMEOUT_SECONDS,
     MySQLColumn,
     MySQLImplementation,
@@ -25,6 +26,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     _is_bad_plan_error,
     _is_transient_connect_drop,
     _is_transient_connect_timeout,
+    _is_transient_packet_sequence_error,
     _is_transient_tablet_unavailable,
     _release_streaming_cursor,
     _retry_on_transient_tablet_unavailable,
@@ -934,6 +936,31 @@ class TestIsTransientConnectTimeout:
         assert not _is_transient_connect_timeout(pymysql.err.OperationalError())
 
 
+class TestIsTransientPacketSequenceError:
+    @pytest.mark.parametrize(
+        "message",
+        [
+            "Packet sequence number wrong - got 2 expected 3",
+            "Packet sequence number wrong - got 0 expected 1",
+        ],
+    )
+    def test_matches_packet_sequence_error(self, message):
+        assert _is_transient_packet_sequence_error(pymysql.err.InternalError(message))
+
+    def test_does_not_match_other_internal_error(self):
+        assert not _is_transient_packet_sequence_error(pymysql.err.InternalError("some other internal error"))
+
+    def test_does_not_match_operational_error(self):
+        # The packet-sequence error is an `InternalError`; a 2013 drop is an `OperationalError`
+        # handled by `_is_transient_connect_drop`, so this predicate must not also claim it.
+        assert not _is_transient_packet_sequence_error(
+            pymysql.err.OperationalError(2013, "Lost connection to MySQL server during query")
+        )
+
+    def test_does_not_match_error_without_args(self):
+        assert not _is_transient_packet_sequence_error(pymysql.err.InternalError())
+
+
 class TestConnectTransientRetry:
     @pytest.mark.parametrize(
         "fail_count,expected_sleeps",
@@ -999,6 +1026,24 @@ class TestConnectTransientRetry:
         assert mock_connect.call_count == 2
         sleep.assert_called_once_with(2)
 
+    def test_retries_packet_sequence_error_then_succeeds(self, mocker):
+        sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        conn = MagicMock()
+        conn.__enter__.return_value = conn
+        mock_connect = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            side_effect=[
+                pymysql.err.InternalError("Packet sequence number wrong - got 2 expected 3"),
+                conn,
+            ],
+        )
+
+        with MySQLImplementation().connect(_make_config()) as yielded:
+            assert yielded is conn
+
+        assert mock_connect.call_count == 2
+        sleep.assert_called_once_with(2)
+
     def test_does_not_retry_connection_refused(self, mocker):
         sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
         mock_connect = mocker.patch(
@@ -1009,6 +1054,20 @@ class TestConnectTransientRetry:
         )
 
         with pytest.raises(pymysql.err.OperationalError):
+            with MySQLImplementation().connect(_make_config()):
+                pass
+
+        assert mock_connect.call_count == 1
+        sleep.assert_not_called()
+
+    def test_does_not_retry_non_transient_internal_error(self, mocker):
+        sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        mock_connect = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            side_effect=pymysql.err.InternalError("some other internal error"),
+        )
+
+        with pytest.raises(pymysql.err.InternalError):
             with MySQLImplementation().connect(_make_config()):
                 pass
 
@@ -1361,6 +1420,12 @@ class TestMySQLSourceNonRetryableErrors:
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"SSH gateway failure should be non-retryable: {error_msg}"
 
+    def test_ssh_handshake_eof_is_non_retryable(self, source):
+        # `connect` translates paramiko's bare handshake EOFError into this message.
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in _SSH_HANDSHAKE_EOF_ERROR for pattern in non_retryable.keys())
+        assert is_non_retryable, f"SSH handshake EOF should be non-retryable: {_SSH_HANDSHAKE_EOF_ERROR}"
+
     @pytest.mark.parametrize(
         "error_msg",
         [
@@ -1448,6 +1513,20 @@ class TestMySQLSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"Table-access-denied error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw pymysql str(error) form (single-quoted tuple repr).
+            str(pymysql.err.OperationalError(1038, "Out of sort memory, consider increasing server sort buffer size")),
+            # Temporal-wrapped form (double-quoted).
+            'OperationalError: (1038, "Out of sort memory, consider increasing server sort buffer size")',
+        ],
+    )
+    def test_out_of_sort_memory_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Out-of-sort-memory error should be non-retryable: {error_msg}"
 
     @pytest.mark.parametrize(
         "error_msg",
@@ -1560,3 +1639,35 @@ class TestMySQLSourceValidateCredentials:
         assert valid is False
         assert error is not None
         capture.assert_called_once()
+
+
+class _RaisingTunnel:
+    """Context manager whose `__enter__` raises, standing in for paramiko's handshake EOFError."""
+
+    def __enter__(self):
+        raise EOFError()
+
+    def __exit__(self, *args):
+        return False
+
+
+class TestConnectSSHTunnel:
+    def test_bare_handshake_eof_is_translated_and_non_retryable(self, mocker):
+        mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.open_ssh_tunnel",
+            return_value=_RaisingTunnel(),
+        )
+        mock_connect = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect"
+        )
+
+        with pytest.raises(Exception, match=_SSH_HANDSHAKE_EOF_ERROR) as exc_info:
+            with MySQLImplementation().connect(_make_config()):
+                pass
+
+        # Cause preserved, the database connection is never attempted, and the translated
+        # message is classified non-retryable so the sync stops instead of retrying forever.
+        assert isinstance(exc_info.value.__cause__, EOFError)
+        mock_connect.assert_not_called()
+        non_retryable = MySQLSource().get_non_retryable_errors()
+        assert any(pattern in str(exc_info.value) for pattern in non_retryable.keys())

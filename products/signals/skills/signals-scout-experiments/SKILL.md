@@ -1,18 +1,17 @@
 ---
 name: signals-scout-experiments
 description: >
-  Focused Signals scout for PostHog projects running A/B experiments. Watches running
-  experiments for validity threats (sample ratio mismatch, multi-variant contamination,
-  exposure stalls, mid-run flag mutations) and lifecycle drift (zombie experiments running
-  long past their useful life, decided-but-still-running experiments, ended experiments
-  whose flags still serve multiple variants). Emits findings only when they clear the
-  confidence bar; otherwise writes durable memory and closes out empty. Self-contained
-  peer in the signals-scout-* fleet — no dependencies on other skills.
+  Signals scout for PostHog A/B experiments. Watches running experiments for validity threats
+  (sample ratio mismatch, contamination, exposure stalls, mid-run flag mutations) and
+  lifecycle drift (zombies, decided-but-running), and files each validated validity threat as
+  a report in the inbox.
 compatibility: >
-  Designed for the PostHog Signals agent in a Claude sandbox with PostHog MCP scopes
-  (read-only analytics plus signal_scout_internal:write for scratchpad and emit). Assumes
-  the signals-scout MCP tool family plus the experiments, feature flag, and analytics
-  tools listed in the body's MCP tools section.
+  PostHog Signals agent (Claude sandbox). Read-only analytics + signal_scout_internal:write
+  (scratchpad) + signal_scout_report:write (report channel), plus the experiments,
+  feature-flag, and analytics tools in the MCP tools section.
+allowed_tools:
+  - emit_report
+  - edit_report
 metadata:
   owner_team: signals
   scope: experiments
@@ -43,7 +42,17 @@ the results.
 
 Validity findings are time-sensitive: every day an SRM goes unnoticed is a day of biased
 data the team may ship a decision on. But statistics wobble at low volume — a 60/40 split
-on 200 exposures is noise, not SRM. When in doubt, write memory instead of emitting.
+on 200 exposures is noise, not SRM. When in doubt, write memory instead of filing a report.
+
+You author reports directly via the report channel (`signals-scout-emit-report` /
+`signals-scout-edit-report`): you've done the research, so you own each report 1:1
+end-to-end rather than firing weak signals for a pipeline to cluster. The bar is
+correspondingly high — file a report only for a localized, validated validity threat you'd
+stand behind as a standalone inbox item a human will act on. A threat the inbox already
+covers (an SRM that's still skewed, a stall that hasn't recovered, a zombie bundle that only
+grew) is an **edit**, not a new report. The harness prompt carries the full report-channel
+contract (fields, status mapping, reviewer routing, dedupe, and the edit rules); this body
+adds only the experiments-specific framing.
 
 ## Quick close-out: are experiments even active?
 
@@ -51,7 +60,7 @@ Read `recent_experiments` off `signals-scout-project-profile-get`. If `running_c
 and `total_count` is 0 (or all entries are old drafts/archived with no `updated_at`
 activity in 30 days), experiments aren't in play here. Write one scratchpad entry:
 
-- key: `not-in-use:experiments:team{team_id}`
+- key: `not-in-use:experiments` (the scratchpad is already team-scoped — no id in the key)
 - content: brief note ("checked at {timestamp}, no running experiments, {total_count}
   total, latest activity {date}")
 
@@ -70,10 +79,17 @@ Three cheap reads cold-start a run:
 
 - `signals-scout-scratchpad-search` (`text=experiment`) — durable steering: known running
   experiments and their expected splits, established baselines, `noise:` / `addressed:` /
-  `dedupe:` entries gating re-emits.
+  `dedupe:` entries gating re-reports, plus `report:` / `reviewer:` entries pointing at the
+  open report for an experiment and who owns it.
 - `signals-scout-runs-list` (last 7d) — what prior experiments runs found and ruled out.
 - `signals-scout-project-profile-get` — `recent_experiments` (running count, recent ids,
   feature flag keys) and `recent_feature_flags` for cross-referencing.
+- `inbox-reports-list` (`search`=experiment name or flag key, `ordering=-updated_at`) — the
+  reports already in the inbox. A validity threat on an experiment you've reported before is
+  an **edit**, not a fresh report; pull the closest matches with `inbox-reports-retrieve`
+  before authoring. Your own report-channel reports persist their backing signals under
+  `source_product=signals_scout`, so don't filter `source_product=experiments` — you'd miss
+  every report you authored.
 
 Then orient on experiments specifically:
 
@@ -176,7 +192,7 @@ Reading the output:
   that bar; at 300 exposures, 60/40 doesn't. Below ~1,000 bucketed exposures total,
   don't call SRM at all; write a `pattern:` memory and recheck next run.
 
-A confirmed SRM is emit-worthy on its own (the data is biased no matter the cause), but
+A confirmed SRM is report-worthy on its own (the data is biased no matter the cause), but
 the finding lands much harder with a suspected cause. Cheap follow-ups: check
 `persons` vs `exposures` per variant (a high events-per-person skew in one variant
 suggests bots hashing to one bucket); check `feature-flags-activity-retrieve` for flag
@@ -235,7 +251,7 @@ machinery fault, and the experiment burns calendar time measuring nothing. From
   filter on, so the measured signal is dominated by unrelated traffic. Confirm with one
   SQL count comparing filtered vs unfiltered volume before claiming this.
 
-Both are emit-worthy: the team thinks they're collecting evidence and they aren't. A
+Both are report-worthy: the team thinks they're collecting evidence and they aren't. A
 treatment-only conversion event legitimately reads ~zero in control — that's expected,
 not a fault (the control-arm `not-enough-metric-data` failure alone doesn't qualify).
 
@@ -261,7 +277,7 @@ GROUP BY day ORDER BY day
 - **Zero ever, launched > 24h ago** — broken wiring: the SDK method used doesn't record
   `$feature_flag_called` (bulk accessors like `getAllFlags()` don't), the flag is at 0%
   rollout or inactive, or a custom exposure event is missing its `$feature/<flag-key>`
-  property. Check `experiment-get`'s flag state before emitting — a **paused** experiment
+  property. Check `experiment-get`'s flag state before filing a report — a **paused** experiment
   (flag deactivated, status "paused") legitimately has no fresh exposures. And before
   diagnosing a custom-exposure experiment as dormant, confirm with both signals: the
   custom event by `$feature/<flag-key>` **and** `$feature_flag_called` for the flag — if
@@ -279,7 +295,7 @@ GROUP BY day ORDER BY day
 history with diffs. Scan for changes **after** the experiment's `start_date`:
 
 - Variant `rollout_percentage` redistribution (e.g. 50/50 → 70/30) — rebuckets users,
-  creates `$multiple`, biases everything after the edit. Emit-worthy.
+  creates `$multiple`, biases everything after the edit. Report-worthy.
 - Overall rollout **decrease** — test users fall back to default UX; post-edit data is
   mixed. Worth surfacing. (Rollout **increase** is the one safe mid-run change — skip.)
 - Release-condition tightening, bucketing-key change, variant key rename — all rebucket.
@@ -309,7 +325,8 @@ into one finding rather than one per experiment:
 ### Save memory as you go
 
 Write a scratchpad entry whenever you observe something a future run should know. Encode
-the category in the key prefix — `pattern:`, `noise:`, `addressed:`, `dedupe:`:
+the category in the key prefix — `pattern:`, `noise:`, `addressed:`, `dedupe:`, `report:`,
+`reviewer:`:
 
 - key `pattern:experiments:running-inventory` — _"Running: `new-checkout` (id 42, flag
   `new-checkout`, 50/50, launched 2026-05-20, ~1.2k exposures/day, default exposure
@@ -321,12 +338,19 @@ the category in the key prefix — `pattern:`, `noise:`, `addressed:`, `dedupe:`
 - key `noise:experiments:pricing-v2-forced-ios` — _"Flag has a forced-variant release
   condition (iOS → test) — deliberate per config; per-variant ratio will never match the
   nominal split. Don't call SRM on the aggregate; compare within the random cohort only."_
-- key `dedupe:experiments:42-srm-2026-06-09` — _"Emitted SRM on `new-checkout` (id 42)
-  2026-06-09: 56/44 on 22k exposures, started at flag v7 edit 2026-06-05. If still
-  skewed next run, skip; if team reset/relaunched, watch the fresh data instead."_
+- key `dedupe:experiments:42-srm` — _"Filed SRM on `new-checkout` (id 42) 2026-06-09: 56/44
+  on 22k exposures, started at flag v7 edit 2026-06-05. If still skewed next run, skip; if
+  team reset/relaunched, watch the fresh data instead."_ One stable key per issue — update
+  it in place, don't mint a dated variant.
 - key `addressed:experiments:31-zombie` — _"Recommended ending `old-onboarding` (id 31,
-  running 140 days) on 2026-05-15; team aware. Don't re-emit unless it's still running
+  running 140 days) on 2026-05-15; team aware. Don't re-file unless it's still running
   in 30 days."_
+- key `report:experiments:new-checkout` — _"Report `019f0a96-…` covers the `new-checkout`
+  (id 42) SRM. Edit it (append_note the fresh numbers) while the skew persists and the
+  report is still live; if it was resolved and the experiment later re-skews, that's a fresh
+  report."_
+- key `reviewer:experiments:new-checkout` — _"`new-checkout` owned by `alice` (GitHub
+  login) — route its reports there."_
 
 By run #5 you should know every running experiment's expected split, exposure baseline,
 exposure-event type, and which quirks are deliberate — so a real contradiction stands
@@ -334,34 +358,51 @@ out immediately and cheaply.
 
 ### Decide
 
-For each candidate finding:
+For a candidate that clears the bar, the call is **edit an existing report, author a new
+one, remember, or skip** — use judgment, these are the rails:
 
-- **Emit** via `signals-scout-emit-signal` if it clears the confidence bar (≥ 0.65;
-  strong findings ≥ 0.85). Strong experiment findings name the experiment id and flag
-  key, quantify the contradiction (observed vs expected split with exposure counts,
-  `$multiple` percentage, days dormant), pass the sample-size gate, and date the onset
-  — ideally tied to a flag version or activity-log entry. Include `dedupe_keys` like
-  `experiment:<id>` plus a qualifier (`experiment:<id>:srm`), and a `time_range` when
-  the issue has an onset. Severity: validity threats on a live decision (SRM, mutation,
-  contamination) are P2; stalls P2–P3 by blast radius; lifecycle hygiene P3.
-- **Remember** if below the bar but worth carrying forward (a ratio drifting but inside
-  the noise band, `$multiple` creeping at 0.3%, a plateau that needs one more week).
-- **Skip** with a one-line note if a `noise:` / `addressed:` / `dedupe:` entry covers it.
+- **Search the inbox first.** The `report:experiments:<slug>` scratchpad pointer is the
+  reliable path (it holds the `report_id` — `inbox-reports-retrieve` it directly); with no
+  pointer, `inbox-reports-list` by the specific experiment name **and** flag key
+  (`ordering=-updated_at`), not a broad word like `experiment` (which matches hundreds of
+  unrelated UX reports).
+- **Edit** (`signals-scout-edit-report`) when a still-live report already covers the same
+  experiment issue — an SRM still skewed, a stall that hasn't recovered, a `$multiple` trend
+  still climbing. `append_note` the fresh numbers, or rewrite the title/summary on a report
+  you authored. This is the default when a match exists. `edit-report` can't change status,
+  so if the matched report is `resolved` / `suppressed` / `failed`, don't append (it won't
+  resurface) — author a fresh report for the relapse and repoint the `report:` key.
+- **Author** (`signals-scout-emit-report`) only when nothing live covers it. A good report
+  names the experiment id and flag key, quantifies the contradiction (observed vs expected
+  split with exposure counts, `$multiple` percentage, days dormant), passes the sample-size
+  gate, and dates the onset — ideally tied to a flag version or activity-log entry. Set
+  `priority` (P0–P4) + `priority_explanation` — validity threats on a live decision (SRM,
+  mid-run mutation, contamination) are P2, stalls P2–P3 by blast radius, lifecycle hygiene
+  P3; it's the report's importance in the inbox, your call to make. Set `suggested_reviewers`
+  via `signals-scout-members-list` (objects — a `{github_login}` or `{user_uuid}`, not bare
+  strings; cache under `reviewer:experiments:<slug>`); left empty the report reaches no one. A
+  validity threat is an investigation a human confirms, not a one-line change →
+  `actionability=requires_human_input` and `repository=NO_REPO` (NO_REPO is what stops
+  `priority`+reviewers from spawning a pointless repo-selection sandbox). After authoring,
+  write the `report:experiments:<slug>` pointer with the `report_id` so the next run edits
+  instead of duplicating.
+- **Remember** if below the bar but worth carrying forward (a ratio drifting but inside the
+  noise band, `$multiple` creeping at 0.3%, a plateau that needs one more week); **skip**
+  with a one-line note if a `noise:` / `addressed:` / `dedupe:` entry or an existing report
+  already covers it.
 
-Cross-check `inbox-reports-list` before emitting — search by the experiment name **and**
-the flag key with a small `limit` (broad terms match hundreds of unrelated UX reports).
-If the same experiment issue is already in the inbox, emit only if there's a material
-new angle (escalation, new cause identified), citing the prior finding. Sibling scouts
-(especially the generalist, which ran an experiment-integrity lens before this
-specialist existed) may hold `dedupe:general:experiment-*` scratchpad entries — honor
-them like your own.
+Sibling scouts share memory — the feature-flags scout owns non-experiment flag wiring, and
+the generalist (which ran an experiment-integrity lens before this specialist existed) may
+hold `dedupe:general:experiment-*` scratchpad entries; honor them like your own. When a prior
+run already covered a topic, default to edit-or-skip: the same fact twice in the inbox costs
+more than missing one finding for one tick.
 
 ### Close out
 
-Summarize the run in one paragraph: which experiments you checked, what you emitted,
-remembered, and ruled out. The harness saves it as the run summary; future runs read it
-via `signals-scout-runs-list`. Don't write a separate "run metadata" scratchpad entry.
-"All running experiments healthy" is a real, useful outcome.
+Summarize the run in one paragraph: which experiments you checked, which reports you
+authored or edited, what you remembered, and what you ruled out. The harness saves it as the
+run summary; future runs read it via `signals-scout-runs-list`. Don't write a separate "run
+metadata" scratchpad entry. "All running experiments healthy" is a real, useful outcome.
 
 ## Disqualifiers (skip these)
 
@@ -390,7 +431,7 @@ via `signals-scout-runs-list`. Don't write a separate "run metadata" scratchpad 
 - **Experiments already concluded with a conclusion set** — the team decided; lingering
   _flag_ state is the only thing left worth checking.
 
-When in doubt, write a memory entry instead of emitting.
+When in doubt, write a memory entry instead of filing a report.
 
 ## MCP tools
 
@@ -424,21 +465,35 @@ Direct calls (read-only):
   `$feature_flag_called`; `$feature/<flag-key>` on custom exposure events.
 - `read-data-schema` — confirm a custom exposure event and its properties exist before
   aggregating over them.
-- `inbox-reports-list` — pre-emit dedupe against the inbox.
+
+Inbox & reviewer routing:
+
+- `inbox-reports-list` / `inbox-reports-retrieve` — the reports already in the inbox; check
+  before authoring so you edit instead of duplicating (`ordering=-updated_at`).
+- `inbox-report-artefacts-list` — a comparable report's artefact log, where the routed
+  `suggested_reviewers` live (the report record doesn't expose them) — reviewer precedent.
+- `signals-scout-members-list` — this project's members with their resolved `github_login`, to
+  route `suggested_reviewers` to an experiment's owner (wrap as a `{github_login}` object, or
+  pass the member's `{user_uuid}` and let the server resolve; null `github_login` → try the
+  next owner). The in-run roster; the org-scoped resolver tools aren't available in a scout run.
 
 Harness-level:
 
 - `signals-scout-project-profile-get` / `signals-scout-scratchpad-search` /
   `signals-scout-runs-list` / `signals-scout-runs-retrieve` — orientation + dedupe.
-- `signals-scout-emit-signal` / `signals-scout-scratchpad-remember` — emit / remember.
+- `signals-scout-emit-report` / `signals-scout-edit-report` — author a report / edit an
+  existing one (the report-channel contract is in the harness prompt).
+- `signals-scout-scratchpad-remember` / `signals-scout-scratchpad-forget` — remember / prune
+  stale memory keys.
 
 ## When to stop
 
 - No experiments in use → `not-in-use:` entry, close out empty.
 - All running experiments match their config (ratio in band, fresh exposures, no
   post-launch flag edits) → close out empty; refresh `pattern:` baselines if stale.
-- Candidates all gated by `noise:` / `addressed:` / `dedupe:` entries → close out.
-- You've emitted what's solid → close out. One sharp validity finding beats a laundry
-  list of P3 hygiene nits.
+- Candidates all gated by `noise:` / `addressed:` / `dedupe:` entries, or an existing inbox
+  report → edit-or-skip and close out.
+- You've filed (or edited) reports for what's solid → close out. One sharp validity report
+  beats a laundry list of P3 hygiene nits.
 
 "Looked but found nothing meaningful" is a real outcome.

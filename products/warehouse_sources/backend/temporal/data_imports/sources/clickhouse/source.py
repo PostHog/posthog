@@ -191,6 +191,14 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # Retrying just re-loads an already memory-pressured server, so stop
             # and tell them to act.
             "Code: 241": "Your ClickHouse server ran out of memory while we were reading a table. This usually means the database is too small for the table being synced. Try scaling up your ClickHouse service (or raising its memory limit), or sync a smaller table or use an incremental sync, then resume.",
+            # NOT_ENOUGH_SPACE — the source ClickHouse server couldn't reserve
+            # disk space for a temporary file while running our extraction query
+            # (spilling a sort or buffering query output to disk). Its local disk
+            # / filesystem cache is full and can't evict enough to continue. Like
+            # Code: 241 this is a capacity problem on the customer's database, not
+            # something we can change our side, so retrying just re-loads an
+            # already disk-pressured server.
+            "Code: 243": "Your ClickHouse server ran out of disk space while we were reading a table (it couldn't reserve space for a temporary file). Try scaling up your ClickHouse service or freeing disk space, or sync a smaller table or use an incremental sync, then resume.",
             # Raised from the shared `evolve_pyarrow_schema` in `pipelines/pipeline/utils.py`
             # when an integer column's source type was widened (e.g. `Int32` → `Int64`) after
             # the destination table was created with the narrower type. Delta Lake can't widen
@@ -205,6 +213,13 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
             # replays the identical failure, so stop and tell the customer to fix the schema.
             # We match the stable suffix, not the volatile `<database>.<table>` prefix.
             "not found or has no columns": "We couldn't find this table in your ClickHouse database — it may have been dropped or renamed. If you were syncing a materialized view, sync it by its own name rather than its internal `.inner_id.<uuid>` table (those names change whenever the view is recreated). Remove or re-point this table in your source, then resync.",
+            # UNKNOWN_TYPE (code 50) raised while ClickHouse streams our extraction
+            # query as Arrow: a selected column has a type ClickHouse can't serialize
+            # to Arrow (e.g. an `AggregateFunction(...)` state column on an aggregating
+            # materialized view). The column type is fixed, so retrying replays the
+            # identical failure. We match the stable Arrow-conversion phrase, not the
+            # volatile column name or type in the message.
+            "is not supported for conversion into Arrow data format": "One of the columns in this table has a type ClickHouse can't export (for example an `AggregateFunction` state column on an aggregating materialized view). Deselect that column in this schema's column settings, or sync a view that finalizes it, then resync.",
         }
 
     def get_schemas(

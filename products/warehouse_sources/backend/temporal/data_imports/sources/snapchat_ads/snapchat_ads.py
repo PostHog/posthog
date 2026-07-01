@@ -21,7 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_a
     SnapchatAdsPaginator,
     SnapchatErrorHandler,
     SnapchatStatsResource,
-    fetch_account_currency,
+    fetch_account_metadata,
 )
 
 
@@ -94,6 +94,7 @@ def _build_chunk_resources(
     ad_account_id: str,
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Optional[Any],
+    account_timezone: Optional[str] = None,
 ) -> tuple[list[dict], EndpointType]:
     endpoint_config = SNAPCHAT_ADS_CONFIG[endpoint]
     endpoint_type = endpoint_config.endpoint_type
@@ -105,7 +106,11 @@ def _build_chunk_resources(
 
     if endpoint_type == EndpointType.STATS:
         chunk_resources = SnapchatStatsResource.setup_stats_resources(
-            base_resource, ad_account_id, should_use_incremental_field, db_incremental_field_last_value
+            base_resource,
+            ad_account_id,
+            should_use_incremental_field,
+            db_incremental_field_last_value,
+            account_timezone,
         )
     else:
         chunk_resources = [base_resource]
@@ -174,8 +179,17 @@ def _iter_rows(
     db_incremental_field_last_value: Optional[Any],
     should_use_incremental_field: bool,
 ) -> Iterator[list[dict[str, Any]]]:
+    # Stats endpoints need the account timezone to align DAY-granularity date
+    # boundaries to the account's local midnight (Snapchat 400s otherwise), and
+    # the currency to annotate the flattened rows. Fetch both once up front so the
+    # timezone is available before the date chunks are generated.
+    account_currency: Optional[str] = None
+    account_timezone: Optional[str] = None
+    if SNAPCHAT_ADS_CONFIG[endpoint].endpoint_type == EndpointType.STATS:
+        account_currency, account_timezone = fetch_account_metadata(ad_account_id, access_token)
+
     chunk_resources, endpoint_type = _build_chunk_resources(
-        endpoint, ad_account_id, should_use_incremental_field, db_incremental_field_last_value
+        endpoint, ad_account_id, should_use_incremental_field, db_incremental_field_last_value, account_timezone
     )
 
     resume_config: Optional[SnapchatResumeConfig] = (
@@ -189,10 +203,7 @@ def _iter_rows(
         start_chunk = 0
         resume_config = None
 
-    account_currency: Optional[str] = None
-    if endpoint_type == EndpointType.STATS:
-        account_currency = fetch_account_currency(ad_account_id, access_token)
-    else:
+    if endpoint_type != EndpointType.STATS:
         assert len(chunk_resources) == 1, (
             f"Expected 1 resource for {endpoint_type} endpoint, got {len(chunk_resources)}"
         )

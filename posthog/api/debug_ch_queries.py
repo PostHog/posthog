@@ -426,6 +426,17 @@ class DebugCHQueries(viewsets.ViewSet):
             if experiment_id_filter <= 0:
                 raise exceptions.ValidationError("experiment_id must be a positive integer.")
 
+        metric_type_filter = request.query_params.get("metric_type") or None
+        if metric_type_filter is not None and metric_type_filter not in {"mean", "funnel", "ratio", "retention"}:
+            raise exceptions.ValidationError("metric_type must be one of: mean, funnel, ratio, retention.")
+
+        funnel_order_type_filter = request.query_params.get("funnel_order_type") or None
+        if funnel_order_type_filter is not None:
+            if funnel_order_type_filter not in {"ordered", "unordered", "strict"}:
+                raise exceptions.ValidationError("funnel_order_type must be one of: ordered, unordered, strict.")
+            if metric_type_filter != "funnel":
+                raise exceptions.ValidationError("funnel_order_type can only be used with metric_type=funnel.")
+
         params: dict = {
             "cluster": CLICKHOUSE_CLUSTER,
             "hours": hours,
@@ -438,6 +449,16 @@ class DebugCHQueries(viewsets.ViewSet):
         if experiment_id_filter is not None:
             extra_filters += " AND JSONExtractInt(log_comment, 'experiment_id') = %(experiment_id)s"
             params["experiment_id"] = experiment_id_filter
+        # metric_type and funnel_order_type are tagged before the precompute builds run, so the build
+        # sub-queries carry them too and stay grouped with their parent read under these filters.
+        if metric_type_filter is not None:
+            extra_filters += " AND JSONExtractString(log_comment, 'experiment_metric_type') = %(metric_type)s"
+            params["metric_type"] = metric_type_filter
+        if funnel_order_type_filter is not None:
+            extra_filters += (
+                " AND JSONExtractString(log_comment, 'experiment_funnel_order_type') = %(funnel_order_type)s"
+            )
+            params["funnel_order_type"] = funnel_order_type_filter
 
         # Each row is one ClickHouse query. A top-level read (surface != 'precompute_build') and the
         # precompute-build INSERTs it triggered share an experiment_query_group_id (set by the runner).
@@ -453,6 +474,10 @@ class DebugCHQueries(viewsets.ViewSet):
                     argMax(query_start_time, type) AS query_start_time,
                     argMax(query_duration_ms, type) AS query_duration_ms,
                     argMax(exception, type) AS exception,
+                    argMax(read_bytes, type) AS read_bytes,
+                    argMax(read_rows, type) AS read_rows,
+                    argMax(exception_code, type) AS exception_code,
+                    argMax(memory_usage, type) AS memory_usage,
                     max(type) AS status,
                     argMax(JSONExtractInt(log_comment, 'team_id'), type) AS team_id,
                     argMax(JSONExtractString(log_comment, 'query_type'), type) AS query_type,
@@ -466,10 +491,16 @@ class DebugCHQueries(viewsets.ViewSet):
                     argMax(JSONExtractString(log_comment, 'experiment_metric_events_path'), type) AS experiment_metric_events_path,
                     argMax(JSONExtractString(log_comment, 'experiment_query_surface'), type) AS experiment_query_surface,
                     argMax(JSONExtractString(log_comment, 'experiment_precompute_table'), type) AS experiment_precompute_table,
-                    argMax(JSONExtractString(log_comment, 'experiment_query_group_id'), type) AS experiment_query_group_id
+                    argMax(JSONExtractString(log_comment, 'experiment_query_group_id'), type) AS experiment_query_group_id,
+                    argMax(JSONExtractString(log_comment, 'experiment_precompute_skip_reason'), type) AS experiment_precompute_skip_reason,
+                    argMax(JSONExtractString(log_comment, 'experiment_scan_date_from'), type) AS experiment_scan_date_from,
+                    argMax(JSONExtractString(log_comment, 'experiment_scan_date_to'), type) AS experiment_scan_date_to,
+                    argMax(JSONExtractString(log_comment, 'precompute_window_start'), type) AS precompute_window_start,
+                    argMax(JSONExtractString(log_comment, 'precompute_window_end'), type) AS precompute_window_end
                 FROM (
                     SELECT
                         query_id, query, query_start_time, query_duration_ms, exception,
+                        read_bytes, read_rows, exception_code, memory_usage,
                         toInt8(type) AS type, log_comment
                     FROM clusterAllReplicas(%(cluster)s, system, query_log)
                     WHERE
@@ -496,7 +527,11 @@ class DebugCHQueries(viewsets.ViewSet):
                 g.team_id, g.query_type, g.experiment_name, g.experiment_metric_name, g.experiment_execution_path,
                 g.experiment_metric_type, g.experiment_funnel_order_type, g.experiment_id, g.experiment_exposures_path,
                 g.experiment_metric_events_path, g.experiment_query_surface, g.experiment_precompute_table,
-                g.experiment_query_group_id, r.total_duration_ms
+                g.experiment_query_group_id, r.total_duration_ms,
+                g.read_bytes, g.read_rows, g.exception_code, g.memory_usage,
+                g.experiment_precompute_skip_reason,
+                g.experiment_scan_date_from, g.experiment_scan_date_to,
+                g.precompute_window_start, g.precompute_window_end
             FROM grouped AS g
             INNER JOIN ranked AS r ON g.grp = r.grp
             ORDER BY
@@ -553,6 +588,15 @@ class DebugCHQueries(viewsets.ViewSet):
                 "experiment_precompute_table": row[17],
                 "experiment_query_group_id": row[18],
                 "total_duration_ms": row[19],
+                "read_bytes": row[20],
+                "read_rows": row[21],
+                "exception_code": row[22],
+                "memory_usage": row[23],
+                "experiment_precompute_skip_reason": row[24],
+                "experiment_scan_date_from": row[25],
+                "experiment_scan_date_to": row[26],
+                "precompute_window_start": row[27],
+                "precompute_window_end": row[28],
                 "sub_queries": [],
             }
 

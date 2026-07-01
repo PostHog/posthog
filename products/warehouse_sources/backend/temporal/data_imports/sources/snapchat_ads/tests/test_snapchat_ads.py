@@ -1,4 +1,5 @@
 from collections.abc import Callable, Iterator
+from datetime import datetime
 from typing import Any, Optional
 
 from unittest.mock import MagicMock, patch
@@ -11,6 +12,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_a
     _iter_rows,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.source import SnapchatAdsSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.utils import (
+    SnapchatDateRangeManager,
+    format_stats_day_boundary,
+)
 
 
 class _FakeResource:
@@ -260,8 +265,8 @@ class TestIterRowsMultiChunkStats:
                 return_value=_fake_stats_chunks(2),
             ),
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.snapchat_ads.fetch_account_currency",
-                return_value="USD",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.snapchat_ads.fetch_account_metadata",
+                return_value=("USD", "America/Los_Angeles"),
             ),
         ):
             list(
@@ -313,8 +318,8 @@ class TestIterRowsMultiChunkStats:
                 return_value=_fake_stats_chunks(2),
             ),
             patch(
-                "products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.snapchat_ads.fetch_account_currency",
-                return_value="USD",
+                "products.warehouse_sources.backend.temporal.data_imports.sources.snapchat_ads.snapchat_ads.fetch_account_metadata",
+                return_value=("USD", "America/Los_Angeles"),
             ),
         ):
             list(
@@ -335,6 +340,46 @@ class TestIterRowsMultiChunkStats:
         assert captured_calls[0]["initial_paginator_state"] == {
             "next_link": "https://adsapi.snapchat.com/v1/stats?chunk=1&cursor=midchunk",
         }
+
+
+class TestStatsDayBoundaryTimezone:
+    """Snapchat's DAY-granularity stats reject date boundaries that aren't the
+    start of a day in the ad account's timezone (with the correct DST offset).
+    These tests pin the localization that prevents the 400."""
+
+    @parameterized.expand(
+        [
+            ("summer_pdt", datetime(2025, 7, 15), "America/Los_Angeles", "2025-07-15T00:00:00-07:00"),
+            ("winter_pst", datetime(2025, 1, 15), "America/Los_Angeles", "2025-01-15T00:00:00-08:00"),
+            ("utc", datetime(2025, 7, 15), "UTC", "2025-07-15T00:00:00+00:00"),
+            ("no_timezone_stays_naive", datetime(2025, 7, 15), None, "2025-07-15T00:00:00"),
+            ("invalid_timezone_falls_back", datetime(2025, 7, 15), "Not/AZone", "2025-07-15T00:00:00"),
+        ]
+    )
+    def test_format_stats_day_boundary(
+        self, _name: str, dt: datetime, account_timezone: Optional[str], expected: str
+    ) -> None:
+        assert format_stats_day_boundary(dt, account_timezone) == expected
+
+    def test_generate_chunks_localizes_each_boundary_across_dst(self) -> None:
+        # A range straddling the spring-forward boundary: each chunk must carry the
+        # offset that aligns it to local midnight on its own date, not one fixed
+        # offset for the whole range.
+        chunks = SnapchatDateRangeManager.generate_chunks(
+            "2025-01-01T00:00:00", "2025-08-01T00:00:00", account_timezone="America/Los_Angeles"
+        )
+        starts = [start for start, _ in chunks]
+
+        assert chunks[0][0] == "2025-01-01T00:00:00-08:00"
+        assert any(s.endswith("-08:00") for s in starts)
+        assert any(s.endswith("-07:00") for s in starts)
+        assert all("T00:00:00" in s for s in starts)
+
+    def test_generate_chunks_naive_without_timezone(self) -> None:
+        chunks = SnapchatDateRangeManager.generate_chunks(
+            "2025-01-01T00:00:00", "2025-02-01T00:00:00", account_timezone=None
+        )
+        assert chunks == [("2025-01-01T00:00:00", "2025-02-01T00:00:00")]
 
 
 class TestNonRetryableErrors:

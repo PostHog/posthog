@@ -76,7 +76,11 @@ class VitallySource(SimpleSource[VitallySourceConfig]):
         # definitions; instances live at `/resources/customObjects/:id/instances`.
         # Skip the outbound request when the caller only wants static schemas, and never
         # let a discovery failure take down the static endpoints that need no network call.
-        if names is None or any(name.startswith(CUSTOM_OBJECT_SCHEMA_PREFIX) for name in names):
+        # The credential-free documentation catalog calls this with a placeholder config whose
+        # `region` is an empty string rather than a `VitallyRegionConfig`; without a token there
+        # is nothing to discover, so bail out before touching `config.region`.
+        wants_custom_objects = names is None or any(name.startswith(CUSTOM_OBJECT_SCHEMA_PREFIX) for name in names)
+        if wants_custom_objects and config.secret_token:
             try:
                 definitions = list_custom_object_definitions(
                     config.secret_token, config.region.selection, config.region.subdomain

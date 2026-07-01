@@ -1,14 +1,15 @@
 import copy
 import json
 import graphlib
+from collections.abc import Callable
 from datetime import date
 from typing import Any, Literal, NamedTuple, Optional, cast
-from urllib.parse import urlparse
+from urllib.parse import quote, quote_plus, urlparse
 
 import structlog
 from jsonpath_ng.exceptions import JSONPathError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
-from requests import Response
+from requests import PreparedRequest, Response
 from urllib3.util.retry import Retry
 
 from posthog.schema import (
@@ -28,14 +29,24 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     SourceResponse,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import FieldType, SimpleSource
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import (
+    make_tracked_adapter,
+    make_tracked_session,
+)
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.http.transport import _NoRedirectSession
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.mixins import _is_host_safe
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import SourceRegistry
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source import (
     RESTAPIConfig,
     rest_api_resources,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import auth_secret_values
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
+    OAUTH2_PERMANENT_ERROR_MARKER,
+    OAuth2Auth,
+    OAuth2AuthRequestError,
+    auth_secret_values,
+    strip_oauth2_permanent_marker,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import (
     build_resource_dependency_graph,
     create_auth,
@@ -56,7 +67,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType, Inc
 
 # Credential keys that must NOT appear inline in the manifest — they belong in
 # the dedicated secret `auth_*` config fields so the API layer can redact them.
-INLINE_SECRET_KEYS = ("token", "api_key", "password")
+INLINE_SECRET_KEYS = ("token", "api_key", "password", "client_secret", "refresh_token", "access_token")
 
 logger = structlog.get_logger(__name__)
 
@@ -85,6 +96,22 @@ MAX_MANIFEST_RESOURCES = 50
 # Enforced in the external_data_source create endpoint.
 MAX_CUSTOM_SOURCES_PER_TEAM = 5
 
+# Bounds on the create-time preview / test-read. Like the probe, preview runs
+# inline on the API request thread, so the row count is hard-capped: the default
+# is enough to eyeball data_selector / primary_key / cursor_path, and the max
+# stops a preview from buffering a large page into worker memory.
+PREVIEW_DEFAULT_ROWS = 10
+PREVIEW_MAX_ROWS = 50
+# Cap the parent rows a fan-out preview walks: the engine fires one child request
+# per parent, and empty child pages slip past the row cap (see `preview_resource`).
+PREVIEW_MAX_FANOUT_PARENTS = 10
+# Total decoded response bytes one preview may parse, across all its requests — a
+# per-response cap wouldn't bound a fan-out's many pages (see `_PreviewSession`).
+PREVIEW_MAX_TOTAL_BODY_BYTES = 20 * 1024 * 1024
+# Compressed bytes pulled per streamed read while enforcing that budget; small so a
+# bomb can inflate at most one chunk's worth past the budget before we abort.
+PREVIEW_READ_CHUNK_BYTES = 64 * 1024
+
 
 class ManifestValidationError(ValueError):
     """Raised when the user-provided manifest doesn't conform to RESTAPIConfig."""
@@ -97,10 +124,27 @@ class _ManifestAuth(BaseModel):
     # engine's `create_auth` with an unexpected-kwarg TypeError at sync time.
     model_config = ConfigDict(extra="forbid")
 
-    type: Literal["bearer", "api_key", "http_basic"]
+    type: Literal["bearer", "api_key", "http_basic", "oauth2"]
     name: str | None = None
     location: Literal["header", "query", "param", "cookie"] | None = None
     username: str | None = None
+    # OAuth2 (non-secret) fields. The customer brings their own client: client_id /
+    # token_url and the extensibility knobs live in the manifest, while client_secret /
+    # refresh_token are injected from the secret auth_oauth2_* config fields at sync time.
+    # `authorization_code` is out of scope (needs an interactive consent flow), so the
+    # grant Literal admits only the two non-interactive grants — a manifest declaring any
+    # other grant fails validation here. Every field is optional so the non-oauth2 types
+    # are unaffected; the after-validator enforces what oauth2 actually requires.
+    client_id: str | None = None
+    token_url: str | None = None
+    grant_type: Literal["client_credentials", "refresh_token"] | None = None
+    scopes: str | None = None
+    access_token_name: str | None = None
+    expires_in_name: str | None = None
+    expiry_date_format: str | None = None
+    extra_token_request_params: dict[str, str] | None = None
+    token_request_headers: dict[str, str] | None = None
+    client_auth_method: Literal["body", "basic"] | None = None
 
     @model_validator(mode="before")
     @classmethod
@@ -109,11 +153,33 @@ class _ManifestAuth(BaseModel):
         # the manifest — the manifest field is non-secret and round-trips to the client.
         if isinstance(data, dict):
             inline = [key for key in INLINE_SECRET_KEYS if data.get(key)]
+            # `extra_token_request_params` / `token_request_headers` are forwarded verbatim to the token
+            # endpoint but live in the non-secret manifest, so a secret stashed in them would round-trip
+            # to anyone who can read the source. Scan their keys too — case-insensitively, since header
+            # names like `Authorization` are arbitrarily cased.
+            for nested_key in ("extra_token_request_params", "token_request_headers"):
+                nested = data.get(nested_key)
+                if isinstance(nested, dict):
+                    lowered = {str(key).lower(): value for key, value in nested.items()}
+                    inline += [
+                        f"{nested_key}.{key}" for key in (*INLINE_SECRET_KEYS, "authorization") if lowered.get(key)
+                    ]
             if inline:
                 raise ValueError(
                     f"Credentials ({', '.join(inline)}) must not be embedded — use the dedicated auth fields"
                 )
         return data
+
+    @model_validator(mode="after")
+    def _require_oauth2_fields(self) -> "_ManifestAuth":
+        # client_id + token_url are the minimum a customer-owned OAuth2 client needs;
+        # without them the token exchange can't run. (client_secret is a separate
+        # secret field, so it isn't required here.)
+        if self.type == "oauth2":
+            missing = [field for field in ("client_id", "token_url") if not getattr(self, field)]
+            if missing:
+                raise ValueError(f"OAuth2 auth requires {' and '.join(missing)} in the manifest")
+        return self
 
 
 class _ManifestClient(BaseModel):
@@ -334,6 +400,17 @@ def validate_manifest_urls(manifest: dict[str, Any], team_id: int) -> tuple[bool
     if not ok:
         return False, f"Invalid base_url: {err}"
 
+    # The OAuth2 token endpoint is a second customer-controlled host that receives the
+    # client_secret. Vet it like base_url: https-on-Cloud + internal-host rejection.
+    # Defense-in-depth (Smokescreen already guards egress); the load-bearing control
+    # against repointing token_url to exfiltrate the secret is the re-entry gate, which
+    # sees token_url via manifest_request_hosts (same extraction, shared helper).
+    token_url = _manifest_oauth2_token_url(manifest.get("client"))
+    if token_url is not None:
+        ok, err = _check_url(token_url, team_id)
+        if not ok:
+            return False, f"Invalid token_url: {err}"
+
     base_host = _url_hostname(base_url)
     for resource in manifest["resources"]:
         # Resolve exactly as the engine will (so a whitespace/case-disguised absolute path
@@ -401,6 +478,23 @@ def _endpoint_request_url(base_url: str, endpoint: Any) -> str | None:
     return resolve_request_url(base_url, resolved)
 
 
+def _manifest_oauth2_token_url(client: Any) -> str | None:
+    """The oauth2 ``token_url`` for a parsed manifest's ``client``, or ``None`` if absent /
+    non-oauth2 / non-string.
+
+    Single source for the two places that must agree on it — :func:`validate_manifest_urls`
+    (vets the host) and :func:`manifest_request_hosts` (feeds the credential re-entry gate).
+    Keeping them in lockstep matters for security: if the re-entry gate ever stopped tracking
+    ``token_url`` while the URL vetting still did, an editor could repoint it past the gate.
+    """
+    auth = client.get("auth") if isinstance(client, dict) else None
+    if isinstance(auth, dict) and auth.get("type") == "oauth2":
+        token_url = auth.get("token_url")
+        if isinstance(token_url, str):
+            return token_url
+    return None
+
+
 def manifest_request_hosts(manifest_json: Any) -> frozenset[str]:
     """Hostnames a stored manifest will send requests — and the credential — to.
 
@@ -434,6 +528,15 @@ def manifest_request_hosts(manifest_json: Any) -> frozenset[str]:
             resolved = _endpoint_request_url(base_for_resolve, endpoint)
             if resolved is not None:
                 urls.append(resolved)
+
+    # The OAuth2 token endpoint receives the stored client_secret, so it's a request
+    # destination the re-entry gate must track: an editor who can't read the secret
+    # must not be able to repoint token_url at a host they control while keeping the
+    # secret. It's a literal URL (not a path template), so add its host directly —
+    # don't run the path-resolution logic on it.
+    token_url = _manifest_oauth2_token_url(client)
+    if token_url is not None:
+        urls.append(token_url)
 
     # `_url_hostname` returns an already-lowercased host.
     hosts = {host for url in urls if (host := _url_hostname(url))}
@@ -539,7 +642,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                         placeholder="",
                         secret=False,
                     ),
-                    # One of the three is used per sync, selected by the manifest's
+                    # One credential is used per sync, selected by the manifest's
                     # client.auth.type. All secret so the generic API layer redacts them.
                     SourceFieldInputConfig(
                         name="auth_token",
@@ -565,6 +668,27 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                         placeholder="",
                         secret=True,
                     ),
+                    # OAuth2 (auth.type == "oauth2"): the customer's own client secret and,
+                    # for the refresh_token grant, their pre-obtained refresh token. Both
+                    # secret so the generic API layer redacts them and the re-entry gate
+                    # covers them. The non-secret oauth fields (client_id / token_url / …)
+                    # live in manifest_json.
+                    SourceFieldInputConfig(
+                        name="auth_oauth2_client_secret",
+                        label="OAuth2 client secret",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=False,
+                        placeholder="",
+                        secret=True,
+                    ),
+                    SourceFieldInputConfig(
+                        name="auth_oauth2_refresh_token",
+                        label="OAuth2 refresh token",
+                        type=SourceFieldInputConfigType.PASSWORD,
+                        required=False,
+                        placeholder="",
+                        secret=True,
+                    ),
                 ],
             ),
         )
@@ -577,6 +701,16 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             # in an edit while the table's sync stayed scheduled). Permanent until the config is
             # fixed — match the stable suffix, not the variable resource name in the message.
             "not found in config": "A table in this sync points to a resource that no longer exists in the source's manifest. Re-add the resource to the manifest, or remove the table from the sync, then try again.",
+            # The OAuth2 token endpoint rejected the client credentials or the grant. Both are
+            # permanent until the config changes — retrying the sync can't fix them. The two
+            # codes below get pointed, code-specific copy; every other permanent token failure
+            # (unauthorized_client / invalid_scope / a bare 3xx redirect / a malformed token
+            # response / a missing token_url) is caught by the stable marker OAuth2AuthRequestError
+            # embeds whenever is_permanent is set — so no permanent token error retries until the
+            # activity budget is exhausted. Transient (429 / 5xx) token errors carry no marker.
+            "invalid_client": "The OAuth2 token endpoint rejected the client credentials (invalid_client). Check the configured client_id, client secret, and token URL.",
+            "invalid_grant": "The OAuth2 token endpoint rejected the grant (invalid_grant) — a refresh token may have expired or been revoked. Re-enter the OAuth2 credentials.",
+            OAUTH2_PERMANENT_ERROR_MARKER: "The OAuth2 token endpoint rejected the request and the configuration must change before the sync can succeed. Check the configured OAuth2 credentials, token URL, grant type, and scopes.",
         }
 
     def _assemble_manifest(self, config: CustomSourceConfig) -> dict[str, Any]:
@@ -639,6 +773,38 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         except (ValueError, TypeError) as exc:
             return False, f"Invalid auth configuration: {exc}"
 
+        # OAuth2 mints its access token lazily on the first request, so pre-mint it now —
+        # a bad client_secret / token_url then fails with a pointed "the OAuth2 token
+        # endpoint rejected the request: …" instead of a misleading "resource unreachable"
+        # on the first data probe. Minting before the probe session is built also lets the
+        # freshly-minted access token join that session's redaction set. A transient
+        # (429 / 5xx) token error must not block creation — the first real sync retries —
+        # so only a permanent error (invalid_client / invalid_grant / other 4xx) is surfaced.
+        if isinstance(probe_auth, OAuth2Auth):
+            try:
+                # Bound the inline token exchange to the same budget as the data probe — this runs
+                # on the API request thread, so a stalled token endpoint must fail fast (well within
+                # the request's idle timeout) rather than block for the generous sync-time read.
+                probe_auth._obtain_token(timeout=(PROBE_CONNECT_TIMEOUT, PROBE_READ_TIMEOUT))
+            except OAuth2AuthRequestError as exc:
+                if exc.is_permanent:
+                    # Strip the internal sync-time classifier marker — it's not user-facing copy.
+                    return False, _redact_secrets(
+                        f"The OAuth2 token endpoint rejected the request: {strip_oauth2_permanent_marker(str(exc))}",
+                        auth_secret_values(probe_auth),
+                    )
+                # Transient (429 / 5xx): don't block creation — the first real sync retries the
+                # token exchange. Skip the data probe too: it has no minted token to authenticate
+                # with, so requests would re-invoke the auth (re-running the failing mint) and turn
+                # this into a misleading "could not reach <data resource>" failure.
+                return True, None
+            except Exception as exc:
+                # Redact the credential defensively — a transport-layer exception shouldn't carry
+                # the secret, but the redaction discipline is cheap and uniform here.
+                return False, _redact_secrets(
+                    f"Could not reach the OAuth2 token endpoint: {exc}", auth_secret_values(probe_auth)
+                )
+
         # The probe runs inline on the request thread, so keep it cheap and
         # bounded: no retries (don't multiply outbound volume at create time),
         # no redirects (Smokescreen re-resolves each hop; keep the credential
@@ -696,7 +862,10 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                         f"Resource {resource['name']!r}: the upstream API rejected the request with "
                         f"HTTP {response.status_code} from {url} — check the configured auth credentials."
                     )
-                    snippet = _read_capped_text(response)
+                    # Redact the credential from the echoed body before surfacing it: an upstream
+                    # could reflect the sent credential (e.g. an OAuth2 bearer token minted above) in
+                    # its 401/403 error, and the snippet would otherwise leak it into a user message.
+                    snippet = _redact_secrets(_read_capped_text(response), auth_secret_values(probe_auth))
                     if snippet:
                         message += f" The upstream responded: {snippet}"
                     return False, message
@@ -818,6 +987,264 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
             sort_mode=sort_mode,
         )
 
+    def preview_resource(
+        self,
+        config: CustomSourceConfig,
+        team_id: int,
+        resource_name: str,
+        max_rows: int = PREVIEW_DEFAULT_ROWS,
+    ) -> "PreviewResult":
+        """Fetch a bounded first page of rows for one manifest resource.
+
+        Lets a manifest author verify ``data_selector`` / ``primary_key`` /
+        ``cursor_path`` against live rows before creating a source. Reuses the
+        sync path's manifest assembly, SSRF host validation, fan-out chain, and
+        REST engine, but: pins every resource to a single page, strips all
+        incremental config (preview is an unconditional first read, so the
+        returned rows still carry the cursor field for inspection), and injects
+        a no-redirect, timeout-bounded session so the inline read can't hang.
+        Iterating the lazy engine resource and stopping at ``max_rows`` bounds a
+        fan-out child's per-parent request volume.
+
+        Structural / graph / URL problems raise ``ManifestValidationError`` or
+        ``ValueError`` (the API turns these into 400s); a live fetch failure is
+        returned in ``error`` so the caller can iterate. The assembled manifest
+        carries the injected credential and is never returned — only rows.
+        """
+        max_rows = max(1, min(max_rows, PREVIEW_MAX_ROWS))
+
+        manifest = self._assemble_manifest(config)
+        _validate_resource_graph(manifest)
+        _validate_incremental_configs(manifest)
+
+        ok, err = validate_manifest_urls(manifest, team_id)
+        if not ok:
+            raise ManifestValidationError(err or "Manifest URL validation failed")
+
+        chain = _fanout_chain(manifest, resource_name)
+
+        client = manifest["client"]
+        try:
+            preview_auth = create_auth(client.get("auth"))
+        except (ValueError, TypeError) as exc:
+            raise ManifestValidationError(f"Invalid auth configuration: {exc}") from exc
+        secret_values = auth_secret_values(preview_auth)
+
+        engine_resources = [
+            _with_single_page_paginator(_without_incremental_config(resource))
+            for resource in (*chain.ancestors, chain.child)
+        ]
+        engine_manifest = cast(
+            RESTAPIConfig,
+            {
+                **manifest,
+                "resources": engine_resources,
+                "client": {
+                    **client,
+                    "session": _build_preview_session(secret_values),
+                    # One attempt only — a rate-limited endpoint must surface an error
+                    # inline, not sleep on `Retry-After` and tie up the request thread.
+                    "max_retries": 1,
+                },
+            },
+        )
+
+        try:
+            resources = rest_api_resources(
+                engine_manifest,
+                team_id=team_id,
+                job_id="custom-source-preview",
+                db_incremental_field_last_value=None,
+            )
+        except ValueError as exc:
+            # Deterministic build-time config errors the create-time checks can't
+            # see (e.g. include_from_parent on a resource with no resolve param).
+            raise ManifestValidationError(str(exc)) from exc
+
+        # Cap how many parent rows each fan-out ancestor emits. The engine issues one
+        # child request per parent row, and empty child pages are dropped before the
+        # row reader sees them — so the request bound has to live on the parent, not on
+        # pages collected downstream.
+        ancestor_names = {ancestor["name"] for ancestor in chain.ancestors}
+        for engine_resource in resources:
+            if getattr(engine_resource, "name", None) in ancestor_names:
+                engine_resource.add_filter(_keep_first_n(PREVIEW_MAX_FANOUT_PARENTS))
+
+        resource = next((r for r in resources if getattr(r, "name", None) == resource_name), None)
+        if resource is None:
+            raise ManifestValidationError(f"Resource {resource_name!r} was not produced by the REST engine")
+
+        try:
+            rows = _collect_preview_rows(resource, max_rows)
+        except Exception as exc:
+            return PreviewResult(
+                rows=[],
+                row_count=0,
+                columns=[],
+                error=_redact_secrets(strip_oauth2_permanent_marker(str(exc)), secret_values),
+            )
+
+        return PreviewResult(rows=rows, row_count=len(rows), columns=_infer_columns(rows), error=None)
+
+
+class PreviewResult(NamedTuple):
+    """Outcome of a single-resource preview read. ``error`` is set only for a
+    live fetch failure — structural problems raise instead."""
+
+    rows: list[dict[str, Any]]
+    row_count: int
+    columns: list[dict[str, str]]
+    error: str | None
+
+
+class PreviewResponseTooLargeError(Exception):
+    """A preview's cumulative response bytes exceeded ``PREVIEW_MAX_TOTAL_BODY_BYTES``."""
+
+
+class _PreviewSession(_NoRedirectSession):
+    """No-redirect session for the inline preview read, bounded on time and size.
+
+    Pins a session-level timeout (``RESTClient.send()`` passes none, so a stalled
+    upstream can't hang the request thread) and caps the response bytes parsed via a
+    budget shared across the preview — one session serves one preview. See
+    ``_read_within_budget`` for the size enforcement.
+    """
+
+    def __init__(self) -> None:
+        super().__init__()
+        self._body_budget = PREVIEW_MAX_TOTAL_BODY_BYTES
+
+    def send(self, request: PreparedRequest, **kwargs: Any) -> Response:
+        kwargs.setdefault("timeout", (PROBE_CONNECT_TIMEOUT, PROBE_READ_TIMEOUT))
+        kwargs["stream"] = True
+        response = super().send(request, **kwargs)
+        try:
+            body = self._read_within_budget(response)
+        finally:
+            response.close()
+        response._content = body
+        response._content_consumed = True  # type: ignore[attr-defined]
+        return response
+
+    def _read_within_budget(self, response: Response) -> bytes:
+        # Stream *decoded* chunks and stop the instant the running total crosses the
+        # budget. A single read(decode_content=True) would inflate the whole compressed
+        # body at once — a gzipped page decompresses fully before any size check — so a
+        # bomb is bounded only by decoding incrementally and aborting early.
+        chunks: list[bytes] = []
+        decoded = 0
+        for chunk in response.raw.stream(PREVIEW_READ_CHUNK_BYTES, decode_content=True):
+            decoded += len(chunk)
+            if decoded > self._body_budget:
+                raise PreviewResponseTooLargeError(
+                    f"Preview response bodies exceeded the {PREVIEW_MAX_TOTAL_BODY_BYTES}-byte budget"
+                )
+            chunks.append(chunk)
+        self._body_budget -= decoded
+        return b"".join(chunks)
+
+
+def _build_preview_session(redact_values: tuple[str, ...]) -> _PreviewSession:
+    """A tracked preview session: no transport retries, credentials registered
+    for value-based redaction (auth may be injected under a manifest-chosen
+    param/header the denylist can't anticipate)."""
+    session = _PreviewSession()
+    adapter = make_tracked_adapter(retry=Retry(total=0), redact_values=redact_values)
+    session.mount("https://", adapter)
+    session.mount("http://", adapter)
+    return session
+
+
+def _with_single_page_paginator(resource: dict[str, Any]) -> dict[str, Any]:
+    """Return a copy of ``resource`` pinned to a single page, so a preview reads
+    exactly one page per resource regardless of the manifest's paginator."""
+    endpoint = resource.get("endpoint")
+    if isinstance(endpoint, str):
+        endpoint = {"path": endpoint}
+    elif not isinstance(endpoint, dict):
+        endpoint = {}
+    return {**resource, "endpoint": {**endpoint, "paginator": {"type": "single_page"}}}
+
+
+def _keep_first_n(n: int) -> Callable[[dict[str, Any]], bool]:
+    """A stateful filter that keeps the first ``n`` rows and drops the rest.
+
+    Applied to a fan-out ancestor so the child fans out over at most ``n`` parent
+    rows — the request bound the row reader can't enforce, since empty child pages
+    never reach it.
+    """
+    seen = 0
+
+    def keep(_row: dict[str, Any]) -> bool:
+        nonlocal seen
+        if seen >= n:
+            return False
+        seen += 1
+        return True
+
+    return keep
+
+
+def _collect_preview_rows(resource: Any, max_rows: int) -> list[dict[str, Any]]:
+    """Flatten the engine resource's pages into at most ``max_rows`` records.
+
+    Iterating a :class:`Resource` yields pages (``list[dict]``) lazily, so
+    returning early abandons the generator and stops it issuing further requests.
+    A fan-out child's request volume is bounded upstream by capping its parent
+    rows (see ``preview_resource``); a single-page top-level resource issues one
+    request regardless.
+    """
+    rows: list[dict[str, Any]] = []
+    for page in resource:
+        for item in page:
+            if isinstance(item, dict):
+                rows.append(item)
+                if len(rows) >= max_rows:
+                    return rows
+    return rows
+
+
+def _json_type_label(value: Any) -> str:
+    # bool is a subclass of int, so it must be checked first.
+    if value is None:
+        return "null"
+    if isinstance(value, bool):
+        return "boolean"
+    if isinstance(value, int):
+        return "integer"
+    if isinstance(value, float):
+        return "number"
+    if isinstance(value, str):
+        return "string"
+    if isinstance(value, list):
+        return "array"
+    if isinstance(value, dict):
+        return "object"
+    return "string"
+
+
+def _infer_columns(rows: list[dict[str, Any]]) -> list[dict[str, str]]:
+    """Advisory column list for the previewed rows — each key seen (first-seen
+    order), typed from the first non-null value. Helps the caller sanity-check
+    data_selector / primary_key / cursor_path against real data."""
+    columns: dict[str, str] = {}
+    for row in rows:
+        for key, value in row.items():
+            if key not in columns or columns[key] == "null":
+                columns[key] = _json_type_label(value)
+    return [{"name": name, "type": type_label} for name, type_label in columns.items()]
+
+
+def _redact_secrets(text: str, secrets: tuple[str, ...]) -> str:
+    # Redact the raw secret and its URL-encoded forms: a key in a query param is
+    # percent-encoded in `response.url`, which an HTTPError carries verbatim.
+    for secret in secrets:
+        if not secret:
+            continue
+        for variant in dict.fromkeys((secret, quote(secret, safe=""), quote_plus(secret))):
+            text = text.replace(variant, "***")
+    return text
+
 
 def _read_capped_text(response: Response) -> str:
     """Read at most ``PROBE_ERROR_SNIPPET_BYTES`` of a streamed body for an error snippet.
@@ -883,6 +1310,14 @@ def _inject_auth_secrets(manifest: dict[str, Any], config: CustomSourceConfig) -
         auth["api_key"] = config.auth_api_key
     elif auth_type == "http_basic" and config.auth_password:
         auth["password"] = config.auth_password
+    elif auth_type == "oauth2":
+        # The non-secret oauth fields (client_id / token_url / grant_type / knobs) are
+        # already in the manifest; inject only the secrets. client_credentials needs just
+        # the client_secret; the refresh_token grant also needs the refresh token.
+        if config.auth_oauth2_client_secret:
+            auth["client_secret"] = config.auth_oauth2_client_secret
+        if config.auth_oauth2_refresh_token:
+            auth["refresh_token"] = config.auth_oauth2_refresh_token
 
 
 def _incremental_field_type(raw: Any) -> IncrementalFieldType:

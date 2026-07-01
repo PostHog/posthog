@@ -168,6 +168,7 @@ export enum Scene {
     Transformations = 'Transformations',
     EventFiltering = 'EventFiltering',
     Unsubscribe = 'Unsubscribe',
+    CodeCanvasLink = 'CodeCanvasLink',
     UserInterview = 'UserInterview',
     UserInterviewResponse = 'UserInterviewResponse',
     UserInterviews = 'UserInterviews',
@@ -179,6 +180,7 @@ export enum Scene {
     WebAnalyticsWebVitals = 'WebAnalyticsWebVitals',
     WebAnalyticsHealth = 'WebAnalyticsHealth',
     WebAnalyticsLive = 'WebAnalyticsLive',
+    WebAnalyticsRecap = 'WebAnalyticsRecap',
     WebScripts = 'WebScripts',
     Endpoints = 'Endpoints',
     Endpoint = 'Endpoint',
@@ -197,6 +199,7 @@ export enum Scene {
     AIObservabilityTrace = 'AIObservabilityTrace',
     AIObservabilityUsers = 'AIObservabilityUsers',
     Logs = 'Logs',
+    MCPAnalytics = 'MCPAnalytics',
     LogsAlertDetail = 'LogsAlertDetail',
     LogsAlertNotificationDetail = 'LogsAlertNotificationDetail',
     LogsSamplingNew = 'LogsSamplingNew',
@@ -244,12 +247,8 @@ export interface SceneTab {
     search: string
     hash: string
     title: string
-    active: boolean
     customTitle?: string
     iconType: FileSystemIconType | 'loading' | 'blank'
-    pinned?: boolean
-    /** Show a small badge indicator on the tab icon */
-    badge?: boolean
 
     sceneId?: string
     sceneKey?: string
@@ -341,6 +340,7 @@ export const sceneToAccessControlResourceType: Partial<Record<Scene, AccessContr
     [Scene.WebAnalyticsPageReports]: AccessControlResourceType.WebAnalytics,
     [Scene.WebAnalyticsWebVitals]: AccessControlResourceType.WebAnalytics,
     [Scene.WebAnalyticsHealth]: AccessControlResourceType.WebAnalytics,
+    [Scene.WebAnalyticsRecap]: AccessControlResourceType.WebAnalytics,
 
     // Marketing Analytics
     [Scene.MarketingAnalytics]: AccessControlResourceType.WebAnalytics,

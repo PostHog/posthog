@@ -34,6 +34,7 @@ import {
     type ApprovalType,
     BundleStore,
     CredentialBroker,
+    GatewayCatalog,
     getSecretAllowedHosts,
     HttpFetcher,
     IdentityAuthRequiredError,
@@ -46,6 +47,9 @@ import {
 import { getNativeTool, hasNativeTool, WEB_SEARCH_TOOL_ID } from '@posthog/agent-tools'
 
 import type { OpenedMcp, RemoteMcpTool } from './mcp-clients'
+import { makeMcpProxyTools } from './mcp-proxy'
+import { decideMcpExposure } from './mcp-tool-budget'
+import { effectiveToolLevel } from './mcp-tool-lookup'
 import { buildToolNameMap } from './provider-safe-names'
 
 /**
@@ -175,6 +179,10 @@ export interface AgentToolDeps {
      * against. Forwarded straight onto `ToolContext.posthogApiBaseUrl`.
      */
     posthogApiBaseUrl: string
+    /** Gateway model catalog, forwarded onto `ToolContext.gatewayCatalog` for
+     *  the `@posthog/agent-applications-models` tool. Absent when the gateway
+     *  is disabled. */
+    gatewayCatalog?: GatewayCatalog
 }
 
 export interface BuiltAgentTools {
@@ -184,11 +192,26 @@ export interface BuiltAgentTools {
      * sanitizes names on the wire and uses this map to translate the names a
      * strict provider echoes back to the original before the loop matches. */
     nameToId: Map<string, string>
+    /** `<prefix>__call_tool` name → its proxy entry, per proxied connection.
+     *  The driver re-keys the approval gate on the underlying tool from the
+     *  args, using `resolveRemoteName` so the gate and dispatch agree on which
+     *  remote name is invoked (a raw `<prefix>__<x>` tool that exists in the
+     *  catalog stays raw; only an extra `<prefix>__` from the model is stripped). */
+    mcpProxyCallTools: Map<string, ProxyCallToolEntry>
+}
+
+/** What the driver needs at gate time per proxied connection: the client (for
+ *  `.prefix`, kept here so callers don't reach across to `mcp-clients`) plus
+ *  the same resolver dispatch uses. Bundled so the two can't drift. */
+export interface ProxyCallToolEntry {
+    client: OpenedMcp
+    resolveRemoteName: (raw: string) => string
 }
 
 export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): Promise<BuiltAgentTools> {
     const tools: AgentTool<TSchema, ToolResultDetails>[] = []
     const seen = new Set<string>()
+    const mcpProxyCallTools = new Map<string, ProxyCallToolEntry>()
 
     // `@posthog/load-skill` is auto-included only when the agent has skills —
     // exposing it otherwise just adds a tool that errors on use.
@@ -231,12 +254,29 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
             continue
         }
         if (t.kind === 'client') {
-            // Always exposed when dispatcher is wired. No upfront capability
-            // handshake: if the connecting client doesn't handle the id, the
-            // dispatcher's await times out and the model gets an error
-            // tool_result it can adapt to. Keeps the protocol simple +
-            // matches the agent.md degradation rules.
+            // Client tools need a connected client to fulfil the call. Only
+            // chat-triggered sessions have one, so for non-chat triggers we
+            // hide every client tool and let the agent.md degrade — `required`
+            // is only enforced when there's a client to declare support.
+            // Spec freeze rejects `required:true` client tools combined with
+            // non-chat triggers, so this branch is the runtime safety net.
+            const chatMeta = deps.session.trigger_metadata?.kind === 'chat' ? deps.session.trigger_metadata : null
+            const supported = chatMeta?.supported_client_tools ?? []
+            // Dispatcher availability is a runner-side concern (server
+            // misconfig); check before the caller-declaration gate so the
+            // failure code points at the right party. `dispatchClientTool` is
+            // always wired in prod (driver.ts:447); this branch catches the
+            // case where a runner instance ships without it.
             if (!deps.dispatchClientTool) {
+                if (t.required && chatMeta) {
+                    throw new Error(`client_tool_dispatcher_unavailable:${t.id}`)
+                }
+                continue
+            }
+            if (!supported.includes(t.id)) {
+                if (t.required && chatMeta) {
+                    throw new Error(`client_tool_unsupported:${t.id}`)
+                }
                 continue
             }
             tools.push(makeClientTool(t, deps))
@@ -268,45 +308,56 @@ export async function buildAgentTools(rev: AgentRevision, deps: AgentToolDeps): 
             })
         )
         for (const { client, tools: remoteTools } of listings) {
-            // PR 7: inclusion filter migrated from `allowlist[]` to `tools[]`,
-            // which carries both bare-string entries (passthrough — was
-            // allowlist) and object entries `{ name, requires_approval?, ... }`.
-            // We only need the entry NAMES here; the approval-wrap fallback
-            // lives in `driver.ts` and pulls the per-tool policy via
-            // `mcp-tool-lookup.ts` (added in commit B). Omitted/empty `tools`
-            // still means "expose every tool the server lists."
-            const includedNames =
-                client.ref.tools && client.ref.tools.length > 0
-                    ? new Set(client.ref.tools.map((t) => (typeof t === 'string' ? t : t.name)))
-                    : null
-            for (const remote of remoteTools) {
-                if (includedNames && !includedNames.has(remote.name)) {
-                    continue
+            const exposed = exposedRemoteTools(client, remoteTools, seen)
+            // Inline below the budget; proxy a rich surface so it can't overflow the model.
+            const decision = decideMcpExposure(exposed)
+            if (decision.mode === 'inline') {
+                for (const remote of exposed) {
+                    tools.push(makeMcpTool(`${client.prefix}__${remote.name}`, client, remote))
                 }
-                // `<prefix>__<remoteName>` is the model-visible identifier; the
-                // model sees the prefix so it can disambiguate (`linear__create_issue`
-                // vs `github__create_issue`). All chars are already
-                // provider-safe — `__` is in the safe set.
-                const exposedName = `${client.prefix}__${remote.name}`
-                if (seen.has(exposedName)) {
-                    // Collisions can happen when a remote tool name accidentally
-                    // matches a native/custom id, or two MCPs export the same
-                    // post-prefix string. Same silent-skip behaviour as
-                    // duplicate spec.tools entries — keeps the model surface
-                    // stable across deploys instead of failing loudly on a
-                    // remote-side rename.
-                    continue
-                }
-                seen.add(exposedName)
-                tools.push(makeMcpTool(exposedName, client, remote))
+                continue
             }
+            deps.log('info', 'mcp.exposure.proxy', {
+                prefix: client.prefix,
+                toolCount: decision.toolCount,
+                serializedChars: decision.serializedChars,
+                reasons: decision.reasons,
+            })
+            const proxy = makeMcpProxyTools(client, exposed)
+            tools.push(...proxy.tools)
+            mcpProxyCallTools.set(proxy.callToolName, { client, resolveRemoteName: proxy.resolveRemoteName })
         }
     }
 
     // Tools are named with their original ids (the loop matches calls by name).
     // The map keys the provider-safe form back to the original so the driver's
     // streamFn can translate names a strict provider echoed back.
-    return { tools, nameToId: buildToolNameMap(tools.map((t) => t.name)) }
+    return { tools, nameToId: buildToolNameMap(tools.map((t) => t.name)), mcpProxyCallTools }
+}
+
+/**
+ * The catalog a client should expose, shared by the inline and proxy emitters:
+ * drop tools whose effective level is `deny` (connection default ?? per-tool
+ * override), then `<prefix>__<name>` collision dedupe against `seen` (mutated).
+ *
+ * The agent's own config is the sole authority — the connection owner's
+ * installation marks (`needs_approval` / `do_not_use`) are not enforced here.
+ */
+function exposedRemoteTools(client: OpenedMcp, remoteTools: RemoteMcpTool[], seen: Set<string>): RemoteMcpTool[] {
+    const exposed: RemoteMcpTool[] = []
+    for (const remote of remoteTools) {
+        // Agent author's effective level: `deny` → not exposed to the model.
+        if (effectiveToolLevel(client.ref, remote.name) === 'deny') {
+            continue
+        }
+        const exposedName = `${client.prefix}__${remote.name}`
+        if (seen.has(exposedName)) {
+            continue
+        }
+        seen.add(exposedName)
+        exposed.push(remote)
+    }
+    return exposed
 }
 
 function makeControlFlowTool(id: string): AgentTool<TSchema, ToolResultDetails> {
@@ -555,6 +606,7 @@ function buildToolContext(deps: AgentToolDeps, resolvedIdentities?: ToolContext[
         resolvedIdentities,
         http: deps.http,
         posthogApiBaseUrl: deps.posthogApiBaseUrl,
+        gatewayCatalog: deps.gatewayCatalog,
     }
 }
 

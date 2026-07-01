@@ -3,17 +3,16 @@ import { Counter, Histogram } from 'prom-client'
 
 import { ExecResult, convertHogToJS } from '@posthog/hogvm'
 
+import { ACCESS_TOKEN_PLACEHOLDER } from '~/common/config/constants'
 import { instrumented } from '~/common/tracing/tracing-utils'
-import { ACCESS_TOKEN_PLACEHOLDER } from '~/config/constants'
-import { FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError, fetch } from '~/utils/request'
-import { tryCatch } from '~/utils/try-catch'
+import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
+import { FetchOptions, FetchResponse, InvalidRequestError, SecureRequestError, fetch } from '~/common/utils/request'
+import { TeamManager } from '~/common/utils/team-manager'
+import { tryCatch } from '~/common/utils/try-catch'
+import { UUIDT } from '~/common/utils/utils'
 
-import { buildIntegerMatcherWithPercentage } from '../../config/config'
-import { PluginsServerConfig, ValueMatcher } from '../../types'
-import { parseJSON } from '../../utils/json-parse'
-import { logger } from '../../utils/logger'
-import { TeamManager } from '../../utils/team-manager'
-import { UUIDT } from '../../utils/utils'
+import { PluginsServerConfig } from '../../types'
 import { getAsyncFunctionHandler, getRegisteredAsyncFunctionNames } from '../async-function-registry'
 import '../async-functions'
 import type {
@@ -59,7 +58,6 @@ export interface HogExecutorConfig {
     fetchBackoffBaseMs: number
     fetchBackoffMaxMs: number
     selfLoopGuardMode: SelfLoopGuardMode
-    emailQueueRouting: string
 }
 
 export interface HogExecutorAsyncContext {
@@ -203,17 +201,13 @@ export type HogExecutorExecuteAsyncOptions = HogExecutorExecuteOptions & {
 }
 
 export class HogExecutorService {
-    private emailQueueMatcher: ValueMatcher<number>
-
     constructor(
         private config: HogExecutorConfig,
         private asyncContext: HogExecutorAsyncContext,
         private hogInputsService: HogInputsService,
         private emailService: EmailService,
         private recipientTokensService: RecipientTokensService
-    ) {
-        this.emailQueueMatcher = buildIntegerMatcherWithPercentage(config.emailQueueRouting)
-    }
+    ) {}
 
     async buildInputsWithGlobals(
         hogFunction: HogFunctionType,
@@ -369,8 +363,7 @@ export class HogExecutorService {
                 // Queue-aware routing: each worker can execute some actions inline
                 // and routes others to a specialized queue. The email worker sends
                 // emails inline but routes fetches back to hogflow. The hogflow
-                // worker does fetches inline but routes emails to the email queue
-                // (when the team is configured for it via CDP_EMAIL_QUEUE_ROUTING).
+                // worker does fetches inline but routes emails to the email queue.
                 //
                 // Future: once we add an execution time budget, the email worker
                 // will also handle fetches inline. The only reason to reschedule
@@ -386,13 +379,9 @@ export class HogExecutorService {
                         result = await this.executeFetch(nextInvocation, options)
                     }
                 } else if (queueParamsType === 'email') {
-                    // Route to the email queue only if we're not already there,
-                    // the team is configured for it, and the caller hasn't asked
-                    // for inline-only execution (e.g. the test panel).
-                    const routeToEmailQueue =
-                        invocation.queue !== 'email' &&
-                        this.emailQueueMatcher(nextInvocation.teamId) &&
-                        !options?.sendEmailsInline
+                    // Route to the email queue only if we're not already there and the
+                    // caller hasn't asked for inline-only execution (e.g. the test panel).
+                    const routeToEmailQueue = invocation.queue !== 'email' && !options?.sendEmailsInline
                     if (routeToEmailQueue) {
                         result = this.routeEmailToQueue(nextInvocation)
                     } else {

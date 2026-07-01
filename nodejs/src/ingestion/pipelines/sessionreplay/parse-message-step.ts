@@ -2,6 +2,8 @@ import { DateTime } from 'luxon'
 import { Message, MessageHeader } from 'node-rdkafka'
 import { gunzipSync } from 'zlib'
 
+import { parseJSON } from '~/common/utils/json-parse'
+import { normalizeSessionId } from '~/common/utils/utils'
 import { dlq, drop, ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import {
@@ -12,8 +14,6 @@ import {
     SnapshotEventSchema,
 } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
-import { parseJSON } from '~/utils/json-parse'
-import { normalizeSessionId } from '~/utils/utils'
 
 const lz4: { decodeBlock(input: Buffer, output: Buffer): number } = require('lz4')
 

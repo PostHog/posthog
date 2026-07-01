@@ -5,13 +5,15 @@
         "backend:contract-check": "echo 'Contract files unchanged'"
     },
     "dependencies": {
+        "@posthog/quill-charts": "workspace:*",
         "kea": "catalog:",
         "kea-loaders": "catalog:",
         "kea-router": "catalog:",
         "posthog-js": "catalog:"
     },
     "peerDependencies": {
-        "@posthog/icons": "*",
+        "@posthog/brand": "catalog:",
+        "@posthog/icons": "catalog:",
         "@posthog/products-error-tracking": "workspace:*",
         "@types/react": "*",
         "clsx": "*",
