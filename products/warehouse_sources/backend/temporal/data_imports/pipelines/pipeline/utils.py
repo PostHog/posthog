@@ -358,6 +358,121 @@ def normalize_table_column_names(table: pa.Table) -> pa.Table:
     return table
 
 
+INTERNAL_COLUMN_PREFIXES = ("_ph_", "_dlt_")
+
+
+def _fold_column_name_for_match(name: str) -> str:
+    try:
+        return NamingConvention.normalize_identifier(name)
+    except ValueError:
+        return name
+
+
+def apply_enabled_columns_projection(
+    table: pa.Table,
+    enabled_columns: list[str] | None,
+    primary_keys: list[str] | None,
+    incremental_field: str | None,
+    partition_keys: list[str] | None,
+) -> tuple[pa.Table, list[str]]:
+    """Drop table columns not selected in `enabled_columns`. Returns `(table, dropped_names)`.
+
+    Delta-write-side counterpart of the SQL sources' SELECT projection, for sources that can't
+    push the projection into the fetch. `None` means all columns sync. Primary keys, the active
+    incremental field, partition-key source columns, and `_ph_*`/`_dlt_*` internals are always
+    retained. Both sides are folded through the dlt naming convention: the table has already been
+    through `normalize_table_column_names` while `enabled_columns`/primary keys arrive in the
+    source namespace, so a raw comparison would drop every non-lowercase column. If the
+    projection would drop every user-facing column, the table is returned unchanged (mirrors the
+    empty-projection fallback in `filter_dwh_columns_by_enabled_columns`) — an empty table is
+    never the intended result of a column selection.
+    """
+    if enabled_columns is None:
+        return table, []
+
+    retained = {_fold_column_name_for_match(name) for name in enabled_columns}
+    for primary_key in primary_keys or []:
+        retained.add(_fold_column_name_for_match(primary_key))
+    if incremental_field:
+        retained.add(_fold_column_name_for_match(incremental_field))
+    for partition_key in partition_keys or []:
+        retained.add(_fold_column_name_for_match(partition_key))
+
+    kept_names = [
+        name
+        for name in table.column_names
+        if name.startswith(INTERNAL_COLUMN_PREFIXES) or _fold_column_name_for_match(name) in retained
+    ]
+    dropped_names = [name for name in table.column_names if name not in set(kept_names)]
+    if not dropped_names:
+        return table, []
+    if all(name.startswith(INTERNAL_COLUMN_PREFIXES) for name in kept_names):
+        return table, []
+    return table.select(kept_names), dropped_names
+
+
+def source_handles_column_projection(source_type: str) -> bool:
+    """True when the source applies `enabled_columns` itself (SQL SELECT projection).
+
+    Those sources also own `schema_metadata["columns"]` via schema introspection, so the
+    pipeline skips both the Delta-write-side drop bookkeeping and the observed-columns
+    capture for them.
+    """
+    # Imported lazily: the registry pulls in every source's (often heavy) dependencies on first use.
+    from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import (
+        SourceRegistry,  # noqa: PLC0415
+    )
+    from products.warehouse_sources.backend.types import ExternalDataSourceType  # noqa: PLC0415
+
+    try:
+        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
+    except Exception:
+        return False
+    return bool(source.supports_column_selection)
+
+
+def observed_schema_metadata_columns(schema: pa.Schema) -> list[dict[str, Any]]:
+    """`schema_metadata["columns"]`-shaped entries from a pre-projection arrow schema.
+
+    Captured before `apply_enabled_columns_projection` so the persisted catalog keeps listing
+    columns the source returns even while they're being dropped — otherwise a pinned selection
+    would make deselected (and newly-added upstream) columns invisible to the column picker.
+    """
+    return [
+        {"name": field.name, "data_type": str(field.type), "is_nullable": field.nullable}
+        for field in schema
+        if not field.name.startswith(INTERNAL_COLUMN_PREFIXES)
+    ]
+
+
+def merge_observed_columns_into_schema_metadata(config: dict[str, Any], observed_columns: list[dict[str, Any]]) -> None:
+    """Union observed column entries into `sync_type_config["schema_metadata"]["columns"]` in place.
+
+    Existing entries keep their position and are refreshed with the observed type/nullability;
+    columns previously observed but absent from this run stay listed (union, not replace) so a
+    projection or an upstream removal never shrinks the picker. Designed as a `mutate` callback
+    for `update_sync_type_config_keys`.
+    """
+    metadata = config.get("schema_metadata")
+    if not isinstance(metadata, dict):
+        metadata = {}
+        config["schema_metadata"] = metadata
+    columns = metadata.get("columns")
+    if not isinstance(columns, list):
+        columns = []
+    metadata["columns"] = columns
+    entries_by_name = {
+        column.get("name"): column for column in columns if isinstance(column, dict) and column.get("name")
+    }
+    for observed in observed_columns:
+        existing = entries_by_name.get(observed["name"])
+        if existing is None:
+            columns.append(observed)
+        else:
+            existing["data_type"] = observed["data_type"]
+            existing["is_nullable"] = observed["is_nullable"]
+
+
 PARTITION_DATETIME_COLUMN_NAMES = ["created_at", "inserted_at", "createdAt"]
 
 

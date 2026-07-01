@@ -68,6 +68,7 @@ class ClickHouseSource(SimpleSource[ClickHouseSourceConfig], SSHTunnelMixin, Val
     # Lets users pick which columns to sync (and, in the wizard, surfaces the
     # row-filter editor that shares the same column-selection modal).
     supports_column_selection: bool = True
+    supports_row_filters: bool = True
 
     @property
     def source_type(self) -> ExternalDataSourceType:

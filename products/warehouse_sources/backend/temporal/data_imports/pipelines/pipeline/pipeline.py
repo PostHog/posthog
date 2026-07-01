@@ -16,7 +16,11 @@ from posthog.sync import database_sync_to_async_pool
 from posthog.temporal.common.shutdown import ShutdownMonitor
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema, process_incremental_value
+from products.warehouse_sources.backend.models.external_data_schema import (
+    ExternalDataSchema,
+    process_incremental_value,
+    update_sync_type_config_keys,
+)
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
@@ -53,9 +57,13 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.utils import (
     _append_debug_column_to_pyarrows_table,
     _handle_null_columns_with_definitions,
+    apply_enabled_columns_projection,
     evolve_pyarrow_schema,
+    merge_observed_columns_into_schema_metadata,
     normalize_table_column_names,
+    observed_schema_metadata_columns,
     setup_partitioning,
+    source_handles_column_projection,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
     set_initial_sync_complete,
@@ -187,6 +195,11 @@ class PipelineNonDLT(Generic[ResumableData]):
         self._earliest_incremental_field_value: Any = process_incremental_value(
             schema.incremental_field_earliest_value, schema.incremental_field_type
         )
+        # SQL sources project enabled_columns in their SELECT and own schema_metadata via
+        # introspection; everything else gets the Delta-write-side drop plus observed-columns
+        # capture so the column picker has a catalog to offer.
+        self._source_handles_column_projection = source_handles_column_projection(source.source_type)
+        self._observed_columns: dict[str, dict[str, Any]] = {}
 
     async def run(self) -> PipelineResult:
         pa_memory_pool = pa.default_memory_pool()
@@ -273,6 +286,8 @@ class PipelineNonDLT(Generic[ResumableData]):
                 )
                 chunk_index += 1
 
+            await self._persist_observed_columns()
+
             await self._post_run_operations(row_count=row_count)
 
             await advance_xmin_state(self._resource, self._schema, self._logger)
@@ -298,6 +313,24 @@ class PipelineNonDLT(Generic[ResumableData]):
 
             cleanup_memory(pa_memory_pool, py_table if "py_table" in locals() else None)
 
+    async def _persist_observed_columns(self) -> None:
+        """Union the columns the source actually returned into `schema_metadata["columns"]`.
+
+        Bookkeeping for the column picker — a failure here must not fail an otherwise
+        successful sync.
+        """
+        if not self._observed_columns:
+            return
+        observed = list(self._observed_columns.values())
+        try:
+            await database_sync_to_async_pool(update_sync_type_config_keys)(
+                self._schema.id,
+                self._job.team_id,
+                mutate=lambda config: merge_observed_columns_into_schema_metadata(config, observed),
+            )
+        except Exception:
+            await self._logger.aexception("Failed to persist observed columns into schema_metadata")
+
     async def _process_pa_table(
         self, pa_table: pa.Table, index: int, resuming_sync: bool, row_count: int, is_first_ever_sync: bool
     ):
@@ -306,6 +339,24 @@ class PipelineNonDLT(Generic[ResumableData]):
 
         pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
         pa_table = normalize_table_column_names(pa_table)
+
+        if not self._source_handles_column_projection:
+            for observed_column in observed_schema_metadata_columns(pa_table.schema):
+                self._observed_columns[observed_column["name"]] = observed_column
+
+            pa_table, dropped_columns = apply_enabled_columns_projection(
+                pa_table,
+                self._schema.enabled_columns,
+                self._resource.primary_keys,
+                self._schema.incremental_field,
+                [
+                    *(self._schema.partitioning_keys_override or []),
+                    *(self._schema.partitioning_keys or []),
+                    *(self._resource.partition_keys or []),
+                ],
+            )
+            if dropped_columns:
+                await self._logger.adebug(f"Dropped non-enabled columns before Delta write: {dropped_columns}")
 
         pa_table = await setup_partitioning(pa_table, delta_table, self._schema, self._resource, self._logger)
 

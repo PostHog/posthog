@@ -100,7 +100,16 @@ class _BaseSource(ABC, Generic[ConfigType]):
 
     # Default `False` for every source; `SQLSource` flips to `True` (subclasses opt out
     # via their own override if a driver genuinely can't project columns).
+    # `True` means the source lists typed columns at schema discovery and applies
+    # `enabled_columns` itself (SELECT projection). Sources left `False` still get column
+    # selection — the pipeline drops non-enabled columns just before the Delta write and
+    # captures the observed columns into `schema_metadata` after the first sync.
     supports_column_selection: bool = False
+
+    # `True` only for sources that push `row_filters` into their query (SQL WHERE).
+    # Sources without pushdown must reject filters — a saved-but-ignored filter would
+    # silently sync unfiltered rows.
+    supports_row_filters: bool = False
 
     # Opt-in: set `True` only on sources whose `get_schemas` iterates a static endpoint
     # catalog with NO I/O — no network, no DB, no credentials. Those sources surface their
