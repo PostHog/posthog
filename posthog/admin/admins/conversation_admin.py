@@ -87,6 +87,9 @@ class ConversationAdmin(admin.ModelAdmin):
             raise PermissionDenied
         if request.method != "POST":
             return HttpResponseNotAllowed(["POST"])
+        # compact_thread only collapses the root namespace; log the total so the (currently
+        # un-compacted) subgraph namespaces are visible in the audit trail.
+        namespaces = conversation.checkpoints.values("checkpoint_ns").distinct().count()
         # Bypasses the sweep's rollout allowlist — this is a deliberate staff override.
         result = compact_thread(str(conversation.id))
         logger.info(
@@ -95,6 +98,7 @@ class ConversationAdmin(admin.ModelAdmin):
             compacted=result.compacted,
             checkpoints_deleted=result.checkpoints_deleted,
             blobs_deleted=result.blobs_deleted,
+            namespaces=namespaces,
             triggered_by=request.user.email,
         )
         if result.compacted:
