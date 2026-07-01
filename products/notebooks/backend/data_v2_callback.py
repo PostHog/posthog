@@ -64,7 +64,9 @@ def notebook_data_v2_callback(request, run_id: str) -> JsonResponse:
     if not serializer.is_valid():
         return JsonResponse({"error": "Invalid request body", "detail": serializer.errors}, status=400)
 
-    envelope = serializer.validated_data["envelope"]
+    # Store the raw JSON envelope (JSON-native types) — the serializer's validated_data
+    # would coerce result_id to a uuid.UUID, which the JSONField can't serialize.
+    envelope = body["envelope"]
 
     try:
         run = NotebookNodeRun.objects.for_team(team_id).get(id=run_id)
