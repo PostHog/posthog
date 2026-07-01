@@ -1496,7 +1496,7 @@ class PersonViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         # both sides to string when building the lookup dict.
         function_ids = {row.function_id for row in data}
         name_by_id = {
-            str(pk): name
+            str(pk): (name or "")
             for pk, name in HogFlow.objects.filter(team_id=self.team_id, id__in=function_ids).values_list("id", "name")
         }
         enriched = [dataclasses.replace(row, function_name=name_by_id.get(row.function_id, "")) for row in data]
