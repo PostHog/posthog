@@ -12,7 +12,7 @@ from structlog import get_logger
 
 from products.posthog_ai.backend.models.assistant import Conversation
 
-from ee.hogai.django_checkpoint.compaction import compact_conversation
+from ee.hogai.django_checkpoint.compaction import compact_thread
 
 logger = get_logger()
 
@@ -88,7 +88,7 @@ class ConversationAdmin(admin.ModelAdmin):
         if request.method != "POST":
             return HttpResponseNotAllowed(["POST"])
         # Bypasses the sweep's rollout allowlist — this is a deliberate staff override.
-        result = compact_conversation(str(conversation.id))
+        result = compact_thread(str(conversation.id))
         logger.info(
             "admin_compact_conversation",
             conversation_id=str(conversation.id),
@@ -112,7 +112,7 @@ class ConversationAdmin(admin.ModelAdmin):
         # Bypasses the sweep's rollout allowlist — this is a deliberate staff override.
         compacted = skipped = checkpoints = blobs = 0
         for conversation in queryset:
-            result = compact_conversation(str(conversation.id))
+            result = compact_thread(str(conversation.id))
             if result.compacted:
                 compacted += 1
                 checkpoints += result.checkpoints_deleted
