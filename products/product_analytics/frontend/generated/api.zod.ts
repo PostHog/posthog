@@ -240,6 +240,20 @@ export const InsightsSuggestionsCreateBody = /* @__PURE__ */ zod
     .describe('Deep\/recursive schema (opaque in Zod — use TypeScript types for full shape)')
 
 /**
+ * Soft-delete multiple insights at once by id. Each deleted insight is marked as `deleted` (recoverable — patch `deleted` back to `false` to restore), its dashboard tiles are removed, and any linked alerts are deleted. Insights the user cannot edit, or that don't exist in the project, are returned under `errors` and left untouched.
+ */
+export const insightsBulkDeleteCreateBodyIdsMax = 500
+
+export const InsightsBulkDeleteCreateBody = /* @__PURE__ */ zod.object({
+    ids: zod
+        .array(zod.number())
+        .max(insightsBulkDeleteCreateBodyIdsMax)
+        .describe(
+            'IDs of the insights to soft-delete. At most 500 ids per request. Deletion is recoverable — insights can be restored by patching `deleted` back to `false`.'
+        ),
+})
+
+/**
  * Bulk update tags on multiple objects.
  *
  * PAT access: this action has no ``required_scopes=`` on the decorator —

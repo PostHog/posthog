@@ -7629,6 +7629,28 @@ export interface ActivityLogPaginatedResponseApi {
     total_count: number
 }
 
+export interface InsightBulkDeleteRequestApi {
+    /**
+     * IDs of the insights to soft-delete. At most 500 ids per request. Deletion is recoverable — insights can be restored by patching `deleted` back to `false`.
+     * @maxItems 500
+     */
+    ids: number[]
+}
+
+export interface InsightBulkDeleteErrorApi {
+    /** ID of an insight that was not deleted. */
+    id: number
+    /** Why the insight was skipped, e.g. 'Not found' or 'Permission denied'. */
+    reason: string
+}
+
+export interface InsightBulkDeleteResponseApi {
+    /** IDs of the insights that were successfully soft-deleted. */
+    deleted: number[]
+    /** Insights that were skipped, each with the reason it could not be deleted. */
+    errors: InsightBulkDeleteErrorApi[]
+}
+
 /**
  * * `add` - add
  * * `remove` - remove
@@ -8045,6 +8067,18 @@ export type InsightsAllActivityRetrieveFormat =
     (typeof InsightsAllActivityRetrieveFormat)[keyof typeof InsightsAllActivityRetrieveFormat]
 
 export const InsightsAllActivityRetrieveFormat = {
+    Csv: 'csv',
+    Json: 'json',
+} as const
+
+export type InsightsBulkDeleteCreateParams = {
+    format?: InsightsBulkDeleteCreateFormat
+}
+
+export type InsightsBulkDeleteCreateFormat =
+    (typeof InsightsBulkDeleteCreateFormat)[keyof typeof InsightsBulkDeleteCreateFormat]
+
+export const InsightsBulkDeleteCreateFormat = {
     Csv: 'csv',
     Json: 'json',
 } as const

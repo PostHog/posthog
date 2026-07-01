@@ -17,10 +17,13 @@ import type {
     ElementApi,
     ElementsListParams,
     InsightApi,
+    InsightBulkDeleteRequestApi,
+    InsightBulkDeleteResponseApi,
     InsightViewedRequestApi,
     InsightsActivityRetrieveParams,
     InsightsAllActivityRetrieveParams,
     InsightsAnalyzeRetrieveParams,
+    InsightsBulkDeleteCreateParams,
     InsightsBulkUpdateTagsCreateParams,
     InsightsCancelCreateParams,
     InsightsCreateParams,
@@ -708,6 +711,39 @@ export const insightsAllActivityRetrieve = async (
     return apiMutator<ActivityLogPaginatedResponseApi>(getInsightsAllActivityRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getInsightsBulkDeleteCreateUrl = (projectId: string, params?: InsightsBulkDeleteCreateParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/insights/bulk_delete/?${stringifiedParams}`
+        : `/api/projects/${projectId}/insights/bulk_delete/`
+}
+
+/**
+ * Soft-delete multiple insights at once by id. Each deleted insight is marked as `deleted` (recoverable — patch `deleted` back to `false` to restore), its dashboard tiles are removed, and any linked alerts are deleted. Insights the user cannot edit, or that don't exist in the project, are returned under `errors` and left untouched.
+ */
+export const insightsBulkDeleteCreate = async (
+    projectId: string,
+    insightBulkDeleteRequestApi: InsightBulkDeleteRequestApi,
+    params?: InsightsBulkDeleteCreateParams,
+    options?: RequestInit
+): Promise<InsightBulkDeleteResponseApi> => {
+    return apiMutator<InsightBulkDeleteResponseApi>(getInsightsBulkDeleteCreateUrl(projectId, params), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(insightBulkDeleteRequestApi),
     })
 }
 

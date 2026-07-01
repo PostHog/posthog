@@ -27268,6 +27268,28 @@ export namespace Schemas {
       id_jag_allowed_clients?: string[];
     }
 
+    export interface InsightBulkDeleteError {
+      /** ID of an insight that was not deleted. */
+      id: number;
+      /** Why the insight was skipped, e.g. 'Not found' or 'Permission denied'. */
+      reason: string;
+    }
+
+    export interface InsightBulkDeleteRequest {
+      /**
+         * IDs of the insights to soft-delete. At most 500 ids per request. Deletion is recoverable — insights can be restored by patching `deleted` back to `false`.
+         * @maxItems 500
+         */
+      ids: number[];
+    }
+
+    export interface InsightBulkDeleteResponse {
+      /** IDs of the insights that were successfully soft-deleted. */
+      deleted: number[];
+      /** Insights that were skipped, each with the reason it could not be deleted. */
+      errors: InsightBulkDeleteError[];
+    }
+
     /**
      * * `trends` - trends
      * * `funnel` - funnel
@@ -57245,6 +57267,18 @@ export namespace Schemas {
       Json: 'json',
     } as const;
 
+    export type EnvironmentsInsightsBulkDeleteCreateParams = {
+    format?: EnvironmentsInsightsBulkDeleteCreateFormat;
+    };
+
+    export type EnvironmentsInsightsBulkDeleteCreateFormat = typeof EnvironmentsInsightsBulkDeleteCreateFormat[keyof typeof EnvironmentsInsightsBulkDeleteCreateFormat];
+
+
+    export const EnvironmentsInsightsBulkDeleteCreateFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
     export type EnvironmentsInsightsBulkUpdateTagsCreateParams = {
     format?: EnvironmentsInsightsBulkUpdateTagsCreateFormat;
     };
@@ -63802,6 +63836,18 @@ export namespace Schemas {
 
 
     export const InsightsAllActivityRetrieveFormat = {
+      Csv: 'csv',
+      Json: 'json',
+    } as const;
+
+    export type InsightsBulkDeleteCreateParams = {
+    format?: InsightsBulkDeleteCreateFormat;
+    };
+
+    export type InsightsBulkDeleteCreateFormat = typeof InsightsBulkDeleteCreateFormat[keyof typeof InsightsBulkDeleteCreateFormat];
+
+
+    export const InsightsBulkDeleteCreateFormat = {
       Csv: 'csv',
       Json: 'json',
     } as const;
