@@ -1063,7 +1063,10 @@ const LemonTree = forwardRef<LemonTreeRef, LemonTreeProps>(
                 event: React.MouseEvent<HTMLElement> | React.KeyboardEvent<HTMLElement>
             ): void => {
                 const isFolder = (item?.children && item?.children?.length >= 0) || item?.record?.type === 'folder'
-                const caretExpandOnly = !!item && (isItemCaretExpandOnly?.(item) ?? false)
+                // Mirror LemonTreeItemRow's guard exactly (incl. empty-folder exclusion) so the row's
+                // rendered trigger and this click handler always agree on which rows are caret-only.
+                const caretExpandOnly =
+                    !!item && (isItemCaretExpandOnly?.(item) ?? false) && item.type !== 'empty-folder'
 
                 // Caret-expand-only rows: the row body only selects; expansion is driven solely by
                 // the caret. Skip the folder-toggle and onItemClick paths entirely.

@@ -834,18 +834,21 @@ export const QueryDatabase = ({
                             </MenuSubContent>
                         </MenuSub>
                     ) : null}
-                    <MenuItem
-                        asChild
-                        onClick={(e) => {
-                            e.stopPropagation()
-                            posthog.capture('sql-editor-add-source-clicked', {
-                                source_type: sourceType,
-                                location: 'source_type_row',
-                            })
-                            newInternalTab(urls.dataWarehouseSourceNew(sourceType))
-                        }}
-                    >
-                        <ButtonPrimitive menuItem>Add new source of this type</ButtonPrimitive>
+                    <MenuItem asChild>
+                        <Link
+                            to={urls.dataWarehouseSourceNew(sourceType)}
+                            target="_blank"
+                            buttonProps={{ menuItem: true }}
+                            onClick={(e) => {
+                                e.stopPropagation()
+                                posthog.capture('sql-editor-add-source-clicked', {
+                                    source_type: sourceType,
+                                    location: 'source_type_row',
+                                })
+                            }}
+                        >
+                            Add new source of this type
+                        </Link>
                     </MenuItem>
                 </MenuGroup>
             )

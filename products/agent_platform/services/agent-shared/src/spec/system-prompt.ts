@@ -25,7 +25,7 @@ import { AgentRevision } from './spec'
 /** Coarse failure category — same shape the runner uses; redeclared here
  *  to avoid the runner→shared import cycle. Keep in sync with
  *  `agent-runner/src/loop/mcp-clients.ts#McpFailureCategory`. */
-export type UnavailableMcpCategory = 'auth' | 'network' | 'not_found' | 'unknown'
+export type UnavailableMcpCategory = 'connection_dead' | 'auth' | 'network' | 'not_found' | 'unknown'
 
 export interface UnavailableMcp {
     /** Spec ref id — same string the model sees as the tool-name prefix. */
@@ -58,6 +58,9 @@ export interface BuildSystemPromptOpts {
 }
 
 const CATEGORY_HINTS: Record<UnavailableMcpCategory, string> = {
+    // `connection_dead` gets its own section (not this hint), but the record
+    // must stay total — fall back to the same phrasing if it ever lands here.
+    connection_dead: 'disconnected — needs an admin to reconnect',
     auth: 'authentication issue',
     network: 'network or upstream issue',
     not_found: 'endpoint not found',
@@ -93,11 +96,16 @@ export async function buildSystemPrompt(
     }
 
     const unavailable = opts.unavailableMcps ?? []
-    // A link-required failure is the user's to fix (connect their account); a
-    // broken one is the owner's. Split so the model relays the link for the
-    // former instead of dead-ending both as "temporarily unavailable".
+    // Three distinct fixes, three sections:
+    //   - linkable        — the ASKER connects their own account (authorizeUrl).
+    //   - dead            — a SHARED connection the asker can't touch; only the
+    //                       agent's owner/admin can reconnect it, and it won't
+    //                       self-heal (so: not "retry shortly").
+    //   - broken          — a transient/unknown outage; may recover on its own.
     const linkable = unavailable.filter((u) => u.authorizeUrl)
-    const broken = unavailable.filter((u) => !u.authorizeUrl)
+    const rest = unavailable.filter((u) => !u.authorizeUrl)
+    const dead = rest.filter((u) => u.category === 'connection_dead')
+    const broken = rest.filter((u) => u.category !== 'connection_dead')
     if (linkable.length > 0) {
         const lines = ['\n\n---\n\n## Connect required', '']
         lines.push(
@@ -107,6 +115,19 @@ export async function buildSystemPrompt(
         for (const u of linkable) {
             lines.push(`- \`${u.id}\`: [Connect ${u.id}](${u.authorizeUrl})`)
         }
+        parts.push(lines.join('\n'))
+    }
+    if (dead.length > 0) {
+        const lines = ['\n\n---\n\n## Disconnected integrations', '']
+        lines.push(
+            "These integrations use a shared connection set up by the agent's owner, and that connection is no longer working (the owner needs to reconnect it in PostHog). This will NOT fix itself and the user can't reconnect it themselves — so do not suggest they retry or sign in. If they ask for something one of these powers, tell them the integration is disconnected and that an administrator/the agent owner needs to reconnect it in PostHog, then carry on with the tools you DO have:"
+        )
+        lines.push('')
+        for (const u of dead) {
+            lines.push(`- \`${u.id}\``)
+        }
+        lines.push('')
+        lines.push('Do NOT paste raw error messages, transport URLs, or stack traces into the conversation.')
         parts.push(lines.join('\n'))
     }
     if (broken.length > 0) {

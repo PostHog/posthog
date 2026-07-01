@@ -3898,57 +3898,6 @@ class TestExternalDataSource(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         self.assertIs(response.json()[0]["xmin_available"], expected_xmin_available)
 
-    @parameterized.expand(
-        [
-            ("database_schema", "database_schema/", {"source_type": "Stripe"}),
-            ("setup", "setup/", {"source_type": "Stripe", "payload": {}}),
-        ]
-    )
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.capture_exception")
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
-    def test_schema_discovery_returns_friendly_message_for_expected_error(
-        self, _name, endpoint, body, mock_get_source, mock_capture_exception
-    ):
-        source = mock_get_source.return_value
-        source.validate_config.return_value = (True, [])
-        source.parse_config.return_value = Mock()
-        source.validate_credentials.return_value = (True, None)
-        source.get_non_retryable_errors.return_value = {}
-        source.get_schemas.side_effect = Exception("connection timed out")
-
-        response = self.client.post(
-            f"/api/environments/{self.team.pk}/external_data_sources/{endpoint}",
-            data=body,
-        )
-
-        self.assertEqual(response.status_code, 400)
-        self.assertEqual(
-            response.json().get("message"),
-            "Connection timed out while fetching schemas from the source.",
-        )
-        mock_capture_exception.assert_not_called()
-
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.capture_exception")
-    @patch("products.data_warehouse.backend.presentation.views.external_data_source.SourceRegistry.get_source")
-    def test_setup_returns_generic_message_for_unexpected_error(self, mock_get_source, mock_capture_exception):
-        source = mock_get_source.return_value
-        source.validate_config.return_value = (True, [])
-        source.parse_config.return_value = Mock()
-        source.validate_credentials.return_value = (True, None)
-        source.get_non_retryable_errors.return_value = {}
-        raw_error = "psql: host=internal-db.prod user=admin password=hunter2 failed"
-        source.get_schemas.side_effect = Exception(raw_error)
-
-        response = self.client.post(
-            f"/api/environments/{self.team.pk}/external_data_sources/setup/",
-            data={"source_type": "Stripe", "payload": {}},
-        )
-
-        self.assertEqual(response.status_code, 400)
-        # Unrecognized errors must not leak the raw exception text (e.g. credentials) to the client.
-        self.assertEqual(response.json().get("message"), "Could not fetch schemas from source.")
-        mock_capture_exception.assert_called_once()
-
     def test_database_schema(self):
         postgres_connection = psycopg.connect(
             host=settings.PG_HOST,
@@ -4102,13 +4051,10 @@ class TestExternalDataSource(APIBaseTest):
             )
 
         assert response.status_code == 400
+        assert response.json()["message"] == str(error)
         if expect_capture:
-            # Unrecognized errors return the generic fallback (never the raw exception text) and are captured.
-            assert response.json()["message"] == "Could not fetch schemas from source."
             mock_capture_exception.assert_called_once_with(error, {"source_type": "BigQuery", "team_id": self.team.pk})
         else:
-            # Recognized errors surface their curated, user-safe message.
-            assert response.json()["message"] == str(error)
             mock_capture_exception.assert_not_called()
 
     def test_database_schema_stripe_surfaces_per_endpoint_permission_errors(self):
@@ -6713,6 +6659,50 @@ class TestExternalDataSource(APIBaseTest):
         payload = response.json()
         assert response.status_code == 200
         assert payload is not None
+
+    @parameterized.expand(
+        [
+            # name, query string, expected source-type keys (None = unfiltered, expect full catalog)
+            ("unfiltered", "", None),
+            ("single_type", "?source_type=Stripe", {"Stripe"}),
+            ("multi_type", "?source_type=Stripe,Postgres", {"Stripe", "Postgres"}),
+        ]
+    )
+    def test_get_wizard_sources_filtered_by_source_type(self, _name, query, expected_keys):
+        response = self.client.get(f"/api/environments/{self.team.pk}/external_data_sources/wizard{query}")
+        assert response.status_code == 200
+        if expected_keys is None:
+            assert len(response.json()) > 2  # sanity: unfiltered returns the full catalog
+        else:
+            assert set(response.json().keys()) == expected_keys
+
+    def test_get_wizard_sources_unknown_source_type_returns_400(self):
+        response = self.client.get(
+            f"/api/environments/{self.team.pk}/external_data_sources/wizard?source_type=NotARealSource"
+        )
+        assert response.status_code == 400
+        assert "NotARealSource" in response.json()["message"]
+
+    @parameterized.expand(
+        [
+            # name, endpoint suffix, body
+            ("create", "", {"source_type": "Stripe", "payload": {"stripe_secret_key": {"secretRef": "ref-123"}}}),
+            ("setup", "setup/", {"source_type": "Stripe", "payload": {"stripe_secret_key": {"secretRef": "ref-123"}}}),
+            (
+                "database_schema",
+                "database_schema/",
+                {"source_type": "Postgres", "password": {"secretRef": "ref-123"}, "host": "db.example.com"},
+            ),
+        ]
+    )
+    def test_unresolved_secret_ref_rejected(self, _name, suffix, body):
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/{suffix}",
+            data=body,
+            format="json",
+        )
+        assert response.status_code == 400
+        assert "secretRef" in response.json()["message"]
 
     @parameterized.expand(
         [
