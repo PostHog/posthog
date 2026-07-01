@@ -9,6 +9,7 @@ from .github_sync_plan import GitHubSyncPlan, GitHubSyncPlanStatus
 from .github_synced_model import GitHubSyncedModel
 from .modeling import DataWarehouseModelPath
 from .node import Node, NodeType
+from .saved_query_column_annotation import SavedQueryColumnAnnotation
 
 __all__ = [
     "DAG",
@@ -34,4 +35,5 @@ __all__ = [
     "GitHubSyncedModel",
     "Node",
     "NodeType",
+    "SavedQueryColumnAnnotation",
 ]

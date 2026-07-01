@@ -34,6 +34,7 @@ from products.data_modeling.backend.models.datawarehouse_saved_query import (
 from products.data_modeling.backend.models.datawarehouse_saved_query_draft import DataWarehouseSavedQueryDraft
 from products.data_modeling.backend.models.edge import Edge
 from products.data_modeling.backend.models.node import Node, NodeType
+from products.data_modeling.backend.models.saved_query_column_annotation import SavedQueryColumnAnnotation
 
 __all__ = [
     "DAG",
@@ -50,6 +51,7 @@ __all__ = [
     "Graph",
     "Node",
     "NodeType",
+    "SavedQueryColumnAnnotation",
     "aget_saved_query_by_id",
     "aget_table_by_saved_query_id",
     "asave_saved_query",
