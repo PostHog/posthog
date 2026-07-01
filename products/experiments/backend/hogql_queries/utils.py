@@ -1,5 +1,5 @@
 from enum import Enum
-from typing import Any, TypeVar
+from typing import Any, Optional, TypeVar
 
 import structlog
 
@@ -24,7 +24,7 @@ from posthog.hogql.modifiers import create_default_modifiers_for_team
 from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.clickhouse.client.escape import substitute_params_for_display
-from posthog.models import Team
+from posthog.models import Team, User
 
 from products.experiments.backend.hogql_queries import CONTROL_VARIANT_KEY
 from products.experiments.backend.hogql_queries.cuped_config import CupedQueryConfig, get_cuped_config
@@ -50,14 +50,24 @@ logger = structlog.get_logger(__name__)
 V = TypeVar("V", ExperimentVariantTrendsBaseStats, ExperimentVariantFunnelsBaseStats, ExperimentStatsBase)
 
 
-def get_experiment_query_debug(experiment_query_ast: ast.SelectQuery, team: Team) -> tuple[str, str]:
+def get_experiment_query_debug(
+    experiment_query_ast: ast.SelectQuery,
+    team: Team,
+    *,
+    user: Optional[User] = None,
+    bypass_warehouse_access_control: bool = False,
+) -> tuple[str, str]:
     """
     Generate both HogQL and ClickHouse SQL for debugging from experiment query AST.
     Returns (hogql, clickhouse_sql) tuple.
+
+    user/bypass must match the execution step, since resolving here also applies warehouse access control.
     """
     executor = HogQLQueryExecutor(
         query=experiment_query_ast,
         team=team,
+        user=user,
+        bypass_warehouse_access_control=bypass_warehouse_access_control,
         modifiers=create_default_modifiers_for_team(team),
     )
     clickhouse_sql_with_params, clickhouse_context_with_values = executor.generate_clickhouse_sql()

@@ -1030,7 +1030,8 @@ class EConomicSourceConfig(config.Config):
 
 @config.config
 class EZOfficeInventorySourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config

@@ -33,6 +33,7 @@ interface LogsViewerSparklineProps {
     onBreakdownByChange: (breakdownBy: LogsSparklineBreakdownBy) => void
     collapsed?: boolean
     onToggleCollapse?: () => void
+    incompleteBarIndices?: number[]
 }
 
 const BREAKDOWN_OPTIONS: { value: LogsSparklineBreakdownBy; label: string }[] = [
@@ -49,6 +50,7 @@ export function LogsSparkline({
     onBreakdownByChange,
     collapsed = false,
     onToggleCollapse,
+    incompleteBarIndices,
 }: LogsViewerSparklineProps): JSX.Element | null {
     const showServiceBreakdown = useFeatureFlag('LOGS_SPARKLINE_SERVICE_BREAKDOWN')
 
@@ -197,6 +199,7 @@ export function LogsSparkline({
                             hideZerosInTooltip
                             sortTooltipByCount
                             highlightedRange={highlightedRange}
+                            incompleteBars={incompleteBarIndices?.length ? { indices: incompleteBarIndices } : null}
                         />
                     ) : !sparklineLoading ? (
                         <div className="h-full text-muted flex items-center justify-center">
