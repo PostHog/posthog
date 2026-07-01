@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 
 import { IconTestTube } from '@posthog/icons'
-import { LemonButton, Link } from '@posthog/lemon-ui'
+import { LemonButton } from '@posthog/lemon-ui'
 
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -23,15 +23,6 @@ export function TeamAccessControl(): JSX.Element {
         return (
             <div className="space-y-6">
                 {currentTeam?.id ? <ResourcesAccessControlsV2 projectId={`${currentTeam.id}`} /> : null}
-
-                <Link
-                    onClick={(e) => {
-                        e.preventDefault()
-                        updateEarlyAccessFeatureEnrollment('rbac-ui-redesign', false)
-                    }}
-                >
-                    I don't like this new UI, show me the old one
-                </Link>
             </div>
         )
     }

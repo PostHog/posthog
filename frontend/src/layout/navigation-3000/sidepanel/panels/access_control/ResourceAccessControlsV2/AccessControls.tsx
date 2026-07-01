@@ -7,10 +7,11 @@ import { PayGateMini } from 'lib/components/PayGateMini/PayGateMini'
 import { AvailableFeature } from '~/types'
 
 import { AccessControlDefaultSettings } from './AccessControlDefaultSettings'
+import { AccessControlDetail } from './AccessControlDetail'
 import { AccessControlFilters } from './AccessControlFilters'
 import { accessControlsLogic } from './accessControlsLogic'
 import { AccessControlTable } from './AccessControlTable'
-import { GroupedAccessControlRuleModal } from './GroupedAccessControlRuleModal'
+import { getEntryId } from './helpers'
 import type { AccessControlsTab, ScopeType } from './types'
 
 export function AccessControls({ projectId }: { projectId: string }): JSX.Element {
@@ -20,7 +21,6 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
         activeTab,
         searchText,
         filters,
-        ruleModalState,
         canUseRoles,
         allMembers,
         roles,
@@ -30,11 +30,21 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
         filteredMembers,
         canEdit,
         loading,
+        selectedMemberId,
+        selectedRoleId,
     } = useValues(logic)
 
-    const { setActiveTab, setSearchText, setFilters, openRuleModal } = useActions(logic)
+    const { setActiveTab, setSearchText, setFilters, openMemberDetail, openRoleDetail } = useActions(logic)
 
     const scopeType: ScopeType = activeTab === 'roles' ? 'role' : 'member'
+
+    // A member or role is being inspected — take over the whole section with their detail page
+    if (activeTab === 'members' && selectedMemberId) {
+        return <AccessControlDetail projectId={projectId} scopeType="member" />
+    }
+    if (activeTab === 'roles' && selectedRoleId) {
+        return <AccessControlDetail projectId={projectId} scopeType="role" />
+    }
 
     return (
         <>
@@ -75,14 +85,16 @@ export function AccessControls({ projectId }: { projectId: string }): JSX.Elemen
                                 entries={activeTab === 'roles' ? filteredRoles : filteredMembers}
                                 loading={loading}
                                 canEditAny={canEdit}
-                                onEdit={(entry) => openRuleModal({ scopeType, entry, projectId })}
+                                onEdit={(entry) =>
+                                    scopeType === 'member'
+                                        ? openMemberDetail(getEntryId(entry))
+                                        : openRoleDetail(getEntryId(entry))
+                                }
                             />
                         </div>
                     )}
                 </AccessControlTabContainer>
             </div>
-
-            {ruleModalState && <GroupedAccessControlRuleModal state={ruleModalState} />}
         </>
     )
 }

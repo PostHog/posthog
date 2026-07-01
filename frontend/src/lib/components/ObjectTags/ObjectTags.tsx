@@ -16,6 +16,12 @@ interface ObjectTagsPropsBase {
     className?: string
     actionButtonSize?: ComponentProps<typeof LemonTag>['size']
     'data-attr'?: string
+    /** Label for the action button when there are no tags yet. Defaults to "Add tag". */
+    addLabel?: string
+    /** Label for the action button when tags already exist. Defaults to "Edit tags". */
+    editLabel?: string
+    /** Placeholder for the input shown while editing. Defaults to `try "official"`. */
+    inputPlaceholder?: string
 }
 
 export type ObjectTagsProps =
@@ -53,6 +59,9 @@ export function ObjectTags({
     className,
     actionButtonSize = 'small',
     'data-attr': dataAttr,
+    addLabel = 'Add tag',
+    editLabel = 'Edit tags',
+    inputPlaceholder = 'try "official"',
 }: ObjectTagsProps): JSX.Element {
     const objectTagId = useId()
     const logic = objectTagsLogic({ id: objectTagId, onChange })
@@ -87,7 +96,7 @@ export function ObjectTags({
                     }}
                     loading={saving}
                     data-attr="new-tag-input"
-                    placeholder='try "official"'
+                    placeholder={inputPlaceholder}
                     autoFocus
                     popoverClassName="click-outside-block"
                 />
@@ -114,7 +123,7 @@ export function ObjectTags({
                                 className="border border-dashed"
                                 size={actionButtonSize}
                             >
-                                {hasTags ? 'Edit tags' : 'Add tag'}
+                                {hasTags ? editLabel : addLabel}
                             </LemonTag>
                         </span>
                     )}

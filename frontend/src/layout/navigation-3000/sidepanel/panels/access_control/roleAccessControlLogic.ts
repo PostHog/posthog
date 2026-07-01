@@ -42,6 +42,7 @@ export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
         deleteRole: (roleId: RoleType['id']) => ({ roleId }),
         removeMemberFromRole: (role: RoleType, roleMemberId: string) => ({ role, roleMemberId }),
         addMembersToRole: (role: RoleType, members: string[]) => ({ role, members }),
+        createRoleWithMember: (name: string, userUuid: string) => ({ name, userUuid }),
         setEditingRoleId: (roleId: string | null) => ({ roleId }),
     }),
     reducers({
@@ -160,6 +161,18 @@ export const roleAccessControlLogic = kea<roleAccessControlLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
+        createRoleWithMember: async ({ name, userUuid }) => {
+            try {
+                const role = await api.roles.create(name)
+                await api.roles.members.create(role.id, userUuid)
+                lemonToast.success(`Created role "${name}" and assigned member`)
+                actions.loadRoles()
+                actions.loadCurrentOrganization()
+            } catch (e) {
+                const error = (e as Record<string, any>).detail || 'Failed to create role'
+                lemonToast.error(error)
+            }
+        },
         loadRolesSuccess: () => {
             if (router.values.hashParams.role) {
                 actions.selectRoleId(router.values.hashParams.role)

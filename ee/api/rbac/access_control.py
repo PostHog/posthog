@@ -180,6 +180,40 @@ class AccessControlSerializer(serializers.ModelSerializer):
         return data
 
 
+# Object-level access-control `resource` -> (app_label, model_name, display-name field) for resolving
+# a `resource_id` to a human-readable name. Unknown resources fall back to showing the raw id.
+_OBJECT_RESOURCE_MODELS: dict[str, tuple[str, str, str]] = {
+    "dashboard": ("dashboards", "dashboard", "name"),
+    "insight": ("product_analytics", "insight", "name"),
+    "notebook": ("notebooks", "notebook", "title"),
+    "feature_flag": ("feature_flags", "featureflag", "key"),
+    "experiment": ("experiments", "experiment", "name"),
+    "survey": ("surveys", "survey", "name"),
+    "action": ("actions", "action", "name"),
+    "warehouse_view": ("data_modeling", "datawarehousesavedquery", "name"),
+    "warehouse_table": ("warehouse_sources", "datawarehousetable", "name"),
+    "external_data_source": ("warehouse_sources", "externaldatasource", "source_type"),
+    "session_recording": ("posthog", "sessionrecording", "session_id"),
+}
+
+
+def _resolve_object_names(resource: str, resource_ids: list[str], team_id: int) -> dict[str, str]:
+    """Map {resource_id -> display name} for one resource type. Best-effort: on any failure returns {}."""
+    from django.apps import apps
+
+    registry = _OBJECT_RESOURCE_MODELS.get(resource)
+    if not registry or not resource_ids:
+        return {}
+    app_label, model_name, name_field = registry
+    try:
+        model = apps.get_model(app_label, model_name)
+        rows = model.objects.filter(team_id=team_id, pk__in=resource_ids).values_list("pk", name_field)
+        return {str(pk): name for pk, name in rows}
+    except Exception:
+        # Type mismatch on pk (e.g. non-numeric id for an int pk), missing model, or missing team_id column
+        return {}
+
+
 class AccessControlViewSetMixin(_GenericViewSet):
     # Why a mixin? We want to easily add this to any existing resource, including providing easy helpers for adding access control info such
     # as the current users access level to any response.
@@ -241,6 +275,10 @@ class AccessControlViewSetMixin(_GenericViewSet):
             "access_control_defaults",
             "access_control_roles",
             "access_control_members",
+            "access_control_member_objects",
+            "access_control_member_properties",
+            "access_control_role_objects",
+            "access_control_role_properties",
         ]:
             return ["access_control:read"]
         elif request.method == "PUT" and self.action in [
@@ -719,3 +757,235 @@ class AccessControlViewSetMixin(_GenericViewSet):
                 "results": results,
             }
         )
+
+    def _get_membership_and_roles(self, request: Request, team: Team):
+        member_id = request.query_params.get("member_id")
+        if not member_id:
+            raise exceptions.ValidationError("member_id is required")
+        membership = (
+            OrganizationMembership.objects.filter(id=member_id, organization=team.organization)
+            .prefetch_related("role_memberships")
+            .first()
+        )
+        if not membership:
+            raise exceptions.NotFound("Member not found")
+        role_ids = [rm.role_id for rm in membership.role_memberships.all()]
+        return membership, role_ids
+
+    @extend_schema(exclude=True)
+    @action(methods=["GET"], detail=True, url_path="access_control_member_objects")
+    def access_control_member_objects(self, request: Request, *args, **kwargs):
+        """Object-level access controls that shape what a member sees: their own overrides, overrides from
+        their roles, and per-object 'no access' defaults they inherit. Returns the member's effective level
+        per object with its source."""
+        from collections import defaultdict
+
+        from django.db.models import Q
+
+        team = cast(Team, self.team)  # type: ignore
+        membership, role_ids = self._get_membership_and_roles(request, team)
+
+        rows = list(
+            AccessControl.objects.filter(team=team, resource_id__isnull=False)
+            .exclude(resource="project")  # project-wide access is shown separately at the top of the page
+            .filter(
+                Q(organization_member=membership)
+                | Q(role_id__in=role_ids)
+                | Q(organization_member__isnull=True, role__isnull=True)
+            )
+        )
+        role_names = dict(Role.objects.filter(id__in=role_ids).values_list("id", "name")) if role_ids else {}
+
+        level_order = ["none", "viewer", "editor", "manager"]
+
+        def rank(level: str) -> int:
+            return level_order.index(level) if level in level_order else -1
+
+        grouped: dict[tuple[str, str], list] = defaultdict(list)
+        for ac in rows:
+            grouped[(ac.resource, ac.resource_id)].append(ac)
+
+        ids_by_resource: dict[str, list[str]] = defaultdict(list)
+        for resource, resource_id in grouped:
+            ids_by_resource[resource].append(resource_id)
+        names_by_resource = {
+            resource: _resolve_object_names(resource, ids, team.id) for resource, ids in ids_by_resource.items()
+        }
+
+        results = []
+        for (resource, resource_id), acs in grouped.items():
+            member_rows = [a for a in acs if a.organization_member_id == membership.id]
+            role_rows = [a for a in acs if a.role_id in role_ids]
+            default_rows = [a for a in acs if a.organization_member_id is None and a.role_id is None]
+
+            role_name = None
+            if member_rows:
+                level, source = member_rows[0].access_level, "member"
+            elif role_rows:
+                best = max(role_rows, key=lambda a: rank(a.access_level))
+                level, source, role_name = best.access_level, "role", role_names.get(best.role_id)
+            elif default_rows and default_rows[0].access_level == "none":
+                # Only surface object defaults that *restrict* access (a shared "no access" the member inherits)
+                level, source = "none", "default"
+            else:
+                continue
+
+            results.append(
+                {
+                    "resource": resource,
+                    "resource_id": resource_id,
+                    "name": names_by_resource.get(resource, {}).get(str(resource_id)) or resource_id,
+                    "access_level": level,
+                    "source": source,
+                    "role_name": role_name,
+                }
+            )
+
+        results.sort(key=lambda r: (r["resource"], (r["name"] or "").lower()))
+        return Response({"results": results})
+
+    @extend_schema(exclude=True)
+    @action(methods=["GET"], detail=True, url_path="access_control_member_properties")
+    def access_control_member_properties(self, request: Request, *args, **kwargs):
+        """Properties this member can't read & write freely — their own restrictions, ones from their roles,
+        and restrictive defaults. Returns the member's effective level per property (anything below read_write)."""
+        from collections import defaultdict
+
+        from django.db.models import Q
+
+        from products.access_control.backend.models.property_access_control import (  # noqa: PLC0415 — product model, keep off import path
+            PropertyAccessControl,
+        )
+
+        team = cast(Team, self.team)  # type: ignore
+        membership, role_ids = self._get_membership_and_roles(request, team)
+
+        rows = list(
+            PropertyAccessControl.objects.filter(team=team)
+            .exclude(access_level="read_write")
+            .filter(
+                Q(organization_member=membership)
+                | Q(role_id__in=role_ids)
+                | Q(organization_member__isnull=True, role__isnull=True)
+            )
+            .select_related("property_definition")
+        )
+        role_names = dict(Role.objects.filter(id__in=role_ids).values_list("id", "name")) if role_ids else {}
+
+        # read_write > read > none (higher = more access); most specific rule wins, most permissive role wins
+        access_rank = {"none": 0, "read": 1, "read_write": 2}
+
+        grouped: dict[int, list] = defaultdict(list)
+        for pac in rows:
+            if pac.property_definition_id is not None:
+                grouped[pac.property_definition_id].append(pac)
+
+        results = []
+        for _pd_id, pacs in grouped.items():
+            member_rows = [p for p in pacs if p.organization_member_id == membership.id]
+            role_rows = [p for p in pacs if p.role_id in role_ids]
+            default_rows = [p for p in pacs if p.organization_member_id is None and p.role_id is None]
+
+            role_name = None
+            if member_rows:
+                level, source = member_rows[0].access_level, "member"
+            elif role_rows:
+                best = max(role_rows, key=lambda p: access_rank.get(p.access_level, 0))
+                level, source, role_name = best.access_level, "role", role_names.get(best.role_id)
+            elif default_rows:
+                level, source = default_rows[0].access_level, "default"
+            else:
+                continue
+
+            if level == "read_write":
+                continue
+
+            pd = pacs[0].property_definition
+            results.append(
+                {
+                    "property": pd.name,
+                    "property_type": "person" if pd.type == pd.Type.PERSON else "event",
+                    "access_level": level,
+                    "source": source,
+                    "role_name": role_name,
+                }
+            )
+
+        results.sort(key=lambda r: (r["property_type"], (r["property"] or "").lower()))
+        return Response({"results": results})
+
+    def _get_role(self, request: Request, team: Team):
+        role_id = request.query_params.get("role_id")
+        if not role_id:
+            raise exceptions.ValidationError("role_id is required")
+        role = Role.objects.filter(id=role_id, organization=team.organization).first()
+        if not role:
+            raise exceptions.NotFound("Role not found")
+        return role
+
+    @extend_schema(exclude=True)
+    @action(methods=["GET"], detail=True, url_path="access_control_role_objects")
+    def access_control_role_objects(self, request: Request, *args, **kwargs):
+        """Object-level access rules configured for a role."""
+        from collections import defaultdict
+
+        team = cast(Team, self.team)  # type: ignore
+        role = self._get_role(request, team)
+
+        rows = list(
+            AccessControl.objects.filter(team=team, role=role, resource_id__isnull=False).exclude(resource="project")
+        )
+        ids_by_resource: dict[str, list[str]] = defaultdict(list)
+        for ac in rows:
+            ids_by_resource[ac.resource].append(ac.resource_id)
+        names_by_resource = {
+            resource: _resolve_object_names(resource, ids, team.id) for resource, ids in ids_by_resource.items()
+        }
+
+        results = [
+            {
+                "resource": ac.resource,
+                "resource_id": ac.resource_id,
+                "name": names_by_resource.get(ac.resource, {}).get(str(ac.resource_id)) or ac.resource_id,
+                "access_level": ac.access_level,
+                "source": "role",
+                "role_name": None,
+            }
+            for ac in rows
+        ]
+        results.sort(key=lambda r: (r["resource"], (r["name"] or "").lower()))
+        return Response({"results": results})
+
+    @extend_schema(exclude=True)
+    @action(methods=["GET"], detail=True, url_path="access_control_role_properties")
+    def access_control_role_properties(self, request: Request, *args, **kwargs):
+        """Property restrictions configured for a role (anything below read_write)."""
+        from products.access_control.backend.models.property_access_control import (  # noqa: PLC0415 — product model, keep off import path
+            PropertyAccessControl,
+        )
+
+        team = cast(Team, self.team)  # type: ignore
+        role = self._get_role(request, team)
+
+        rows = list(
+            PropertyAccessControl.objects.filter(team=team, role=role)
+            .exclude(access_level="read_write")
+            .select_related("property_definition")
+        )
+
+        results = []
+        for pac in rows:
+            pd = pac.property_definition
+            if pd is None:
+                continue
+            results.append(
+                {
+                    "property": pd.name,
+                    "property_type": "person" if pd.type == pd.Type.PERSON else "event",
+                    "access_level": pac.access_level,
+                    "source": "role",
+                    "role_name": None,
+                }
+            )
+        results.sort(key=lambda r: (r["property_type"], (r["property"] or "").lower()))
+        return Response({"results": results})
