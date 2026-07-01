@@ -910,8 +910,14 @@ class TestGitHubIntegrationModel(BaseTest):
         _config.update(config or {})
         _sensitive_config.update(sensitive_config or {})
 
+        # Mirror production (integration_from_installation_id): the model integration_id field holds the
+        # GitHub App installation id, which is what egress telemetry keys its gauges on.
         return Integration.objects.create(
-            team=self.team, kind="github", config=_config, sensitive_config=_sensitive_config
+            team=self.team,
+            kind="github",
+            integration_id=_config.get("installation_id"),
+            config=_config,
+            sensitive_config=_sensitive_config,
         )
 
     def mock_github_client_request(
@@ -1128,8 +1134,11 @@ class TestGitHubIntegrationModel(BaseTest):
         expected_reset: int | None,
         mock_get,
     ):
+        # Distinct installation id per case: the gauges are keyed by installation_id on a process-global
+        # registry that isn't reset between methods, so a shared id would make the no_headers "== None"
+        # assertion depend on parametrize ordering (another case sets the same (id, "unknown") series).
         integration = self.create_integration(
-            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"installation_id": f"INSTALL-{_name}", "account": {"name": "PostHog"}},
             {"access_token": "ACCESS_TOKEN"},
         )
         response = MagicMock()
@@ -1138,7 +1147,7 @@ class TestGitHubIntegrationModel(BaseTest):
         mock_get.return_value = response
 
         labels = {
-            "integration_id": str(integration.id),
+            "installation_id": integration.integration_id,
             "method": "GET",
             "endpoint": "/repos/{owner}/{repo}",
             "status_code": "200",
@@ -1156,21 +1165,21 @@ class TestGitHubIntegrationModel(BaseTest):
         assert (
             REGISTRY.get_sample_value(
                 "github_integration_api_rate_limit_remaining",
-                {"integration_id": str(integration.id), "resource": expected_resource},
+                {"installation_id": integration.integration_id, "resource": expected_resource},
             )
             == expected_remaining
         )
         assert (
             REGISTRY.get_sample_value(
                 "github_integration_api_rate_limit_limit",
-                {"integration_id": str(integration.id), "resource": expected_resource},
+                {"installation_id": integration.integration_id, "resource": expected_resource},
             )
             == expected_limit
         )
         assert (
             REGISTRY.get_sample_value(
                 "github_integration_api_rate_limit_reset_timestamp_seconds",
-                {"integration_id": str(integration.id), "resource": expected_resource},
+                {"installation_id": integration.integration_id, "resource": expected_resource},
             )
             == expected_reset
         )
@@ -1184,7 +1193,7 @@ class TestGitHubIntegrationModel(BaseTest):
         mock_get.side_effect = requests.RequestException("network failure")
 
         labels = {
-            "integration_id": str(integration.id),
+            "installation_id": integration.integration_id,
             "method": "GET",
             "endpoint": "/repos/{owner}/{repo}",
             "status_code": "exception",
@@ -1210,7 +1219,7 @@ class TestGitHubIntegrationModel(BaseTest):
         mock_client_request.side_effect = requests.RequestException("network failure")
 
         labels = {
-            "integration_id": str(integration.id),
+            "installation_id": integration.integration_id,
             "method": "POST",
             "endpoint": "/app/installations/{installation_id}/access_tokens",
             "status_code": "exception",

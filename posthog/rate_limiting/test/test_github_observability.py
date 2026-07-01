@@ -75,11 +75,11 @@ class TestGithubObservability(SimpleTestCase):
     def test_default_normalizer_collapses_numeric_ids(self, url: str | None, expected: str) -> None:
         self.assertEqual(default_normalize_endpoint(url), expected)
 
-    def test_records_counter_and_gauges_when_integration_id_known(self) -> None:
+    def test_records_counter_and_gauges_when_installation_id_known(self) -> None:
         before = REGISTRY.get_sample_value(
             _COUNTER,
             {
-                "integration_id": "42",
+                "installation_id": "42",
                 "method": "GET",
                 "endpoint": "/repos/{owner}/{repo}/commits",
                 "status_code": "200",
@@ -89,13 +89,13 @@ class TestGithubObservability(SimpleTestCase):
         record_github_api_response(
             _response(headers={"X-RateLimit-Remaining": "4321", "X-RateLimit-Resource": "core"}),
             source="unit-known",
-            integration_id="42",
+            installation_id="42",
         )
 
         after = REGISTRY.get_sample_value(
             _COUNTER,
             {
-                "integration_id": "42",
+                "installation_id": "42",
                 "method": "GET",
                 "endpoint": "/repos/{owner}/{repo}/commits",
                 "status_code": "200",
@@ -104,23 +104,23 @@ class TestGithubObservability(SimpleTestCase):
         )
         self.assertEqual((after or 0) - (before or 0), 1)
         self.assertEqual(
-            REGISTRY.get_sample_value(_REMAINING, {"integration_id": "42", "resource": "core"}),
+            REGISTRY.get_sample_value(_REMAINING, {"installation_id": "42", "resource": "core"}),
             4321,
         )
 
     def test_skips_gauges_when_identity_unknown(self) -> None:
-        # Identity-blind callers (raw-token sources) must not set the per-integration gauge — otherwise
-        # many installations alias onto the empty integration_id and the last write wins, misleadingly.
+        # Identity-blind callers (raw-token sources) must not set the per-installation gauge — otherwise
+        # many installations alias onto the empty installation_id and the last write wins, misleadingly.
         record_github_api_response(
             _response(headers={"X-RateLimit-Remaining": "10", "X-RateLimit-Resource": "core"}),
             source="unit-blind",
         )
-        self.assertIsNone(REGISTRY.get_sample_value(_REMAINING, {"integration_id": "", "resource": "core"}))
+        self.assertIsNone(REGISTRY.get_sample_value(_REMAINING, {"installation_id": "", "resource": "core"}))
         self.assertEqual(
             REGISTRY.get_sample_value(
                 _COUNTER,
                 {
-                    "integration_id": "",
+                    "installation_id": "",
                     "method": "GET",
                     "endpoint": "/repos/{owner}/{repo}/commits",
                     "status_code": "200",
@@ -141,7 +141,7 @@ class TestGithubObservability(SimpleTestCase):
             REGISTRY.get_sample_value(
                 _COUNTER,
                 {
-                    "integration_id": "",
+                    "installation_id": "",
                     "method": "GET",
                     "endpoint": "/search/code",
                     "status_code": "403",
@@ -166,7 +166,7 @@ class TestGithubObservability(SimpleTestCase):
             REGISTRY.get_sample_value(
                 _COUNTER,
                 {
-                    "integration_id": "",
+                    "installation_id": "",
                     "method": "GET",
                     "endpoint": "unknown",
                     "status_code": "200",
@@ -182,7 +182,7 @@ class TestGithubObservability(SimpleTestCase):
             REGISTRY.get_sample_value(
                 _COUNTER,
                 {
-                    "integration_id": "",
+                    "installation_id": "",
                     "method": "GET",
                     "endpoint": "/foo",
                     "status_code": "exception",

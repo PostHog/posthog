@@ -38,13 +38,18 @@ ResponseParser = Callable[[requests.Response], RateLimitSnapshot]
 class EgressMetrics:
     """The Prometheus instruments one domain records on. The recorder fills labels positionally,
     so a domain's metrics must declare them in this order: the counter as
-    ``(<identity>, method, endpoint, status_code, source)`` and each gauge as ``(<identity>, resource)``.
-    ``<identity>`` is whatever the domain calls the budget owner (GitHub names it ``integration_id``);
-    the recorder fills it from the ``scope`` argument.
+    ``(<scope>, method, endpoint, status_code, source)`` and each gauge as ``(<scope>, resource)``.
 
-    The gauges deliberately carry no ``source``: the budget is shared per identity, so all sources must
-    update one series per (identity, resource). Labeling gauges by source would strand a stale
-    last-observed value per source after that source goes quiet, misreporting remaining budget."""
+    ``<scope>`` is the rate-limit budget owner in the *domain's own* id space — for GitHub the App
+    ``installation_id`` (what GitHub actually meters), never a PostHog DB row id. Keeping the identity in
+    the external API's namespace is what lets one shared budget map to one series: several PostHog
+    integration rows can share a GitHub installation, and they must all land on the same gauge, otherwise
+    one real budget splits into N flip-flopping per-row series. The recorder fills ``<scope>`` from the
+    ``scope`` argument; per-caller attribution is the ``source`` label's job, not the identity's.
+
+    The gauges deliberately carry no ``source``: the budget is shared across sources, so all sources must
+    update one series per (scope, resource). Labeling gauges by source would strand a stale last-observed
+    value per source after that source goes quiet, misreporting remaining budget."""
 
     request_counter: Counter
     remaining_gauge: Gauge
@@ -67,9 +72,10 @@ class EgressObservability:
     """One third-party API's egress telemetry: a metric set, a response parser, and an endpoint
     normaliser. Construct one per domain and register it; consumers record through it.
 
-    ``scope`` is the budget owner's identity (e.g. a GitHub installation/integration id). The request
-    counter is always incremented; the rate-limit gauges are only set when a ``scope`` is given, since
-    a last-observed gauge is meaningless when many owners alias onto one empty label.
+    ``scope`` is the rate-limit budget owner in the domain's own id space (e.g. a GitHub App installation
+    id, which several PostHog integrations can share) — not a PostHog DB row id. The counter is always
+    incremented; the gauges are only set when a ``scope`` is given, since a last-observed gauge is
+    meaningless when many owners alias onto one empty label.
     """
 
     def __init__(
@@ -113,8 +119,8 @@ class EgressObservability:
         if scope is None:
             return
 
-        # Gauges are keyed by (scope, resource) only — no source. The budget is shared per identity,
-        # so every source updates one series; a per-source gauge would leave stale values behind.
+        # Gauges are keyed by (scope, resource) only — the shared budget owner, no source. Every
+        # source sharing one budget updates one series; a per-source gauge would strand stale values.
         snapshot = self._parser(response)
         if snapshot.remaining is not None:
             self._metrics.remaining_gauge.labels(scope, snapshot.resource).set(snapshot.remaining)
@@ -123,10 +129,21 @@ class EgressObservability:
         if snapshot.reset_at is not None:
             self._metrics.reset_gauge.labels(scope, snapshot.resource).set(snapshot.reset_at)
 
-    def record_exception(self, *, source: str, method: str, endpoint: str, scope: str | None = None) -> None:
-        """Record a request that raised before a response (timeout, connection error)."""
+    def record_exception(
+        self,
+        *,
+        source: str,
+        method: str,
+        endpoint: str | None = None,
+        url: str | None = None,
+        scope: str | None = None,
+    ) -> None:
+        """Record a request that raised before a response (timeout, connection error). Pass a pre-normalised
+        ``endpoint`` or a raw ``url`` (normalised here via the domain's normaliser) — mirrors record_response,
+        so a caller that only holds a URL doesn't need the domain's normaliser."""
+        endpoint_label = endpoint if endpoint is not None else self._normalize_endpoint(url)
         # Uppercase to match record_response, so a method never splits into two series by case.
-        self._metrics.request_counter.labels(scope or "", method.upper(), endpoint, "exception", source).inc()
+        self._metrics.request_counter.labels(scope or "", method.upper(), endpoint_label, "exception", source).inc()
 
 
 _REGISTRY: dict[str, EgressObservability] = {}

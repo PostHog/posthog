@@ -15,7 +15,7 @@ from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_
 from urllib3.util.retry import Retry
 
 from posthog.models.integration import GitHubRateLimitError, raise_if_github_rate_limited
-from posthog.rate_limiting.github_observability import record_github_api_response
+from posthog.rate_limiting.github_observability import record_github_api_exception, record_github_api_response
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -368,7 +368,14 @@ def _github_retry_wait(state: RetryCallState) -> float:
     reraise=True,
 )
 def _fetch_page(page_url: str, headers: dict[str, str], logger: FilteringBoundLogger) -> requests.Response:
-    response = make_tracked_session(retry=_NO_ADAPTER_RETRY).get(page_url, headers=headers, timeout=60)
+    # Record transport failures (ReadTimeout/ConnectionError from the retry tuple) too, so a GitHub
+    # connectivity incident doesn't silently zero out warehouse telemetry exactly when it matters. Best
+    # effort — the recorder never raises, and we re-raise the original error untouched.
+    try:
+        response = make_tracked_session(retry=_NO_ADAPTER_RETRY).get(page_url, headers=headers, timeout=60)
+    except requests.RequestException:
+        record_github_api_exception(source="warehouse", method="GET", url=page_url)
+        raise
 
     # Record before the branching below so rate-limited (403/429) and error responses count too.
     # This source authenticates with a raw token and has no installation id in scope, so it records

@@ -75,11 +75,11 @@ def prepare_gitlab_search_query(q: str | None) -> str:
 
 
 def get_github_file_url(
-    code_sample: str, token: str, owner: str, repository: str, file_name: str, integration_id: str | None = None
+    code_sample: str, token: str, owner: str, repository: str, file_name: str, installation_id: str | None = None
 ) -> str | None:
     """Search GitHub code using the Code Search API. Returns URL to first match or None.
 
-    ``integration_id`` is set on the integration-token path (private repos) so the installation's
+    ``installation_id`` is set on the integration-token path (private repos) so the installation's
     rate-limit gauges are recorded; the public PostHog-token path leaves it None (no installation)."""
     code_query = prepare_github_search_query(code_sample)
     search_query = f"{code_query} repo:{owner}/{repository} filename:{file_name}"
@@ -94,7 +94,7 @@ def get_github_file_url(
 
     try:
         response = requests.get(url, headers=headers, timeout=10)
-        record_github_api_response(response, source="error_tracking", integration_id=integration_id)
+        record_github_api_response(response, source="error_tracking", installation_id=installation_id)
 
         if response.status_code == 200:
             data = response.json()
@@ -216,7 +216,7 @@ class GitProviderFileLinksViewSet(TeamAndOrgViewSetMixin, viewsets.ViewSet):
                     owner=owner,
                     repository=repository,
                     file_name=file_name,
-                    integration_id=str(integration.id),
+                    installation_id=github.github_installation_id,
                 )
                 if url:
                     return Response({"found": True, "url": url})
