@@ -15,6 +15,7 @@ from pymongo.server_description import ServerDescription
 from products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.mongo import (
     _build_query,
     _get_rows_to_sync,
+    _list_importable_collection_names,
     _make_safe_server_selector,
     _process_doc_with_field_logging,
     _process_nested_value,
@@ -487,3 +488,17 @@ class TestGetRowsToSync(SimpleTestCase):
         ) as capture:
             assert _get_rows_to_sync(coll, {}, MagicMock()) == 0
             capture.assert_called_once()
+
+
+class TestListImportableCollectionNames(SimpleTestCase):
+    def test_excludes_reserved_system_collections(self):
+        db = MagicMock()
+        db.list_collection_names.return_value = ["users", "system.keys", "orders", "system.views"]
+
+        assert _list_importable_collection_names(db) == ["users", "orders"]
+
+    def test_keeps_collections_that_merely_contain_system(self):
+        db = MagicMock()
+        db.list_collection_names.return_value = ["system_events", "billing.system", "systematic"]
+
+        assert _list_importable_collection_names(db) == ["system_events", "billing.system", "systematic"]

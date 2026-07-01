@@ -14,7 +14,7 @@ import pytest
 from unittest import mock
 
 import yaml
-from hogli_commands.devenv.generator import DevenvConfig, MprocsGenerator, load_devenv_config
+from hogli_commands.devenv.generator import DevenvConfig, MprocsConfig, MprocsGenerator, load_devenv_config
 from hogli_commands.devenv.registry import ProcessRegistry, create_mprocs_registry
 from hogli_commands.devenv.resolver import Capability, Intent, IntentMap, IntentResolver, load_intent_map
 from hogli_commands.devenv.wizard import _parse_exclude_input
@@ -521,6 +521,16 @@ class TestMprocsRegistry:
 
         assert not orphans, f"procs declare capabilities not defined in intent-map.yaml: {orphans}"
 
+    def test_default_group_is_an_enabled_grouping_dimension(self) -> None:
+        """The sidebar starts grouped by default, and default_group must name a real dimension."""
+        settings = create_mprocs_registry().get_global_settings()
+
+        default_group = settings.get("default_group")
+        assert default_group, "default_group must be set so the sidebar starts grouped"
+        assert default_group in settings.get("group_order", {}), (
+            "default_group must be a configured group_order dimension"
+        )
+
 
 class TestDevenvConfig:
     """Test DevenvConfig data class."""
@@ -558,6 +568,34 @@ class TestDevenvConfig:
 
         assert restored.intents == original.intents
         assert restored.exclude_units == original.exclude_units
+
+
+class TestMprocsConfigSerialization:
+    """Test MprocsConfig.to_yaml_dict output."""
+
+    def test_default_group_emitted_when_set(self) -> None:
+        result = MprocsConfig(procs={}, default_group="layer").to_yaml_dict()
+        assert result["default_group"] == "layer"
+
+    def test_default_group_omitted_when_empty(self) -> None:
+        result = MprocsConfig(procs={}).to_yaml_dict()
+        assert "default_group" not in result
+
+    def test_generator_propagates_default_group_from_registry(self) -> None:
+        """default_group set in the registry's global settings reaches the generated config."""
+        intent_map = create_test_intent_map()
+        registry = create_test_registry()
+
+        def mock_get_global_settings(self):
+            return {"default_group": "layer", "group_order": {"layer": ["A"]}}
+
+        registry.get_global_settings = mock_get_global_settings.__get__(registry, type(registry))  # type: ignore
+
+        resolved = IntentResolver(intent_map, registry).resolve(["error_tracking"])
+        config = MprocsGenerator(registry).generate(resolved)
+
+        assert config.default_group == "layer"
+        assert config.to_yaml_dict()["default_group"] == "layer"
 
 
 class TestConfigPersistence:

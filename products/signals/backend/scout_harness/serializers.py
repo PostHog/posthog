@@ -607,15 +607,16 @@ class SuggestedReviewerSerializer(serializers.Serializer):
         max_length=200,
         help_text=(
             "GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display "
-            "name. Resolve one via `org-member-get-github-login` / git history when you only have a name."
+            "name. Resolve one via `signals-scout-members-list` (each member row carries a resolved "
+            "`github_login`) or git history when you only have a name."
         ),
     )
     user_uuid = serializers.UUIDField(
         required=False,
         help_text=(
-            "PostHog user UUID (e.g. from `org-members-list`). Resolved server-side to the member's linked "
-            "GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a "
-            "concrete UUID; the `@me` alias accepted by `org-member-get-github-login` is not valid here."
+            "PostHog user UUID (e.g. from `signals-scout-members-list`, or an entity's `created_by`). "
+            "Resolved server-side to the member's linked GitHub login — use this when you know the PostHog "
+            "user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here."
         ),
     )
 
@@ -1448,6 +1449,26 @@ class SignalScoutConfigCreateSerializer(serializers.Serializer):
         if not value.startswith(SIGNALS_SCOUT_SKILL_PREFIX):
             raise serializers.ValidationError(f"Scout skill names must start with '{SIGNALS_SCOUT_SKILL_PREFIX}'.")
         return value
+
+
+class SignalScoutManualRunSerializer(serializers.Serializer):
+    """Response for an on-demand (`run now`) scout dispatch.
+
+    The run executes asynchronously on the Temporal worker, so there is no `SignalScoutRun`
+    row yet at response time — the bridge row is created once the run's first turn starts.
+    Poll the scout's runs (`signals-scout-runs-list`) to see the resulting run and its findings.
+    """
+
+    skill_name = serializers.CharField(help_text="The `signals-scout-*` skill that was dispatched.")
+    workflow_id = serializers.CharField(
+        help_text=(
+            "Temporal workflow id for the dispatched run. The run executes asynchronously; poll the "
+            "scout's runs to see the resulting run row, its status, and any emitted findings."
+        )
+    )
+    started = serializers.BooleanField(
+        help_text="True when a new run was dispatched. The endpoint returns 409 instead when a run for this scout is already in progress."
+    )
 
 
 # --- Team metadata ---------------------------------------------------------
