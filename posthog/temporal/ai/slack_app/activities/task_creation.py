@@ -411,10 +411,10 @@ def create_posthog_code_task_for_repo_activity(
     except Exception:
         logger.warning("posthog_code_slack_permalink_failed", channel=channel, thread_ts=thread_ts)
 
-    # General coworker tasks intentionally run without code/PR behavior. Coding
-    # tasks keep PR tooling enabled so an explicit follow-up can clone a repo and publish.
+    # Task kind only controls code/PR behavior; Slack bot users always get the
+    # full PostHog MCP surface.
     allow_pr_creation = task_kind == tasks_facade.TaskKind.CODING
-    posthog_mcp_scopes = "full" if task_kind == tasks_facade.TaskKind.CODING else "read_only"
+    posthog_mcp_scopes = "full"
 
     from products.slack_app.backend.facade.slack_settings import resolve_ai_preferences
 
@@ -805,7 +805,7 @@ def _resume_task_with_new_run(
 
     is_general_task = mapping.task.task_kind == tasks_facade.TaskKind.GENERAL
     create_pr = not is_general_task
-    posthog_mcp_scopes = "read_only" if is_general_task else "full"
+    posthog_mcp_scopes = "full"
 
     extra_state: dict[str, Any] = {
         "interaction_origin": "slack",

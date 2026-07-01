@@ -246,7 +246,7 @@ class TestCreatePostHogCodeTaskForRepoActivity(TestCase):
         assert call_kwargs["task_id"] == str(task.id)
         assert call_kwargs["run_id"] == str(task.latest_run.id)
         assert call_kwargs["create_pr"] is False
-        assert call_kwargs["posthog_mcp_scopes"] == "read_only"
+        assert call_kwargs["posthog_mcp_scopes"] == "full"
 
         mapping = SlackThreadTaskMapping.objects.get(
             integration=self.integration, channel="C123", thread_ts="1234.5678"
@@ -671,7 +671,7 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_execute_workflow.assert_called_once()
         call_kwargs = mock_execute_workflow.call_args.kwargs
         assert call_kwargs["create_pr"] is False
-        assert call_kwargs["posthog_mcp_scopes"] == "read_only"
+        assert call_kwargs["posthog_mcp_scopes"] == "full"
 
         new_run = self.TaskRun.objects.get(id=call_kwargs["run_id"])
         assert new_run.state["task_kind"] == self.Task.TaskKind.GENERAL
