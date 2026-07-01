@@ -39,6 +39,9 @@ export function BranchFilter(): JSX.Element {
                     key={branch}
                     size="xsmall"
                     type={appliedBranch === branch ? 'primary' : 'secondary'}
+                    // Keep focus on the input so its onBlur doesn't fire first and apply whatever was
+                    // staged there — a chip should apply exactly its own branch, in one reload.
+                    onMouseDown={(e) => e.preventDefault()}
                     onClick={() => selectBranch(appliedBranch === branch ? '' : branch)}
                 >
                     {branch}
