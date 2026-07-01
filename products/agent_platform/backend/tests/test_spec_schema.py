@@ -15,7 +15,7 @@ import pytest
 
 from rest_framework.exceptions import ValidationError
 
-from ..logic.generated import APPROVAL_REQUEST_STATES, ASSISTANT_STOP_REASONS, TRIGGER_REQUIRED_SECRETS
+from ..logic.generated import APPROVAL_REQUEST_STATES, ASSISTANT_STOP_REASONS, TRIGGER_REQUIRED_SECRETS, TRIGGER_ROUTES
 from ..logic.spec_schema import SLACK_BOT_TOKEN_KEY, SLACK_SIGNING_SECRET_KEY, missing_required_secrets
 from ..presentation.serializers import AgentRevisionSerializer, AgentSpecField
 
@@ -132,6 +132,14 @@ def test_generated_vocabularies_load_and_are_nonempty() -> None:
     assert APPROVAL_REQUEST_STATES and all(isinstance(s, str) and s for s in APPROVAL_REQUEST_STATES)
     assert ASSISTANT_STOP_REASONS and all(isinstance(s, str) and s for s in ASSISTANT_STOP_REASONS)
     assert TRIGGER_REQUIRED_SECRETS.get("slack")
+    assert TRIGGER_ROUTES
+    assert TRIGGER_ROUTES.get("chat") == {
+        "run": "/run",
+        "send": "/send",
+        "cancel": "/cancel",
+        "listen": "/listen",
+        "client_tool_result": "/client_tool_result",
+    }
 
 
 def test_missing_required_secrets_fails_closed_on_unregistered_trigger() -> None:

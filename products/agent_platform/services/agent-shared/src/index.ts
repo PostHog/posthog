@@ -20,6 +20,7 @@ export * from './spec/tool-approval'
 export * from './spec/framework-preamble'
 export * from './spec/system-prompt'
 export * from './spec/trigger-secrets'
+export * from './spec/trigger-routes'
 
 export * from './storage/bundle'
 export * from './storage/s3-bundle-store'

@@ -11,6 +11,8 @@ import { Request } from 'express'
 import { createHash } from 'node:crypto'
 import type { z } from 'zod'
 
+import { TRIGGER_ROUTES } from '@posthog/agent-shared'
+
 import { principalDisplay } from '../enqueue/acl'
 import { enqueueOrResume } from '../enqueue/enqueue'
 import { defineRoute, type AuthedRouteCtx, type TriggerModule } from './types'
@@ -104,7 +106,7 @@ export const webhookTrigger: TriggerModule = {
     routes: [
         defineRoute({
             method: 'POST',
-            path: '/webhook',
+            path: TRIGGER_ROUTES.webhook.post,
             auth: 'agent_spec',
             schema: WebhookBodySchema,
             handler: webhookHandler,

@@ -38,6 +38,10 @@ def _load(name: str) -> Any:
 # Per-trigger-type required secrets (source: trigger-secrets.ts).
 TRIGGER_REQUIRED_SECRETS: dict[str, list[dict[str, Any]]] = _load("trigger_required_secrets.generated.json")
 
+# Per-trigger ingress route catalogue `{route_name: path}`, `{}` for triggers with no
+# inbound HTTP route (cron). Source: trigger-routes.ts, also imported by agent-ingress so the two can't drift.
+TRIGGER_ROUTES: dict[str, dict[str, str]] = _load("trigger_routes.generated.json")
+
 # States the runner writes to `agent_tool_approval_request.state` (source: approval-store.ts).
 # Consumed by the DRF serializer choices and the model's DB CheckConstraint.
 APPROVAL_REQUEST_STATES: list[str] = _load("approval_request_states.generated.json")

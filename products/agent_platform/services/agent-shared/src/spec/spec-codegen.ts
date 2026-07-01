@@ -3,6 +3,7 @@ import { fileURLToPath } from 'node:url'
 
 import { APPROVAL_REQUEST_STATES } from '../persistence/approval-store'
 import { ASSISTANT_STOP_REASONS } from './spec'
+import { TRIGGER_ROUTES } from './trigger-routes'
 import { TRIGGER_REQUIRED_SECRETS } from './trigger-secrets'
 
 /**
@@ -34,6 +35,10 @@ export const GENERATED_ARTIFACTS: GeneratedArtifact[] = [
     {
         path: backendLogic('trigger_required_secrets.generated.json'),
         content: () => asJson(TRIGGER_REQUIRED_SECRETS),
+    },
+    {
+        path: backendLogic('trigger_routes.generated.json'),
+        content: () => asJson(TRIGGER_ROUTES),
     },
     {
         path: backendLogic('approval_request_states.generated.json'),

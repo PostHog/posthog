@@ -25,6 +25,7 @@ import {
     principalsMatch,
     SessionPrincipal,
     SLACK_BOT_TOKEN_KEY,
+    TRIGGER_ROUTES,
 } from '@posthog/agent-shared'
 
 import { applyElevationDecline, applyElevationGrant, authorizeGrant } from '../enqueue/acl'
@@ -731,14 +732,14 @@ export const slackTrigger: TriggerModule = {
     routes: [
         {
             method: 'POST',
-            path: '/slack/events',
+            path: TRIGGER_ROUTES.slack.events,
             bodySchema: z.toJSONSchema(SlackEventBodySchema),
             auth: 'slack_signing',
             handler: slackEventsHandler,
         },
         {
             method: 'POST',
-            path: '/slack/interactivity',
+            path: TRIGGER_ROUTES.slack.interactivity,
             // Slack posts urlencoded `payload=<json>` — published schema is the
             // decoded JSON so authoring tools see the actual interactivity
             // contract, not just an opaque form-data envelope.
