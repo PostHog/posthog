@@ -104,15 +104,15 @@ export function NewSourceScene(): JSX.Element {
 // as a permanently stuck loading state.
 function AvailableSourcesError(): JSX.Element {
     const { load } = useActions(availableSourcesLogic)
-    const { availableSourcesLoading } = useValues(availableSourcesLogic)
 
     return (
         <LemonBanner
             type="error"
             action={{
                 children: 'Try again',
-                onClick: () => load(),
-                loading: availableSourcesLoading,
+                // Retrying flips availableSourcesLoading, which swaps this banner for the
+                // skeleton in the parent guard — so the retry state shows there, not here.
+                onClick: () => void load(),
             }}
         >
             <p className="font-semibold mb-1">Couldn't load the list of available sources</p>
