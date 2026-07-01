@@ -760,6 +760,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         schema_name: Optional[str] = None,
         *,
         source_id: Optional[str] = None,
+        owner_user_id: Optional[int] = None,
     ) -> tuple[bool, str | None]:
         try:
             manifest = self._assemble_manifest(config)
@@ -799,6 +800,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                     team_id,
                     source_id=source_id,
                     forbid_bound=source_id is None,
+                    owner_user_id=owner_user_id,
                 )
             except CustomOAuth2Integration.DoesNotExist:
                 return False, "The linked OAuth2 integration no longer exists. Reconnect the OAuth2 integration."
@@ -1079,6 +1081,8 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         team_id: int,
         resource_name: str,
         max_rows: int = PREVIEW_DEFAULT_ROWS,
+        *,
+        owner_user_id: Optional[int] = None,
     ) -> "PreviewResult":
         """Fetch a bounded first page of rows for one manifest resource.
 
@@ -1116,7 +1120,7 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                 # Preview runs before the source exists, so the integration must not already back another
                 # source — otherwise a preview could read another source's data with its tokens.
                 _inject_oauth2_integration_secrets(
-                    manifest, config.auth_oauth2_integration_id, team_id, forbid_bound=True
+                    manifest, config.auth_oauth2_integration_id, team_id, forbid_bound=True, owner_user_id=owner_user_id
                 )
             except CustomOAuth2Integration.DoesNotExist as exc:
                 raise ManifestValidationError(
@@ -1449,8 +1453,10 @@ def _authorize_integration_for_source(
     *,
     source_id: Optional[str],
     forbid_bound: bool,
+    owner_user_id: Optional[int] = None,
 ) -> None:
-    """Fail closed unless ``integration`` belongs to the source about to use its secrets.
+    """Fail closed unless ``integration`` belongs to — or is owned by the user setting up — the source
+    about to use its secrets.
 
     Scoping the lookup by ``team_id`` alone lets any source in a team adopt another source's integration
     UUID and exfiltrate its OAuth client secret + tokens. Binding the row to its source closes that:
@@ -1461,12 +1467,20 @@ def _authorize_integration_for_source(
     * preview/create (``forbid_bound``): there's no source yet, so the row must be unbound — it can't
       already be backing another source.
 
+    An unbound row is a floating credential, so a request-context caller (``owner_user_id`` set) may only
+    consume one it created — otherwise a teammate could adopt someone else's not-yet-bound integration.
+    At sync there's no acting user; the source already passed this same owner check at create/update, so
+    the first-use claim is safe.
+
     Rejection raises ``CustomOAuth2Integration.DoesNotExist`` so each caller's existing "integration no
     longer exists" handling turns it into the right non-retryable / 400 response.
     """
+    foreign_unbound = owner_user_id is not None and integration.created_by_id != owner_user_id
     bound_source_id = integration.external_data_source_id
     if source_id is not None:
         if bound_source_id is None:
+            if foreign_unbound:
+                raise CustomOAuth2Integration.DoesNotExist("OAuth2 integration is not available for this source.")
             # Atomically claim the unbound row for this source. A guarded UPDATE (not a save) loses the
             # race cleanly if another source's first sync claims it first, and an IntegrityError means the
             # source already has a different integration bound — both fall through to the match check below,
@@ -1489,8 +1503,11 @@ def _authorize_integration_for_source(
             )
         if str(bound_source_id) != str(source_id):
             raise CustomOAuth2Integration.DoesNotExist("OAuth2 integration is not bound to this source.")
-    elif forbid_bound and bound_source_id is not None:
-        raise CustomOAuth2Integration.DoesNotExist("OAuth2 integration is already bound to another source.")
+    elif forbid_bound:
+        if bound_source_id is not None:
+            raise CustomOAuth2Integration.DoesNotExist("OAuth2 integration is already bound to another source.")
+        if foreign_unbound:
+            raise CustomOAuth2Integration.DoesNotExist("OAuth2 integration is not available for this source.")
 
 
 def _inject_oauth2_integration_secrets(
@@ -1500,6 +1517,7 @@ def _inject_oauth2_integration_secrets(
     *,
     source_id: Optional[str] = None,
     forbid_bound: bool = False,
+    owner_user_id: Optional[int] = None,
 ) -> None:
     """Inject a model-backed OAuth2 source's live credentials + minted token into ``client.auth``.
 
@@ -1520,7 +1538,9 @@ def _inject_oauth2_integration_secrets(
     if not isinstance(auth, dict) or auth.get("type") != "oauth2":
         return
     integration = get_custom_oauth2_integration(integration_id, team_id)
-    _authorize_integration_for_source(integration, team_id, source_id=source_id, forbid_bound=forbid_bound)
+    _authorize_integration_for_source(
+        integration, team_id, source_id=source_id, forbid_bound=forbid_bound, owner_user_id=owner_user_id
+    )
     integration.get_access_token()
     secrets = integration.sensitive_config
     auth["client_secret"] = secrets.get("client_secret")

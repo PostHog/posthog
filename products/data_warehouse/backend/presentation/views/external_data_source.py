@@ -1060,9 +1060,13 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             elif isinstance(source, CustomSource):
                 # Pass the source being updated so an integration-backed OAuth2 source can only validate
                 # with the integration bound to it — not another source's, whose token the probe would
-                # otherwise mint and send to the submitted manifest host.
+                # otherwise mint and send to the submitted manifest host. owner_user_id additionally gates
+                # an as-yet-unbound integration to its creator.
                 credentials_valid, credentials_error = source.validate_credentials(
-                    source_config, instance.team_id, source_id=str(instance.pk)
+                    source_config,
+                    instance.team_id,
+                    source_id=str(instance.pk),
+                    owner_user_id=self.context["request"].user.id,
                 )
             else:
                 credentials_valid, credentials_error = source.validate_credentials(source_config, instance.team_id)
@@ -2590,6 +2594,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             credentials_valid, credentials_error = source.validate_credentials_for_access_method(
                 cast(Any, source_config), self.team_id, access_method
             )
+        elif isinstance(source, CustomSource):
+            # Schema discovery for an as-yet-uncreated source: an integration-backed manifest may only use
+            # an unbound integration owned by the requester, or the probe could send another source's token
+            # to the submitted host.
+            credentials_valid, credentials_error = source.validate_credentials(
+                source_config, self.team_id, owner_user_id=self.request.user.id
+            )
         else:
             credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
         if not credentials_valid:
@@ -2797,6 +2808,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 self.team_id,
                 serializer.validated_data["resource_name"],
                 serializer.validated_data["limit"],
+                owner_user_id=self.request.user.id,
             )
         except ValueError as e:
             # ManifestValidationError (a ValueError) for manifest/graph/URL issues, or a plain
@@ -3001,6 +3013,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if isinstance(source, (PostgresSource, MySQLSource)):
             credentials_valid, credentials_error = source.validate_credentials_for_access_method(
                 cast(Any, source_config), self.team_id, access_method
+            )
+        elif isinstance(source, CustomSource):
+            # Create-time validation for an integration-backed manifest may only use an unbound integration
+            # owned by the requester, so the probe can't send another source's token to the submitted host.
+            credentials_valid, credentials_error = source.validate_credentials(
+                source_config, self.team_id, owner_user_id=self.request.user.id
             )
         else:
             credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)

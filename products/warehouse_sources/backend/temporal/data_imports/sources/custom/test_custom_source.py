@@ -16,6 +16,8 @@ from parameterized import parameterized
 from requests import Response
 from urllib3.response import HTTPResponse
 
+from posthog.models import User
+
 from products.warehouse_sources.backend.models import ExternalDataSource
 from products.warehouse_sources.backend.models.custom_oauth2_integration import CustomOAuth2Integration
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
@@ -499,11 +501,12 @@ class TestCustomSourceAssembleManifest(SimpleTestCase):
 
 class TestCustomSourceOAuth2IntegrationWiring(BaseTest):
     def _make_integration(
-        self, *, external_data_source: ExternalDataSource | None = None, **secret_overrides
+        self, *, external_data_source: ExternalDataSource | None = None, created_by=None, **secret_overrides
     ) -> CustomOAuth2Integration:
         return CustomOAuth2Integration.objects.for_team(self.team.pk).create(
             team=self.team,
             external_data_source=external_data_source,
+            created_by=created_by,
             config={"token_url": "https://auth.example.com/token", "client_id": "cid", "grant_type": "refresh_token"},
             sensitive_config={"client_secret": "cs", "refresh_token": "orig-RT", **secret_overrides},
         )
@@ -741,6 +744,37 @@ class TestCustomSourceOAuth2IntegrationWiring(BaseTest):
                 self._oauth2_manifest(), str(integration.pk), self.team.pk, forbid_bound=True
             )
         mock_session.return_value.post.assert_not_called()
+
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_inject_rejects_unbound_integration_owned_by_another_user(self, mock_session):
+        # An unbound integration is a floating credential: in a request context (owner_user_id set) only its
+        # creator may consume it, so a teammate can't adopt someone else's not-yet-bound integration UUID.
+        integration = self._make_integration(created_by=self.user)  # unbound, created by self.user
+        other_user = User.objects.create_and_join(self.organization, "other@example.com", "pw12345678")
+
+        with self.assertRaises(CustomOAuth2Integration.DoesNotExist):
+            _inject_oauth2_integration_secrets(
+                self._oauth2_manifest(),
+                str(integration.pk),
+                self.team.pk,
+                forbid_bound=True,
+                owner_user_id=other_user.pk,
+            )
+        mock_session.return_value.post.assert_not_called()
+
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_inject_allows_unbound_integration_owned_by_requester(self, mock_session):
+        mock_session.return_value.post.return_value = _token_response(
+            payload={"access_token": "minted-AT", "expires_in": 3600}
+        )
+        integration = self._make_integration(created_by=self.user)
+        manifest = self._oauth2_manifest()
+
+        _inject_oauth2_integration_secrets(
+            manifest, str(integration.pk), self.team.pk, forbid_bound=True, owner_user_id=self.user.pk
+        )
+
+        assert manifest["client"]["auth"]["access_token"] == "minted-AT"
 
 
 class TestCustomSourceGetSchemas(SimpleTestCase):
