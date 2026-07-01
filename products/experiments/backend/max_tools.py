@@ -312,7 +312,7 @@ class ExperimentSummaryTool(MaxTool):
 
     async def _fetch_and_format(self, experiment_id: int) -> tuple[str, dict[str, Any]]:
         """Fetch experiment data from query runners and format it."""
-        data_service = ExperimentSummaryDataService(self._team)
+        data_service = ExperimentSummaryDataService(self._team, self._user)
 
         try:
             summary_context, _last_refresh, pending = await data_service.fetch_experiment_data(experiment_id)

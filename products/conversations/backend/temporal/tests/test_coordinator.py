@@ -16,8 +16,12 @@ from products.conversations.backend.temporal.coordinator import (
     EligibleTicket,
     SupportReplyCoordinatorWorkflow,
     _collect_eligible,
+    _is_master_flag_enabled,
     support_collect_eligible_tickets_activity,
 )
+
+TEST_TEAM_UUID = uuid.UUID("11111111-1111-4111-8111-111111111111")
+TEST_ORG_UUID = uuid.UUID("22222222-2222-4222-8222-222222222222")
 
 COORD_MODULE = "products.conversations.backend.temporal.coordinator"
 
@@ -50,6 +54,8 @@ def _make_ticket(
     org.is_ai_data_processing_approved = ai_data_processing_approved
     team = MagicMock()
     team.id = team_id
+    team.uuid = TEST_TEAM_UUID
+    team.organization_id = TEST_ORG_UUID
     team.organization = org
     settings: dict = {"ai_suggestions_enabled": ai_suggestions_enabled}
     if ai_resolution_channels is not None:
@@ -64,6 +70,31 @@ def _make_ticket(
     return ticket, ticket_id, team
 
 
+class TestMasterFlagEnabled:
+    @patch(f"{COORD_MODULE}.posthoganalytics.feature_enabled", return_value=True)
+    def test_evaluates_flag_with_team_uuid_and_groups(self, mock_feature_enabled):
+        team = MagicMock()
+        team.id = 2
+        team.uuid = TEST_TEAM_UUID
+        team.organization_id = TEST_ORG_UUID
+
+        assert _is_master_flag_enabled(team) is True
+        mock_feature_enabled.assert_called_once_with(
+            "product-support-ai-suggestion",
+            str(TEST_TEAM_UUID),
+            groups={
+                "organization": str(TEST_ORG_UUID),
+                "project": "2",
+            },
+            group_properties={
+                "organization": {"id": str(TEST_ORG_UUID)},
+                "project": {"id": "2", "uuid": str(TEST_TEAM_UUID)},
+            },
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+
+
 class TestCollectEligible:
     @parameterized.expand(
         [
@@ -73,14 +104,12 @@ class TestCollectEligible:
             ("no_ready_sources", {"has_ready_sources": False}),
             ("has_ai_note", {"has_ai_note": True}),
             ("has_team_reply", {"has_team_reply": True}),
-            ("rollout_off", {"rollout": False}),
             ("channel_not_allowed", {"ai_resolution_channels": ["email"], "channel_source": "widget"}),
         ]
     )
     # Force the BK-readiness gate on (production default MIN_READY_BK_SOURCES=0 skips it) so the
     # no_ready_sources case actually exercises the check. A literal patch value injects no arg.
     @patch(f"{COORD_MODULE}.MIN_READY_BK_SOURCES", 1)
-    @patch(f"{COORD_MODULE}._is_rollout_enabled")
     @patch(f"{COORD_MODULE}.has_ready_sources")
     @patch(f"{COORD_MODULE}.Comment")
     @patch(f"{COORD_MODULE}.Ticket")
@@ -93,7 +122,6 @@ class TestCollectEligible:
         mock_ticket_model,
         mock_comment_model,
         mock_has_ready,
-        mock_rollout,
     ):
         master_flag = overrides.get("master_flag", True)
         ai_suggestions_enabled = overrides.get("ai_suggestions_enabled", True)
@@ -101,7 +129,6 @@ class TestCollectEligible:
         has_ready = overrides.get("has_ready_sources", True)
         has_ai = overrides.get("has_ai_note", False)
         has_team_reply = overrides.get("has_team_reply", False)
-        rollout = overrides.get("rollout", True)
 
         ticket, ticket_id, team = _make_ticket(
             ai_suggestions_enabled=ai_suggestions_enabled,
@@ -124,12 +151,9 @@ class TestCollectEligible:
             rows.append((ticket_id, "support", now))
         mock_comment_model.objects.filter.return_value.values_list.return_value = rows
 
-        mock_rollout.return_value = rollout
-
         result = _collect_eligible()
         assert result == []
 
-    @patch(f"{COORD_MODULE}._is_rollout_enabled", return_value=True)
     @patch(f"{COORD_MODULE}.has_ready_sources", return_value=True)
     @patch(f"{COORD_MODULE}.Comment")
     @patch(f"{COORD_MODULE}.Ticket")
@@ -140,7 +164,6 @@ class TestCollectEligible:
         mock_ticket_model,
         mock_comment_model,
         mock_has_ready,
-        mock_rollout,
     ):
         ticket, ticket_id, team = _make_ticket()
         mock_ticket_model.objects.filter.return_value.select_related.return_value = [ticket]
@@ -159,7 +182,6 @@ class TestCollectEligible:
             ("null_allows_all", None, "slack"),
         ]
     )
-    @patch(f"{COORD_MODULE}._is_rollout_enabled", return_value=True)
     @patch(f"{COORD_MODULE}.has_ready_sources", return_value=True)
     @patch(f"{COORD_MODULE}.Comment")
     @patch(f"{COORD_MODULE}.Ticket")
@@ -173,7 +195,6 @@ class TestCollectEligible:
         mock_ticket_model,
         mock_comment_model,
         mock_has_ready,
-        mock_rollout,
     ):
         ticket, ticket_id, team = _make_ticket(
             channel_source=channel_source,
@@ -185,7 +206,6 @@ class TestCollectEligible:
         result = _collect_eligible()
         assert len(result) == 1
 
-    @patch(f"{COORD_MODULE}._is_rollout_enabled", return_value=True)
     @patch(f"{COORD_MODULE}.has_ready_sources", return_value=True)
     @patch(f"{COORD_MODULE}.Comment")
     @patch(f"{COORD_MODULE}.Ticket")
@@ -196,7 +216,6 @@ class TestCollectEligible:
         mock_ticket_model,
         mock_comment_model,
         mock_has_ready,
-        mock_rollout,
     ):
         ticket, ticket_id, team = _make_ticket()
         mock_ticket_model.objects.filter.return_value.select_related.return_value = [ticket]
@@ -216,7 +235,6 @@ class TestCollectEligible:
             ("old_customer_followup_settled", 30, 30, True),
         ]
     )
-    @patch(f"{COORD_MODULE}._is_rollout_enabled", return_value=True)
     @patch(f"{COORD_MODULE}.has_ready_sources", return_value=True)
     @patch(f"{COORD_MODULE}.Comment")
     @patch(f"{COORD_MODULE}.Ticket")
@@ -231,7 +249,6 @@ class TestCollectEligible:
         mock_ticket_model,
         mock_comment_model,
         mock_has_ready,
-        mock_rollout,
     ):
         # Guards the debounce: a ticket whose customer just sent a message (or was just created)
         # must not be drafted until they've gone quiet for TICKET_SETTLE_MINUTES, so follow-up
@@ -260,7 +277,6 @@ class TestCollectEligibleScanWindow:
         ]
     )
     @pytest.mark.django_db
-    @patch(f"{COORD_MODULE}._is_rollout_enabled", return_value=True)
     @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
     def test_scan_keys_on_last_message_not_created_at(
         self,
@@ -268,7 +284,6 @@ class TestCollectEligibleScanWindow:
         last_msg_min_ago,
         expected_collected,
         mock_master_flag,
-        mock_rollout,
     ):
         # Models imported lazily: this module defines a @workflow.defn stub, so Temporal's sandbox
         # re-imports the whole file during validation and top-level Django ORM imports break it.
@@ -304,6 +319,50 @@ class TestCollectEligibleScanWindow:
             item_context={"author_type": "customer", "is_private": False},
         )
         Comment.objects.filter(id=comment.id).update(created_at=msg_at)
+
+        result = _collect_eligible()
+        assert [t.ticket_id for t in result] == ([str(ticket.id)] if expected_collected else [])
+
+
+class TestCollectEligibleStatus:
+    @parameterized.expand(
+        [
+            ("new", "new", True),
+            ("open", "open", True),
+            ("pending", "pending", False),
+            ("on_hold", "on_hold", False),
+            ("resolved", "resolved", False),
+        ]
+    )
+    @pytest.mark.django_db
+    @patch(f"{COORD_MODULE}._is_master_flag_enabled", return_value=True)
+    def test_only_new_and_open_tickets_collected(
+        self,
+        _name,
+        ticket_status,
+        expected_collected,
+        mock_master_flag,
+    ):
+        from posthog.models import Organization, Team
+
+        from products.conversations.backend.models.ticket import Ticket as TicketModel
+
+        org = Organization.objects.create(name="Org")
+        team = Team.objects.create(
+            organization=org, name="Team", conversations_settings={"ai_suggestions_enabled": True}
+        )
+        ticket = TicketModel.objects.create_with_number(
+            team=team,
+            widget_session_id=f"aabbccdd-0000-0000-0000-{uuid.uuid4().hex[:12]}",
+            distinct_id="u1",
+            channel_source="widget",
+            status=ticket_status,
+        )
+        settled_at = timezone.now() - timedelta(minutes=3)
+        TicketModel.objects.filter(id=ticket.id).update(
+            created_at=settled_at,
+            last_message_at=settled_at,
+        )
 
         result = _collect_eligible()
         assert [t.ticket_id for t in result] == ([str(ticket.id)] if expected_collected else [])

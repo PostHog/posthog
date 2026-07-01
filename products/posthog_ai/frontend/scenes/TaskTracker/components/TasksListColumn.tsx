@@ -1,13 +1,15 @@
-import { useValues } from 'kea'
+import { useActions, useValues } from 'kea'
 
 import { IconPlus, IconPlusSmall } from '@posthog/icons'
-import { LemonButton, LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonDivider, LemonSkeleton } from '@posthog/lemon-ui'
+import { Input } from '@posthog/quill-primitives'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
 import { tasksLogic } from '../../../logics/tasksLogic'
+import { TaskAssigneeFilterMenu } from './TaskAssigneeFilterMenu'
 import { TaskListItem } from './TaskListItem'
 
 interface TasksListColumnProps {
@@ -18,7 +20,8 @@ interface TasksListColumnProps {
 }
 
 export function TasksListColumn({ selectedTaskId, isMobile = false }: TasksListColumnProps): JSX.Element {
-    const { tasks, tasksLoading } = useValues(tasksLogic)
+    const { tasks, tasksLoading, tasksError, searchQuery, assigneeFilter, taskListParams } = useValues(tasksLogic)
+    const { loadTasks, setSearchQuery } = useActions(tasksLogic)
 
     const rows =
         tasksLoading && tasks.length === 0 ? (
@@ -27,19 +30,48 @@ export function TasksListColumn({ selectedTaskId, isMobile = false }: TasksListC
                 <LemonSkeleton className="h-8 opacity-60" />
                 <LemonSkeleton className="h-8 opacity-30" />
             </div>
+        ) : // A failed load with no cached tasks must not look like "No tasks yet" — show the error + a retry.
+        // A refresh that fails while tasks already exist keeps the stale list rather than wiping good data.
+        tasksError && tasks.length === 0 ? (
+            <LemonBanner
+                type="error"
+                className="mx-1"
+                action={{ children: 'Retry', onClick: () => loadTasks(taskListParams) }}
+                data-attr="tasks-load-error"
+            >
+                <p className="mb-0">We couldn't load your tasks.</p>
+                <p className="text-muted mb-0">{tasksError}</p>
+            </LemonBanner>
         ) : tasks.length === 0 ? (
             <div className="flex flex-col items-center justify-center text-center py-8 text-muted">
-                <p className="text-sm mb-0">No tasks yet</p>
+                <p className="text-sm mb-0">
+                    {searchQuery || assigneeFilter !== 'for_you' ? 'No tasks match your filters' : 'No tasks yet'}
+                </p>
             </div>
         ) : (
             tasks.map((task) => <TaskListItem key={task.id} task={task} isActive={task.id === selectedTaskId} />)
         )
+
+    const searchInput = (
+        <div className="flex items-center gap-1">
+            <Input
+                type="search"
+                placeholder="Search tasks…"
+                value={searchQuery}
+                onChange={(e) => setSearchQuery(e.target.value)}
+                data-attr="tasks-search"
+                className="flex-1"
+            />
+            <TaskAssigneeFilterMenu />
+        </div>
+    )
 
     if (isMobile) {
         // The page (main) scrolls — no inner scroll container. Extra bottom padding keeps the last
         // rows clear of the floating create button.
         return (
             <>
+                <div className="px-1 pb-2">{searchInput}</div>
                 <div className="flex flex-col gap-1 pb-24">{rows}</div>
                 <LemonButton
                     type="primary"
@@ -68,6 +100,7 @@ export function TasksListColumn({ selectedTaskId, isMobile = false }: TasksListC
                     <IconPlusSmall className="size-4" />
                 </Link>
             </div>
+            <div className="px-1 pb-2 shrink-0">{searchInput}</div>
             <LemonDivider className="m-0 shrink-0" />
 
             <ScrollableShadows

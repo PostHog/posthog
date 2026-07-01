@@ -229,6 +229,17 @@ const PersonPropertyFilter = z.object({
     value: PropertyFilterValue.optional(),
 })
 
+const PersonMetadataPropertyFilter = z.object({
+    key: z.string(),
+    label: z.string().optional(),
+    operator: PropertyOperator,
+    type: z
+        .literal('person_metadata')
+        .describe('Top-level columns on the persons table (e.g. created_at), not properties JSON')
+        .default('person_metadata'),
+    value: PropertyFilterValue.optional(),
+})
+
 const ElementPropertyFilter = z.object({
     key: z.enum(['tag_name', 'text', 'href', 'selector']),
     label: z.string().optional(),
@@ -265,7 +276,15 @@ const CohortPropertyFilter = z.object({
 const DurationType = z.enum(['duration', 'active_seconds', 'inactive_seconds'])
 
 const RecordingPropertyFilter = z.object({
-    key: z.union([DurationType, z.literal('snapshot_source'), z.literal('visited_page'), z.literal('comment_text')]),
+    key: z.union([
+        DurationType,
+        z.literal('snapshot_source'),
+        z.literal('visited_page'),
+        z.literal('comment_text'),
+        z.literal('click_count'),
+        z.literal('keypress_count'),
+        z.literal('mouse_activity_count'),
+    ]),
     label: z.string().optional(),
     operator: PropertyOperator,
     type: z.literal('recording').default('recording'),
@@ -383,6 +402,7 @@ const WorkflowVariablePropertyFilter = z.object({
 const AnyPropertyFilter = z.union([
     EventPropertyFilter,
     PersonPropertyFilter,
+    PersonMetadataPropertyFilter,
     ElementPropertyFilter,
     EventMetadataPropertyFilter,
     SessionPropertyFilter,
