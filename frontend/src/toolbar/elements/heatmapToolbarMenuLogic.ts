@@ -417,12 +417,13 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
 
                 if (performance.now() - sliceStart > SLICE_BUDGET_MS) {
                     actions.setProcessingProgress(i + 1, totalEvents)
-                    breakpoint()
                     await yieldToMain()
+                    breakpoint()
                     sliceStart = performance.now()
                 }
             }
 
+            breakpoint()
             actions.setProcessedElements(aggregateAndSortElements(allTrimmedElements))
             actions.startElementObservation()
             actions.setIsRefreshing(false)

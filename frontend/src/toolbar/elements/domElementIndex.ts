@@ -60,7 +60,7 @@ function getPosition(
         }
         positionsByParent.set(parent, positions)
     }
-    return positions.get(element) ?? { nthChild: 1, nthOfType: 1 }
+    return positions.get(element) ?? { nthChild: -1, nthOfType: -1 }
 }
 
 function createFingerprint(
@@ -294,7 +294,8 @@ export function matchEventToElementUsingSelectors(
             }
 
             if (domElements.length === 1) {
-                if (!(i === 0 && isTooSimple(event.elements[i]))) {
+                const firstAndTooSimple = i === 0 && isTooSimple(event.elements[i])
+                if (!firstAndTooSimple) {
                     return {
                         element: domElements[0],
                         count: event.count,

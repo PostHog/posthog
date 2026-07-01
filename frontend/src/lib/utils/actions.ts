@@ -58,7 +58,7 @@ export function elementToSelector(element: ElementType, dataAttributes: string[]
     let selector = ''
     const attribute = matchesDataAttribute(element, dataAttributes)
     if (attribute) {
-        selector += `[${attribute}="${element.attributes[`attr__${attribute}`]}"]`
+        selector += `[${attribute}="${CSS.escape(element.attributes[`attr__${attribute}`])}"]`
         return selector
     }
     if (element.attr_id) {

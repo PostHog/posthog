@@ -149,17 +149,19 @@ Fired when a toolbar mode is toggled on or off.
 `actions/actionsTabLogic.tsx`, `experiments/experimentsTabLogic.tsx`,
 `product-tours/productToursLogic.ts`
 
+## Heatmaps / clickmaps
+
 ### `toolbar clickmap processed`
 
 Fired when the clickmap finishes matching loaded element stats to DOM elements.
 
-| Property                | Type      | Description                                                    |
-| ----------------------- | --------- | -------------------------------------------------------------- |
-| `event_count`           | `number`  | Element stats rows processed                                   |
-| `matched_element_count` | `number`  | Rows matched to a visible DOM element                          |
-| `page_element_count`    | `number`  | Elements collected from the page for matching                  |
-| `has_shadow_roots`      | `boolean` | Whether the page has shadow roots (forces the slower fallback) |
-| `duration_ms`           | `number`  | Total processing time including DOM index build                |
+| Property                | Type      | Description                                                                                                      |
+| ----------------------- | --------- | ---------------------------------------------------------------------------------------------------------------- |
+| `event_count`           | `number`  | Element stats rows processed                                                                                     |
+| `matched_element_count` | `number`  | Rows matched to a visible DOM element                                                                            |
+| `page_element_count`    | `number`  | Elements collected from the page for matching                                                                    |
+| `has_shadow_roots`      | `boolean` | Whether open shadow roots were detected; selects which fallback implementation runs, not whether a fallback runs |
+| `duration_ms`           | `number`  | Wall-clock processing time, including main-thread yields; DOM index build time is included only on a cold cache  |
 
 **File:** `elements/heatmapToolbarMenuLogic.ts`
 
