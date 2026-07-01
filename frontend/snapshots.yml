@@ -492,6 +492,14 @@ snapshots:
         hash: v1.k794b7964.2590c767710f5896460119705f0703bc9cd21a20c8c126f4db366b61a5bcba28.u1i4S-zmIzVZld-cgvuMd17GRZxPmS3ViBkJIPAdeDg
     components-hedgehogmode--static-hedgehog--light:
         hash: v1.k794b7964.43d71f5c3ad02bd9e1fa87433d34df79e0de653c4b55004188bed5de78a2c3f5.i2ATBYyqY7uq7UxwlL2Rdte6AuMyySa8Jnbeb1VouoQ
+    components-help-menu--open--dark:
+        hash: v1.k794b7964.e01692de9c7de90d5e4e2af414a81126a6b4a5cd9a2c7ca7bbcfc6cc951c47b3.Gw-pomIf8Xiq5r_1bHlSA-YKOeqMkNYPmYArf4J4jjw
+    components-help-menu--open--light:
+        hash: v1.k794b7964.92e96c73e22271178660d3181f3d30c0e9c9f8f8d1d51dc0ffce5390afdc1cda.wXssrXRd1krylD7J79Rh1xm5ozJBsRHg2k_kAhyBwMw
+    components-help-menu--open-with-health-issues--dark:
+        hash: v1.k794b7964.74e44f2ed1879a58eb4320f069a454e3d743fcfca6801711d1dcc9434ced1a64.eJ5d2ge93Gknu1JBH4Otuj8taeXNXMlutLy11JFwZ_A
+    components-help-menu--open-with-health-issues--light:
+        hash: v1.k794b7964.f2f4430ad436500983f913c2df2f28a1ae7b1831dcc3665640b9d86f9769674c.QUKe4PC4Yatch9CB-XtqdMUSro2QGRO9b9N_b4CCn-E
     components-hogcharts-barchart--custom-corner-radius--dark:
         hash: v1.k794b7964.ad5f61598ff2f2ac9e3beac0c0f1459ac8ad2f52e55ddcd331ecd4fa8704b737.9rTHCgsmvqArlFDuTdlH2cH_9vCytjkfMK3VVzShVLw
     components-hogcharts-barchart--custom-corner-radius--light:
