@@ -220,7 +220,7 @@ class TestFixAndRecord(BaseTest):
         db_data write, counting neither a fix nor a failure."""
         mock_config = MagicMock()
         mock_config.should_skip_write.return_value = True
-        db_data = {"flags": [], "group_type_mapping": {}}
+        db_data: dict = {"flags": [], "group_type_mapping": {}}
 
         result = VerificationResult()
 
