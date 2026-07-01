@@ -1,16 +1,21 @@
+import asyncio
 from uuid import uuid4
 
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
+from django.test import SimpleTestCase
+
 import posthoganalytics
+from parameterized import parameterized
 from posthoganalytics.ai.langchain.callbacks import CallbackHandler
 
 from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.hogai.chat_agent.runner import ChatAgentRunner
 from ee.hogai.core.ai_event_truncation import ai_event_truncator
-from ee.hogai.core.runner import SubagentCallbackHandler
+from ee.hogai.core.runner import MaxCallbackHandler, SubagentCallbackHandler
+from ee.hogai.utils.exceptions import GenerationCanceled
 
 
 class TestBaseAgentRunnerCallbackHandlers(BaseTest):
@@ -217,6 +222,28 @@ class TestBaseAgentRunnerCallbackHandlers(BaseTest):
         self.assertEqual(len(runner._callback_handlers), 1)
         self.assertIsInstance(runner._callback_handlers[0], CallbackHandler)
         self.assertNotIsInstance(runner._callback_handlers[0], SubagentCallbackHandler)
+
+
+class TestMaxCallbackHandler(SimpleTestCase):
+    @parameterized.expand(
+        [
+            ("cancelled_error", asyncio.CancelledError(), False),
+            ("generation_canceled", GenerationCanceled(), False),
+            ("real_error", ValueError("boom"), True),
+        ]
+    )
+    def test_error_hook_skips_capture_for_cancellation(self, _name, error, should_capture):
+        mock_client = Mock()
+        handler = MaxCallbackHandler(mock_client, distinct_id="test", trace_id="trace-123")
+
+        run_id = uuid4()
+        handler.on_chain_start({"name": "MemoryCollector"}, {"input": "test"}, run_id=run_id, parent_run_id=None)
+        handler.on_chain_error(error, run_id=run_id, parent_run_id=None)
+
+        if should_capture:
+            mock_client.capture_exception.assert_called_once()
+        else:
+            mock_client.capture_exception.assert_not_called()
 
 
 class TestSubagentCallbackHandler(BaseTest):

@@ -1,3 +1,4 @@
+import asyncio
 from abc import ABC, abstractmethod
 from collections.abc import AsyncGenerator, AsyncIterator
 from contextlib import asynccontextmanager
@@ -76,7 +77,53 @@ logger = structlog.get_logger(__name__)
 _tracer = trace.get_tracer(__name__)
 
 
-class SubagentCallbackHandler(CallbackHandler):
+# Cooperative cancellation is expected control flow, not a failure. A client disconnect
+# raises asyncio.CancelledError out of a running node, and a conversation cancel raises
+# GenerationCanceled (see BaseAssistantNode). LangGraph forwards both to the callback
+# handler's error hooks, which would otherwise capture_exception them (autocapture) and mint
+# spurious error-tracking issues. The runner's own catch-all can't suppress these — it filters
+# GenerationCanceled but never sees CancelledError (a BaseException), and the handler captures
+# both before they reach the runner anyway — so the suppression has to live here.
+_CANCELLATION_EXCEPTIONS = (asyncio.CancelledError, GenerationCanceled)
+
+
+class MaxCallbackHandler(CallbackHandler):
+    """CallbackHandler that does not report cooperative cancellation to error tracking.
+
+    Cancellation is still propagated for correct async teardown; we only skip capturing it as
+    an error, mirroring how the runner treats GenerationCanceled as a non-failure.
+    """
+
+    def on_chain_error(
+        self, error: BaseException, *, run_id: UUID, parent_run_id: Optional[UUID] = None, **kwargs: Any
+    ) -> Any:
+        if isinstance(error, _CANCELLATION_EXCEPTIONS):
+            return None
+        return super().on_chain_error(error, run_id=run_id, parent_run_id=parent_run_id, **kwargs)
+
+    def on_llm_error(
+        self, error: BaseException, *, run_id: UUID, parent_run_id: Optional[UUID] = None, **kwargs: Any
+    ) -> Any:
+        if isinstance(error, _CANCELLATION_EXCEPTIONS):
+            return None
+        return super().on_llm_error(error, run_id=run_id, parent_run_id=parent_run_id, **kwargs)
+
+    def on_tool_error(
+        self, error: BaseException, *, run_id: UUID, parent_run_id: Optional[UUID] = None, **kwargs: Any
+    ) -> Any:
+        if isinstance(error, _CANCELLATION_EXCEPTIONS):
+            return None
+        return super().on_tool_error(error, run_id=run_id, parent_run_id=parent_run_id, **kwargs)
+
+    def on_retriever_error(
+        self, error: BaseException, *, run_id: UUID, parent_run_id: Optional[UUID] = None, **kwargs: Any
+    ) -> Any:
+        if isinstance(error, _CANCELLATION_EXCEPTIONS):
+            return None
+        return super().on_retriever_error(error, run_id=run_id, parent_run_id=parent_run_id, **kwargs)
+
+
+class SubagentCallbackHandler(MaxCallbackHandler):
     """
     Callback handler for subagents that makes all events appear as children of a parent span.
 
@@ -190,7 +237,7 @@ class BaseAgentRunner(ABC):
                         privacy_mode=is_privacy_mode_enabled(team),
                         parent_span_id=parent_span_id,
                     )
-                return CallbackHandler(
+                return MaxCallbackHandler(
                     client,
                     distinct_id=user.distinct_id if user else None,
                     properties=callback_properties,
