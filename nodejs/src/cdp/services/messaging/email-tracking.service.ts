@@ -22,6 +22,9 @@ export const PIXEL_GIF = Buffer.from('R0lGODlhAQABAAAAACH5BAEKAAEALAAAAAABAAEAAA
 const LINK_REGEX =
     /<a\b[^>]*\bhref\s*=\s*(?:"(?!javascript:)([^"]*)"|'(?!javascript:)([^']*)'|(?!javascript:)([^'">\s]+))[^>]*>([\s\S]*?)<\/a>/gi
 
+// Anchors carrying either opt-out marker are left unwrapped (no click-tracking redirect).
+const LINK_TRACKING_OPT_OUT_REGEX = /\bclicktracking\s*=\s*["']?off["']?|\bdata-ph-no-track\b/i
+
 const trackingEventsCounter = new Counter({
     name: 'email_tracking_events_total',
     help: 'Total number of email tracking events received',
@@ -108,6 +111,12 @@ export const addTrackingToEmail = (
         // LINK_REGEX skips literal `javascript:` hrefs, but an attacker could entity-encode
         // the scheme (e.g. `java&#x73;cript:`) to slip past it; re-check after decoding.
         if (/^\s*javascript:/i.test(href)) {
+            return m
+        }
+        // Per-link opt-out. Leaves the href on its own domain so mobile universal links /
+        // app deeplinks resolve - routing through our cross-domain redirect breaks them.
+        // `clicktracking="off"` is the ESP de-facto standard; `data-ph-no-track` is our name.
+        if (LINK_TRACKING_OPT_OUT_REGEX.test(m)) {
             return m
         }
         const tracked = signer.redirectUrl(trackingInvocation, href, isTest)

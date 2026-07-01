@@ -104,6 +104,15 @@ describe('EmailTrackingService', () => {
             expect(out).not.toContain('target=')
         })
 
+        it.each([
+            ['clicktracking="off"', '<body><a href="https://example.com" clicktracking="off">x</a></body>'],
+            ['data-ph-no-track', '<body><a href="https://example.com" data-ph-no-track>x</a></body>'],
+        ])('leaves the href untouched when the anchor opts out via %s', (_name, html) => {
+            const out = addTrackingToEmail(html, invocation, signer)
+            expect(out).toContain('href="https://example.com"')
+            expect(out).not.toContain('target=')
+        })
+
         const invocationWithDistinctId = {
             functionId: 'fn-1',
             id: 'inv-1',
