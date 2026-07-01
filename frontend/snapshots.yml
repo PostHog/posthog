@@ -1101,9 +1101,9 @@ snapshots:
     components-integrations-slack--slack-integration--light:
         hash: v1.k794b7964.5e31191fe884081eaecccc0ca410571bfea114969731061b25274559c377e9c2.48o8xuoIkdsSSYnrrvbAKMwn9XvAGobjR0zC3-wD7bc
     components-integrations-slack--slack-integration-added--dark:
-        hash: v1.k794b7964.a1ad42b0f0f975569b93110a669febd3e486f6b90ee785b80979ae83dcbff1db.hV7aqt2bShW5KttL4NDjY3p-mcL2bXJKtEJJvQhn8ao
+        hash: v1.k794b7964.8f7edaa75ee5a78345d8b9bf243a225dd4ce33c0d49736ba1c639058735917b3.2y8Hrz8TZeJMytRC68aWpdlYlrM_DOAXfHFgBlBAUFQ
     components-integrations-slack--slack-integration-added--light:
-        hash: v1.k794b7964.ed6cb6ffb8918525982aca7a4eed6c21a239d5cacfe49c0c81898e842fd012ac.c_YqaIbzzzNXueagP2l8S4VMtTe870p7kVDnC6P-27A
+        hash: v1.k794b7964.a2894354ba60c0274e03cec4401c2eaf175acb8920494244ed0fd9a834d8b06a.Nrd5QEZeXhY_62Re5ZJG0DaebRGgXlX5V0cdF5-vXq4
     components-integrations-slack--slack-integration-instance-not-configured--dark:
         hash: v1.k794b7964.b9ee8adc2251177b325e3775fe7fd391540c3dba77c06d9da9db33ec80eddf81.VkdQOtlSqpDDliAWoEWxISdK8UUYqJyt7gFvAGeB7HE
     components-integrations-slack--slack-integration-instance-not-configured--light:

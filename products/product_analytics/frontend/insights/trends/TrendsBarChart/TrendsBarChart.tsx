@@ -61,7 +61,7 @@ interface TrendsBarChartProps {
 }
 
 const EMPTY_LABELS: string[] = []
-const AGGREGATED_TOOLTIP_CONFIG = { pinnable: false }
+const AGGREGATED_TOOLTIP_CONFIG = { pinnable: false, placement: 'cursor' as const }
 
 type AggregationLabelFn = (groupTypeIndex: number | null | undefined) => { plural: string }
 
@@ -395,6 +395,7 @@ export function TrendsBarChart({
                 formatCompareLabel: context?.formatCompareLabel,
                 onRowClick,
                 showHeader: isAggregated ? (false as const) : undefined,
+                sortedByValue: false,
             }
             return quillTooltipEnabled ? (
                 <InsightSeriesTooltip {...sharedProps} />
