@@ -19,6 +19,8 @@ import { LemonSkeleton } from '../lemon-ui/LemonSkeleton'
 // AlertHistoryChart, which also uses the annotation plugin) are safe.
 Chart.register(annotationPlugin)
 
+const HIGHLIGHT_COLOR = '#8f8f8f'
+
 export interface SparklineReferenceLine {
     /** Y-axis value the dashed line is drawn at, in the same units as the series data. */
     value: number
@@ -291,12 +293,6 @@ export function Sparkline({
                                     Math.max(highlightedRange.startIndex, highlightedRange.endIndex)
                                 )
                                 if (lo <= hi) {
-                                    // Match the cursor-row highlight hue (`--primary-highlight`):
-                                    // orange in light mode, amber in dark. Read the concrete
-                                    // per-theme token since the semantic var is a nested `var()`
-                                    // that doesn't resolve off-DOM (e.g. on the chart canvas).
-                                    const isDark = document.body.getAttribute('theme') === 'dark'
-                                    const primary = getColorVar(isDark ? 'primary-3000-dark' : 'primary-3000-light')
                                     annotations.highlightedRange = {
                                         type: 'box',
                                         xMin: labels[lo],
@@ -304,9 +300,9 @@ export function Sparkline({
                                         xMax: labels[hi + 1] ?? labels[hi],
                                         // Drawn under the bars so the data stays legible.
                                         drawTime: 'beforeDatasetsDraw',
-                                        // 10% fill mirrors the cursor row; a stronger border marks the window edges.
-                                        backgroundColor: hexToRGBA(primary, 0.1),
-                                        borderColor: hexToRGBA(primary, 0.8),
+                                        // Faint fill with a stronger border to mark the window edges.
+                                        backgroundColor: hexToRGBA(HIGHLIGHT_COLOR, 0.1),
+                                        borderColor: hexToRGBA(HIGHLIGHT_COLOR, 0.8),
                                         borderWidth: 1,
                                     }
                                 }
