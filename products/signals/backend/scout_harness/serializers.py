@@ -23,6 +23,7 @@ from products.signals.backend.scout_harness.tools.emit import (
     MAX_TAGS_PER_FINDING,
 )
 from products.signals.backend.scout_harness.tools.report import MAX_REPORT_TITLE_LENGTH, MAX_SUGGESTED_REVIEWERS
+from products.signals.backend.scout_harness.tools.runs import DEFAULT_FINDINGS_WINDOW_HOURS, MAX_FINDINGS_WINDOW_HOURS
 from products.signals.backend.scout_harness.tools.scratchpad import MAX_SCRATCHPAD_CONTENT_LENGTH
 
 # --- Run history -----------------------------------------------------------
@@ -275,6 +276,42 @@ class RecentEmissionsQuerySerializer(serializers.Serializer):
         min_value=1,
         max_value=200,
         help_text="Max rows to return (default 50, hard cap 200).",
+    )
+
+
+class FleetFindingsSummarySerializer(serializers.Serializer):
+    """Fleet-wide tally of recently emitted findings — backs the "Scout findings" callout so it
+    renders from one cheap query instead of the client walking the whole paginated runs window."""
+
+    count = serializers.IntegerField(
+        help_text=(
+            "Total findings the fleet emitted in the window — the sum of each emitted run's "
+            "`emitted_count`, over the most recent 120 emitted runs."
+        )
+    )
+    scout_count = serializers.IntegerField(
+        help_text="Number of distinct scouts (skills) that emitted at least one finding in the window."
+    )
+    latest_at = serializers.DateTimeField(
+        allow_null=True,
+        help_text=(
+            "ISO-8601 timestamp of the most recently emitted finding's run (TaskRun completion, "
+            "falling back to run creation), or null when nothing was emitted in the window."
+        ),
+    )
+
+
+class FleetFindingsSummaryQuerySerializer(serializers.Serializer):
+    """Query parameters for the `findings/summary` action."""
+
+    window_hours = serializers.IntegerField(
+        required=False,
+        min_value=1,
+        max_value=MAX_FINDINGS_WINDOW_HOURS,
+        help_text=(
+            f"Lookback window in hours over runs' `created_at` "
+            f"(default {DEFAULT_FINDINGS_WINDOW_HOURS}, hard cap {MAX_FINDINGS_WINDOW_HOURS})."
+        ),
     )
 
 
@@ -570,15 +607,16 @@ class SuggestedReviewerSerializer(serializers.Serializer):
         max_length=200,
         help_text=(
             "GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display "
-            "name. Resolve one via `org-member-get-github-login` / git history when you only have a name."
+            "name. Resolve one via `signals-scout-members-list` (each member row carries a resolved "
+            "`github_login`) or git history when you only have a name."
         ),
     )
     user_uuid = serializers.UUIDField(
         required=False,
         help_text=(
-            "PostHog user UUID (e.g. from `org-members-list`). Resolved server-side to the member's linked "
-            "GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a "
-            "concrete UUID; the `@me` alias accepted by `org-member-get-github-login` is not valid here."
+            "PostHog user UUID (e.g. from `signals-scout-members-list`, or an entity's `created_by`). "
+            "Resolved server-side to the member's linked GitHub login — use this when you know the PostHog "
+            "user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here."
         ),
     )
 
