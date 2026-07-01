@@ -129,20 +129,51 @@ def dot_get(d: Any, path: str, default: Any = None) -> Any:
     return d
 
 
+# Actionable, provider-agnostic messages for transient upstream failures whose response bodies
+# are usually unhelpful (HTML error pages, empty bodies). Keyed by HTTP status.
+_OAUTH_STATUS_MESSAGES: dict[int, str] = {
+    429: "the provider is rate limiting connection attempts. Please wait a moment and try again.",
+    500: "the provider had an internal error. Please try again in a moment.",
+    502: "the provider is temporarily unavailable. Please try again in a moment.",
+    503: "the provider is temporarily unavailable. Please try again in a moment.",
+    504: "the provider timed out. Please try again in a moment.",
+}
+
+
+def _oauth_status_message(res: requests.Response) -> str:
+    """Human-readable fallback for OAuth errors whose bodies aren't worth showing."""
+    return _OAUTH_STATUS_MESSAGES.get(
+        res.status_code,
+        f"the provider returned an unexpected response (status {res.status_code}). Please try again.",
+    )
+
+
+def _response_is_html(res: requests.Response) -> bool:
+    if "html" in (res.headers.get("Content-Type") or "").lower():
+        return True
+    body = (res.text or "").lstrip()[:100].lower()
+    return body.startswith("<!doctype html") or body.startswith("<html")
+
+
 def _extract_oauth_error_message(res: requests.Response) -> str | None:
     """Pull a human-readable error from a failed OAuth token-exchange response.
 
     Most providers (Stripe, Google, etc.) return JSON of the shape
     `{"error": "...", "error_description": "..."}`. Fall back to the raw body
-    (truncated) when the JSON has none of those fields, or when the body isn't
-    JSON at all — better to dump a snippet than to swallow the cause silently
-    and let the caller render a status-code-only message.
+    (truncated) when the JSON has none of those fields.
+
+    When the body is rate-limit / transient (429, 5xx) or an HTML error page, substitute an
+    actionable status-based message rather than dumping raw HTML into the customer-facing toast —
+    e.g. Reddit's token endpoint returns an HTML "Too Many Requests" page on 429.
     """
+    if res.status_code in _OAUTH_STATUS_MESSAGES or _response_is_html(res):
+        return _oauth_status_message(res)
+
     try:
         body = res.json()
     except Exception:
         text = (res.text or "").strip()
-        return text[:300] if text else None
+        return text[:300] if text else _oauth_status_message(res)
 
     if isinstance(body, dict):
         description = body.get("error_description") or body.get("message")
@@ -160,6 +191,24 @@ def _extract_oauth_error_message(res: requests.Response) -> str | None:
     except (TypeError, ValueError):
         snippet = (res.text or "").strip()
     return snippet[:300] if snippet else None
+
+
+def _post_with_rate_limit_retry(
+    url: str, *, max_retries: int = 2, max_delay_seconds: float = 2.0, **kwargs: Any
+) -> requests.Response:
+    """POST that retries briefly on HTTP 429. Kept short since it runs inside a request handler."""
+    res = requests.post(url, **kwargs)
+    for attempt in range(max_retries):
+        if res.status_code != 429:
+            break
+        retry_after = res.headers.get("Retry-After")
+        try:
+            delay = float(retry_after) if retry_after else 0.5 * (2**attempt)
+        except (TypeError, ValueError):
+            delay = 0.5 * (2**attempt)
+        time.sleep(min(delay, max_delay_seconds))
+        res = requests.post(url, **kwargs)
+    return res
 
 
 def _raise_oauth_validation_error(kind: str, res: requests.Response) -> NoReturn:
@@ -769,7 +818,9 @@ class OauthIntegration:
 
         # Reddit uses HTTP Basic Auth https://github.com/reddit-archive/reddit/wiki/OAuth2 and requires a User-Agent header
         if kind == "reddit-ads":
-            res = requests.post(
+            # Reddit's shared OAuth client is easily rate limited; a 429 is usually transient, so
+            # retry briefly before surfacing an error to the user.
+            res = _post_with_rate_limit_retry(
                 oauth_config.token_url,
                 auth=HTTPBasicAuth(oauth_config.client_id, oauth_config.client_secret),
                 data={

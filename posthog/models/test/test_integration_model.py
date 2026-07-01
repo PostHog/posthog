@@ -300,6 +300,34 @@ class TestOauthIntegrationModel(BaseTest):
             for fragment in expected_in_message:
                 assert fragment.lower() in message
 
+    @patch("posthog.models.integration.time.sleep")
+    @patch("posthog.models.integration.requests.post")
+    def test_reddit_oauth_rate_limited_shows_friendly_message(self, mock_post, mock_sleep):
+        html_body = (
+            "<!doctype html>\n<html><head><title>Too Many Requests</title></head>"
+            "<body><h1>Too Many Requests</h1></body></html>"
+        )
+        mock_post.return_value.status_code = 429
+        mock_post.return_value.json.side_effect = ValueError("not json")
+        mock_post.return_value.text = html_body
+        mock_post.return_value.headers = {"Content-Type": "text/html"}
+
+        with self.settings(REDDIT_ADS_CLIENT_ID="reddit-client-id", REDDIT_ADS_CLIENT_SECRET="reddit-client-secret"):
+            with pytest.raises(ValidationError) as e:
+                OauthIntegration.integration_from_oauth_response(
+                    "reddit-ads",
+                    self.team.id,
+                    self.user,
+                    {"code": "code", "state": "next=/projects/test"},
+                )
+
+        message = str(e.value)
+        assert "rate limiting" in message.lower()
+        assert "<" not in message  # never dump Reddit's raw HTML page into the toast
+        # transient 429 is retried before giving up
+        assert mock_post.call_count == 3
+        assert mock_sleep.call_count == 2
+
     @patch("posthog.models.integration.requests.post")
     def test_integration_errors_if_id_cannot_be_generated(self, mock_post):
         with self.settings(**self.mock_settings):
