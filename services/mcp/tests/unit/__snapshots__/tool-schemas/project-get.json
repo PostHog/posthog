@@ -3,9 +3,9 @@
     "properties": {
         "id": {
             "description": "Project ID. If omitted, returns the caller's active project.",
-            "maximum": 2147483647,
-            "minimum": -2147483648,
-            "type": "number"
+            "maximum": 9007199254740991,
+            "minimum": -9007199254740991,
+            "type": "integer"
         }
     },
     "type": "object"

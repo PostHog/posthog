@@ -13,7 +13,6 @@ import {
     DesktopFileSystemRetrieveParams,
     OrganizationsProjectsPartialUpdateBody,
     OrganizationsProjectsPartialUpdateParams,
-    OrganizationsProjectsRetrieveParams,
     UsersPartialUpdateBody,
     UsersPartialUpdateParams,
     UsersRetrieveParams,
@@ -196,40 +195,6 @@ const desktopFileSystemRetrieve = (): ToolBase<typeof DesktopFileSystemRetrieveS
             path: `/api/projects/${encodeURIComponent(String(projectId))}/desktop_file_system/${encodeURIComponent(String(params.id))}/`,
         })
         return result
-    },
-})
-
-const ProjectGetSchema = OrganizationsProjectsRetrieveParams.omit({ organization_id: true }).extend({
-    id: z
-        .preprocess(
-            castStringToInt,
-            OrganizationsProjectsRetrieveParams.shape['id']
-                .describe("Project ID. If omitted, returns the caller's active project.")
-                .optional()
-        )
-        .optional(),
-})
-
-const projectGet = (): ToolBase<typeof ProjectGetSchema, Schemas.ProjectBackwardCompat> => ({
-    name: 'project-get',
-    schema: ProjectGetSchema,
-    handler: async (context: Context, params: z.infer<typeof ProjectGetSchema>) => {
-        const orgId = await context.stateManager.getOrgID()
-        const id = params.id ?? (await context.stateManager.getProjectId())
-        if (!id) {
-            throw new Error('id is required. Provide it explicitly or set an active project first.')
-        }
-        const result = await context.api.request<Schemas.ProjectBackwardCompat>({
-            method: 'GET',
-            path: `/api/organizations/${encodeURIComponent(String(orgId))}/projects/${encodeURIComponent(String(id))}/`,
-        })
-        const filtered = omitResponseFields(result, [
-            'secret_api_token',
-            'secret_api_token_backup',
-            'live_events_token',
-            'default_modifiers',
-        ]) as typeof result
-        return filtered
     },
 })
 
@@ -599,7 +564,6 @@ export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'desktop-file-system-instructions-retrieve': desktopFileSystemInstructionsRetrieve,
     'desktop-file-system-list': desktopFileSystemList,
     'desktop-file-system-retrieve': desktopFileSystemRetrieve,
-    'project-get': projectGet,
     'project-settings-update': projectSettingsUpdate,
     'user-get': userGet,
     'user-settings-update': userSettingsUpdate,

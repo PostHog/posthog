@@ -445,30 +445,13 @@ tools:
     product-enablement-create:
         operation: product_enablement_create
         enabled: false
+    # Hand-written in src/tools/projects/getProject.ts so it can degrade gracefully
+    # (return the caller's accessible projects + guidance) on an unknown or
+    # inaccessible id instead of a bare error. Disabled here to avoid a duplicate
+    # generated handler shadowing the hand-written one.
     project-get:
         operation: organizations_projects_retrieve
-        enabled: true
-        scopes:
-            - project:read
-        annotations:
-            readOnly: true
-            destructive: false
-            idempotent: true
-        title: Get project
-        description: |
-            Retrieve a project and its settings. Omit the ID to get the caller's active project.
-        param_overrides:
-            id:
-                description: Project ID. If omitted, returns the caller's active project.
-                optional: true
-                fallback: projectId
-                cast: string-int
-        response:
-            exclude:
-                - secret_api_token
-                - secret_api_token_backup
-                - live_events_token
-                - default_modifiers
+        enabled: false
     project-secret-api-keys-create:
         operation: project_secret_api_keys_create
         enabled: false

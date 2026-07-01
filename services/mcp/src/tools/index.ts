@@ -32,6 +32,7 @@ import {
     readDataWarehouseSchema,
 } from './posthogAiTools'
 // Projects
+import getProject from './projects/getProject'
 import getProjects from './projects/getProjects'
 import setActiveProject from './projects/setActive'
 import updateEventDefinition from './projects/updateEventDefinition'
@@ -58,7 +59,9 @@ export const TOOL_MAP: Record<string, () => ToolBase<ZodObjectAny>> = {
     // Organizations
     'switch-organization': setActiveOrganization,
 
-    // Projects
+    // Projects (project-get is hand-written for graceful "not accessible" fallback;
+    // the generated counterpart is disabled in definitions/core.yaml)
+    'project-get': getProject,
     'projects-get': getProjects,
     'switch-project': setActiveProject,
     'event-definition-update': updateEventDefinition,

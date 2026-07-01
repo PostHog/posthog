@@ -6320,7 +6320,7 @@
         }
     },
     "project-get": {
-        "description": "Retrieve a project and its settings. Omit the ID to get the caller's active project.",
+        "description": "Retrieve a project and its settings. Omit the ID to get the caller's active project. If the ID is unknown or inaccessible, returns the caller's accessible projects plus guidance instead of erroring, so you can resolve the right project without guessing ids.",
         "category": "Core",
         "feature": "core",
         "summary": "Get project",
@@ -6348,7 +6348,7 @@
         }
     },
     "projects-get": {
-        "description": "Fetches projects that the user has access to in the current organization.",
+        "description": "Fetches projects that the user has access to in the current organization. Pass `name` to filter by a case-insensitive substring and resolve a project name to its id instead of enumerating ids.",
         "category": "Organization & project management",
         "feature": "workspace",
         "summary": "Fetches projects that the user has access to in the current organization.",

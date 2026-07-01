@@ -316,7 +316,14 @@ export const OrganizationSetActiveSchema = z.object({
     orgId: z.string(),
 })
 
-export const ProjectGetAllSchema = z.object({})
+export const ProjectGetAllSchema = z.object({
+    name: z
+        .string()
+        .optional()
+        .describe(
+            'Optional case-insensitive substring to filter projects by name. Use this to resolve a project name to its id instead of guessing or enumerating ids.'
+        ),
+})
 
 export const EventDefinitionUpdateInputSchema = z.object({
     description: z.string().optional().describe('Description explaining when the event is triggered'),

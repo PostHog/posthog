@@ -5868,20 +5868,6 @@
             "readOnlyHint": true
         }
     },
-    "project-get": {
-        "description": "Retrieve a project and its settings. Omit the ID to get the caller's active project.",
-        "category": "Core",
-        "feature": "core",
-        "summary": "Get project",
-        "title": "Get project",
-        "required_scopes": ["project:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "project-settings-update": {
         "description": "Update a project's settings using PATCH semantics — only the fields included in the request body are changed. Use `project-get` first to inspect current settings. Always confirm changes with the user before applying.",
         "category": "Core",

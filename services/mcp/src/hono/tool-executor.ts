@@ -190,8 +190,18 @@ export class ToolExecutor {
                 void state.reqCtx.trackContextSwitchEvent(tool.name, state.context, previousContext)
             }
 
-            toolCallsTotal.inc({ tool: tool.name, status: 'success' })
-            stop({ status: 'success' })
+            // A handler that returns `{ isError: true }` instead of throwing (e.g. a
+            // confirmed-action refusal) still failed. Historically the success branch
+            // stamped `$mcp_is_error: false` with no `$mcp_error_type`, dropping these
+            // into the dashboard's unclassified bucket. Classify and stamp them like a
+            // thrown error so tool-result failures are visible in error tracking.
+            const handlerFailed = handlerResultIsError(handlerResult)
+            const status = handlerFailed ? 'error' : 'success'
+            toolCallsTotal.inc({ tool: tool.name, status })
+            if (handlerFailed) {
+                toolErrorsTotal.inc({ tool: tool.name, error_type: 'tool_result' })
+            }
+            stop({ status })
 
             const duration = Date.now() - startMs
 
@@ -211,14 +221,20 @@ export class ToolExecutor {
                     suppressStructuredContentForFormattedResults: state.clientProfile.isCliModeEnabled(),
                     distinctId,
                 })
+                // `buildToolResultPayload` drops the handler's top-level `isError`; carry
+                // it through so the client still sees the call failed.
+                if (handlerFailed) {
+                    ;(response as ToolResultPayload & { isError?: boolean }).isError = true
+                }
             }
 
             void trackToolCall(
                 tool.name,
                 duration,
-                false,
+                handlerFailed,
                 state,
                 {
+                    ...(handlerFailed ? errorAnalyticsProperties({ errorType: 'tool_result' }) : {}),
                     input_tokens: estimateTokens(validation.data),
                     output_tokens: estimateResponseTokens(response),
                 },
@@ -435,6 +451,22 @@ type ToolErrorType =
     | 'api_5xx'
     | 'api_4xx'
     | 'internal'
+    // A handler returned `{ isError: true }` rather than throwing — the failure never
+    // reaches `classifyToolError`, so it gets its own low-cardinality bucket.
+    | 'tool_result'
+
+/**
+ * True when a tool handler signalled failure by returning a `CallToolResult`
+ * with `isError: true` instead of throwing. Requires the `content` array too so
+ * a plain data object that happens to carry an `isError` field can't trip it.
+ */
+function handlerResultIsError(handlerResult: unknown): boolean {
+    if (typeof handlerResult !== 'object' || handlerResult === null) {
+        return false
+    }
+    const result = handlerResult as { isError?: unknown; content?: unknown }
+    return result.isError === true && Array.isArray(result.content)
+}
 
 interface ToolErrorClassification {
     errorType: ToolErrorType

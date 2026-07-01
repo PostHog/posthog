@@ -167,6 +167,27 @@ describe('ToolExecutor metrics', () => {
             expect(trackToolCallExtras('fail-tool')).toMatchObject({ $mcp_error_type: 'internal' })
         })
 
+        it('classifies a handler that returns isError:true as a tool_result failure instead of a silent success', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('refusing-tool', async () => ({
+                    content: [{ type: 'text', text: 'not confirmed' }],
+                    isError: true,
+                })) as any
+            )
+
+            await executor.handleToolCall(
+                { name: 'refusing-tool', arguments: {} },
+                makeState([{ name: 'refusing-tool' }])
+            )
+
+            expect(mockToolCallsInc).toHaveBeenCalledWith({ tool: 'refusing-tool', status: 'error' })
+            expect(mockToolErrorsInc).toHaveBeenCalledWith({ tool: 'refusing-tool', error_type: 'tool_result' })
+            // 3rd positional arg of trackToolCall is `isError`.
+            const call = mockTrackToolCall.mock.calls.find((c) => c[0] === 'refusing-tool')
+            expect(call?.[2]).toBe(true)
+            expect(trackToolCallExtras('refusing-tool')).toMatchObject({ $mcp_error_type: 'tool_result' })
+        })
+
         it('carries the upstream status alongside the error type for API failures', async () => {
             vi.spyOn(catalog, 'getToolByName').mockReturnValue(
                 makeFakeTool('execute-sql', async () => {
