@@ -1096,7 +1096,9 @@ class EverhourSourceConfig(config.Config):
 
 @config.config
 class ExchangeRatesApiSourceConfig(config.Config):
-    pass
+    access_key: str
+    base_currency: str | None = None
+    start_date: str | None = None
 
 
 @config.config

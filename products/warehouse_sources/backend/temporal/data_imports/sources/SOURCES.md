@@ -135,6 +135,7 @@ the row lists both.
 | eventbrite              | HTTP                        | requests                                                        | ✅                          |
 | eventee                 | HTTP                        | requests                                                        | ✅                          |
 | everhour                | HTTP                        | requests                                                        | ✅                          |
+| exchange_rates_api      | HTTP                        | requests                                                        | ✅                          |
 | factorial               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | fillout                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | financial_modelling     | HTTP                        | requests                                                        | ✅                          |
@@ -387,7 +388,6 @@ doesn't conflict with concurrent PRs.
 - employment_hero
 - encharge
 - eventzilla
-- exchange_rates_api
 - expensify
 - ezofficeinventory
 - facebook_pages
