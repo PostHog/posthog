@@ -1,6 +1,6 @@
 {
   "db_name": "PostgreSQL",
-  "query": "\n                SELECT id, team_id, order_key, bytecode, created_at, updated_at\n                FROM posthog_errortrackingsuppressionrule\n                WHERE team_id = $1 AND disabled_data IS NULL AND bytecode IS NOT NULL\n            ",
+  "query": "\n                SELECT id, team_id, order_key, bytecode, created_at, updated_at\n                FROM posthog_errortrackingbypassrule\n                WHERE team_id = $1 AND disabled_data IS NULL AND bytecode IS NOT NULL\n            ",
   "describe": {
     "columns": [
       {
@@ -48,5 +48,5 @@
       false
     ]
   },
-  "hash": "7e6a02ea3ed9fe8421fbacc75df7f2da7dafbb25e75c828d54dafd5ce76a446f"
+  "hash": "65b2f7ee68c56eff74a3ea74e83e447a991530bf90b2341d42ae89fdbc3e7713"
 }

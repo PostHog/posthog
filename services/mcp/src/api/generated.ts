@@ -19081,6 +19081,31 @@ export namespace Schemas {
       version?: number | null;
     }
 
+    export interface ErrorTrackingBypassRule {
+      /** Unique identifier of the bypass rule. */
+      readonly id: string;
+      /** Property-group filters that define which incoming error events bypass rate limiting. */
+      filters: unknown;
+      /** Position of the rule in the team's ordered list. Rules are evaluated greedily in ascending order. */
+      order_key: number;
+      /** Populated when the rule has been automatically disabled (for example, after its filters failed to evaluate during ingestion). Null while the rule is active. */
+      disabled_data: unknown;
+      /** When the rule was created. */
+      readonly created_at: string;
+      /** When the rule was last updated. */
+      readonly updated_at: string;
+    }
+
+    export interface ErrorTrackingBypassRuleCreateRequest {
+      /** Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter — empty rules are rejected. To stop rate limiting entirely, adjust the rate limit settings instead of creating a match-all bypass rule. */
+      filters: PropertyGroupFilterValue;
+    }
+
+    export interface ErrorTrackingBypassRuleUpdateRequest {
+      /** Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter. Omit to preserve the existing filters. */
+      filters?: PropertyGroupFilterValue;
+    }
+
     export interface ErrorTrackingDateRange {
       /** Start of the date range as an ISO timestamp or relative date such as -7d. Defaults to -7d. */
       date_from?: string;
@@ -30718,6 +30743,7 @@ export namespace Schemas {
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
      * * `support_reply` - Support Reply
+     * * `hogdesk` - HogDesk
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -30735,6 +30761,7 @@ export namespace Schemas {
       SignalReport: 'signal_report',
       SignalsScout: 'signals_scout',
       SupportReply: 'support_reply',
+      Hogdesk: 'hogdesk',
     } as const;
 
     /**
@@ -31299,6 +31326,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ErrorTrackingAssignmentRule[];
+    }
+
+    export interface PaginatedErrorTrackingBypassRuleList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ErrorTrackingBypassRule[];
     }
 
     export interface PaginatedErrorTrackingExternalReferenceResultList {
@@ -36769,6 +36805,26 @@ export namespace Schemas {
       assignee?: ErrorTrackingAssignmentRuleAssigneeRequest | null;
     }
 
+    export interface PatchedErrorTrackingBypassRule {
+      /** Unique identifier of the bypass rule. */
+      readonly id?: string;
+      /** Property-group filters that define which incoming error events bypass rate limiting. */
+      filters?: unknown;
+      /** Position of the rule in the team's ordered list. Rules are evaluated greedily in ascending order. */
+      order_key?: number;
+      /** Populated when the rule has been automatically disabled (for example, after its filters failed to evaluate during ingestion). Null while the rule is active. */
+      disabled_data?: unknown;
+      /** When the rule was created. */
+      readonly created_at?: string;
+      /** When the rule was last updated. */
+      readonly updated_at?: string;
+    }
+
+    export interface PatchedErrorTrackingBypassRuleUpdateRequest {
+      /** Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter. Omit to preserve the existing filters. */
+      filters?: PropertyGroupFilterValue;
+    }
+
     /**
      * @nullable
      */
@@ -41481,7 +41537,8 @@ export namespace Schemas {
        * * `posthog_ai` - PostHog AI
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
-       * * `support_reply` - Support Reply */
+       * * `support_reply` - Support Reply
+       * * `hogdesk` - HogDesk */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -52136,7 +52193,8 @@ export namespace Schemas {
        * * `posthog_ai` - PostHog AI
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
-       * * `support_reply` - Support Reply */
+       * * `support_reply` - Support Reply
+       * * `hogdesk` - HogDesk */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -55595,6 +55653,17 @@ export namespace Schemas {
     };
 
     export type EnvironmentsErrorTrackingAssignmentRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsErrorTrackingBypassRulesListParams = {
     /**
      * Number of results to return per page.
      */
@@ -61629,7 +61698,7 @@ export namespace Schemas {
 
     export type EngineeringAnalyticsWorkflowHealthParams = {
     /**
-     * Optional exact git branch (head_branch) to scope workflow health to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
      */
     branch?: string;
     /**
@@ -61674,6 +61743,10 @@ export namespace Schemas {
 
     export type EngineeringAnalyticsWorkflowRunnerCostsParams = {
     /**
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     */
+    branch?: string;
+    /**
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
      */
     date_from?: string;
@@ -61696,6 +61769,10 @@ export namespace Schemas {
     };
 
     export type EngineeringAnalyticsWorkflowRunsParams = {
+    /**
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     */
+    branch?: string;
     /**
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
      */
@@ -61737,6 +61814,17 @@ export namespace Schemas {
     };
 
     export type ErrorTrackingAssignmentRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type ErrorTrackingBypassRulesListParams = {
     /**
      * Number of results to return per page.
      */

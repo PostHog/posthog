@@ -40,7 +40,7 @@
         "@types/supertest": "^6.0.2",
         "supertest": "^7.0.0",
         "typescript": "catalog:",
-        "vitest": "^2.1.9"
+        "vitest": "^4.1.0"
     },
     "engines": {
         "node": ">=24 <25"
