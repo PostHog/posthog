@@ -108,7 +108,7 @@ export const EngineeringAnalyticsSourcesParams = /* @__PURE__ */ zod.object({
 })
 
 /**
- * Per-workflow CI health over a window (default last 24 hours, maximum 366 days): run count, success rate, p50/p95 duration over completed runs, last failure time, latest-run status, and a zero-filled run history bucketed by hour/day/week to fit the window. Optionally scope to a single git branch via `branch`. Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two windows to get a trend.
+ * Per-workflow CI health over a window (default last 24 hours, maximum 366 days): run count, success rate, p50/p95 duration, last failure time, latest-run status, and a zero-filled run history bucketed by hour/day/week to fit the window. By default p50/p95 match legacy behavior over completed runs; pass `duration_filter=successful` for success-only duration percentiles. Optionally scope to a single git branch via `branch`, or to attributed pull-request runs via `run_scope=pull_request`. Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two windows to get a trend.
  */
 export const EngineeringAnalyticsWorkflowHealthParams = /* @__PURE__ */ zod.object({
     project_id: zod
@@ -127,6 +127,18 @@ export const EngineeringAnalyticsWorkflowHealthQueryParams = /* @__PURE__ */ zod
         ),
     date_from: zod.string().optional().describe("Window start: relative ('-24h', '-7d') or ISO8601. Defaults to -24h."),
     date_to: zod.string().optional().describe('Window end: relative or ISO8601. Defaults to now.'),
+    duration_filter: zod
+        .string()
+        .optional()
+        .describe(
+            "Which runs feed p50/p95 duration: 'completed' (default, legacy behavior) includes every completed run; 'successful' includes only completed runs whose conclusion is 'success'. Unknown values fall back to 'completed'."
+        ),
+    run_scope: zod
+        .string()
+        .optional()
+        .describe(
+            "Run scope for workflow health: 'all' (default) includes every run; 'pull_request' includes runs attributed to pull requests and excludes the master branch. Unknown values fall back to 'all'."
+        ),
     source_id: zod
         .string()
         .optional()

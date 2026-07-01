@@ -20,7 +20,9 @@ from products.engineering_analytics.backend.facade.contracts import (
     PRCostSummary,
     PRLifecycle,
     PullRequestList,
+    WorkflowHealthDurationFilter,
     WorkflowHealthItem,
+    WorkflowHealthRunScope,
     WorkflowJob,
     WorkflowRunDetail,
     WorkflowRunnerCost,
@@ -168,17 +170,40 @@ def build_workflow_health(
     date_from: str | None = None,
     date_to: str | None = None,
     branch: str | None = None,
+    run_scope: str | None = None,
+    duration_filter: str | None = None,
 ) -> list[WorkflowHealthItem]:
     parsed_from = _parse_date(curated.team, date_from or _DEFAULT_WORKFLOW_WINDOW)
     parsed_to = _parse_date(curated.team, date_to) if date_to else None
     span_days = ((parsed_to or datetime.now(tz=parsed_from.tzinfo)) - parsed_from).days
     if span_days > _MAX_WINDOW_DAYS:
         raise ValueError(f"date window spans {span_days} days; the maximum is {_MAX_WINDOW_DAYS}")
-    return query_workflow_health(curated=curated, date_from=parsed_from, date_to=parsed_to, branch=branch)
+    return query_workflow_health(
+        curated=curated,
+        date_from=parsed_from,
+        date_to=parsed_to,
+        branch=branch,
+        run_scope=_parse_workflow_health_run_scope(run_scope),
+        duration_filter=_parse_workflow_health_duration_filter(duration_filter),
+    )
 
 
 def _parse_date(team: Team, value: str) -> datetime:
     return relative_date_parse(value, team.timezone_info)
+
+
+def _parse_workflow_health_run_scope(value: str | None) -> WorkflowHealthRunScope:
+    normalized = value.strip().lower() if value else ""
+    if normalized in {"pull_request", "pull-request", "pr", "prs"}:
+        return WorkflowHealthRunScope.PULL_REQUEST
+    return WorkflowHealthRunScope.ALL
+
+
+def _parse_workflow_health_duration_filter(value: str | None) -> WorkflowHealthDurationFilter:
+    normalized = value.strip().lower() if value else ""
+    if normalized in {"successful", "success", "success_only", "success-only"}:
+        return WorkflowHealthDurationFilter.SUCCESSFUL
+    return WorkflowHealthDurationFilter.COMPLETED
 
 
 def _split_repo(repo: str | None) -> tuple[str | None, str | None]:

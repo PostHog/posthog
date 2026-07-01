@@ -71,6 +71,12 @@ def _ago(days: int) -> str:
     return (timezone.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
 
 
+def _ago_with_duration(days: int, duration_seconds: int) -> tuple[str, str]:
+    started_at = timezone.now() - timedelta(days=days)
+    updated_at = started_at + timedelta(seconds=duration_seconds)
+    return started_at.strftime("%Y-%m-%d %H:%M:%S"), updated_at.strftime("%Y-%m-%d %H:%M:%S")
+
+
 def _job_row(
     job_id: int,
     run_id: int,
@@ -704,6 +710,143 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         assert ci.success_rate == 0.5  # 1 success of 2 completed
         assert ci.last_failure_at is not None
         assert ci.billable_minutes is None  # no jobs source seeded → no cost figure
+
+    def test_workflow_health_successful_duration_filter_excludes_cancelled_and_failed_runs(self) -> None:
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(90, "alice", "open", 0, _ago(1), head_sha="sha90")],
+        )
+        rows: list[dict[str, object | None]] = []
+        run_id = 9000
+        for index in range(20):
+            started_at, updated_at = _ago_with_duration(1, 100)
+            rows.append(
+                _run_row(
+                    run_id + index,
+                    "CI",
+                    f"success-{index}",
+                    "completed",
+                    "success",
+                    started_at,
+                    updated_at,
+                    pr_number=90,
+                    head_branch="feature/ci",
+                )
+            )
+        run_id += 20
+        for index in range(40):
+            started_at, updated_at = _ago_with_duration(1, 1)
+            rows.append(
+                _run_row(
+                    run_id + index,
+                    "CI",
+                    f"cancelled-{index}",
+                    "completed",
+                    "cancelled",
+                    started_at,
+                    updated_at,
+                    pr_number=90,
+                    head_branch="feature/ci",
+                )
+            )
+        run_id += 40
+        for index in range(10):
+            started_at, updated_at = _ago_with_duration(1, 1000)
+            rows.append(
+                _run_row(
+                    run_id + index,
+                    "CI",
+                    f"failed-{index}",
+                    "completed",
+                    "failure",
+                    started_at,
+                    updated_at,
+                    pr_number=90,
+                    head_branch="feature/ci",
+                )
+            )
+        self._create_table("github_workflow_runs", _WORKFLOW_RUNS_COLUMNS, rows)
+
+        legacy = next(
+            item for item in api.list_workflow_health(team=self.team, date_from="-30d") if item.workflow_name == "CI"
+        )
+        explicit_legacy = next(
+            item
+            for item in api.list_workflow_health(team=self.team, date_from="-30d", duration_filter="completed")
+            if item.workflow_name == "CI"
+        )
+        successful = next(
+            item
+            for item in api.list_workflow_health(team=self.team, date_from="-30d", duration_filter="successful")
+            if item.workflow_name == "CI"
+        )
+
+        assert (legacy.p50_seconds, legacy.p95_seconds) == (explicit_legacy.p50_seconds, explicit_legacy.p95_seconds)
+        assert successful.run_count == legacy.run_count == 70
+        assert successful.success_rate == pytest.approx(20 / 70)
+        assert successful.p50_seconds == pytest.approx(100)
+        assert successful.p95_seconds == pytest.approx(100)
+        assert legacy.p50_seconds != successful.p50_seconds
+        assert legacy.p95_seconds != successful.p95_seconds
+
+    def test_workflow_health_pull_request_scope_excludes_master_and_unattributed_runs(self) -> None:
+        self._create_table(
+            "github_pull_requests",
+            _PULL_REQUESTS_COLUMNS,
+            [_pr_row(91, "alice", "open", 0, _ago(1), head_sha="sha91")],
+        )
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
+                _run_row(
+                    9101,
+                    "CI",
+                    "sha-pr",
+                    "completed",
+                    "success",
+                    _ago(1),
+                    _ago(1),
+                    pr_number=91,
+                    head_branch="feature/pr",
+                ),
+                _run_row(9102, "CI", "sha-master", "completed", "success", _ago(1), _ago(1), head_branch="master"),
+                _run_row(
+                    9103,
+                    "CI",
+                    "sha-master-pr",
+                    "completed",
+                    "success",
+                    _ago(1),
+                    _ago(1),
+                    pr_number=91,
+                    head_branch="master",
+                ),
+                _run_row(
+                    9104,
+                    "CI",
+                    "sha-branch",
+                    "completed",
+                    "success",
+                    _ago(1),
+                    _ago(1),
+                    head_branch="feature/no-pr",
+                ),
+            ],
+        )
+
+        legacy = next(
+            item for item in api.list_workflow_health(team=self.team, date_from="-30d") if item.workflow_name == "CI"
+        )
+        pull_request = next(
+            item
+            for item in api.list_workflow_health(team=self.team, date_from="-30d", run_scope="pull_request")
+            if item.workflow_name == "CI"
+        )
+
+        assert legacy.run_count == 4
+        assert pull_request.run_count == 1
 
     def test_workflow_health_includes_cost_when_jobs_synced(self) -> None:
         # With the jobs source synced, each workflow carries its windowed billable cost + minutes.

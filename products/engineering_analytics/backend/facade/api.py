@@ -5,15 +5,16 @@ runtime PR/CI analytics. Public functions take a team plus PostHog-convention
 parameters and return canonical contract types.
 
 ``repo`` is an optional ``owner/name`` filter, applied against the curated repo
-identity (mapped from ``base.repo.full_name``). ``branch`` is an optional exact
-``head_branch`` filter for workflow health. ``date_from`` / ``date_to`` accept
-relative strings (``-30d``) or ISO8601 and are resolved against the team timezone.
-``source_id`` selects a specific connected GitHub source when the team has more than
-one; it defaults to the oldest connected source. ``user_access_control`` enforces the
-requesting user's per-source warehouse access (pass the request's; ``None`` for system
-contexts). Each function resolves the team's authorized curated read handle once, here,
-then delegates to the read layer — source selection and access control live in this layer,
-not in the query builders below it.
+identity (mapped from ``base.repo.full_name``). Workflow health can take an exact
+``head_branch`` filter, a broader ``run_scope`` filter, and a ``duration_filter``
+for p50/p95 population. ``date_from`` / ``date_to`` accept relative strings (``-30d``)
+or ISO8601 and are resolved against the team timezone. ``source_id`` selects a specific
+connected GitHub source when the team has more than one; it defaults to the oldest
+connected source. ``user_access_control`` enforces the requesting user's per-source
+warehouse access (pass the request's; ``None`` for system contexts). Each function
+resolves the team's authorized curated read handle once, here, then delegates to the
+read layer — source selection and access control live in this layer, not in the query
+builders below it.
 """
 
 from typing import TYPE_CHECKING
@@ -192,6 +193,8 @@ def list_workflow_health(
     date_from: str | None = None,
     date_to: str | None = None,
     branch: str | None = None,
+    run_scope: str | None = None,
+    duration_filter: str | None = None,
     source_id: str | None = None,
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[WorkflowHealthItem]:
@@ -200,6 +203,8 @@ def list_workflow_health(
         date_from=date_from,
         date_to=date_to,
         branch=branch,
+        run_scope=run_scope,
+        duration_filter=duration_filter,
     )
 
 

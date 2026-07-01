@@ -175,6 +175,12 @@ const WorkflowHealthSchema = EngineeringAnalyticsWorkflowHealthQueryParams.exten
     date_to: EngineeringAnalyticsWorkflowHealthQueryParams.shape['date_to'].describe(
         'Window end — relative or ISO8601. Defaults to now.'
     ),
+    run_scope: EngineeringAnalyticsWorkflowHealthQueryParams.shape['run_scope'].describe(
+        'Run scope. Use "pull_request" for PR/non-master CI runs; omit or pass "all" for the legacy all-branches scope. Unknown values fall back to "all".'
+    ),
+    duration_filter: EngineeringAnalyticsWorkflowHealthQueryParams.shape['duration_filter'].describe(
+        'Which runs feed p50/p95. Use "successful" for success-only duration percentiles; omit or pass "completed" for the legacy completed-run percentile. Unknown values fall back to "completed".'
+    ),
 })
 
 const workflowHealth = (): ToolBase<typeof WorkflowHealthSchema, WithPostHogUrl<Schemas.WorkflowHealthItem[]>> => ({
@@ -189,6 +195,8 @@ const workflowHealth = (): ToolBase<typeof WorkflowHealthSchema, WithPostHogUrl<
                 branch: params.branch,
                 date_from: params.date_from,
                 date_to: params.date_to,
+                duration_filter: params.duration_filter,
+                run_scope: params.run_scope,
                 source_id: params.source_id,
             },
         })

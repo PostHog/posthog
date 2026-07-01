@@ -84,6 +84,16 @@ class MetricQuality(StrEnum):
     PARTIAL = "partial"
 
 
+class WorkflowHealthRunScope(StrEnum):
+    ALL = "all"
+    PULL_REQUEST = "pull_request"
+
+
+class WorkflowHealthDurationFilter(StrEnum):
+    COMPLETED = "completed"
+    SUCCESSFUL = "successful"
+
+
 class PRLifecycleEventKind(StrEnum):
     OPENED = "opened"
     CI_STARTED = "ci_started"

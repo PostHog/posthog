@@ -80,6 +80,25 @@ _BRANCH = OpenApiParameter(
     "Omit or leave blank to aggregate across all branches.",
 )
 
+_RUN_SCOPE = OpenApiParameter(
+    name="run_scope",
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description="Run scope for workflow health: 'all' (default) includes every run; 'pull_request' includes runs "
+    "attributed to pull requests and excludes the master branch. Unknown values fall back to 'all'.",
+)
+
+_DURATION_FILTER = OpenApiParameter(
+    name="duration_filter",
+    type=OpenApiTypes.STR,
+    location=OpenApiParameter.QUERY,
+    required=False,
+    description="Which runs feed p50/p95 duration: 'completed' (default, legacy behavior) includes every completed "
+    "run; 'successful' includes only completed runs whose conclusion is 'success'. Unknown values fall back to "
+    "'completed'.",
+)
+
 _SOURCE_ID = OpenApiParameter(
     name="source_id",
     type=OpenApiTypes.UUID,
@@ -228,7 +247,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
 
     @extend_schema(
         operation_id="engineering_analytics_workflow_health",
-        parameters=[_WORKFLOW_DATE_FROM, _DATE_TO, _BRANCH, _SOURCE_ID],
+        parameters=[_WORKFLOW_DATE_FROM, _DATE_TO, _BRANCH, _RUN_SCOPE, _DURATION_FILTER, _SOURCE_ID],
         responses={
             200: WorkflowHealthItemSerializer(many=True),
             400: OpenApiResponse(
@@ -237,10 +256,11 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         },
         description=(
             "Per-workflow CI health over a window (default last 24 hours, maximum 366 days): run count, success "
-            "rate, p50/p95 duration over completed runs, last failure time, latest-run status, and a zero-filled "
-            "run history bucketed by hour/day/week to fit the window. Optionally scope to a single git branch via "
-            "`branch`. Use this for 'is CI getting slower' and 'which workflow is the long pole'; compare two "
-            "windows to get a trend."
+            "rate, p50/p95 duration, last failure time, latest-run status, and a zero-filled run history bucketed "
+            "by hour/day/week to fit the window. By default p50/p95 match legacy behavior over completed runs; pass "
+            "`duration_filter=successful` for success-only duration percentiles. Optionally scope to a single git "
+            "branch via `branch`, or to attributed pull-request runs via `run_scope=pull_request`. Use this for "
+            "'is CI getting slower' and 'which workflow is the long pole'; compare two windows to get a trend."
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)
@@ -251,6 +271,8 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 date_from=request.query_params.get("date_from") or None,
                 date_to=request.query_params.get("date_to") or None,
                 branch=request.query_params.get("branch") or None,
+                run_scope=request.query_params.get("run_scope") or None,
+                duration_filter=request.query_params.get("duration_filter") or None,
                 source_id=request.query_params.get("source_id") or None,
                 user_access_control=self.user_access_control,
             )

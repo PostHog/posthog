@@ -53298,12 +53298,12 @@ export namespace Schemas {
          */
       success_rate: number | null;
       /**
-         * Median duration of completed runs, in seconds. Null if none completed.
+         * Median duration in seconds for the selected duration population: completed runs by default, or successful runs when requested. Null if no selected run has a duration.
          * @nullable
          */
       p50_seconds: number | null;
       /**
-         * 95th-percentile duration of completed runs, in seconds. Null if none completed.
+         * 95th-percentile duration in seconds for the selected duration population: completed runs by default, or successful runs when requested. Null if no selected run has a duration.
          * @nullable
          */
       p95_seconds: number | null;
@@ -61640,6 +61640,14 @@ export namespace Schemas {
      * Window end: relative or ISO8601. Defaults to now.
      */
     date_to?: string;
+    /**
+     * Which runs feed p50/p95 duration: 'completed' (default, legacy behavior) includes every completed run; 'successful' includes only completed runs whose conclusion is 'success'. Unknown values fall back to 'completed'.
+     */
+    duration_filter?: string;
+    /**
+     * Run scope for workflow health: 'all' (default) includes every run; 'pull_request' includes runs attributed to pull requests and excludes the master branch. Unknown values fall back to 'all'.
+     */
+    run_scope?: string;
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */

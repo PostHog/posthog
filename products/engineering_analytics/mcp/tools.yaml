@@ -168,11 +168,21 @@ tools:
         description: >
             Per-workflow CI health over a window: run count, success rate, p50/p95 duration, and last failure time. Use
             this for "is CI getting faster or slower", "which GitHub Actions workflow is the slow or flaky long pole",
-            and CI duration trends. Rates and percentiles are over completed runs only and are null for a window with no
-            completed runs; to get a trend, call this over two adjacent windows and compare.
+            and CI duration trends. By default p50/p95 match the legacy completed-run percentile, which includes
+            cancelled/skipped completed runs. For honest PR-branch CI duration, pass run_scope=pull_request and
+            duration_filter=successful so superseded cancels and failed runs do not bias the percentile. To get a
+            trend, call this over two adjacent windows and compare.
         param_overrides:
             date_from:
                 description: Window start — relative ('-24h', '-7d') or ISO8601. Defaults to -24h.
             date_to:
                 description: Window end — relative or ISO8601. Defaults to now.
+            run_scope:
+                description: >
+                    Run scope. Use "pull_request" for PR/non-master CI runs; omit or pass "all" for the legacy
+                    all-branches scope. Unknown values fall back to "all".
+            duration_filter:
+                description: >
+                    Which runs feed p50/p95. Use "successful" for success-only duration percentiles; omit or pass
+                    "completed" for the legacy completed-run percentile. Unknown values fall back to "completed".
         url_prefix: /engineering-analytics/workflows
