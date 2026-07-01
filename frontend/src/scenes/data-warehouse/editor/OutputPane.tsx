@@ -1040,6 +1040,28 @@ const ErrorState = ({ responseError, sourceQuery, queryCancelled, response }: an
     )
 }
 
+const EmptyResultsState = (): JSX.Element => {
+    return (
+        <div
+            className="flex flex-1 flex-col justify-center items-center border-t px-4 py-6 gap-3 text-center"
+            data-attr="sql-editor-output-pane-no-rows-state"
+        >
+            <span className="font-semibold">Your query ran successfully but returned no rows</span>
+            <div className="text-secondary max-w-xl flex flex-col gap-2">
+                <span>A few things worth checking:</span>
+                <ul className="list-disc text-left pl-5 space-y-1">
+                    <li>Make sure the event or table name is spelled exactly right</li>
+                    <li>Widen your date range — the rows you're after may fall outside it</li>
+                    <li>
+                        Querying a warehouse source? Confirm it's{' '}
+                        <Link to={urls.sources()}>connected and synced</Link>.
+                    </li>
+                </ul>
+            </div>
+        </div>
+    )
+}
+
 const Content = ({
     activeTab,
     responseError,
@@ -1192,15 +1214,19 @@ const Content = ({
         return (
             <div className="flex flex-col flex-1 min-h-0 w-full overflow-hidden">
                 <SyncWarningsBanner warnings={response?.warnings} />
-                <TabScroller data-attr="sql-editor-output-pane-results">
-                    <DataGrid
-                        className={clsx(isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full', 'ph-no-capture')}
-                        columns={columns}
-                        rows={sortedRows}
-                        sortColumns={sortColumns}
-                        onSortColumnsChange={setSortColumns}
-                    />
-                </TabScroller>
+                {rows.length === 0 ? (
+                    <EmptyResultsState />
+                ) : (
+                    <TabScroller data-attr="sql-editor-output-pane-results">
+                        <DataGrid
+                            className={clsx(isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full', 'ph-no-capture')}
+                            columns={columns}
+                            rows={sortedRows}
+                            sortColumns={sortColumns}
+                            onSortColumnsChange={setSortColumns}
+                        />
+                    </TabScroller>
+                )}
             </div>
         )
     }
