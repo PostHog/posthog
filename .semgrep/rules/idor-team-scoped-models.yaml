@@ -92,6 +92,7 @@ rules:
                               |CustomerProfileConfig
                               |CustomOAuth2Integration
                               |CustomPropertyDefinition
+                              |CustomPropertySource
                               |CustomPropertyValue
                               |DAG
                               |Dashboard
@@ -122,6 +123,7 @@ rules:
                               |EnterprisePropertyDefinition
                               |EventFilterConfig
                               |ErrorTrackingAssignmentRule
+                              |ErrorTrackingBypassRule
                               |ErrorTrackingGroupingRule
                               |ErrorTrackingIssue
                               |ErrorTrackingIssueFingerprintV2
@@ -363,6 +365,7 @@ rules:
                         |CustomerProfileConfig
                         |CustomOAuth2Integration
                         |CustomPropertyDefinition
+                        |CustomPropertySource
                         |CustomPropertyValue
                         |DAG
                         |Dashboard
@@ -393,6 +396,7 @@ rules:
                         |EnterprisePropertyDefinition
                         |EventFilterConfig
                         |ErrorTrackingAssignmentRule
+                        |ErrorTrackingBypassRule
                         |ErrorTrackingGroupingRule
                         |ErrorTrackingIssue
                         |ErrorTrackingIssueFingerprintV2
