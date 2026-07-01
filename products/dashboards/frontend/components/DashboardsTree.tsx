@@ -79,13 +79,19 @@ export function DashboardsTree(): JSX.Element {
     const allExpanded = expandablePaths.length > 0 && expandablePaths.every((id) => expandedFolders[id])
 
     return (
-        <div className="grid grid-cols-[260px_1fr] gap-4" data-attr="dashboards-tree">
-            <div className="flex flex-col border-r border-border pr-2" aria-label="Folder tree">
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-[260px_1fr]" data-attr="dashboards-tree">
+            <div
+                className="flex flex-col border-b border-border pb-2 md:border-b-0 md:border-r md:pb-0 md:pr-2"
+                aria-label="Folder tree"
+            >
                 {/* LemonTree drops its own className, so the override lives on this wrapper instead. Every
                     open/expanded accordion trigger is shaded with the tertiary-active fill, which made all
                     expanded folders look selected; null that fill out via the CSS variable (cascades to all
                     rows) and re-apply it only to the actively-selected folder. */}
-                <div className="dashboards-tree-panel flex-1 min-h-0 [--color-bg-fill-button-tertiary-active:transparent] [&_.button-primitive--active]:!bg-[var(--color-bg-fill-highlight-50)]">
+                {/* On mobile the tree stacks above the table, so cap its height and let it scroll — otherwise a
+                    project with many folders pushes the dashboards list far below the fold. Reset at md+ where the
+                    panel sits beside the table. */}
+                <div className="dashboards-tree-panel flex-1 min-h-0 max-h-[40vh] overflow-y-auto md:max-h-none md:overflow-visible [--color-bg-fill-button-tertiary-active:transparent] [&_.button-primitive--active]:!bg-[var(--color-bg-fill-highlight-50)]">
                     <LemonTree
                         data={treeData}
                         expandedItemIds={expandedItemIds}
