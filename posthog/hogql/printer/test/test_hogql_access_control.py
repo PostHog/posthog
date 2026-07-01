@@ -472,11 +472,15 @@ class TestWarehouseTableAccessControl(BaseTest):
         assert "denied_table" not in database._denied_tables
         assert "allowed_table" not in database._denied_tables
 
-    def test_no_user_fails_closed_for_warehouse_tables(self):
+    def test_no_user_denies_only_governed_warehouse_tables(self):
+        # Userless/fail-closed applies only to a table governed by a rule. A table with no rule uses the
+        # permissive default, so principal-less paths (shared insights, cache warming, exports) resolve it.
+        self._create_ac(resource="warehouse_table", resource_id=str(self.denied_table.id), access_level="none")
+
         database = Database.create_for(team=self.team, user=None)
 
         assert "denied_table" in database._denied_tables
-        assert "allowed_table" in database._denied_tables
+        assert "allowed_table" not in database._denied_tables
 
     def test_bypass_warehouse_access_control_skips_warehouse_acl(self):
         self._create_ac(
@@ -732,11 +736,15 @@ class TestWarehouseViewAccessControl(BaseTest):
         assert "denied_view" in database._denied_tables
         assert "allowed_view" in database._denied_tables
 
-    def test_no_user_fails_closed_for_warehouse_views(self):
+    def test_no_user_denies_only_governed_warehouse_views(self):
+        # Userless/fail-closed applies only to a view governed by a rule. A view with no rule uses the
+        # permissive default, so principal-less paths (shared insights, cache warming, exports) resolve it.
+        self._create_ac(resource="warehouse_view", resource_id=str(self.denied_view.id), access_level="none")
+
         database = Database.create_for(team=self.team, user=None)
 
         assert "denied_view" in database._denied_tables
-        assert "allowed_view" in database._denied_tables
+        assert "allowed_view" not in database._denied_tables
 
     def test_bypass_warehouse_access_control_skips_warehouse_view_acl(self):
         self._create_ac(

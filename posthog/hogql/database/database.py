@@ -152,6 +152,7 @@ from posthog.models.team.team import Team, WeekStartDay
 from posthog.ph_client import feature_enabled_or_false
 from posthog.rbac.user_access_control import NO_ACCESS_LEVEL, UserAccessControl
 from posthog.schema_enums import DatabaseSerializedFieldType, PersonsOnEventsMode, SessionTableVersion
+from posthog.settings import EE_AVAILABLE
 from posthog.synthetic_user import SyntheticUser
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
@@ -216,6 +217,9 @@ class HogQLDatabaseSources:
     # Access-control decision, computed from a warmed UserAccessControl so build does no AC queries.
     user_access_control: Optional["UserAccessControl"]
     denied_system_table_names: set[str]  # node names under the "system" node to remove during build
+    # Warehouse resources/objects with an access-control rule; ungoverned objects are never denied.
+    governed_warehouse_resources: set[str]
+    governed_warehouse_object_ids: set[str]
     group_types: list[dict[str, Any]]
     saved_queries: list["DataWarehouseSavedQuery"]
     endpoint_saved_queries: list["DataWarehouseSavedQuery"]
@@ -478,6 +482,36 @@ def _compute_system_table_access_decision(
     return user_access_control, denied
 
 
+def _compute_governed_warehouse_objects(team: "Team") -> tuple[set[str], set[str]]:
+    """Warehouse resources/objects that carry an explicit access-control rule.
+
+    A warehouse table/view with no access-control rule resolves to the permissive default level
+    (`editor`), so it is accessible to everyone and must never be denied - not even in a userless /
+    fail-closed context (shared insights, cache warming, exports). Only objects that are actually
+    governed by a rule go through the per-principal access check.
+
+    Returns (resources_with_a_resource_wide_rule, governed_object_ids). A resource-wide rule
+    (resource_id IS NULL) governs every object of that resource.
+    """
+    if not EE_AVAILABLE:
+        return set(), set()
+
+    from ee.models.rbac.access_control import AccessControl  # noqa: PLC0415 — EE-only model, keep off import path
+
+    # "warehouse_objects" is the inheritance parent of both warehouse_table and warehouse_view, so a rule
+    # on it governs every warehouse object (see RESOURCE_INHERITANCE in user_access_control).
+    resources_with_rule: set[str] = set()
+    governed_object_ids: set[str] = set()
+    for resource, resource_id in AccessControl.objects.filter(
+        team_id=team.pk, resource__in=["warehouse_table", "warehouse_view", "warehouse_objects"]
+    ).values_list("resource", "resource_id"):
+        if resource_id is None:
+            resources_with_rule.add(resource)
+        else:
+            governed_object_ids.add(resource_id)
+    return resources_with_rule, governed_object_ids
+
+
 class Database(BaseModel):
     model_config = ConfigDict(extra="allow")
 
@@ -488,6 +522,10 @@ class Database(BaseModel):
     _warehouse_self_managed_table_names: list[str] = []
     _view_table_names: list[str] = []
     _denied_tables: set[str] = set()  # Tables user doesn't have permission to access
+    # Warehouse resources/objects that carry an access-control rule. Objects absent from both use the
+    # permissive default level and are never denied (see _compute_governed_warehouse_objects).
+    _governed_warehouse_resources: set[str] = set()
+    _governed_warehouse_object_ids: set[str] = set()
     _connection_id: str | None = None
     _direct_connection_metadata: dict[str, Any] | None = None
     _direct_access_warehouse_table_names: set[str] = set()
@@ -515,6 +553,8 @@ class Database(BaseModel):
         self._warehouse_self_managed_table_names = []
         self._view_table_names = []
         self._denied_tables = set()
+        self._governed_warehouse_resources = set()
+        self._governed_warehouse_object_ids = set()
         self._connection_id = None
         self._direct_connection_metadata = None
         self._direct_access_warehouse_table_names = set()
@@ -761,11 +801,28 @@ class Database(BaseModel):
 
         self._denied_tables = {f"system.{name}" for name in removed}
 
+    def _is_warehouse_object_governed(self, resource: str, object_id: Any) -> bool:
+        """True if this warehouse table/view is subject to any access-control rule.
+
+        Objects with no rule resolve to the permissive default level and are accessible to everyone,
+        so they are never denied - not even userless. Only governed objects hit the access check.
+        A rule on the "warehouse_objects" inheritance parent governs every warehouse object.
+        """
+        return (
+            resource in self._governed_warehouse_resources
+            or "warehouse_objects" in self._governed_warehouse_resources
+            or str(object_id) in self._governed_warehouse_object_ids
+        )
+
     def _is_warehouse_table_denied(self, table: "DataWarehouseTable") -> bool:
         """
         Returns True if the user can't query this warehouse table.
-        Userless context (no UserAccessControl) fails closed - every table is denied.
+        An ungoverned table (no access-control rule) uses the permissive default and is always allowed.
+        For a governed table a userless context (no UserAccessControl) fails closed.
         """
+        if not self._is_warehouse_object_governed("warehouse_table", table.id):
+            return False
+
         uac = self.user_access_control
         if uac is not None and (
             uac.is_organization_admin or uac.check_access_level_for_object(table, required_level="viewer")
@@ -784,8 +841,12 @@ class Database(BaseModel):
         View counterpart of `_is_warehouse_table_denied`.
         Closes the gap where a user denied access to a warehouse table could otherwise SELECT
         through a non-materialized view that references it.
-        Userless context (no UserAccessControl) fails closed - every view is denied.
+        An ungoverned view (no access-control rule) uses the permissive default and is always allowed.
+        For a governed view a userless context (no UserAccessControl) fails closed.
         """
+        if not self._is_warehouse_object_governed("warehouse_view", saved_query.id):
+            return False
+
         uac = self.user_access_control
         if uac is not None and (
             uac.is_organization_admin or uac.check_access_level_for_object(saved_query, required_level="viewer")
@@ -1164,6 +1225,14 @@ class Database(BaseModel):
             send_feature_flag_events=False,
         )
 
+        # Only objects with an explicit access-control rule are subject to denial; everything else uses
+        # the permissive default. Fetched here (behind the flag) so the build phase stays query-free.
+        governed_warehouse_resources: set[str] = set()
+        governed_warehouse_object_ids: set[str] = set()
+        if is_hogql_warehouse_access_control_enabled and not bypass_warehouse_access_control:
+            with timings.measure("warehouse_access_governance", emit_span=True):
+                governed_warehouse_resources, governed_warehouse_object_ids = _compute_governed_warehouse_objects(team)
+
         with timings.measure("modifiers", emit_span=True):
             modifiers = create_default_modifiers_for_team(team, modifiers)
 
@@ -1311,6 +1380,8 @@ class Database(BaseModel):
             direct_connection_metadata=direct_connection_metadata,
             user_access_control=user_access_control,
             denied_system_table_names=denied_system_table_names,
+            governed_warehouse_resources=governed_warehouse_resources,
+            governed_warehouse_object_ids=governed_warehouse_object_ids,
             group_types=group_types,
             saved_queries=saved_queries,
             endpoint_saved_queries=endpoint_saved_queries,
@@ -1348,6 +1419,8 @@ class Database(BaseModel):
 
         with timings.measure("filter_system_tables_for_user", emit_span=True):
             database._apply_system_table_access(sources.user_access_control, sources.denied_system_table_names)
+            database._governed_warehouse_resources = sources.governed_warehouse_resources
+            database._governed_warehouse_object_ids = sources.governed_warehouse_object_ids
 
         with timings.measure("modifiers", emit_span=True):
             if not database._is_direct_query():
