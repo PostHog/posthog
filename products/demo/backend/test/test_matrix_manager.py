@@ -6,9 +6,10 @@ from zoneinfo import ZoneInfo
 from posthog.test.base import ClickhouseDestroyTablesMixin
 
 from posthog.clickhouse.client import sync_execute
-from posthog.demo.matrix.manager import MatrixManager
-from posthog.demo.matrix.matrix import Cluster, Matrix
-from posthog.demo.matrix.models import SimPerson, SimSessionIntent
+
+from products.demo.backend.logic.matrix.manager import MatrixManager
+from products.demo.backend.logic.matrix.matrix import Cluster, Matrix
+from products.demo.backend.logic.matrix.models import SimPerson, SimSessionIntent
 
 
 class DummySessionIntent(SimSessionIntent):

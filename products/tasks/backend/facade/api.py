@@ -3331,7 +3331,10 @@ def run_task(
         prev_state = parse_run_state(previous_run.state)
         extra_state = extra_state or {}
         extra_state["resume_from_run_id"] = str(resume_from_run_id)
-        if prev_state.snapshot_external_id:
+        # An unusable directory snapshot (see RunState.resume_snapshot_is_usable) must not be
+        # carried into the new run's state — the stripped mount path would get re-defaulted
+        # downstream and mount mismatched content.
+        if prev_state.snapshot_external_id and prev_state.resume_snapshot_is_usable():
             extra_state["snapshot_external_id"] = prev_state.snapshot_external_id
             extra_state["snapshot_kind"] = prev_state.resume_snapshot_kind()
             snapshot_mount_path = prev_state.resume_snapshot_mount_path()

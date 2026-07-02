@@ -9,7 +9,7 @@ import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import { inboxReportDetailLogic, ReportTaskEntry } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
-import { RightColumnSection } from './DetailSection'
+import { DetailSection } from './DetailSection'
 import { TaskRunStatusDot } from './taskRunDisplay'
 
 /**
@@ -24,12 +24,12 @@ export function ReportTasksSection({ report }: { report: SignalReport }): JSX.El
 
     if (reportTasksLoading && !reportTasks) {
         return (
-            <RightColumnSection icon={<IconTerminal />} title="Runs">
+            <DetailSection icon={<IconTerminal />} title="Runs">
                 <div className="flex items-center gap-2 text-xs text-tertiary py-1">
                     <Spinner className="size-3" />
                     Loading runs…
                 </div>
-            </RightColumnSection>
+            </DetailSection>
         )
     }
 
@@ -38,13 +38,13 @@ export function ReportTasksSection({ report }: { report: SignalReport }): JSX.El
     }
 
     return (
-        <RightColumnSection icon={<IconTerminal />} title="Runs">
+        <DetailSection icon={<IconTerminal />} title="Runs">
             <div className="flex flex-col gap-0.5">
                 {reportTasks.map((entry: ReportTaskEntry) => (
                     <TaskRow key={entry.task.id} entry={entry} reportId={report.id} report={report} />
                 ))}
             </div>
-        </RightColumnSection>
+        </DetailSection>
     )
 }
 
