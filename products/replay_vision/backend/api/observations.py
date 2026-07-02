@@ -600,4 +600,4 @@ class SessionReplayObservationViewSet(ReplayObservationViewSet):
         if getattr(settings, "SERVER_GATEWAY_INTERFACE", "ASGI") != "ASGI":
             raise RuntimeError("observation progress stream requires ASGI.")
         observation = self.get_object()
-        return sse_streaming_response(stream_observation_progress(observation))
+        return sse_streaming_response(stream_observation_progress(observation), endpoint="replay_vision_observation")
