@@ -72,6 +72,8 @@ export function AccountNotesTabContent(): JSX.Element {
                 placeholder="Search notes"
                 onChange={setSearch}
                 value={search}
+                size="small"
+                className="min-w-64"
                 data-attr="account-notes-search"
             />
             <LemonTable
