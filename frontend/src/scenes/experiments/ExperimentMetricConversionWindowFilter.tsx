@@ -74,9 +74,20 @@ export function ExperimentMetricConversionWindowFilter({
                             fullWidth={false}
                             min={intervalBounds[0]}
                             max={intervalBounds[1]}
-                            value={metric.conversion_window || 1}
+                            // Allow the field to be cleared while editing instead of snapping back to 1
+                            value={metric.conversion_window}
+                            status={metric.conversion_window == null ? 'danger' : 'default'}
                             onChange={(value) => {
-                                handleSetMetric({ ...metric, conversion_window: value || undefined })
+                                handleSetMetric({
+                                    ...metric,
+                                    conversion_window: value == null || isNaN(value) ? undefined : value,
+                                })
+                            }}
+                            // Never persist a blank window: restore the minimum valid value on blur
+                            onBlur={() => {
+                                if (metric.conversion_window == null) {
+                                    handleSetMetric({ ...metric, conversion_window: intervalBounds[0] })
+                                }
                             }}
                         />
                         <LemonSelect
