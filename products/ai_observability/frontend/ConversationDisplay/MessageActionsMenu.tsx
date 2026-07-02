@@ -8,7 +8,7 @@ import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { sidePanelStateLogic } from '~/layout/navigation/sidepanel/sidePanelStateLogic'
 import { AccessControlLevel, AccessControlResourceType, ActivityScope, SidePanelTab } from '~/types'
 
 import { messageActionsMenuLogic } from './messageActionsMenuLogic'

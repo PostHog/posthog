@@ -12,7 +12,7 @@ import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { maxGlobalLogic } from 'scenes/max/maxGlobalLogic'
 import { urls } from 'scenes/urls'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { sidePanelStateLogic } from '~/layout/navigation/sidepanel/sidePanelStateLogic'
 import {
     AccessControlLevel,
     AccessControlResourceType,

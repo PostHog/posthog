@@ -11,7 +11,7 @@ import { execHog } from 'lib/hog'
 import { lightenDarkenColor } from 'lib/utils/colors'
 import { InsightEmptyState, InsightErrorState } from 'scenes/insights/EmptyStates'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 import { DataVisualizationNode, HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 

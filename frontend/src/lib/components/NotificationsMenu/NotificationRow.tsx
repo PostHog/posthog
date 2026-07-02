@@ -9,7 +9,7 @@ import { useAutoMarkRead } from 'lib/components/NotificationsMenu/useAutoMarkRea
 import { dayjs } from 'lib/dayjs'
 import { IconOpenInNew, IconRadioButtonUnchecked } from 'lib/lemon-ui/icons'
 
-import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
+import { sidePanelNotificationsLogic } from '~/layout/navigation/sidepanel/panels/activity/sidePanelNotificationsLogic'
 import { InAppNotification } from '~/types'
 
 export const REALTIME_NOTIFICATION_TYPE_META: Record<string, { label: string; description: string }> = {

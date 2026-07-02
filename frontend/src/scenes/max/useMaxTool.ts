@@ -3,7 +3,7 @@ import React, { useEffect, useMemo, useRef } from 'react'
 
 import { IconWrench } from '@posthog/icons'
 
-import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import { sidePanelLogic } from '~/layout/navigation/sidepanel/sidePanelLogic'
 import { SidePanelTab } from '~/types'
 
 import { ToolDefinition, ToolRegistration, getToolDefinition } from './max-constants'

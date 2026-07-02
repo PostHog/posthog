@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 
 /**
  * @deprecated

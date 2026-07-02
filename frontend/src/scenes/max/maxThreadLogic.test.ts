@@ -16,7 +16,7 @@ import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { sidePanelStateLogic } from '~/layout/navigation/sidepanel/sidePanelStateLogic'
 import { useMocks } from '~/mocks/jest'
 import * as notebooksModel from '~/models/notebooksModel'
 import {

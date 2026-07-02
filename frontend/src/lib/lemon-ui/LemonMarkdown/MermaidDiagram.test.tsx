@@ -6,7 +6,7 @@ jest.mock('kea', () => ({
     useValues: () => ({ isDarkModeOn: false }),
 }))
 
-jest.mock('~/layout/navigation-3000/themeLogic', () => ({
+jest.mock('~/layout/navigation/themeLogic', () => ({
     themeLogic: { values: {} },
 }))
 

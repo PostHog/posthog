@@ -4,7 +4,7 @@ import { useEffect } from 'react'
 
 import { sceneLogic } from 'scenes/sceneLogic'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 
 export function useThemedHtml(overflowHidden = true, forcedTheme: 'light' | 'dark' | null = null): void {
     const { isDarkModeOn, customCss } = useValues(themeLogic)

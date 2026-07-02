@@ -10,7 +10,7 @@ import { membersLogic } from 'scenes/organization/membersLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { sidePanelDiscussionLogic } from '~/layout/navigation-3000/sidepanel/panels/discussion/sidePanelDiscussionLogic'
+import { sidePanelDiscussionLogic } from '~/layout/navigation/sidepanel/panels/discussion/sidePanelDiscussionLogic'
 import { CommentType } from '~/types'
 
 import type { commentsLogicType } from './commentsLogicType'

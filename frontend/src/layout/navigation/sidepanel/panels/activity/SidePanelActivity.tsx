@@ -20,9 +20,9 @@ import { userLogic } from 'scenes/userLogic'
 import {
     SidePanelActivityTab,
     sidePanelActivityLogic,
-} from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelActivityLogic'
-import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+} from '~/layout/navigation/sidepanel/panels/activity/sidePanelActivityLogic'
+import { sidePanelNotificationsLogic } from '~/layout/navigation/sidepanel/panels/activity/sidePanelNotificationsLogic'
+import { sidePanelStateLogic } from '~/layout/navigation/sidepanel/sidePanelStateLogic'
 import {
     AccessControlLevel,
     AccessControlResourceType,

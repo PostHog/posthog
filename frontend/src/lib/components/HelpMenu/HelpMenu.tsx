@@ -32,9 +32,9 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
-import { navigationLogic } from '~/layout/navigation-3000/navigationLogic'
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { KeyboardShortcut } from '~/layout/navigation/components/KeyboardShortcut'
+import { navigationLogic } from '~/layout/navigation/navigationLogic'
+import { sidePanelStateLogic } from '~/layout/navigation/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
 import { SidePanelSupportIcon } from 'products/conversations/frontend/components/SidePanel/SidePanelSupportIcon'

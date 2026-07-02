@@ -6,7 +6,7 @@ import { Suspense, lazy } from 'react'
 
 import { WrappingLoadingSkeleton } from 'lib/ui/WrappingLoadingSkeleton/WrappingLoadingSkeleton'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 
 const ReactJson = lazy(() => import('@microlink/react-json-view'))
 

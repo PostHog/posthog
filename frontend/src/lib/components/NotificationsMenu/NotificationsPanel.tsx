@@ -8,7 +8,7 @@ import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableSh
 import {
     NotificationGroup,
     sidePanelNotificationsLogic,
-} from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
+} from '~/layout/navigation/sidepanel/panels/activity/sidePanelNotificationsLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { PanelLayoutPanel } from '~/layout/panel-layout/PanelLayoutPanel'
 

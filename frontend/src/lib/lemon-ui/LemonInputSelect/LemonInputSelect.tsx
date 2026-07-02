@@ -18,7 +18,7 @@ import { LemonSnack } from 'lib/lemon-ui/LemonSnack/LemonSnack'
 import { range } from 'lib/utils/arrays'
 import { createFuse } from 'lib/utils/fuseSearch'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { KeyboardShortcut } from '~/layout/navigation/components/KeyboardShortcut'
 
 import { LemonButton, LemonButtonPropsBase, SideAction } from '../LemonButton'
 import { LemonDropdown } from '../LemonDropdown'

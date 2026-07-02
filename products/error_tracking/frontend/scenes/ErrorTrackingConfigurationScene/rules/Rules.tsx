@@ -12,7 +12,7 @@ import { PropertyFilters, PropertyFiltersProps } from 'lib/components/PropertyFi
 import { SortableDragIcon } from 'lib/lemon-ui/icons'
 import { cn } from 'lib/utils/css-classes'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { sidePanelStateLogic } from '~/layout/navigation/sidepanel/sidePanelStateLogic'
 import { AnyPropertyFilter, FilterLogicalOperator, SidePanelTab } from '~/types'
 
 import {

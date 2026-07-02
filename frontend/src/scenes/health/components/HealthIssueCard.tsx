@@ -7,7 +7,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { sidePanelStateLogic } from '~/layout/navigation/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
 import { buildHealthIssuePrompt, kindToLabel, severityLabel, severityToTagType } from '../healthUtils'

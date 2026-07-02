@@ -4,7 +4,7 @@ import { router, urlToAction } from 'kea-router'
 import { LemonTreeRef } from 'lib/lemon-ui/LemonTree/LemonTree'
 import { removeProjectIdIfPresent } from 'lib/utils/kea-router'
 
-import { navigationLogic } from '../navigation-3000/navigationLogic'
+import { navigationLogic } from '../navigation/navigationLogic'
 import type { panelLayoutLogicType } from './panelLayoutLogicType'
 
 export type PanelLayoutNavIdentifier =

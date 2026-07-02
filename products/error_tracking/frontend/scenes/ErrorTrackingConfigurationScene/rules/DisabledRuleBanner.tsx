@@ -4,7 +4,7 @@ import { LemonBanner } from '@posthog/lemon-ui'
 
 import { truncate } from 'lib/utils/strings'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { sidePanelStateLogic } from '~/layout/navigation/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
 import { ErrorTrackingRule } from './types'

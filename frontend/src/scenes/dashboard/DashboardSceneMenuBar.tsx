@@ -34,7 +34,7 @@ import { interProjectCopyLogic } from 'scenes/resource-transfer/interProjectCopy
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { sidePanelStateLogic } from '~/layout/navigation/sidepanel/sidePanelStateLogic'
 import {
     SceneMenuBar,
     SceneMenuBarCheckboxItem,

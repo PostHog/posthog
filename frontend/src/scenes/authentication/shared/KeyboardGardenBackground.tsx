@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import type { ReactNode } from 'react'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 
 const KEYBOARD_GARDEN = {
     light: {

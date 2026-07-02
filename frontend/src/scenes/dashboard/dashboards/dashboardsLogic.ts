@@ -11,7 +11,7 @@ import { objectClean, objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
-import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation/sidepanel/types'
 import { dashboardsModel } from '~/models/dashboardsModel'
 import { tagsModel } from '~/models/tagsModel'
 import { ActivityScope, Breadcrumb, DashboardBasicType } from '~/types'

@@ -16,7 +16,7 @@ import {
 
 import { IconTwilio } from 'lib/lemon-ui/icons'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 import { HogFunctionTemplateType } from '~/types'
 
 import { workflowLogic } from '../../workflowLogic'

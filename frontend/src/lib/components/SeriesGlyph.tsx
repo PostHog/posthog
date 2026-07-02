@@ -4,7 +4,7 @@ import { getSeriesColor } from 'lib/colors'
 import { RGBToRGBA, hexToRGBA, lightenDarkenColor } from 'lib/utils/colors'
 import { alphabet } from 'lib/utils/strings'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 
 interface SeriesGlyphProps {
     className?: string

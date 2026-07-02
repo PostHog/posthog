@@ -13,7 +13,7 @@ import { objectsEqual } from 'lib/utils/objects'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { sidePanelStateLogic } from '~/layout/navigation/sidepanel/sidePanelStateLogic'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { actionsModel } from '~/models/actionsModel'
 import { productUrls } from '~/products'

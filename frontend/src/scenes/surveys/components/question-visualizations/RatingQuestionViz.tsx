@@ -30,7 +30,7 @@ import {
 } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 import { Query } from '~/queries/Query/Query'
 import { InsightVizNode, NodeKind, TrendsQuery } from '~/queries/schema/schema-general'
 import {

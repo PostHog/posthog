@@ -8,7 +8,7 @@ import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { IconPauseCircle, IconPlayCircle } from 'lib/lemon-ui/icons'
 import { Scene } from 'scenes/sceneTypes'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { KeyboardShortcut } from '~/layout/navigation/components/KeyboardShortcut'
 
 import { logsViewerDataLogic } from 'products/logs/frontend/components/LogsViewer/data/logsViewerDataLogic'
 

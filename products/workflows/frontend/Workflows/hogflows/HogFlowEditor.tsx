@@ -16,7 +16,7 @@ import { useEffect, useRef } from 'react'
 
 import { IconInfo } from '@posthog/icons'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 
 import { workflowLogic } from '../workflowLogic'
 import { hogFlowEditorLogic } from './hogFlowEditorLogic'

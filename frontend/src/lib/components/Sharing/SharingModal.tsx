@@ -34,7 +34,7 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { projectLogic } from 'scenes/projectLogic'
 import { urls } from 'scenes/urls'
 
-import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
+import { AccessControlPopoutCTA } from '~/layout/navigation/sidepanel/panels/access_control/AccessControlPopoutCTA'
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
 import { AnyResponseType, Node } from '~/queries/schema/schema-general'
 import { NodeKind } from '~/queries/schema/schema-general'

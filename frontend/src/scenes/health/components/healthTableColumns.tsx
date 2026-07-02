@@ -5,7 +5,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTableColumn } from 'lib/lemon-ui/LemonTable'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { sidePanelStateLogic } from '~/layout/navigation/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
 import { buildHealthIssuePrompt, severityToTagType } from '../healthUtils'

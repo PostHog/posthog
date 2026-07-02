@@ -9,7 +9,7 @@ import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 import { groupsModel } from '~/models/groupsModel'
 import { type ChartParams, FunnelStepReference, type FunnelStepWithConversionMetrics, StepOrderValue } from '~/types'
 

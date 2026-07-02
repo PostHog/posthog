@@ -19,7 +19,7 @@ import {
 } from 'lib/lemon-ui/LemonRichContent/LemonRichContentEditor'
 import { colonDelimitedDuration } from 'lib/utils/durations'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { KeyboardShortcut } from '~/layout/navigation/components/KeyboardShortcut'
 import { CommentType } from '~/types'
 
 import { CommentWithRepliesType, commentsLogic } from './commentsLogic'

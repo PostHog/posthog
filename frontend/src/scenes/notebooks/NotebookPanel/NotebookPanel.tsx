@@ -9,8 +9,8 @@ import { useResizeBreakpoints } from 'lib/hooks/useResizeObserver'
 import { cn } from 'lib/utils/css-classes'
 import { urls } from 'scenes/urls'
 
-import { SidePanelPaneHeader } from '~/layout/navigation-3000/sidepanel/components/SidePanelPaneHeader'
-import { SidePanelContentContainer } from '~/layout/navigation-3000/sidepanel/SidePanelContentContainer'
+import { SidePanelPaneHeader } from '~/layout/navigation/sidepanel/components/SidePanelPaneHeader'
+import { SidePanelContentContainer } from '~/layout/navigation/sidepanel/SidePanelContentContainer'
 
 import { isMarkdownNotebookContent } from '../Notebook/markdownNotebookV2'
 import { Notebook } from '../Notebook/Notebook'

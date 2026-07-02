@@ -37,8 +37,8 @@ import { InsightErrorState, StatelessInsightLoadingState } from 'scenes/insights
 import { HogQLBoldNumber } from 'scenes/insights/views/BoldNumber/BoldNumber'
 import { urls } from 'scenes/urls'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { KeyboardShortcut } from '~/layout/navigation/components/KeyboardShortcut'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { ElapsedTime } from '~/queries/nodes/DataNode/ElapsedTime'
 import { LoadPreviewText } from '~/queries/nodes/DataNode/LoadNext'

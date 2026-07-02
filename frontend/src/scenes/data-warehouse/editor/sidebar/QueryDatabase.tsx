@@ -44,7 +44,7 @@ import { buildQueryForColumnClick } from 'scenes/data-warehouse/editor/sql-utils
 import { sqlEditorLogic } from 'scenes/data-warehouse/editor/sqlEditorLogic'
 import { urls } from 'scenes/urls'
 
-import { SearchHighlightMultiple } from '~/layout/navigation-3000/components/SearchHighlight'
+import { SearchHighlightMultiple } from '~/layout/navigation/components/SearchHighlight'
 import { DatabaseSerializedFieldType, externalDataSources } from '~/queries/schema/schema-general'
 import { escapePropertyAsHogQLIdentifier } from '~/queries/utils'
 import { AccessControlLevel, AccessControlResourceType } from '~/types'

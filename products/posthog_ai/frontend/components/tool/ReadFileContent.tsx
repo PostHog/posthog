@@ -5,7 +5,7 @@ import { useInView } from 'react-intersection-observer'
 
 import 'lib/monaco/monacoEnvironment'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 
 import { EditorSkeleton } from './EditorSkeleton'
 import { languageFromPath } from './toolDiffContent'

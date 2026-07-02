@@ -14,7 +14,7 @@ import type {
 import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 import type { TrendsFilter } from '~/queries/schema/schema-general'
 import type { GraphDataset } from '~/types'
 

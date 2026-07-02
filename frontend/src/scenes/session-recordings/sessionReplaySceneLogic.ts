@@ -7,7 +7,7 @@ import { sceneConfigurations } from 'scenes/scenes'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation/sidepanel/types'
 import { ActivityScope, Breadcrumb, ReplayTabs } from '~/types'
 
 import type { sessionReplaySceneLogicType } from './sessionReplaySceneLogicType'

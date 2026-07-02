@@ -29,7 +29,7 @@ import { LinkPrimitive } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
 import { sceneLogic } from 'scenes/sceneLogic'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { sidePanelStateLogic } from '~/layout/navigation/sidepanel/sidePanelStateLogic'
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
 import { SidePanelTab } from '~/types'
 

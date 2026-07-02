@@ -7,7 +7,7 @@ import { useMemo, useRef } from 'react'
 
 import { LemonBanner, LemonTabs, LemonTextArea } from '@posthog/lemon-ui'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 import { SurveyQuestionDescriptionContentType } from '~/types'
 
 const lowlight = createLowlight(common)

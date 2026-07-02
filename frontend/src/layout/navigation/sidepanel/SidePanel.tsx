@@ -17,7 +17,7 @@ const NotebookPanel = lazy(() =>
 import { useWindowSize } from 'lib/hooks/useWindowSize'
 
 import { ErrorBoundary } from '~/layout/ErrorBoundary'
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { SidePanelTab } from '~/types'
 

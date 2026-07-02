@@ -11,7 +11,7 @@ import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isUserLoggedIn } from 'lib/utils/getAppContext'
 import { getAppContext } from 'lib/utils/getAppContext'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { sidePanelStateLogic } from '~/layout/navigation/sidepanel/sidePanelStateLogic'
 import { AvailableFeature, OrganizationType } from '~/types'
 
 import type { organizationLogicType } from './organizationLogicType'

@@ -15,9 +15,9 @@ import { urls } from 'scenes/urls'
 
 import { SidePanelTab } from '~/types'
 
-import { navigationLogic } from './navigation-3000/navigationLogic'
-import { sidePanelStateLogic } from './navigation-3000/sidepanel/sidePanelStateLogic'
-import { themeLogic } from './navigation-3000/themeLogic'
+import { navigationLogic } from './navigation/navigationLogic'
+import { sidePanelStateLogic } from './navigation/sidepanel/sidePanelStateLogic'
+import { themeLogic } from './navigation/themeLogic'
 import { sceneLayoutLogic } from './scenes/sceneLayoutLogic'
 
 export function GlobalShortcuts(): null {

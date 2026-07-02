@@ -39,7 +39,7 @@ import { urls } from 'scenes/urls'
 import {
     DefaultRoleSelector,
     RolesAccessControls,
-} from '~/layout/navigation-3000/sidepanel/panels/access_control/RolesAccessControls'
+} from '~/layout/navigation/sidepanel/panels/access_control/RolesAccessControls'
 import { AccessControlLevel, AccessControlResourceType, Realm } from '~/types'
 
 import { AISection } from 'products/conversations/frontend/scenes/settings/AISection'

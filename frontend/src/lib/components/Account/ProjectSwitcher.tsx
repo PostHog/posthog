@@ -16,7 +16,7 @@ import { isAuthenticatedTeam, teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { globalModalsLogic } from '~/layout/globalModalsLogic'
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { KeyboardShortcut } from '~/layout/navigation/components/KeyboardShortcut'
 import { AvailableFeature, TeamBasicType } from '~/types'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'

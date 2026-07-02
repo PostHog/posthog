@@ -14,7 +14,7 @@ import { LemonMenuOverlay } from 'lib/lemon-ui/LemonMenu/LemonMenu'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { getAccessControlDisabledReason } from 'lib/utils/accessControlUtils'
 
-import { AccessControlObjectModal } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlObjectModal'
+import { AccessControlObjectModal } from '~/layout/navigation/sidepanel/panels/access_control/AccessControlObjectModal'
 import { DatabaseTree } from '~/layout/panel-layout/DatabaseTree/DatabaseTree'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'

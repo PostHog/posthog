@@ -6,7 +6,7 @@ import { LemonMenu, LemonMenuItems } from '@posthog/lemon-ui'
 import { commentsLogic } from 'scenes/comments/commentsLogic'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { sidePanelStateLogic } from '~/layout/navigation/sidepanel/sidePanelStateLogic'
 import { ActivityScope, SidePanelTab } from '~/types'
 
 import { messageActionsMenuLogic } from '../../ConversationDisplay/messageActionsMenuLogic'

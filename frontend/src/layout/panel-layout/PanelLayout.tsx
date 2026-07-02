@@ -9,7 +9,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { supportTicketCounterLogic } from 'products/conversations/frontend/supportTicketCounterLogic'
 
-import { navigationLogic } from '../navigation-3000/navigationLogic'
+import { navigationLogic } from '../navigation/navigationLogic'
 import { Nav as AiFirstNavBar } from './ai-first/Nav'
 import { PanelLayoutPanels } from './ai-first/PanelLayoutPanels'
 import { panelLayoutLogic } from './panelLayoutLogic'

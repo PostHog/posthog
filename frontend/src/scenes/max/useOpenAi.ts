@@ -3,7 +3,7 @@ import { useValues } from 'kea'
 import { newInternalTab } from 'lib/utils/newInternalTab'
 import { urls } from 'scenes/urls'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { sidePanelStateLogic } from '~/layout/navigation/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
 import { PENDING_MAX_CONTEXT_KEY } from './maxLogic'

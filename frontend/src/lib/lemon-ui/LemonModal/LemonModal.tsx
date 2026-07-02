@@ -9,7 +9,7 @@ import { IconX } from '@posthog/icons'
 import { useFloatingContainer } from 'lib/hooks/useFloatingContainerContext'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { KeyboardShortcut } from '~/layout/navigation/components/KeyboardShortcut'
 
 import { Tooltip } from '../Tooltip'
 

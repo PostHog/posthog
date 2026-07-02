@@ -4,7 +4,7 @@ import { useEffect, useId, useState } from 'react'
 import { CodeSnippet, Language } from 'lib/components/CodeSnippet'
 import { Spinner } from 'lib/lemon-ui/Spinner'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 
 type MermaidApi = {
     initialize: (config: Record<string, unknown>) => void

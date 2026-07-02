@@ -13,7 +13,7 @@ import { dayjs } from 'lib/dayjs'
 import {
     NotificationGroup,
     sidePanelNotificationsLogic,
-} from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
+} from '~/layout/navigation/sidepanel/panels/activity/sidePanelNotificationsLogic'
 
 function NotificationGroupControls({
     count,

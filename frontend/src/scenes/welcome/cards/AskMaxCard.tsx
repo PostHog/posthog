@@ -4,7 +4,7 @@ import { IconArrowRight, IconSparkles } from '@posthog/icons'
 
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { sidePanelStateLogic } from '~/layout/navigation/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
 import { welcomeDialogLogic } from '../welcomeDialogLogic'

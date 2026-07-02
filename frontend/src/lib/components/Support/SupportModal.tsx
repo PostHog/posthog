@@ -7,7 +7,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { LemonModal } from 'lib/lemon-ui/LemonModal/LemonModal'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { sidePanelStateLogic } from '~/layout/navigation/sidepanel/sidePanelStateLogic'
 
 import { SupportForm } from './SupportForm'
 import { supportLogic } from './supportLogic'

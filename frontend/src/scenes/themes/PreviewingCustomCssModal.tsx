@@ -7,7 +7,7 @@ import { LemonButton } from '@posthog/lemon-ui'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { urls } from 'scenes/urls'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 
 export function PreviewingCustomCssModal(): JSX.Element | null {
     const [editingInline, setEditingInline] = useState<boolean>(false)

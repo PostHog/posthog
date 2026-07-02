@@ -1,4 +1,4 @@
-import { AccessControlPopoutCTA } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlPopoutCTA'
+import { AccessControlPopoutCTA } from '~/layout/navigation/sidepanel/panels/access_control/AccessControlPopoutCTA'
 import { AccessControlResourceType, FeatureFlagType } from '~/types'
 
 export function FeatureFlagPermissions({ featureFlag }: { featureFlag: FeatureFlagType }): JSX.Element {

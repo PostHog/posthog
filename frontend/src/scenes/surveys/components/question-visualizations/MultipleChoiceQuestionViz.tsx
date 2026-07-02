@@ -9,7 +9,7 @@ import { VirtualizedResponseList } from 'scenes/surveys/components/question-visu
 import { surveyLogic } from 'scenes/surveys/surveyLogic'
 import { getSurveyIdBasedResponseKey } from 'scenes/surveys/utils'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 import {
     ChoiceQuestionResponseData,
     EventPropertyFilter,

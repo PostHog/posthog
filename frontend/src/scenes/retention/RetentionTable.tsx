@@ -11,7 +11,7 @@ import { gradateColor } from 'lib/utils/colors'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 
 import { OVERALL_MEAN_KEY, retentionLogic } from './retentionLogic'
 import { retentionModalLogic } from './retentionModalLogic'

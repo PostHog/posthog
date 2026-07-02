@@ -7,7 +7,7 @@ import posthog from 'posthog-js'
 import { Params } from 'scenes/sceneTypes'
 import { settingsLogic } from 'scenes/settings/settingsLogic'
 
-import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation/sidepanel/types'
 import { DataTableNode } from '~/queries/schema/schema-general'
 import { ActivityScope, Breadcrumb, UniversalFiltersGroup } from '~/types'
 

@@ -7,7 +7,7 @@ import { DataManagementTab } from 'scenes/data-management/DataManagementScene'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
-import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation/sidepanel/types'
 import { ActionStepType, ActionType, ActivityScope, Breadcrumb, HogFunctionType, ProjectTreeRef } from '~/types'
 
 import { actionEditLogic } from './actionEditLogic'

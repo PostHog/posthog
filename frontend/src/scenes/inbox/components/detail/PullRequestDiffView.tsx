@@ -6,7 +6,7 @@ import { ReactNode, useMemo } from 'react'
 import { IconArrowRight, IconMinus, IconPencil, IconPlus } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 
 // Shiki bundled themes that read closest to GitHub's diff view; Pierre swaps between them based on
 // `themeType`, which we drive off PostHog's own light/dark state.

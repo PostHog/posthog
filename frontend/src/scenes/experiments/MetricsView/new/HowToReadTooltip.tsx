@@ -6,7 +6,7 @@ import { LemonDivider, Tooltip } from '@posthog/lemon-ui'
 import { IconTrendingDown } from 'lib/lemon-ui/icons'
 import { Link } from 'lib/lemon-ui/Link'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 import { ExperimentStatsMethod } from '~/types'
 
 import { experimentLogic } from '../../experimentLogic'

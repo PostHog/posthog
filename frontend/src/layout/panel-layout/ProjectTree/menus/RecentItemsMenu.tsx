@@ -19,7 +19,7 @@ import {
 } from 'lib/ui/DropdownMenu/DropdownMenu'
 import { MenuSeparator } from 'lib/ui/Menus/Menus'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { KeyboardShortcut } from '~/layout/navigation/components/KeyboardShortcut'
 import { iconForType } from '~/layout/panel-layout/ProjectTree/defaultTree'
 import { splitPath, unescapePath } from '~/layout/panel-layout/ProjectTree/utils'
 import { FileSystemEntry, FileSystemIconType } from '~/queries/schema/schema-general'

@@ -1,7 +1,7 @@
 import { useValues } from 'kea'
 import { useMemo } from 'react'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 
 import type { SparklineOptions } from '../components/VolumeSparkline/types'
 

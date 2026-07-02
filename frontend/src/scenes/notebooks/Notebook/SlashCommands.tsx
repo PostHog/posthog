@@ -34,7 +34,7 @@ import { createFuse } from 'lib/utils/fuseSearch'
 import { isKeyOf } from 'lib/utils/guards'
 import { ValueOf } from 'lib/utils/types'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { KeyboardShortcut } from '~/layout/navigation/components/KeyboardShortcut'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
 import { NodeKind } from '~/queries/schema/schema-general'
 import { BaseMathType, ChartDisplayType, FunnelVizType, PathType, RetentionPeriod } from '~/types'

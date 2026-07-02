@@ -6,7 +6,7 @@ import { IconPencil } from '@posthog/icons'
 
 import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 
 import { EditorSkeleton } from './EditorSkeleton'
 import { FilePath } from './FilePath'

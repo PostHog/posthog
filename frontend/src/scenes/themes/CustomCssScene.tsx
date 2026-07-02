@@ -8,7 +8,7 @@ import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { CodeEditor } from 'lib/monaco/CodeEditor'
 import { SceneExport } from 'scenes/sceneTypes'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneDivider } from '~/layout/scenes/components/SceneDivider'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'

@@ -16,7 +16,7 @@ import { PanelLayout } from '~/layout/panel-layout/PanelLayout'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 import { ProjectDragAndDropProvider } from '~/layout/panel-layout/ProjectTree/ProjectDragAndDropContext'
 
-import { ProjectNotice } from '../navigation/ProjectNotice'
+import { ProjectNotice } from './ProjectNotice'
 import { SceneTitlePanelButton } from '../scenes/components/SceneTitleSection'
 import { SceneLayout } from '../scenes/SceneLayout'
 import { sceneLayoutLogic } from '../scenes/sceneLayoutLogic'

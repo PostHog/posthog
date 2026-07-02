@@ -14,7 +14,7 @@ import { cn } from 'lib/utils/css-classes'
 import { AIConsentPopoverWrapper } from 'scenes/settings/organization/AIConsentPopoverWrapper'
 import { userLogic } from 'scenes/userLogic'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { KeyboardShortcut } from '~/layout/navigation/components/KeyboardShortcut'
 import { AgentMode } from '~/queries/schema/schema-assistant-messages'
 import { ConversationQueueMessage } from '~/types'
 

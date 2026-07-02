@@ -17,7 +17,7 @@ import { LemonButton, LemonSegmentedButton } from '@posthog/lemon-ui'
 
 import { IconArrowDown } from 'lib/lemon-ui/icons'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 import { DataModelingNodeType } from '~/types'
 
 import { dataModelingLogic, parseSearchTerm } from '../dataModelingLogic'

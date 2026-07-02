@@ -20,7 +20,7 @@ import {
     sessionRecordingPlayerLogic,
 } from 'scenes/session-recordings/player/sessionRecordingPlayerLogic'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { KeyboardShortcut } from '~/layout/navigation/components/KeyboardShortcut'
 import { SessionPlayerState } from '~/types'
 
 import { ClipRecording } from './ClipRecording'

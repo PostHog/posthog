@@ -16,7 +16,7 @@ import { useCallback, useEffect, useRef } from 'react'
 
 import { insightLogic } from 'scenes/insights/insightLogic'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 import { isInsightVizNode } from '~/queries/utils'
 
 import { JOURNEY_BUILDER_INSIGHT_PROPS } from 'products/customer_analytics/frontend/components/CustomerJourneys/journeyBuilderLogic'

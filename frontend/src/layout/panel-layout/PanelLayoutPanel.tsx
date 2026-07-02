@@ -17,7 +17,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
-import { navigationLogic } from '../navigation-3000/navigationLogic'
+import { navigationLogic } from '../navigation/navigationLogic'
 
 interface PanelLayoutPanelProps {
     searchPlaceholder?: string

@@ -15,7 +15,7 @@ import { IconCollapse, IconCopy, IconExpand } from '@posthog/icons'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 
 import terraform from './terraformLanguage'
 

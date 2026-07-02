@@ -14,7 +14,7 @@ import { cn } from 'lib/utils/css-classes'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 
-import { KeyboardShortcut } from '~/layout/navigation-3000/components/KeyboardShortcut'
+import { KeyboardShortcut } from '~/layout/navigation/components/KeyboardShortcut'
 import { Combobox } from '~/lib/ui/Combobox/Combobox'
 
 import { ShortcutType, shortcutLogic } from './shortcutLogic'

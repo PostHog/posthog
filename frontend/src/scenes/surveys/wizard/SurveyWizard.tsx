@@ -16,7 +16,7 @@ import { SceneExport } from 'scenes/sceneTypes'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 import { SurveyMatchType, SurveyQuestionBranchingType, SurveyType } from '~/types'
 
 import { HostedSurveyRespondentHint } from '../components/HostedSurveyRespondentHint'

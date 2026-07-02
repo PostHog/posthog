@@ -4,7 +4,7 @@ import { useEffect, useState } from 'react'
 
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 
 const meta: Meta = {
     title: 'UI/Colors',

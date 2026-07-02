@@ -8,9 +8,9 @@ import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { featurePreviewsLogic } from '~/layout/FeaturePreviews/featurePreviewsLogic'
-import { AccessControlObject } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlObject'
-import { ResourcesAccessControlsV2 } from '~/layout/navigation-3000/sidepanel/panels/access_control/ResourceAccessControlsV2'
-import { ResourcesAccessControls } from '~/layout/navigation-3000/sidepanel/panels/access_control/ResourcesAccessControls'
+import { AccessControlObject } from '~/layout/navigation/sidepanel/panels/access_control/AccessControlObject'
+import { ResourcesAccessControlsV2 } from '~/layout/navigation/sidepanel/panels/access_control/ResourceAccessControlsV2'
+import { ResourcesAccessControls } from '~/layout/navigation/sidepanel/panels/access_control/ResourcesAccessControls'
 
 export function TeamAccessControl(): JSX.Element {
     const { currentTeam } = useValues(teamLogic)

@@ -3,7 +3,7 @@ import { type DependencyList, useMemo } from 'react'
 
 import type { ChartTheme } from '@posthog/quill-charts'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 
 import { buildTheme } from './utils/theme'
 

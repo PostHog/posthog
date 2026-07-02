@@ -1,7 +1,7 @@
 import { expectLogic } from 'kea-test-utils'
 import posthog from 'posthog-js'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { sidePanelStateLogic } from '~/layout/navigation/sidepanel/sidePanelStateLogic'
 import { initKeaTests } from '~/test/init'
 import { OrganizationBasicType, Region, SidePanelTab, TeamPublicType } from '~/types'
 

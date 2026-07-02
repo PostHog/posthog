@@ -20,8 +20,8 @@ import { projectLogic } from 'scenes/projectLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { connectToNotificationsSSE } from '~/layout/navigation-3000/sidepanel/panels/activity/notificationsSSE'
-import { ChangesResponse } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelActivityLogic'
+import { connectToNotificationsSSE } from '~/layout/navigation/sidepanel/panels/activity/notificationsSSE'
+import { ChangesResponse } from '~/layout/navigation/sidepanel/panels/activity/sidePanelActivityLogic'
 import { InAppNotification, InsightShortId, ResourceEditedEvent } from '~/types'
 
 import {

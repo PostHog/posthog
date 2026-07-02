@@ -172,7 +172,7 @@ The lint command validates:
   - Describe the product's frontend `scenes`, `routes`, `urls`, file system types, and project tree (navbar) items.
   - All manifest files are combined into a single `frontend/src/products.tsx` file on build.
   - NOTE: we don't copy imports into `products.tsx`. If you add new icons, update the imports manually in `frontend/src/products.tsx`. It only needs to be done once.
-  - NOTE: if you want to add a link to the old pre-project-tree navbar, do so manually in `frontend/src/layout/navigation-3000/navigationLogic.tsx`
+  - NOTE: if you want to add a link to the old pre-project-tree navbar, do so manually in `frontend/src/layout/navigation/navigationLogic.tsx`
 - Create a `package.json` file:
   - Keep the package name as `@posthog/products-your-product-name`. Include `@posthog/products-` in the name.
   - Update the global `frontend/package.json`: add your new npm package under `dependencies`.

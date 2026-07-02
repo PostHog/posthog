@@ -8,7 +8,7 @@ import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { cn } from 'lib/utils/css-classes'
 
-import { sidePanelNotificationsLogic } from '~/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic'
+import { sidePanelNotificationsLogic } from '~/layout/navigation/sidepanel/panels/activity/sidePanelNotificationsLogic'
 import { panelLayoutLogic } from '~/layout/panel-layout/panelLayoutLogic'
 
 export const NotificationsMenu = ({ iconOnly = false }: { iconOnly?: boolean }): JSX.Element => {

@@ -12,8 +12,8 @@ import { WizardProgressFab } from 'scenes/onboarding/legacy/sdks/OnboardingInsta
 
 import { GlobalModals } from '~/layout/GlobalModals'
 import { GlobalShortcuts } from '~/layout/GlobalShortcuts'
-import { Navigation } from '~/layout/navigation-3000/Navigation'
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { Navigation } from '~/layout/navigation/Navigation'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { ImpersonationNotice } from '~/layout/navigation/ImpersonationNotice'
 import { SelfReadOnlyNotice } from '~/layout/navigation/SelfReadOnlyNotice'

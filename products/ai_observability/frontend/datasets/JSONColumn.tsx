@@ -6,7 +6,7 @@ import { Tooltip } from '@posthog/lemon-ui'
 import { HighlightedJSONViewer } from 'lib/components/HighlightedJSONViewer'
 import { JSONViewerTheme } from 'lib/components/JSONViewer'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 
 const MemoizedJSONViewer = React.memo(({ json }: { json: Record<any, any> }) => {
     const { isDarkModeOn } = useValues(themeLogic)

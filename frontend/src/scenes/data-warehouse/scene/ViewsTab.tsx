@@ -11,7 +11,7 @@ import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 import { STATUS_TAG_SETTINGS } from 'scenes/models/nodeDetailConstants'
 import { urls } from 'scenes/urls'
 
-import { AccessControlObjectModal } from '~/layout/navigation-3000/sidepanel/panels/access_control/AccessControlObjectModal'
+import { AccessControlObjectModal } from '~/layout/navigation/sidepanel/panels/access_control/AccessControlObjectModal'
 import { DataWarehouseSavedQueryOrigin } from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,

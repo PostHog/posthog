@@ -33,7 +33,7 @@ import {
 } from '~/layout/panel-layout/panelLayoutLogic'
 
 import { NavSearchButton } from '../../../lib/components/NavSearchButton/NavSearchButton'
-import { navigationLogic } from '../../navigation-3000/navigationLogic'
+import { navigationLogic } from '../../navigation/navigationLogic'
 import { CreateMenu } from '../menus/CreateMenu'
 import { NavBarFooter } from '../NavBarFooter'
 import { PanelLayoutPanels } from './PanelLayoutPanels'

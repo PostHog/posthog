@@ -22,7 +22,7 @@ import { SIDE_PANEL_PANEL_ID, maxLogic } from 'scenes/max/maxLogic'
 import { createSuggestionGroup } from 'scenes/max/utils'
 import { urls } from 'scenes/urls'
 
-import { sidePanelLogic } from '~/layout/navigation-3000/sidepanel/sidePanelLogic'
+import { sidePanelLogic } from '~/layout/navigation/sidepanel/sidePanelLogic'
 import { ProductIntentContext, ProductKey } from '~/queries/schema/schema-general'
 import { SidePanelTab } from '~/types'
 

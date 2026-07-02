@@ -10,7 +10,7 @@ import { MenuOpenIndicator } from 'lib/ui/Menus/Menus'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 import { UserTheme } from '~/types'
 
 export function ThemeMenu(): JSX.Element {

@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 
 import { maxContextLogic } from 'scenes/max/maxContextLogic'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { sidePanelStateLogic } from '~/layout/navigation/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
 export interface UseErrorTrackingExplainIssueReturn {

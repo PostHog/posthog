@@ -6,7 +6,7 @@ import { PaginationManual, Sorting } from '@posthog/lemon-ui'
 import api, { CountedPaginatedResponse } from 'lib/api'
 import { objectClean, objectsEqual } from 'lib/utils/objects'
 
-import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation/sidepanel/types'
 import { notebooksModel } from '~/models/notebooksModel'
 import { ActivityScope, Breadcrumb } from '~/types'
 

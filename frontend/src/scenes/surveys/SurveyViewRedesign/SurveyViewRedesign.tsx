@@ -41,7 +41,7 @@ import { SurveyStatsSummary } from 'scenes/surveys/SurveyStatsSummary'
 import { canUseSurveyWizard } from 'scenes/surveys/utils'
 import { urls } from 'scenes/urls'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { sidePanelStateLogic } from '~/layout/navigation/sidepanel/sidePanelStateLogic'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import {
     SceneMenuBar,

@@ -7,7 +7,7 @@ import { RGBToRGBA, hexToRGBA, lightenDarkenColor } from 'lib/utils/colors'
 import { cn } from 'lib/utils/css-classes'
 import { dataThemeLogic } from 'scenes/dataThemeLogic'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 
 import { LemonButtonWithoutSideActionProps } from '../LemonButton'
 

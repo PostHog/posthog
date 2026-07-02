@@ -7,7 +7,7 @@ import { LemonSelect, LemonSelectOptions, LemonSelectProps } from '@posthog/lemo
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 
 export function ThemeSwitcher({
     onlyLabel,

@@ -23,7 +23,7 @@ import { clearLogicReference, initModel } from 'lib/monaco/modelLogicReference'
 import { sharedMonacoOverflowRoot } from 'lib/monaco/sharedMonacoOverflowRoot'
 import { inStorybookTestRunner } from 'lib/utils/dom'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 import { AnyDataNode, HogLanguage, HogQLMetadataResponse, NodeKind } from '~/queries/schema/schema-general'
 
 export interface CodeEditorProps extends Omit<EditorProps, 'loading' | 'theme'> {

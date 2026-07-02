@@ -10,7 +10,7 @@ import useResizeObserver from 'use-resize-observer'
 
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 
 const protocol = new Protocol()
 maplibregl.addProtocol('pmtiles', protocol.tile)

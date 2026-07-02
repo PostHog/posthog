@@ -5,7 +5,7 @@ import { expectLogic } from 'kea-test-utils'
 
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 import { useAvailableFeatures } from '~/mocks/features'
 import { useMocks } from '~/mocks/jest'
 import { NodeKind } from '~/queries/schema/schema-general'

@@ -4,7 +4,7 @@ import { HTMLProps } from 'react'
 import { EditorFocusPosition } from 'lib/components/RichContentEditor/types'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 
-import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
+import { sidePanelStateLogic } from '~/layout/navigation/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
 import { NotebookNodeResource } from '../types'

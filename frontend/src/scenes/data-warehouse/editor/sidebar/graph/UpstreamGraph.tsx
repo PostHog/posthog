@@ -26,7 +26,7 @@ import api from 'lib/api'
 import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { humanFriendlyDetailedTime } from 'lib/utils/datetime'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 import { LineageNode as LineageNodeType } from '~/types'
 
 import { dataWarehouseViewsLogic } from '../../../saved_queries/dataWarehouseViewsLogic'
