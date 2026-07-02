@@ -237,8 +237,7 @@ const config: Config = {
     // Run tests from one or more projects
     // projects: undefined,
 
-    // Emit JUnit XML for Trunk flaky-test detection only when the workflow sets
-    // JEST_JUNIT_OUTPUT_DIR; local runs keep the default reporter and write no files.
+    // Emit JUnit XML for Trunk flaky-test detection only when JEST_JUNIT_OUTPUT_DIR is set.
     reporters: process.env.JEST_JUNIT_OUTPUT_DIR ? ['default', 'jest-junit'] : ['default'],
 
     // Automatically reset mock state between every test

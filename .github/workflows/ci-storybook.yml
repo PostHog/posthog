@@ -508,6 +508,7 @@ jobs:
                   name: junit-results-storybook-${{ matrix.browser }}-${{ matrix.shard }}
                   path: common/storybook/junit.xml
                   if-no-files-found: ignore
+                  retention-days: 1
 
     # Verify changed story files are stable by re-running them multiple times.
     # Catches flaky snapshots before they land on master.
