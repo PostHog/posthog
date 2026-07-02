@@ -116,7 +116,10 @@ async function routeTasksApi(page: Page, mock: TasksApiMock): Promise<void> {
     const runRe = new RegExp(`/tasks/${TASK_ID}/runs/${RUN_ID}/$`)
     const tokenRe = new RegExp(`/runs/${RUN_ID}/stream_token/$`)
     const logsRe = new RegExp(`/runs/${RUN_ID}/logs/$`)
-    const streamRe = new RegExp(`/runs/${RUN_ID}/stream/$`)
+    // The `stream` action URL has no trailing slash (`.../stream?start=latest`), unlike the other
+    // resource paths — match it with an optional slash so the route intercepts instead of falling through
+    // to the real backend (a fall-through 404s the fake run id and masks the clean-EOF drop under test).
+    const streamRe = new RegExp(`/runs/${RUN_ID}/stream/?$`)
 
     await page.route((url) => taskRe.test(url.pathname), fulfillJson(makeTask(mock.runStatus)))
     await page.route(

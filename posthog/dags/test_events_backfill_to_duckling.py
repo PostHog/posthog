@@ -1419,9 +1419,9 @@ class TestExportFanOut:
         return insert_sql, count_sql, s3_glob, client
 
     def test_events_export_sizes_fanout_to_row_count(self, target):
-        # 10M rows at the 1M-row default target → 10 files.
+        # 50M rows at the 5M-row default target → 10 files.
         insert_sql, count_sql, s3_glob, _ = self._run_export(
-            export_events_to_duckling_s3, target, row_count=10_000_000, team_id=2, date=datetime(2026, 6, 17)
+            export_events_to_duckling_s3, target, row_count=50_000_000, team_id=2, date=datetime(2026, 6, 17)
         )
         assert "PARTITION BY toString(cityHash64(distinct_id) % 10)" in insert_sql
         # Count is filtered to exactly the team-day being exported.
@@ -1459,8 +1459,9 @@ class TestExportFanOut:
         assert "PARTITION BY toString(cityHash64(distinct_id) % 5)" in insert_sql
 
     def test_persons_daily_export_sizes_fanout_and_returns_glob(self, target):
+        # 15M rows at the 5M-row default target → 3 files.
         insert_sql, count_sql, s3_glob, _ = self._run_export(
-            export_persons_to_duckling_s3, target, row_count=3_000_000, team_id=2, date=datetime(2026, 6, 17)
+            export_persons_to_duckling_s3, target, row_count=15_000_000, team_id=2, date=datetime(2026, 6, 17)
         )
         assert "PARTITION BY toString(cityHash64(distinct_id) % 3)" in insert_sql
         # Pin the full predicate: dropping is_deleted/date would silently over-size the fan-out.
@@ -1468,8 +1469,9 @@ class TestExportFanOut:
         assert s3_glob == "s3://bkt/backfill/persons/2/year=2026/month=06/run1_*.parquet"
 
     def test_persons_full_export_sizes_fanout_and_returns_glob(self, target):
+        # 25M rows at the 5M-row default target → 5 files.
         insert_sql, count_sql, s3_glob, _ = self._run_export(
-            export_persons_full_to_duckling_s3, target, row_count=5_000_000, team_id=2
+            export_persons_full_to_duckling_s3, target, row_count=25_000_000, team_id=2
         )
         assert "PARTITION BY toString(cityHash64(distinct_id) % 5)" in insert_sql
         assert "FROM person_distinct_id2 WHERE team_id = 2 AND is_deleted = 0" in count_sql

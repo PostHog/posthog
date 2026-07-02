@@ -8,6 +8,7 @@ from posthog.temporal.common.logger import get_logger
 from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.temporal.observability import log_activity_execution
+from products.tasks.backend.temporal.process_task.activities.feature_flags import AGENT_DESIGN_STATE_KEY
 
 logger = get_logger(__name__)
 
@@ -169,6 +170,10 @@ def _enqueue_pending_delivery_failure_relay(task_run: Any, user_message_ts: str 
 
 
 def _enqueue_pending_reply_relay(task_run: Any, user_message_ts: str | None, command_result_data: Any) -> None:
+    # Agent-design already streamed the reply into the plan block — don't post it again.
+    if bool((task_run.state or {}).get(AGENT_DESIGN_STATE_KEY)):
+        return
+
     from products.tasks.backend.temporal.client import execute_posthog_code_agent_relay_workflow
 
     reply_text = _extract_assistant_text_from_command_result(
