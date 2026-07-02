@@ -252,6 +252,13 @@ mod tests {
     }
 
     #[tokio::test]
+    async fn misaligned_reads_reconstruct_body() {
+        let be = backend();
+        let body = b"{\"id\":1}\n{\"id\":2}\n{\"id\":3}\n{\"id\":4}\n";
+        crate::staging::backend::assert_reads_reconstruct(&be, "2024-01-01:00", body).await;
+    }
+
+    #[tokio::test]
     async fn cross_backend_byte_identity_with_local_disk() {
         // The load-bearing guarantee: the same compressed part staged through the pipeline
         // yields identical bytes + size on both backends, so a part's offsets stay valid

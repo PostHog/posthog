@@ -302,6 +302,47 @@ pub(crate) async fn stage_bytes(
     backend.stage_part(key, stream).await
 }
 
+/// Prove a backend's reads reconstruct the staged bytes exactly across arbitrary,
+/// record-misaligned offsets — the property the job loop relies on when it re-reads a
+/// partial trailing record. Stages `body`, reads it back in tiny (7-byte) slices whose
+/// boundaries do not align with record boundaries, asserts the concatenation equals
+/// `body`, and asserts a single read spanning more than one slice returns the exact span.
+///
+/// Shared across backends so both `LocalDiskBackend` and `TempBucketBackend` are held to
+/// the identical read contract.
+#[cfg(test)]
+pub(crate) async fn assert_reads_reconstruct(backend: &dyn StagingBackend, key: &str, body: &[u8]) {
+    let size = stage_bytes(backend, key, body).await.unwrap();
+    assert_eq!(size, body.len() as u64);
+
+    // Reassemble via small, deliberately record-misaligned reads.
+    const SLICE: u64 = 7;
+    let mut reconstructed = Vec::with_capacity(body.len());
+    let mut offset = 0u64;
+    loop {
+        let chunk = backend.read(key, offset, SLICE).await.unwrap();
+        if chunk.is_empty() {
+            break;
+        }
+        assert!(
+            chunk.len() as u64 <= SLICE,
+            "read returned more than requested"
+        );
+        reconstructed.extend_from_slice(&chunk);
+        offset += chunk.len() as u64;
+    }
+    assert_eq!(
+        reconstructed, body,
+        "misaligned reads must reconstruct the body"
+    );
+
+    // A single read wider than a slice returns exactly the requested span.
+    if body.len() >= 20 {
+        let span = backend.read(key, 5, 15).await.unwrap();
+        assert_eq!(span, &body[5..20]);
+    }
+}
+
 #[cfg(test)]
 mod tests {
     use super::*;
@@ -433,6 +474,14 @@ mod tests {
             .await
             .unwrap();
         assert!(entries.next_entry().await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn misaligned_reads_reconstruct_body() {
+        let root = TempDir::new().unwrap();
+        let be = backend(root.path());
+        let body = b"{\"id\":1}\n{\"id\":2}\n{\"id\":3}\n{\"id\":4}\n";
+        assert_reads_reconstruct(&be, "k", body).await;
     }
 
     #[tokio::test]
