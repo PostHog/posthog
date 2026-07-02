@@ -1072,8 +1072,21 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 relay_sandbox_events,
                 relay_input,
                 start_to_close_timeout=RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
+                schedule_to_close_timeout=RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
                 heartbeat_timeout=timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=1),
+                # A worker restart (deploy, eviction) kills the in-flight attempt while
+                # the sandbox agent keeps working — without retries the event stream is
+                # orphaned for good and the run looks dead to the user. Retrying is safe:
+                # the agent server buffers events while no relay is attached and replays
+                # them on reconnect. Terminal conditions (sandbox gone, reconnect budget
+                # exhausted) return cleanly rather than raise, so retries only cover
+                # attempt-level deaths; schedule_to_close bounds the total.
+                retry_policy=RetryPolicy(
+                    initial_interval=timedelta(seconds=5),
+                    maximum_interval=timedelta(minutes=1),
+                    maximum_attempts=0,
+                    non_retryable_error_types=["ValueError"],
+                ),
                 cancellation_type=workflow.ActivityCancellationType.TRY_CANCEL,
             )
         except asyncio.CancelledError:
