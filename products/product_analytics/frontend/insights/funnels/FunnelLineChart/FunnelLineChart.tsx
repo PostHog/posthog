@@ -7,6 +7,7 @@ import type {
     ChartLegendConfig,
     PointClickData,
     TimeSeriesLineChartConfig,
+    TooltipConfig,
     TooltipContext,
 } from '@posthog/quill-charts'
 
@@ -69,7 +70,13 @@ export function FunnelLineChart({
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
     const { featureFlags } = useValues(featureFlagLogic)
     const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
-    const TOOLTIP_CONFIG = quillTooltipEnabled ? INSIGHT_TOOLTIP_CONFIG : INSIGHT_TOOLTIP_CONFIG_LEGACY
+    // Breakdown funnels have one series per breakdown value, so a click always covers multiple
+    // series — resolve the one nearest the cursor and open the persons modal for it directly
+    // instead of pinning first, unlike other multi-series insight charts.
+    const TOOLTIP_CONFIG: TooltipConfig = {
+        ...(quillTooltipEnabled ? INSIGHT_TOOLTIP_CONFIG : INSIGHT_TOOLTIP_CONFIG_LEGACY),
+        resolveClickToNearestSeries: true,
+    }
     const { insightProps, insight, canEditInsight } = useValues(insightLogic)
 
     const {

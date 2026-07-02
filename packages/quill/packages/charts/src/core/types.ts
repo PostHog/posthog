@@ -299,6 +299,11 @@ export interface TooltipConfig {
     enabled?: boolean
     /** When true, clicking a data point with multiple series pins the tooltip in place. */
     pinnable?: boolean
+    /** When a pinnable tooltip covers multiple series, resolve the series nearest the cursor and
+     *  fire `onPointClick` for it directly instead of pinning — skips the pin-then-click-a-row
+     *  step. Opt-in per chart; default false keeps the pin-first flow for ambiguous multi-series
+     *  charts (e.g. overlapping trend lines) where a wrong guess is costly. */
+    resolveClickToNearestSeries?: boolean
     /** Where the tooltip anchors. `follow-data` (default) tracks the highest data point at the
      *  hovered x; `top` fixes the tooltip to the top of the chart so it doesn't jump vertically
      *  as the cursor moves between data points; `cursor` tracks the mouse, so the tooltip sits

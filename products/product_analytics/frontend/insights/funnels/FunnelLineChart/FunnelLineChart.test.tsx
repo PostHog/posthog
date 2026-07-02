@@ -134,18 +134,21 @@ describe('FunnelLineChart', () => {
             expect(personsModal.title()).toMatch(/12 Jun/)
         })
 
-        it('opens the persons modal scoped to the clicked breakdown row', async () => {
+        it('opens the persons modal for a single breakdown directly on click, without pinning first', async () => {
             renderInsight({
                 query: buildFunnelsQuery({
                     breakdownFilter: { breakdown: 'hedgehog', breakdown_type: 'event' },
                 }),
             })
 
+            // A funnel breakdown always has multiple series at any x-position. Unlike other
+            // multi-series insight charts, a single click must resolve straight to the nearest
+            // breakdown and open its persons modal rather than pinning the tooltip for a
+            // follow-up row click.
             await chart.clickAtIndex(2)
-            await chart.clickTooltipRow('Spike')
 
             await waitFor(() => {
-                expect(personsModal.actorNames()).toEqual(['funnel-spike@example.com'])
+                expect(personsModal.actorNames()).toEqual(['funnel-bramble@example.com'])
             })
         })
     })
