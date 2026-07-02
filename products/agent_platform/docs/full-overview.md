@@ -5,7 +5,7 @@ the request lifecycle, identity & credentials, tool dispatch, and custom-tool
 authoring. Companion to the targeted docs in this folder
 ([architecture.md](architecture.md), [services.md](services.md),
 [identity-and-tools.md](identity-and-tools.md),
-[custom-tools.md](custom-tools.md)).
+[custom-tools.md](custom-tools.md), [local-dev.md](local-dev.md)).
 
 All diagrams below are [Mermaid](https://mermaid.js.org/) — GitHub, VS Code,
 Obsidian, and most modern markdown renderers will draw them inline.
@@ -280,6 +280,9 @@ flowchart TB
     mcpSpec --> mcp["external MCP server<br/>(mcpId__remoteTool)"]
 
     nat & cust & mcp --> idGate{requires.provider?}
+    %% Client tools carry no requires.provider / requires_approval today —
+    %% they dispatch straight to the caller over the bus.
+    cli -- "no identity/approval<br/>gates today" --> exec
     idGate -- yes --> resolve["identity.resolve(provider)"]
     resolve --> brokerQ{broker has<br/>edge-seed cred?}
     brokerQ -- yes --> useSeed["use edge seed"]

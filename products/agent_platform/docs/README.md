@@ -1,6 +1,9 @@
 # Agent platform docs
 
-Concise, diagram-led docs for the v2 agent platform. Read in this order:
+Concise, diagram-led docs for the v2 agent platform.
+Want the whole picture on one page first?
+Start with **[full-overview.md](full-overview.md)** — a single-page tour of both planes, the request lifecycle, identity, and tool dispatch.
+Then read the targeted docs in this order:
 
 1. **[architecture.md](architecture.md)** — the two planes, the data model, the
    spec, and the revision lifecycle. Start here.
