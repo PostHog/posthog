@@ -327,6 +327,10 @@ class TestPrepareAlert:
         assert refreshed.enabled is False
         assert refreshed.state == AlertState.ERRORED
 
+        check = await sync_to_async(AlertCheck.objects.get)(alert_configuration=refreshed)
+        assert check.state == AlertState.ERRORED
+        assert check.error is not None
+
         # With the feature restored, an identical alert evaluates normally.
         @sync_to_async
         def _grant_feature() -> None:
