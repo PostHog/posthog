@@ -157,11 +157,11 @@ runs:
           env:
               GITHUB_TOKEN: ${{ inputs.github-token }}
 
-        - name: Post snapshot comment
+        - name: Post snapshot section to CI report comment
           if: steps.commit.outputs.committed == 'true'
           shell: bash
           env:
-              GH_TOKEN: ${{ inputs.github-token }}
+              GITHUB_TOKEN: ${{ inputs.github-token }}
               SNAPSHOT_SHA: ${{ steps.ghcommit.outputs.commit-hash }}
               PR_NUMBER: ${{ inputs.pr-number }}
               COMMIT_SHA: ${{ inputs.commit-sha }}
@@ -169,14 +169,18 @@ runs:
               CHANGES: ${{ steps.commit.outputs.changes }}
               REPOSITORY: ${{ inputs.repository }}
           run: |
-              .github/scripts/post-snapshot-comment.js \
-                "$WORKFLOW_TYPE" \
-                "update" \
-                "$CHANGES" \
-                "$PR_NUMBER" \
-                "$REPOSITORY" \
-                "$COMMIT_SHA" \
-                "$SNAPSHOT_SHA"
+              if [ -f .github/scripts/post-snapshot-section.mjs ]; then
+                  node .github/scripts/post-snapshot-section.mjs \
+                    "$WORKFLOW_TYPE" \
+                    "update" \
+                    "$CHANGES" \
+                    "$PR_NUMBER" \
+                    "$REPOSITORY" \
+                    "$COMMIT_SHA" \
+                    "$SNAPSHOT_SHA"
+              else
+                  echo "Skipping snapshot section — script not present on this checkout"
+              fi
 
         - name: Fail workflow to signal snapshot changes
           if: steps.commit.outputs.committed == 'true'
