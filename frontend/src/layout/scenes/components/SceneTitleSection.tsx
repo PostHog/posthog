@@ -28,9 +28,9 @@ import { cn } from 'lib/utils/css-classes'
 import { AnimatedSparkles } from 'scenes/max/components/AnimatedSparkles'
 import { UseMaxToolOptions, useMaxTool } from 'scenes/max/useMaxTool'
 
+import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation/sidepanel/sidePanelStateLogic'
-import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { FileSystemIconType } from '~/queries/schema/schema-general'
 import { Breadcrumb, FileSystemIconColor, SidePanelTab } from '~/types'
 

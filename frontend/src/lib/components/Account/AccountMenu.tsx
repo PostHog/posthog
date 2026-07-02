@@ -51,10 +51,10 @@ import { inviteLogic } from 'scenes/settings/organization/inviteLogic'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
 
+import { AccessLevelIndicator } from '~/layout/navigation/AccessLevelIndicator'
 import { KeyboardShortcut } from '~/layout/navigation/components/KeyboardShortcut'
 import { navigationLogic } from '~/layout/navigation/navigationLogic'
 import { themeLogic } from '~/layout/navigation/themeLogic'
-import { AccessLevelIndicator } from '~/layout/navigation/AccessLevelIndicator'
 import { getTreeItemsGames } from '~/products'
 import { UserTheme } from '~/types'
 

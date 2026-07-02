@@ -15,8 +15,8 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { globalModalsLogic } from '~/layout/globalModalsLogic'
-import { KeyboardShortcut } from '~/layout/navigation/components/KeyboardShortcut'
 import { AccessLevelIndicator } from '~/layout/navigation/AccessLevelIndicator'
+import { KeyboardShortcut } from '~/layout/navigation/components/KeyboardShortcut'
 import { AvailableFeature, OrganizationBasicType } from '~/types'
 
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'

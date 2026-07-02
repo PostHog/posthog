@@ -12,11 +12,11 @@ import { WizardProgressFab } from 'scenes/onboarding/legacy/sdks/OnboardingInsta
 
 import { GlobalModals } from '~/layout/GlobalModals'
 import { GlobalShortcuts } from '~/layout/GlobalShortcuts'
-import { Navigation } from '~/layout/navigation/Navigation'
-import { themeLogic } from '~/layout/navigation/themeLogic'
 import { breadcrumbsLogic } from '~/layout/navigation/Breadcrumbs/breadcrumbsLogic'
 import { ImpersonationNotice } from '~/layout/navigation/ImpersonationNotice'
+import { Navigation } from '~/layout/navigation/Navigation'
 import { SelfReadOnlyNotice } from '~/layout/navigation/SelfReadOnlyNotice'
+import { themeLogic } from '~/layout/navigation/themeLogic'
 
 import { sceneLogic } from './sceneLogic'
 

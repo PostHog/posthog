@@ -373,13 +373,7 @@ export const navigationLogic = kea<navigationLogicType>([
                 s.activeSceneId,
                 featureFlagLogic.selectors.featureFlags,
             ],
-            (
-                sceneConfig,
-                isCurrentOrganizationUnavailable,
-                zenMode,
-                activeSceneId,
-                featureFlags
-            ): NavigationMode => {
+            (sceneConfig, isCurrentOrganizationUnavailable, zenMode, activeSceneId, featureFlags): NavigationMode => {
                 if (zenMode) {
                     return 'zen'
                 }
