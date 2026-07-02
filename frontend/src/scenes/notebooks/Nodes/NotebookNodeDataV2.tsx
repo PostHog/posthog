@@ -1,14 +1,14 @@
 import { useActions, useMountedLogic, useValues } from 'kea'
-
-import { LemonButton } from '@posthog/lemon-ui'
+import { useMemo } from 'react'
 
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 
-import { notebookKernelInfoLogic } from '../Notebook/notebookKernelInfoLogic'
-import { notebookSettingsLogic } from '../Notebook/notebookSettingsLogic'
-import { NotebookNodeProps, NotebookNodeType } from '../types'
+import { NotebookNodeAttributeProperties, NotebookNodeProps, NotebookNodeType } from '../types'
+import { NotebookDataframeTable } from './components/NotebookDataframeTable'
+import { NotebookCodeSQLEditorSettings } from './components/NotebookSQLEditor'
 import { notebookNodeDataV2Logic } from './notebookNodeDataV2Logic'
 import { notebookNodeLogic } from './notebookNodeLogic'
+import { NotebookDataframeResult } from './pythonExecution'
 
 export type NotebookNodeDataV2Result = {
     columns: string[]
@@ -22,15 +22,77 @@ export type NotebookNodeDataV2Attributes = {
     result?: NotebookNodeDataV2Result | null
 }
 
-const renderResult = (result: NotebookNodeDataV2Result): string => {
-    const isSingleCell = result.first_page.length === 1 && result.first_page[0]?.length === 1
-    return isSingleCell ? String(result.first_page[0][0]) : `${result.row_count} rows`
+const toDataframeResult = (result: NotebookNodeDataV2Result): NotebookDataframeResult => {
+    const columns = result.columns ?? []
+    const firstPage = result.first_page ?? []
+    return {
+        columns,
+        rows: firstPage.map((row) => Object.fromEntries(columns.map((column, index) => [column, row[index] ?? null]))),
+        // Page over what we actually have; the envelope only carries the first page.
+        rowCount: firstPage.length,
+    }
 }
 
 const Component = ({
     attributes,
     updateAttributes,
 }: NotebookNodeProps<NotebookNodeDataV2Attributes>): JSX.Element | null => {
+    const nodeLogic = useMountedLogic(notebookNodeLogic)
+    const { nodeId, notebookLogic, expanded } = useValues(nodeLogic)
+    const notebookShortId = notebookLogic.props.shortId
+
+    const dataLogic = notebookNodeDataV2Logic({
+        nodeId,
+        notebookShortId,
+        updateAttributes,
+        runId: attributes.runId ?? null,
+        hasResult: !!attributes.result,
+    })
+    const { isRunning, runError } = useValues(dataLogic)
+
+    const result = attributes.result ?? null
+    const dataframeResult = useMemo(() => (result ? toDataframeResult(result) : null), [result])
+
+    if (!expanded) {
+        return null
+    }
+
+    return (
+        <div data-attr="notebook-node-data-v2" className="flex h-full flex-col">
+            <div
+                className="space-y-3"
+                onMouseDown={(event) => event.stopPropagation()}
+                onDragStart={(event) => event.stopPropagation()}
+            >
+                {runError ? (
+                    <div className="p-2 text-xs font-mono text-danger whitespace-pre-wrap">{runError}</div>
+                ) : dataframeResult ? (
+                    <NotebookDataframeTable
+                        result={dataframeResult}
+                        loading={isRunning}
+                        page={1}
+                        pageSize={Math.max(dataframeResult.rows.length, 1)}
+                        onNextPage={() => {}}
+                        onPreviousPage={() => {}}
+                        onPageSizeChange={() => {}}
+                    />
+                ) : (
+                    <div className="text-xs text-muted font-mono p-2">Run the query to see execution results.</div>
+                )}
+                {attributes.runId ? (
+                    <div className="px-2 pb-2 text-[10px] uppercase tracking-wide text-muted select-text">
+                        run_id: {attributes.runId}
+                    </div>
+                ) : null}
+            </div>
+        </div>
+    )
+}
+
+const Settings = ({
+    attributes,
+    updateAttributes,
+}: NotebookNodeAttributeProperties<NotebookNodeDataV2Attributes>): JSX.Element => {
     const nodeLogic = useMountedLogic(notebookNodeLogic)
     const { nodeId, notebookLogic } = useValues(nodeLogic)
     const notebookShortId = notebookLogic.props.shortId
@@ -42,57 +104,18 @@ const Component = ({
         runId: attributes.runId ?? null,
         hasResult: !!attributes.result,
     })
-    const { isRunning, runError } = useValues(dataLogic)
+    const { isRunning } = useValues(dataLogic)
     const { runQuery } = useActions(dataLogic)
 
-    const { isRunning: isKernelRunning, isStarting: isKernelStarting } = useValues(
-        notebookKernelInfoLogic({ shortId: notebookShortId })
-    )
-    const { setShowKernelInfo } = useActions(notebookSettingsLogic)
-
-    const result = attributes.result ?? null
-
-    const runDisabledReason = isRunning
-        ? 'Running…'
-        : !isKernelRunning
-          ? isKernelStarting
-              ? 'Kernel is starting…'
-              : 'Start the kernel from the Kernel info panel'
-          : undefined
-
     return (
-        <div data-attr="notebook-node-data-v2" className="flex h-full flex-col gap-2 p-2">
-            <textarea
-                className="w-full rounded border border-border bg-bg-light p-2 font-mono text-xs text-default focus:outline-none focus:ring-1 focus:ring-primary"
-                rows={3}
-                value={attributes.code ?? ''}
-                onChange={(event) => updateAttributes({ code: event.target.value })}
-                placeholder="select count(*) from events where ..."
-                spellCheck={false}
-                onMouseDown={(event) => event.stopPropagation()}
-            />
-            <div className="flex items-center gap-2">
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    loading={isRunning}
-                    disabledReason={runDisabledReason}
-                    onClick={() => runQuery(attributes.code ?? '')}
-                >
-                    Run
-                </LemonButton>
-                <LemonButton type="secondary" size="small" onClick={() => setShowKernelInfo(true)}>
-                    Open kernel info
-                </LemonButton>
-            </div>
-            {runError ? (
-                <div className="rounded border border-danger p-2 text-sm text-danger">{runError}</div>
-            ) : result ? (
-                <div className="rounded border border-border p-2 text-sm font-mono">{renderResult(result)}</div>
-            ) : (
-                <div className="text-xs text-muted">Run the query to see results.</div>
-            )}
-        </div>
+        <NotebookCodeSQLEditorSettings
+            attributes={attributes}
+            updateAttributes={updateAttributes}
+            tabIdSuffix="datav2"
+            onRunQuery={() => runQuery(attributes.code ?? '')}
+            runQueryLoading={isRunning}
+            runQueryTooltip="Run Data (v2) query"
+        />
     )
 }
 
@@ -100,8 +123,8 @@ export const NotebookNodeDataV2 = createPostHogWidgetNode<NotebookNodeDataV2Attr
     nodeType: NotebookNodeType.DataV2,
     titlePlaceholder: 'Data (v2)',
     Component,
-    heightEstimate: 160,
-    minHeight: 100,
+    heightEstimate: 120,
+    minHeight: 80,
     resizeable: true,
     startExpanded: true,
     attributes: {
@@ -115,5 +138,7 @@ export const NotebookNodeDataV2 = createPostHogWidgetNode<NotebookNodeDataV2Attr
             default: null,
         },
     },
+    Settings,
+    settingsPlacement: 'inline',
     serializedText: (attrs) => attrs.code,
 })
