@@ -1446,22 +1446,22 @@ describe('splitChoicesOnPaste', () => {
     })
 
     describe('buildPersonDisplayNameExpression', () => {
-        it('uses dot access for simple identifiers and falls back to distinct_id', () => {
+        it('uses dot access for simple identifiers, nullIfs empty strings, and falls back to distinct_id', () => {
             expect(buildPersonDisplayNameExpression(['email', 'name'])).toBe(
-                'coalesce(toString(person.properties.email), toString(person.properties.name), toString(events.distinct_id))'
+                "coalesce(nullIf(toString(person.properties.email), ''), nullIf(toString(person.properties.name), ''), toString(events.distinct_id))"
             )
         })
 
         it('backtick-quotes property names that are not plain identifiers', () => {
             expect(buildPersonDisplayNameExpression(['first-name'])).toBe(
-                'coalesce(toString(person.properties.`first-name`), toString(events.distinct_id))'
+                "coalesce(nullIf(toString(person.properties.`first-name`), ''), toString(events.distinct_id))"
             )
         })
 
         it('escapes a literal backtick in a property name so the HogQL stays valid', () => {
             // Without doubling, the closing backtick would terminate the identifier early and break the query
             expect(buildPersonDisplayNameExpression(['my`prop'])).toBe(
-                'coalesce(toString(person.properties.`my``prop`), toString(events.distinct_id))'
+                "coalesce(nullIf(toString(person.properties.`my``prop`), ''), toString(events.distinct_id))"
             )
         })
     })

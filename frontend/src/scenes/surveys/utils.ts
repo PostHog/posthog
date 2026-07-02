@@ -718,13 +718,18 @@ export function buildAggregateQuery(
 // their properties (in the team's configured precedence), falling back to the
 // distinct_id. Reading person.properties resolves the current person, so the name stays
 // correct after identify/alias merges — unlike a distinct_id captured at response time.
+// Mirrors the backend helper person_display_name_property_exprs
+// (posthog/hogql_queries/utils/person_display_name.py): each property is wrapped in
+// nullIf(toString(...), '') so an empty-string value falls through to the next property,
+// matching asDisplay's truthiness (only "" is falsy).
 export function buildPersonDisplayNameExpression(personDisplayNameProperties: string[]): string {
-    const propertyExpressions = personDisplayNameProperties.map((prop) =>
-        /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(prop)
-            ? `toString(person.properties.${prop})`
+    const propertyExpressions = personDisplayNameProperties.map((prop) => {
+        const access = /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(prop)
+            ? `person.properties.${prop}`
             : // Backtick-quote non-identifier names; escape any backtick by doubling it (ClickHouse rule)
-              `toString(person.properties.\`${prop.replace(/`/g, '``')}\`)`
-    )
+              `person.properties.\`${prop.replace(/`/g, '``')}\``
+        return `nullIf(toString(${access}), '')`
+    })
     return `coalesce(${[...propertyExpressions, 'toString(events.distinct_id)'].join(', ')})`
 }
 
