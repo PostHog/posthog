@@ -2308,10 +2308,11 @@ describe('processOpenEndedResults', () => {
         const columnMap: OpenEndedColumnMap = {
             'open-q1': { columnIndex: 0, questionIndex: 0, type: SurveyQuestionType.Open },
         }
+        // Column layout: [...responses, distinct_id, person_display_name, timestamp, session_id]
         const rows = [
-            ['Great product!', 'user123', '2024-01-15T10:30:00Z', 'session-abc'],
-            ['Could be better', 'user456', '2024-01-15T11:45:00Z', ''],
-            ['', 'user789', '2024-01-15T12:00:00Z', 'session-xyz'],
+            ['Great product!', 'user123', 'John Doe', '2024-01-15T10:30:00Z', 'session-abc'],
+            ['Could be better', 'user456', '', '2024-01-15T11:45:00Z', ''],
+            ['', 'user789', 'Anon', '2024-01-15T12:00:00Z', 'session-xyz'],
         ]
 
         const result = processOpenEndedResults(questions, columnMap, rows)
@@ -2322,12 +2323,14 @@ describe('processOpenEndedResults', () => {
         expect(openData.data).toHaveLength(2)
         expect(openData.data[0]).toEqual({
             distinctId: 'user123',
+            personDisplayName: 'John Doe',
             response: 'Great product!',
             timestamp: '2024-01-15T10:30:00Z',
             sessionId: 'session-abc',
         })
         expect(openData.data[1]).toEqual({
             distinctId: 'user456',
+            personDisplayName: undefined,
             response: 'Could be better',
             timestamp: '2024-01-15T11:45:00Z',
             sessionId: undefined,
@@ -2347,10 +2350,11 @@ describe('processOpenEndedResults', () => {
         const columnMap: OpenEndedColumnMap = {
             'choice-q1': { columnIndex: 0, questionIndex: 0, type: SurveyQuestionType.SingleChoice },
         }
+        // Column layout: [response, distinct_id, person_display_name, timestamp]
         const rows = [
-            ['Yes', 'user1', '2024-01-15T10:00:00Z'],
-            ['Something custom', 'user2', '2024-01-15T11:00:00Z'],
-            ['No', 'user3', '2024-01-15T12:00:00Z'],
+            ['Yes', 'user1', 'Alice', '2024-01-15T10:00:00Z'],
+            ['Something custom', 'user2', 'Bob', '2024-01-15T11:00:00Z'],
+            ['No', 'user3', 'Carol', '2024-01-15T12:00:00Z'],
         ]
 
         const result = processOpenEndedResults(questions, columnMap, rows)
@@ -2359,6 +2363,7 @@ describe('processOpenEndedResults', () => {
         expect(choiceData.data).toHaveLength(1)
         expect(choiceData.data[0].label).toBe('Something custom')
         expect(choiceData.data[0].distinctId).toBe('user2')
+        expect(choiceData.data[0].personDisplayName).toBe('Bob')
     })
 
     it('collects non-predefined "Other" text from multiple choice with hasOpenChoice', () => {
@@ -2374,9 +2379,10 @@ describe('processOpenEndedResults', () => {
         const columnMap: OpenEndedColumnMap = {
             'multi-q1': { columnIndex: 0, questionIndex: 0, type: SurveyQuestionType.MultipleChoice },
         }
+        // Column layout: [response, distinct_id, person_display_name, timestamp]
         const rows = [
-            [['A', 'Custom text'], 'user1', '2024-01-15T10:00:00Z'],
-            [['B'], 'user2', '2024-01-15T11:00:00Z'],
+            [['A', 'Custom text'], 'user1', 'Dave', '2024-01-15T10:00:00Z'],
+            [['B'], 'user2', 'Eve', '2024-01-15T11:00:00Z'],
         ]
 
         const result = processOpenEndedResults(questions, columnMap, rows)
@@ -2384,6 +2390,7 @@ describe('processOpenEndedResults', () => {
 
         expect(choiceData.data).toHaveLength(1)
         expect(choiceData.data[0].label).toBe('Custom text')
+        expect(choiceData.data[0].personDisplayName).toBe('Dave')
     })
 
     it('returns empty object for null rows', () => {

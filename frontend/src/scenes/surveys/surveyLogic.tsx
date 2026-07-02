@@ -9,7 +9,7 @@ import { lemonToast } from '@posthog/lemon-ui'
 import api from 'lib/api'
 import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
-import { FEATURE_FLAGS } from 'lib/constants'
+import { FEATURE_FLAGS, PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 import { FeatureFlagsSet, featureFlagLogic as enabledFlagLogic } from 'lib/logic/featureFlagLogic'
 import { deleteWithUndo } from 'lib/utils/deleteWithUndo'
@@ -505,6 +505,7 @@ function collectOpenChoiceResponses(
     rows: any[][],
     columnIndex: number,
     distinctIdIdx: number,
+    personDisplayNameIdx: number,
     timestampIdx: number
 ): ChoiceQuestionResponseData[] {
     const predefined = new Set(question.choices ?? [])
@@ -531,6 +532,7 @@ function collectOpenChoiceResponses(
                     value: 1,
                     isPredefined: false,
                     distinctId: row[distinctIdIdx] as string,
+                    personDisplayName: (row[personDisplayNameIdx] as string) || undefined,
                     timestamp: row[timestampIdx] as string,
                 })
             }
@@ -551,8 +553,9 @@ export function processOpenEndedResults(
 
     const numCols = Object.keys(columnMap).length
     const distinctIdIdx = numCols
-    const timestampIdx = numCols + 1
-    const sessionIdIdx = numCols + 2
+    const personDisplayNameIdx = numCols + 1
+    const timestampIdx = numCols + 2
+    const sessionIdIdx = numCols + 3
     const result: ResponsesByQuestion = {}
 
     for (const [questionId, { columnIndex, type }] of Object.entries(columnMap)) {
@@ -565,6 +568,7 @@ export function processOpenEndedResults(
                 }
                 data.push({
                     distinctId: row[distinctIdIdx] as string,
+                    personDisplayName: (row[personDisplayNameIdx] as string) || undefined,
                     response: value,
                     timestamp: row[timestampIdx] as string,
                     sessionId: (row[sessionIdIdx] as string) || undefined,
@@ -576,7 +580,15 @@ export function processOpenEndedResults(
             if (!question) {
                 continue
             }
-            const otherData = collectOpenChoiceResponses(question, type, rows, columnIndex, distinctIdIdx, timestampIdx)
+            const otherData = collectOpenChoiceResponses(
+                question,
+                type,
+                rows,
+                columnIndex,
+                distinctIdIdx,
+                personDisplayNameIdx,
+                timestampIdx
+            )
             if (otherData.length > 0) {
                 result[questionId] = { type, data: otherData, totalResponses: 0, noResponseCount: 0 }
             }
@@ -713,7 +725,6 @@ export const surveyLogic = kea<surveyLogicType>([
             enabled,
         }),
         deleteSurveyNotification: (notification: HogFunctionType) => ({ notification }),
-        setPersonNames: (personNames: Record<string, string>) => ({ personNames }),
         generateTranslationDrafts: (language: string, overwrite: boolean = true) => ({ language, overwrite }),
         setGeneratingTranslationDrafts: (generating: boolean) => ({ generating }),
         setAiGeneratedTranslationFields: (paths: string[]) => ({ paths }),
@@ -994,7 +1005,15 @@ export const surveyLogic = kea<surveyLogicType>([
                     queryParams: { filters: { properties: values.propertyFilters } },
                 }
                 const aggregateQuery = buildAggregateQuery(survey, queryFilters, values.dateRange)
-                const openEndedResult = buildOpenEndedQuery(survey, queryFilters, values.dateRange)
+                const personDisplayNameProperties =
+                    teamLogic.values.currentTeam?.person_display_name_properties ??
+                    PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
+                const openEndedResult = buildOpenEndedQuery(
+                    survey,
+                    queryFilters,
+                    values.dateRange,
+                    personDisplayNameProperties
+                )
 
                 const startMs = performance.now()
                 let aggregateDuration = 0
@@ -1213,55 +1232,9 @@ export const surveyLogic = kea<surveyLogicType>([
                     actions.loadSurveyDismissedAndSentCount()
                 }
             },
-            loadConsolidatedSurveyResultsSuccess: async ({ consolidatedSurveyResults }) => {
-                const distinctIds = new Set<string>()
-                for (const data of Object.values(consolidatedSurveyResults.responsesByQuestion)) {
-                    for (const r of data.data) {
-                        const id = 'distinctId' in r ? r.distinctId : undefined
-                        if (id) {
-                            distinctIds.add(id)
-                        }
-                    }
-                }
-
-                if (distinctIds.size === 0) {
-                    maybeCompleteResultsRequery()
-                    return
-                }
-
-                const teamId = teamLogic.values.currentTeamId
-                if (!teamId) {
-                    maybeCompleteResultsRequery()
-                    return
-                }
-
-                try {
-                    const allIds = Array.from(distinctIds)
-                    const BATCH_SIZE = 200
-                    const personNames: Record<string, string> = {}
-
-                    for (let i = 0; i < allIds.length; i += BATCH_SIZE) {
-                        const batch = allIds.slice(i, i + BATCH_SIZE)
-                        const response = await api.create(`api/environments/${teamId}/persons/batch_by_distinct_ids/`, {
-                            distinct_ids: batch,
-                        })
-
-                        for (const [distinctId, person] of Object.entries(
-                            response.results as Record<string, { name: string }>
-                        )) {
-                            if (person.name) {
-                                personNames[distinctId] = person.name
-                            }
-                        }
-                    }
-
-                    if (Object.keys(personNames).length > 0) {
-                        actions.setPersonNames(personNames)
-                    }
-                } catch {
-                    // Person enrichment is best-effort — don't block survey results
-                }
-
+            loadConsolidatedSurveyResultsSuccess: () => {
+                // Person display names are resolved directly in the open-ended query
+                // (see buildPersonDisplayNameExpression), so no follow-up enrichment is needed.
                 maybeCompleteResultsRequery()
             },
             loadConsolidatedSurveyResultsFailure: () => {
@@ -1549,12 +1522,6 @@ export const surveyLogic = kea<surveyLogicType>([
             SurveyTab.SUMMARY as SurveyTab,
             {
                 setActiveTab: (_, { tab }) => tab,
-            },
-        ],
-        personNames: [
-            {} as Record<string, string>,
-            {
-                setPersonNames: (state, { personNames }) => ({ ...state, ...personNames }),
             },
         ],
         expandedResponseUuids: [
@@ -1942,27 +1909,6 @@ export const surveyLogic = kea<surveyLogicType>([
         ],
     }),
     selectors({
-        enrichedConsolidatedSurveyResults: [
-            (s) => [s.consolidatedSurveyResults, s.personNames],
-            (results: ConsolidatedSurveyResults, personNames: Record<string, string>): ConsolidatedSurveyResults => {
-                if (!results?.responsesByQuestion || Object.keys(personNames).length === 0) {
-                    return results
-                }
-
-                const enriched: ResponsesByQuestion = {}
-                for (const [qid, data] of Object.entries(results.responsesByQuestion)) {
-                    enriched[qid] = {
-                        ...data,
-                        data: data.data.map((r) => {
-                            const id = 'distinctId' in r ? r.distinctId : undefined
-                            return id && personNames[id] ? { ...r, personDisplayName: personNames[id] } : r
-                        }),
-                    } as typeof data
-                }
-
-                return { responsesByQuestion: enriched }
-            },
-        ],
         timestampFilter: [
             (s) => [s.survey, s.dateRange],
             (survey: Survey, dateRange: SurveyDateRange): string => {
@@ -2925,7 +2871,7 @@ export const surveyLogic = kea<surveyLogicType>([
             },
         ],
         formattedOpenEndedResponses: [
-            (s) => [s.enrichedConsolidatedSurveyResults, s.survey],
+            (s) => [s.consolidatedSurveyResults, s.survey],
             (
                 consolidatedResults: ConsolidatedSurveyResults,
                 survey: Survey | NewSurvey
