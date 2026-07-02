@@ -48,6 +48,13 @@ const INSTALL_GUIDE_ACTION: HealthCheckAction = {
     to: 'https://posthog.com/docs/libraries/js',
 }
 
+// The failing $pageview check reads like a "finish installing" call to action, so its button
+// should say the same thing rather than the generic "View installation guide".
+const COMPLETE_INSTALL_ACTION: HealthCheckAction = {
+    label: 'Complete installation',
+    to: 'https://posthog.com/docs/libraries/js',
+}
+
 const WEB_HEALTH_CHECKS: WebHealthCheckConfig[] = [
     {
         id: HealthCheckId.PAGEVIEW_EVENTS,
@@ -57,7 +64,7 @@ const WEB_HEALTH_CHECKS: WebHealthCheckConfig[] = [
         passingDescription:
             'Events are flowing in as expected. Head over to the Web Analytics tab to start reviewing your analytics!',
         failingDescription: 'Complete the PostHog installation to start seeing events in your dashboard.',
-        failingAction: INSTALL_GUIDE_ACTION,
+        failingAction: COMPLETE_INSTALL_ACTION,
         docsUrl: 'https://posthog.com/docs/product-analytics/capture-events',
         urgent: true,
     },
@@ -402,12 +409,11 @@ export const webAnalyticsHealthLogic = kea<webAnalyticsHealthLogicType>([
         },
     })),
 
-    afterMount(({ actions, values }) => {
+    afterMount(({ actions }) => {
+        // Only load the latest results here. Health checks are re-evaluated on their own daily
+        // schedule, and the refresh endpoint is throttled to one call per team every 5 minutes —
+        // auto-firing it on every mount just produced 429 storms across a team's users without
+        // giving them fresher data. Users can still trigger a re-run via the manual refresh button.
         actions.loadHealthIssues()
-
-        const { nextRefreshAvailableAt } = values
-        if (nextRefreshAvailableAt === null || nextRefreshAvailableAt <= Date.now()) {
-            actions.refreshHealthChecks(false)
-        }
     }),
 ])
