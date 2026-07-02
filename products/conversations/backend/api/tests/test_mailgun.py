@@ -85,6 +85,14 @@ class TestGetDomain:
 
         assert get_domain("example.com") is None
 
+    @pytest.mark.parametrize("body", [{}, {"domain": {}}, {"domain": None}])
+    def test_returns_none_when_payload_has_no_domain_object(
+        self, mock_get: MagicMock, _mock_key: MagicMock, body: dict
+    ):
+        mock_get.return_value = _mailgun_response(200, body)
+
+        assert get_domain("example.com") is None
+
 
 @patch("products.conversations.backend.mailgun.get_instance_setting", return_value="")
 class TestGetApiKey:
