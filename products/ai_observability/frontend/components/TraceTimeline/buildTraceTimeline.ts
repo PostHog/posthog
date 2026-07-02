@@ -27,6 +27,52 @@ export interface TraceTimelineData {
 // Annotation events the trace tree hides too — they aren't steps in time.
 const HIDDEN_EVENTS = new Set(['$ai_feedback', '$ai_metric'])
 
+// Axis steps land on clock-friendly values (…15s, 30s, 1m, 2m…), not decimal
+// multiples — a 4m trace should tick 1m/2m/3m, never 50s/1m 40s.
+const TICK_STEPS_MS = [
+    1, 2, 5, 10, 20, 50, 100, 200, 500, 1_000, 2_000, 5_000, 10_000, 15_000, 30_000, 60_000, 120_000, 300_000, 600_000,
+    900_000, 1_800_000, 3_600_000, 7_200_000, 10_800_000, 21_600_000, 43_200_000, 86_400_000,
+]
+const MAX_TICKS = 6
+
+export function buildTicks(totalMs: number): number[] {
+    if (totalMs < 10) {
+        return [0]
+    }
+    const step =
+        TICK_STEPS_MS.find((s) => totalMs / s <= MAX_TICKS) ??
+        86_400_000 * Math.ceil(totalMs / (MAX_TICKS * 86_400_000))
+    const ticks: number[] = []
+    for (let tick = 0; tick <= totalMs; tick += step) {
+        ticks.push(tick)
+    }
+    return ticks
+}
+
+// Compact durations: 240ms, 1.5s, 4m 30s, 2h 15m — terse enough to fit inside
+// bars and axis labels.
+export function formatDuration(ms: number): string {
+    if (ms <= 0) {
+        return '0'
+    }
+    if (ms < 1000) {
+        return `${Math.round(ms)}ms`
+    }
+    if (ms < 60_000) {
+        return `${parseFloat((ms / 1000).toFixed(2))}s`
+    }
+    if (ms < 3_600_000) {
+        const totalSeconds = Math.round(ms / 1000)
+        const minutes = Math.floor(totalSeconds / 60)
+        const seconds = totalSeconds % 60
+        return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`
+    }
+    const totalMinutes = Math.round(ms / 60_000)
+    const hours = Math.floor(totalMinutes / 60)
+    const minutes = totalMinutes % 60
+    return minutes > 0 ? `${hours}h ${minutes}m` : `${hours}h`
+}
+
 // Instant events still occupy a sliver of time when resolving lane collisions.
 const OVERLAP_MIN_MS = 1
 

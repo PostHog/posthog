@@ -7,7 +7,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { LLMTraceEvent } from '~/queries/schema/schema-general'
 
-import { TraceBarKind, TraceTimelineBar, buildTraceTimeline } from './buildTraceTimeline'
+import { TraceBarKind, TraceTimelineBar, buildTicks, buildTraceTimeline, formatDuration } from './buildTraceTimeline'
 
 // Same hues as the tree's EventTypeTag: generation green, embedding amber,
 // span neutral, trace purple. Opaque fills so the gridlines don't show through
@@ -27,38 +27,6 @@ const LANE_H = BAR_H + LANE_GAP
 // Beyond this many lanes the chart scrolls vertically instead of growing, so a
 // deeply nested trace can't crowd out the rest of the page.
 const MAX_VISIBLE_LANES = 8
-
-// 4-7 round-numbered axis ticks between 0 and totalMs (inclusive of 0).
-function buildTicks(totalMs: number): number[] {
-    if (totalMs < 10) {
-        return [0]
-    }
-    const target = totalMs / 6
-    const power = Math.pow(10, Math.floor(Math.log10(target)))
-    const step = [1, 2, 2.5, 5, 10].map((m) => m * power).find((s) => s >= target) ?? 10 * power
-    const ticks: number[] = []
-    for (let tick = 0; tick <= totalMs; tick += step) {
-        ticks.push(tick)
-    }
-    return ticks
-}
-
-// Compact durations: 240ms, 1.5s, 4m 30s — terser than humanFriendlyMilliseconds
-// so they fit inside bars and axis labels.
-function formatDuration(ms: number): string {
-    if (ms <= 0) {
-        return '0'
-    }
-    if (ms < 1000) {
-        return `${Math.round(ms)}ms`
-    }
-    if (ms < 60_000) {
-        return `${parseFloat((ms / 1000).toFixed(2))}s`
-    }
-    const minutes = Math.floor(ms / 60_000)
-    const seconds = Math.round((ms % 60_000) / 1000)
-    return seconds > 0 ? `${minutes}m ${seconds}s` : `${minutes}m`
-}
 
 export function TraceTimeline({
     events,

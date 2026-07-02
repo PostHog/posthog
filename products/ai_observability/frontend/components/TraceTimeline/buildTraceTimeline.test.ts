@@ -1,6 +1,6 @@
 import { LLMTraceEvent } from '~/queries/schema/schema-general'
 
-import { buildTraceTimeline } from './buildTraceTimeline'
+import { buildTicks, buildTraceTimeline, formatDuration } from './buildTraceTimeline'
 
 const T0 = 1_000_000_000_000
 
@@ -143,5 +143,22 @@ describe('buildTraceTimeline', () => {
 
     it('returns empty for no events', () => {
         expect(buildTraceTimeline([])).toEqual({ bars: [], totalMs: 0, laneCount: 0 })
+    })
+
+    it.each([
+        [250_000, [0, 60_000, 120_000, 180_000, 240_000]], // a ~4m trace ticks whole minutes, not 50s steps
+        [47_800, [0, 10_000, 20_000, 30_000, 40_000]],
+        [90_000, [0, 15_000, 30_000, 45_000, 60_000, 75_000, 90_000]],
+    ])('axis ticks for %ims land on clock-friendly steps', (totalMs, expected) => {
+        expect(buildTicks(totalMs)).toEqual(expected)
+    })
+
+    it.each([
+        [1500, '1.5s'],
+        [119_600, '2m'], // rounds up whole — never "1m 60s"
+        [250_000, '4m 10s'],
+        [5_400_000, '1h 30m'],
+    ])('formats %ims as %s', (ms, expected) => {
+        expect(formatDuration(ms)).toBe(expected)
     })
 })
