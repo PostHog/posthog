@@ -49,7 +49,7 @@ def _testcase(
     [
         ("junit-results-backend-core-29", ("backend", "core", 29)),
         ("junit-results-llm-gateway", ("llm-gateway", "llm-gateway", None)),
-        ("junit-results-temporal", ("temporal", "temporal", None)),
+        ("junit-results-hogli", ("hogli", "hogli", None)),
     ],
 )
 def test_derive_suite_segment_and_group(dir_name: str, expected: tuple[str, str, int | None]) -> None:
