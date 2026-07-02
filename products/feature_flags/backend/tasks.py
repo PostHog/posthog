@@ -27,6 +27,7 @@ from products.feature_flags.backend.local_evaluation import (
     update_flag_caches,
 )
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
+from products.feature_flags.backend.rebuild_queue import drain_rebuild_requests
 
 logger = structlog.get_logger(__name__)
 
@@ -45,6 +46,21 @@ def update_team_flags_cache(team_id: int) -> None:
         return
 
     update_flag_caches(team)
+
+
+# Bounded below the 1-minute schedule so a slow drain (e.g. a large post-eviction
+# backlog rebuilt inline) can't run past the next tick and pin a worker. Teams not
+# reached before the limit stay missing and are re-enqueued by their next miss.
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.FEATURE_FLAGS.value,
+    soft_time_limit=50,
+    time_limit=55,
+)
+def drain_flag_definitions_rebuild_requests() -> None:
+    """Drain the flag-definitions self-heal queue, rebuilding caches the Rust
+    /flags/definitions endpoint reported missing. Scheduled every minute."""
+    drain_rebuild_requests()
 
 
 @shared_task(ignore_result=True, queue=CeleryQueue.FEATURE_FLAGS.value)

@@ -11,6 +11,14 @@ import {
     sharedListeners,
 } from 'kea'
 import type { FieldName } from 'kea-forms'
+import { loaders } from 'kea-loaders'
+
+import { lemonToast } from 'lib/lemon-ui/LemonToast'
+
+import { ApiConfig, ApiError } from '~/lib/api'
+
+import { externalDataSourcesDraftCustomManifestCreate } from 'products/warehouse_sources/frontend/generated/api'
+import type { DraftCustomManifestResponseApi } from 'products/warehouse_sources/frontend/generated/api.schemas'
 
 import {
     buildManifest,
@@ -75,6 +83,11 @@ export const customSourceManifestBuilderLogic = kea<customSourceManifestBuilderL
         // UI-only: tracks the generated-manifest <details> disclosure so the
         // CodeSnippet (and its syntax highlighting) only renders while expanded.
         setManifestPreviewOpen: (open: boolean) => ({ open }),
+        // AI assist: the docs URL + optional name the user wants to draft a manifest from.
+        setDocsUrl: (docsUrl: string) => ({ docsUrl }),
+        setSourceName: (sourceName: string) => ({ sourceName }),
+        // Switch from the AI intro screen to the full manual builder.
+        setShowBuilder: (showBuilder: boolean) => ({ showBuilder }),
     }),
     reducers(({ props }) => ({
         manifestState: [
@@ -149,6 +162,46 @@ export const customSourceManifestBuilderLogic = kea<customSourceManifestBuilderL
                 setManifestPreviewOpen: (_, { open }) => open,
             },
         ],
+        docsUrl: [
+            '',
+            {
+                setDocsUrl: (_, { docsUrl }) => docsUrl,
+            },
+        ],
+        sourceName: [
+            '',
+            {
+                setSourceName: (_, { sourceName }) => sourceName,
+            },
+        ],
+        // The AI intro screen is the default for a fresh source; the configuration page (which passes
+        // an initial manifest) and the "Configure manually" button jump straight to the builder.
+        showBuilder: [
+            Boolean(props.initialManifestJson),
+            {
+                setShowBuilder: (_, { showBuilder }) => showBuilder,
+            },
+        ],
+    })),
+    loaders(({ values }) => ({
+        // Drafts a manifest from the docs URL via the backend AI builder. The returned value drives
+        // `draftResultLoading` (button spinner); the success listener populates the builder.
+        draftResult: [
+            null as DraftCustomManifestResponseApi | null,
+            {
+                generateFromDocs: async (): Promise<DraftCustomManifestResponseApi | null> => {
+                    const docsUrl = values.docsUrl.trim()
+                    if (!docsUrl) {
+                        lemonToast.error('Enter a documentation URL first')
+                        return null
+                    }
+                    return await externalDataSourcesDraftCustomManifestCreate(String(ApiConfig.getCurrentTeamId()), {
+                        docs_url: docsUrl,
+                        source_name: values.sourceName.trim() || undefined,
+                    })
+                },
+            },
+        ],
     })),
     selectors({
         manifestJson: [(s) => [s.manifestState], (state): string => JSON.stringify(buildManifest(state), null, 2)],
@@ -162,14 +215,23 @@ export const customSourceManifestBuilderLogic = kea<customSourceManifestBuilderL
             props.setValue(['payload', 'manifest_json'] as FieldName, values.manifestJson)
             // Secrets go to their own fields so the backend redacts them generically;
             // the manifest itself stays non-secret and round-trips to the config tab.
+            // Field names must match the backend SourceFieldInputConfig names exactly.
             props.setValue(['payload', 'auth_token'] as FieldName, values.authSecrets.auth_token)
             props.setValue(['payload', 'auth_api_key'] as FieldName, values.authSecrets.auth_api_key)
             props.setValue(['payload', 'auth_password'] as FieldName, values.authSecrets.auth_password)
+            props.setValue(
+                ['payload', 'auth_oauth2_client_secret'] as FieldName,
+                values.authSecrets.auth_oauth2_client_secret
+            )
+            props.setValue(
+                ['payload', 'auth_oauth2_refresh_token'] as FieldName,
+                values.authSecrets.auth_oauth2_refresh_token
+            )
         },
     })),
     // Every state mutation re-pushes the serialized manifest + secrets to the
     // outer form — this replaces the effect that watched the derived values.
-    listeners(({ sharedListeners }) => ({
+    listeners(({ sharedListeners, actions }) => ({
         setManifestState: sharedListeners.pushManifestToOuterForm,
         updateState: sharedListeners.pushManifestToOuterForm,
         updateTable: sharedListeners.pushManifestToOuterForm,
@@ -180,6 +242,35 @@ export const customSourceManifestBuilderLogic = kea<customSourceManifestBuilderL
         removeHeader: sharedListeners.pushManifestToOuterForm,
         updateHeader: sharedListeners.pushManifestToOuterForm,
         syncToOuterForm: sharedListeners.pushManifestToOuterForm,
+        generateFromDocsSuccess: ({ draftResult }) => {
+            if (!draftResult) {
+                return
+            }
+            // Populate the builder from the draft so the user reviews and adds credentials before
+            // creating; secrets are never in the manifest, so the auth_* fields stay for them to fill.
+            if (draftResult.manifest_json) {
+                actions.setManifestState(parseManifestIntoState(draftResult.manifest_json))
+                // Move to the builder so the user reviews the draft and fills in credentials.
+                actions.setShowBuilder(true)
+            }
+            if (draftResult.draft_status === 'ok') {
+                lemonToast.success(
+                    `Drafted a manifest with ${draftResult.resource_names.length} table(s). Review it and add your credentials.`
+                )
+            } else {
+                lemonToast.warning(
+                    draftResult.error || 'Could not fully validate the manifest — review and fix it before creating.'
+                )
+            }
+        },
+        generateFromDocsFailure: ({ errorObject }) => {
+            // Surface the backend's specific reason instead of a blanket message: 4xx/5xx bodies carry
+            // `data.message`, while a 429 throttle carries DRF's `data.detail` ("…available in N
+            // seconds") — telling a rate-limited user to "try again" immediately would be wrong.
+            const apiError = errorObject instanceof ApiError ? errorObject : undefined
+            const message = apiError?.data?.message || apiError?.data?.detail
+            lemonToast.error(message || 'Failed to draft a manifest. Try again, or configure it manually.')
+        },
     })),
     afterMount(({ actions, props }) => {
         // The reducer already parsed `initialManifestJson` at mount, but the listeners
@@ -201,6 +292,9 @@ export const customSourceManifestBuilderLogic = kea<customSourceManifestBuilderL
             props.initialManifestJson
         ) {
             actions.setManifestState(parseManifestIntoState(props.initialManifestJson))
+            // An existing source's manifest arrived (often a beat after mount, via the config-page
+            // poll): it already has a manifest, so open straight in the builder, never the AI intro.
+            actions.setShowBuilder(true)
         }
     }),
 ])

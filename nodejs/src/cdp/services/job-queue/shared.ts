@@ -1,6 +1,7 @@
 import { Counter, Gauge, Histogram } from 'prom-client'
 
-import { buildIntegerMatcher } from '../../../config/config'
+import { buildIntegerMatcher } from '~/common/config/config'
+
 import { ValueMatcher } from '../../../types'
 import { CdpConfig } from '../../config'
 import {

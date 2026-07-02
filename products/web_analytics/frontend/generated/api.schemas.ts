@@ -137,6 +137,8 @@ export interface HeatmapScreenshotResponseApi {
     readonly snapshots: readonly HeatmapSnapshotMetadataApi[]
     /** Soft-delete flag; deleted heatmaps are hidden from the list. */
     deleted?: boolean
+    /** Whether the headless browser dismisses cookie/consent banners before capturing the screenshot. Only applies to 'screenshot' heatmaps. */
+    block_consent_modals?: boolean
     readonly created_by: UserBasicApi
     readonly created_at: string
     readonly updated_at: string
@@ -232,6 +234,8 @@ export interface SavedHeatmapRequestApi {
     type?: HeatmapTypeApi
     /** Set true to soft-delete the saved heatmap. */
     deleted?: boolean
+    /** When true, ask the headless browser to dismiss cookie/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps. */
+    block_consent_modals?: boolean
 }
 
 export interface PatchedSavedHeatmapRequestApi {
@@ -267,6 +271,8 @@ export interface PatchedSavedHeatmapRequestApi {
     type?: HeatmapTypeApi
     /** Set true to soft-delete the saved heatmap. */
     deleted?: boolean
+    /** When true, ask the headless browser to dismiss cookie/consent banners before capturing the screenshot. Off by default: the blocker can stall the render on some sites and time out. Only applies to 'screenshot' heatmaps. */
+    block_consent_modals?: boolean
 }
 
 /**
@@ -347,6 +353,67 @@ export interface GoalApi {
     conversions: number
     /** Period-over-period change in conversions, null when not meaningful. */
     change: WoWChangeApi | null
+}
+
+export interface RecapPersonaApi {
+    /** Stable persona identifier. One of: just_getting_started, conversion_machine, traffic_magnet, crowd_favorite, search_hog, word_of_mouth, loyal_following, rising_star, steady_hog. */
+    id: string
+    /** Display name for the persona, e.g. 'Traffic Magnet'. */
+    name: string
+    /** Emoji representing the persona. */
+    emoji: string
+    /** One-line explanation of why this persona was assigned this week. */
+    blurb: string
+    /** Hex accent color for rendering the persona card. */
+    color: string
+}
+
+export interface RecapHighlightApi {
+    /** Stable highlight identifier, e.g. 'milestone', 'rising_page', 'top_source'. */
+    id: string
+    /** Emoji for the highlight. */
+    emoji: string
+    /** Short headline for the highlight, e.g. 'Rising star page'. */
+    title: string
+    /** The standout value, e.g. a page path or visitor count. */
+    value: string
+    /** Supporting sentence for the highlight. */
+    detail: string
+}
+
+export interface WebAnalyticsRecapResponseApi {
+    /** Unique visitors. */
+    visitors: NumericMetricApi
+    /** Total pageviews. */
+    pageviews: NumericMetricApi
+    /** Total sessions. */
+    sessions: NumericMetricApi
+    /** Bounce rate (0–100). */
+    bounce_rate: NumericMetricApi
+    /** Average session duration. */
+    avg_session_duration: DurationMetricApi
+    /** Top 5 pages by unique visitors. */
+    top_pages: TopPageApi[]
+    /** Top 5 traffic sources by unique visitors. */
+    top_sources: TopSourceApi[]
+    /** Goal conversions. */
+    goals: GoalApi[]
+    /** Link to the Web analytics dashboard for this project. */
+    dashboard_url: string
+    /** The single weekly persona assigned from this week's data. */
+    persona: RecapPersonaApi
+    /** Up to three screenshot-worthy superlatives for the week. */
+    highlights: RecapHighlightApi[]
+    /** Human-readable period label, e.g. 'Last 7 days'. */
+    period_label: string
+    /** First date included in the recap period, in the project timezone. */
+    period_start: string
+    /** Final date included in the recap period, in the project timezone. */
+    period_end: string
+    /** Name of the project this recap is for. */
+    project_name: string
+    /** Canonical link to this project's weekly recap. */
+    recap_url: string
 }
 
 export interface WeeklyDigestResponseApi {
@@ -464,6 +531,11 @@ export interface AchievementsListResponseApi {
     team_progress: AchievementProgressApi[]
     /** Newly unlocked stages awaiting an in-session celebration; acknowledge each to clear it. */
     pending_celebrations: PendingCelebrationApi[]
+}
+
+export interface WebAnalyticsUserPreferencesApi {
+    /** When true, the requesting user has hidden the Web analytics achievements gamification UI and suppressed achievement-unlocked notifications for this project. Scoped per (project, user). */
+    achievements_opt_out: boolean
 }
 
 /**
@@ -733,6 +805,17 @@ export type SavedListParams = {
      * @minLength 1
      */
     type?: string
+}
+
+export type WebAnalyticsRecapParams = {
+    /**
+     * When true (default), include period-over-period change for each metric comparing against the prior equal-length period. Set to false to skip the comparison query.
+     */
+    compare?: boolean
+    /**
+     * Lookback window in days (1–90). Defaults to 7.
+     */
+    days?: number
 }
 
 export type WebAnalyticsWeeklyDigestParams = {

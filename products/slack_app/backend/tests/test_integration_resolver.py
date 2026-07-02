@@ -248,6 +248,31 @@ class TestResolveIntegration:
         assert result.source == "sole_candidate"
         assert result.integration == self.integration_b
 
+    def test_null_user_default_falls_through_to_workspace(self):
+        # A null personal row exists because the user reset their project
+        # routing back to workspace default. The resolver must skip it and
+        # use the workspace-wide row.
+        SlackSettings.objects.create(
+            default_integration=None,
+            slack_workspace_id=WORKSPACE,
+            slack_user_id=SLACK_USER,
+        )
+        SlackSettings.objects.create(
+            default_integration=self.integration_a,
+            slack_workspace_id=WORKSPACE,
+            slack_user_id=None,
+        )
+
+        result = load_integrations(
+            slack_team_id=WORKSPACE,
+            kinds=["slack"],
+            slack_user_id=SLACK_USER,
+            user=self.user,
+        )
+
+        assert result.source == "workspace_default"
+        assert result.integration == self.integration_a
+
     def test_user_default_wins_over_workspace_default(self):
         SlackSettings.objects.create(
             default_integration=self.integration_a,
@@ -578,7 +603,7 @@ class TestLoadIntegrationsAuthStateFilter:
 
     def test_all_broken_returns_empty(self):
         # When every candidate is cached as broken, return an empty list.
-        # Upstream code (``_resolve_region_or_terminal_route``) treats an empty
+        # Upstream code (``resolve_region_or_terminal_route``) treats an empty
         # candidate set the same way it'd handle a workspace with no rows at
         # all — falls through to ``ROUTE_NO_INTEGRATION``. Recovery paths:
         # the 6h TTL expires, OAuth reconnect invalidates the cache, or a

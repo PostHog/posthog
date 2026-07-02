@@ -24,6 +24,7 @@ from posthog.hogql.printer.duckdb import DuckDBPrinter
 from posthog.hogql.printer.hogql import HogQLPrinter
 from posthog.hogql.printer.mysql import MySQLPrinter
 from posthog.hogql.printer.postgres import PostgresPrinter
+from posthog.hogql.printer.snowflake import SnowflakePrinter
 from posthog.hogql.resolver import ResolverFactory, resolve_types
 from posthog.hogql.transforms.clickhouse_property_resolution import clickhouse_property_resolution
 from posthog.hogql.transforms.events_predicate_pushdown import apply_events_predicate_pushdown, events_pushdown_enabled
@@ -49,6 +50,7 @@ from posthog.hogql.workload import WorkloadCollector
 
 from posthog.clickhouse.workload import Workload
 from posthog.models.team import Team
+from posthog.models.team.event_retention import events_retention_months_for_team
 
 from products.access_control.backend.property_access_control import get_restricted_properties_for_team
 
@@ -57,6 +59,7 @@ PRINTER_CLASSES: dict[HogQLDialect, type[BasePrinter]] = {
     "postgres": PostgresPrinter,
     "duckdb": DuckDBPrinter,
     "mysql": MySQLPrinter,
+    "snowflake": SnowflakePrinter,
     "hogql": HogQLPrinter,
 }
 
@@ -193,16 +196,22 @@ def prepare_ast_for_printing(
         collector.visit(node)
         context.workload = collector.get_workload()
 
-    # LOGS-cluster tables (logs, spans, metrics) store attributes in `*_map_str/_float` Map columns, not JSON blobs.
-    # Property reads only resolve to those Map columns under OPTIMIZED; otherwise they fall back to JSONExtract, which
-    # errors on a Map. Force OPTIMIZED here — after workload detection, before property resolution reads the modifier —
-    # so every caller (SQL panel, alerts, runners) is correct without each having to set it.
-    if context.workload == Workload.LOGS and context.modifiers.propertyGroupsMode is None:
+    # LOGS-cluster tables (logs, spans, metrics) split attributes across typed `*_map_str/_float/_datetime` Map columns.
+    # A type-suffixed attribute key (e.g. `host__str`) only resolves to its physical column via property groups, which
+    # are active under OPTIMIZED. Without OPTIMIZED the read falls back to a subscript on the un-suffixed `attributes`
+    # alias, where the suffixed key never matches — so `is not` filters match every row and `equals` filters match none
+    # (silently wrong, not an error). OPTIMIZED is therefore required for correctness here, not merely a perf mode, so
+    # force it for every logs query regardless of any non-OPTIMIZED value a caller may have set — after workload
+    # detection, before property resolution reads the modifier.
+    if context.workload == Workload.LOGS and context.modifiers.propertyGroupsMode != PropertyGroupsMode.OPTIMIZED:
         context.modifiers.propertyGroupsMode = PropertyGroupsMode.OPTIMIZED
 
     if context.modifiers.optimizeProjections:
         with context.timings.measure("projection_pushdown"):
             node = pushdown_projections(node, context)
+        # Pushdown mutates SelectQueryType.columns, staling cached CTE tables. Drop them so a
+        # wrongly pruned column fails loudly at compile time instead of emitting broken SQL.
+        context.cte_database_table_cache.clear()
 
     if dialect in SQL_TARGET_DIALECTS:
         with context.timings.measure("resolve_lazy_tables"):
@@ -273,6 +282,15 @@ def prepare_ast_for_printing(
                         node, context
                     )
                 )
+
+        # Cohort-gated events data retention: floor every events scan to now() - retention. Computed once here
+        # (the per-scan printer hook can't afford the team lookup + flag eval); the printer reads it off the context.
+        # Gated on the backend-only apply_events_retention_floor flag so server-side paths that must bypass the floor
+        # — e.g. the GDPR data-deletion mutation path — can opt out; the flag can't be set from a query, so the
+        # enforcement floor still can't be circumvented by a query-supplied modifier.
+        with context.timings.measure("events_retention_floor"):
+            if context.apply_events_retention_floor:
+                context.events_retention_months = events_retention_months_for_team(context.team, context.team_id)
 
         # Events predicate pushdown runs on the lowered AST (between lowering and property resolution), so it matches the
         # dialect-neutral PropertyAccess form. Its pre-filtering subquery projects only source columns (raw blobs and

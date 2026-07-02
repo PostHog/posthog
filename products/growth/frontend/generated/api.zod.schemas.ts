@@ -16,6 +16,43 @@ export const TierEnumApi = zod
 export type TierEnumApi = zod.input<typeof TierEnumApi>
 export type TierEnumApiOutput = zod.output<typeof TierEnumApi>
 
+export const IdentityMatchingPersonApi = zod
+    .object({
+        distinct_id: zod.string().describe('Distinct ID this person was resolved from.'),
+        first_seen: zod.iso
+            .datetime({ offset: true })
+            .nullable()
+            .describe('When this person was first seen — person created_at (UTC).'),
+        last_seen: zod.iso
+            .datetime({ offset: true })
+            .nullable()
+            .describe('When this person was last seen, when tracked — person last_seen_at (UTC).'),
+        email: zod.string().nullable().describe("Person's email, when set."),
+        name: zod.string().nullable().describe("Person's name property, when set."),
+        city: zod.string().nullable().describe('GeoIP city ($geoip_city_name).'),
+        country: zod.string().nullable().describe('GeoIP country code ($geoip_country_code).'),
+        browser: zod.string().nullable().describe('Browser ($browser).'),
+        os: zod.string().nullable().describe('Operating system ($os).'),
+        device_type: zod.string().nullable().describe('Device type, e.g. Desktop or Mobile ($device_type).'),
+        timezone: zod.string().nullable().describe('Browser timezone ($timezone).'),
+        utm_source: zod.string().nullable().describe('Initial campaign source ($initial_utm_source).'),
+        utm_medium: zod.string().nullable().describe('Initial campaign medium ($initial_utm_medium).'),
+        utm_campaign: zod.string().nullable().describe('Initial campaign name ($initial_utm_campaign).'),
+        referring_domain: zod.string().nullable().describe('Initial referring domain ($initial_referring_domain).'),
+        gclid: zod
+            .string()
+            .nullable()
+            .describe(
+                'Initial Google click ID ($initial_gclid); present when the person arrived via a paid Google ad.'
+            ),
+    })
+    .describe(
+        'The resolved person behind one side of a link, with a curated set of properties that mirror\nthe match signals (geo, device, campaign) so a reviewer can judge whether the link is plausible.'
+    )
+
+export type IdentityMatchingPersonApi = zod.input<typeof IdentityMatchingPersonApi>
+export type IdentityMatchingPersonApiOutput = zod.output<typeof IdentityMatchingPersonApi>
+
 export const IdentityMatchingLinkApi = zod.object({
     job_id: zod.uuid().describe('Identity matching run that produced this link.'),
     model_version: zod.string().describe("Scoring model that produced the link, e.g. 'rules_v1' or 'logreg_v1'."),
@@ -49,6 +86,94 @@ export const IdentityMatchingLinkApi = zod.object({
         .boolean()
         .describe('The orphan arrived via a paid click ID (gclid, li_fat_id, ...) inside the window.'),
     anchor_paid_touch: zod.boolean().describe('The matched person already had a paid click ID inside the window.'),
+    orphan_person: zod
+        .union([
+            zod
+                .object({
+                    distinct_id: zod.string().describe('Distinct ID this person was resolved from.'),
+                    first_seen: zod.iso
+                        .datetime({ offset: true })
+                        .nullable()
+                        .describe('When this person was first seen — person created_at (UTC).'),
+                    last_seen: zod.iso
+                        .datetime({ offset: true })
+                        .nullable()
+                        .describe('When this person was last seen, when tracked — person last_seen_at (UTC).'),
+                    email: zod.string().nullable().describe("Person's email, when set."),
+                    name: zod.string().nullable().describe("Person's name property, when set."),
+                    city: zod.string().nullable().describe('GeoIP city ($geoip_city_name).'),
+                    country: zod.string().nullable().describe('GeoIP country code ($geoip_country_code).'),
+                    browser: zod.string().nullable().describe('Browser ($browser).'),
+                    os: zod.string().nullable().describe('Operating system ($os).'),
+                    device_type: zod
+                        .string()
+                        .nullable()
+                        .describe('Device type, e.g. Desktop or Mobile ($device_type).'),
+                    timezone: zod.string().nullable().describe('Browser timezone ($timezone).'),
+                    utm_source: zod.string().nullable().describe('Initial campaign source ($initial_utm_source).'),
+                    utm_medium: zod.string().nullable().describe('Initial campaign medium ($initial_utm_medium).'),
+                    utm_campaign: zod.string().nullable().describe('Initial campaign name ($initial_utm_campaign).'),
+                    referring_domain: zod
+                        .string()
+                        .nullable()
+                        .describe('Initial referring domain ($initial_referring_domain).'),
+                    gclid: zod
+                        .string()
+                        .nullable()
+                        .describe(
+                            'Initial Google click ID ($initial_gclid); present when the person arrived via a paid Google ad.'
+                        ),
+                })
+                .describe(
+                    'The resolved person behind one side of a link, with a curated set of properties that mirror\nthe match signals (geo, device, campaign) so a reviewer can judge whether the link is plausible.'
+                ),
+            zod.null(),
+        ])
+        .describe('Resolved person behind the anonymous distinct ID; null when no profile exists for it.'),
+    anchor_person: zod
+        .union([
+            zod
+                .object({
+                    distinct_id: zod.string().describe('Distinct ID this person was resolved from.'),
+                    first_seen: zod.iso
+                        .datetime({ offset: true })
+                        .nullable()
+                        .describe('When this person was first seen — person created_at (UTC).'),
+                    last_seen: zod.iso
+                        .datetime({ offset: true })
+                        .nullable()
+                        .describe('When this person was last seen, when tracked — person last_seen_at (UTC).'),
+                    email: zod.string().nullable().describe("Person's email, when set."),
+                    name: zod.string().nullable().describe("Person's name property, when set."),
+                    city: zod.string().nullable().describe('GeoIP city ($geoip_city_name).'),
+                    country: zod.string().nullable().describe('GeoIP country code ($geoip_country_code).'),
+                    browser: zod.string().nullable().describe('Browser ($browser).'),
+                    os: zod.string().nullable().describe('Operating system ($os).'),
+                    device_type: zod
+                        .string()
+                        .nullable()
+                        .describe('Device type, e.g. Desktop or Mobile ($device_type).'),
+                    timezone: zod.string().nullable().describe('Browser timezone ($timezone).'),
+                    utm_source: zod.string().nullable().describe('Initial campaign source ($initial_utm_source).'),
+                    utm_medium: zod.string().nullable().describe('Initial campaign medium ($initial_utm_medium).'),
+                    utm_campaign: zod.string().nullable().describe('Initial campaign name ($initial_utm_campaign).'),
+                    referring_domain: zod
+                        .string()
+                        .nullable()
+                        .describe('Initial referring domain ($initial_referring_domain).'),
+                    gclid: zod
+                        .string()
+                        .nullable()
+                        .describe(
+                            'Initial Google click ID ($initial_gclid); present when the person arrived via a paid Google ad.'
+                        ),
+                })
+                .describe(
+                    'The resolved person behind one side of a link, with a curated set of properties that mirror\nthe match signals (geo, device, campaign) so a reviewer can judge whether the link is plausible.'
+                ),
+            zod.null(),
+        ])
+        .describe('Resolved identified person behind the matched person key; null when no profile exists for it.'),
 })
 
 export type IdentityMatchingLinkApi = zod.input<typeof IdentityMatchingLinkApi>
@@ -102,6 +227,118 @@ export const IdentityMatchingLinksResponseApi = zod.object({
                 anchor_paid_touch: zod
                     .boolean()
                     .describe('The matched person already had a paid click ID inside the window.'),
+                orphan_person: zod
+                    .union([
+                        zod
+                            .object({
+                                distinct_id: zod.string().describe('Distinct ID this person was resolved from.'),
+                                first_seen: zod.iso
+                                    .datetime({ offset: true })
+                                    .nullable()
+                                    .describe('When this person was first seen — person created_at (UTC).'),
+                                last_seen: zod.iso
+                                    .datetime({ offset: true })
+                                    .nullable()
+                                    .describe(
+                                        'When this person was last seen, when tracked — person last_seen_at (UTC).'
+                                    ),
+                                email: zod.string().nullable().describe("Person's email, when set."),
+                                name: zod.string().nullable().describe("Person's name property, when set."),
+                                city: zod.string().nullable().describe('GeoIP city ($geoip_city_name).'),
+                                country: zod.string().nullable().describe('GeoIP country code ($geoip_country_code).'),
+                                browser: zod.string().nullable().describe('Browser ($browser).'),
+                                os: zod.string().nullable().describe('Operating system ($os).'),
+                                device_type: zod
+                                    .string()
+                                    .nullable()
+                                    .describe('Device type, e.g. Desktop or Mobile ($device_type).'),
+                                timezone: zod.string().nullable().describe('Browser timezone ($timezone).'),
+                                utm_source: zod
+                                    .string()
+                                    .nullable()
+                                    .describe('Initial campaign source ($initial_utm_source).'),
+                                utm_medium: zod
+                                    .string()
+                                    .nullable()
+                                    .describe('Initial campaign medium ($initial_utm_medium).'),
+                                utm_campaign: zod
+                                    .string()
+                                    .nullable()
+                                    .describe('Initial campaign name ($initial_utm_campaign).'),
+                                referring_domain: zod
+                                    .string()
+                                    .nullable()
+                                    .describe('Initial referring domain ($initial_referring_domain).'),
+                                gclid: zod
+                                    .string()
+                                    .nullable()
+                                    .describe(
+                                        'Initial Google click ID ($initial_gclid); present when the person arrived via a paid Google ad.'
+                                    ),
+                            })
+                            .describe(
+                                'The resolved person behind one side of a link, with a curated set of properties that mirror\nthe match signals (geo, device, campaign) so a reviewer can judge whether the link is plausible.'
+                            ),
+                        zod.null(),
+                    ])
+                    .describe('Resolved person behind the anonymous distinct ID; null when no profile exists for it.'),
+                anchor_person: zod
+                    .union([
+                        zod
+                            .object({
+                                distinct_id: zod.string().describe('Distinct ID this person was resolved from.'),
+                                first_seen: zod.iso
+                                    .datetime({ offset: true })
+                                    .nullable()
+                                    .describe('When this person was first seen — person created_at (UTC).'),
+                                last_seen: zod.iso
+                                    .datetime({ offset: true })
+                                    .nullable()
+                                    .describe(
+                                        'When this person was last seen, when tracked — person last_seen_at (UTC).'
+                                    ),
+                                email: zod.string().nullable().describe("Person's email, when set."),
+                                name: zod.string().nullable().describe("Person's name property, when set."),
+                                city: zod.string().nullable().describe('GeoIP city ($geoip_city_name).'),
+                                country: zod.string().nullable().describe('GeoIP country code ($geoip_country_code).'),
+                                browser: zod.string().nullable().describe('Browser ($browser).'),
+                                os: zod.string().nullable().describe('Operating system ($os).'),
+                                device_type: zod
+                                    .string()
+                                    .nullable()
+                                    .describe('Device type, e.g. Desktop or Mobile ($device_type).'),
+                                timezone: zod.string().nullable().describe('Browser timezone ($timezone).'),
+                                utm_source: zod
+                                    .string()
+                                    .nullable()
+                                    .describe('Initial campaign source ($initial_utm_source).'),
+                                utm_medium: zod
+                                    .string()
+                                    .nullable()
+                                    .describe('Initial campaign medium ($initial_utm_medium).'),
+                                utm_campaign: zod
+                                    .string()
+                                    .nullable()
+                                    .describe('Initial campaign name ($initial_utm_campaign).'),
+                                referring_domain: zod
+                                    .string()
+                                    .nullable()
+                                    .describe('Initial referring domain ($initial_referring_domain).'),
+                                gclid: zod
+                                    .string()
+                                    .nullable()
+                                    .describe(
+                                        'Initial Google click ID ($initial_gclid); present when the person arrived via a paid Google ad.'
+                                    ),
+                            })
+                            .describe(
+                                'The resolved person behind one side of a link, with a curated set of properties that mirror\nthe match signals (geo, device, campaign) so a reviewer can judge whether the link is plausible.'
+                            ),
+                        zod.null(),
+                    ])
+                    .describe(
+                        'Resolved identified person behind the matched person key; null when no profile exists for it.'
+                    ),
             })
         )
         .describe('Links ordered by score, descending.'),

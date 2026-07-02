@@ -32,23 +32,6 @@ export function isSignalsScoutExtra(
 }
 
 /**
- * Humanizes a scout skill slug into a label: strips the `signals-scout-` prefix, turns dashes into
- * spaces, Sentence-cases the result, and appends " scout" (e.g. `signals-scout-error-tracking` →
- * "Error tracking scout"). A bare `signals-scout` becomes "Scout".
- */
-export function humanizeScoutSkillName(skillName: string): string {
-    const rest = skillName
-        .replace(/^signals-scout-?/, '')
-        .replace(/-/g, ' ')
-        .trim()
-    if (!rest) {
-        return 'Scout'
-    }
-    const sentenceCased = rest.charAt(0).toUpperCase() + rest.slice(1)
-    return `${sentenceCased} scout`
-}
-
-/**
  * Builds a deep link into the product an evidence entry came from, or null when no link applies.
  * Entity-keyed products need an `entityId`; `logs` is entity-less; unknown products get no link.
  */
@@ -115,7 +98,6 @@ export function SignalsScoutSignalCard({ signal }: SignalCardProps): JSX.Element
 
     const extra = signal.extra as Record<string, unknown> & SignalsScoutSignalExtra
 
-    const skillLabel = humanizeScoutSkillName(extra.skill_name)
     const confidencePercent = Math.round(extra.confidence * 100)
     const hypothesis = extra.hypothesis?.trim() || signal.content
 
@@ -134,11 +116,12 @@ export function SignalsScoutSignalCard({ signal }: SignalCardProps): JSX.Element
     return (
         <SignalCardShell
             signal={signal}
+            // The scout's name now lives in the shared source line ("Scout · <name>"); keep just a
+            // linked version here so the header doesn't repeat the name.
             label={
-                <span>
-                    {skillLabel}
-                    <span className="text-tertiary font-normal"> · v{extra.skill_version}</span>
-                </span>
+                <Link to={urls.inboxScout(extra.skill_name)} className="text-tertiary font-normal">
+                    v{extra.skill_version}
+                </Link>
             }
             rightSlot={<SignalReportPriorityBadge priority={extra.severity} />}
         >

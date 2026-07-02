@@ -200,12 +200,16 @@ for _variant_type in get_args(SignalInput.model_fields["root"].annotation):
             _SIGNAL_VARIANT_LOOKUP[(_product, _source_type)] = _variant_type
 
 
-# Telemetry only forwards top-level *scalar* `extra` values, each truncated — never nested
-# lists/dicts. Source `extra` payloads nest customer-derived content (pganalyze
-# `references[].queryText` raw SQL, session-replay `event_history`, scout `evidence`
-# summaries) that must not leak into product analytics; scalars are the cheap-to-query
-# attribution we actually want (`scout_run_id`, `task_run_id`, `skill_name`, …). The cap
-# bounds top-level strings that could still be large (e.g. an `error_message`).
+# The signal channel's generic `extra` passthrough only forwards top-level *scalar* values,
+# each truncated — never nested lists/dicts. Source `extra` payloads nest *uncurated*
+# customer-derived content (pganalyze `references[].queryText` raw SQL, session-replay
+# `event_history`, scout `evidence` summaries) that we don't want to forward wholesale; scalars
+# are the cheap-to-query attribution we actually want (`scout_run_id`, `task_run_id`,
+# `skill_name`, …). The cap bounds top-level strings that could still be large (e.g. an
+# `error_message`). This governs only the opaque `extra` blob — it is NOT a blanket ban on
+# report substance in telemetry. The report channel deliberately forwards specific, curated,
+# scout-authored fields (title / summary) on its own lifecycle events, where the content *is*
+# the product output rather than an arbitrary nested blob; see `scout_harness/tools/report.py`.
 _MAX_TELEMETRY_STR_LEN = 256
 
 

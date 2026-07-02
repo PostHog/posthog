@@ -163,4 +163,5 @@ query_log_archive_export_schedule = dagster.build_schedule_from_partitioned_job(
     export_query_log_archive_to_s3,
     hour_of_day=6,
     minute_of_hour=0,
+    default_status=dagster.DefaultScheduleStatus.RUNNING,
 )

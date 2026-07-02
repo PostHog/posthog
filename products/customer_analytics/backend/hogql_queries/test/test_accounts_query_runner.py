@@ -16,7 +16,8 @@ from posthog.models.team import Team
 from posthog.rbac.user_access_control import UserAccessControlError
 
 from products.customer_analytics.backend.hogql_queries.accounts_query_runner import AccountsQueryRunner
-from products.customer_analytics.backend.test.factories import create_account
+from products.customer_analytics.backend.models import CustomPropertyValue
+from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 
 try:
@@ -505,6 +506,47 @@ class TestAccountsQueryRunner(ClickhouseTestMixin, NonAtomicBaseTest):
             filterExpression="JSONExtract(properties, 'score', 'Nullable(Int64)') < 50",
         )
         self.assertEqual(names, ["Match"])
+
+    def test_custom_property_value_round_trips_through_a_selected_alias(self):
+        account = create_account(team_id=self.team.id, name="A")
+        definition = create_custom_property_definition(team_id=self.team.id, name="Plan")
+        CustomPropertyValue.objects.unscoped().create(
+            team_id=self.team.id, account=account, definition=definition, value_str="enterprise"
+        )
+        other = create_account(team_id=self.team.id, name="No value")
+
+        runner = AccountsQueryRunner(
+            query=AccountsQuery(select=["id", f"accounts.custom_properties.values.`{definition.id}` AS cp_x"]),
+            team=self.team,
+            user=self.user,
+        )
+        response = runner.calculate()
+        id_idx, value_idx = runner.columns.index("id"), runner.columns.index("cp_x")
+        values_by_id = {str(row[id_idx]): row[value_idx] for row in response.results}
+
+        self.assertEqual(values_by_id[str(account.id)], "enterprise")
+        # An account with no value for the definition aggregates to NULL/empty.
+        self.assertFalse(values_by_id[str(other.id)])
+
+    def test_numeric_custom_property_aggregates_in_metrics_mode(self):
+        # Overview tiles sum/avg a numeric custom property by casting its (string) value to a float.
+        definition = create_custom_property_definition(team_id=self.team.id, name="Seats", display_type="number")
+        for account_name, seats in [("A", 10.0), ("B", 30.0)]:
+            account = create_account(team_id=self.team.id, name=account_name)
+            CustomPropertyValue.objects.unscoped().create(
+                team_id=self.team.id, account=account, definition=definition, value_num=seats
+            )
+        create_account(team_id=self.team.id, name="No value")
+
+        expr = f"toFloatOrNull(accounts.custom_properties.values.`{definition.id}`)"
+        runner = AccountsQueryRunner(
+            query=AccountsQuery(metrics=[f"sum({expr})", f"avg({expr})"], select=[]),
+            team=self.team,
+            user=self.user,
+        )
+        response = runner.calculate()
+        # Sum ignores the null (no-value) account; avg averages only the two present values.
+        self.assertEqual(response.metricsResults, [40.0, 20.0])
 
     def test_validate_query_runner_access_default(self):
         runner = AccountsQueryRunner(query=AccountsQuery(), team=self.team)

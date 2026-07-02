@@ -1,6 +1,6 @@
 import json
 from datetime import UTC, datetime, timedelta
-from typing import Any, cast
+from typing import Any
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, QueryMatchingTest, snapshot_postgres_queries_context
@@ -11,7 +11,7 @@ from django.conf import settings
 from django.core.cache import cache
 from django.db import OperationalError
 from django.http import HttpResponse
-from django.test import override_settings
+from django.test import SimpleTestCase, override_settings
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -21,6 +21,7 @@ from temporalio.service import RPCError
 from posthog.api.team import (
     TEAM_CONFIG_FIELDS_SET,
     TEAM_CONFIG_MEMBER_FIELDS_SET,
+    TeamSerializer,
     _default_data_color_theme_id,
     _reset_default_data_color_theme_id_cache,
 )
@@ -400,11 +401,7 @@ def team_api_test_factory():
             )
 
         @freeze_time("2022-02-08")
-        @mock.patch(
-            "posthog.helpers.signup_dashboard_experiment.get_starter_dashboard_variant",
-            return_value="test",
-        )
-        def test_delete_team_activity_log(self, _mock_variant):
+        def test_delete_team_activity_log(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
 
@@ -515,7 +512,7 @@ def team_api_test_factory():
             # `mock_capture` is patched.
             team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
             team_pk = team.pk
-            # create_with_data fires a starter-dashboard exposure capture; only assert delete-time events
+            # create_with_data fires capture events; clear them so we only assert delete-time events
             mock_capture.reset_mock()
 
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
@@ -566,32 +563,26 @@ def team_api_test_factory():
             team: Team = Team.objects.create_with_data(initiating_user=self.user, organization=self.organization)
 
             self.assertEqual(Team.objects.filter(organization=self.organization).count(), 2)
-            # from posthog.models.insight_caching_state import InsightCachingState
-            from posthog.models.person import Person
+            from posthog.personhog_client.fake_client import get_active_fake
+            from posthog.test.persons import add_cohort_members, add_distinct_id, create_person
 
-            from products.cohorts.backend.models.cohort import Cohort, CohortPeople
-            from products.feature_flags.backend.models.feature_flag import FeatureFlag, FeatureFlagHashKeyOverride
+            from products.cohorts.backend.models.cohort import Cohort
+            from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
             cohort = Cohort.objects.create(team=team, created_by=self.user, name="test")
-            person = Person.objects.create(
+            person = create_person(
                 team=team,
                 distinct_ids=["example_id"],
                 properties={"email": "tim@posthog.com", "team": "posthog"},
             )
-            person.add_distinct_id("test")
+            add_distinct_id(person=person, distinct_id="test")
             flag = FeatureFlag.objects.create(
                 team=team,
                 name="test",
                 key="test",
                 created_by=self.user,
             )
-            FeatureFlagHashKeyOverride.objects.create(
-                team_id=team.pk,
-                person_id=person.id,
-                feature_flag_key=flag.key,
-                hash_key="test",
-            )
-            CohortPeople.objects.create(cohort_id=cohort.pk, person_id=person.pk)
+            add_cohort_members(cohort, [person])
             EarlyAccessFeature.objects.create(
                 team=team,
                 name="Test flag",
@@ -606,6 +597,17 @@ def team_api_test_factory():
             ):
                 response = self.client.delete(f"/api/environments/{team.id}")
             self.assertEqual(response.status_code, 204)
+
+            # Verify personhog RPCs were called for persons-DB cleanup
+            fake = get_active_fake()
+            for rpc in [
+                "delete_hash_key_overrides_by_teams",
+                "delete_personless_distinct_ids_batch_for_team",
+                "delete_persons_batch_for_team",
+                "delete_groups_batch_for_team",
+                "delete_group_type_mappings_batch_for_team",
+            ]:
+                fake.assert_called(rpc)
 
         def test_delete_batch_exports(self):
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
@@ -714,7 +716,7 @@ def team_api_test_factory():
         @patch("posthog.temporal.common.schedule.delete_schedule")
         @patch("posthog.models.team.util.sync_connect")
         def test_delete_data_modeling_schedules(self, mock_sync_connect, mock_delete_schedule):
-            from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+            from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
@@ -741,7 +743,7 @@ def team_api_test_factory():
         def test_delete_data_modeling_schedules_handles_not_found(self, mock_sync_connect, mock_delete_schedule):
             import temporalio.service
 
-            from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+            from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 
             self.organization_membership.level = OrganizationMembership.Level.ADMIN
             self.organization_membership.save()
@@ -1205,150 +1207,22 @@ def team_api_test_factory():
                 == "Field autocapture_exceptions_errors_to_ignore must be less than 300 characters. Complex config should be provided in posthog-js initialization."
             )
 
-        @parameterized.expand(
-            [
-                [
-                    "non numeric string",
-                    "Welwyn Garden City",
-                    "invalid_input",
-                    "A valid number is required.",
-                ],
-                [
-                    "negative number",
-                    "-1",
-                    "min_value",
-                    "Ensure this value is greater than or equal to 0.",
-                ],
-                [
-                    "greater than one",
-                    "1.5",
-                    "max_value",
-                    "Ensure this value is less than or equal to 1.",
-                ],
-                [
-                    "too many digits",
-                    "0.534",
-                    "max_decimal_places",
-                    "Ensure that there are no more than 2 decimal places.",
-                ],
-            ]
-        )
-        def test_invalid_session_recording_sample_rates(
-            self, _name: str, provided_value: str, expected_code: str, expected_error: str
-        ) -> None:
+        def test_invalid_session_recording_config_returns_validation_error_envelope(self) -> None:
+            # Smoke test that bad config is rejected through the endpoint with the rendered
+            # `{attr, code, detail, type}` envelope (note `invalid` is rendered as `invalid_input`).
+            # The per-field/per-value matrix lives in TestTeamSerializerValidationNoDB, which
+            # exercises the same TeamSerializer validators without a database.
+            # Use a non-numeric value so DRF raises the raw `invalid` code — this is the case that
+            # exercises exceptions-hog rendering it as `invalid_input`. A numeric out-of-range value
+            # yields `max_value`, which is passed through unchanged and would not guard the rename.
             response = self.client.patch(
-                "/api/environments/@current/", {"session_recording_sample_rate": provided_value}
+                "/api/environments/@current/", {"session_recording_sample_rate": "Welwyn Garden City"}
             )
             assert response.status_code == status.HTTP_400_BAD_REQUEST
             assert response.json() == {
                 "attr": "session_recording_sample_rate",
-                "code": expected_code,
-                "detail": expected_error,
-                "type": "validation_error",
-            }
-
-        @parameterized.expand(
-            [
-                [
-                    "non numeric string",
-                    "Trentham monkey forest",
-                    "invalid_input",
-                    "A valid integer is required.",
-                ],
-                [
-                    "negative number",
-                    "-1",
-                    "min_value",
-                    "Ensure this value is greater than or equal to 0.",
-                ],
-                [
-                    "greater than 30000",
-                    "30001",
-                    "max_value",
-                    "Ensure this value is less than or equal to 30000.",
-                ],
-                ["too many digits", "0.5", "invalid_input", "A valid integer is required."],
-            ]
-        )
-        def test_invalid_session_recording_minimum_duration(
-            self, _name: str, provided_value: str, expected_code: str, expected_error: str
-        ) -> None:
-            response = self.client.patch(
-                "/api/environments/@current/",
-                {"session_recording_minimum_duration_milliseconds": provided_value},
-            )
-            assert response.status_code == status.HTTP_400_BAD_REQUEST
-            assert response.json() == {
-                "attr": "session_recording_minimum_duration_milliseconds",
-                "code": expected_code,
-                "detail": expected_error,
-                "type": "validation_error",
-            }
-
-        @parameterized.expand(
-            [
-                [
-                    "string",
-                    "Marple bridge",
-                    "invalid_input",
-                    "Must provide a dictionary or None.",
-                ],
-                ["numeric string", "-1", "invalid_input", "Must provide a dictionary or None."],
-                ["numeric", 1, "invalid_input", "Must provide a dictionary or None."],
-                ["numeric positive string", "1", "invalid_input", "Must provide a dictionary or None."],
-                [
-                    "unexpected json - no id",
-                    {"key": "something"},
-                    "invalid_input",
-                    "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
-                ],
-                [
-                    "unexpected json - no key",
-                    {"id": 1},
-                    "invalid_input",
-                    "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
-                ],
-                [
-                    "unexpected json - only variant",
-                    {"variant": "1"},
-                    "invalid_input",
-                    "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
-                ],
-                [
-                    "unexpected json - variant must be string",
-                    {"variant": 1},
-                    "invalid_input",
-                    "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
-                ],
-                [
-                    "unexpected json - missing id",
-                    {"key": "one", "variant": "1"},
-                    "invalid_input",
-                    "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
-                ],
-                [
-                    "unexpected json - missing key",
-                    {"id": "one", "variant": "1"},
-                    "invalid_input",
-                    "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
-                ],
-                [
-                    "unexpected json - neither",
-                    {"wat": "wat"},
-                    "invalid_input",
-                    "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
-                ],
-            ]
-        )
-        def test_invalid_session_recording_linked_flag(
-            self, _name: str, provided_value: Any, expected_code: str, expected_error: str
-        ) -> None:
-            response = self._patch_linked_flag_config(provided_value, expected_status=status.HTTP_400_BAD_REQUEST)
-
-            assert cast(Any, response).json() == {
-                "attr": "session_recording_linked_flag",
-                "code": expected_code,
-                "detail": expected_error,
+                "code": "invalid_input",
+                "detail": "A valid number is required.",
                 "type": "validation_error",
             }
 
@@ -1365,37 +1239,6 @@ def team_api_test_factory():
 
             self._patch_linked_flag_config(None)
             self._assert_linked_flag_config(None)
-
-        @parameterized.expand(
-            [
-                [
-                    "string",
-                    "Marple bridge",
-                    "invalid_input",
-                    "Must provide a dictionary or None.",
-                ],
-                ["numeric", "-1", "invalid_input", "Must provide a dictionary or None."],
-                [
-                    "unexpected json - no recordX",
-                    {"key": "something"},
-                    "invalid_input",
-                    "Must provide a dictionary with only 'recordHeaders' and/or 'recordBody' keys.",
-                ],
-            ]
-        )
-        def test_invalid_session_recording_network_payload_capture_config(
-            self, _name: str, provided_value: str, expected_code: str, expected_error: str
-        ) -> None:
-            response = self.client.patch(
-                "/api/environments/@current/", {"session_recording_network_payload_capture_config": provided_value}
-            )
-            assert response.status_code == status.HTTP_400_BAD_REQUEST
-            assert response.json() == {
-                "attr": "session_recording_network_payload_capture_config",
-                "code": expected_code,
-                "detail": expected_error,
-                "type": "validation_error",
-            }
 
         def test_can_set_and_unset_session_recording_network_payload_capture_config(self) -> None:
             # can set just one
@@ -1453,36 +1296,6 @@ def team_api_test_factory():
             # can unset
             self._patch_session_replay_config(None)
             self._assert_replay_config_is(None)
-
-        @parameterized.expand(
-            [
-                [
-                    "string",
-                    "Marple bridge",
-                    "invalid_input",
-                    "Must provide a dictionary or None.",
-                ],
-                ["numeric", "-1", "invalid_input", "Must provide a dictionary or None."],
-                [
-                    "unexpected json - no record",
-                    {"key": "something"},
-                    "invalid_input",
-                    "Must provide a dictionary with only allowed keys: included_event_properties, opt_in, preferred_events, excluded_events, important_user_properties.",
-                ],
-            ]
-        )
-        def test_invalid_session_replay_config_ai_config(
-            self, _name: str, provided_value: str, expected_code: str, expected_error: str
-        ) -> None:
-            response = self._patch_session_replay_config(
-                {"ai_config": provided_value}, expected_status=status.HTTP_400_BAD_REQUEST
-            )
-            assert cast(Any, response).json() == {
-                "attr": "session_replay_config",
-                "code": expected_code,
-                "detail": expected_error,
-                "type": "validation_error",
-            }
 
         def test_can_set_and_unset_session_replay_config_ai_config(self) -> None:
             # can set just the opt-in
@@ -1629,29 +1442,6 @@ def team_api_test_factory():
             )
 
             assert response.status_code == status.HTTP_400_BAD_REQUEST
-
-        @patch("posthog.models.product_intent.promoted_product_lookup.get_promoted_product_intent")
-        def test_promoted_product_intent_returns_helper_value(
-            self, mock_get_promoted_product_intent: MagicMock
-        ) -> None:
-            mock_get_promoted_product_intent.return_value = "session_replay"
-
-            response = self.client.get(f"/api/environments/{self.team.id}/promoted_product_intent/")
-
-            assert response.status_code == status.HTTP_200_OK
-            assert response.json() == {"product_key": "session_replay"}
-            mock_get_promoted_product_intent.assert_called_once_with(self.team.pk)
-
-        @patch("posthog.models.product_intent.promoted_product_lookup.get_promoted_product_intent")
-        def test_promoted_product_intent_returns_null_when_helper_returns_none(
-            self, mock_get_promoted_product_intent: MagicMock
-        ) -> None:
-            mock_get_promoted_product_intent.return_value = None
-
-            response = self.client.get(f"/api/environments/{self.team.id}/promoted_product_intent/")
-
-            assert response.status_code == status.HTTP_200_OK
-            assert response.json() == {"product_key": None}
 
         @patch("posthog.event_usage.report_user_action")
         @freeze_time("2024-01-01T00:00:00Z")
@@ -3196,6 +2986,78 @@ class TestTeamAPI(team_api_test_factory()):  # type: ignore
         self.assertEqual(self.team.timezone, "UTC")
         self.assertEqual(self.team.session_recording_opt_in, False)
 
+    @parameterized.expand(
+        [
+            ("default_admin_access", False),
+            ("restricted_project_member_access", True),
+        ]
+    )
+    def test_web_analytics_editor_can_write_app_urls_with_access_control(self, _name, restrict_project_to_member):
+        # A web analytics editor (org member, not project admin) must be able to manage the toolbar /
+        # web analytics authorized URLs. `app_urls` carries a web-analytics-editor field access control,
+        # and web analytics defaults to editor, so an editor passes the field-level check. This must hold
+        # even on a restricted project where the editor's effective project access is only `member` — the
+        # request gate must not demand project admin for `app_urls`, or the field-level check never runs.
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ACCESS_CONTROL,
+                "name": AvailableFeature.ACCESS_CONTROL,
+            },
+        ]
+        self.organization.save()
+
+        if restrict_project_to_member:
+            # Lower the project's baseline from the implicit admin default to member, so the acting
+            # user is a project member but not an admin.
+            AccessControl.objects.create(
+                team=self.team,
+                resource="project",
+                resource_id=self.team.id,
+                access_level="member",
+            )
+
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {"app_urls": ["https://app.example.com"]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        self.team.refresh_from_db()
+        self.assertEqual(self.team.app_urls, ["https://app.example.com"])
+
+    def test_web_analytics_viewer_cannot_write_app_urls_with_access_control(self):
+        # Restricting web analytics below editor must block managing authorized URLs.
+        self.organization_membership.level = OrganizationMembership.Level.MEMBER
+        self.organization_membership.save()
+
+        self.organization.available_product_features = [
+            {
+                "key": AvailableFeature.ACCESS_CONTROL,
+                "name": AvailableFeature.ACCESS_CONTROL,
+            },
+        ]
+        self.organization.save()
+
+        # Default the whole team's web analytics access down to viewer.
+        AccessControl.objects.create(
+            team=self.team,
+            resource="web_analytics",
+            resource_id=None,
+            access_level="viewer",
+        )
+
+        response = self.client.patch(
+            "/api/environments/@current/",
+            {"app_urls": ["https://app.example.com"]},
+        )
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+        self.team.refresh_from_db()
+        self.assertNotIn("https://app.example.com", self.team.app_urls)
+
     def test_team_member_can_write_to_member_safe_team_patch_without_access_control(self):
         # See test_team_member_can_write_to_member_safe_team_config_without_access_control above:
         # member-safe fields stay writable; admin-only fields (timezone) are covered separately.
@@ -3539,10 +3401,12 @@ _MEMBER_SAFE_TEAM_CONFIG_FIELDS_FOR_PROJECTS: list[tuple[str, Any, str]] = [
     f for f in _MEMBER_SAFE_TEAM_CONFIG_FIELDS if f[0] != "onboarding_tasks"
 ]
 
-# Fields the frontend treats as admin-only that previously lacked a
-# `@field_access_control` annotation on the model. Captured as a regression so
-# anyone removing the decorator (or adding a new admin-UI-gated field without one)
-# gets a failing test pointing at the right place.
+# Sensitive fields the frontend treats as admin-only that aren't part of the regular
+# TEAM_CONFIG flow. Captured as a regression so a MEMBER stays blocked from them when the
+# org has no paid access control. `app_urls` additionally carries a web-analytics-editor
+# `@field_access_control`; with access controls enabled that governs it instead (see
+# test_web_analytics_editor_can_write_app_urls_with_access_control), but without it the
+# blanket project-admin gate still applies here.
 _UNANNOTATED_SENSITIVE_FIELDS: list[tuple[str, Any, str]] = [
     ("is_demo", True, "is_demo"),
     ("app_urls", ["https://evil.example.com"], "app_urls"),
@@ -3741,3 +3605,129 @@ class TestTeamAdminFieldAuthorization(APIBaseTest):
         other = Team.objects.create(organization=self.organization, project=self.project, name="other")
         response = self.client.delete(f"/api/environments/{other.id}/")
         assert response.status_code == status.HTTP_403_FORBIDDEN
+
+
+class TestTeamSerializerValidationNoDB(SimpleTestCase):
+    # Field-level input validation runs inside `is_valid()` (in `to_internal_value`),
+    # before the object-level `validate()` that needs request context — so these never
+    # touch the DB. `.errors` carries DRF's raw code (`invalid`); the HTTP envelope's
+    # `invalid_input` rename and `{attr, code, detail, type}` shape are rendered by
+    # exceptions-hog and covered by one endpoint smoke test in TestTeamAPI.
+    def _assert_field_error(self, field: str, value: Any, expected_code: str, expected_detail: str) -> None:
+        serializer = TeamSerializer(data={field: value}, partial=True)
+        assert not serializer.is_valid()
+        error = serializer.errors[field][0]
+        assert error.code == expected_code, f"expected code {expected_code!r}, got {error.code!r}"
+        assert str(error) == expected_detail, f"expected {expected_detail!r}, got {str(error)!r}"
+
+    @parameterized.expand(
+        [
+            ["non numeric string", "Welwyn Garden City", "invalid", "A valid number is required."],
+            ["negative number", "-1", "min_value", "Ensure this value is greater than or equal to 0."],
+            ["greater than one", "1.5", "max_value", "Ensure this value is less than or equal to 1."],
+            ["too many digits", "0.534", "max_decimal_places", "Ensure that there are no more than 2 decimal places."],
+        ]
+    )
+    def test_invalid_session_recording_sample_rate(
+        self, _name: str, value: Any, expected_code: str, expected_detail: str
+    ) -> None:
+        self._assert_field_error("session_recording_sample_rate", value, expected_code, expected_detail)
+
+    @parameterized.expand(
+        [
+            ["non numeric string", "Trentham monkey forest", "invalid", "A valid integer is required."],
+            ["negative number", "-1", "min_value", "Ensure this value is greater than or equal to 0."],
+            ["greater than 30000", "30001", "max_value", "Ensure this value is less than or equal to 30000."],
+            ["too many digits", "0.5", "invalid", "A valid integer is required."],
+        ]
+    )
+    def test_invalid_session_recording_minimum_duration(
+        self, _name: str, value: Any, expected_code: str, expected_detail: str
+    ) -> None:
+        self._assert_field_error(
+            "session_recording_minimum_duration_milliseconds", value, expected_code, expected_detail
+        )
+
+    @parameterized.expand(
+        [
+            ["string", "Marple bridge", "Must provide a dictionary or None."],
+            ["numeric string", "-1", "Must provide a dictionary or None."],
+            ["numeric", 1, "Must provide a dictionary or None."],
+            ["numeric positive string", "1", "Must provide a dictionary or None."],
+            [
+                "unexpected json - no id",
+                {"key": "something"},
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+            ],
+            [
+                "unexpected json - no key",
+                {"id": 1},
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+            ],
+            [
+                "unexpected json - only variant",
+                {"variant": "1"},
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+            ],
+            [
+                "unexpected json - variant must be string",
+                {"variant": 1},
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+            ],
+            [
+                "unexpected json - missing id",
+                {"key": "one", "variant": "1"},
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+            ],
+            [
+                "unexpected json - missing key",
+                {"id": "one", "variant": "1"},
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+            ],
+            [
+                "unexpected json - neither",
+                {"wat": "wat"},
+                "Must provide a dictionary with only 'id' and 'key' keys. _or_ only 'id', 'key', and 'variant' keys.",
+            ],
+        ]
+    )
+    def test_invalid_session_recording_linked_flag(self, _name: str, value: Any, expected_detail: str) -> None:
+        self._assert_field_error("session_recording_linked_flag", value, "invalid", expected_detail)
+
+    @parameterized.expand(
+        [
+            ["string", "Marple bridge", "Must provide a dictionary or None."],
+            ["numeric", "-1", "Must provide a dictionary or None."],
+            [
+                "unexpected json - no recordX",
+                {"key": "something"},
+                "Must provide a dictionary with only 'recordHeaders' and/or 'recordBody' keys.",
+            ],
+        ]
+    )
+    def test_invalid_session_recording_network_payload_capture_config(
+        self, _name: str, value: Any, expected_detail: str
+    ) -> None:
+        self._assert_field_error("session_recording_network_payload_capture_config", value, "invalid", expected_detail)
+
+    @parameterized.expand(
+        [
+            ["string", "Marple bridge", "Must provide a dictionary or None."],
+            ["numeric", "-1", "Must provide a dictionary or None."],
+            [
+                "unexpected json - no record",
+                {"key": "something"},
+                "Must provide a dictionary with only allowed keys: included_event_properties, opt_in, preferred_events, excluded_events, important_user_properties.",
+            ],
+        ]
+    )
+    def test_invalid_session_replay_config_ai_config(self, _name: str, value: Any, expected_detail: str) -> None:
+        self._assert_field_error("session_replay_config", {"ai_config": value}, "invalid", expected_detail)
+
+    def test_invalid_autocapture_exceptions_opt_in_not_a_boolean(self) -> None:
+        # `autocapture_exceptions_errors_to_ignore` is deliberately not here: its validation
+        # lives in the object-level `validate()` (via `validate_team_attrs`), which needs
+        # request context, so it stays an endpoint test in TestTeamAPI.
+        self._assert_field_error(
+            "autocapture_exceptions_opt_in", "Welwyn Garden City", "invalid", "Must be a valid boolean."
+        )

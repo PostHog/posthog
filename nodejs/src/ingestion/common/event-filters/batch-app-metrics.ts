@@ -1,7 +1,7 @@
 import { APP_METRICS_OUTPUT, AppMetricsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { castTimestampOrNow } from '~/common/utils/utils'
 import { TimestampFormat } from '~/types'
-import { castTimestampOrNow } from '~/utils/utils'
 
 interface AggregatedMetric {
     teamId: number

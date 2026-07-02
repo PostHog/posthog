@@ -1473,7 +1473,7 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
         assert version.bucket_overrides == {"timestamp": "week"}
 
         # Change bucket_overrides — should trigger an immediate refresh
-        with mock.patch("products.endpoints.backend.services.crud.trigger_saved_query_schedule") as mock_trigger:
+        with mock.patch("products.endpoints.backend.logic.crud.trigger_saved_query_schedule") as mock_trigger:
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/endpoints/trigger-bucket/",
                 {"bucket_overrides": {"timestamp": "hour"}},
@@ -1498,7 +1498,7 @@ class TestMaterializationPreview(ClickhouseTestMixin, APIBaseTest):
 
         # PATCH with same bucket_overrides — should NOT trigger refresh
         with mock.patch(
-            "products.data_warehouse.backend.data_load.saved_query_service.trigger_saved_query_schedule"
+            "products.data_warehouse.backend.logic.data_load.saved_query_service.trigger_saved_query_schedule"
         ) as mock_trigger:
             response = self.client.patch(
                 f"/api/environments/{self.team.id}/endpoints/no-trigger-bucket/",

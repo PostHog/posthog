@@ -374,6 +374,7 @@ class LazyComputationTable(StrEnum):
     CONVERSION_GOAL_ATTRIBUTED_PREAGGREGATED = "conversion_goal_attributed_preaggregated"
     MARKETING_TOUCHPOINTS_PREAGGREGATED = "marketing_touchpoints_preaggregated"
     MARKETING_CONVERSIONS_PREAGGREGATED = "marketing_conversions_preaggregated"
+    MARKETING_COSTS_PREAGGREGATED = "marketing_costs_preaggregated"
     WEB_OVERVIEW_PREAGGREGATED = "web_overview_preaggregated"
     WEB_STATS_PREAGGREGATED = "web_stats_preaggregated"
     WEB_STATS_PATHS_PREAGGREGATED = "web_stats_paths_preaggregated"
@@ -395,6 +396,7 @@ _DATE_EXPIRES_AT_TABLES: set[LazyComputationTable] = {
     LazyComputationTable.CONVERSION_GOAL_ATTRIBUTED_PREAGGREGATED,
     LazyComputationTable.MARKETING_TOUCHPOINTS_PREAGGREGATED,
     LazyComputationTable.MARKETING_CONVERSIONS_PREAGGREGATED,
+    LazyComputationTable.MARKETING_COSTS_PREAGGREGATED,
 }
 
 
@@ -721,7 +723,12 @@ def run_lazy_computation_insert(
     )
 
     set_ch_query_started(job.id)
-    with tags_context(client_query_id=str(job.id), team_id=team.id):
+    with tags_context(
+        client_query_id=str(job.id),
+        team_id=team.id,
+        precompute_window_start=str(job.time_range_start),
+        precompute_window_end=str(job.time_range_end),
+    ):
         sync_execute(
             insert_sql,
             values,
@@ -1195,7 +1202,12 @@ def ensure_precomputed(
             base_placeholders=base_placeholders,
         )
         set_ch_query_started(job.id)
-        tag_kwargs: dict = {"client_query_id": str(job.id), "team_id": t.id}
+        tag_kwargs: dict = {
+            "client_query_id": str(job.id),
+            "team_id": t.id,
+            "precompute_window_start": str(job.time_range_start),
+            "precompute_window_end": str(job.time_range_end),
+        }
         if query_type:
             tag_kwargs["query_type"] = query_type
         with tags_context(**tag_kwargs):

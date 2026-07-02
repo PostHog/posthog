@@ -1,11 +1,13 @@
 import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
-import { combineUrl, router, urlToAction } from 'kea-router'
+import { router, urlToAction } from 'kea-router'
 
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api, { ApiError, getCookie } from 'lib/api'
 import { globalSetupLogic } from 'lib/components/ProductSetup'
+import { describeGithubSetupError, GITHUB_INSTALL_PENDING_MESSAGE } from 'lib/integrations/githubSetupErrors'
+import { describeOAuthCallbackError } from 'lib/integrations/oauthCallbackErrors'
 import { isKeyOf } from 'lib/utils/guards'
 import { fromParamsGivenUrl } from 'lib/utils/url'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -37,7 +39,6 @@ export const integrationsLogic = kea<integrationsLogicType>([
     })),
 
     actions({
-        handleGithubCallback: (searchParams: any) => ({ searchParams }),
         handleOauthCallback: (kind: IntegrationKind, searchParams: any) => ({ kind, searchParams }),
         newGoogleCloudKey: (kind: string, key: File, callback?: (integration: IntegrationType) => void) => ({
             kind,
@@ -221,102 +222,6 @@ export const integrationsLogic = kea<integrationsLogicType>([
                 actions.loadGitHubRepositoriesPageFailure(integrationId)
             }
         },
-        handleGithubCallback: async ({ searchParams }) => {
-            const { state, installation_id, code, setup_action } = searchParams
-            const { next, token, source } = fromParamsGivenUrl(state ?? '')
-            const stateToken = token || state
-
-            // User-level GitHub flow (personal integrations / UserIntegration): redirect to the
-            // backend endpoint which handles UserIntegration creation server-side.
-            if (source === 'user_integration') {
-                const backendUrl = combineUrl('/complete/github-link/', {
-                    installation_id,
-                    code,
-                    state: stateToken,
-                }).url
-                window.location.href = backendUrl
-                return
-            }
-
-            let replaceUrl: string = next || urls.settings('project-integrations')
-
-            // GitHub callback runs on a non-scoped route where currentTeamId may differ from the
-            // team that started the flow; recover it from `next`'s project_id.
-            const nextParams: Record<string, any> = next ? combineUrl(next).searchParams : {}
-            const projectIdFromNext = nextParams.project_id
-            const teamIdForIntegration = projectIdFromNext ? parseInt(projectIdFromNext, 10) : undefined
-
-            try {
-                if (installation_id) {
-                    if (stateToken !== getCookie('ph_github_state')) {
-                        throw new Error('Invalid state token')
-                    }
-
-                    // setup_action=update / missing code means the App was already installed on the org;
-                    // try cloning from a sibling team, and fall back to a User OAuth round-trip when the
-                    // server can't auto-link (orphan install, no personal GitHub yet, or stale token).
-                    const isAlreadyInstalled = setup_action === 'update' || !code
-
-                    let integration: IntegrationType | null = null
-                    if (isAlreadyInstalled) {
-                        try {
-                            integration = await api.integrations.githubLinkExisting(
-                                { installation_id: String(installation_id) },
-                                teamIdForIntegration
-                            )
-                        } catch (e) {
-                            const errorCode = e instanceof ApiError ? e.code : null
-                            const needsUserOAuth =
-                                errorCode === 'github_link_existing_orphan_installation' ||
-                                errorCode === 'github_link_existing_personal_github_required'
-                            if (!needsUserOAuth) {
-                                throw e
-                            }
-                            const { oauth_url } = await api.integrations.githubOAuthAuthorize(
-                                {
-                                    installation_id: String(installation_id),
-                                    next: replaceUrl,
-                                    connect_from: nextParams.connect_from ?? undefined,
-                                },
-                                teamIdForIntegration
-                            )
-                            window.location.href = oauth_url
-                            return
-                        }
-                    } else {
-                        integration = await api.integrations.create({
-                            kind: 'github',
-                            config: { installation_id, state: stateToken, code },
-                        })
-                    }
-
-                    // Forward the ids so the `next` landing page (e.g. the PostHog Code
-                    // deep link) knows which install was just completed.
-                    replaceUrl = combineUrl(replaceUrl, {
-                        installation_id: String(installation_id),
-                        integration_id: String(integration!.id),
-                    }).url
-
-                    actions.loadIntegrations()
-                    lemonToast.success(`Integration successful.`)
-                } else {
-                    // If the requesting user does not have permissions an installation_id will not be returned
-                    // we assume in this situation that a request has been made to the GitHub organization owners
-                    lemonToast.info(
-                        'Your request to connect to GitHub has been sent to the organization owners. They will need to complete the installation.'
-                    )
-                }
-            } catch (e) {
-                toastApiError(e)
-                const detail = e instanceof ApiError ? e.detail : null
-                replaceUrl = combineUrl(replaceUrl, {
-                    error: 'github_install_failed',
-                    error_message: detail || (e instanceof Error ? e.message : 'Unknown error'),
-                }).url
-            } finally {
-                router.actions.replace(replaceUrl)
-            }
-        },
         handleOauthCallback: async ({ kind, searchParams }) => {
             const { state, code, error, stripe_user_id, account_id, user_id } = searchParams
             const { next, token, source, server_id } = fromParamsGivenUrl(state)
@@ -324,7 +229,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
             let replaceUrl: string = next || urls.settings('project-integrations')
 
             if (error) {
-                lemonToast.error(`Failed due to "${error}"`)
+                lemonToast.error(describeOAuthCallbackError(String(error)))
                 router.actions.replace(replaceUrl)
                 return
             }
@@ -414,12 +319,18 @@ export const integrationsLogic = kea<integrationsLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadIntegrations()
+
+        const params = new URLSearchParams(window.location.search)
+        if (params.has('github_setup_error')) {
+            const reason = params.get('github_setup_error')
+            const detail = params.get('error_message')
+            lemonToast.error(describeGithubSetupError(reason, detail))
+        } else if (params.has('github_install_pending')) {
+            lemonToast.info(GITHUB_INSTALL_PENDING_MESSAGE)
+        }
     }),
 
     urlToAction(({ actions }) => ({
-        '/integrations/github/callback': (_, searchParams) => {
-            actions.handleGithubCallback(searchParams)
-        },
         '/integrations/:kind/callback': ({ kind = '' }, searchParams) => {
             actions.handleOauthCallback(kind as IntegrationKind, searchParams)
         },

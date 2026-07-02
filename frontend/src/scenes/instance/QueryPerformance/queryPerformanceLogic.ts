@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, kea, listeners, path, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
@@ -34,9 +34,21 @@ export interface SlowestQuery {
     experiment_metric_events_path: string
     experiment_query_surface: string
     experiment_precompute_table: string
+    experiment_precompute_skip_reason: string
+    experiment_scan_date_from: string
+    experiment_scan_date_to: string
+    precompute_window_start: string
+    precompute_window_end: string
+    experiment_query_group_id: string
     experiment_metric_type: string
     experiment_funnel_order_type: string | null
     experiment_id: number | null
+    total_duration_ms: number
+    read_bytes: number
+    read_rows: number
+    exception_code: number
+    memory_usage: number
+    sub_queries: SlowestQuery[]
 }
 
 export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
@@ -47,7 +59,7 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
         setHoursBack: (hours: number) => ({ hours }),
         setTeamIdFilter: (teamId: string) => ({ teamId }),
         setExperimentIdFilter: (experimentId: string) => ({ experimentId }),
-        setShowSubQueries: (show: boolean) => ({ show }),
+        setMetricTypeFilter: (metricType: string) => ({ metricType }),
     }),
     reducers({
         search: [
@@ -74,10 +86,10 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
                 setExperimentIdFilter: (_, { experimentId }) => experimentId,
             },
         ],
-        showSubQueries: [
-            false,
+        metricTypeFilter: [
+            '',
             {
-                setShowSubQueries: (_, { show }) => show,
+                setMetricTypeFilter: (_, { metricType }) => metricType,
             },
         ],
     }),
@@ -118,29 +130,19 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
                     if (values.experimentIdFilter) {
                         params.append('experiment_id', values.experimentIdFilter)
                     }
+                    if (values.metricTypeFilter) {
+                        // Encoded as "<metricType>" or "funnel:<orderType>" (e.g. "funnel:ordered").
+                        const [metricType, funnelOrderType] = values.metricTypeFilter.split(':')
+                        params.append('metric_type', metricType)
+                        if (funnelOrderType) {
+                            params.append('funnel_order_type', funnelOrderType)
+                        }
+                    }
                     return await api.get(`api/debug_ch_queries/slowest_queries/?${params.toString()}`)
                 },
             },
         ],
     })),
-    selectors({
-        // The precompute-build INSERTs are sub-queries of a top-level read; hide them by default so the
-        // table reflects what a user actually waited for, with a toggle to surface them for debugging.
-        visibleSlowestQueries: [
-            (s) => [s.slowestQueries, s.showSubQueries],
-            (slowestQueries, showSubQueries): SlowestQuery[] =>
-                showSubQueries
-                    ? slowestQueries
-                    : slowestQueries.filter((query) => query.experiment_query_surface !== 'precompute_build'),
-        ],
-        // True when the visible table is empty only because every returned row is a hidden sub-query,
-        // so the empty state can say so instead of claiming there are no queries in the range.
-        allQueriesHiddenAsSubQueries: [
-            (s) => [s.slowestQueries, s.visibleSlowestQueries],
-            (slowestQueries, visibleSlowestQueries): boolean =>
-                slowestQueries.length > 0 && visibleSlowestQueries.length === 0,
-        ],
-    }),
     listeners(({ actions }) => ({
         setSearch: async (_, breakpoint) => {
             await breakpoint(300)
@@ -155,6 +157,9 @@ export const queryPerformanceLogic = kea<queryPerformanceLogicType>([
         },
         setExperimentIdFilter: async (_, breakpoint) => {
             await breakpoint(300)
+            actions.loadSlowestQueries()
+        },
+        setMetricTypeFilter: () => {
             actions.loadSlowestQueries()
         },
     })),

@@ -1,0 +1,78 @@
+[package]
+name = "cohort-stream-processor"
+version = "0.1.0"
+edition = "2021"
+
+[lints]
+workspace = true
+
+[dependencies]
+anyhow = { workspace = true }
+arc-swap = { workspace = true }
+# `#[async_trait]` on the `MembershipSink` output seam, so the worker holds an
+# `Arc<dyn MembershipSink>` and tests swap in an in-process capture sink with no broker.
+async-trait = { workspace = true }
+axum = { workspace = true }
+chrono = { workspace = true }
+# Team-timezone-aware calendar-day bucket math (`stage1::bucket_tz`): `Tz` resolves
+# `posthog_team.timezone` and is `Copy`, so it rides on the hot path inside the frozen `TeamFilters`.
+chrono-tz = { workspace = true }
+common-alloc = { path = "../common/alloc" }
+common-database = { path = "../common/database" }
+common-types = { path = "../common/types" }
+# Shadow-topic output producer: `create_kafka_producer` + `send_keyed_iter_to_kafka_*`
+# and the `KafkaConfig`/`KafkaProduceError` types, shared with `cohort-event-shuffler`.
+common-kafka = { path = "../common/kafka" }
+# `SyncLivenessReporter` for the producer's rdkafka client context (the always-healthy sink, since
+# the consumer owns the liveness deadline) — mirrors the shuffler's producer.
+common-liveness = { path = "../common/liveness" }
+# Same version `rust/kafka-deduplicator` uses; lets the partition router and offset tracker
+# hold their per-partition maps behind sharded locks (no global mutex on the hot path).
+dashmap = { workspace = true }
+envconfig = { workspace = true }
+# `join_all` for routing each poll's per-partition sub-batches concurrently, so a full channel on
+# one partition can't head-of-line-block the sends to the others. Same version dedup uses.
+futures = { workspace = true }
+hogvm = { path = "../common/hogvm" }
+lifecycle = { path = "../common/lifecycle" }
+lru = { workspace = true }
+metrics = { workspace = true }
+metrics-exporter-prometheus = { workspace = true }
+# Streaming `BufWriter` and prefix-list (`list_with_delimiter`) S3 for multi-MB checkpoint files.
+object_store = { version = "0.13.0", features = ["aws"] }
+# Tarjan SCC (`tarjan_scc`) for the per-team cohort-reference cycle defense at filter freeze
+# (`filters::cohort_graph`). Pinned to the same 0.8 line as `rust/feature-flags/Cargo.toml` so the
+# workspace resolves a single copy.
+petgraph = "0.8"
+rand = { workspace = true }
+# Raw `StreamConsumer` for `cohort_stream_events`. The consume loop and manual offset commit are
+# driven directly (mirroring `rust/kafka-deduplicator`) rather than through `common-kafka`'s
+# `SingleTopicConsumer`, because the processor's per-partition `OffsetTracker` commits a
+# `TopicPartitionList` the wrapper cannot express. Same workspace version (0.37) as the sibling
+# crates, so `librdkafka` links once.
+rdkafka = { workspace = true }
+# Pinned to match `rust/kafka-deduplicator` so the workspace links a single
+# `librocksdb-sys` version (two would conflict at link time).
+rocksdb = "0.24.0"
+serde = { workspace = true }
+serde_json = { workspace = true }
+sha2 = { workspace = true }
+sqlx = { workspace = true }
+thiserror = { workspace = true }
+tokio = { workspace = true }
+# `CancellationToken` for the rebalance worker's shutdown signal (from `lifecycle::Handle`), the
+# same primitive the sibling consumers use for cooperative cancellation.
+tokio-util = { workspace = true }
+tracing = { workspace = true }
+tracing-subscriber = { workspace = true, features = ["env-filter", "json"] }
+uuid = { workspace = true }
+
+[dev-dependencies]
+# Integration tests in `tests/` build `TeamFilters` via `freeze(UTC)`, so they name `chrono_tz::UTC`
+# directly (a normal dependency is not in scope for the separate integration-test crates).
+chrono-tz = { workspace = true }
+serde_json = { workspace = true }
+tempfile = "3"
+# `test-util` enables the paused clock (`start_paused` / `tokio::time::advance`) the sweep timer
+# tests drive; resolver 2 keeps this dev-only feature out of the normal build.
+tokio = { workspace = true, features = ["test-util"] }
