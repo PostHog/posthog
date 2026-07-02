@@ -691,7 +691,13 @@ class CDCExtractActivity:
             return
 
         self._mark_schemas_running()
-        self._reconcile_orphaned_prior_jobs()
+        # Best-effort — must never break the extraction run, so guard the call
+        # site: the method itself has unguarded lines (activity.info(),
+        # conn.close()) and runs before the main try block below.
+        try:
+            self._reconcile_orphaned_prior_jobs()
+        except Exception:
+            self.log.warning("cdc_orphan_reconcile_unexpected_failed", exc_info=True)
 
         try:
             self.reader.connect()
