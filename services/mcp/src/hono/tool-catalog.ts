@@ -66,9 +66,12 @@ export class ToolCatalog {
             import('@/tools/generated'),
         ])
 
+        // Hand-written tools take precedence over their generated counterparts, so a
+        // wrapper (e.g. session-recording-get) registered under the same name overrides
+        // the codegen handler.
         const allFactories: Record<string, () => ToolBase<ZodObjectAny>> = {
-            ...TOOL_MAP,
             ...GENERATED_TOOL_MAP,
+            ...TOOL_MAP,
         }
 
         const defs = getToolDefinitions()
