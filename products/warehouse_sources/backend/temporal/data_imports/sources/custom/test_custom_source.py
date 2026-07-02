@@ -1,6 +1,7 @@
 import io
 import gzip
 import json
+import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from urllib.parse import quote
@@ -908,6 +909,41 @@ class TestCustomSourceOAuth2SecretAdoption(BaseTest):
         foreign.refresh_from_db()
         assert foreign.sensitive_config["refresh_token"] == "foreign-RT"
         assert CustomOAuth2Integration.objects.for_team(self.team.pk).count() == 2
+
+    @patch(SOURCE_MODULE)
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_token_url_change_never_mints_the_rotated_token(self, mock_token_session, mock_probe_session):
+        # An editor re-typing the consumed original token while repointing token_url must not get the
+        # live rotated descendant — a credential they never possessed — minted against the new host.
+        # The fingerprint keep-rule is suspended on a config change, so the mint carries only the
+        # token the editor typed.
+        self._mock_mint(mock_token_session, mock_probe_session)
+        source = self._make_source("repointed")
+        row = CustomOAuth2Integration.objects.for_team(self.team.pk).create(
+            team=self.team,
+            created_by=self.user,
+            external_data_source=source,
+            config={"client_id": "cid", "token_url": "https://auth.example.com/token", "grant_type": "refresh_token"},
+            sensitive_config={
+                "client_secret": "cs",
+                "refresh_token": "live-rotated-RT",
+                "refresh_token_fingerprint": hashlib.sha256(b"orig-RT").hexdigest(),
+            },
+        )
+        config = self._static_config(
+            manifest_json=json.dumps(self._oauth2_manifest(token_url="https://editor-controlled.example.net/token")),
+            auth_oauth2_integration_id=str(row.pk),
+        )
+
+        ok, err = CustomSource().validate_credentials(
+            config, team_id=self.team.pk, source_id=str(source.pk), owner_user_id=self.user.pk
+        )
+
+        assert ok, err
+        minted_with = mock_token_session.return_value.post.call_args
+        assert minted_with.args[0] == "https://editor-controlled.example.net/token"
+        assert minted_with.kwargs["data"]["refresh_token"] == "orig-RT"
+        assert "live-rotated-RT" not in str(minted_with)
 
     @patch(f"{AUTH_MODULE}.make_tracked_session")
     def test_foreign_pointer_is_rejected_before_any_row_mutation(self, mock_session):

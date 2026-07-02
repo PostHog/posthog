@@ -1529,10 +1529,14 @@ def _apply_oauth2_material(
     """Sync the manifest's non-secret OAuth2 config and any re-entered secrets onto the row.
 
     A re-entered refresh token only replaces the stored one when it differs from the last token the
-    user submitted (tracked by fingerprint): re-typing the original token — already consumed by a
-    rotating provider — must not clobber the rotated descendant the row persisted. A genuinely new
-    token (or a changed non-secret config) drops the cached access token so the next mint uses the
-    new material instead of riding a token minted under the old one.
+    user submitted (tracked by fingerprint) *and* the non-secret client config is unchanged:
+    re-typing the original token — already consumed by a rotating provider — must not clobber the
+    rotated descendant the row persisted across a retry or preview→create. But once the config
+    changes (a repointed token_url above all), the keep-rule must not apply: it would mint the live
+    rotated token — a credential the editor never possessed — against the new destination. Replacing
+    with the typed token means a config change only ever sends material the editor provably knows.
+    A replacement (or a config change) drops the cached access token so the next mint uses the new
+    material instead of riding a token minted under the old one.
     """
     sensitive = dict(integration.sensitive_config)
     new_config = dict(row_config)
@@ -1546,7 +1550,7 @@ def _apply_oauth2_material(
         sensitive["client_secret"] = config.auth_oauth2_client_secret
     if config.auth_oauth2_refresh_token:
         fingerprint = hashlib.sha256(config.auth_oauth2_refresh_token.encode()).hexdigest()
-        if fingerprint != sensitive.get("refresh_token_fingerprint"):
+        if config_changed or fingerprint != sensitive.get("refresh_token_fingerprint"):
             sensitive["refresh_token"] = config.auth_oauth2_refresh_token
             sensitive["refresh_token_fingerprint"] = fingerprint
             sensitive.pop("access_token", None)

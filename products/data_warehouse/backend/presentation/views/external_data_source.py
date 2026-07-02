@@ -961,10 +961,10 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
         # tokens live in the bound CustomOAuth2Integration row and are injected at sync time. So
         # `has_preserved_credentials` never sees a preserved secret for it, yet a host change would
         # still redirect the row's injected token to the new host. Re-entering every secret the row
-        # holds satisfies the gate the same way typing a password does for other sources: validation
-        # replaces the row's secrets with the typed ones, so nothing the editor couldn't read gets
-        # redirected. (A re-typed original refresh token keeps the row's rotated descendant — that
-        # lineage is knowledge-equivalent to what the editor typed.)
+        # holds satisfies the gate the same way typing a password does for other sources: because a
+        # config change makes adoption replace the row's secrets with the typed ones outright (see
+        # _apply_oauth2_material — the rotated-token keep-rule is suspended on config change), only
+        # material the editor provably possesses is ever sent to the new host.
         bound_integration = None
         if source_type_model == ExternalDataSourceType.CUSTOM:
             bound_integration = (
