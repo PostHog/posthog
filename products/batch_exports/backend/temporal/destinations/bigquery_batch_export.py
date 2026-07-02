@@ -1181,50 +1181,56 @@ def _make_jsonl_pipeline_transformer(table: BigQueryTable, max_file_size_bytes: 
     return transformer
 
 
-async def run_consumers(
+async def run_consumer(
     client: BigQueryClient,
-    table: BigQueryTable,
+    consumer_table: BigQueryTable,
+    target_table: BigQueryTable,
+    model: str,
     file_format: FileFormat,
-    producer_task: asyncio.Task[None],
     queue: RecordBatchQueue,
-    can_perform_merge: bool,
-    max_consumers: int,
-    model: str = "events",
+    transformer: PipelineTransformer,
+    all_consumers_done: asyncio.Barrier,
+    producer_task: asyncio.Task[None],
+    merge: bool,
+    merge_semaphore: asyncio.Semaphore,
 ) -> BatchExportResult:
-    tasks = []
-    max_file_size_bytes_per_consumer = settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES // max_consumers
+    """Run a BigQueryConsumer until completion.
 
-    async def run(
-        consumer: BigQueryConsumer,
-        queue: RecordBatchQueue,
-        transformer: PipelineTransformer,
-        producer_task: asyncio.Task[None],
-    ) -> BatchExportResult:
-        return await consumer.start(
+    If necessary, also merge the consumer's table into the provided table.
+    """
+    async with client.managed_table(
+        table=consumer_table,
+        create=merge,
+        delete=merge,
+    ) as managed_consumer_table:
+        consumer = BigQueryConsumer(
+            client=client,
+            table=managed_consumer_table,
+            file_format=file_format,
+            model=model,
+        )
+
+        result = await consumer.start(
             queue=queue,
             producer_task=producer_task,
             transformer=transformer,
             json_columns=(),
         )
 
-    async with asyncio.TaskGroup() as tg:
-        for _ in range(max_consumers):
-            consumer = BigQueryConsumer(
-                client=client,
-                table=table,
-                file_format=file_format,
-                model=model,
-            )
-            if can_perform_merge:
-                transformer = _make_parquet_pipeline_transformer(table, max_file_size_bytes_per_consumer)
-            else:
-                transformer = _make_jsonl_pipeline_transformer(table, max_file_size_bytes_per_consumer)
+        await all_consumers_done.wait()
 
-            tasks.append(tg.create_task(run(consumer, queue, transformer, producer_task)))
+        # Only merge to final table if the upstream producer
+        # has not failed.
+        producer_failed = producer_task.exception() is not None
 
-    await raise_on_task_failure(producer_task)
+        if merge and not producer_failed:
+            async with merge_semaphore:
+                _ = await client.merge_tables(
+                    final=target_table,
+                    stage=managed_consumer_table,
+                )
 
-    return reduce_batch_export_results(task.result() for task in tasks)
+    return result
 
 
 class MergeSettings(typing.NamedTuple):
@@ -1424,66 +1430,87 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
                 inputs.private_key, inputs.private_key_id, inputs.token_uri, inputs.client_email, project_id
             )
 
+        max_consumers = 1
+        if str(inputs.team_id) in settings.BATCH_EXPORT_BIGQUERY_USE_MULTIPLE_CONSUMERS_TEAM_IDS:
+            max_consumers = settings.BATCH_EXPORT_BIGQUERY_MAX_CONSUMERS
+
         async with bq_client:
             bigquery_target_table = await bq_client.get_or_create_table(target_table)
 
             can_perform_merge = await bq_client.check_for_query_permissions(bigquery_target_table)
             if not can_perform_merge:
-                if bigquery_target_table.is_mutable():
+                if bigquery_target_table.is_mutable() or max_consumers > 1:
+                    # Mutable tables require merges
+                    # As do multiple consumers, as we write to multiple stage
+                    # tables and later merge
                     raise MissingRequiredPermissionsError()
 
                 external_logger.warning(
                     "Missing query permissions on BigQuery table required for merging, will attempt direct load into final table"
                 )
-                consumer_table = bigquery_target_table
+                consumer_tables = [bigquery_target_table]
             else:
-                consumer_table = BigQueryTable(
-                    stage_table_id,
-                    bigquery_target_table.fields,
-                    bigquery_target_table.parents,
-                    primary_key=bigquery_target_table.primary_key,
-                    version_key=bigquery_target_table.version_key,
-                    # Do not partition the consumer table to avoid running into quota errors.
-                    time_partitioning=None,
-                )
+                consumer_tables = []
 
-                if inputs.use_json_type:
-                    for field_name in json_fields:
-                        if field_name not in consumer_table:
-                            continue
-
-                        field = consumer_table[field_name]
-                        consumer_table[field_name] = field.with_new_arrow_type(pa.string())
-
-            async with bq_client.managed_table(
-                table=consumer_table,
-                create=can_perform_merge,
-                delete=can_perform_merge,
-            ) as bigquery_consumer_table:
-                file_format: typing.Literal["Parquet", "JSONLines"] = "Parquet" if can_perform_merge else "JSONLines"
-
-                max_consumers = 1
-                if str(inputs.team_id) in settings.BATCH_EXPORT_BIGQUERY_USE_MULTIPLE_CONSUMERS_TEAM_IDS:
-                    max_consumers = settings.BATCH_EXPORT_BIGQUERY_MAX_CONSUMERS
-
-                result = await run_consumers(
-                    client=bq_client,
-                    table=bigquery_consumer_table,
-                    file_format=file_format,
-                    producer_task=producer_task,
-                    queue=queue,
-                    can_perform_merge=can_perform_merge,
-                    max_consumers=max_consumers,
-                    model=model.name if isinstance(model, BatchExportModel) else "events",
-                )
-
-                if can_perform_merge:
-                    _ = await bq_client.merge_tables(
-                        final=bigquery_target_table,
-                        stage=bigquery_consumer_table,
+                for index in range(max_consumers):
+                    consumer_table = BigQueryTable(
+                        f"{stage_table_id}_{index}",
+                        bigquery_target_table.fields,
+                        bigquery_target_table.parents,
+                        primary_key=bigquery_target_table.primary_key,
+                        version_key=bigquery_target_table.version_key,
+                        # Do not partition the consumer table to avoid running into quota errors.
+                        time_partitioning=None,
                     )
 
-                return result
+                    if inputs.use_json_type:
+                        for field_name in json_fields:
+                            if field_name not in consumer_table:
+                                continue
+
+                            field = consumer_table[field_name]
+                            consumer_table[field_name] = field.with_new_arrow_type(pa.string())
+
+                    consumer_tables.append(consumer_table)
+
+            file_format: typing.Literal["Parquet", "JSONLines"] = "Parquet" if can_perform_merge else "JSONLines"
+
+            max_file_size_bytes_per_consumer = settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES // max_consumers
+            all_consumers_done = asyncio.Barrier(max_consumers)
+            merge_semaphore = asyncio.Semaphore(1)
+
+            tasks = []
+            async with asyncio.TaskGroup() as tg:
+                for index, consumer_table in enumerate(consumer_tables):
+                    if can_perform_merge:
+                        transformer = _make_parquet_pipeline_transformer(
+                            consumer_table, max_file_size_bytes_per_consumer
+                        )
+                    else:
+                        transformer = _make_jsonl_pipeline_transformer(consumer_table, max_file_size_bytes_per_consumer)
+
+                    tasks.append(
+                        tg.create_task(
+                            run_consumer(
+                                client=bq_client,
+                                consumer_table=consumer_table,
+                                target_table=bigquery_target_table,
+                                model=model.name if isinstance(model, BatchExportModel) else "events",
+                                file_format=file_format,
+                                queue=queue,
+                                transformer=transformer,
+                                all_consumers_done=all_consumers_done,
+                                producer_task=producer_task,
+                                merge=can_perform_merge,
+                                merge_semaphore=merge_semaphore,
+                            ),
+                            name=f"consumer-{index}",
+                        )
+                    )
+
+            await raise_on_task_failure(producer_task)
+
+            return reduce_batch_export_results(task.result() for task in tasks)
 
 
 @workflow.defn(name="bigquery-export", failure_exception_types=[workflow.NondeterminismError])
