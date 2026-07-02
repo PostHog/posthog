@@ -11,6 +11,8 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { Link } from 'lib/lemon-ui/Link'
 import { urls } from 'scenes/urls'
 
+import { WorkflowActivityLink } from './WorkflowActivityLink'
+
 const nameOrLinkToTicket = (
     ticketNumber: string | undefined,
     name: string | null | undefined
@@ -157,15 +159,12 @@ export function ticketActivityDescriber(logItem: ActivityLogItem, asNotification
     }
 
     // When a HogFlow workflow step made the change, attribute it to (and link to) the workflow
-    // instead of the generic "PostHog" system actor.
+    // instead of the generic "PostHog" system actor. The workflow name is resolved live by id
+    // (never trusted from the log payload), so it can't be spoofed via the update headers.
     const trigger = logItem.detail.trigger
     const actor =
         trigger?.job_type === 'hog_flow' && trigger.job_id ? (
-            <strong>
-                <Link to={urls.workflow(trigger.job_id, 'workflow')}>
-                    {(trigger.payload?.name as string) || 'A workflow'}
-                </Link>
-            </strong>
+            <WorkflowActivityLink id={trigger.job_id} />
         ) : (
             <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>
         )

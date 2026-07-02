@@ -8,7 +8,6 @@ Authenticated via team secret API token passed as a Bearer token in the Authoriz
 
 import uuid
 import hashlib
-from urllib.parse import unquote
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
 from django.db.models import Q
@@ -146,20 +145,19 @@ def _validate_ticket_id(ticket_id: str | uuid.UUID) -> Response | None:
     return None
 
 
-# Headers a HogFlow workflow step forwards so activity entries can attribute the change to it.
+# Header a HogFlow workflow step forwards so activity entries can attribute the change to it.
 HOG_FLOW_ID_HEADER = "X-PostHog-Hog-Flow-Id"
-HOG_FLOW_NAME_HEADER = "X-PostHog-Hog-Flow-Name"
 
 
 def _workflow_trigger_from_request(request: Request) -> Trigger | None:
     """Build an activity-log Trigger when the request originates from a HogFlow workflow step.
 
-    The id and name come from headers set by the trusted CDP builtin that runs the workflow
-    step. We can't cross-check the id against the workflows product from here — module
-    boundaries keep conversations independent of workflows — so we only sanity-check that the
-    id is a well-formed UUID. The endpoint is team-token authenticated, so the worst a token
-    holder can do is misattribute a change within its own team's audit log; there is no
-    cross-team or privilege impact.
+    Only the workflow id is taken from the (caller-supplied) header, and only as a well-formed
+    UUID. The display name is resolved from the workflow itself on the frontend, so a token
+    holder can't spoof an arbitrary workflow name into the audit log. Module boundaries keep
+    conversations independent of workflows, so we can't validate id ownership here; the endpoint
+    is team-token authenticated, so the worst case is a token holder pointing attribution at
+    another workflow id within its own team — no cross-team or privilege impact.
     """
     hog_flow_id = request.headers.get(HOG_FLOW_ID_HEADER)
     if not hog_flow_id:
@@ -168,12 +166,7 @@ def _workflow_trigger_from_request(request: Request) -> Trigger | None:
         uuid.UUID(hog_flow_id)
     except (ValueError, TypeError):
         return None
-    hog_flow_name = request.headers.get(HOG_FLOW_NAME_HEADER)
-    return Trigger(
-        job_type="hog_flow",
-        job_id=hog_flow_id,
-        payload={"name": unquote(hog_flow_name)} if hog_flow_name else {},
-    )
+    return Trigger(job_type="hog_flow", job_id=hog_flow_id, payload={})
 
 
 def _log_ticket_tag_removals(ticket: Ticket, team: Team, removed_tags: set[str], trigger: Trigger | None) -> None:

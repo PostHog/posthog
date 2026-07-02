@@ -6,6 +6,12 @@ import { ActivityScope } from '~/types'
 
 import { ticketActivityDescriber } from './activityDescriber'
 
+// WorkflowActivityLink resolves the workflow name from workflowsLogic; stub it so the describer
+// tests stay pure. Its own name-resolution behavior is covered in WorkflowActivityLink.test.tsx.
+jest.mock('./WorkflowActivityLink', () => ({
+    WorkflowActivityLink: ({ id }: { id: string }) => <span>workflow-actor:{id}</span>,
+}))
+
 const getTextContent = (describer: { description: JSX.Element | string | null }): string => {
     if (!describer.description || typeof describer.description === 'string') {
         return (describer.description as string) || ''
@@ -53,28 +59,14 @@ describe('ticketActivityDescriber', () => {
                     merge: null,
                     name: 'Ticket #2043',
                     changes: [statusChange],
-                    trigger: { job_type: 'hog_flow', job_id: 'flow-123', payload: { name: 'Escalation workflow' } },
-                },
-            })
-        )
-        const text = getTextContent(result)
-        expect(text).toContain('Escalation workflow')
-        expect(text).toContain('changed status')
-        expect(text).not.toContain('PostHog')
-    })
-
-    it('falls back to a generic label when the workflow name is missing', () => {
-        const result = ticketActivityDescriber(
-            ticketLogItem({
-                detail: {
-                    merge: null,
-                    name: 'Ticket #2043',
-                    changes: [statusChange],
                     trigger: { job_type: 'hog_flow', job_id: 'flow-123', payload: {} },
                 },
             })
         )
-        expect(getTextContent(result)).toContain('A workflow')
+        const text = getTextContent(result)
+        expect(text).toContain('workflow-actor:flow-123')
+        expect(text).toContain('changed status')
+        expect(text).not.toContain('PostHog')
     })
 
     it('attributes a non-workflow change to the acting user', () => {
@@ -94,12 +86,12 @@ describe('ticketActivityDescriber', () => {
                     merge: null,
                     name: 'Ticket #2043',
                     changes: [snoozeCleared],
-                    trigger: { job_type: 'hog_flow', job_id: 'flow-123', payload: { name: 'Escalation workflow' } },
+                    trigger: { job_type: 'hog_flow', job_id: 'flow-123', payload: {} },
                 },
             })
         )
         const text = getTextContent(result)
-        expect(text).toContain('Escalation workflow')
+        expect(text).toContain('workflow-actor:flow-123')
         expect(text).toContain('removed snooze')
         expect(text).not.toContain('snooze expired')
     })

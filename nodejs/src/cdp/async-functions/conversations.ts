@@ -98,14 +98,13 @@ registerAsyncFunction('postHogUpdateTicket', {
         }
 
         // Present only when running inside a HogFlow (spread onto the synthesized invocation);
-        // forward the workflow identity so the ticket activity log can attribute and link to it.
-        // Typed as an optional HogFlow so a rename of its id/name shape breaks compilation here.
+        // forward the workflow id so the ticket activity log can attribute and link to it. Only
+        // the id is sent — the display name is resolved from the workflow on the frontend so it
+        // can't be spoofed through this header. Typed as an optional HogFlow so a rename of its
+        // id shape breaks compilation here.
         const hogFlow = (context.invocation as { hogFlow?: HogFlow }).hogFlow
         if (hogFlow?.id) {
             headers['X-PostHog-Hog-Flow-Id'] = hogFlow.id
-            if (hogFlow.name) {
-                headers['X-PostHog-Hog-Flow-Name'] = encodeURIComponent(hogFlow.name)
-            }
         }
 
         result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({

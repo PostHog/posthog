@@ -527,13 +527,10 @@ class TestExternalTicketAPI(BaseTest):
 
     # -- Workflow (HogFlow) attribution -----------------------------------
 
-    def _workflow_headers(
-        self, flow_id="0191d3e0-0000-7000-8000-000000000001", name="Escalation%20workflow", token=None
-    ):
+    def _workflow_headers(self, flow_id="0191d3e0-0000-7000-8000-000000000001", token=None):
         return {
             **self._auth_headers(token),
             "HTTP_X_POSTHOG_HOG_FLOW_ID": flow_id,
-            "HTTP_X_POSTHOG_HOG_FLOW_NAME": name,
         }
 
     def _latest_ticket_activity(self, activity="updated"):
@@ -567,8 +564,8 @@ class TestExternalTicketAPI(BaseTest):
         assert trigger is not None
         self.assertEqual(trigger["job_type"], "hog_flow")
         self.assertEqual(trigger["job_id"], flow_id)
-        # Name arrives URL-encoded in the header and is decoded before storage.
-        self.assertEqual(trigger["payload"]["name"], "Escalation workflow")
+        # Only the id is stored; the display name is resolved from the workflow on the frontend.
+        self.assertNotIn("name", trigger["payload"])
 
     def test_patch_without_workflow_header_has_no_trigger(self):
         response = self.client.patch(
