@@ -68,9 +68,15 @@ struggle over latency.
 
 ## Arm: the campaign implementation contract
 
-Prefer **editing** the existing tool-quality report (dedupe rule: one report per
-tool problem, ever). Only author a new report when the issue you're arming has
-no inbox coverage at all. Append a section to the report body:
+Arming means **authoring a campaign report via `emit_report`** with the
+autostart trio set: `actionability: immediately_actionable` (with a one-line
+explanation), `repository` + `priority`, and `suggested_reviewers` — autostart
+no-ops without all of them, and `edit_report` only updates text and reviewers,
+so you cannot arm an existing pipeline report by editing it. Reference the
+detection report's id in the body so the two stay linked, and never author a
+second campaign report for an issue the journal shows already armed (dedupe is
+your job — the channel is not idempotent). Use `edit_report` only to update a
+campaign report you authored on a previous run. The report body carries:
 
 ```markdown
 ## Campaign implementation spec
@@ -85,11 +91,11 @@ no inbox coverage at all. Append a section to the report body:
 - Out of scope, hand back to humans: <any adjacent handler/serializer fixes>
 ```
 
-Then set the report fields that let the pipeline act: actionability
-(immediately actionable only when the spec above is complete), and
+Mark `immediately_actionable` only when the spec above is complete; pick
 `suggested_reviewers` from the owning team of the files in the fix (the
-implementation task and its PR route to them). The harness prompt carries the
-full report-channel contract; this body only adds the campaign framing.
+implementation task and its PR route to them, and a PR only opens if a
+reviewer clears their autonomy threshold). The harness prompt carries the full
+report-channel contract; this body only adds the campaign framing.
 
 ## Journal (scratchpad — the campaign's memory)
 
@@ -100,9 +106,14 @@ parked list. The journal is what makes runs idempotent: the next run (or a
 human reading the scratchpad) must be able to tell what was armed, what was
 parked and why, and what's in flight, without re-deriving it.
 
-Cap: if the journal shows 3 armed reports whose implementation PRs are not yet
-merged, arm nothing — write the journal entry and end. Backpressure beats a
-queue of stale campaign PRs.
+Cap: before arming, re-check the LIVE state of every report the journal lists
+as armed (`inbox-reports-retrieve` — its status and whether its implementation
+PR merged or closed). A report whose PR merged/closed or that is no longer
+open leaves the in-flight window; record that in the journal as you go. If 3
+armed reports are still genuinely in flight, arm nothing — write the journal
+entry and end. The journal is a pointer list, not the source of truth;
+counting it without re-checking would saturate the cap forever once three PRs
+merged.
 
 ## What you never do
 
