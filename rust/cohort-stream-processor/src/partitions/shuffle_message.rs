@@ -6,13 +6,12 @@ use crate::merge::transfer::{MergeStateTransfer, PersonMergeEvent};
 
 /// A unit of work routed to the partition worker that owns its `(team_id, person_id)` key.
 #[derive(Debug)]
-#[allow(clippy::large_enum_variant)]
 pub enum ShuffleMessage {
     /// A re-keyed event from `cohort_stream_events`, paired with its offset (`cse_offset`).
     /// The worker marks this offset processed only after membership changes are produced and acked.
-    /// Unboxed: events are the hot path.
+    /// Boxed so the fat event doesn't inflate every `ShuffleMessage`'s inline size.
     Event {
-        event: CohortStreamEvent,
+        event: Box<CohortStreamEvent>,
         cse_offset: i64,
     },
     /// A time-driven eviction tick with the cutoff `due_before_ms`. Serialized on the same channel
@@ -117,7 +116,7 @@ mod tests {
     #[test]
     fn event_variant_carries_event_and_cse_offset() {
         let message = ShuffleMessage::Event {
-            event: sample_event(42),
+            event: Box::new(sample_event(42)),
             cse_offset: 7,
         };
 

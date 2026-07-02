@@ -135,6 +135,7 @@
         "tail": "^2.2.6",
         "tldts": "^6.1.57",
         "typescript": "catalog:",
+        "uWebSockets.js": "https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/cfc9a40d8132a34881813cec3d5f8e3a185b3ce3",
         "ultimate-express": "2.0.9",
         "undici": "^7.24.0",
         "undici-types": "7.3.0",

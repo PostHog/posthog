@@ -11,7 +11,7 @@ import type { BreakdownFilter } from '~/queries/schema/schema-general'
 import type { FunnelStepWithConversionMetrics } from '~/types'
 
 import { FunnelStepTooltip } from '../shared/FunnelStepTooltip'
-import type { FunnelBarHorizontalSegmentMeta } from './funnelBarHorizontalTransforms'
+import { type FunnelBarHorizontalSegmentMeta, resolveFunnelBarHorizontalHover } from './funnelBarHorizontalTransforms'
 
 interface FunnelBarHorizontalTooltipProps {
     context: TooltipContext<FunnelBarHorizontalSegmentMeta>
@@ -37,22 +37,16 @@ export function FunnelBarHorizontalTooltip({
     const { featureFlags } = useValues(featureFlagLogic)
     const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
 
-    const entry = context.seriesData[0]
-    if (!entry) {
+    const target = resolveFunnelBarHorizontalHover(context, step, stepIndex)
+    if (!target) {
         return null
     }
 
-    const breakdownIndex = entry.series.meta?.breakdownIndex
-    const series =
-        breakdownIndex != null && step.nested_breakdown?.[breakdownIndex] ? step.nested_breakdown[breakdownIndex] : step
+    const { series, isDropOffHover, color } = target
     const aggregateConversionRate = getFunnelAggregateConversionRate(series, step)
     const comparePeriodDateRange = series.compare_label
         ? funnelComparePeriodDateRange(series.compare_label, resolvedDateRange, compareTo)
         : null
-
-    // Horizontal bar chart: cursor right of the bar's end pixel is in the track (drop-off) region.
-    const isDropOffHover =
-        stepIndex > 0 && context.hoverPosition != null && entry.yPixel != null && context.hoverPosition.x > entry.yPixel
 
     const sharedProps = {
         showPersonsModal,
@@ -65,8 +59,8 @@ export function FunnelBarHorizontalTooltip({
     }
 
     return quillTooltipEnabled ? (
-        <FunnelStepTooltip {...sharedProps} isDropOffHover={isDropOffHover} color={entry.color} />
+        <FunnelStepTooltip {...sharedProps} isDropOffHover={isDropOffHover} color={color} />
     ) : (
-        <FunnelTooltip {...sharedProps} />
+        <FunnelTooltip {...sharedProps} isDropOffHover={isDropOffHover} />
     )
 }

@@ -900,6 +900,7 @@ class TestAgentHarnessProjectProfileAPI(APIBaseTest):
             "recent_notebooks",
             "recent_cohorts",
             "recent_actions",
+            "recent_reviewer_corrections",
             "top_events",
         }
 

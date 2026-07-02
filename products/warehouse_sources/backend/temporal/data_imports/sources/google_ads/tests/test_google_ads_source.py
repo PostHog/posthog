@@ -24,6 +24,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads
     GoogleAdsColumn,
     GoogleAdsTable,
     _get_integration,
+    _is_rejected_page_token_error,
     _is_stale_page_token_error,
     _is_transient_client_init_error,
     _is_transient_grpc_error,
@@ -396,6 +397,18 @@ def _google_ads_exception(request_error: int) -> GoogleAdsException:
     return GoogleAdsException(error=None, call=None, failure=failure, request_id="req-1")
 
 
+def _google_ads_exception_with_trigger(request_error: int, trigger_value: str) -> GoogleAdsException:
+    # A failure whose request_error code the pinned library can't decode (surfaced as UNKNOWN /
+    # "The error code is not in this version.") but whose trigger still echoes the offending value.
+    error = GoogleAdsError(
+        error_code=ErrorCode(request_error=request_error),
+        message="The error code is not in this version.",
+    )
+    error.trigger.string_value = trigger_value
+    failure = GoogleAdsFailure(errors=[error])
+    return GoogleAdsException(error=None, call=None, failure=failure, request_id="req-1")
+
+
 def _string_column(qualified_name: str) -> GoogleAdsColumn:
     return GoogleAdsColumn(
         qualified_name=qualified_name,
@@ -473,6 +486,29 @@ class TestStalePageTokenDetection:
         assert _is_stale_page_token_error(exc) is expected
 
 
+class TestRejectedPageTokenDetection:
+    @pytest.mark.parametrize(
+        "exc, page_token, expected",
+        [
+            # Google rejected our token with a code the pinned library can't decode, but the
+            # failure trigger echoes the exact token we sent — recognise it as a stale token.
+            (
+                _google_ads_exception_with_trigger(RequestErrorEnum.RequestError.UNKNOWN, "SAVED_TOKEN"),
+                "SAVED_TOKEN",
+                True,
+            ),
+            # A trigger naming some other value must not be mistaken for a rejected page token.
+            (_google_ads_exception_with_trigger(RequestErrorEnum.RequestError.UNKNOWN, "other"), "SAVED_TOKEN", False),
+            # An empty page token (first-page request) can never be the rejected value.
+            (_google_ads_exception_with_trigger(RequestErrorEnum.RequestError.UNKNOWN, ""), "", False),
+            # A non-``GoogleAdsException`` shape (no ``failure``) must not match.
+            (SimpleNamespace(failure=None), "SAVED_TOKEN", False),
+        ],
+    )
+    def test_is_rejected_page_token_error(self, exc, page_token, expected):
+        assert _is_rejected_page_token_error(exc, page_token) is expected
+
+
 class TestSearchPageTokenResumption:
     @pytest.mark.parametrize(
         "request_error",
@@ -500,6 +536,30 @@ class TestSearchPageTokenResumption:
         # The stale token is cleared from saved state so a later resume won't reuse it.
         assert manager.saved_states == [""]
         # Rows are still yielded — the data was never lost.
+        assert [t.to_pylist() for t in tables] == [[{"campaign_name": "Acme"}]]
+
+    def test_restarts_pagination_when_page_token_rejected_with_unrecognised_code(self):
+        # Google rejected the saved token with a request_error code the pinned library can't
+        # decode (UNKNOWN / "The error code is not in this version."), so the code-text match
+        # misses it; the trigger echoing the token is the only stable signal to restart.
+        service = _FakeService(
+            _single_page(),
+            error_on_token=_google_ads_exception_with_trigger(RequestErrorEnum.RequestError.UNKNOWN, "STALE_TOKEN"),
+        )
+        manager = _FakeResumableManager(saved_token="STALE_TOKEN")
+
+        tables = list(
+            _search_as_arrow_tables(
+                service=service,  # type: ignore[arg-type]
+                customer_id="1234567890",
+                query="SELECT campaign.name FROM campaign",
+                table=_single_row_table(),
+                resumable_source_manager=manager,  # type: ignore[arg-type]
+            )
+        )
+
+        assert service.calls == ["STALE_TOKEN", ""]
+        assert manager.saved_states == [""]
         assert [t.to_pylist() for t in tables] == [[{"campaign_name": "Acme"}]]
 
     def test_other_google_ads_errors_propagate(self):

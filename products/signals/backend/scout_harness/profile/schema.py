@@ -84,6 +84,19 @@ class RecentActivity(_Section):
     by_scope: list[ScopeActivity]
 
 
+class ReviewerCorrection(_Section):
+    report_id: str
+    report_title: str | None
+    before: list[str]
+    after: list[str]
+    at: str | None
+
+
+class RecentReviewerCorrections(_Section):
+    window_days: int
+    corrections: list[ReviewerCorrection]
+
+
 class DashboardEntry(_Section):
     id: int
     name: str
@@ -255,6 +268,7 @@ class Inventory(_Section):
     signal_source_configs: SignalSourceConfigs
     existing_inbox_reports: ExistingInboxReports
     recent_activity: RecentActivity
+    recent_reviewer_corrections: RecentReviewerCorrections
     recent_dashboards: list[DashboardEntry]
     recent_surveys: RecentSurveys
     recent_feature_flags: RecentFeatureFlags

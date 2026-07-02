@@ -1,9 +1,9 @@
-import { isDropResult, isOkResult } from '~/ingestion/framework/results'
 import {
     FeatureFlagCalledDedupMode,
     FeatureFlagCalledDedupService,
     featureFlagCalledDedupKey,
-} from '~/ingestion/utils/feature-flag-called-dedup/feature-flag-called-dedup-service'
+} from '~/ingestion/common/feature-flag-called-dedup/feature-flag-called-dedup-service'
+import { isDropResult, isOkResult } from '~/ingestion/framework/results'
 import { getMetricValues, resetMetrics } from '~/tests/helpers/metrics'
 import { createTestPluginEvent } from '~/tests/helpers/plugin-event'
 import { createTestTeam } from '~/tests/helpers/team'
