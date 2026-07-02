@@ -1,5 +1,5 @@
 #!/usr/bin/env node
-import { deltaStatus, formatBytes, formatDelta } from './ci-report/format.mjs'
+import { formatBytes, formatDelta, totalComparison } from './ci-report/format.mjs'
 import { resolvePrAndBaseReport } from './ci-report/report-files.mjs'
 import { postSection } from './ci-report/update-ci-report.mjs'
 
@@ -30,15 +30,12 @@ if (baseReport) {
 }
 changed.sort((a, b) => Math.abs(b.delta) - Math.abs(a.delta))
 
-const baseTotal = baseReport?.total ?? null
-const totalDelta = report.total - (baseTotal ?? 0)
+const total = totalComparison(report.total, baseReport?.total ?? null)
 
 const lines = [
     'Uncompressed size of every built `.js` bundle, compared against the base branch.',
     '',
-    baseReport
-        ? `**Total:** ${formatBytes(report.total)} · ${formatDelta(report.total, baseTotal)}`
-        : `**Total:** ${formatBytes(report.total)} _(no base branch measurement to compare against yet)_`,
+    total.totalLine,
     '',
 ]
 if (baseReport && changed.length) {
@@ -57,7 +54,7 @@ lines.push(
 
 await postSection({
     id: 'bundle-size',
-    status: deltaStatus(totalDelta, baseTotal !== null),
-    summary: baseTotal !== null ? formatDelta(report.total, baseTotal) : 'no base branch to compare',
+    status: total.status,
+    summary: total.summary,
     body: lines.join('\n'),
 })

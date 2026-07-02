@@ -435,11 +435,11 @@ jobs:
                   pnpm --filter=@posthog/frontend build:with-report
                   du -sb frontend/dist | cut -f1 > frontend/dist-size-base.txt
 
-            # Each frontend check contributes one section to a single ci-report comment.
-            # The section writers read the PR build's report by its checkout sha (the base
-            # build overwrites the plain filename). After the base build the tree is on the
-            # BASE branch, so guard for the scripts' absence (also covers branches predating
-            # a check). Budgets are surfaced warn-only further down.
+            # Each frontend check contributes one section to a single ci-report comment
+            # (how a section writer picks the PR vs base report is report-files.mjs's story).
+            # After the base build the tree is on the BASE branch, so guard for the scripts'
+            # absence (also covers branches predating a check). Budgets are surfaced
+            # warn-only further down.
             - name: Clean up legacy per-check CI comments
               if: always() && github.event_name == 'pull_request'
               env:

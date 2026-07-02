@@ -17,17 +17,16 @@ function budgetBar(bytes, budgetBytes) {
     return `\`${bar}\` ${((bytes / budgetBytes) * 100).toFixed(1)}% of ${formatBytes(budgetBytes)}`
 }
 
-const anyFailure = report.roots.some((r) => r.overBudget || r.forbiddenHits.length > 0) || report.errors?.length > 0
-
+const errorCount = report.errors?.length ?? 0
 const overBudgetRoots = report.roots.filter((r) => r.overBudget).length
 const forbiddenCount = report.roots.reduce((n, r) => n + r.forbiddenHits.length, 0)
-const summary = report.errors?.length
-    ? `${report.errors.length} error(s)`
-    : overBudgetRoots || forbiddenCount
-      ? [overBudgetRoots && `${overBudgetRoots} over budget`, forbiddenCount && `${forbiddenCount} forbidden import(s)`]
-            .filter(Boolean)
-            .join(', ')
-      : 'within budget'
+const anyFailure = Boolean(errorCount || overBudgetRoots || forbiddenCount)
+
+const problems = [
+    overBudgetRoots && `${overBudgetRoots} over budget`,
+    forbiddenCount && `${forbiddenCount} forbidden import(s)`,
+].filter(Boolean)
+const summary = errorCount ? `${errorCount} error(s)` : problems.join(', ') || 'within budget'
 
 const lines = [
     'How much code each root ships on the *eager* path — downloaded and parsed before the surface is interactive. Measured from the esbuild output chunks (post-tree-shake, static imports only); lazy `import()` / `React.lazy` chunks are not counted.',
