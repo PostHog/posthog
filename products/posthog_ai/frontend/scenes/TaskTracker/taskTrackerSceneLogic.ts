@@ -1,4 +1,4 @@
-import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, connect, events, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
@@ -42,6 +42,14 @@ export interface ActiveCreation {
     runId?: string
 }
 
+// `panelId` is set only by an embedded instance (e.g. Max's side panel runner), which mounts this logic
+// under its own key rather than the scene's default singleton. Embedded instances stay in place on submit
+// (no `/tasks/:id` navigation — the host renders the run from `activeCreation` itself) and ignore the scene's
+// `urlToAction` cleanup (main-app navigation must never release a side panel's in-flight creation).
+export interface TaskTrackerSceneLogicProps {
+    panelId?: string
+}
+
 const LAST_REPOSITORY_CONFIG_STORAGE_KEY = 'posthog_ai.tasks.lastRepositoryConfig'
 
 const EMPTY_TASK_FORM: TaskCreateForm = {
@@ -56,6 +64,11 @@ const EMPTY_TASK_FORM: TaskCreateForm = {
 
 export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
     path(['products', 'posthog_ai', 'frontend', 'scenes', 'TaskTracker', 'taskTrackerSceneLogic']),
+    props({} as TaskTrackerSceneLogicProps),
+    // No `panelId` (the scene's own mount) resolves to the same 'scene' key every existing unbound
+    // `useValues(taskTrackerSceneLogic)` / `taskTrackerSceneLogic.actions...` call site already relies on —
+    // only an embedded caller that passes `panelId` gets its own instance.
+    key((props) => props.panelId ?? 'scene'),
 
     connect(() => ({
         values: [tasksLogic, ['tasks', 'repositories', 'taskListParams'], integrationsLogic, ['integrations']],
@@ -141,7 +154,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         ],
     }),
 
-    listeners(({ actions, values, cache }) => ({
+    listeners(({ actions, values, cache, props }) => ({
         // Release the manually-mounted optimistic stream once the create resolves (navigated to the real run)
         // or fails (returned to the composer), so the throwaway draft instance never leaks.
         clearActiveCreation: () => {
@@ -252,7 +265,11 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 // (same `streamKey` + real `runId`) instead of cold-bootstrapping a fresh, skeleton-flashing one.
                 // Kept set across navigation; cleared by the `urlToAction` below once the user leaves this run.
                 actions.setActiveCreation({ streamKey, taskId: newTask.id, runId: runResponse.latest_run?.id })
-                router.actions.push(`/tasks/${newTask.id}`)
+                // An embedded instance (`panelId` set) keeps the run in place — the host renders it from
+                // `activeCreation` — rather than navigating the main app to the `/tasks/:id` detail page.
+                if (!props.panelId) {
+                    router.actions.push(`/tasks/${newTask.id}`)
+                }
 
                 actions.submitNewTaskSuccess()
                 actions.resetNewTaskData()
@@ -287,7 +304,7 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         },
     })),
 
-    urlToAction(({ actions, values }) => {
+    urlToAction(({ actions, values, props }) => {
         // The optimistic creation is kept alive across the success navigation so the detail page can adopt
         // its seeded stream. Release it once the user lands anywhere other than the created task — another
         // task, the list, or back to `/tasks/new`. Guarded on `taskId` being set so the pre-id provisioning
@@ -299,8 +316,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             }
         }
         return {
-            '/tasks': () => clearIfLeftCreatedTask(),
-            '/tasks/:taskId': ({ taskId }) => clearIfLeftCreatedTask(taskId),
+            // An embedded instance never navigates the main app on its own creation (see `submitNewTask`), so
+            // main-app URL changes are unrelated to its run — never release the side panel's active creation.
+            '/tasks': () => (props.panelId ? undefined : clearIfLeftCreatedTask()),
+            '/tasks/:taskId': ({ taskId }) => (props.panelId ? undefined : clearIfLeftCreatedTask(taskId)),
         }
     }),
 ])

@@ -87,4 +87,26 @@ describe('taskTrackerSceneLogic', () => {
 
         expect(logic.values.newTaskData.repositoryConfig.integrationId).toBe(7)
     })
+
+    // An embedded instance (e.g. Max's side panel runner) keeps the run in place instead of navigating the
+    // host to `/tasks/:id`, and must never have its `activeCreation` cleared by unrelated main-app
+    // navigation. Guards against either guard (`props.panelId` in `submitNewTask` / `urlToAction`) being
+    // dropped, which would yank the host to the tasks scene or silently drop the panel's in-flight run.
+    it('does not navigate on create and ignores url cleanup for an embedded instance', async () => {
+        const panelLogic = taskTrackerSceneLogic({ panelId: 'test-panel' })
+        panelLogic.mount()
+        const initialPath = router.values.location.pathname
+
+        panelLogic.actions.setNewTaskData({ description: 'do the thing' })
+        panelLogic.actions.submitNewTask()
+        await expectLogic(panelLogic).toFinishAllListeners()
+
+        expect(router.values.location.pathname).toBe(initialPath)
+        expect(panelLogic.values.activeCreation).toMatchObject({ taskId: 'new-task' })
+
+        router.actions.push('/tasks/some-other-task')
+        expect(panelLogic.values.activeCreation).toMatchObject({ taskId: 'new-task' })
+
+        panelLogic.unmount()
+    })
 })
