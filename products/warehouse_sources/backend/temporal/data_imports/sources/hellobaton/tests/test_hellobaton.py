@@ -183,7 +183,7 @@ class TestGetRows:
         assert fetched == [f"https://acme.hellobaton.com/api/tasks/?api_key=key&page_size={PER_PAGE}&page=2"]
 
     def test_stops_on_empty_results(self, monkeypatch: Any) -> None:
-        pages = {
+        pages: dict[str, Any] = {
             f"https://acme.hellobaton.com/api/companies/?api_key=key&page_size={PER_PAGE}&page=1": {
                 "results": [],
                 "next": None,
@@ -226,5 +226,24 @@ class TestFetchPage:
 
         with pytest.raises(requests.HTTPError):
             _fetch_page(session, "https://acme.hellobaton.com/api/projects/", MagicMock())
+
+    def test_raised_error_scrubs_api_key_but_keeps_status_text(self) -> None:
+        # The api_key rides in the query string, so a failing request must not leak it into the
+        # raised HTTPError, while still exposing the status text get_non_retryable_errors matches on.
+        response = requests.Response()
+        response.status_code = 401
+        response.reason = "Unauthorized"
+        response.url = "https://acme.hellobaton.com/api/projects/?api_key=supersecret&page=1"
+
+        session = MagicMock()
+        session.get.return_value = response
+
+        with pytest.raises(requests.HTTPError) as exc_info:
+            _fetch_page(session, response.url, MagicMock())
+
+        message = str(exc_info.value)
+        assert "supersecret" not in message
+        assert "api_key" not in message
+        assert "401 Client Error: Unauthorized" in message
 
         assert session.get.call_count == 1

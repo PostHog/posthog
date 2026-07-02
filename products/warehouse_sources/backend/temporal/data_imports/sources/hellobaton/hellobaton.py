@@ -2,7 +2,7 @@ import re
 import dataclasses
 from collections.abc import Iterator
 from typing import Any
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -63,6 +63,16 @@ def _build_url(base_url: str, path: str, params: dict[str, Any]) -> str:
     return f"{base_url}{path}?{urlencode(params)}"
 
 
+def _scrub_url(url: str | None) -> str:
+    # The api_key rides in the query string, so strip the query before the URL reaches any error
+    # message or log line — otherwise a non-2xx response would leak the credential into job errors.
+    # The host and path stay intact so `get_non_retryable_errors()` can still match on them.
+    if not url:
+        return ""
+    parts = urlsplit(url)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+
+
 @retry(
     retry=retry_if_exception_type((HellobatonRetryableError, requests.ReadTimeout, requests.ConnectionError)),
     stop=stop_after_attempt(5),
@@ -74,11 +84,18 @@ def _fetch_page(session: requests.Session, url: str, logger: FilteringBoundLogge
 
     # Baton rate limits at 1000 req/min per API key; 429 and transient 5xx are retryable.
     if response.status_code == 429 or response.status_code >= 500:
-        raise HellobatonRetryableError(f"Baton API error (retryable): status={response.status_code}, url={url}")
+        raise HellobatonRetryableError(
+            f"Baton API error (retryable): status={response.status_code}, url={_scrub_url(url)}"
+        )
 
     if not response.ok:
-        logger.error(f"Baton API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
+        logger.error(f"Baton API error: status={response.status_code}, body={response.text}, url={_scrub_url(url)}")
+        # Raise with the api_key scrubbed from the URL rather than calling raise_for_status(), whose
+        # message embeds the full credential-bearing URL.
+        raise requests.HTTPError(
+            f"{response.status_code} Client Error: {response.reason} for url: {_scrub_url(response.url)}",
+            response=response,
+        )
 
     return response.json()
 
@@ -95,7 +112,8 @@ def get_rows(
     # Baton authenticates via the api_key query param (not a header) and re-requires it on every page.
     params: dict[str, Any] = {"api_key": api_key, "page_size": PER_PAGE}
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
-    session = make_tracked_session()
+    # The api_key travels in the query string, so redact it from logged URLs and captured samples.
+    session = make_tracked_session(redact_values=(api_key,) if api_key else ())
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     page = resume.next_page if resume is not None and resume.next_page else 1
@@ -163,7 +181,8 @@ def validate_credentials(company: str, api_key: str) -> tuple[bool, int | None]:
     """
     url = _build_url(_base_url(company), "/projects/", {"api_key": api_key, "page_size": 1})
     try:
-        response = make_tracked_session().get(url, timeout=10)
+        session = make_tracked_session(redact_values=(api_key,) if api_key else ())
+        response = session.get(url, timeout=10)
     except Exception:
         return False, None
     return response.status_code == 200, response.status_code
