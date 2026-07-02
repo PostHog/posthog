@@ -257,6 +257,9 @@ pub const STAGE1_UNSUPPORTED_VARIANT_SKIPPED: &str = "stage1_unsupported_variant
 pub const STAGE1_STATE_DECODE_ERROR: &str = "stage1_state_decode_error_total";
 /// End-to-end per-event processing latency in the worker (histogram, seconds).
 pub const STAGE1_EVENT_PROCESS_DURATION: &str = "stage1_event_process_duration_seconds";
+/// Keys in the event's single batched Stage-1 pre-read — the reads-per-event distribution
+/// (histogram).
+pub const STAGE1_SNAPSHOT_KEYS: &str = "stage1_snapshot_keys";
 
 /// Envelopes consumed and successfully deserialized from `cohort_stream_events` (counter).
 pub const COHORT_STREAM_EVENTS_CONSUMED: &str = "cohort_stream_events_consumed_total";
