@@ -352,9 +352,11 @@ class MetricQueryRunner:
         allowlist keeps each restricted key to its listed label values so a
         high-cardinality group_by can't blow the row limit."""
         conditions: list[ast.Expr] = [_filters_expr(self.filters)]
-        scope_by_key = {group.key: group.scope.value for group in self.group_by}
+        scope_by_key = {group.key: group.scope for group in self.group_by}
         for key, values in self.group_by_value_allowlist.items():
-            label_expr = ast.Call(name="toString", args=[attribute_field(key, scope=scope_by_key.get(key, "auto"))])
+            scope = scope_by_key.get(key)
+            field = attribute_field(key, scope=scope.value) if scope is not None else attribute_field(key)
+            label_expr = ast.Call(name="toString", args=[field])
             conditions.append(
                 ast.CompareOperation(
                     op=ast.CompareOperationOp.In,
