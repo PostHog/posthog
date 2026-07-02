@@ -257,7 +257,9 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod.object({
         .min(visionScannersCreateBodySamplingRateMin)
         .max(visionScannersCreateBodySamplingRateMax)
         .optional()
-        .describe('0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling).'),
+        .describe(
+            '0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below the sampling precision.'
+        ),
     provider: zod
         .enum(['google'])
         .describe('\* `google` - Google')
@@ -324,7 +326,9 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .min(visionScannersPartialUpdateBodySamplingRateMin)
         .max(visionScannersPartialUpdateBodySamplingRateMax)
         .optional()
-        .describe('0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling).'),
+        .describe(
+            '0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below the sampling precision.'
+        ),
     provider: zod
         .enum(['google'])
         .describe('\* `google` - Google')

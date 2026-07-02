@@ -51,6 +51,7 @@ from products.replay_vision.backend.models.replay_scanner import (
 from products.replay_vision.backend.queries import (
     ESTIMATE_INTERACTIVE_MAX_EXECUTION_SECONDS,
     ESTIMATE_STALE_AFTER,
+    MIN_SAMPLING_RATE,
     estimate_scanner_session_volume,
     project_monthly_observations,
     refresh_scanner_estimate,
@@ -144,7 +145,11 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
         required=False,
         min_value=0.0,
         max_value=1.0,
-        help_text="0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling).",
+        help_text=(
+            "0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). "
+            "Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below "
+            "the sampling precision."
+        ),
     )
     provider = serializers.ChoiceField(
         choices=ScannerProvider.choices,
@@ -228,6 +233,14 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
         self._validate_scanner_config(attrs)
         self._validate_and_strip_query(attrs)
         return attrs
+
+    def validate_sampling_rate(self, value: float) -> float:
+        # Below one modulo bucket the candidate query samples nothing — reject instead of silently scanning zero.
+        if 0 < value < MIN_SAMPLING_RATE:
+            raise serializers.ValidationError(
+                f"Sampling rate must be 0 (paused) or at least {MIN_SAMPLING_RATE} (0.01%)."
+            )
+        return value
 
     def _reject_scanner_type_change(self, attrs: dict[str, Any]) -> None:
         if self.instance is None or "scanner_type" not in attrs:

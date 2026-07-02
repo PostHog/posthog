@@ -32767,7 +32767,7 @@ export namespace Schemas {
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
       /**
-         * 0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling).
+         * 0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below the sampling precision.
          * @minimum 0
          * @maximum 1
          */
@@ -40398,7 +40398,7 @@ export namespace Schemas {
       /** Persisted `RecordingsQuery` shape used to pick candidate sessions. `date_from`/`date_to` are stripped on save — the schedule controls time, not the user. */
       query?: unknown;
       /**
-         * 0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling).
+         * 0..1 random downsample applied after the query matches. Defaults to 1.0 (no downsampling). Use exactly 0 to pause scanning; non-zero rates below 0.0001 (0.01%) are rejected as below the sampling precision.
          * @minimum 0
          * @maximum 1
          */

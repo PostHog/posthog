@@ -33,6 +33,8 @@ SETTLE_INTERVAL = dt.timedelta(minutes=35)
 _PARTITION_LOOKBACK = dt.timedelta(hours=26)
 
 SAMPLE_RATE_PRECISION = 10_000
+# Smallest non-zero rate the modulo bucketing can express (one bucket); the API rejects non-zero rates below it.
+MIN_SAMPLING_RATE = 1 / SAMPLE_RATE_PRECISION
 DEFAULT_CANDIDATE_LIMIT = 5_000
 DEFAULT_MAX_EXECUTION_SECONDS = 180
 
@@ -176,7 +178,8 @@ class ScannerCandidateQuery:
     def _sampling_predicate(self) -> ast.Expr | None:
         if self._sampling_rate >= 1.0:
             return None
-        threshold = max(0, int(self._sampling_rate * SAMPLE_RATE_PRECISION))
+        # round(), not int(): float error puts e.g. 0.29 * 10_000 at 2899.999…, and truncation would shave a bucket.
+        threshold = max(0, round(self._sampling_rate * SAMPLE_RATE_PRECISION))
         if threshold <= 0:
             return ast.Constant(value=False)
         return ast.CompareOperation(

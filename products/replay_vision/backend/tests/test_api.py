@@ -134,7 +134,7 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         self.assertEqual(resp.status_code, 201)
         self.assertEqual(resp.json()["provider"], ScannerProvider.GOOGLE)
 
-    @parameterized.expand([("below", -0.1), ("above", 1.5)])
+    @parameterized.expand([("below", -0.1), ("above", 1.5), ("below_sampling_precision", 0.00005)])
     def test_create_rejects_out_of_range_sampling_rate(self, _label: str, value: float) -> None:
         resp = self.client.post(
             self.scanners_url,
@@ -149,6 +149,22 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
         )
         self.assertEqual(resp.status_code, 400)
         self.assertEqual(resp.json()["attr"], "sampling_rate")
+
+    @parameterized.expand([("paused", 0.0), ("precision_floor", 0.0001)])
+    def test_create_accepts_sampling_rate_boundaries(self, _label: str, value: float) -> None:
+        resp = self.client.post(
+            self.scanners_url,
+            data={
+                "name": f"rate-ok-{value}",
+                "scanner_type": ScannerType.MONITOR,
+                "scanner_config": {"prompt": "p"},
+                "model": ScannerModel.GEMINI_3_FLASH,
+                "sampling_rate": value,
+            },
+            format="json",
+        )
+        self.assertEqual(resp.status_code, 201)
+        self.assertEqual(resp.json()["sampling_rate"], value)
 
     def test_create_duplicate_name_rejected(self) -> None:
         self._create_scanner(name="dup")

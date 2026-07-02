@@ -15,7 +15,6 @@ from posthog.test.persons import create_person
 
 from products.replay_vision.backend.queries.scanner_candidate_query import (
     DEFAULT_CANDIDATE_LIMIT,
-    SAMPLE_RATE_PRECISION,
     SETTLE_INTERVAL,
     ScannerCandidateQuery,
 )
@@ -109,19 +108,29 @@ def test_sampling_predicate_passthrough_at_full_rate():
     assert q._sampling_predicate() is None
 
 
-def test_sampling_predicate_emits_false_at_zero():
-    q = _make_query(sampling_rate=0.0)
+@pytest.mark.parametrize("rate", [0.0, 0.00004])
+def test_sampling_predicate_emits_false_below_one_bucket(rate):
+    q = _make_query(sampling_rate=rate)
     expr = q._sampling_predicate()
     assert isinstance(expr, ast.Constant) and expr.value is False
 
 
-def test_sampling_predicate_emits_modulo_compare_at_partial_rate():
-    q = _make_query(sampling_rate=0.25)
+@pytest.mark.parametrize(
+    "rate, expected_threshold",
+    [
+        (0.25, 2500),
+        # 0.29 * 10_000 is 2899.999… in floats; truncation used to shave a bucket.
+        (0.29, 2900),
+        (0.0001, 1),
+    ],
+)
+def test_sampling_predicate_emits_modulo_compare_at_partial_rate(rate, expected_threshold):
+    q = _make_query(sampling_rate=rate)
     expr = q._sampling_predicate()
     assert isinstance(expr, ast.CompareOperation)
     assert expr.op == ast.CompareOperationOp.Lt
     assert isinstance(expr.right, ast.Constant)
-    assert expr.right.value == int(0.25 * SAMPLE_RATE_PRECISION)
+    assert expr.right.value == expected_threshold
     modulo = expr.left
     assert isinstance(modulo, ast.Call) and modulo.name == "modulo"
     city = modulo.args[0]
