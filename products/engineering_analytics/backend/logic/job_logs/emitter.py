@@ -101,7 +101,9 @@ class JobLogsEmitter:
             self._provider.add_log_record_processor(BatchLogRecordProcessor(exporter))
         else:
             logger.warning("github_ci_logs_emit_disabled", detail="no endpoint/token configured; skipping export")
-        self._logger = self._provider.get_logger(_SERVICE_NAME)
+        # capture-logs stores the scope as "{name}@{version}"; without a version the stored value
+        # ends in a dangling "@".
+        self._logger = self._provider.get_logger(_SERVICE_NAME, version="1")
 
     def emit_log_archive(
         self,
