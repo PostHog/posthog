@@ -74,6 +74,17 @@ describe('paymentEntryLogic', () => {
             expect(logic.values.apiError).toBe(null)
         })
 
+        it('surfaces an admin-only message when activate is forbidden (403)', async () => {
+            setupActivate([403, { detail: 'forbidden' }])
+
+            await expectLogic(logic, () => logic.actions.startPaymentEntryFlow()).toFinishAllListeners()
+
+            expect(toastErrorSpy).toHaveBeenCalledWith(
+                'Only organization admins can upgrade the subscription. Please ask an admin or owner of your organization to complete the upgrade.'
+            )
+            expect(logic.values.paymentEntryModalOpen).toBe(false)
+        })
+
         it('opens the payment entry modal when activate signals must_setup_payment', async () => {
             setupActivate([200, { must_setup_payment: true }])
 
@@ -100,6 +111,36 @@ describe('paymentEntryLogic', () => {
             )
             expect(toastErrorSpy).not.toHaveBeenCalled()
             expect(logic.values.paymentEntryModalOpen).toBe(false)
+        })
+    })
+
+    describe('initiateAuthorization', () => {
+        beforeEach(async () => {
+            await seedBilling({ subscription_level: 'free' })
+        })
+
+        it('sets the client secret on success', async () => {
+            useMocks({ post: { '/api/billing/activate/authorize': () => [200, { clientSecret: 'cs_test' }] } })
+            logic = paymentEntryLogic()
+            logic.mount()
+
+            await expectLogic(logic, () => logic.actions.initiateAuthorization()).toFinishAllListeners()
+
+            expect(logic.values.clientSecret).toBe('cs_test')
+            expect(logic.values.apiError).toBe(null)
+            expect(logic.values.isLoading).toBe(false)
+        })
+
+        it('surfaces an api error and stops loading when authorize fails', async () => {
+            useMocks({ post: { '/api/billing/activate/authorize': () => [500] } })
+            logic = paymentEntryLogic()
+            logic.mount()
+
+            await expectLogic(logic, () => logic.actions.initiateAuthorization()).toFinishAllListeners()
+
+            expect(logic.values.apiError).toBe('Failed to initialize payment. Please try again.')
+            expect(logic.values.clientSecret).toBe(null)
+            expect(logic.values.isLoading).toBe(false)
         })
     })
 

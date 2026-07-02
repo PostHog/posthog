@@ -4,7 +4,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { organizationLogic } from 'scenes/organizationLogic'
 import { userLogic } from 'scenes/userLogic'
 
@@ -13,6 +13,10 @@ import { BillingProductV2Type } from '~/types'
 import { billingLogic } from './billingLogic'
 import { billingProductLogic } from './billingProductLogic'
 import type { paymentEntryLogicType } from './paymentEntryLogicType'
+
+// Abort the initial authorize call if the billing service hasn't responded in time, so the
+// payment modal shows a retryable error instead of spinning forever.
+const AUTHORIZATION_TIMEOUT_MS = 15000
 
 export const paymentEntryLogic = kea<paymentEntryLogicType>([
     path(['scenes', 'billing', 'PaymentEntryLogic']),
@@ -127,7 +131,13 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
                     posthog.captureException(
                         new Error('payment entry api error - activate subscription error', { cause: error })
                     )
-                    lemonToast.error('Failed to activate subscription. Please try again.')
+                    if (error instanceof ApiError && error.status === 403) {
+                        lemonToast.error(
+                            'Only organization admins can upgrade the subscription. Please ask an admin or owner of your organization to complete the upgrade.'
+                        )
+                    } else {
+                        lemonToast.error('Failed to activate subscription. Please try again.')
+                    }
                 } finally {
                     actions.setLoading(false)
                     if (product) {
@@ -145,15 +155,27 @@ export const paymentEntryLogic = kea<paymentEntryLogicType>([
         initiateAuthorization: async () => {
             actions.setLoading(true)
             actions.clearErrors()
+
+            const abortController = new AbortController()
+            const timeoutId = setTimeout(() => abortController.abort(), AUTHORIZATION_TIMEOUT_MS)
+
             try {
-                const response = await api.create('api/billing/activate/authorize')
+                const response = await api.create('api/billing/activate/authorize', undefined, {
+                    signal: abortController.signal,
+                })
                 actions.setClientSecret(response.clientSecret)
-                actions.setLoading(false)
             } catch (error) {
+                const timedOut = abortController.signal.aborted
+                actions.setApiError(
+                    timedOut
+                        ? "This is taking longer than expected — we couldn't reach billing in time. Please check your connection and try again."
+                        : 'Failed to initialize payment. Please try again.'
+                )
                 posthog.captureException(
                     new Error('payment entry api error - initiate authorization error', { cause: error })
                 )
-                actions.setApiError('Failed to initialize payment')
+            } finally {
+                clearTimeout(timeoutId)
                 actions.setLoading(false)
             }
         },

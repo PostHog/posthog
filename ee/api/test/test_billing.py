@@ -929,6 +929,27 @@ class TestActivateBillingAPI(APILicensedTest):
         response = self.client.get(url, {"products": "product_1:plan_1"})
         self.assertEqual(response.status_code, status.HTTP_405_METHOD_NOT_ALLOWED)
 
+    @parameterized.expand(
+        [
+            ("activate", "/api/billing/activate", "activate_subscription"),
+            ("authorize", "/api/billing/activate/authorize", "authorize"),
+            ("authorize_status", "/api/billing/activate/authorize/status", "authorize_status"),
+        ]
+    )
+    def test_billing_service_error_returns_structured_400(self, _name, url, manager_method):
+        # A billing-service failure should surface as a readable 400, not an opaque 500.
+        with patch(f"ee.billing.billing_manager.BillingManager.{manager_method}") as mock_method:
+            mock_method.side_effect = Exception(
+                "Billing service returned bad status code: 500",
+                "body:",
+                {"error_message": "Your card was declined", "code": "card_declined"},
+            )
+            response = self.client.post(url, {}, content_type="application/json")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(response.json()["detail"], "Your card was declined")
+        self.assertEqual(response.json()["code"], "card_declined")
+
     @patch("ee.billing.billing_manager.BillingManager.deactivate_products")
     @patch("ee.billing.billing_manager.BillingManager.get_billing")
     def test_deactivate_success(self, mock_get_billing, mock_deactivate_products):

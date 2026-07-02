@@ -32,6 +32,29 @@ logger = structlog.get_logger(__name__)
 BILLING_SERVICE_JWT_AUD = "posthog:license-key"
 
 
+def billing_service_error_response(e: Exception) -> Response:
+    """
+    Convert an exception raised by ``handle_billing_service_error`` into a structured 400 response
+    so billing-service failures reach the client as a readable message instead of a raw 500.
+
+    ``handle_billing_service_error`` raises ``Exception(status_text, "body:", parsed_body)`` — a
+    recognizable billing-service error has 3 args with a dict body. Anything else is re-raised
+    unchanged so genuinely unexpected failures still surface as 500s.
+    """
+    if len(e.args) > 2:
+        detail_object = e.args[2]
+        if isinstance(detail_object, dict):
+            return Response(
+                {
+                    "statusText": e.args[0],
+                    "detail": detail_object.get("error_message") or detail_object.get("detail") or detail_object,
+                    "code": detail_object.get("code"),
+                },
+                status=status.HTTP_400_BAD_REQUEST,
+            )
+    raise e
+
+
 class IsOrganizationAdmin(permissions.BasePermission):
     """
     Permission to allow only organization admins (level >= ADMIN) to access billing endpoints.
@@ -199,7 +222,10 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     def activate(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         organization = self._get_org_required()
         billing_manager = self.get_billing_manager()
-        res = billing_manager.activate_subscription(organization, request.data)
+        try:
+            res = billing_manager.activate_subscription(organization, request.data)
+        except Exception as e:
+            return billing_service_error_response(e)
         return Response(res, status=status.HTTP_200_OK)
 
     class DeactivateSerializer(serializers.Serializer):
@@ -379,7 +405,10 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         organization = self._get_org_required()
         billing_manager = self.get_billing_manager()
-        res = billing_manager.authorize(organization)
+        try:
+            res = billing_manager.authorize(organization)
+        except Exception as e:
+            return billing_service_error_response(e)
         return Response(res, status=status.HTTP_200_OK)
 
     @action(methods=["POST"], detail=False, url_path="activate/authorize/status")
@@ -393,7 +422,10 @@ class BillingViewset(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
 
         organization = self._get_org_required()
         billing_manager = self.get_billing_manager()
-        res = billing_manager.authorize_status(organization, request.data)
+        try:
+            res = billing_manager.authorize_status(organization, request.data)
+        except Exception as e:
+            return billing_service_error_response(e)
         return Response(res, status=status.HTTP_200_OK)
 
     @action(

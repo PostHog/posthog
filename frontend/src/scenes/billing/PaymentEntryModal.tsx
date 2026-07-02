@@ -103,10 +103,18 @@ export const PaymentEntryModal = (): JSX.Element => {
                 ) : apiError ? (
                     <div className="flex flex-col gap-2 my-2">
                         <p className="text-md">
-                            We could not complete your upgrade at this time. Please review the error below and contact
-                            support if you need help.
+                            We could not complete your upgrade at this time. Please try again, and contact support if
+                            the problem persists.
                         </p>
                         <LemonBanner type="error">{apiError}</LemonBanner>
+                        <div className="flex justify-end deprecated-space-x-2 mt-2">
+                            <LemonButton type="secondary" onClick={hidePaymentEntryModal}>
+                                Cancel
+                            </LemonButton>
+                            <LemonButton type="primary" onClick={initiateAuthorization}>
+                                Try again
+                            </LemonButton>
+                        </div>
                     </div>
                 ) : (
                     <div className="min-h-80 flex flex-col justify-center items-center">

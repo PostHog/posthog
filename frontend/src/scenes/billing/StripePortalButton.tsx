@@ -12,9 +12,23 @@ export const StripePortalButton = (): JSX.Element | null => {
     }
 
     const billingUrl = billing.external_billing_provider_invoices_url || billing.stripe_portal_url
+    const label = billing.has_active_subscription ? 'Manage card details and invoices' : 'View past invoices'
 
+    // A customer exists but no portal URL is available — show a disabled button with an explanation
+    // rather than silently rendering nothing, which looks like a broken page.
     if (!billingUrl) {
-        return null
+        return (
+            <div className="w-fit mt-4">
+                <LemonButton
+                    type="primary"
+                    disabledReason="The billing portal is temporarily unavailable. Please refresh the page or contact support if this persists."
+                    center
+                    data-attr="manage-billing"
+                >
+                    {label}
+                </LemonButton>
+            </div>
+        )
     }
 
     return (
@@ -28,7 +42,7 @@ export const StripePortalButton = (): JSX.Element | null => {
                 center
                 data-attr="manage-billing"
             >
-                {billing.has_active_subscription ? 'Manage card details and invoices' : 'View past invoices'}
+                {label}
             </LemonButton>
         </div>
     )
