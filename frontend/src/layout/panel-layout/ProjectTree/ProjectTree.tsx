@@ -490,7 +490,7 @@ export function ProjectTree({
                 return false
             }}
             itemContextMenu={(item) => {
-                if (item.record?.type !== 'folder') {
+                if (selectMode === 'multi') {
                     return undefined
                 }
                 if (item.id.startsWith('project-folder-empty/')) {
