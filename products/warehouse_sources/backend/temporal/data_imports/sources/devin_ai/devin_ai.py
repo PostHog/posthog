@@ -6,7 +6,6 @@ import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
-from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
@@ -86,7 +85,6 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[DevinAIResumeConfig],
 ) -> Iterator[Any]:
     headers = _get_headers(api_key)
-    batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
     # One session reused across every page so urllib3 keeps the connection alive.
     session = make_tracked_session()
 
@@ -97,6 +95,9 @@ def get_rows(
     if after:
         logger.debug(f"Devin: resuming {endpoint} from cursor: {after}")
 
+    # Yield one full page at a time and only save state at the page boundary, after the page has been
+    # yielded. The pipeline batches internally, so a source-level batcher would only double-buffer and,
+    # because it spans pages, would force a mid-page save that drops the un-yielded tail on crash-resume.
     while True:
         params: dict[str, Any] = {"first": PAGE_SIZE}
         if after:
@@ -105,26 +106,17 @@ def get_rows(
         data = _fetch_page(session, url, params, headers, logger)
 
         items = data.get("items", [])
-        has_next = bool(data.get("has_next_page"))
+        if items:
+            yield items
+
         next_cursor = data.get("end_cursor")
-
-        for item in items:
-            batcher.batch(item)
-
-            if batcher.should_yield():
-                yield batcher.get_table()
-                # Save AFTER yielding (and only when more pages remain) so a crash re-yields the last
-                # page rather than skipping it — merge dedupes on the primary key.
-                if has_next and next_cursor:
-                    resumable_source_manager.save_state(DevinAIResumeConfig(after=next_cursor))
-
-        if not has_next or not next_cursor:
+        if not data.get("has_next_page") or not next_cursor:
             break
 
         after = next_cursor
-
-    if batcher.should_yield(include_incomplete_chunk=True):
-        yield batcher.get_table()
+        # Save state AFTER yielding the page so a crash re-fetches this page (merge dedupes on the
+        # primary key) rather than skipping it.
+        resumable_source_manager.save_state(DevinAIResumeConfig(after=next_cursor))
 
 
 def devin_ai_source(

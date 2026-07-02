@@ -45,14 +45,15 @@ def _collect(manager: _FakeResumableManager, monkeypatch: Any, endpoint: str, pa
     monkeypatch.setattr(devin_ai, "_fetch_page", fake_fetch)
 
     rows: list[dict] = []
-    for table in get_rows(
+    for page in get_rows(
         api_key="cog_test",
         org_id="org-abc",
         endpoint=endpoint,
         logger=MagicMock(),
         resumable_source_manager=manager,  # type: ignore[arg-type]
     ):
-        rows.extend(table.to_pylist())
+        # get_rows yields one page's items as a list[dict]; the pipeline batches internally.
+        rows.extend(page)
     manager.calls = calls  # type: ignore[attr-defined]
     return rows
 
@@ -109,17 +110,18 @@ class TestGetRows:
         assert rows == [{"session_id": "s3"}]
         assert manager.calls[0]["params"] == {"first": PAGE_SIZE, "after": "saved_cursor"}  # type: ignore[attr-defined]
 
-    def test_saves_state_after_yielding_when_more_pages_remain(self, monkeypatch: Any) -> None:
-        # Batcher yields at 2000 rows; page 1 must exceed that so a batch is emitted mid-stream and
-        # state gets saved with the next cursor.
-        page1_items = [{"session_id": f"s{i}"} for i in range(2001)]
+    def test_saves_next_cursor_at_page_boundary_only(self, monkeypatch: Any) -> None:
+        # State is saved once per completed page that has a successor, after the page is yielded — so a
+        # crash re-fetches the last page (merge dedupes) rather than skipping its tail.
         pages = [
-            {"items": page1_items, "has_next_page": True, "end_cursor": "cur1"},
-            {"items": [{"session_id": "last"}], "has_next_page": False, "end_cursor": None},
+            {"items": [{"session_id": "s1"}], "has_next_page": True, "end_cursor": "cur1"},
+            {"items": [{"session_id": "s2"}], "has_next_page": True, "end_cursor": "cur2"},
+            {"items": [{"session_id": "s3"}], "has_next_page": False, "end_cursor": None},
         ]
         manager = _FakeResumableManager()
         _collect(manager, monkeypatch, "sessions", pages)
-        assert manager.saved == [DevinAIResumeConfig(after="cur1")]
+        # No save after the final page (nothing left to resume into).
+        assert manager.saved == [DevinAIResumeConfig(after="cur1"), DevinAIResumeConfig(after="cur2")]
 
 
 class TestFetchPageRetries:
