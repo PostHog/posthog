@@ -4,20 +4,18 @@ import { sceneLogic } from '~/scenes/sceneLogic'
 
 import type { engineeringAnalyticsSceneLogicType } from './engineeringAnalyticsSceneLogicType'
 
-/** The root scene's views: the repo hub landing, the two lens list pages, and test health. */
-export type EngineeringAnalyticsView = 'hub' | 'pull-requests' | 'authors' | 'test-health'
+/** The root scene's views: the repo hub landing, the PR list page, and test health. */
+export type EngineeringAnalyticsView = 'hub' | 'pull-requests' | 'test-health'
 
 export const VIEW_DESCRIPTIONS: Record<EngineeringAnalyticsView, string> = {
     hub: 'CI health and cost for the connected repo — failures, pull requests, workflows, and spend in one place.',
     'pull-requests': 'Pull requests and their CI status across connected repos.',
-    authors: 'Authors across the loaded pull requests — find your own work.',
     'test-health': 'Flaky tests under quarantine: what is masked, who owns it, and when it expires.',
 }
 
 const SCENE_KEY_TO_VIEW: Record<string, EngineeringAnalyticsView> = {
     engineeringAnalytics: 'hub',
     engineeringAnalyticsPullRequestList: 'pull-requests',
-    engineeringAnalyticsAuthors: 'authors',
     engineeringAnalyticsTestHealth: 'test-health',
 }
 

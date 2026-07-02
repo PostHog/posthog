@@ -973,7 +973,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             return {
                 [urls.engineeringAnalytics()]: (_, searchParams) => applySource(searchParams.source),
                 [urls.engineeringAnalyticsPullRequestList()]: (_, searchParams) => applySource(searchParams.source),
-                [urls.engineeringAnalyticsAuthors()]: (_, searchParams) => applySource(searchParams.source),
             }
         }),
 

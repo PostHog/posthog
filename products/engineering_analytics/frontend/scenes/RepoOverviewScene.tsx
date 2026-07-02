@@ -1,6 +1,6 @@
 // The repo hub — the landing page of the lens stack. One entity-page skeleton: scope bar → stat tiles
 // with deltas → section jumper → fixed section rhythm (failing on master, master health, PRs needing
-// attention, workflows, cost, authors). Facets are sections here, not tabs.
+// attention, workflows, cost). Facets are sections here, not tabs.
 
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
@@ -10,7 +10,6 @@ import { LemonCard, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
-import { humanFriendlyDuration } from 'lib/utils/durations'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { urls } from 'scenes/urls'
 
@@ -223,9 +222,6 @@ export function RepoOverviewScene(): JSX.Element {
         draftCount,
         costByWorkflow,
         otherCostWorkflowCount,
-        authorsByActivity,
-        authorsByCost,
-        authorCount,
         jobsAvailable,
         defaultBranch,
         notConnected,
@@ -260,13 +256,7 @@ export function RepoOverviewScene(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            <ScopeBar
-                repoSlot={<SourceScopeChip />}
-                lensPickers={[
-                    { label: 'pr', to: withSource(urls.engineeringAnalyticsPullRequestList(), sourceId) },
-                    { label: 'author', to: withSource(urls.engineeringAnalyticsAuthors(), sourceId) },
-                ]}
-            />
+            <ScopeBar repoSlot={<SourceScopeChip />} />
 
             <RepoEntityHeader
                 repoFullName={
@@ -354,7 +344,6 @@ export function RepoOverviewScene(): JSX.Element {
                     { id: 'prs', label: 'Pull requests' },
                     { id: 'workflows', label: 'Workflows' },
                     { id: 'cost', label: 'Cost' },
-                    { id: 'authors', label: 'Authors' },
                 ]}
             />
 
@@ -503,62 +492,6 @@ export function RepoOverviewScene(): JSX.Element {
                             : 'Cost needs the job-level source (github_workflow_jobs) — not synced for this team yet.'}
                     </LemonCard>
                 )}
-            </Section>
-
-            <Section
-                id="authors"
-                title="Authors"
-                note="who's shipping across the loaded pull requests — for finding your own work, not ranking people"
-            >
-                <div className="grid gap-2.5 lg:grid-cols-2">
-                    <LemonCard hoverEffect={false} className="p-4">
-                        <h3 className="mb-1 text-xs font-semibold text-secondary">Most active · by pull requests</h3>
-                        {authorsByActivity.map((author, i) => (
-                            <ShareRow
-                                key={author.handle}
-                                rank={i + 1}
-                                avatar={author.handle}
-                                label={author.handle}
-                                sub={
-                                    author.medianOpenToMergeSeconds != null
-                                        ? `median open→merge ${humanFriendlyDuration(author.medianOpenToMergeSeconds, { maxUnits: 1 })}`
-                                        : 'nothing merged yet'
-                                }
-                                value={`${author.prCount} PRs`}
-                                to={withSource(urls.engineeringAnalyticsAuthor(author.handle), sourceId)}
-                            />
-                        ))}
-                        {!authorsByActivity.length && (
-                            <div className="py-2 text-xs text-secondary">
-                                {pullRequestsLoading ? 'Loading…' : 'No pull requests loaded.'}
-                            </div>
-                        )}
-                    </LemonCard>
-                    <LemonCard hoverEffect={false} className="p-4">
-                        <h3 className="mb-1 text-xs font-semibold text-secondary">CI cost attributed to their PRs</h3>
-                        {authorsByCost.map((author, i) => (
-                            <ShareRow
-                                key={author.handle}
-                                rank={i + 1}
-                                avatar={author.handle}
-                                label={author.handle}
-                                sub={`${author.rerunCycles} re-run cycles`}
-                                value={compactUsd(author.costUsd)}
-                                to={withSource(urls.engineeringAnalyticsAuthor(author.handle), sourceId)}
-                            />
-                        ))}
-                        {!authorsByCost.length && (
-                            <div className="py-2 text-xs text-secondary">
-                                {jobsAvailable ? 'No costed pull requests yet.' : 'Needs the job-level source.'}
-                            </div>
-                        )}
-                        <div className="mt-2 border-t border-primary pt-2 text-[11px] text-tertiary">
-                            <Link to={withSource(urls.engineeringAnalyticsAuthors(), sourceId)}>
-                                All {humanFriendlyNumber(authorCount)} authors →
-                            </Link>
-                        </div>
-                    </LemonCard>
-                </div>
             </Section>
         </div>
     )

@@ -1,7 +1,8 @@
-// The one PR table of the lens stack, shared by the repo hub's attention slice, the PR list, and the
-// author page. Mock-locked column set: title (+repo#id, labels) · author · state (auto-hides when
-// every row agrees) · CI with the failing workflow names under the tag · pushes (+re-runs) · CI cost ·
-// open time. Only the author column and default sort differ per caller.
+// The one PR table of the lens stack, shared by the repo hub's attention slice and the PR list.
+// Mock-locked column set: title (+repo#id, labels) · author · state (auto-hides when every row
+// agrees) · CI with the failing workflow names under the tag · pushes (+re-runs) · CI cost ·
+// open time. Only the default sort differs per caller. Author is attribution, not a lens — it
+// renders as plain metadata and links nowhere in-product.
 
 import { combineUrl, router } from 'kea-router'
 import { ReactNode } from 'react'
@@ -42,8 +43,6 @@ export interface PullRequestTableProps {
     sourceId: string | null
     /** Show the pushes / re-runs / CI cost columns. */
     costLensEnabled: boolean
-    /** Author column is redundant on the author page (every row is the same author) — hide it there. */
-    showAuthor?: boolean
     defaultSorting?: { columnKey: string; order: 1 | -1 }
     emptyState?: ReactNode
     dataAttr?: string
@@ -54,7 +53,6 @@ export function PullRequestTable({
     loading,
     sourceId,
     costLensEnabled,
-    showAuthor = true,
     defaultSorting,
     emptyState,
     dataAttr = 'engineering-analytics-pr-table',
@@ -88,34 +86,20 @@ export function PullRequestTable({
                 </div>
             ),
         },
-        ...(showAuthor
-            ? ([
-                  {
-                      title: 'Author',
-                      key: 'author',
-                      width: 170,
-                      render: (_, row) => (
-                          <div className="flex items-center gap-1.5">
-                              {row.authorAvatarUrl && (
-                                  <img src={row.authorAvatarUrl} alt="" className="size-5 shrink-0 rounded-full" />
-                              )}
-                              <Link
-                                  to={
-                                      combineUrl(
-                                          urls.engineeringAnalyticsAuthor(row.authorHandle),
-                                          sourceId ? { source: sourceId } : {}
-                                      ).url
-                                  }
-                                  className="text-xs font-medium"
-                              >
-                                  {row.authorHandle}
-                              </Link>
-                              {row.isBot && <LemonTag type="muted">bot</LemonTag>}
-                          </div>
-                      ),
-                  },
-              ] as LemonTableColumns<PullRequestRow>)
-            : []),
+        {
+            title: 'Author',
+            key: 'author',
+            width: 170,
+            render: (_, row) => (
+                <div className="flex items-center gap-1.5">
+                    {row.authorAvatarUrl && (
+                        <img src={row.authorAvatarUrl} alt="" className="size-5 shrink-0 rounded-full" />
+                    )}
+                    <span className="text-xs font-medium">{row.authorHandle}</span>
+                    {row.isBot && <LemonTag type="muted">bot</LemonTag>}
+                </div>
+            ),
+        },
         ...(mixedStates
             ? ([
                   {
@@ -204,7 +188,7 @@ export function PullRequestTable({
             onRow={(row) => {
                 const detailUrl = detailUrlOf(row, sourceId)
                 return {
-                    // Inner links (#id → GitHub, author → author page) keep their own behavior.
+                    // Inner links (#id → GitHub) keep their own behavior.
                     onClick: (e: React.MouseEvent) => {
                         if ((e.target as HTMLElement).closest('a, button')) {
                             return

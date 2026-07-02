@@ -9,7 +9,6 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { EngineeringAnalyticsAuthors } from './EngineeringAnalyticsAuthors'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 import { EngineeringAnalyticsPullRequests } from './EngineeringAnalyticsPullRequests'
 import {
@@ -32,8 +31,7 @@ export function EngineeringAnalyticsScene(): JSX.Element {
     const { anyLoading } = useValues(logic)
     const { refresh } = useActions(logic)
 
-    // The general areas of the product. Drill-down pages (workflow, run, PR, author) live below the
-    // Overview; the two lens list pages are reachable both here and via the unvalued lens chips.
+    // The general areas of the product. Drill-down pages (workflow, run, PR) live below the Overview.
     const tabs: LemonTab<EngineeringAnalyticsView>[] = [
         {
             key: 'hub',
@@ -48,13 +46,6 @@ export function EngineeringAnalyticsScene(): JSX.Element {
             content: <EngineeringAnalyticsPullRequests />,
             link: combineUrl(urls.engineeringAnalyticsPullRequestList(), linkParams).url,
             'data-attr': 'engineering-analytics-pull-requests-tab',
-        },
-        {
-            key: 'authors',
-            label: 'Authors',
-            content: <EngineeringAnalyticsAuthors />,
-            link: combineUrl(urls.engineeringAnalyticsAuthors(), linkParams).url,
-            'data-attr': 'engineering-analytics-authors-tab',
         },
         {
             key: 'test-health',

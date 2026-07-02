@@ -205,63 +205,6 @@ def query_workflow_window_costs(
     return {workflow: aggregate_pr_cost(jobs) for workflow, jobs in by_workflow.items()}
 
 
-# One author's CI spend split by workflow (the author page's "where their CI minutes go"). Runs are
-# attributed to the author through their PRs (attribution is by PR number — SPEC §7), windowed on the
-# run start so the figure answers "spend over [window]", never an unbounded all-time.
-_AUTHOR_WORKFLOW_SELECT = """
-    SELECT
-        r.workflow_name, j.labels,
-        countIf(j.duration_seconds IS NOT NULL) AS finished,
-        sumIf(greatest(j.duration_seconds, 0), j.duration_seconds IS NOT NULL) AS elapsed,
-        countIf(j.duration_seconds IS NULL) AS unfinished
-    FROM __JOBS_SOURCE__ AS j
-    INNER JOIN __RUNS_SOURCE__ AS r ON j.run_id = r.id AND j.run_attempt = r.run_attempt
-    WHERE r.pr_number IN (SELECT number FROM __PR_SOURCE__ WHERE author_handle = {author})
-        AND r.run_started_at >= {date_from} __DATE_TO__
-    GROUP BY r.workflow_name, j.labels
-    LIMIT 1000000
-"""
-
-
-def query_author_workflow_costs(
-    *,
-    curated: CuratedGitHubSource,
-    author: str,
-    date_from: datetime,
-    date_to: datetime | None,
-) -> list[WorkflowCost]:
-    """One author's billable CI cost split by workflow over [date_from, date_to], highest spend first.
-
-    Empty when the jobs source isn't synced. Same grouped+expand shape as the other cost queries;
-    the author→runs link goes through their PR numbers (the one attribution rule, SPEC §7).
-    """
-    jobs_source = curated.jobs_source()
-    if jobs_source is None:
-        return []
-    placeholders: dict[str, ast.Expr] = {
-        "author": ast.Constant(value=author),
-        "date_from": ast.Constant(value=date_from),
-    }
-    date_to_clause = ""
-    if date_to is not None:
-        date_to_clause = "AND r.run_started_at <= {date_to}"
-        placeholders["date_to"] = ast.Constant(value=date_to)
-    sql = (
-        _AUTHOR_WORKFLOW_SELECT.replace("__JOBS_SOURCE__", jobs_source)
-        .replace("__RUNS_SOURCE__", curated.run_source())
-        .replace("__PR_SOURCE__", curated.pr_source())
-        .replace("__DATE_TO__", date_to_clause)
-    )
-    response = curated.run(sql, query_type="engineering_analytics.author_workflow_costs", placeholders=placeholders)
-    by_workflow: dict[str, list[tuple[list[str], float | None]]] = defaultdict(list)
-    for workflow_name, labels, finished, elapsed, unfinished in response.results or []:
-        by_workflow[workflow_name or ""].extend(
-            _expand_jobs(_parse_labels(labels), int(finished or 0), float(elapsed or 0.0), int(unfinished or 0))
-        )
-    costs = [_to_workflow_cost(workflow, aggregate_pr_cost(jobs)) for workflow, jobs in by_workflow.items()]
-    return sorted(costs, key=lambda cost: (cost.estimated_cost_usd or 0.0, cost.billable_minutes), reverse=True)
-
-
 # Per-runner-tier cost for one workflow (single-workflow page "where the spend goes" breakdown), scoped
 # to the page's run window (and optional branch) so the figure always answers "spend over [window]",
 # never an unbounded all-time.

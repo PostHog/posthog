@@ -23,7 +23,6 @@ const MASTER_FAILURES_WINDOW = '-24h'
 
 // Leaderboard cards stay readable at this depth; the full lists live on the list pages.
 const TOP_COST_WORKFLOWS = 5
-const TOP_AUTHORS = 8
 
 export interface MasterHealthSeries {
     /** Success-rate percentages per bucket (0–100); null-free — bucket without completions maps to null-safe 100. */
@@ -40,15 +39,6 @@ export interface CostShareRow {
     share: number
 }
 
-export interface AuthorStatsRow {
-    handle: string
-    avatarUrl: string
-    prCount: number
-    medianOpenToMergeSeconds: number | null
-    costUsd: number | null
-    rerunCycles: number
-}
-
 function bucketLabel(bucketStart: string, granularity: string): string {
     const at = dayjs(bucketStart)
     if (granularity === 'hour') {
@@ -58,42 +48,6 @@ function bucketLabel(bucketStart: string, granularity: string): string {
         return `Week of ${at.format('MMM D')}`
     }
     return at.format('MMM D')
-}
-
-function median(sorted: number[]): number | null {
-    if (!sorted.length) {
-        return null
-    }
-    const mid = Math.floor(sorted.length / 2)
-    return sorted.length % 2 ? sorted[mid] : (sorted[mid - 1] + sorted[mid]) / 2
-}
-
-export function computeAuthorStats(pullRequests: PullRequestRow[]): AuthorStatsRow[] {
-    const byHandle = new Map<string, PullRequestRow[]>()
-    for (const row of pullRequests) {
-        if (row.isBot || !row.authorHandle) {
-            continue
-        }
-        if (!byHandle.has(row.authorHandle)) {
-            byHandle.set(row.authorHandle, [])
-        }
-        byHandle.get(row.authorHandle)!.push(row)
-    }
-    return Array.from(byHandle.entries()).map(([handle, rows]) => {
-        const mergeTimes = rows
-            .map((r) => r.openToMergeSeconds)
-            .filter((s): s is number => s != null)
-            .sort((a, b) => a - b)
-        const costed = rows.filter((r) => r.estimatedCostUsd != null)
-        return {
-            handle,
-            avatarUrl: rows[0].authorAvatarUrl,
-            prCount: rows.length,
-            medianOpenToMergeSeconds: median(mergeTimes),
-            costUsd: costed.length ? costed.reduce((sum, r) => sum + (r.estimatedCostUsd ?? 0), 0) : null,
-            rerunCycles: rows.reduce((sum, r) => sum + r.rerunCycles, 0),
-        }
-    })
 }
 
 export const repoOverviewLogic = kea<repoOverviewLogicType>([
@@ -251,22 +205,6 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
                     workflowHealth.filter((row) => (row.estimatedCostUsd ?? 0) > 0).length - TOP_COST_WORKFLOWS
                 ),
         ],
-        authorsByActivity: [
-            (s) => [s.pullRequests],
-            (pullRequests): AuthorStatsRow[] =>
-                computeAuthorStats(pullRequests)
-                    .sort((a, b) => b.prCount - a.prCount)
-                    .slice(0, TOP_AUTHORS),
-        ],
-        authorsByCost: [
-            (s) => [s.pullRequests],
-            (pullRequests): AuthorStatsRow[] =>
-                computeAuthorStats(pullRequests)
-                    .filter((row) => (row.costUsd ?? 0) > 0)
-                    .sort((a, b) => (b.costUsd ?? 0) - (a.costUsd ?? 0))
-                    .slice(0, TOP_AUTHORS),
-        ],
-        authorCount: [(s) => [s.pullRequests], (pullRequests): number => computeAuthorStats(pullRequests).length],
     }),
 
     listeners(({ actions, values }) => ({

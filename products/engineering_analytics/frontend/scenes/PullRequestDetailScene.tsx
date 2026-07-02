@@ -698,16 +698,7 @@ export function PullRequestDetailScene(): JSX.Element {
                                             className="size-4 shrink-0 rounded-full"
                                         />
                                     )}
-                                    <Link
-                                        to={
-                                            combineUrl(
-                                                urls.engineeringAnalyticsAuthor(pullRequest.author.handle),
-                                                sourceId ? { source: sourceId } : {}
-                                            ).url
-                                        }
-                                    >
-                                        {pullRequest.author.handle}
-                                    </Link>
+                                    <span>{pullRequest.author.handle}</span>
                                     {pullRequest.author.is_bot && <LemonTag type="muted">bot</LemonTag>}
                                 </span>
                                 <span>

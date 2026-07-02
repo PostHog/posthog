@@ -41,14 +41,6 @@ export const manifest: ProductManifest = {
             description: "A single workflow's recent runs across the connected repo.",
             iconType: 'health',
         },
-        EngineeringAnalyticsAuthor: {
-            import: () => import('./frontend/scenes/EngineeringAnalyticsAuthorScene'),
-            projectBased: true,
-            name: 'Author CI',
-            layout: 'app-container',
-            description: "One author's pull requests and the CI cost they incurred.",
-            iconType: 'health',
-        },
     },
     // Detail paths mirror GitHub 1:1 (owner/repo/pull/:n, owner/repo/actions/runs/:id); cross-repo
     // aggregates stay at the product root. Provider lives on the data (RepoRef.provider), so these url
@@ -56,7 +48,6 @@ export const manifest: ProductManifest = {
     routes: {
         '/engineering-analytics': ['EngineeringAnalytics', 'engineeringAnalytics'],
         '/engineering-analytics/pulls': ['EngineeringAnalytics', 'engineeringAnalyticsPullRequestList'],
-        '/engineering-analytics/authors': ['EngineeringAnalytics', 'engineeringAnalyticsAuthors'],
         '/engineering-analytics/test-health': ['EngineeringAnalytics', 'engineeringAnalyticsTestHealth'],
         '/engineering-analytics/:repoOwner/:repoName/pull/:number': [
             'EngineeringAnalyticsPullRequest',
@@ -70,16 +61,17 @@ export const manifest: ProductManifest = {
             'EngineeringAnalyticsWorkflowRuns',
             'engineeringAnalyticsWorkflowRuns',
         ],
-        '/engineering-analytics/author/:handle': ['EngineeringAnalyticsAuthor', 'engineeringAnalyticsAuthor'],
     },
     redirects: {
         // Workflows stopped being a tab — they're a section of the repo hub landing now.
         '/engineering-analytics/workflows': '/engineering-analytics',
+        // The author surface was removed: analytics stay at team/repo level (see README locked decisions).
+        '/engineering-analytics/authors': '/engineering-analytics',
+        '/engineering-analytics/author/:handle': '/engineering-analytics',
     },
     urls: {
         engineeringAnalytics: (): string => '/engineering-analytics',
         engineeringAnalyticsPullRequestList: (): string => '/engineering-analytics/pulls',
-        engineeringAnalyticsAuthors: (): string => '/engineering-analytics/authors',
         engineeringAnalyticsTestHealth: (): string => '/engineering-analytics/test-health',
         engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
             `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/pull/${number}`,
@@ -87,8 +79,6 @@ export const manifest: ProductManifest = {
             `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/runs/${runId}`,
         engineeringAnalyticsWorkflowRuns: (repoOwner: string, repoName: string, workflowName: string): string =>
             `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/actions/workflows/${encodeURIComponent(workflowName)}`,
-        engineeringAnalyticsAuthor: (handle: string): string =>
-            `/engineering-analytics/author/${encodeURIComponent(handle)}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],
