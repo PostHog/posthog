@@ -90,13 +90,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
 
     const renderViz = (): JSX.Element | undefined => {
         if (isLifecycle) {
-            return (
-                <TrendsLifecycleChart
-                    context={context}
-                    inSharedMode={inSharedMode}
-                    showPersonsModal={showPersonsModal}
-                />
-            )
+            return <TrendsLifecycleChart context={context} inSharedMode={inSharedMode} />
         }
         if (
             !display ||
@@ -105,22 +99,15 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
             display === ChartDisplayType.ActionsAreaGraph
         ) {
             if (isStickiness) {
-                return <StickinessLineChart context={context} showPersonsModal={showPersonsModal} />
+                return <StickinessLineChart context={context} />
             }
-            return <TrendsLineChart context={context} inSharedMode={inSharedMode} showPersonsModal={showPersonsModal} />
+            return <TrendsLineChart context={context} inSharedMode={inSharedMode} />
         }
         if (display === ChartDisplayType.ActionsBar || display === ChartDisplayType.ActionsUnstackedBar) {
             if (isStickiness) {
-                return <StickinessBarChart context={context} showPersonsModal={showPersonsModal} />
+                return <StickinessBarChart context={context} />
             }
-            return (
-                <TrendsBarChart
-                    context={context}
-                    inSharedMode={inSharedMode}
-                    embedded={embedded}
-                    showPersonsModal={showPersonsModal}
-                />
-            )
+            return <TrendsBarChart context={context} inSharedMode={inSharedMode} embedded={embedded} />
         }
         if (display === ChartDisplayType.BoldNumber) {
             return <BoldNumber {...commonProps} />
@@ -143,14 +130,7 @@ export function TrendInsight({ view, context, embedded, inSharedMode, editMode }
             return <TrendsPieChart context={context} inSharedMode={inSharedMode} showPersonsModal={showPersonsModal} />
         }
         if (display === ChartDisplayType.ActionsBarValue) {
-            return (
-                <TrendsBarChart
-                    context={context}
-                    inSharedMode={inSharedMode}
-                    embedded={embedded}
-                    showPersonsModal={showPersonsModal}
-                />
-            )
+            return <TrendsBarChart context={context} inSharedMode={inSharedMode} embedded={embedded} />
         }
         if (display === ChartDisplayType.WorldMap) {
             const hasSubdivisionBreakdown =

@@ -5,6 +5,7 @@ import { insightLogic } from 'scenes/insights/insightLogic'
 import { insightVizDataLogic } from 'scenes/insights/insightVizDataLogic'
 import { getTrendResultCustomizationKey } from 'scenes/insights/utils'
 
+import { ExportType } from '~/exporter/types'
 import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { DataNode, LifecycleQuery, NodeKind, ResultCustomizationBy, TrendsQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
@@ -426,6 +427,50 @@ describe('trendsDataLogic', () => {
             }).toMatchValues({
                 legendSeriesIsolationMenuEligible: true,
             })
+        })
+    })
+
+    describe('hasPersonsModal', () => {
+        it('is true for a plain trends query', async () => {
+            await expectLogic(logic).toMatchValues({ hasPersonsModal: true })
+        })
+
+        it('is false on shared/exported views', async () => {
+            // Set before mounting: the global is read inside the selector, so it must be
+            // in place when the selector first computes (as on real shared pages, where
+            // Django injects it before React runs).
+            window.POSTHOG_EXPORTED_DATA = { type: ExportType.Embed }
+            try {
+                initKeaTests(false)
+                await initTrendsDataLogic()
+
+                await expectLogic(logic).toMatchValues({ hasPersonsModal: false })
+            } finally {
+                delete (window as { POSTHOG_EXPORTED_DATA?: unknown }).POSTHOG_EXPORTED_DATA
+            }
+        })
+
+        it('is false when the query opts out via hidePersonsModal', async () => {
+            // insightDataLogic only seeds from props.query for `new-AdHoc.` ids; this also
+            // gives the logics a distinct key so they don't reuse the beforeEach mounts.
+            const propsWithHidePersonsModal: InsightLogicProps = {
+                dashboardItemId: 'new-AdHoc.trendsDataLogic.hidePersonsModal',
+                query: {
+                    kind: NodeKind.InsightVizNode,
+                    source: { kind: NodeKind.TrendsQuery, series: [] },
+                    hidePersonsModal: true,
+                },
+            }
+
+            insightDataLogic(propsWithHidePersonsModal).mount()
+            insightLogic(propsWithHidePersonsModal).mount()
+            insightVizDataLogic(propsWithHidePersonsModal).mount()
+
+            const logicWithHidePersonsModal = trendsDataLogic(propsWithHidePersonsModal)
+            logicWithHidePersonsModal.mount()
+            await expectLogic(logicWithHidePersonsModal).toFinishAllListeners()
+
+            await expectLogic(logicWithHidePersonsModal).toMatchValues({ hasPersonsModal: false })
         })
     })
 })

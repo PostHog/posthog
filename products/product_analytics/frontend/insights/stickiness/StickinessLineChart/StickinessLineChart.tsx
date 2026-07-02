@@ -44,16 +44,11 @@ import {
 
 interface StickinessLineChartProps {
     context?: QueryContext<InsightVizNode>
-    /** Gates person-level drill-down clicks; false on shared/exported pages, where those queries can't run. */
-    showPersonsModal?: boolean
 }
 
 const handleChartError = makeChartErrorHandler('stickiness-line-chart')
 
-export function StickinessLineChart({
-    context,
-    showPersonsModal = true,
-}: StickinessLineChartProps): JSX.Element | null {
+export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.Element | null {
     const theme = useChartTheme()
     const { insightProps } = useValues(insightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -134,18 +129,18 @@ export function StickinessLineChart({
         [yAxisScaleType, showValuesOnSeries, legendConfig, tooltipConfig]
     )
 
-    const canHandleClick = !!context?.onDataPointClick || (!!hasPersonsModal && showPersonsModal)
+    const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
 
     const clickDeps = useMemo(
         () => ({
             context,
-            hasPersonsModal: !!hasPersonsModal && showPersonsModal,
+            hasPersonsModal: !!hasPersonsModal,
             interval,
             querySource,
             indexedResults: indexedResults ?? [],
             openPersonsModal,
         }),
-        [context, hasPersonsModal, showPersonsModal, interval, querySource, indexedResults]
+        [context, hasPersonsModal, interval, querySource, indexedResults]
     )
 
     const onPointClick = useCallback(
