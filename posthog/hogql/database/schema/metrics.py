@@ -102,6 +102,71 @@ class MetricsTable(Table):
         return "metrics"
 
 
+class MetricSamplesTable(Table):
+    description: str = "Raw metric emissions: one tiny row per sample (value + timestamp), keyed to a series via `series_fingerprint` and carrying an optional `trace_id` for the metric->trace pivot. Join to `metric_series` for labels. Distinct from `metrics`, which is pre-aggregated."
+    workload: Workload | None = Workload.LOGS
+
+    fields: dict[str, FieldOrTable] = {
+        "team_id": IntegerDatabaseField(name="team_id", nullable=False),
+        "metric_name": StringDatabaseField(name="metric_name", nullable=False),
+        "series_fingerprint": IntegerDatabaseField(
+            name="series_fingerprint",
+            nullable=False,
+            description="Hash of the series' label set; join key to `metric_series`.",
+        ),
+        "timestamp": DateTimeDatabaseField(
+            name="timestamp", nullable=False, description="When the metric was emitted (UTC)."
+        ),
+        "value": FloatDatabaseField(name="value", nullable=False, description="The emitted value."),
+        "trace_id": StringDatabaseField(
+            name="trace_id",
+            nullable=False,
+            description="Trace this emission belongs to; empty if none. Pivot to spans/logs.",
+        ),
+        "span_id": StringDatabaseField(name="span_id", nullable=False),
+        "trace_flags": IntegerDatabaseField(name="trace_flags", nullable=False),
+    }
+
+    def to_printed_clickhouse(self, context):
+        return "metric_samples"
+
+    def to_printed_hogql(self):
+        return "metric_samples"
+
+
+class MetricSeriesTable(Table):
+    description: str = "One row per unique metric series (metric + label set), keyed by `series_fingerprint`. Labels are stored here once and joined to `metric_samples` at query time."
+    workload: Workload | None = Workload.LOGS
+
+    fields: dict[str, FieldOrTable] = {
+        "team_id": IntegerDatabaseField(name="team_id", nullable=False),
+        "metric_name": StringDatabaseField(name="metric_name", nullable=False),
+        "series_fingerprint": IntegerDatabaseField(
+            name="series_fingerprint",
+            nullable=False,
+            description="Hash of the label set; join key from `metric_samples`.",
+        ),
+        "metric_type": StringDatabaseField(
+            name="metric_type",
+            nullable=False,
+            description="OTel metric type (gauge, sum, histogram, summary, exponential_histogram).",
+        ),
+        "unit": StringDatabaseField(name="unit", nullable=False),
+        "service_name": StringDatabaseField(name="service_name", nullable=False),
+        "resource_attributes": MapStringDatabaseField(name="resource_attributes", nullable=False),
+        "attributes": MapStringDatabaseField(name="attributes", nullable=False),
+        "last_seen": DateTimeDatabaseField(
+            name="last_seen", nullable=False, description="Most recent sample timestamp seen for this series."
+        ),
+    }
+
+    def to_printed_clickhouse(self, context):
+        return "metric_series"
+
+    def to_printed_hogql(self):
+        return "metric_series"
+
+
 class MetricAttributesTable(Table):
     description: str = "Distinct metric attribute key/value pairs with occurrence counts, used to power metric attribute autocomplete and faceting."
     workload: Workload | None = Workload.LOGS

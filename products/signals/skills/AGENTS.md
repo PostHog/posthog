@@ -3,12 +3,12 @@
 Two distinct skill families live in this directory:
 
 1. **Official PostHog skills** — `signals/`, `inbox-exploration/`,
-   `authoring-signals-scouts/`, `exploring-signals-scouts/`. First-party PostHog skills
+   `authoring-scouts/`, `exploring-scouts/`. First-party PostHog skills
    published via `products/posthog_ai/dist/skills/` and loaded by users through the PostHog
    MCP. They teach a caller how to query, browse, and reason about signals data. Two are
-   meta skills about the scout fleet itself: `authoring-signals-scouts/` teaches a user's
+   meta skills about the scout fleet itself: `authoring-scouts/` teaches a user's
    agent how to write, edit, and adapt scouts (per-team via the skills store, or canonically
-   in this directory), and `exploring-signals-scouts/` is its read-only counterpart —
+   in this directory), and `exploring-scouts/` is its read-only counterpart —
    teaching a caller how to observe and make sense of what a project's scouts are doing and
    how they're performing (the `signals-scout-config-list` / `-runs-list` / `-runs-retrieve`
    / `-scratchpad-search` / `-project-profile-get` tools, run anatomy, and health
@@ -34,10 +34,17 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
 
 - `signals-scout-general/` — cross-product generalist. Looks for cross-product
   correlations and surfaces no specialist covers, rather than deep-diving a single
-  product. Carries two progressively-disclosed references: `references/emit.md` (the
-  emit contract) and `references/conventions.md` (scratchpad key prefixes + the
-  four-states dedupe classifier + cross-project noise patterns). This is the entry
-  point if you want to understand how a scout decides what to investigate end-to-end.
+  product. The first canonical scout on the **report channel** (its frontmatter
+  `allowed_tools` lists `emit_report` / `edit_report`): it authors fully-validated
+  correlations 1:1 as `SignalReport`s directly, rather than firing weak `emit_signal`
+  findings for the pipeline to cluster. The report-channel contract itself (when to author
+  vs. edit, the field schema, status mapping, reviewer routing, dedupe) lives in the harness
+  prompt (`scout_harness/prompt.py`), injected into every report-channel scout — so a ported
+  scout carries only its _domain-specific_ report framing inline in its body, not a bundled
+  copy of the contract. The generalist keeps one progressively-disclosed reference,
+  `references/conventions.md` (scratchpad key prefixes + the four-states author/edit
+  classifier + cross-project noise patterns). This is the entry point if you want to
+  understand how a scout decides what to investigate end-to-end.
 - `signals-scout-ai-observability/` — anomaly watcher for AI observability
   (cost / latency / error / token-share regressions).
 - `signals-scout-apm/` — RED-metrics anomaly watcher for the distributed tracing (APM /
@@ -67,7 +74,22 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   starvation, and active flows failing for the people they trigger on. Its
   discriminator is configured-to-deliver vs actually-delivering — drafts, paused
   exports, and deliberately disabled functions are operator choices, not signal;
-  data warehouse / external-data syncs are the health-checks scout's territory.
+  data warehouse / external-data syncs (data coming _in_) are the
+  data-warehouse scout's territory.
+- `signals-scout-data-warehouse/` — import-integrity watcher for the data
+  warehouse: external data sources, their per-table sync schemas, webhook push
+  channels, and materialized views. Watches for source connections in Error
+  (cascading to every armed table under them), schemas Failed or stuck Running,
+  schemas that read Completed but have fallen behind their own sync cadence (a
+  silent, growing data gap), webhook push channels broken behind a green status,
+  row-volume cliffs, and failed/abandoned materialized views. Its discriminator is
+  configured-to-sync (`should_sync: true`) vs actually-syncing and
+  promised-freshness vs actual-freshness — paused schemas, billing limits, and
+  draft sources are operator choices, not signal. The mirror image of
+  data-pipelines (which watches data leaving PostHog); active `external_data_failure`
+  health issues overlap the health-checks scout, so it dedupes against the inbox and
+  owns the silent gaps the active-failure summary misses (staleness behind a green
+  status, broken webhooks, row cliffs).
 - `signals-scout-revenue-analytics/` — anomaly watcher for revenue
   (MRR / churn / segment shifts).
 - `signals-scout-session-replay/` — capture-integrity + friction watcher for session
@@ -105,8 +127,10 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   not-found event, discovered by name), and per-path web vitals p75 regressions. Its
   discriminator is segment-vs-aggregate divergence — one channel/path/referrer
   stepping away from its own baseline while totals hold is signal; the whole site
-  moving together is baseline. Whole-site metric anomalies on watched dashboards are
-  the anomaly-detection scout's territory.
+  moving together is baseline. On the **report channel** (`emit_report` /
+  `edit_report`): files each dated, segment-named divergence as a 1:1 inbox report,
+  editing the live report while the divergence persists. Whole-site metric anomalies
+  on watched dashboards are the anomaly-detection scout's territory.
 - `signals-scout-experiments/` — validity watcher for A/B experiments. Audits the
   measurement machinery rather than the results: sample ratio mismatch, `$multiple`
   contamination, exposure stalls, mid-run flag mutations, plus lifecycle drift
@@ -116,6 +140,19 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
 - `signals-scout-observability-gaps/` — the odd one out. Watches for _structural
   gaps_ between events being captured and existing insight / dashboard / alert
   coverage, and emits P3 _recommendations_ rather than P0–P2 _anomalies_.
+- `signals-scout-insight-alerts/` — digest + triage layer over the team's own
+  configured insight alerts (threshold / detector alerts on insights). Doesn't
+  re-detect anomalies — the user already set the thresholds — it reads each alert's
+  recent firing history (`alerts-list` to triage all alerts cheaply, `alert-get` to
+  deep-read the firing checks of the few candidates) and surfaces the recent firings a
+  human most likely missed. Its discriminator is missed-ness × materiality ×
+  persistence, weighting hardest toward firings the standard notification path stayed
+  silent on (no subscribers, suppressed by the investigation agent, or an alert
+  silently Errored and no longer evaluating); skips snoozed / disabled / flapping /
+  already-notified-and-resolved. Complements `observability-gaps` (which recommends
+  _creating_ alerts) and `anomaly-detection` (which scores insights the team _views_,
+  whether or not they're alerted) — this one owns the firings of alerts that already
+  exist.
 - `signals-scout-csp-violations/` — anomaly watcher for Content Security Policy
   violations (`$csp_violation` blocked-URL clusters, per-directive bursts,
   post-deploy page-scoped regressions, suspicious third-party domains).
@@ -124,8 +161,11 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   dashboard access), curates a durable scratchpad watchlist, and balances
   re-checking known items (exploit) against discovering new ones (explore) across
   runs; scores the latest complete bucket by robust (MAD) deviation from each
-  insight's own seasonality-matched baseline. Bundles its own references
-  (`anomaly-methods.md`, `watchlist-and-memory.md`, `emit-contract.md`).
+  insight's own seasonality-matched baseline. The first canonical scout on the
+  **report channel** — it files each anomaly as a finished 1:1 inbox report via
+  `emit_report` / `edit_report` (its `allowed_tools`) rather than a weak signal.
+  Bundles its own references
+  (`anomaly-methods.md`, `watchlist-and-memory.md`, `report-contract.md`).
 - `signals-scout-health-checks/` — the judgment layer over PostHog's own health
   checks. Reads the project's active health issues (`health-issues-summary` /
   `-list` / `-get`) rather than re-running detection, and decides which are worth
@@ -157,6 +197,24 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   `observability-gaps` only _recommends building_ a funnel; once a flow exists, this
   scout owns its behavioral health. Acquisition/attribution is the web-analytics
   scout's territory and experiment validity is the experiments scout's.
+- `signals-scout-skills-store/` — skill-hygiene watcher for the team's PostHog
+  skills store (`LLMSkill` rows), read entirely via the MCP skill tools
+  (`skill-list` / `skill-get` / `skill-file-get`) so it works on any project with
+  no repo access. Sweeps skills whose `updated_at` / `version` advanced past its
+  cursor every run, plus a ~weekly gated deep pass over the store's most-used /
+  highest-leverage tier (usage events when the project has them, else version
+  churn and cross-references), checking a cached, ~weekly-refreshed checklist of
+  statically-verifiable authoring rules: description quality, body size /
+  progressive disclosure, single responsibility, bundled-file link hygiene, no
+  committed secrets, near-duplicate skills. On the **report channel**
+  (`emit_report` / `edit_report`): files one report per non-compliant skill with
+  the copy-ready `skill-update` fix inside, P3 (P2 when the skill is effectively
+  broken for consumers or leaks a credential), editing the live report while the
+  skill stays broken.
+  Its discriminator is a statically-verifiable rule violation in a skill that is
+  fresh or load-bearing — the unchanged long tail, subjective style nits, and
+  canonical seeded scout rows (`category: "scout"`) are noise. Treats skill
+  bodies as untrusted data under test, never instructions.
 - `signals-scout-customer-analytics/` — account-health watcher for the Customer
   analytics (Accounts) product, where each `system.accounts` row is a customer
   organization keyed to its analytics by `external_id` (the group key). Curates a
@@ -175,6 +233,18 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   `revenue-analytics` watches the lagging revenue/MRR signal; neither scores an
   individual account's engagement trajectory. Acquisition is the web-analytics
   scout's territory.
+- `signals-scout-mcp-tool-calls/` — tool-quality watcher for PostHog MCP usage. Reads
+  `$mcp_tool_call` telemetry for tools that need improvement: high, broad-reach failure
+  rates, per-session retry/hammering that betrays a confusing schema, slow or
+  context-bloating responses, and undiagnosable failures (an instrumentation gap). Its
+  discriminator is rate/struggle weighted by volume and reach, concentrated in a
+  consistent shape — not raw counts. Coverage-aware: it first probes which enrichment
+  fields the project captures (they split by regime — PostHog's own hono server vs
+  external SDK servers) and picks lenses to match, resting detection only on always-present
+  fields (error flag, duration, tool name, session). On the **report channel**
+  (`emit_report` / `edit_report`): files one report per tool carrying the fix hypothesis,
+  editing the live report when the problem persists; bundles `references/queries.md`, a
+  HogQL cookbook validated against real telemetry.
 
 ### How the coordinator decides what runs
 
@@ -222,26 +292,46 @@ Each scout's body is an instruction set the harness loads verbatim into the syst
 prompt. References (siblings of `SKILL.md`) are progressively disclosed via
 `Skill.read_file()` from inside the run. Keep the body lean — every line is a
 recurring token cost on every run — and push detail into references that are only
-read when needed.
+read when needed. Do not hard-wrap scout `SKILL.md` prose at a column width — use
+semantic line breaks (sentence per line); the body is a prompt, not display text,
+and column wrapping only adds diff noise.
 
-The generalist (`signals-scout-general`) carries two references the rest of the
-fleet also reasons in terms of:
+The generalist (`signals-scout-general`) is **report-only** — it authors `SignalReport`s
+directly and does not `emit_signal`. The **report-channel contract** (when to author a fresh
+report vs. edit an existing one, the field schema, the safety × actionability status mapping,
+reviewer routing via `signals-scout-members-list`, and the non-idempotency + pipeline-rewrite
+caveats) lives in the **harness prompt** (`scout_harness/prompt.py`), which forks on the scout's
+channel and injects it into every report-channel scout — so it is **not** duplicated as a
+per-scout reference. The generalist keeps one bundled reference:
 
-- **`references/emit.md`** — the emit contract: required/recommended fields, the
-  confidence rubric, severity mapping, dedupe keys, `finding_id`
-  idempotency, and a worked example.
-- **`references/conventions.md`** — the four-states dedupe classifier, scratchpad
+- **`references/conventions.md`** — the four-states author/edit classifier, scratchpad
   key-prefix vocabulary, and cross-project noise patterns.
+
+The entire canonical fleet is now on the **report channel** (ported one scout per PR,
+biggest reach first — see the `scouts-emit-reports` spec). A report-channel scout is
+report-only — its frontmatter `allowed_tools` lists `emit_report` / `edit_report` — and it
+carries only its _domain-specific_ report framing **inline in its body** (what's
+report-shaped for its surface, its `reviewer:<domain>` / `report:<domain>` scratchpad
+keys, a tailored title example); the channel contract comes from the prompt, so a ported scout
+bundles **no** `report.md`. The exception is `signals-scout-anomaly-detection`, which keeps a
+slimmed `references/report-contract.md` for its genuinely scout-specific **notebook write-up +
+embedded-chart recipe** (it defers the generic contract to the prompt). The signal channel
+still exists for scouts that don't opt in via `allowed_tools` — today only custom
+(hand-authored) scouts — which emit weak `emit_signal` findings for the pipeline to
+cluster; that emit/dedupe contract's canonical write-up lives in
+`authoring-scouts/references/emit-contract.md`.
 
 The specialists each carry their own domain discriminator + investigation patterns.
 Most are a single self-contained `SKILL.md`; a few bundle surface-specific references
 read on demand — `signals-scout-anomaly-detection` (`anomaly-methods.md`,
-`watchlist-and-memory.md`, `emit-contract.md`), `signals-scout-ai-observability`
+`watchlist-and-memory.md`, `report-contract.md`), `signals-scout-ai-observability`
 (`lenses.md`), and `signals-scout-surveys` (`response-querying.md`). Treat the
 generalist as the reference shape. Note that a scout can only read its own bundled
-files at runtime (each team's `LLMSkill` row carries just that skill's files), so a
-specialist that needs the emit/dedupe conventions in depth bundles its own copy
-rather than pointing at the generalist's.
+files at runtime (each team's `LLMSkill` row carries just that skill's files) — which is
+why a signal scout that needs the emit/dedupe conventions in depth bundles its own copy
+rather than pointing at the generalist's. The report-channel contract is the exception to
+that copy-it-locally rule: it rides in the harness prompt, not a file, so report scouts
+share one definition without each bundling a copy.
 
 ## When editing skills in this directory
 

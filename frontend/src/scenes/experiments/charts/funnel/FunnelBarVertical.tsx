@@ -10,7 +10,6 @@ import { ChartParams } from '~/types'
 
 import { useFunnelChartData } from './FunnelChart'
 import { useFunnelTooltip } from './FunnelTooltip'
-import { SampledSessionsModal } from './SampledSessionsModal'
 import { StepBars } from './StepBars'
 import { StepLegend } from './StepLegend'
 
@@ -131,7 +130,6 @@ export function FunnelBarVertical({ inCardView = false }: ChartParams): JSX.Elem
                     </table>
                 </ScrollableShadows>
             </div>
-            <SampledSessionsModal />
         </TooltipContext.Provider>
     )
 }

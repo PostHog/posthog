@@ -11,6 +11,8 @@ import { userLogic } from 'scenes/userLogic'
 import { mswDecorator } from '~/mocks/browser'
 import { InsightColor, type DashboardTemplateEditorType, type DashboardTemplateType } from '~/types'
 
+import __dashboard_template_schema from '../../__mocks__/dashboard_template_schema.json'
+import __dashboard_templates from '../../__mocks__/dashboard_templates.json'
 import { DashboardTemplateModal } from './DashboardTemplateModal'
 import { dashboardTemplateModalLogic } from './dashboardTemplateModalLogic'
 
@@ -24,8 +26,8 @@ type ViewerModeStoryArgs = {
 
 const templateMocks = {
     get: {
-        '/api/projects/:team_id/dashboard_templates/': require('../../__mocks__/dashboard_templates.json'),
-        '/api/projects/:team_id/dashboard_templates/json_schema/': require('../../__mocks__/dashboard_template_schema.json'),
+        '/api/projects/:team_id/dashboard_templates/': __dashboard_templates as any,
+        '/api/projects/:team_id/dashboard_templates/json_schema/': __dashboard_template_schema as any,
     },
 }
 

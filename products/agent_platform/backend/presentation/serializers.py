@@ -8,6 +8,7 @@ deferred to the eventual MCP redesign (see TODO B5 in agent-shared).
 
 from __future__ import annotations
 
+import json
 import string
 import secrets
 from typing import Any
@@ -16,13 +17,11 @@ from django.conf import settings
 from django.core.validators import RegexValidator
 from django.db import IntegrityError
 
-import jsonschema
 from drf_spectacular.utils import extend_schema_field
 from rest_framework import serializers
 
 from posthog.models import User
 
-from ..logic.spec_schema import AGENT_SPEC_JSON_SCHEMA, AGENT_SPEC_JSON_SCHEMA_FOR_WRITE
 from ..models import AgentApplication, AgentRevision
 
 # Opaque random slug: leading letter (DNS-label-safe) + lowercase alphanumerics.
@@ -243,12 +242,27 @@ def _slack_path_url(slug: str, suffix: str) -> str | None:
     return agent_ingress_route_url(slug, f"/slack/{suffix}")
 
 
-@extend_schema_field(AGENT_SPEC_JSON_SCHEMA)
 class AgentSpecField(serializers.JSONField):
-    """Spec JSON typed against `AGENT_SPEC_JSON_SCHEMA` so drf-spectacular
-    publishes the real shape downstream — generated TS types, MCP tool
-    descriptions, and the OpenAPI doc all see real fields instead of an
-    opaque `{}`."""
+    """The agent spec JSON. Opaque to OpenAPI on purpose: the authoritative,
+    richly-described shape is served live by the `agent-applications-spec-schema`
+    tool, emitted from the canonical zod `AgentSpecSchema`. We deliberately do
+    not carry a second hand-maintained JSON Schema here just to annotate the
+    field — that mirror was the source of the drift this endpoint removed."""
+
+    def to_internal_value(self, data: Any) -> Any:
+        # The MCP write tools expose `spec` as an opaque arg, so an authoring
+        # model sometimes sends the whole spec as a stringified JSON blob rather
+        # than an object. Stored verbatim it's the characters of a string, which
+        # the janitor rejects (`invalid_request`). Parse it back to an object so
+        # it stores structured; reject a string that isn't a JSON object.
+        if isinstance(data, str):
+            try:
+                data = json.loads(data)
+            except json.JSONDecodeError:
+                raise serializers.ValidationError("spec must be a JSON object, not a string.")
+            if not isinstance(data, dict):
+                raise serializers.ValidationError("spec must be a JSON object.")
+        return super().to_internal_value(data)
 
 
 # Bound the number of skill references on a revision so freeze (one store fetch +
@@ -333,14 +347,11 @@ class AgentRevisionSerializer(serializers.ModelSerializer):
         if isinstance(value, dict):
             existing = getattr(self.instance, "spec", None)
             value["skills"] = existing.get("skills", []) if isinstance(existing, dict) else []
-        # Same shape the janitor's `AgentSpecSchema.parse` will reject on
-        # read. Catching it here turns a future 500 / process-level surprise
-        # into a clean 400 at write time.
-        try:
-            jsonschema.validate(value, AGENT_SPEC_JSON_SCHEMA_FOR_WRITE)
-        except jsonschema.ValidationError as e:
-            path = ".".join(str(p) for p in e.absolute_path) or "<root>"
-            raise serializers.ValidationError(f"spec.{path}: {e.message}") from e
+        # Structural validation against the spec schema is the janitor's job (the
+        # zod `AgentSpecSchema`): the explicit `validate` action, freeze, and the
+        # runner all parse against it. There is no Python schema mirror to check
+        # here — keeping one in lockstep with zod was the drift this removed. We
+        # still enforce the cross-field invariant the serializer owns.
         _validate_mcp_tool_names_unique(value)
         return value
 

@@ -57,6 +57,9 @@ tools:
     hog-flows-partial-update:
         operation: hog_flows_partial_update
         enabled: false
+    hog-flows-rerun-create:
+        operation: hog_flows_rerun_create
+        enabled: false
     hog-flows-schedules-create:
         operation: hog_flows_schedules_create
         enabled: false

@@ -41,6 +41,17 @@ class GitHubSourceNotConnectedError(Exception):
         super().__init__(message)
 
 
+class QuarantineWriteError(Exception):
+    """A quarantine write could not be completed — no GitHub App installed on the
+    target repo, the App lives on a different org, a malformed quarantine file, or a
+    failed GitHub call. Carries a message safe to show the user verbatim. Framework-free;
+    the presentation layer maps it to a 400 so the UI explains what to fix.
+    """
+
+    def __init__(self, message: str) -> None:
+        super().__init__(message)
+
+
 class PRState(StrEnum):
     OPEN = "open"
     CLOSED = "closed"
@@ -105,6 +116,17 @@ class QuarantineSelectorKind(StrEnum):
     FILE = "file"
     DIRECTORY = "directory"
     TEST = "test"
+
+
+class QuarantineRequestAction(StrEnum):
+    """What a write to the quarantine file does. ``quarantine`` adds (or replaces) an
+    entry and files a fresh tracking issue; ``extend`` re-stamps an existing entry's
+    expiry, reusing its issue; ``remove`` deletes the entry. All three open a PR.
+    """
+
+    QUARANTINE = "quarantine"
+    EXTEND = "extend"
+    REMOVE = "remove"
 
 
 @dataclass(frozen=True)
@@ -195,6 +217,42 @@ class WorkflowRunDetail:
 
 
 @dataclass(frozen=True)
+class WorkflowRunActivityPoint:
+    """A single workflow run reduced to the fields the run-activity chart plots: start time, duration,
+    conclusion, branch, and attributed PR. Deliberately leaner than ``WorkflowRunDetail`` so the chart can
+    load far more runs across the full window (for the scatter, the in-flight band, and the focus-lens
+    brush) than the capped run-detail table, without the per-row wire cost of the full detail shape.
+    """
+
+    run_id: int
+    # Raw conclusion passthrough ('success' / 'failure' / 'timed_out' / ...), or None while still running.
+    conclusion: str | None
+    # Always set here (unlike the shared WorkflowRunDetail shape): the windowed query filters on
+    # run_started_at, so a run with no parseable start timestamp is excluded — it can't be placed on the
+    # chart's time axis anyway. Non-null keeps the contract honest for this chart-only endpoint.
+    run_started_at: datetime
+    # None until the run completes — duration is only computed for completed runs.
+    duration_seconds: int | None
+    head_branch: str
+    # Attributed pull request number, or 0 when unattributed.
+    pr_number: int
+
+
+@dataclass(frozen=True)
+class WorkflowRunActivity:
+    """The run-activity chart's data for one workflow over a window: compact per-run points plus an
+    explicit truncation signal. ``points`` is capped at ``limit`` (newest first); ``truncated`` is True
+    when more runs matched than the cap, so the chart can label itself as covering only the most recent
+    runs rather than the full window. Higher-capped than the run-detail table, so the chart still spans
+    multiple days on busy workflows where the smaller table cap would collapse to a sliver.
+    """
+
+    points: list[WorkflowRunActivityPoint]
+    truncated: bool
+    limit: int
+
+
+@dataclass(frozen=True)
 class WorkflowJob:
     """One job within a workflow run, for the run's expandable job breakdown. ``estimated_cost_usd``
     is derived from the runner tier (parsed from ``runner_label``) and the job's elapsed time via the
@@ -275,7 +333,8 @@ class PRCostSummary:
     """
 
     jobs_available: bool
-    # Wall-clock minutes consumed on billable (self-hosted) runners (sum of elapsed across costed jobs).
+    # Billable CI minutes: each costed (self-hosted) job's elapsed time, summed. Parallel jobs add up, so
+    # this is compute time spent, not wall-clock run duration.
     billable_minutes: float
     # Estimated dollar cost (sum of per-job estimates), or None when no job was costable.
     estimated_cost_usd: float | None
@@ -306,6 +365,61 @@ class PRLifecycle:
     pull_request: PullRequest
     events: list[PRLifecycleEvent]
     metric_quality: MetricQuality = MetricQuality.PARTIAL
+
+
+@dataclass(frozen=True)
+class CIFailureLogLine:
+    """One line of a job's failure log. ``original_line`` is the line's 1-based position in the full
+    pre-thinning log, or None for a ``... N lines omitted ...`` marker between kept blocks — the gap
+    between consecutive ``original_line`` values is how many lines were elided. The number is the only
+    durable anchor back to the original, which isn't stored and which GitHub expires.
+    """
+
+    original_line: int | None
+    text: str
+
+
+@dataclass(frozen=True)
+class CIJobFailureLog:
+    """One failed CI job's thinned failure log, as ordered lines. The worker fetches logs for failed
+    jobs only, so every job here is a failure. ``lines`` is the thinned failure region (errors plus
+    surrounding context, with omission markers) in order; capped per job, with ``truncated`` set when
+    the job had more.
+    """
+
+    job_id: int
+    run_id: int
+    # Raw job conclusion passthrough ('failure' / 'timed_out' / ...).
+    conclusion: str
+    # Git branch the run was triggered on, or '' when unknown.
+    branch: str
+    # Total lines in the full job log before thinning — the denominator for each line's original_line;
+    # 0 when unknown (a record emitted before orig_total stamping).
+    original_total_lines: int
+    line_count: int
+    lines: list[CIFailureLogLine]
+    truncated: bool
+
+
+@dataclass(frozen=True)
+class CIFailureLogs:
+    """Thinned CI failure logs for one pull request, grouped by failed job.
+
+    Attribution follows the locked rule (SPEC §7): the PR is resolved to its workflow runs via the
+    ``pull_requests`` association (all pushes, never a head-SHA join that would drop earlier ones),
+    then logs are joined by ``run_id``. ``runs_attributed`` is how many runs the PR resolved to;
+    ``logs_available`` is False when no failure-log records were found for those runs — CI hasn't
+    failed, the logs aged out of the short Logs retention, or (fork PRs) the runs carry no PR
+    association to resolve.
+    """
+
+    pr_number: int
+    repo: RepoRef
+    runs_attributed: int
+    logs_available: bool
+    jobs: list[CIJobFailureLog]
+    # True when the overall line cap across all jobs was hit.
+    truncated: bool
 
 
 @dataclass(frozen=True)
@@ -432,6 +546,39 @@ class QuarantineFile:
     repo: RepoRef | None
     source_url: str
     generated_at: datetime
+
+
+@dataclass(frozen=True)
+class QuarantineRequest:
+    """A request to mutate a repo's ``.test_quarantine.json`` via a PR. ``selector`` is
+    required for every action. ``reason``/``owner``/``expires``/``mode`` drive
+    ``quarantine`` and ``extend`` and are ignored by ``remove``; ``issue`` carries the
+    existing tracking issue forward on ``extend`` (``quarantine`` files a new one and
+    overrides it). ``repo`` is an optional ``owner/name`` override; it defaults to the
+    team's most active repo, matching the read endpoint.
+    """
+
+    # Named 'operation', not 'action': a bare 'action' enum field collides with other
+    # serializers' 'action' enums in the OpenAPI spec and churns their generated types.
+    operation: QuarantineRequestAction
+    selector: str
+    repo: str | None = None
+    reason: str = ""
+    owner: str = ""
+    issue: str = ""
+    expires: date | None = None
+    mode: QuarantineMode = QuarantineMode.RUN
+
+
+@dataclass(frozen=True)
+class QuarantineRequestResult:
+    """Outcome of a quarantine write: the opened PR, the tracking issue (empty for
+    ``extend``/``remove``), and the branch the PR was opened from.
+    """
+
+    pr_url: str
+    issue_url: str
+    branch: str
 
 
 @dataclass(frozen=True)

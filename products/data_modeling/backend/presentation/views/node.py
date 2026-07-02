@@ -94,6 +94,17 @@ class NodeSerializer(serializers.ModelSerializer):
     def get_dag_name(self, node: Node) -> str:
         return node.dag.name
 
+    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
+        # System-managed DAGs (e.g. Revenue Analytics) own their nodes; the internal sync path
+        # maintains them directly via the ORM and bypasses this serializer. Block users from
+        # editing managed nodes or moving any node into a managed DAG via the API.
+        if self.instance is not None and self.instance.dag.is_managed:
+            raise serializers.ValidationError("Nodes belonging to a system-managed DAG cannot be modified.")
+        target_dag = attrs.get("dag")
+        if target_dag is not None and target_dag.is_managed:
+            raise serializers.ValidationError("Nodes cannot be created in or moved into a system-managed DAG.")
+        return attrs
+
 
 class NodePagination(PageNumberPagination):
     page_size = 1000
@@ -188,6 +199,11 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def get_serializer_context(self) -> dict[str, Any]:
         return super().get_serializer_context()
+
+    def perform_destroy(self, instance: Node) -> None:
+        if instance.dag.is_managed:
+            raise serializers.ValidationError("Nodes belonging to a system-managed DAG cannot be deleted.")
+        instance.delete()
 
     def list(self, request, *args, **kwargs):
         from products.data_modeling.backend.facade.models import Graph

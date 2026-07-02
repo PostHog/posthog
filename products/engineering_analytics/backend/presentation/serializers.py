@@ -12,6 +12,9 @@ from rest_framework_dataclasses.serializers import DataclassSerializer
 from products.engineering_analytics.backend.facade.contracts import (
     Author,
     CICardSummary,
+    CIFailureLogLine,
+    CIFailureLogs,
+    CIJobFailureLog,
     CIStatusRollup,
     GitHubSource,
     PRCostSummary,
@@ -22,12 +25,16 @@ from products.engineering_analytics.backend.facade.contracts import (
     PullRequestListItem,
     QuarantineEntry,
     QuarantineFile,
+    QuarantineRequest,
+    QuarantineRequestResult,
     RepoRef,
     RunCost,
     WorkflowCost,
     WorkflowHealthBucket,
     WorkflowHealthItem,
     WorkflowJob,
+    WorkflowRunActivity,
+    WorkflowRunActivityPoint,
     WorkflowRunDetail,
     WorkflowRunnerCost,
 )
@@ -112,6 +119,63 @@ class PRLifecycleSerializer(DataclassSerializer):
         }
 
 
+class CIFailureLogLineSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = CIFailureLogLine
+        extra_kwargs = {
+            "original_line": {
+                "help_text": "1-based line number in the full pre-thinning job log, or null for a "
+                "'... N lines omitted ...' marker. The gap between consecutive values is how many lines were elided.",
+                "allow_null": True,
+            },
+            "text": {"help_text": "The log line text, or the omission-marker text."},
+        }
+
+
+class CIJobFailureLogSerializer(DataclassSerializer):
+    lines = CIFailureLogLineSerializer(
+        many=True, help_text="The thinned failure-log lines in original order, with omission markers."
+    )
+
+    class Meta:
+        dataclass = CIJobFailureLog
+        extra_kwargs = {
+            "job_id": {"help_text": "GitHub Actions job id of the failed job."},
+            "run_id": {"help_text": "Workflow run id the job belongs to."},
+            "conclusion": {
+                "help_text": "Job conclusion ('failure', 'timed_out', ...). Only failed jobs have logs.",
+            },
+            "branch": {"help_text": "Git branch the run was triggered on, or '' when unknown."},
+            "original_total_lines": {
+                "help_text": "Total lines in the full job log before thinning (the denominator for each line's "
+                "original_line); 0 when unknown.",
+            },
+            "line_count": {"help_text": "Number of lines returned for this job (after the per-job cap)."},
+            "truncated": {"help_text": "True when the job had more failure lines than the per-job cap."},
+        }
+
+
+class CIFailureLogsSerializer(DataclassSerializer):
+    repo = RepoRefSerializer(help_text="Repository the pull request belongs to.")
+    jobs = CIJobFailureLogSerializer(
+        many=True, help_text="Failed CI jobs with their thinned failure logs, grouped by job."
+    )
+
+    class Meta:
+        dataclass = CIFailureLogs
+        extra_kwargs = {
+            "pr_number": {"help_text": "Pull request number the failure logs are for."},
+            "runs_attributed": {
+                "help_text": "Workflow runs attributed to the PR (across all its pushes) that were searched for logs.",
+            },
+            "logs_available": {
+                "help_text": "False when no failure logs were found — CI hasn't failed, the logs aged out of the "
+                "short Logs retention, or a fork PR carries no run association to resolve.",
+            },
+            "truncated": {"help_text": "True when the overall line cap across all jobs was hit."},
+        }
+
+
 class WorkflowRunDetailSerializer(DataclassSerializer):
     repo = RepoRefSerializer(help_text="Repository the run belongs to.")
 
@@ -142,6 +206,45 @@ class WorkflowRunDetailSerializer(DataclassSerializer):
             },
             "run_attempt": {"help_text": "Re-run attempt number; 1 for the first attempt."},
             "pr_number": {"help_text": "Attributed pull request number, or 0 when unattributed."},
+        }
+
+
+class WorkflowRunActivityPointSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = WorkflowRunActivityPoint
+        extra_kwargs = {
+            "run_id": {"help_text": "GitHub Actions run id."},
+            "conclusion": {
+                "help_text": "Run conclusion ('success', 'failure', 'timed_out', 'cancelled', 'skipped', ...), "
+                "or null while still in progress.",
+                "allow_null": True,
+            },
+            "run_started_at": {
+                "help_text": "When the run started. Never null on this endpoint: runs without a parseable "
+                "start timestamp are excluded from the window (they can't be plotted on the chart's time axis).",
+            },
+            "duration_seconds": {
+                "help_text": "Wall-clock duration in seconds; null until the run completes.",
+                "allow_null": True,
+            },
+            "head_branch": {"help_text": "Git branch the run was triggered on, or '' when unknown."},
+            "pr_number": {"help_text": "Attributed pull request number, or 0 when unattributed."},
+        }
+
+
+class WorkflowRunActivitySerializer(DataclassSerializer):
+    points = WorkflowRunActivityPointSerializer(
+        many=True, help_text="Per-run chart points, newest first, capped at `limit`."
+    )
+
+    class Meta:
+        dataclass = WorkflowRunActivity
+        extra_kwargs = {
+            "truncated": {
+                "help_text": "True when more runs matched than the cap; `points` is the newest `limit` runs, so the "
+                "chart covers only the most recent activity, not the full window.",
+            },
+            "limit": {"help_text": "Maximum number of run points returned in `points`."},
         }
 
 
@@ -237,8 +340,8 @@ class PRCostSummarySerializer(DataclassSerializer):
                 "figure is then zero/null and the cost cards should be hidden.",
             },
             "billable_minutes": {
-                "help_text": "Wall-clock minutes consumed on billable (self-hosted) runners, summed across "
-                "costed jobs.",
+                "help_text": "Billable CI minutes: each costed (self-hosted) job's elapsed time, summed. "
+                "Parallel jobs add up, so this is compute time spent, not wall-clock run duration.",
             },
             "estimated_cost_usd": {
                 "help_text": "Estimated dollar cost (sum of per-job estimates: elapsed x tier multiplier x "
@@ -389,6 +492,69 @@ class QuarantineFileSerializer(DataclassSerializer):
                 "help_text": "GitHub blob URL of the quarantine file, or empty when read locally or unavailable.",
             },
             "generated_at": {"help_text": "When this snapshot was computed (UTC); expiry math uses this clock."},
+        }
+
+
+class QuarantineRequestSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = QuarantineRequest
+        extra_kwargs = {
+            "operation": {
+                "help_text": "What to do: 'quarantine' (add or replace an entry and file a tracking issue), 'extend' "
+                "(re-stamp an existing entry's expiry, reusing its issue), or 'remove' (delete the entry). All three "
+                "open a pull request.",
+            },
+            "selector": {
+                "help_text": "Test selector to act on: an exact test id, a file, a directory, a class prefix, or "
+                "'product:<dashed-name>'.",
+            },
+            "repo": {
+                "help_text": "Optional 'owner/name' repository override; defaults to the team's most active repo.",
+                "allow_null": True,
+                "required": False,
+            },
+            # Blank is meaningful: remove sends no reason/owner, and quarantine sends no issue
+            # (the server files one). Per-action required checks live in the logic layer.
+            "reason": {
+                "help_text": "Why the test is quarantined. Required for quarantine and extend; ignored by remove.",
+                "required": False,
+                "allow_blank": True,
+            },
+            "owner": {
+                "help_text": "GitHub team or user handle responsible for the fix, e.g. '@PostHog/team-x'. Required "
+                "for quarantine and extend.",
+                "required": False,
+                "allow_blank": True,
+            },
+            "issue": {
+                "help_text": "Existing tracking issue URL, carried forward on extend and remove. Ignored by "
+                "quarantine, which files a fresh issue.",
+                "required": False,
+                "allow_blank": True,
+            },
+            "expires": {
+                "help_text": "ISO date the quarantine expires (at most 30 days out). Defaults to 14 days from today. "
+                "Ignored by remove.",
+                "allow_null": True,
+                "required": False,
+            },
+            "mode": {
+                "help_text": "'run' (the test still executes but cannot fail the suite) or 'skip' (not run at all). "
+                "Defaults to 'run'.",
+                "required": False,
+            },
+        }
+
+
+class QuarantineRequestResultSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = QuarantineRequestResult
+        extra_kwargs = {
+            "pr_url": {"help_text": "URL of the opened pull request that edits the quarantine file."},
+            "issue_url": {
+                "help_text": "URL of the tracking issue filed for a new quarantine; empty for extend and remove.",
+            },
+            "branch": {"help_text": "Branch the pull request was opened from."},
         }
 
 

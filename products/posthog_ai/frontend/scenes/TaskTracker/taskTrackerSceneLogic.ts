@@ -1,19 +1,48 @@
-import { actions, connect, events, kea, listeners, path, reducers } from 'kea'
-import { router } from 'kea-router'
+import { actions, connect, events, kea, listeners, path, reducers, selectors } from 'kea'
+import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
+import { uuid } from 'lib/utils/dom'
 
+import {
+    ClaudeRuntimeAdapterEnumApi,
+    ReasoningEffortEnumApi,
+    TaskExecutionModeEnumApi,
+} from 'products/tasks/frontend/generated/api.schemas'
+
+import { runStreamLogic } from '../../api/logics'
+import type { SuggestionGroup, SuggestionItem } from '../../api/primitives'
+import { DEFAULT_HEADLINES, pickHeadline } from '../../api/primitives'
 import { tasksLogic } from '../../logics/tasksLogic'
 import type { RepositoryConfig } from '../../types/taskTypes'
 import { OriginProduct, TaskUpsertProps } from '../../types/taskTypes'
+import { DEFAULT_COMPOSER_EFFORT, DEFAULT_COMPOSER_MODEL, resolveEffortForModel } from '../../utils/composerModels'
 import type { taskTrackerSceneLogicType } from './taskTrackerSceneLogicType'
 
-export type TaskCreateForm = {
+export interface TaskCreateForm {
     description: string
     repositoryConfig: RepositoryConfig
+    model: string
+    reasoningEffort: ReasoningEffortEnumApi
 }
+
+// The slice of the repo picker we remember across visits. Branch is deliberately excluded — on restore we
+// want the branch picker to re-derive the repo's actual default branch (from the GitHub API), not pin a stale one.
+export type PersistedRepositoryConfig = Pick<RepositoryConfig, 'integrationId' | 'repository'>
+
+// The optimistic run opened on send, before the task/run exist. `streamKey` is the client key the pending
+// `RunSurface` (and its seeded `runStreamLogic`) bind to; `taskId`/`runId` are filled once known (reserved
+// for a future zero-flash in-place handoff — today the scene navigates to the detail page once the run exists).
+export interface ActiveCreation {
+    streamKey: string
+    taskId?: string
+    runId?: string
+}
+
+const LAST_REPOSITORY_CONFIG_STORAGE_KEY = 'posthog_ai.tasks.lastRepositoryConfig'
 
 const EMPTY_TASK_FORM: TaskCreateForm = {
     description: '',
@@ -21,14 +50,21 @@ const EMPTY_TASK_FORM: TaskCreateForm = {
         integrationId: undefined,
         repository: undefined,
     },
+    model: DEFAULT_COMPOSER_MODEL,
+    reasoningEffort: DEFAULT_COMPOSER_EFFORT,
 }
 
 export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
     path(['products', 'posthog_ai', 'frontend', 'scenes', 'TaskTracker', 'taskTrackerSceneLogic']),
 
     connect(() => ({
-        values: [tasksLogic, ['tasks', 'repositories']],
-        actions: [tasksLogic, ['loadTasks', 'loadRepositories', 'deleteTask']],
+        values: [tasksLogic, ['tasks', 'repositories', 'taskListParams'], integrationsLogic, ['integrations']],
+        actions: [
+            tasksLogic,
+            ['loadTasks', 'loadRepositories', 'deleteTask'],
+            integrationsLogic,
+            ['loadIntegrationsSuccess'],
+        ],
     })),
 
     actions({
@@ -37,11 +73,18 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         submitNewTask: true,
         submitNewTaskSuccess: true,
         submitNewTaskFailure: (error: string) => ({ error }),
+        maybeAutoSelectIntegration: true,
+        setActiveSuggestionGroup: (group: SuggestionGroup | null) => ({ group }),
+        applySuggestion: (item: SuggestionItem) => ({ item }),
+        setHeadline: (headline: string) => ({ headline }),
+        setPersistedRepositoryConfig: (config: PersistedRepositoryConfig) => ({ config }),
+        setActiveCreation: (creation: ActiveCreation) => ({ creation }),
+        clearActiveCreation: true,
     }),
 
     reducers({
         newTaskData: [
-            EMPTY_TASK_FORM,
+            EMPTY_TASK_FORM as TaskCreateForm,
             {
                 setNewTaskData: (state, { data }) => ({ ...state, ...data }),
                 resetNewTaskData: () => EMPTY_TASK_FORM,
@@ -55,55 +98,209 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 submitNewTaskFailure: () => false,
             },
         ],
+        // Last repo/integration the user picked, persisted to localStorage so the composer comes back pre-filled.
+        persistedRepositoryConfig: [
+            {} as PersistedRepositoryConfig,
+            { persist: true, storageKey: LAST_REPOSITORY_CONFIG_STORAGE_KEY },
+            {
+                setPersistedRepositoryConfig: (_, { config }) => config,
+            },
+        ],
+        activeSuggestionGroup: [
+            null as SuggestionGroup | null,
+            {
+                setActiveSuggestionGroup: (_, { group }) => group,
+                // Clearing the description (e.g. after submit/reset) collapses any open dropdown.
+                setNewTaskData: (state, { data }) =>
+                    data.description !== undefined && !data.description ? null : state,
+                resetNewTaskData: () => null,
+            },
+        ],
+        headline: [
+            DEFAULT_HEADLINES[0],
+            {
+                setHeadline: (_, { headline }) => headline,
+            },
+        ],
+        // The in-flight optimistic create. While set (and no task is selected) the scene shows the pending
+        // run thread instead of the composer.
+        activeCreation: [
+            null as ActiveCreation | null,
+            {
+                setActiveCreation: (_, { creation }) => creation,
+                clearActiveCreation: () => null,
+            },
+        ],
     }),
 
-    listeners(({ actions, values }) => ({
+    selectors({
+        sendDisabledReason: [
+            (s) => [s.newTaskData],
+            (newTaskData): string | undefined =>
+                !newTaskData.description.trim() ? 'Describe the task first' : undefined,
+        ],
+    }),
+
+    listeners(({ actions, values, cache }) => ({
+        // Release the manually-mounted optimistic stream once the create resolves (navigated to the real run)
+        // or fails (returned to the composer), so the throwaway draft instance never leaks.
+        clearActiveCreation: () => {
+            cache.activeCreationUnmount?.()
+            cache.activeCreationUnmount = undefined
+        },
+        // Resetting the form (after a successful submit) wipes the repo selection; immediately re-derive it
+        // (last persisted pick, else the first connected GitHub org) so the composer comes back with the
+        // picker populated rather than blank.
+        resetNewTaskData: () => {
+            actions.maybeAutoSelectIntegration()
+        },
+        // Remember the repo/integration whenever the picker changes it to a real selection. Clearing the
+        // repo ("No repo" option) is intentionally NOT persisted so the next visit restores the last good pick.
+        setNewTaskData: ({ data }) => {
+            if (data.repositoryConfig?.repository) {
+                const { integrationId, repository } = data.repositoryConfig
+                actions.setPersistedRepositoryConfig({ integrationId, repository })
+            }
+        },
+        // Restore the remembered repo (or fall back to the first connected GitHub integration) when nothing is
+        // chosen yet. The IntegrationChoice picker that used to own this selection is no longer rendered.
+        maybeAutoSelectIntegration: () => {
+            if (values.newTaskData.repositoryConfig.integrationId) {
+                return
+            }
+            const githubIntegrations = values.integrations?.filter((integration) => integration.kind === 'github') ?? []
+            if (githubIntegrations.length === 0) {
+                return
+            }
+            // Restore the last-used repo only if its integration is still connected. Branch is left unset so
+            // GitHubBranchCombobox re-selects the repo's actual default branch.
+            const { integrationId, repository } = values.persistedRepositoryConfig
+            if (integrationId && githubIntegrations.some((integration) => integration.id === integrationId)) {
+                actions.setNewTaskData({ repositoryConfig: { integrationId, repository } })
+                return
+            }
+            actions.setNewTaskData({
+                repositoryConfig: {
+                    ...values.newTaskData.repositoryConfig,
+                    integrationId: githubIntegrations[0].id,
+                },
+            })
+        },
+        loadIntegrationsSuccess: () => {
+            actions.maybeAutoSelectIntegration()
+        },
+        // Fill the composer with the suggestion; submit straight away unless it needs the user to finish
+        // typing (the component focuses the textarea in that case).
+        applySuggestion: ({ item }) => {
+            actions.setNewTaskData({ description: item.content })
+            if (!item.requiresUserInput) {
+                actions.submitNewTask()
+            }
+        },
         submitNewTask: async () => {
-            const { description, repositoryConfig } = values.newTaskData
+            const { description, repositoryConfig, model, reasoningEffort } = values.newTaskData
 
             if (!description.trim()) {
                 lemonToast.error('Description is required')
                 actions.submitNewTaskFailure('Description is required')
                 return
             }
-            if (!repositoryConfig.integrationId || !repositoryConfig.repository) {
-                lemonToast.error('Repository is required')
-                actions.submitNewTaskFailure('Repository is required')
-                return
-            }
+
+            // Optimistically open the thread on send: a `runStreamLogic` keyed by a client `streamKey`, seeded
+            // with the typed message + provisioning indicator, rendered by the pending `RunSurface` (the
+            // composable optimistic-open primitive). Hold a manual mount so the seed is in place when the pending
+            // pane renders, and survives across the React swap into the detail page (which adopts the same
+            // instance by binding this `streamKey`). Released by `clearActiveCreation` (failure / leaving the run).
+            cache.activeCreationUnmount?.()
+            cache.activeCreationUnmount = undefined
+            const streamKey = `draft-${uuid()}`
+            const stream = runStreamLogic({ streamKey })
+            cache.activeCreationUnmount = stream.mount()
+            actions.setActiveCreation({ streamKey })
+            stream.actions.startOptimisticRun(description)
 
             try {
                 const taskData: TaskUpsertProps = {
                     title: '',
                     description,
-                    origin_product: OriginProduct.USER_CREATED,
-                    repository: repositoryConfig.repository,
+                    origin_product: OriginProduct.POSTHOG_AI,
+                    // PostHog AI can run without a repo; null means the task is not scoped to any repository.
+                    repository: repositoryConfig.repository ?? null,
                     github_integration: repositoryConfig.integrationId ?? null,
                 }
 
                 const newTask = await api.tasks.create(taskData)
-                lemonToast.success('Task created successfully')
 
                 // Auto-run the task after creation; the detail scene shows the latest run by default. The
-                // run checks out the chosen branch (server falls back to the repo's default branch if unset).
-                await api.tasks.run(newTask.id, { branch: repositoryConfig.branch ?? null })
+                // run checks out the chosen branch (server falls back to the repo's default branch if unset)
+                // and launches with the picked model / reasoning effort (clamped to one the model supports).
+                const runResponse = await api.tasks.run(newTask.id, {
+                    branch: repositoryConfig.branch ?? null,
+                    runtime_adapter: ClaudeRuntimeAdapterEnumApi.Claude,
+                    model,
+                    reasoning_effort: resolveEffortForModel(reasoningEffort, model),
+                    // Interactive keeps the sandbox agent-server's event stream open across turns, so
+                    // follow-up messages stream their reply over the same SSE (background runs seal the
+                    // stream after the first turn). Interactive runs boot with the agent-server pulling
+                    // pending_user_message from run state (the workflow doesn't forward it), so seed the
+                    // typed message as turn 1 — otherwise the first prompt is lost and the run idles.
+                    mode: TaskExecutionModeEnumApi.Interactive,
+                    pending_user_message: description,
+                })
+
+                // Attach the real ids to the optimistic creation so the detail page adopts this seeded stream
+                // (same `streamKey` + real `runId`) instead of cold-bootstrapping a fresh, skeleton-flashing one.
+                // Kept set across navigation; cleared by the `urlToAction` below once the user leaves this run.
+                actions.setActiveCreation({ streamKey, taskId: newTask.id, runId: runResponse.latest_run?.id })
                 router.actions.push(`/tasks/${newTask.id}`)
 
                 actions.submitNewTaskSuccess()
                 actions.resetNewTaskData()
-                actions.loadTasks()
+                actions.loadTasks(values.taskListParams)
                 actions.loadRepositories()
             } catch (error) {
+                // Show the existing failure and return to the composer with the typed text intact.
+                actions.clearActiveCreation()
                 lemonToast.error('Failed to create task')
                 actions.submitNewTaskFailure(error instanceof Error ? error.message : 'Unknown error')
             }
         },
     })),
 
-    events(({ actions }) => ({
+    events(({ actions, values, cache }) => ({
         afterMount: () => {
-            actions.loadTasks()
+            actions.loadTasks(values.taskListParams)
             actions.loadRepositories()
+            // Roll a headline once per mount (pickHeadline forces index 0 under Storybook for stable snapshots).
+            actions.setHeadline(pickHeadline())
+            // integrationsLogic loads on its own mount (triggered by the connect above), so we don't call
+            // loadIntegrations ourselves. loadIntegrationsSuccess covers that first load; this call covers
+            // integrations already cached by an earlier mount.
+            actions.maybeAutoSelectIntegration()
+        },
+        beforeUnmount: () => {
+            // Release the manually-mounted optimistic stream if the whole scene unmounts mid-create — the
+            // `clearActiveCreation` release only fires on navigation between runs, so leaving the tasks
+            // scene entirely (before the creation resolves) would otherwise leak the mounted instance.
+            cache.activeCreationUnmount?.()
+            cache.activeCreationUnmount = undefined
         },
     })),
+
+    urlToAction(({ actions, values }) => {
+        // The optimistic creation is kept alive across the success navigation so the detail page can adopt
+        // its seeded stream. Release it once the user lands anywhere other than the created task — another
+        // task, the list, or back to `/tasks/new`. Guarded on `taskId` being set so the pre-id provisioning
+        // phase (still at `/tasks/new`, no id yet) is never torn down mid-create.
+        const clearIfLeftCreatedTask = (taskId?: string): void => {
+            const activeCreation = values.activeCreation
+            if (activeCreation?.taskId && activeCreation.taskId !== taskId) {
+                actions.clearActiveCreation()
+            }
+        }
+        return {
+            '/tasks': () => clearIfLeftCreatedTask(),
+            '/tasks/:taskId': ({ taskId }) => clearIfLeftCreatedTask(taskId),
+        }
+    }),
 ])

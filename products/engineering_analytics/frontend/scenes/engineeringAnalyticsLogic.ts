@@ -1,6 +1,8 @@
-import { LogicWrapper, actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { LogicWrapper, actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router, urlToAction } from 'kea-router'
+
+import { lemonToast } from '@posthog/lemon-ui'
 
 import { ApiConfig, ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
@@ -11,12 +13,19 @@ import {
     engineeringAnalyticsCiCards,
     engineeringAnalyticsPullRequests,
     engineeringAnalyticsQuarantine,
+    engineeringAnalyticsQuarantineRequest,
     engineeringAnalyticsSources,
     engineeringAnalyticsWorkflowHealth,
 } from '../generated/api'
-import type { GitHubSourceApi, PullRequestListItemApi } from '../generated/api.schemas'
+import type {
+    GitHubSourceApi,
+    PullRequestListItemApi,
+    QuarantineRequestApi,
+    QuarantineRequestResultApi,
+} from '../generated/api.schemas'
 import { CIStatus, ciStatusOf } from '../lib/ci'
 import { type FleetSummary, computeFleetSummary } from '../lib/runHealth'
+import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import type { engineeringAnalyticsLogicType } from './engineeringAnalyticsLogicType'
 
 // Safety bound on the PR table (mirrors the endpoint's server-side limit). Surfaced
@@ -39,9 +48,6 @@ export type CardFilter = 'open' | 'failing' | 'stuck'
 
 /** Mirrors the ci_cards "stuck" rule: open, non-draft, non-bot, older than 7 days. */
 export const STUCK_AFTER_DAYS = 7
-
-/** Mirrors the workflow_health endpoint's default window — CI health is a "right now" question. */
-export const DEFAULT_WORKFLOW_DATE_FROM = '-24h'
 
 export interface PullRequestRow {
     number: number
@@ -403,6 +409,65 @@ export function quarantineCountsOf(rows: QuarantineEntryRow[]): QuarantineCounts
     return { ...counts, pastExpiry: counts.inGrace + counts.overdue }
 }
 
+export type QuarantineRequestAction = 'quarantine' | 'extend' | 'remove'
+
+/** What the tab submits to the write endpoint; the backend opens the issue + PR. */
+export interface QuarantineSubmitInput {
+    action: QuarantineRequestAction
+    selector: string
+    reason: string
+    owner: string
+    /** Existing tracking issue, carried forward on extend/remove. */
+    issue: string
+    /** ISO 'YYYY-MM-DD', or null to let the server default to +14 days. */
+    expires: string | null
+    mode: QuarantineMode
+}
+
+/** Open-modal state for quarantine/extend; null when closed. Remove uses a confirm dialog. */
+export interface QuarantineModalState {
+    action: 'quarantine' | 'extend'
+    selector: string
+    reason: string
+    owner: string
+    issue: string
+    mode: QuarantineMode
+}
+
+/**
+ * Suggest an owning team from a product-scoped selector — a confirm-then-edit starting
+ * point, since CODEOWNERS here is intentionally sparse. Returns '' when the selector is
+ * not product-scoped, so the user just types the owner.
+ */
+export function inferOwnerFromSelector(selector: string): string {
+    const trimmed = selector.trim()
+    const product = trimmed.startsWith('product:')
+        ? trimmed.slice('product:'.length)
+        : (trimmed.match(/^products\/([^/]+)\//)?.[1] ?? '').replace(/_/g, '-')
+    return product ? `@PostHog/team-${product}` : ''
+}
+
+function toRequestBody(input: QuarantineSubmitInput, repo: string | null): QuarantineRequestApi {
+    return {
+        // Wire field is 'operation' (a bare 'action' enum collides in the OpenAPI spec).
+        operation: input.action,
+        selector: input.selector,
+        // Write to the repo currently being viewed so the PR lands where the user expects —
+        // and the backend skips the most-active-repo warehouse lookup. Null in local dev.
+        repo,
+        reason: input.reason,
+        owner: input.owner,
+        issue: input.issue,
+        expires: input.expires,
+        mode: input.mode,
+    }
+}
+
+export function quarantineRequestErrorMessage(error: unknown): string {
+    const detail = error as { detail?: string; data?: { detail?: string }; message?: string }
+    return detail?.detail ?? detail?.data?.detail ?? detail?.message ?? 'Could not complete the quarantine request.'
+}
+
 /**
  * Per-loader outcome. The endpoints all resolve the same GitHub source, so a 400
  * (GitHubSourceNotConnectedError) means "connect a source" for every scene; any other
@@ -420,6 +485,12 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
     kea<engineeringAnalyticsLogicType>([
         path(['products', 'engineering_analytics', 'frontend', 'scenes', 'engineeringAnalyticsLogic']),
 
+        // The Workflows tab reads the shared CI-analytics window and branch scope; the loader and reload
+        // listeners use them.
+        connect(() => ({
+            values: [engineeringAnalyticsFiltersLogic, ['dateFrom', 'dateTo', 'appliedBranch']],
+        })),
+
         actions({
             setStateFilter: (state: PRStateFilter) => ({ state }),
             setAuthor: (author: string | null) => ({ author }),
@@ -427,12 +498,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             setCiStatusFilter: (ciStatus: CIStatusFilter) => ({ ciStatus }),
             setSearch: (search: string) => ({ search }),
             setStuckOnly: (stuckOnly: boolean) => ({ stuckOnly }),
-            setWorkflowDateRange: (dateFrom: string | null, dateTo: string | null) => ({ dateFrom, dateTo }),
-            // Branch is filtered server-side (it's aggregated away in workflow health), so typing only
-            // stages the value in branchInput; applyBranchFilter promotes it to appliedBranch and reloads.
-            setBranchFilter: (branch: string) => ({ branch }),
-            applyBranchFilter: true,
-            setAppliedBranch: (branch: string) => ({ branch }),
             applyCardFilter: (card: CardFilter) => ({ card }),
             setSourceId: (sourceId: string | null) => ({ sourceId }),
             setCostLensEnabled: (enabled: boolean) => ({ enabled }),
@@ -443,6 +508,8 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             setQuarantineOwner: (owner: string | null) => ({ owner }),
             applyQuarantineCard: (card: QuarantineCard) => ({ card }),
             resetQuarantineFilters: true,
+            openQuarantineModal: (state: QuarantineModalState) => ({ state }),
+            closeQuarantineModal: true,
             refresh: true,
         }),
 
@@ -479,8 +546,8 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 {
                     loadWorkflowHealth: async (): Promise<WorkflowHealthRow[]> => {
                         const items = await engineeringAnalyticsWorkflowHealth(projectId(), {
-                            date_from: values.workflowDateFrom ?? undefined,
-                            date_to: values.workflowDateTo ?? undefined,
+                            date_from: values.dateFrom ?? undefined,
+                            date_to: values.dateTo ?? undefined,
                             branch: values.appliedBranch || undefined,
                             source_id: values.sourceId ?? undefined,
                         })
@@ -550,6 +617,21 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     },
                 },
             ],
+            quarantineSubmit: [
+                null as QuarantineRequestResultApi | null,
+                {
+                    submitQuarantine: async ({
+                        input,
+                    }: {
+                        input: QuarantineSubmitInput
+                    }): Promise<QuarantineRequestResultApi> => {
+                        return await engineeringAnalyticsQuarantineRequest(
+                            projectId(),
+                            toRequestBody(input, values.quarantine?.repoFullName ?? null)
+                        )
+                    },
+                },
+            ],
             githubSources: [
                 [] as GitHubSourceApi[],
                 {
@@ -577,16 +659,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 DEFAULT_FILTERS.search,
                 { setSearch: (_, { search }) => search, resetFilters: () => DEFAULT_FILTERS.search },
             ],
-            workflowDateFrom: [
-                DEFAULT_WORKFLOW_DATE_FROM as string | null,
-                { setWorkflowDateRange: (_, { dateFrom }) => dateFrom },
-            ],
-            workflowDateTo: [null as string | null, { setWorkflowDateRange: (_, { dateTo }) => dateTo }],
-            // Exact git branch to scope workflow health to; '' means all branches. branchInput is the
-            // staged text in the box; appliedBranch is what the loader sends. Server-side filter, so
-            // appliedBranch persists across date reloads (e.g. "main on last 30d" → "main on last 90d").
-            branchInput: ['', { setBranchFilter: (_, { branch }) => branch }],
-            appliedBranch: ['', { setAppliedBranch: (_, { branch }) => branch }],
             // Leaving the open backlog (e.g. switching to Merged) exits the stuck lens — stuck implies open.
             stuckOnly: [
                 DEFAULT_FILTERS.stuckOnly,
@@ -647,6 +719,16 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadQuarantine: () => false,
                     loadQuarantineSuccess: () => false,
                     loadQuarantineFailure: () => true,
+                },
+            ],
+            // Drives the quarantine/extend modal; remove uses a confirm dialog instead.
+            quarantineModal: [
+                null as QuarantineModalState | null,
+                {
+                    openQuarantineModal: (_, { state }) => state,
+                    closeQuarantineModal: () => null,
+                    // A successful write closes the modal; a failure keeps it open so the user can retry.
+                    submitQuarantineSuccess: () => null,
                 },
             ],
             pullRequestsStatus: [
@@ -812,26 +894,11 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             },
             // Cards, the PR list, workflow health, and the quarantine repo are all per-source — reload them all.
             setSourceId: () => actions.refresh(),
-            setWorkflowDateRange: () => {
+            // The shared window and branch scope workflow health; reload it when either changes.
+            [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => {
                 actions.loadWorkflowHealth()
             },
-            setBranchFilter: ({ branch }) => {
-                // The search input's built-in clear (×) only fires onChange(''), never Enter/blur, so
-                // clearing it would otherwise leave the table scoped to the old branch. Apply on empty
-                // so the × resets to all-branches immediately.
-                if (branch.trim() === '') {
-                    actions.applyBranchFilter()
-                }
-            },
-            applyBranchFilter: () => {
-                const next = values.branchInput.trim()
-                // Skip the reload when the box is unchanged (e.g. a focus/blur with no edit).
-                if (next === values.appliedBranch) {
-                    return
-                }
-                actions.setAppliedBranch(next)
-            },
-            setAppliedBranch: () => {
+            [engineeringAnalyticsFiltersLogic.actionTypes.setAppliedBranch]: () => {
                 actions.loadWorkflowHealth()
             },
             applyCardFilter: ({ card }) => {
@@ -855,6 +922,22 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     actions.setQuarantineLifecycleFilter(target)
                 }
             },
+            submitQuarantineSuccess: ({ quarantineSubmit }) => {
+                if (!quarantineSubmit) {
+                    return
+                }
+                lemonToast.success(
+                    quarantineSubmit.issue_url
+                        ? 'Opened a quarantine PR and a tracking issue. It takes effect once the PR merges.'
+                        : 'Opened a PR. It takes effect once it merges.',
+                    { button: { label: 'View PR', action: () => window.open(quarantineSubmit.pr_url, '_blank') } }
+                )
+                // Reflect the pending change once it lands; the file is still the source of truth.
+                actions.loadQuarantine()
+            },
+            submitQuarantineFailure: ({ error }) => {
+                lemonToast.error(quarantineRequestErrorMessage(error))
+            },
         })),
 
         actionToUrl(() => ({
@@ -867,44 +950,20 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 }
                 return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
             },
-            // Mirror the applied branch into `?q=` so a branch-scoped view is shareable and survives reload.
-            setAppliedBranch: ({ branch }) => {
-                const searchParams = { ...router.values.searchParams }
-                if (branch) {
-                    searchParams.q = branch
-                } else {
-                    delete searchParams.q
-                }
-                return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
-            },
         })),
 
         urlToAction(({ actions, values }) => {
             // The chosen source rides in `?source=` so it survives tab switches and deep-links into a PR's detail.
+            // (The shared branch scope in `?q=` is hydrated by engineeringAnalyticsFiltersLogic, not here.)
             const applySource = (source: string | undefined): void => {
                 const next = source ?? null
                 if (next !== values.sourceId) {
                     actions.setSourceId(next)
                 }
             }
-            // `?q=` deep-links a branch-scoped workflow view (e.g. ?q=master). Stage it in the box and apply.
-            const applyBranchFromUrl = (q: string | undefined): void => {
-                const next = (q ?? '').trim()
-                if (next === values.appliedBranch) {
-                    return
-                }
-                actions.setBranchFilter(next)
-                // An empty value already applies+loads via setBranchFilter's listener; a real branch needs the apply.
-                if (next !== '') {
-                    actions.setAppliedBranch(next)
-                }
-            }
             return {
                 [urls.engineeringAnalytics()]: (_, searchParams) => applySource(searchParams.source),
-                [urls.engineeringAnalyticsWorkflows()]: (_, searchParams) => {
-                    applySource(searchParams.source)
-                    applyBranchFromUrl(searchParams.q)
-                },
+                [urls.engineeringAnalyticsWorkflows()]: (_, searchParams) => applySource(searchParams.source),
             }
         }),
 

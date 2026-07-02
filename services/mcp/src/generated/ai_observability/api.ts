@@ -133,6 +133,10 @@ export const evaluationsCreateBodyConditionsItemRolloutPercentageDefault = 100
 export const evaluationsCreateBodyConditionsItemRolloutPercentageMin = 0
 export const evaluationsCreateBodyConditionsItemRolloutPercentageMax = 100
 
+export const evaluationsCreateBodyTargetConfigWindowSecondsDefault = 1800
+export const evaluationsCreateBodyTargetConfigWindowSecondsMin = 10
+export const evaluationsCreateBodyTargetConfigWindowSecondsMax = 7200
+
 export const evaluationsCreateBodyModelConfigurationOneModelMax = 100
 
 export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
@@ -217,6 +221,26 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads.'
         ),
+    target: zod
+        .enum(['generation', 'trace'])
+        .describe('* `generation` - Generation\n* `trace` - Trace')
+        .optional()
+        .describe(
+            "What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace.\n\n* `generation` - Generation\n* `trace` - Trace"
+        ),
+    target_config: zod
+        .object({
+            window_seconds: zod
+                .number()
+                .min(evaluationsCreateBodyTargetConfigWindowSecondsMin)
+                .max(evaluationsCreateBodyTargetConfigWindowSecondsMax)
+                .default(evaluationsCreateBodyTargetConfigWindowSecondsDefault)
+                .describe(
+                    "For 'trace' target: seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change trace runs already in flight."
+                ),
+        })
+        .optional()
+        .describe("Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'."),
     model_configuration: zod
         .union([
             zod
@@ -230,9 +254,10 @@ export const EvaluationsCreateBody = /* @__PURE__ */ zod.object({
                             'fireworks',
                             'azure_openai',
                             'together_ai',
+                            'minimax',
                         ])
                         .describe(
-                            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
+                            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI\n* `minimax` - MiniMax'
                         ),
                     model: zod.string().max(evaluationsCreateBodyModelConfigurationOneModelMax),
                     provider_key_id: zod
@@ -277,6 +302,10 @@ export const evaluationsPartialUpdateBodyConditionsItemIdMax = 100
 export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageDefault = 100
 export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMin = 0
 export const evaluationsPartialUpdateBodyConditionsItemRolloutPercentageMax = 100
+
+export const evaluationsPartialUpdateBodyTargetConfigWindowSecondsDefault = 1800
+export const evaluationsPartialUpdateBodyTargetConfigWindowSecondsMin = 10
+export const evaluationsPartialUpdateBodyTargetConfigWindowSecondsMax = 7200
 
 export const evaluationsPartialUpdateBodyModelConfigurationOneModelMax = 100
 
@@ -364,6 +393,26 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .describe(
             'Trigger conditions that filter which events are evaluated. OR between condition sets, AND within each. Each set is {id, rollout_percentage, properties[]} — `rollout_percentage` (0-100, defaults to 100) is the sampling field the dispatcher reads.'
         ),
+    target: zod
+        .enum(['generation', 'trace'])
+        .describe('* `generation` - Generation\n* `trace` - Trace')
+        .optional()
+        .describe(
+            "What the evaluation runs on. 'generation' evaluates each matching $ai_generation event individually. 'trace' evaluates the whole trace once: the first matching generation schedules a run that waits for the trace to settle, then evaluates all of its events together. Condition filters still match individual generations — a trace is evaluated when any of its generations matches, and sampling applies per trace.\n\n* `generation` - Generation\n* `trace` - Trace"
+        ),
+    target_config: zod
+        .object({
+            window_seconds: zod
+                .number()
+                .min(evaluationsPartialUpdateBodyTargetConfigWindowSecondsMin)
+                .max(evaluationsPartialUpdateBodyTargetConfigWindowSecondsMax)
+                .default(evaluationsPartialUpdateBodyTargetConfigWindowSecondsDefault)
+                .describe(
+                    "For 'trace' target: seconds to wait after the first matching generation before evaluating the whole trace. Captured when the run is scheduled — editing it does not change trace runs already in flight."
+                ),
+        })
+        .optional()
+        .describe("Target-specific config. For 'trace' target: {window_seconds}. Empty for 'generation'."),
     model_configuration: zod
         .union([
             zod
@@ -377,9 +426,10 @@ export const EvaluationsPartialUpdateBody = /* @__PURE__ */ zod.object({
                             'fireworks',
                             'azure_openai',
                             'together_ai',
+                            'minimax',
                         ])
                         .describe(
-                            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
+                            '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI\n* `minimax` - MiniMax'
                         ),
                     model: zod.string().max(evaluationsPartialUpdateBodyModelConfigurationOneModelMax),
                     provider_key_id: zod
@@ -928,7 +978,7 @@ export const LlmAnalyticsModelsRetrieveQueryParams = /* @__PURE__ */ zod.object(
             'Optional provider key UUID. When supplied, models reachable with that specific key are returned (useful for Azure OpenAI, where the deployment list depends on the configured endpoint). Must belong to the same provider as the `provider` parameter.'
         ),
     provider: zod
-        .enum(['anthropic', 'azure_openai', 'fireworks', 'gemini', 'openai', 'openrouter', 'together_ai'])
+        .enum(['anthropic', 'azure_openai', 'fireworks', 'gemini', 'minimax', 'openai', 'openrouter', 'together_ai'])
         .describe('LLM provider to list models for. Must be one of the supported providers.'),
 })
 
@@ -1784,12 +1834,21 @@ export const TaggersCreateBody = /* @__PURE__ */ zod.object({
         .union([
             zod.object({
                 provider: zod
-                    .enum(['openai', 'anthropic', 'gemini', 'openrouter', 'fireworks', 'azure_openai', 'together_ai'])
+                    .enum([
+                        'openai',
+                        'anthropic',
+                        'gemini',
+                        'openrouter',
+                        'fireworks',
+                        'azure_openai',
+                        'together_ai',
+                        'minimax',
+                    ])
                     .describe(
-                        '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
+                        '* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI\n* `minimax` - MiniMax'
                     )
                     .describe(
-                        'LLM provider to use for this tagger.\n\n* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI'
+                        'LLM provider to use for this tagger.\n\n* `openai` - Openai\n* `anthropic` - Anthropic\n* `gemini` - Gemini\n* `openrouter` - Openrouter\n* `fireworks` - Fireworks\n* `azure_openai` - Azure OpenAI\n* `together_ai` - Together AI\n* `minimax` - MiniMax'
                     ),
                 model: zod
                     .string()

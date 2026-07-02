@@ -58,13 +58,27 @@ describe('accountOpportunitiesLogic', () => {
         expect(queryMock).not.toHaveBeenCalled()
     })
 
-    it('degrades to a null result instead of throwing when the warehouse query fails', async () => {
+    it.each([
+        ['access is denied', "You don't have access to table `salesforce.opportunity`."],
+        ['the table is absent', 'Unknown table `salesforce.opportunity`.'],
+    ])('degrades to a null result without capturing the expected error when %s', async (_label, message) => {
         mockAccountsRetrieve.mockResolvedValue(buildAccount({ sfdc_id: 'sfdc-1' }))
-        jest.spyOn(api, 'query').mockRejectedValue(new Error('Unknown table salesforce.opportunity'))
+        jest.spyOn(api, 'query').mockRejectedValue(new Error(message))
 
         await mount()
 
         expect(logic.values.opportunitiesResult).toEqual({ sfdcId: 'sfdc-1', opportunities: null })
+        expect(posthog.captureException).not.toHaveBeenCalled()
+    })
+
+    it('still captures genuine, unexpected warehouse query failures', async () => {
+        mockAccountsRetrieve.mockResolvedValue(buildAccount({ sfdc_id: 'sfdc-1' }))
+        jest.spyOn(api, 'query').mockRejectedValue(new Error('Query exceeded memory limit'))
+
+        await mount()
+
+        expect(logic.values.opportunitiesResult).toEqual({ sfdcId: 'sfdc-1', opportunities: null })
+        expect(posthog.captureException).toHaveBeenCalledTimes(1)
     })
 
     it('maps warehouse rows to opportunities preserving column order and nulls', async () => {

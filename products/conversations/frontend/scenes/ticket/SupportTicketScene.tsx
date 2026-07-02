@@ -36,6 +36,7 @@ import { AIPanel } from './AIPanel'
 import { ExceptionsPanel } from './ExceptionsPanel'
 import { PreviousTicketsPanel } from './PreviousTicketsPanel'
 import { RecentEventsPanel } from './RecentEventsPanel'
+import { RelatedGroupsPanel } from './RelatedGroupsPanel'
 import { SessionRecordingPanel } from './SessionRecordingPanel'
 import { StaffActionsPanel } from './StaffActionsPanel'
 import { supportTicketSceneLogic } from './supportTicketSceneLogic'
@@ -60,6 +61,7 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
     const logic = supportTicketSceneLogic({ id: ticketId || 'new' })
     const {
         ticket,
+        person,
         ticketLoading,
         status,
         priority,
@@ -256,14 +258,6 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                                     </span>
                                 </div>
                             )}
-                            {ticket?.organization_id && (
-                                <div className="flex justify-between items-start gap-2">
-                                    <span className="text-muted-alt shrink-0">Organization</span>
-                                    <span className="text-xs truncate text-right" title={ticket.organization_id}>
-                                        {ticket.organization_id}
-                                    </span>
-                                </div>
-                            )}
                             {ticket?.channel_source === 'email' && ticket?.email_subject && (
                                 <div className="flex justify-between items-start gap-2">
                                     <span className="text-muted-alt shrink-0">Subject</span>
@@ -404,6 +398,11 @@ export function SupportTicketScene({ ticketId }: { ticketId: string }): JSX.Elem
                             </LemonButton>
                         </div>
                     </LemonCard>
+
+                    {/* Related Groups Panel */}
+                    {person?.uuid && (
+                        <RelatedGroupsPanel personUuid={person.uuid} organizationId={ticket?.organization_id} />
+                    )}
 
                     {/* Staff Actions Panel */}
                     {user?.is_staff && ticket && <StaffActionsPanel />}

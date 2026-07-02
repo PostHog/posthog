@@ -45,7 +45,7 @@ use crate::partitions::shuffle_message::ShuffleMessage;
 use crate::producer::MembershipSink;
 use crate::store::durability::OffsetManifest;
 use crate::store::CohortStore;
-use crate::workers::{MergeWorkerDeps, Stage1Worker};
+use crate::workers::{EventNameGating, MergeWorkerDeps, PersonMemoConfig, Stage1Worker};
 
 /// Back-off after a Kafka transport error so a fast-failing `recv()` can't spin a consume loop.
 pub(crate) const RECV_ERROR_BACKOFF: Duration = Duration::from_millis(500);
@@ -125,6 +125,10 @@ pub struct EventDispatcher {
     /// after boot. `OnceLock` is `Sync`; the only race (get sees `None` before set) resolves to
     /// "skip", so a boot partition is never wiped.
     boot_assignment: OnceLock<HashSet<i32>>,
+    /// Person-memo config for spawned workers, set once at startup. Unset → disabled.
+    person_memo: OnceLock<PersonMemoConfig>,
+    /// Event-name fan-out gating for spawned workers, set once at startup. Unset → disabled.
+    event_name_gating: OnceLock<EventNameGating>,
 }
 
 impl EventDispatcher {
@@ -148,6 +152,8 @@ impl EventDispatcher {
             draining: AtomicBool::new(false),
             durable_restore: AtomicBool::new(false),
             boot_assignment: OnceLock::new(),
+            person_memo: OnceLock::new(),
+            event_name_gating: OnceLock::new(),
         }
     }
 
@@ -158,6 +164,30 @@ impl EventDispatcher {
 
     pub fn durable_restore_enabled(&self) -> bool {
         self.durable_restore.load(Ordering::SeqCst)
+    }
+
+    /// Must be called before any worker spawns; later calls are ignored.
+    pub fn set_person_memo_config(&self, config: PersonMemoConfig) {
+        let _ = self.person_memo.set(config);
+    }
+
+    fn person_memo_config(&self) -> PersonMemoConfig {
+        self.person_memo
+            .get()
+            .copied()
+            .unwrap_or(PersonMemoConfig::DISABLED)
+    }
+
+    /// Must be called before any worker spawns; later calls are ignored.
+    pub fn set_event_name_gating(&self, gating: EventNameGating) {
+        let _ = self.event_name_gating.set(gating);
+    }
+
+    fn event_name_gating(&self) -> EventNameGating {
+        self.event_name_gating
+            .get()
+            .copied()
+            .unwrap_or(EventNameGating::Disabled)
     }
 
     pub(crate) fn store(&self) -> &CohortStore {
@@ -180,7 +210,7 @@ impl EventDispatcher {
                     consumed.partition,
                     consumed.offset,
                     ShuffleMessage::Event {
-                        event: consumed.event,
+                        event: Box::new(consumed.event),
                         cse_offset: consumed.offset,
                     },
                 )
@@ -323,7 +353,7 @@ impl EventDispatcher {
                 }
                 match self.router.add_partition(partition) {
                     Some(receiver) => {
-                        let worker = Stage1Worker::spawn(
+                        let worker = Stage1Worker::spawn_with_memo(
                             partition as u16,
                             receiver,
                             self.store.clone(),
@@ -332,6 +362,8 @@ impl EventDispatcher {
                             self.tracker.clone(),
                             self.merge.clone(),
                             self.durable_restore_enabled(),
+                            self.person_memo_config(),
+                            self.event_name_gating(),
                         );
                         slot.insert(worker);
                         counter!(COHORT_STREAM_WORKERS_SPAWNED).increment(1);
@@ -741,7 +773,9 @@ fn boot_assignment_settled(assignment: &HashSet<i32>, prev: &mut Option<HashSet<
 /// Uses a raw `StreamConsumer` with manual commit because the per-partition `OffsetTracker`
 /// commits a `TopicPartitionList` that the `common-kafka` wrapper can't express.
 pub struct CohortStreamEventsConsumer {
-    consumer: StreamConsumer<CohortConsumerContext>,
+    /// `Arc` so the commit task and consume loop share one consumer; rdkafka supports concurrent
+    /// `recv` and `commit`.
+    consumer: Arc<StreamConsumer<CohortConsumerContext>>,
     topic: String,
     dispatcher: Arc<EventDispatcher>,
     handle: Handle,
@@ -772,7 +806,7 @@ impl CohortStreamEventsConsumer {
         restore_manifest: Option<OffsetManifest>,
     ) -> Self {
         Self {
-            consumer,
+            consumer: Arc::new(consumer),
             topic,
             dispatcher,
             handle,
@@ -785,13 +819,23 @@ impl CohortStreamEventsConsumer {
         }
     }
 
-    /// Run until the lifecycle handle signals shutdown. Commit is deadline-driven, not a `select!`
-    /// arm, to avoid cancelling an in-flight `consume_batch` and dropping buffered events.
+    /// Run until the lifecycle handle signals shutdown.
+    ///
+    /// Offset commit runs on its own interval task so a CPU-saturated consume loop or worker backlog
+    /// can't block offset advancement; it shares the shutdown signal and is awaited before the final
+    /// synchronous commit. Liveness is reported inline from `handle_outcome`.
     pub async fn process(self) {
         let _guard = self.handle.process_scope();
         info!(topic = %self.topic, "cohort_stream_events consume loop starting");
 
-        let mut commit_deadline = tokio::time::Instant::now() + self.offset_commit_interval;
+        let commit_task = tokio::spawn(run_commit_loop(
+            self.consumer.clone(),
+            self.dispatcher.clone(),
+            self.topic.clone(),
+            self.offset_commit_interval,
+            self.handle.clone(),
+        ));
+
         // One-shot guards; each pre-marked done when its gate is off, keeping the non-durable path unchanged.
         let mut boot_sweep_done = !self.dispatcher.durable_restore_enabled();
         let mut eager_redrive_done = !self.dispatcher.durable_restore_enabled();
@@ -829,20 +873,13 @@ impl CohortStreamEventsConsumer {
                         continue;
                     }
                     self.handle_outcome(outcome).await;
-                    let now = tokio::time::Instant::now();
-                    if now >= commit_deadline {
-                        fsync_then_commit(
-                            self.dispatcher.store(),
-                            &self.consumer,
-                            self.dispatcher.tracker(),
-                            self.dispatcher.owned_committable_offsets(),
-                            &self.topic,
-                            CommitMode::Async,
-                        );
-                        commit_deadline = now + self.offset_commit_interval;
-                    }
                 }
             }
+        }
+
+        // Await the commit task before the final synchronous commit so the two don't race.
+        if let Err(err) = commit_task.await {
+            warn!(error = %err, "offset-commit task did not exit cleanly");
         }
 
         let tracker = self.dispatcher.shutdown().await;
@@ -1092,6 +1129,35 @@ pub(crate) fn fsync_then_commit<C: ConsumerContext>(
         return; // store counted the error; skip commit so `committed` never outruns `durable`
     }
     commit_offsets(consumer, tracker, offsets, topic, mode);
+}
+
+/// Flushes the store's WAL and commits the owned committable offsets on a fixed interval, independent
+/// of the consume loop so a stalled loop can't block offset advancement. Exits on shutdown.
+async fn run_commit_loop(
+    consumer: Arc<StreamConsumer<CohortConsumerContext>>,
+    dispatcher: Arc<EventDispatcher>,
+    topic: String,
+    interval: Duration,
+    handle: Handle,
+) {
+    let mut ticker = tokio::time::interval(interval);
+    ticker.set_missed_tick_behavior(tokio::time::MissedTickBehavior::Skip);
+    loop {
+        tokio::select! {
+            biased;
+            _ = handle.shutdown_recv() => break,
+            _ = ticker.tick() => {
+                fsync_then_commit(
+                    dispatcher.store(),
+                    &consumer,
+                    dispatcher.tracker(),
+                    dispatcher.owned_committable_offsets(),
+                    &topic,
+                    CommitMode::Async,
+                );
+            }
+        }
+    }
 }
 
 #[cfg(test)]

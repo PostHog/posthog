@@ -1,4 +1,3 @@
-import { S3Client, S3ClientConfig } from '@aws-sdk/client-s3'
 import { CODES, Message, TopicPartition, TopicPartitionOffset, features, librdkafkaVersion } from 'node-rdkafka'
 
 import { buildIntegerMatcher } from '~/common/config/config'
@@ -15,9 +14,10 @@ import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { IngestionConsumerConfig } from '~/ingestion/config'
-import { BatchPipelineUnwrapper } from '~/ingestion/framework/batch-pipeline-unwrapper'
+import { BatchPipeline } from '~/ingestion/framework/batch-pipeline.interface'
 import { TopHog } from '~/ingestion/framework/tophog/tophog'
 import {
+    SessionReplayPipelineConfig,
     SessionReplayPipelineInput,
     SessionReplayPipelineOutput,
     createSessionReplayPipeline,
@@ -27,9 +27,13 @@ import { getBlockEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/cr
 import { SessionFeatureStore } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { getKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore'
 import { MemoryCachedKeyStore } from '~/ingestion/pipelines/sessionreplay/shared/keystore/cache'
-import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
+import {
+    SessionMetadataSink,
+    SessionMetadataStore,
+} from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
 import { ReplayEventsOutput, SessionFeaturesOutput } from '~/ingestion/pipelines/sessionreplay/shared/outputs'
 import { RetentionService } from '~/ingestion/pipelines/sessionreplay/shared/retention/retention-service'
+import { buildSessionRecordingS3Client } from '~/ingestion/pipelines/sessionreplay/shared/s3-client'
 import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/team-service'
 import { KeyStore, RecordingEncryptor } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { HealthCheckResult, PluginServerService, RedisPool, ValueMatcher } from '~/types'
@@ -59,6 +63,28 @@ export type SessionRecordingIngesterConfig = SessionRecordingConfig &
         'INGESTION_PIPELINE' | 'INGESTION_LANE'
     >
 
+/** Builds the session replay pipeline for a deployment (default or ML mirror). */
+export type SessionReplayPipelineFactory = (
+    config: SessionReplayPipelineConfig
+) => BatchPipeline<
+    SessionReplayPipelineInput,
+    SessionReplayPipelineOutput,
+    { message: Message },
+    { message: Message },
+    OverflowOutput
+>
+
+/** Collaborators a deployment can inject to vary ingester behavior; anything omitted uses the primary default. */
+export interface SessionRecordingIngesterCollaborators {
+    fileStorage?: SessionBatchFileStorage
+    metadataStore?: SessionMetadataSink
+    consoleLogStore?: SessionConsoleLogStore
+    featureStore?: SessionFeatureStore
+    keyStore?: KeyStore
+    encryptor?: RecordingEncryptor
+    createPipeline?: SessionReplayPipelineFactory
+}
+
 export class SessionRecordingIngester {
     kafkaConsumer: KafkaConsumer
     topic: string
@@ -76,9 +102,10 @@ export class SessionRecordingIngester {
     private readonly eventIngestionRestrictionManagerComponent: EventIngestionRestrictionManagerComponent
     private eventIngestionRestrictionManager!: EventIngestionRestrictionManager
     private stopEventIngestionRestrictionManager?: () => Promise<void>
-    private sessionReplayPipeline!: BatchPipelineUnwrapper<
+    private sessionReplayPipeline!: BatchPipeline<
         SessionReplayPipelineInput,
         SessionReplayPipelineOutput,
+        { message: Message },
         { message: Message },
         OverflowOutput
     >
@@ -94,6 +121,7 @@ export class SessionRecordingIngester {
     private readonly topHog: TopHog
     private readonly keyStore: KeyStore
     private readonly encryptor: RecordingEncryptor
+    private readonly createPipeline: SessionReplayPipelineFactory
 
     constructor(
         private config: SessionRecordingIngesterConfig,
@@ -108,7 +136,8 @@ export class SessionRecordingIngester {
             | SessionFeaturesOutput
         >,
         redisPool: RedisPool,
-        restrictionRedisPool: RedisPool
+        restrictionRedisPool: RedisPool,
+        collaborators: SessionRecordingIngesterCollaborators = {}
     ) {
         this.topic = config.INGESTION_SESSION_REPLAY_CONSUMER_CONSUME_TOPIC
         this.consumerGroupId = config.INGESTION_SESSION_REPLAY_CONSUMER_GROUP_ID
@@ -128,28 +157,8 @@ export class SessionRecordingIngester {
         this.restrictionRedisPool = restrictionRedisPool
         this.outputs = outputs
 
-        let s3Client: S3Client | null = null
-        if (
-            config.SESSION_RECORDING_V2_S3_ENDPOINT &&
-            config.SESSION_RECORDING_V2_S3_REGION &&
-            config.SESSION_RECORDING_V2_S3_BUCKET &&
-            config.SESSION_RECORDING_V2_S3_PREFIX
-        ) {
-            const s3Config: S3ClientConfig = {
-                region: config.SESSION_RECORDING_V2_S3_REGION,
-                endpoint: config.SESSION_RECORDING_V2_S3_ENDPOINT,
-                forcePathStyle: true,
-            }
-
-            if (config.SESSION_RECORDING_V2_S3_ACCESS_KEY_ID && config.SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY) {
-                s3Config.credentials = {
-                    accessKeyId: config.SESSION_RECORDING_V2_S3_ACCESS_KEY_ID,
-                    secretAccessKey: config.SESSION_RECORDING_V2_S3_SECRET_ACCESS_KEY,
-                }
-            }
-
-            s3Client = new S3Client(s3Config)
-        }
+        // Only needed to build the default file storage; skip it when storage is injected.
+        const s3Client = collaborators.fileStorage ? null : buildSessionRecordingS3Client(config)
 
         this.topHog = new TopHog({
             outputs,
@@ -167,20 +176,27 @@ export class SessionRecordingIngester {
         const retentionService = new RetentionService(this.redisPool, this.teamService)
 
         const offsetManager = new KafkaOffsetManager(this.commitOffsets.bind(this), this.topic)
-        const metadataStore = new SessionMetadataStore(outputs)
-        const consoleLogStore = new SessionConsoleLogStore(outputs, {
-            messageLimit: this.config.SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT,
-        })
-        const featureStore = new SessionFeatureStore(outputs, this.config.SESSION_RECORDING_FEATURES_ENABLED)
-        this.fileStorage = s3Client
-            ? new RetentionAwareStorage(
-                  s3Client,
-                  this.config.SESSION_RECORDING_V2_S3_BUCKET,
-                  this.config.SESSION_RECORDING_V2_S3_PREFIX,
-                  this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS,
-                  retentionService
-              )
-            : new BlackholeSessionBatchFileStorage()
+        this.createPipeline = collaborators.createPipeline ?? createSessionReplayPipeline
+        const metadataStore = collaborators.metadataStore ?? new SessionMetadataStore(outputs)
+        const consoleLogStore =
+            collaborators.consoleLogStore ??
+            new SessionConsoleLogStore(outputs, {
+                messageLimit: this.config.SESSION_RECORDING_V2_CONSOLE_LOG_STORE_SYNC_BATCH_LIMIT,
+            })
+        const featureStore =
+            collaborators.featureStore ??
+            new SessionFeatureStore(outputs, this.config.SESSION_RECORDING_FEATURES_ENABLED)
+        this.fileStorage =
+            collaborators.fileStorage ??
+            (s3Client
+                ? new RetentionAwareStorage(
+                      s3Client,
+                      this.config.SESSION_RECORDING_V2_S3_BUCKET,
+                      this.config.SESSION_RECORDING_V2_S3_PREFIX,
+                      this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS,
+                      retentionService
+                  )
+                : new BlackholeSessionBatchFileStorage())
 
         const sessionTracker = new SessionTracker(
             this.redisPool,
@@ -196,12 +212,15 @@ export class SessionRecordingIngester {
         })
 
         const region = config.SESSION_RECORDING_V2_S3_REGION ?? 'us-east-1'
-        const keyStore = getKeyStore(retentionService, region, {
-            kmsEndpoint: config.SESSION_RECORDING_KMS_ENDPOINT,
-            dynamoDBEndpoint: config.SESSION_RECORDING_DYNAMODB_ENDPOINT,
-        })
-        this.keyStore = new MemoryCachedKeyStore(keyStore)
-        this.encryptor = getBlockEncryptor(this.keyStore)
+        this.keyStore =
+            collaborators.keyStore ??
+            new MemoryCachedKeyStore(
+                getKeyStore(retentionService, region, {
+                    kmsEndpoint: config.SESSION_RECORDING_KMS_ENDPOINT,
+                    dynamoDBEndpoint: config.SESSION_RECORDING_DYNAMODB_ENDPOINT,
+                })
+            )
+        this.encryptor = collaborators.encryptor ?? getBlockEncryptor(this.keyStore)
 
         this.sessionBatchManager = new SessionBatchManager({
             maxBatchSizeBytes: this.config.SESSION_RECORDING_MAX_BATCH_SIZE_KB * 1024,
@@ -259,13 +278,21 @@ export class SessionRecordingIngester {
         SessionRecordingIngesterMetrics.observeKafkaBatchSizeKb(batchSizeKb)
 
         // Run messages through the pipeline (handles restrictions, parsing, team filtering, and recording)
-        await instrumentFn(`recordingingesterv2.handleEachBatch.runPipeline`, async () =>
+        // and track the highest offset reached per partition — the single place Kafka progress is tracked.
+        const offsets = await instrumentFn(`recordingingesterv2.handleEachBatch.runPipeline`, async () =>
             runSessionReplayPipeline(this.sessionReplayPipeline, messages)
         )
+        this.sessionBatchManager.trackProcessedOffsets(offsets)
 
         this.kafkaConsumer.heartbeat()
 
         if (this.sessionBatchManager.shouldFlush()) {
+            // The pipeline schedules its side effects (DLQ and overflow produces) fire-and-forget on
+            // the promise scheduler. Drain them before flushing so we never commit a message's offset
+            // before its produce is durable — otherwise a crash in that window would lose it.
+            await instrumentFn(`recordingingesterv2.handleEachBatch.flush.awaitSideEffects`, async () => {
+                await this.promiseScheduler.waitForAllSettled()
+            })
             await instrumentFn(`recordingingesterv2.handleEachBatch.flush`, async () =>
                 this.sessionBatchManager.flush()
             )
@@ -284,7 +311,7 @@ export class SessionRecordingIngester {
         this.eventIngestionRestrictionManager = started.value
         this.stopEventIngestionRestrictionManager = started.stop
 
-        this.sessionReplayPipeline = createSessionReplayPipeline({
+        this.sessionReplayPipeline = this.createPipeline({
             outputs: this.outputs,
             eventIngestionRestrictionManager: this.eventIngestionRestrictionManager,
             overflowEnabled: this.overflowEnabled(),

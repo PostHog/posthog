@@ -12,6 +12,7 @@ import { PullRequestTable } from '../components/PullRequestTable'
 import { formatCost, formatMinutes } from '../components/runTables'
 import { StatTile } from '../components/StatTile'
 import { AuthorLogicProps, authorLogic } from './authorLogic'
+import { SHARED_DEFAULT_DATE_FROM, engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 
 // date_from only (the list floors on it); "all time" / week+month snaps are out. All options are within
 // the list's load window so the tile scope is always a subset of the visible PRs.
@@ -31,9 +32,10 @@ export const scene: SceneExport<AuthorLogicProps> = {
 }
 
 export function EngineeringAnalyticsAuthorScene(): JSX.Element {
-    const { handle, prs, prsLoading, dateFrom, windowedRows, totalCostUsd, totalBillableMinutes, sourceId } =
+    const { handle, prs, prsLoading, windowedRows, totalCostUsd, totalBillableMinutes, sourceId } =
         useValues(authorLogic)
-    const { setDateFrom } = useActions(authorLogic)
+    const { dateFrom, dateTo } = useValues(engineeringAnalyticsFiltersLogic)
+    const { setDateRange } = useActions(engineeringAnalyticsFiltersLogic)
 
     return (
         <SceneContent>
@@ -46,7 +48,8 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                         <span className="text-xs text-tertiary">for PRs opened in</span>
                         <DateFilter
                             dateFrom={dateFrom}
-                            onChange={(from) => setDateFrom(from ?? '-30d')}
+                            dateTo={dateTo}
+                            onChange={(from, to) => setDateRange(from ?? SHARED_DEFAULT_DATE_FROM, to ?? null)}
                             dateOptions={AUTHOR_DATE_OPTIONS}
                             size="small"
                         />
@@ -65,7 +68,7 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                         <StatTile
                             label="Estimated CI cost"
                             value={formatCost(totalCostUsd)}
-                            sub="self-hosted runners only"
+                            sub="self-hosted runners; excludes still-running jobs"
                         />
                     </div>
                 </div>

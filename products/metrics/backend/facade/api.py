@@ -13,6 +13,7 @@ from posthog.models import Team
 from products.metrics.backend.anomaly import characterize_anomaly as _characterize_anomaly
 from products.metrics.backend.facade.contracts import (
     MetricAnomalyReport,
+    MetricEventSample,
     MetricFilter,
     MetricPoint,
     MetricQueryClause,
@@ -22,6 +23,7 @@ from products.metrics.backend.facade.contracts import (
 from products.metrics.backend.facade.enums import MetricAggregation
 from products.metrics.backend.formula import evaluate, parse_formula
 from products.metrics.backend.has_metrics_query_runner import team_has_metrics as _team_has_metrics
+from products.metrics.backend.metric_event_samples_query_runner import MetricEventSamplesQueryRunner
 from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner
 from products.metrics.backend.metric_query_runner import MetricQueryRunner
 
@@ -195,6 +197,35 @@ def list_metric_names(
     """
     runner = MetricNamesQueryRunner(team=team, search=search, limit=limit)
     return runner.run()
+
+
+def list_metric_event_samples(
+    *,
+    team: Team,
+    metric_name: str,
+    date_from: dt.datetime,
+    date_to: dt.datetime,
+    trace_id: str | None = None,
+    limit: int = 100,
+) -> list[MetricEventSample]:
+    """List individual metric emissions (the events model) for a metric,
+    newest first.
+
+    Each sample carries its value, attributes, and trace linkage, so the
+    Samples view can render raw rows and pivot to the trace behind any one.
+    Pass `trace_id` for the reverse pivot — every emission on a given trace.
+    Raises `ValueError` for an empty metric name, an inverted window, or an
+    out-of-range limit; the presentation layer surfaces these as 400s.
+    """
+    runner = MetricEventSamplesQueryRunner(
+        team=team,
+        metric_name=metric_name,
+        date_from=date_from,
+        date_to=date_to,
+        trace_id=trace_id,
+        limit=limit,
+    )
+    return [MetricEventSample(**row) for row in runner.run()]
 
 
 def characterize_metric_anomaly(

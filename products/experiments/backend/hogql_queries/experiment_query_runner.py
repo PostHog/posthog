@@ -135,12 +135,18 @@ class ExperimentQueryRunner(QueryRunner):
         user_facing: bool = True,
         max_execution_time: Optional[int] = None,
         bypass_warehouse_access_control: bool = False,
+        error_event_context: Optional[str] = "ui",
         **kwargs,
     ):
         super().__init__(*args, **kwargs)
         self.user_facing = user_facing
         self.max_execution_time = max_execution_time if max_execution_time is not None else MAX_EXECUTION_TIME
         self.bypass_warehouse_access_control = bypass_warehouse_access_control
+        # Tags the terminal `experiment metric error` event with where the load came from. Defaults to "ui"
+        # because the generic /query API path constructs runners without kwargs; internal callers that own
+        # their own retries/telemetry (recalc, warming, canary, backfills) must pass None or user_facing=False
+        # so the error boundary stays silent for them. See error_handling._emit_runner_terminal_error_event.
+        self.error_event_context = error_event_context
 
         if not self.query.experiment_id:
             raise ValidationError("experiment_id is required")
@@ -313,6 +319,23 @@ class ExperimentQueryRunner(QueryRunner):
             self.experiment.end_date,
         )
 
+    def _precompute_skip_reason(self) -> Optional[str]:
+        """Why precompute was not used, for the query-performance UI. None when it was attempted."""
+        if self.query.precomputation_mode == PrecomputationMode.PRECOMPUTED:
+            return None
+        if self.query.precomputation_mode == PrecomputationMode.DIRECT:
+            return "override_direct"
+        if not self._team_experiments_config.experiment_precomputation_enabled:
+            return "team_disabled"
+        if not experiment_has_min_runtime_for_precomputation(
+            self.experiment.start_date,
+            self.experiment.end_date,
+        ):
+            return "min_runtime"
+        if self.is_data_warehouse_query:
+            return "data_warehouse"
+        return None  # precompute was attempted; a direct path means the build failed / wasn't ready
+
     def _metric_events_precompute_applicable(self) -> bool:
         """Metric-events precompute only supports ordered funnels without breakdowns, CUPED, or data warehouse."""
         return (
@@ -322,14 +345,6 @@ class ExperimentQueryRunner(QueryRunner):
             and not self.cuped_config.enabled
             and not self.is_data_warehouse_query
         )
-
-    def _resolve_funnel_steps_data_disabled(self) -> bool:
-        """Resolve funnel_steps_data_disabled: experiment parameter > team config."""
-        parameters = self.experiment.parameters or {}
-        if "funnel_steps_data_disabled" in parameters:
-            return bool(parameters["funnel_steps_data_disabled"])
-
-        return self._team_experiments_config.funnel_steps_data_disabled
 
     def _get_experiment_query(self) -> ast.SelectQuery:
         """
@@ -347,10 +362,6 @@ class ExperimentQueryRunner(QueryRunner):
             filter_test_accounts,
         ) = get_exposure_config_params_for_builder(self.experiment.exposure_criteria)
 
-        funnel_steps_data_disabled = (
-            self._resolve_funnel_steps_data_disabled() if isinstance(self.metric, ExperimentFunnelMetric) else False
-        )
-
         builder = ExperimentQueryBuilder(
             team=self.team,
             feature_flag_key=self.feature_flag_key,
@@ -363,7 +374,6 @@ class ExperimentQueryRunner(QueryRunner):
             metric=self.metric,
             breakdowns=self._get_breakdowns_for_builder(),
             only_count_matured_users=self.experiment.only_count_matured_users,
-            funnel_steps_data_disabled=funnel_steps_data_disabled,
             cuped_config=self.cuped_config,
         )
 
@@ -464,8 +474,16 @@ class ExperimentQueryRunner(QueryRunner):
             experiment_exposures_path=exposures_path,
             experiment_metric_events_path=metric_events_path,
             experiment_execution_path=exposures_path,
+            experiment_precompute_skip_reason=self._precompute_skip_reason(),
+            experiment_scan_date_from=self.date_range.date_from,
+            experiment_scan_date_to=self.date_range.date_to,
         )
-        experiment_query_debug = get_experiment_query_debug(experiment_query_ast, self.team)
+        experiment_query_debug = get_experiment_query_debug(
+            experiment_query_ast,
+            self.team,
+            user=self.user,
+            bypass_warehouse_access_control=self.bypass_warehouse_access_control,
+        )
         self.hogql = experiment_query_debug[0]
         self.clickhouse_sql = experiment_query_debug[1]
 

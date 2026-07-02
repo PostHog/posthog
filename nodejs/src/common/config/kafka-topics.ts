@@ -36,6 +36,9 @@ export const KAFKA_CLICKHOUSE_SESSION_RECORDING_EVENTS = `${prefix}clickhouse_se
 export const KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS = `${prefix}clickhouse_session_replay_events${suffix}`
 export const KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES = `${prefix}clickhouse_session_replay_features${suffix}`
 
+// anonymized block metadata mirrored to the ML account (consumed by the Parquet sink, not ClickHouse)
+export const KAFKA_SESSION_REPLAY_ML_BLOCK_METADATA = `${prefix}session_replay_ml_block_metadata${suffix}`
+
 // write performance events to ClickHouse
 export const KAFKA_PERFORMANCE_EVENTS = `${prefix}clickhouse_performance_events${suffix}`
 // write heatmap events to ClickHouse

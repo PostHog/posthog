@@ -144,7 +144,7 @@ export const getDisplayNameFromEntityNode = (
           ? node.event
           : isGroupNode(node)
             ? undefined
-            : node.id
+            : node?.id
 
     // Return custom name. If that doesn't exist then the name, then the id, then just null.
     return (isCustom ? customName : null) ?? name ?? (id ? `${id}` : null)

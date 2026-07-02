@@ -18,6 +18,42 @@ import { cn } from 'lib/utils/css-classes'
 /** Within this many px of the bottom still counts as "pinned" — absorbs iOS momentum/rubber-band jitter. */
 const BOTTOM_THRESHOLD = 32
 
+/**
+ * At or within this many px of the bottom counts as "already there", so `maybeStickToBottom` skips re-issuing
+ * a scroll — doing so at the final position cancels macOS's native overscroll bounce and reads as a shake.
+ * Kept tiny (a scroll snaps exactly to the bottom, so a resting reader is at distance 0); just wide enough to
+ * absorb fractional-pixel scroll positions. Growth past this still re-pins to the true bottom.
+ */
+const AT_BOTTOM_EPSILON = 2
+
+/**
+ * Frames the initial settle-to-bottom keeps re-issuing the scroll. With variable row heights a single
+ * scroll on first content lands short (rows below the fold are estimated until rendered + measured), so a
+ * freshly refreshed/opened thread needs a few correction frames to reach the true bottom. Bounded so a
+ * never-settling layout can't loop forever.
+ */
+const MAX_INITIAL_SCROLL_FRAMES = 30
+
+/**
+ * Re-issue an initial scroll across frames until its `measure` (bottom → `scrollHeight`, top-pinned row →
+ * `scrollTop`) holds steady — dynamic row heights land the first pass short. Bounded by
+ * `MAX_INITIAL_SCROLL_FRAMES`; returns a cleanup that cancels the pending frame.
+ */
+function settleInitialScroll(scrollAction: () => void, measure: () => number): () => void {
+    let frame = 0
+    let lastMeasure = -1
+    let raf = requestAnimationFrame(function settle(): void {
+        scrollAction()
+        frame += 1
+        const measured = measure()
+        if (measured !== lastMeasure && frame < MAX_INITIAL_SCROLL_FRAMES) {
+            lastMeasure = measured
+            raf = requestAnimationFrame(settle)
+        }
+    })
+    return () => cancelAnimationFrame(raf)
+}
+
 const EMPTY_STYLE: CSSProperties = {}
 const EMPTY_ARIA: Record<string, unknown> = {}
 
@@ -64,6 +100,13 @@ export interface VirtualizedThreadRootProps<T> {
     overscanCount?: number
     /** Follow the bottom as rows grow/append; unpins when the user scrolls up. */
     stickToBottom?: boolean
+    /**
+     * Item index (0-based within `items`) to align to the top of the viewport on the initial open,
+     * instead of scrolling to the bottom — e.g. open a task thread at its last user message. The thread
+     * is left unpinned so stick-to-bottom doesn't immediately pull it back down. `null`/omitted keeps the
+     * default open-at-bottom behavior. Consumed once, on first content; later changes are ignored.
+     */
+    initialTopItemIndex?: number | null
     maxWidthClassName?: string
     className?: string
     /**
@@ -91,6 +134,7 @@ function Root<T>({
     defaultRowHeight = 56,
     overscanCount = 10,
     stickToBottom = true,
+    initialTopItemIndex = null,
     maxWidthClassName = 'max-w-180',
     className,
     listClassName,
@@ -108,6 +152,7 @@ function Root<T>({
     const rowCount = items.length + (hasHeader ? 1 : 0) + (hasFooter ? 1 : 0)
 
     const pinnedRef = useRef(stickToBottom)
+    const didInitialScrollRef = useRef(false)
 
     const renderRow = useCallback(
         (index: number): ReactNode => {
@@ -127,10 +172,42 @@ function Root<T>({
     )
 
     const scrollToBottom = useCallback((): void => {
-        if (rowCount > 0) {
-            listRef.current?.scrollToRow({ index: rowCount - 1, align: 'end' })
+        if (rowCount === 0) {
+            return
+        }
+        listRef.current?.scrollToRow({ index: rowCount - 1, align: 'end' })
+        // `scrollToRow` lands a hair short with dynamic row heights, leaving the last line a few px out of
+        // view; snap to the exact maximum (the browser clamps `scrollTop` to its valid range).
+        const el = listRef.current?.element
+        if (el) {
+            el.scrollTop = el.scrollHeight
         }
     }, [listRef, rowCount])
+
+    // Align a given item's row to the top of the viewport (used for the initial open-at-last-user-message).
+    // Header rows shift the item into row-index space, which is what react-window's `scrollToRow` expects.
+    const scrollItemToTop = useCallback(
+        (itemIndex: number): void => {
+            listRef.current?.scrollToRow({ index: itemIndex + (hasHeader ? 1 : 0), align: 'start' })
+        },
+        [listRef, hasHeader]
+    )
+
+    // Re-assert the bottom only when content has pushed it out of view (streaming growth, measurement
+    // settle, initial open) — so the open scroll converges to the true bottom as rows are measured, while
+    // a user resting at the final position is left alone. Skipping when already there is what stops the
+    // re-issued scroll from cancelling macOS's native overscroll bounce (the "shake"). No element yet (the
+    // first pass before mount) ⇒ scroll unconditionally.
+    const maybeStickToBottom = useCallback((): void => {
+        if (!stickToBottom || !pinnedRef.current) {
+            return
+        }
+        const el = listRef.current?.element
+        if (el && el.scrollHeight - el.scrollTop - el.clientHeight <= AT_BOTTOM_EPSILON) {
+            return
+        }
+        scrollToBottom()
+    }, [stickToBottom, scrollToBottom, listRef])
 
     const handleScroll = useCallback(
         (event: UIEvent<HTMLDivElement>): void => {
@@ -144,26 +221,60 @@ function Root<T>({
     )
 
     const handleRowsRendered = useCallback((): void => {
-        // Re-assert while pinned so a growing last row (streaming) keeps the bottom in view.
-        if (stickToBottom && pinnedRef.current) {
-            scrollToBottom()
-        }
-    }, [stickToBottom, scrollToBottom])
+        maybeStickToBottom()
+    }, [maybeStickToBottom])
 
-    // Scroll on append / last-item change while pinned — and as dynamic measurements settle. Pinned by
-    // default, so this also scrolls to the bottom on open. The first scroll fires before rows are measured
-    // (they start at `defaultRowHeight`) and lands short; depending on the measured average row height
-    // re-fires it as ResizeObserver grows the rows, so it settles at the true bottom. The same signal keeps
-    // a streaming last row pinned as it grows.
+    // Re-pin as content appends/streams and as dynamic measurements settle — gated by `maybeStickToBottom`
+    // so it scrolls only while the bottom is out of view. Pinned by default, so this also scrolls to the
+    // bottom on open: the first pass fires before rows are measured (they start at `defaultRowHeight`) and
+    // lands short, then re-fires as ResizeObserver grows the rows until it settles at the true bottom.
     const lastKey = items.length > 0 ? getItemKey(items[items.length - 1], items.length - 1) : null
     const measuredAverageHeight = dynamicRowHeight.getAverageRowHeight()
     useEffect(() => {
         if (!virtualized || !stickToBottom || !pinnedRef.current) {
             return
         }
-        const raf = requestAnimationFrame(scrollToBottom)
+        const raf = requestAnimationFrame(maybeStickToBottom)
         return () => cancelAnimationFrame(raf)
-    }, [virtualized, stickToBottom, scrollToBottom, rowCount, lastKey, measuredAverageHeight])
+    }, [virtualized, stickToBottom, maybeStickToBottom, rowCount, lastKey, measuredAverageHeight])
+
+    // First content (open / hard refresh): drive the scroll to the true bottom across a few frames. The
+    // per-dep effect above fires too few times as the list mounts and rows measure, so a single pass lands
+    // short of the last messages. Re-pin first so a stray load-time scroll event can't leave it unpinned,
+    // then re-issue until actually at the bottom (or the frame budget runs out). Runs once; streaming
+    // growth afterwards is the per-dep effect's job.
+    useEffect(() => {
+        if (!virtualized || !stickToBottom || didInitialScrollRef.current || rowCount === 0) {
+            return
+        }
+        didInitialScrollRef.current = true
+
+        // Open at the top of a specific item (the task thread's last user message) rather than the bottom.
+        // Leave the thread unpinned so the per-dep stick-to-bottom effect (and its already-queued
+        // `maybeStickToBottom`, which re-reads `pinnedRef` at frame time) bails instead of yanking it down.
+        const topTarget =
+            initialTopItemIndex != null && initialTopItemIndex >= 0 && initialTopItemIndex < items.length
+                ? initialTopItemIndex
+                : null
+        if (topTarget !== null) {
+            pinnedRef.current = false
+            return settleInitialScroll(
+                () => scrollItemToTop(topTarget),
+                () => listRef.current?.element?.scrollTop ?? 0
+            )
+        }
+        pinnedRef.current = true
+        return settleInitialScroll(scrollToBottom, () => listRef.current?.element?.scrollHeight ?? 0)
+    }, [
+        virtualized,
+        stickToBottom,
+        rowCount,
+        scrollToBottom,
+        scrollItemToTop,
+        initialTopItemIndex,
+        items.length,
+        listRef,
+    ])
 
     // Mobile Safari: the soft keyboard shrinks the visual (not layout) viewport, so a pinned bottom can
     // slip behind it. Re-assert on visualViewport changes.

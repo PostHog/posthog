@@ -65,6 +65,8 @@
         "@microlink/react-json-view": "^1.31.18",
         "@microsoft/fetch-event-source": "^2.0.1",
         "@monaco-editor/react": "4.7.0",
+        "@pierre/diffs": "1.2.11",
+        "@posthog/brand": "catalog:",
         "@posthog/docs-onboarding": "workspace:*",
         "@posthog/esbuilder": "workspace:*",
         "@posthog/hedgehog-mode": "^0.0.52",

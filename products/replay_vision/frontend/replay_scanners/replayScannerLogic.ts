@@ -1,7 +1,8 @@
 import equal from 'fast-deep-equal'
 import { actions, afterMount, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
-import { actionToUrl, router, urlToAction } from 'kea-router'
+import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
+import { CombinedLocation } from 'kea-router/lib/utils'
 
 import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -18,8 +19,14 @@ import {
     visionScannersObserveCreate,
     visionScannersPartialUpdate,
     visionScannersRetrieve,
+    visionScannersSuggestTagsCreate,
 } from '../generated/api'
-import type { EstimateResponseApi, ObservationStatsApi, ReplayObservationApi } from '../generated/api.schemas'
+import type {
+    EstimateResponseApi,
+    ObservationStatsApi,
+    ReplayObservationApi,
+    TagSuggestionApi,
+} from '../generated/api.schemas'
 import { scheduleObservationPoll } from '../logics/observationPolling'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import type { replayScannerLogicType } from './replayScannerLogicType'
@@ -220,7 +227,14 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         loadScannerFailure: true,
         setScannerType: (scannerType: ScannerType) => ({ scannerType }),
         setSubmitIntent: (intent: 'save' | 'advance') => ({ intent }),
-        loadObservations: true,
+        appendClassifierTags: (tags: string[]) => ({ tags }),
+        loadTagSuggestions: true,
+        loadTagSuggestionsSuccess: (suggestions: TagSuggestionApi[]) => ({ suggestions }),
+        loadTagSuggestionsFailure: true,
+        acceptTagSuggestion: (tag: string) => ({ tag }),
+        acceptAllTagSuggestions: true,
+        dismissTagSuggestions: true,
+        loadObservations: (background = false) => ({ background }),
         loadObservationsSuccess: (observations: ReplayObservationApi[], total: number) => ({ observations, total }),
         loadObservationsFailure: true,
         setObservationsPage: (page: number) => ({ page }),
@@ -388,6 +402,25 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 loadScannerSuccess: () => 'save' as 'save' | 'advance',
             },
         ],
+        tagSuggestions: [
+            [] as TagSuggestionApi[],
+            {
+                loadTagSuggestions: () => [],
+                loadTagSuggestionsSuccess: (_, { suggestions }) => suggestions,
+                loadTagSuggestionsFailure: () => [],
+                // Accepted suggestions leave the panel; the listener adds them to the vocabulary.
+                acceptTagSuggestion: (state, { tag }) => state.filter((s) => s.tag !== tag),
+                dismissTagSuggestions: () => [],
+            },
+        ],
+        tagSuggestionsLoading: [
+            false,
+            {
+                loadTagSuggestions: () => true,
+                loadTagSuggestionsSuccess: () => false,
+                loadTagSuggestionsFailure: () => false,
+            },
+        ],
         observations: [
             [] as ReplayObservationApi[],
             {
@@ -425,7 +458,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         observationsLoading: [
             false,
             {
-                loadObservations: () => true,
+                // Background polls reload silently so the table stays interactable; only foreground
+                // loads (initial paint, manual refresh, filter/sort/pagination) show the overlay.
+                loadObservations: (state, { background }) => (background ? state : true),
                 loadObservationsSuccess: () => false,
                 loadObservationsFailure: () => false,
             },
@@ -640,8 +675,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
     }),
 
     listeners(({ actions, props, values, cache }) => {
-        const reloadObservationsAndStats = (): void => {
-            actions.loadObservations()
+        const reloadObservationsAndStats = (background = false): void => {
+            actions.loadObservations(background)
             actions.loadObservationStats()
         }
         return {
@@ -696,6 +731,57 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 } as ReplayScanner)
             },
 
+            // Merge AI-suggested tags into the vocabulary: keep existing tags, append new ones, dedupe case-insensitively.
+            appendClassifierTags: ({ tags }) => {
+                const scanner = values.scanner
+                if (!scanner || scanner.scanner_type !== 'classifier') {
+                    return
+                }
+                // Keep existing tags, append new ones, dedupe case-insensitively (existing tags win).
+                const existing = scanner.scanner_config.tags ?? []
+                const seen = new Set(existing.map((t) => t.toLowerCase()))
+                const merged = [...existing]
+                for (const tag of tags) {
+                    const trimmed = tag.trim()
+                    if (trimmed && !seen.has(trimmed.toLowerCase())) {
+                        seen.add(trimmed.toLowerCase())
+                        merged.push(trimmed)
+                    }
+                }
+                if (merged.length !== existing.length) {
+                    actions.setScannerValue(['scanner_config', 'tags'], merged)
+                }
+            },
+
+            loadTagSuggestions: async () => {
+                const teamId = teamLogic.values.currentTeamId
+                const scanner = values.scanner
+                if (!teamId || !scanner || scanner.scanner_type !== 'classifier') {
+                    actions.loadTagSuggestionsFailure()
+                    return
+                }
+                const config = scanner.scanner_config
+                try {
+                    const response = await visionScannersSuggestTagsCreate(String(teamId), {
+                        prompt: config.prompt ?? '',
+                        tags: config.tags ?? [],
+                        multi_label: config.multi_label ?? true,
+                        allow_freeform_tags: config.allow_freeform_tags ?? false,
+                        scanner_id: props.id !== 'new' ? props.id : undefined,
+                    })
+                    actions.loadTagSuggestionsSuccess(response.suggestions ?? [])
+                } catch (error: any) {
+                    lemonToast.error(`Couldn't generate suggestions${error?.detail ? `: ${error.detail}` : ''}`)
+                    actions.loadTagSuggestionsFailure()
+                }
+            },
+            acceptTagSuggestion: ({ tag }) => actions.appendClassifierTags([tag]),
+            acceptAllTagSuggestions: () => {
+                // Read the suggestions before dismiss clears them.
+                actions.appendClassifierTags(values.tagSuggestions.map((s) => s.tag))
+                actions.dismissTagSuggestions()
+            },
+
             // kea-forms fires setScannerValue(s) on every field change. Debounce the estimate so slider drags
             // and rapid filter edits don't fire one request per tick.
             setScannerValue: () => actions.requestScannerEstimate(),
@@ -725,6 +811,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     const response = await visionScannersEstimateCreate(String(teamId), {
                         query: scanner.query ?? undefined,
                         sampling_rate: scanner.sampling_rate,
+                        // Exclude the edited scanner from the others-sum so the forecast doesn't double-count it.
+                        scanner_id: props.id !== 'new' ? props.id : null,
                     })
                     breakpoint()
                     if (values.estimateRequestVersion !== version) {
@@ -885,7 +973,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 scheduleObservationPoll(
                     cache.disposables,
                     values.hasObservationsInFlight || Date.now() < values.pollUntil,
-                    reloadObservationsAndStats
+                    () => reloadObservationsAndStats(true)
                 )
             },
             // Reschedule on failure too — a transient API hiccup shouldn't permanently kill the polling cycle.
@@ -893,7 +981,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 scheduleObservationPoll(
                     cache.disposables,
                     values.hasObservationsInFlight || Date.now() < values.pollUntil,
-                    reloadObservationsAndStats
+                    () => reloadObservationsAndStats(true)
                 )
             },
         }
@@ -965,6 +1053,23 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         },
     })),
 
+    beforeUnload(({ values, actions, props }) => ({
+        enabled: (newLocation?: CombinedLocation) =>
+            shouldGuardScannerNavigation({
+                hasUnsavedChanges: values.hasUnsavedChanges,
+                isSubmitting: values.isScannerSubmitting,
+                scannerId: props.id,
+                currentPathname: router.values.location.pathname,
+                nextPathname: newLocation?.pathname,
+            }),
+        message: 'Leave scanner editor?\nChanges you made will be discarded.',
+        onConfirm: () => {
+            if (values.originalScanner) {
+                actions.resetScanner(values.originalScanner)
+            }
+        },
+    })),
+
     afterMount(({ actions, props }) => {
         actions.loadScanner()
         if (props.id !== 'new') {
@@ -975,6 +1080,42 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
 ])
 
 const TABLE_URL_PARAM_KEYS = ['page', 'sort', 'status', 'triggered_by', 'verdict', 'tags', 'recording_subject'] as const
+
+/** The three step URLs of a scanner's editor wizard. */
+function scannerEditorPaths(scannerId: string): string[] {
+    return [
+        urls.replayVisionScannerTemplate(scannerId),
+        urls.replayVisionScannerConfigure(scannerId),
+        urls.replayVisionScannerTriggers(scannerId),
+    ]
+}
+
+/**
+ * Whether leaving the current location should warn about losing unsaved scanner edits.
+ * Only guards while actually inside this scanner's editor, and stays quiet for the
+ * navigation the editor triggers itself: moving between its own steps, and the
+ * programmatic redirect that a save/advance fires while submitting.
+ */
+export function shouldGuardScannerNavigation(params: {
+    hasUnsavedChanges: boolean
+    isSubmitting: boolean
+    scannerId: string
+    currentPathname: string
+    nextPathname?: string
+}): boolean {
+    const { hasUnsavedChanges, isSubmitting, scannerId, currentPathname, nextPathname } = params
+    if (!hasUnsavedChanges || isSubmitting) {
+        return false
+    }
+    const editorPaths = scannerEditorPaths(scannerId)
+    if (!editorPaths.includes(currentPathname)) {
+        return false
+    }
+    if (nextPathname && editorPaths.includes(nextPathname)) {
+        return false
+    }
+    return true
+}
 
 export function parseSortParam(value: string | undefined): ObservationsSorting | null {
     if (typeof value !== 'string' || value.length === 0) {

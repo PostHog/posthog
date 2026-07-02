@@ -2,7 +2,7 @@ import '@testing-library/jest-dom'
 
 import { cleanup, render, screen } from '@testing-library/react'
 
-import { WidgetCardHeader } from './WidgetCardHeader'
+import { WidgetCardHeader, type DashboardWidgetTopHeadingProps } from './WidgetCardHeader'
 
 describe('WidgetCardHeader', () => {
     afterEach(() => {
@@ -48,7 +48,9 @@ describe('WidgetCardHeader', () => {
                 widgetTypeLabel="Session replay"
                 config={{ dateRange: { date_from: '-14d' }, savedFilterId: 'abc123' }}
                 headerMeta={{ showWidgetType: true, showDateRange: true }}
-                TopHeading={({ widgetTypeLabel }) => <span>{widgetTypeLabel} • My saved filter</span>}
+                TopHeading={({ widgetTypeLabel }: DashboardWidgetTopHeadingProps) => (
+                    <span>{widgetTypeLabel} • My saved filter</span>
+                )}
             />
         )
 

@@ -50,6 +50,7 @@ export interface RateLimitHistoryBucket {
     bucket: string
     recorded: number
     dropped: number
+    bypassed: number
 }
 
 export type RateLimitChartMode = 'simulation' | 'history'
@@ -66,6 +67,7 @@ export interface ChartLoadParams {
 export const EXCEPTIONS_APP_SOURCE = 'exceptions'
 export const RECORDED_METRIC_NAME = 'allowed'
 export const DROPPED_METRIC_NAME = 'rate_limited'
+export const BYPASSED_METRIC_NAME = 'bypassed'
 
 export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
     path([
@@ -166,11 +168,11 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
                             FROM app_metrics
                             WHERE app_source = '${EXCEPTIONS_APP_SOURCE}'
                               AND app_source_id = '${appSourceId}'
-                              AND metric_name IN ('${RECORDED_METRIC_NAME}', '${DROPPED_METRIC_NAME}')
+                              AND metric_name IN ('${RECORDED_METRIC_NAME}', '${DROPPED_METRIC_NAME}', '${BYPASSED_METRIC_NAME}')
                               AND timestamp >= now() - INTERVAL ${totalMinutes} MINUTE
                             GROUP BY bucket, metric_name
                             ORDER BY bucket
-                            LIMIT ${(option.bucketCount + 1) * 2}
+                            LIMIT ${(option.bucketCount + 1) * 3}
                         `,
                             tags: { productKey: ProductKey.ERROR_TRACKING },
                         },
@@ -179,11 +181,13 @@ export const rateLimitConfigLogic = kea<rateLimitConfigLogicType>([
                     const byBucket = new Map<string, RateLimitHistoryBucket>()
                     for (const [bucket, metricName, count] of response.results ?? []) {
                         const key = String(bucket)
-                        const entry = byBucket.get(key) ?? { bucket: key, recorded: 0, dropped: 0 }
+                        const entry = byBucket.get(key) ?? { bucket: key, recorded: 0, dropped: 0, bypassed: 0 }
                         if (metricName === RECORDED_METRIC_NAME) {
                             entry.recorded = Number(count)
                         } else if (metricName === DROPPED_METRIC_NAME) {
                             entry.dropped = Number(count)
+                        } else if (metricName === BYPASSED_METRIC_NAME) {
+                            entry.bypassed = Number(count)
                         }
                         byBucket.set(key, entry)
                     }

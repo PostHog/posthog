@@ -682,7 +682,7 @@ class PostHogTestCase(SimpleTestCase):
             _setup_test_data(cls)
 
     def setUp(self):
-        get_instance_setting.cache_clear()
+        get_instance_setting.cache_clear()  # type: ignore[attr-defined]
 
         if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
             from posthog.models.team import util

@@ -19,6 +19,18 @@ export interface CostSummary {
     estimatedCostUsd: number | null
 }
 
+/** A single run's cost rolled up from its jobs, plus the count of billable jobs still in flight. */
+export interface RunCostSummary extends CostSummary {
+    unsettledJobs: number
+}
+
+/** Minimal job shape the run-cost roll-up needs; WorkflowJobApi satisfies it. */
+export interface CostableJob {
+    runner_provider: string
+    duration_seconds: number | null
+    estimated_cost_usd: number | null
+}
+
 export type WorkflowState = 'healthy' | 'degraded' | 'failing' | 'unknown'
 
 export interface HealthSummary {
@@ -187,4 +199,35 @@ export function computeFleetSummary(rows: FleetRow[]): FleetSummary {
         billableMinutes,
         estimatedCostUsd,
     }
+}
+
+/**
+ * Roll a run's jobs up to a single cost figure, mirroring the backend cost model (logic/cost.py): only
+ * self-hosted runners are billable, and a job contributes once it has settled (a non-null estimated cost).
+ * `unsettledJobs` counts only billable jobs that haven't finished yet (no duration) — excluded from the
+ * total and surfaced as a caveat so the number never silently inflates. A finished self-hosted job with no
+ * cost is an excluded tier (the backend doesn't price non-Linux Depot runners), not "unsettled", so it's
+ * left out of both. Returns null when there's nothing to show — no priced jobs and nothing still running
+ * (every job free, or every billable job finished on an unpriced tier) — so the caller omits the tile rather
+ * than render a dangling "—".
+ */
+export function summarizeRunCost(jobs: CostableJob[]): RunCostSummary | null {
+    const billable = jobs.filter((job) => job.runner_provider === 'self_hosted')
+    const costed = billable.filter((job) => job.estimated_cost_usd != null)
+    // A null cost on a finished job means an unpriced tier (excluded), not "still running" — only a job
+    // with no duration is genuinely unsettled.
+    const unsettledJobs = billable.filter((job) => job.duration_seconds == null).length
+    if (costed.length === 0 && unsettledJobs === 0) {
+        // Nothing to report: no priced jobs and nothing still running (all free, or every billable job
+        // finished on an unpriced tier). Omit the tile rather than render a dangling "—".
+        return null
+    }
+    if (costed.length === 0) {
+        // Billable jobs are still running but none has settled yet — keep the tile (with a "—" value +
+        // caveat) rather than reporting a misleading $0.00 / 0 min for a run whose cost hasn't landed.
+        return { billableMinutes: null, estimatedCostUsd: null, unsettledJobs }
+    }
+    const billableMinutes = costed.reduce((sum, job) => sum + (job.duration_seconds ?? 0) / 60, 0)
+    const estimatedCostUsd = costed.reduce((sum, job) => sum + (job.estimated_cost_usd ?? 0), 0)
+    return { billableMinutes, estimatedCostUsd, unsettledJobs }
 }

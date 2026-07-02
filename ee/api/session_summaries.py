@@ -27,7 +27,7 @@ from rest_framework.viewsets import GenericViewSet
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
-from posthog.api.streaming import _release_request_connections
+from posthog.api.streaming import sse_streaming_response
 from posthog.clickhouse.query_tagging import Product, tag_queries
 from posthog.cloud_utils import is_cloud
 from posthog.event_usage import EventSource, get_event_source
@@ -600,14 +600,8 @@ class SessionSummariesViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             done_data = json.dumps({"completed": completed_ids, "failed": failed_ids})
             yield f"event: done\ndata: {done_data}\n\n".encode()
 
-        _release_request_connections()
-        return StreamingHttpResponse(
-            (async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_generator_to_sync(async_stream)),
-            content_type="text/event-stream",
-            headers={
-                "Cache-Control": "no-cache",
-                "X-Accel-Buffering": "no",
-            },
+        return sse_streaming_response(
+            async_stream() if settings.SERVER_GATEWAY_INTERFACE == "ASGI" else async_generator_to_sync(async_stream)
         )
 
     @extend_schema(

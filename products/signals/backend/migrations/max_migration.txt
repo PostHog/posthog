@@ -1,1 +1,1 @@
-0052_signalscoutrun_edited_report_ids
+0053_alter_signalreportartefact_type

@@ -731,6 +731,8 @@ class SignalReportArtefact(UUIDModel):
         COMMIT = "commit"
         TASK_RUN = "task_run"
         NOTE = "note"
+        TITLE_CHANGE = "title_change"
+        SUMMARY_CHANGE = "summary_change"
 
     # Every artefact is an append-only, point-in-time log entry — nothing is mutated in place by
     # the producers. The two sets below classify *what an entry means*, not how it is written:
@@ -739,7 +741,7 @@ class SignalReportArtefact(UUIDModel):
     #     report's *current* status is the latest row of that type by `created_at` (the serializer
     #     derives priority/actionability/reviewers with `order_by("-created_at")[:1]` subqueries).
     #   - log artefacts record discrete work done on a report (code references, commits,
-    #     task runs, notes). Appended via `add_log`.
+    #     task runs, notes, and title/summary edits). Appended via `add_log`.
     # `signal_finding` is appended too, but its logical identity is `(report, content.signal_id)`:
     # a new signal yields a new entry, re-researching an existing signal appends a new version
     # (latest per signal_id wins). It is intentionally in neither set.
@@ -758,6 +760,8 @@ class SignalReportArtefact(UUIDModel):
             ArtefactType.COMMIT,
             ArtefactType.TASK_RUN,
             ArtefactType.NOTE,
+            ArtefactType.TITLE_CHANGE,
+            ArtefactType.SUMMARY_CHANGE,
         }
     )
 
