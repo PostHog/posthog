@@ -1953,22 +1953,9 @@ class FeatureFlagSerializer(
                 # nosemgrep: idor-lookup-without-team -- dashboard objects validated via get_fields() queryset restriction
                 FeatureFlagDashboards.objects.get_or_create(dashboard=dashboard, feature_flag=instance)
 
-        # Propagate the new variants and aggregation group type index to the linked experiments
-        if "filters" in validated_data:
-            filters = validated_data["filters"] or {}
-            multivariate = filters.get("multivariate") or {}
-            variants = multivariate.get("variants", [])
-            aggregation_group_type_index = filters.get("aggregation_group_type_index")
-
-            for experiment in instance.experiment_set.all():
-                if experiment.parameters is None:
-                    experiment.parameters = {}
-                experiment.parameters["feature_flag_variants"] = variants
-                if aggregation_group_type_index is not None:
-                    experiment.parameters["aggregation_group_type_index"] = aggregation_group_type_index
-                else:
-                    experiment.parameters.pop("aggregation_group_type_index", None)
-                experiment.save()
+        # The linked feature flag is the source of truth for variants and aggregation group type.
+        # Experiment reads derive these from the flag (see ExperimentBaseSerializer), so there is no
+        # longer a `parameters` mirror to keep in sync here.
 
         if old_key != instance.key:
             _update_feature_flag_dashboard(instance, old_key)
