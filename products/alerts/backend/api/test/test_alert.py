@@ -1624,6 +1624,7 @@ class TestTriggerAlertHogFunctions(APIBaseTest):
         alert.last_checked_at = None
         alert.team_id = self.team.id
         alert.detector_config = detector_config
+        alert.forecast_config = None
 
         trigger_alert_hog_functions(alert, properties={"breaches": "test breach"})
 
