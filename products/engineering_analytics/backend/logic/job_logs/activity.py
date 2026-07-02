@@ -15,7 +15,7 @@ from django.conf import settings
 import structlog
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ApplicationError
+from temporalio.exceptions import ApplicationError, ApplicationErrorCategory
 
 from posthog.egress.github.limiter import acquire_github_installation
 from posthog.models.integration import GitHubIntegration, Integration
@@ -63,13 +63,23 @@ async def fetch_and_emit_job_log_activity(inputs: FetchJobLogInputs) -> dict[str
     if not settings.OTLP_LOGS_INGEST_ENDPOINT:
         # No Logs sink configured: don't fetch (wastes the egress budget) and don't mark the job done
         # (a no-op emit would never retry). Raise so Temporal retries once the endpoint is set.
-        raise ApplicationError("Logs export endpoint not configured", type="LogsExportDisabled")
+        # BENIGN: a deliberate retryable backoff signal, not a defect — kept out of error tracking.
+        raise ApplicationError(
+            "Logs export endpoint not configured",
+            type="LogsExportDisabled",
+            category=ApplicationErrorCategory.BENIGN,
+        )
     github_token, installation_id, log_ingest_token = await database_sync_to_async(
         _resolve_credentials, thread_sensitive=False
     )(inputs.team_id, inputs.integration_id)
     if not await acquire_github_installation(installation_id):
         # Over budget — raise so Temporal retries with backoff instead of blocking a worker.
-        raise ApplicationError("GitHub egress budget exhausted", type="GithubEgressBudgetExhausted")
+        # BENIGN: a deliberate retryable backoff signal, not a defect — kept out of error tracking.
+        raise ApplicationError(
+            "GitHub egress budget exhausted",
+            type="GithubEgressBudgetExhausted",
+            category=ApplicationErrorCategory.BENIGN,
+        )
     archive = await asyncio.to_thread(fetch_job_log, inputs.repo, inputs.job_id, github_token)
     if archive is None:
         log.info("github_job_log_unavailable")

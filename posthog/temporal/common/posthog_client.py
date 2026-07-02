@@ -20,6 +20,17 @@ from posthog.temporal.common.logger import get_write_only_logger
 logger = get_write_only_logger()
 
 
+def _is_benign_control_flow_error(e: BaseException) -> bool:
+    """True for a deliberately-raised ``ApplicationError`` marked ``BENIGN`` — an expected,
+    retryable control-flow signal (e.g. an egress-budget backoff that tells Temporal to retry
+    later), not a defect. Reporting these to error tracking floods it with self-inflicted noise,
+    so the interceptors re-raise them without capturing."""
+    return (
+        isinstance(e, temporalio.exceptions.ApplicationError)
+        and e.category == temporalio.exceptions.ApplicationErrorCategory.BENIGN
+    )
+
+
 def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:
     """Tag the active span (the Temporal RunActivity/RunWorkflow span, when OTel tracing is
     enabled on the worker) with team_id read from the activity/workflow input.
@@ -65,9 +76,10 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
         try:
             return await super().execute_activity(input)
         except Exception as e:
-            # Cancellations (worker drain, activity timeout, workflow cancellation) are expected
-            # control flow, not defects — re-raise without reporting them to error tracking.
-            if temporalio.exceptions.is_cancelled_exception(e):
+            # Cancellations (worker drain, activity timeout, workflow cancellation) and benign
+            # control-flow errors (deliberate retryable backoff signals) are expected flow, not
+            # defects — re-raise without reporting them to error tracking.
+            if temporalio.exceptions.is_cancelled_exception(e) or _is_benign_control_flow_error(e):
                 raise
             activity_info = activity.info()
             capture_kwargs = {
@@ -101,8 +113,8 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
         except Exception as e:
             if isinstance(e, temporalio.exceptions.ActivityError):
                 raise  # Already captured at the activity level
-            if temporalio.exceptions.is_cancelled_exception(e):
-                raise  # Expected cancellation (worker drain, timeout, cancel), not a defect
+            if temporalio.exceptions.is_cancelled_exception(e) or _is_benign_control_flow_error(e):
+                raise  # Expected cancellation or benign retryable control flow, not a defect
             try:
                 workflow_info = workflow.info()
                 capture_kwargs = {
