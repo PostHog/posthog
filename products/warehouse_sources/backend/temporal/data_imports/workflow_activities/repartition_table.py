@@ -89,6 +89,7 @@ def _maybe_flag_pre_extraction(
     job: ExternalDataJob,
     helper: DeltaTableHelper,
     logger: FilteringBoundLogger,
+    enabled: bool,
 ) -> dict[str, Any] | None:
     """Measure the on-disk table before extraction and flag a repartition if it's over budget.
 
@@ -98,13 +99,16 @@ def _maybe_flag_pre_extraction(
     that gap: the on-disk table already reflects the over-budget layout, so we can flag and — in this
     same run — rewrite it before the merge that would OOM. Returns the pending target set by detection,
     or None if nothing was flagged (or the table couldn't be measured). Never raises.
+
+    `enabled` is the already-evaluated rollout-flag verdict, threaded through so detection reuses it
+    instead of paying for a second flag evaluation.
     """
     try:
         delta_table = async_to_sync(helper.get_delta_table)()
         if delta_table is None:
             logger.debug("repartition: no delta table on disk, cannot measure for repartition")
             return None
-        async_to_sync(maybe_flag_for_repartition)(schema, schema.source, job, delta_table, logger)
+        async_to_sync(maybe_flag_for_repartition)(schema, schema.source, job, delta_table, logger, enabled=enabled)
     except Exception as e:
         # Detection is best-effort; a failure here must not block the sync.
         logger.warning("repartition: pre-extraction detection failed", exc_info=True)
@@ -140,10 +144,13 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
 
     # Log the rollout-flag verdict (and the sizes that gate detection) so it's clear from the Syncs UI
     # why a table does or doesn't repartition — a disabled flag is the most common reason for a no-op.
+    # Evaluate once here and thread the result into the pre-extraction detection path so the flag
+    # (a Team DB query plus a PostHog API call) isn't re-evaluated inside maybe_flag_for_repartition.
+    enabled = is_auto_repartition_enabled(schema)
     logger.info(
         "repartition: feature flag evaluated",
         flag=WAREHOUSE_AUTO_REPARTITION_FLAG,
-        enabled=is_auto_repartition_enabled(schema),
+        enabled=enabled,
         max_partition_bytes=schema.max_partition_bytes,
         target_partition_bytes=target_partition_bytes(),
     )
@@ -170,7 +177,7 @@ def _maybe_repartition_table(inputs: RepartitionActivityInputs, logger: Filterin
         # Nothing was queued by a prior run's post-load detection, but the gate flagged the table for an
         # on-disk measurement. Measure now and self-flag if it's over budget — the only path that can
         # rescue a table which OOMs its merge every run (and so never reaches post-load detection).
-        pending = _maybe_flag_pre_extraction(schema, job, helper, logger)
+        pending = _maybe_flag_pre_extraction(schema, job, helper, logger, enabled)
         if pending is None:
             logger.debug("repartition: pre-extraction measurement found no repartition needed")
             return
