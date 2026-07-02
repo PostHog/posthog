@@ -81,11 +81,9 @@ const Component = ({
                 >
                     Run
                 </LemonButton>
-                {!isKernelRunning && (
-                    <LemonButton type="secondary" size="small" onClick={() => setShowKernelInfo(true)}>
-                        Open kernel info
-                    </LemonButton>
-                )}
+                <LemonButton type="secondary" size="small" onClick={() => setShowKernelInfo(true)}>
+                    Open kernel info
+                </LemonButton>
             </div>
             {runError ? (
                 <div className="rounded border border-danger p-2 text-sm text-danger">{runError}</div>
