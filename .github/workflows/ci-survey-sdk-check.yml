@@ -34,26 +34,34 @@ jobs:
                       echo "found=true" >> $GITHUB_OUTPUT
                   fi
 
+            - name: Checkout for CI report poster
+              if: steps.sdk-check.outputs.found == 'true'
+              uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  sparse-checkout: |
+                      .github/scripts
+                      frontend/bin/ci-report
+                  sparse-checkout-cone-mode: false
+
             - name: Post reminder comment
               if: steps.sdk-check.outputs.found == 'true'
               env:
-                  GH_TOKEN: ${{ github.token }}
+                  GITHUB_TOKEN: ${{ github.token }}
               run: |
-                  # Check if reminder comment already exists
-                  if gh pr view ${{ github.event.pull_request.number }} --json comments \
-                      --jq '.comments[].body' | grep -q 'SDK Version Check Reminder'; then
-                      echo "Comment already exists, skipping"
-                      exit 0
-                  fi
-
-                  gh pr comment ${{ github.event.pull_request.number }} --body '### 📦 Surveys SDK Version Check Reminder
+                  message_body='### Surveys SDK Version Check Reminder
 
                   This PR modifies survey code and may include SDK-dependent features.
 
                   **If adding a feature that requires a minimum SDK version**, please update:
                   `frontend/src/scenes/surveys/surveyVersionRequirements.ts`
 
-                  This ensures users see warnings when launching surveys their SDK doesn'\''t support.'
+                  This ensures users see warnings when launching surveys their SDK does not support.'
+
+                  if [ -f .github/scripts/post-reminder-section.mjs ]; then
+                      BODY="$message_body" node .github/scripts/post-reminder-section.mjs survey-sdk info "check SDK version requirements"
+                  else
+                      echo "Skipping survey-sdk section — script not present on this checkout"
+                  fi
 
     check-docs-generated:
         name: Check SDK docs are up to date

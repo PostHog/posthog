@@ -84,20 +84,12 @@ jobs:
             - name: Post reminder comment
               if: steps.docs-check.outputs.outdated == 'true'
               env:
-                  GH_TOKEN: ${{ github.token }}
-                  PR_NUMBER: ${{ github.event.pull_request.number }}
+                  GITHUB_TOKEN: ${{ github.token }}
                   SOURCE_FILE: ${{ inputs.source_file }}
                   BUILD_COMMAND: ${{ inputs.build_command }}
                   OUTPUT_FILE: ${{ inputs.output_file }}
               run: |
-                  # Check if reminder comment already exists
-                  if gh pr view "$PR_NUMBER" --json comments \
-                      --jq '.comments[].body' | grep -q 'Generated Docs Update Required'; then
-                      echo "Comment already exists, skipping"
-                      exit 0
-                  fi
-
-                  gh pr comment "$PR_NUMBER" --body "### 📄 Generated Docs Update Required
+                  message_body="### Generated Docs Update Required
 
                   You updated \`${SOURCE_FILE}\` but the generated docs are out of date.
 
@@ -107,6 +99,12 @@ jobs:
                   \`\`\`
 
                   Then commit the updated \`${OUTPUT_FILE}\` file."
+
+                  if [ -f .github/scripts/post-reminder-section.mjs ]; then
+                      BODY="$message_body" node .github/scripts/post-reminder-section.mjs generated-docs warn "regeneration needed"
+                  else
+                      echo "Skipping generated-docs section — script not present on this checkout"
+                  fi
 
             - name: Fail if docs outdated
               if: steps.docs-check.outputs.outdated == 'true' && inputs.fail_on_outdated

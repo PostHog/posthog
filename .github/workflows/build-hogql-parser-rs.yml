@@ -63,11 +63,10 @@ jobs:
                           if [[ "$IS_FORK" == 'true' ]]; then
                               message_body+=$'\n'"This needs to be performed on a branch created on the PostHog/posthog repo itself. A PostHog team member can assist with this."
                           fi
-                          existing=$(gh api "repos/${{ github.repository }}/issues/$PR_NUMBER/comments" --jq '.[] | select(.user.login == "github-actions[bot]") | select(.body | test("hogql-parser-rs.*version stayed the same.*👀")) | .id' | tail -1)
-                          if [[ -n "$existing" ]]; then
-                              gh api "repos/${{ github.repository }}/issues/comments/$existing" -X PATCH -f body="$message_body"
+                          if [ -f .github/scripts/post-reminder-section.mjs ]; then
+                              BODY="$message_body" GITHUB_TOKEN="$GH_TOKEN" node .github/scripts/post-reminder-section.mjs hogql-parser-rs warn "version bump needed"
                           else
-                              gh pr comment "$PR_NUMBER" --body "$message_body"
+                              echo "Skipping hogql-parser-rs section — script not present on this checkout"
                           fi
                       else
                           echo "::warning::Unexpected HTTP $http_code from PyPI for hogql-parser-rs $local; assuming not yet published."

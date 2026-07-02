@@ -24,6 +24,11 @@ export const SECTIONS = [
     { id: 'backend-snapshots', title: 'Backend snapshots' },
     { id: 'ai-evals', title: 'AI evals' },
     { id: 'ch-migration-sql', title: 'ClickHouse migration SQL' },
+    { id: 'hogql-parser-py', title: 'hogql-parser version' },
+    { id: 'hogql-parser-npm', title: '@posthog/hogql-parser version' },
+    { id: 'hogql-parser-rs', title: 'hogql-parser-rs version' },
+    { id: 'generated-docs', title: 'Generated docs' },
+    { id: 'survey-sdk', title: 'Survey SDK reminder' },
 ]
 
 export const STATUS_EMOJI = { ok: '✅', warn: '⚠️', fail: '❌', info: 'ℹ️' }
