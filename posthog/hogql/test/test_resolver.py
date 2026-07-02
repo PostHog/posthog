@@ -799,7 +799,7 @@ class TestResolver(BaseTest):
 
         # The single shared CTE must project every column referenced across the branches. Assert
         # on the printed SQL: printing is where the stale CTE-table cache masked the over-prune.
-        cte_projection = sql[: sql.index(" FROM")]
+        cte_projection = sql[sql.index("base AS (") : sql.index(" FROM")]
         for column in ("a", "b", "d"):
             assert f" AS {column}" in cte_projection, (
                 f"CTE dropped column {column!r} referenced by a sibling UNION branch: {cte_projection}"

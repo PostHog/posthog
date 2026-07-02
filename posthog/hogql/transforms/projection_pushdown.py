@@ -51,8 +51,9 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         demand_count = -1
         while True:
             self.visit(node)
-            if not self.saw_asterisk:
-                # Nothing to prune, so demand completeness doesn't matter — skip further walks.
+            if not self.saw_asterisk or not self.demands:
+                # No asterisk columns, or nothing demanded anything (plain SELECT * with no outer
+                # consumer): pruning is a no-op either way, so skip further walks.
                 return node
             new_demand_count = sum(len(names) for names in self.demands.values())
             if new_demand_count == demand_count:
