@@ -28,9 +28,14 @@
                 "resource": {
                     "description": "Resource type whose rows were excluded, e.g. \"dashboard\", \"insight\", \"notebook\"",
                     "type": "string"
+                },
+                "type": {
+                    "const": "access_control",
+                    "description": "Tells warning kinds apart in the shared `warnings` list: this entry means rows were excluded because the user lacks access",
+                    "type": "string"
                 }
             },
-            "required": ["resource", "message"],
+            "required": ["type", "resource", "message"],
             "type": "object"
         },
         "AccessControlLevel": {
@@ -16856,9 +16861,14 @@
                 "table_name": {
                     "description": "Name of the warehouse table the warning refers to",
                     "type": "string"
+                },
+                "type": {
+                    "const": "warehouse_sync",
+                    "description": "Tells warning kinds apart in the shared `warnings` list: this entry is about a warehouse source whose sync is failing or stale",
+                    "type": "string"
                 }
             },
-            "required": ["table_name", "schema_name", "source_type", "status", "message"],
+            "required": ["type", "table_name", "schema_name", "source_type", "status", "message"],
             "type": "object"
         },
         "DataWarehouseViewLink": {

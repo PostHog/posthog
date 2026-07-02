@@ -85,6 +85,7 @@ export interface SearchResponse {
 export type Result<T, E = Error> = { success: true; data: T } | { success: false; error: E }
 
 export interface DataWarehouseSyncWarning {
+    type: 'warehouse_sync'
     table_name: string
     schema_name: string
     source_type: string
@@ -93,6 +94,7 @@ export interface DataWarehouseSyncWarning {
 }
 
 export interface AccessControlFilterWarning {
+    type: 'access_control'
     resource: string
     message: string
 }
@@ -103,8 +105,7 @@ export interface QueryEndpointResponse {
     formatted_results?: string
     // null (not just absent) when the query response carries no warnings — the backend
     // serializes the field explicitly rather than omitting it. Carries both warehouse-sync
-    // warnings and object-level access control warnings (rows excluded because the user can't
-    // see them), so the model doesn't treat a filtered partial result as the complete set.
+    // warnings and object-level access control warnings.
     warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
 }
 

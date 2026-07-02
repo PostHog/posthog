@@ -991,12 +991,12 @@ function InternalDataTableVisualization(
     )
 }
 
-// The shared `warnings` field carries two disjoint shapes; split them so each renders with its own copy.
+// The shared `warnings` field is a tagged union; split by discriminator so each kind renders with its own copy.
 const isSyncWarning = (w: NonNullable<HogQLQueryResponse['warnings']>[number]): w is DataWarehouseSyncWarning =>
-    'table_name' in w
+    w.type === 'warehouse_sync'
 const isAccessControlWarning = (
     w: NonNullable<HogQLQueryResponse['warnings']>[number]
-): w is AccessControlFilterWarning => 'resource' in w
+): w is AccessControlFilterWarning => w.type === 'access_control'
 
 const SyncWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warnings'] }): JSX.Element | null => {
     const syncWarnings = warnings?.filter(isSyncWarning)

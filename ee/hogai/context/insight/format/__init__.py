@@ -58,11 +58,11 @@ def get_boxplot_results(response: dict[str, Any]) -> list[Any]:
     return results if results else response.get("boxplot_data", [])
 
 
-def _format_warnings(response: dict[str, Any], discriminator: str, header: str) -> str:
-    """Select one kind of warning from the shared `warnings` list (by a field only that kind carries)
-    and render it as a leading block. Empty string when there's nothing to show."""
+def _format_warnings(response: dict[str, Any], warning_type: str, header: str) -> str:
+    """Select one kind of warning from the shared `warnings` list (by its `type` tag) and render it
+    as a leading block. Empty string when there's nothing to show."""
     messages = [
-        w["message"] for w in (response.get("warnings") or []) if w.get(discriminator) is not None and w.get("message")
+        w["message"] for w in (response.get("warnings") or []) if w.get("type") == warning_type and w.get("message")
     ]
     if not messages:
         return ""
@@ -72,7 +72,7 @@ def _format_warnings(response: dict[str, Any], discriminator: str, header: str) 
 
 def format_warehouse_sync_warnings(response: dict[str, Any]) -> str:
     return _format_warnings(
-        response, "table_name", "[Data warehouse sync warnings — results may not reflect current source data]"
+        response, "warehouse_sync", "[Data warehouse sync warnings — results may not reflect current source data]"
     )
 
 
@@ -81,7 +81,7 @@ def format_access_control_warnings(response: dict[str, Any]) -> str:
     # can mistake an access-filtered partial result for the full set.
     return _format_warnings(
         response,
-        "resource",
+        "access_control",
         "[Access control — this is a partial result set; rows you don't have access to were excluded]",
     )
 

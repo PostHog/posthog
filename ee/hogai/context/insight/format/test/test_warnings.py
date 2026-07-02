@@ -1,7 +1,8 @@
 from .. import format_access_control_warnings, format_warehouse_sync_warnings
 
-_AC = {"resource": "dashboard", "message": "2 dashboards"}
+_AC = {"type": "access_control", "resource": "dashboard", "message": "2 dashboards"}
 _SYNC = {
+    "type": "warehouse_sync",
     "table_name": "stripe_charges",
     "schema_name": "charges",
     "source_type": "Stripe",

@@ -231,6 +231,7 @@ class TestAccessControlGuard(BaseTest):
 
         warning = context.access_control_warnings.get("dashboard")
         assert warning is not None
+        assert warning.type == "access_control"
         assert warning.resource == "dashboard"
         assert warning.message == expected_message
 

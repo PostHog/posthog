@@ -311,6 +311,13 @@ class AccessControlFilterWarning(BaseModel):
         ...,
         description=('Resource type whose rows were excluded, e.g. "dashboard", "insight", "notebook"'),
     )
+    type: Literal["access_control"] = Field(
+        default="access_control",
+        description=(
+            "Tells warning kinds apart in the shared `warnings` list: this entry means"
+            " rows were excluded because the user lacks access"
+        ),
+    )
 
 
 class AlertScheduleRestrictionWindow(BaseModel):
@@ -956,6 +963,13 @@ class DataWarehouseSyncWarning(BaseModel):
         description=('Sync status that triggered the warning, e.g. "Failed", "Paused", "BillingLimitReached"'),
     )
     table_name: str = Field(..., description="Name of the warehouse table the warning refers to")
+    type: Literal["warehouse_sync"] = Field(
+        default="warehouse_sync",
+        description=(
+            "Tells warning kinds apart in the shared `warnings` list: this entry is"
+            " about a warehouse source whose sync is failing or stale"
+        ),
+    )
 
 
 class DatabaseSchemaSchema(BaseModel):
