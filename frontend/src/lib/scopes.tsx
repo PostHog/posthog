@@ -15,6 +15,16 @@ export type APIScope = {
     warnings?: Partial<Record<'read' | 'write', string | JSX.Element>>
 }
 
+// Scopes whose write action also writes a feature flag as a side effect (survey targeting flag,
+// early access feature linked flag), so they imply `feature_flag:write`. Single source of truth for
+// both the picker warning (attached below) and the auto-select in personalAPIKeysLogic, so the rule
+// and the copy can't drift. `ScopeAccessRow` renders warnings as plain text — no markdown formatting.
+export const SCOPES_IMPLYING_FEATURE_FLAG_WRITE: Partial<Record<APIScopeObject, string>> = {
+    survey: 'Surveys with targeting also manage a feature flag, so this key needs feature_flag:write too.',
+    early_access_feature:
+        'Early access features manage a linked feature flag, so this key needs feature_flag:write too.',
+}
+
 export const API_SCOPES: APIScope[] = [
     { key: 'action', objectName: 'Action', objectPlural: 'actions' },
     { key: 'access_control', objectName: 'Access control', objectPlural: 'access controls' },
@@ -47,7 +57,14 @@ export const API_SCOPES: APIScope[] = [
     { key: 'dashboard', objectName: 'Dashboard', objectPlural: 'dashboards' },
     { key: 'dashboard_template', objectName: 'Dashboard template', objectPlural: 'dashboard templates' },
     { key: 'dataset', objectName: 'Dataset', objectPlural: 'datasets' },
-    { key: 'early_access_feature', objectName: 'Early access feature', objectPlural: 'early access features' },
+    {
+        key: 'early_access_feature',
+        objectName: 'Early access feature',
+        objectPlural: 'early access features',
+        warnings: {
+            write: SCOPES_IMPLYING_FEATURE_FLAG_WRITE.early_access_feature,
+        },
+    },
     { key: 'element', objectName: 'Element', objectPlural: 'elements' },
     { key: 'endpoint', objectName: 'Endpoint', objectPlural: 'endpoints' },
     { key: 'engineering_analytics', objectName: 'Engineering analytics', objectPlural: 'engineering analytics' },
@@ -144,7 +161,14 @@ export const API_SCOPES: APIScope[] = [
     },
     { key: 'sharing_configuration', objectName: 'Sharing configuration', objectPlural: 'sharing configurations' },
     { key: 'subscription', objectName: 'Subscription', objectPlural: 'subscriptions' },
-    { key: 'survey', objectName: 'Survey', objectPlural: 'surveys' },
+    {
+        key: 'survey',
+        objectName: 'Survey',
+        objectPlural: 'surveys',
+        warnings: {
+            write: SCOPES_IMPLYING_FEATURE_FLAG_WRITE.survey,
+        },
+    },
     { key: 'tagger', objectName: 'Tagger', objectPlural: 'taggers' },
     { key: 'ticket', objectName: 'Ticket', objectPlural: 'tickets' },
     { key: 'tracing', objectName: 'Tracing', objectPlural: 'tracing' },

@@ -5,7 +5,7 @@ import { BoxPlot } from '@posthog/quill-charts'
 import type { BoxPlotClickData, BoxPlotConfig, BoxPlotSeries, BoxPlotTooltipContext } from '@posthog/quill-charts'
 
 import 'scenes/insights/InsightTooltip/InsightTooltip.scss'
-import { useChartTheme } from 'lib/charts/hooks'
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { getSeriesColor } from 'lib/colors'
 import { DateDisplay } from 'lib/components/DateDisplay'
 import { SeriesLetter } from 'lib/components/SeriesGlyph'
@@ -92,7 +92,7 @@ export function BoxPlotChart({ showPersonsModal = true }: ChartParams): JSX.Elem
 
     const formatValue = useCallback((value: number) => formatAggregationAxisValue(trendsFilter, value), [trendsFilter])
 
-    const config = useMemo<BoxPlotConfig>(
+    const config = useChartConfig<BoxPlotConfig>(
         () => ({
             yScaleType: yAxisScaleType === 'log10' ? 'log' : 'linear',
             yTickFormatter: formatValue,

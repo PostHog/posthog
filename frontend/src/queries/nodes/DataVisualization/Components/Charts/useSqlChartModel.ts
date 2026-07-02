@@ -3,7 +3,7 @@ import { useEffect, useMemo } from 'react'
 
 import { type ChartTheme, type Series } from '@posthog/quill-charts'
 
-import { useChartTheme } from 'lib/charts/hooks'
+import { useChartTheme, useChartConfig } from 'lib/charts/hooks'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { LineGraphProps } from './LineGraph'
@@ -23,7 +23,7 @@ export interface SqlChartModel<TConfig> {
     config: TConfig
 }
 
-export function useSqlChartModel<TConfig>(
+export function useSqlChartModel<TConfig extends object>(
     { xData, yData, visualizationType, chartSettings, dashboardId, goalLines }: LineGraphProps,
     buildConfig: (args: BuildBarConfigArgs) => TConfig
 ): SqlChartModel<TConfig> | null {
@@ -44,7 +44,7 @@ export function useSqlChartModel<TConfig>(
 
     const theme = useChartTheme()
 
-    const config = useMemo(
+    const config = useChartConfig(
         () =>
             xData
                 ? buildConfig({

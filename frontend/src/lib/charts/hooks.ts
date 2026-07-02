@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useMemo } from 'react'
+import { type DependencyList, useMemo } from 'react'
 
 import type { ChartTheme } from '@posthog/quill-charts'
 
@@ -14,4 +14,14 @@ export function useChartTheme(overrides?: Partial<ChartTheme>): ChartTheme {
     const { isDarkModeOn } = useValues(themeLogic)
     // eslint-disable-next-line react-hooks/exhaustive-deps
     return useMemo(() => buildTheme(overrides), [isDarkModeOn, overrides])
+}
+
+/** Drop-in replacement for the `useMemo` that builds a chart's config object. This is the central
+ *  seam for applying app-level rendering defaults to every quill chart config — currently a plain
+ *  memo; config defaults (with the chart's own keys winning) hook in here. */
+export function useChartConfig<T extends object>(factory: () => T, deps: DependencyList): T
+export function useChartConfig<T extends object>(factory: () => T | undefined, deps: DependencyList): T | undefined
+export function useChartConfig<T extends object>(factory: () => T | undefined, deps: DependencyList): T | undefined {
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    return useMemo(factory, deps)
 }

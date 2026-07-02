@@ -3,7 +3,7 @@ import { useCallback, useMemo } from 'react'
 import { BarChart, ValueLabels } from '@posthog/quill-charts'
 import type { BarChartConfig, Series, TooltipContext } from '@posthog/quill-charts'
 
-import { useChartTheme } from 'lib/charts/hooks'
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import {
     ChoiceTooltip,
     ChoiceTooltipContextData,
@@ -58,7 +58,7 @@ export function MultipleChoiceBarChart({
     // rendered through the category-axis formatter instead.
     const labels = useMemo(() => chartData.map((_, i) => String(i)), [chartData])
 
-    const config = useMemo<BarChartConfig>(
+    const config = useChartConfig<BarChartConfig>(
         () => ({
             axisOrientation: 'horizontal',
             barLayout: 'grouped',
