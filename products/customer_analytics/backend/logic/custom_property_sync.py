@@ -110,7 +110,9 @@ def sync_custom_property_values(*, team_id: int, saved_query_id: str | UUID) -> 
 
 def _get_account_ids_by_external_id(team_id: int) -> dict[str, UUID]:
     accounts = Account.objects.for_team(team_id).exclude(external_id=None).exclude(external_id="")
-    return dict(accounts.values_list("external_id", "id"))
+    return {
+        external_id: account_id for external_id, account_id in accounts.values_list("external_id", "id") if external_id
+    }
 
 
 def _write(*, team_id: int, account_id: Any, source: CustomPropertySource, value: Any, result: SyncResult) -> bool:
