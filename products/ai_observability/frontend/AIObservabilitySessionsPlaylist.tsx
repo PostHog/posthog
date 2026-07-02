@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { useEffect, useRef } from 'react'
 
-import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
@@ -11,8 +11,17 @@ import { LemonTableLoader } from 'lib/lemon-ui/LemonTable/LemonTableLoader'
 import { cn } from 'lib/utils/css-classes'
 
 import { SessionDetailPanel } from './AIObservabilitySessionScene'
-import { SessionListRow, aiObservabilitySessionsViewLogic } from './tabs/aiObservabilitySessionsViewLogic'
+import { aiObservabilitySharedLogic } from './aiObservabilitySharedLogic'
+import {
+    SessionListRow,
+    SessionsEmptyReason,
+    aiObservabilitySessionsViewLogic,
+} from './tabs/aiObservabilitySessionsViewLogic'
 import { formatLLMCost } from './utils'
+
+const SESSIONS_DOCS_URL = 'https://posthog.com/docs/ai-observability/sessions'
+// Widening target offered from the empty state when the current window turns up nothing.
+const WIDER_DATE_FROM = '-7d'
 
 const SESSION_LIST_DEFAULT_WIDTH = 300
 const SESSION_LIST_MIN_WIDTH = 260
@@ -90,8 +99,16 @@ function DetailPane({ className }: { className?: string }): JSX.Element {
 }
 
 function ListPane({ className }: { className?: string }): JSX.Element {
-    const { sessions, sessionsLoading, selectedSessionId, getSessionTitle, hasMoreSessions, moreSessionsLoading } =
-        useValues(aiObservabilitySessionsViewLogic)
+    const {
+        sessions,
+        sessionsLoading,
+        selectedSessionId,
+        getSessionTitle,
+        hasMoreSessions,
+        moreSessionsLoading,
+        sessionsError,
+        sessionsEmptyReason,
+    } = useValues(aiObservabilitySessionsViewLogic)
     const { selectSession, loadMoreSessions } = useActions(aiObservabilitySessionsViewLogic)
 
     return (
@@ -109,8 +126,10 @@ function ListPane({ className }: { className?: string }): JSX.Element {
                             <LemonSkeleton key={i} className="h-12 w-full" />
                         ))}
                     </div>
+                ) : sessionsError && sessions.length === 0 ? (
+                    <SessionsErrorState errorKind={sessionsError} />
                 ) : sessions.length === 0 ? (
-                    <div className="p-4 text-center text-sm text-secondary">No sessions yet</div>
+                    <SessionsEmptyState reason={sessionsEmptyReason} />
                 ) : (
                     <>
                         <ul className="flex flex-col list-none pl-0 m-0 divide-y divide-primary">
@@ -142,6 +161,64 @@ function ListPane({ className }: { className?: string }): JSX.Element {
                     </>
                 )}
             </div>
+        </div>
+    )
+}
+
+function SessionsErrorState({ errorKind }: { errorKind: 'error' | 'timeout' }): JSX.Element {
+    const { loadSessions } = useActions(aiObservabilitySessionsViewLogic)
+
+    return (
+        <div className="flex flex-col items-center gap-3 p-6 text-center text-sm text-secondary">
+            <p className="m-0">
+                {errorKind === 'timeout'
+                    ? 'Loading sessions is taking longer than expected. This can happen on projects with a lot of AI events — try a narrower date range, or retry.'
+                    : "Couldn't load sessions. Please try again."}
+            </p>
+            <LemonButton
+                type="secondary"
+                size="small"
+                onClick={() => loadSessions({ refresh: 'force_blocking' })}
+                data-attr="llma-sessions-retry"
+            >
+                Retry
+            </LemonButton>
+        </div>
+    )
+}
+
+function SessionsEmptyState({ reason }: { reason: SessionsEmptyReason }): JSX.Element {
+    const { dateFilter } = useValues(aiObservabilitySharedLogic)
+    const { setDates } = useActions(aiObservabilitySharedLogic)
+
+    if (reason === 'no-session-ids') {
+        return (
+            <div className="flex flex-col items-center gap-2 p-6 text-center text-sm text-secondary">
+                <p className="m-0 font-semibold text-primary">These events aren't grouped into sessions</p>
+                <p className="m-0">
+                    There's AI activity in this time range, but none of it is tagged with a session id, so it can't
+                    be grouped into sessions. Set <code>$ai_session_id</code> in your SDK to group related traces.
+                </p>
+                <Link to={SESSIONS_DOCS_URL} target="_blank">
+                    Learn how to set up sessions
+                </Link>
+            </div>
+        )
+    }
+
+    return (
+        <div className="flex flex-col items-center gap-3 p-6 text-center text-sm text-secondary">
+            <p className="m-0">No sessions in this time range.</p>
+            {dateFilter.dateFrom !== WIDER_DATE_FROM && (
+                <LemonButton
+                    type="secondary"
+                    size="small"
+                    onClick={() => setDates(WIDER_DATE_FROM, null)}
+                    data-attr="llma-sessions-widen-range"
+                >
+                    Search the last 7 days
+                </LemonButton>
+            )}
         </div>
     )
 }

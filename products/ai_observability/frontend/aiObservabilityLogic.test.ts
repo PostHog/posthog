@@ -254,6 +254,8 @@ describe('aiObservabilitySessionsViewLogic', () => {
     it('reloads URL-applied session filters while the sessions tab is visible', async () => {
         setActiveTab('aiObservabilitySessions')
         querySpy.mockClear()
+        // Non-empty so the empty-state probe doesn't fire a second query.
+        querySpy.mockResolvedValue(sessionResponse([1]))
 
         sharedLogic.actions.applyUrlState(urlState)
         await settleListeners()
@@ -368,6 +370,57 @@ describe('aiObservabilitySessionsViewLogic', () => {
         } finally {
             titleLogic.unmount()
         }
+    })
+
+    it('surfaces a retryable timeout state when the sessions query hangs', async () => {
+        jest.useFakeTimers()
+        try {
+            querySpy.mockImplementation(() => deferredResponse().promise) // never settles
+
+            logic.actions.loadSessions()
+            await settleListeners()
+            expect(logic.values.sessionsLoading).toBe(true)
+
+            // Past SESSIONS_QUERY_TIMEOUT_MS the withTimeout guard aborts and rejects.
+            jest.advanceTimersByTime(60_000)
+            await settleListeners()
+
+            expect(logic.values.sessionsLoading).toBe(false)
+            expect(logic.values.sessionsError).toBe('timeout')
+        } finally {
+            jest.useRealTimers()
+        }
+    })
+
+    it('surfaces a retryable error state when the sessions query fails', async () => {
+        querySpy.mockRejectedValue(new Error('boom'))
+
+        logic.actions.loadSessions()
+        await settleListeners()
+
+        expect(logic.values.sessionsLoading).toBe(false)
+        expect(logic.values.sessionsError).toBe('error')
+        expect(logic.values.sessions).toHaveLength(0)
+    })
+
+    it.each([
+        ['no-session-ids', 7],
+        ['no-data', 0],
+    ])('classifies an empty list as %s when the probe finds %d AI events', async (expectedReason, eventCount) => {
+        // Sessions query drops traces without a session id (GROUP BY session_id); the probe
+        // counts AI events regardless, so it tells the two empty cases apart.
+        querySpy.mockImplementation((node: any) =>
+            String(node?.query ?? '').includes('GROUP BY session_id')
+                ? Promise.resolve({ columns: sessionColumns, results: [] })
+                : Promise.resolve({ results: [[eventCount]] })
+        )
+
+        logic.actions.loadSessions()
+        await settleListeners()
+        await settleListeners()
+
+        expect(logic.values.sessions).toHaveLength(0)
+        expect(logic.values.sessionsEmptyReason).toBe(expectedReason)
     })
 })
 
