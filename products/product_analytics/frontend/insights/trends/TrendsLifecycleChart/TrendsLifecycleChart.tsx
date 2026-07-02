@@ -4,7 +4,7 @@ import { useCallback, useMemo } from 'react'
 import { TimeSeriesBarChart } from '@posthog/quill-charts'
 import type { ChartLegendConfig, PointClickData, TooltipContext } from '@posthog/quill-charts'
 
-import { useChartTheme } from 'lib/charts/hooks'
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { getBarColorFromStatus } from 'lib/colors'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -105,7 +105,11 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
         [formatValue, showValuesOnSeries, showPercentagesOnSeries]
     )
 
-    const { series, labels, config } = useMemo(
+    const {
+        series,
+        labels,
+        config: baseConfig,
+    } = useMemo(
         () =>
             buildLifecycleChartModel<IndexedTrendResult, TrendsSeriesMeta>(indexedResults ?? [], {
                 getColor: (status) => getBarColorFromStatus((status ?? 'new') as LifecycleToggle),
@@ -139,6 +143,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
             quillTooltipEnabled,
         ]
     )
+    const config = useChartConfig(() => baseConfig, [baseConfig])
 
     const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
 
