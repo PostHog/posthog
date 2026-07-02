@@ -2019,8 +2019,11 @@ def _start_command_workflow(
     slack_team_id: str,
     event_id: str | None,
     *,
-    user_id: int,
+    user_id: int | None,
+    command_prefix: str = "@PostHog",
 ) -> str:
+    # ``user_id=None`` defers user resolution into the workflow — the slash entry
+    # point uses it to keep its ack under Slack's 3s budget.
     _start_posthog_code_workflow(
         PostHogCodeSlackMentionCommandWorkflow,
         PostHogCodeSlackMentionCommandWorkflowInputs(
@@ -2028,6 +2031,7 @@ def _start_command_workflow(
             integration_ids=[i.id for i in integrations],
             slack_team_id=slack_team_id,
             user_id=user_id,
+            command_prefix=command_prefix,
         ),
         id_prefix="posthog-code-mention-command",
         slack_team_id=slack_team_id,
