@@ -47178,6 +47178,29 @@ export namespace Schemas {
       trace_id: string;
     }
 
+    export interface ReviewRecentReview {
+      /** The reviewed repository, as `owner/repo`. */
+      repository: string;
+      /** The reviewed pull request's number. */
+      pr_number: number;
+      /** The pull request's head branch. */
+      head_branch: string;
+      /** Where to see the review on GitHub: the pull request when its URL is known, otherwise the head branch. */
+      github_url: string;
+      /** How many review turns have completed on this report. */
+      run_count: number;
+      /** When the latest review turn completed. */
+      last_run_at: string;
+      /** Whether a review has been published back to GitHub. */
+      published: boolean;
+      /** The latest turn's valid findings at must_fix effective priority. */
+      must_fix_count: number;
+      /** The latest turn's valid findings at should_fix effective priority. */
+      should_fix_count: number;
+      /** The latest turn's valid findings at consider effective priority. */
+      consider_count: number;
+    }
+
     export interface ReviewStateCounts {
       needs_review: number;
       clean: number;

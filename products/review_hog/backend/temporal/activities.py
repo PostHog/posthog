@@ -143,6 +143,9 @@ class ResolveActingUserInput:
     # CLI/eval override: when set, perspective selection uses this user directly instead of resolving
     # the PR author — the local eval tests a specific user's perspectives against any PR.
     override_user_id: int | None
+    # When set, the resolved acting user is stamped onto this report (powers "your recent reviews").
+    # Defaulted so payloads serialized before the field existed still deserialize.
+    report_id: str | None = None
 
 
 @dataclass
@@ -411,7 +414,9 @@ async def fetch_pr_data_activity(input: FetchPRDataInput) -> ReviewMeta:
     return await database_sync_to_async(_fetch_and_persist, thread_sensitive=False)(input)
 
 
-def _resolve_acting_user(team_id: int, author_login: str, override_user_id: int | None) -> ResolveActingUserResult:
+def _resolve_acting_user(
+    team_id: int, author_login: str, override_user_id: int | None, report_id: str | None = None
+) -> ResolveActingUserResult:
     if override_user_id is not None:
         acting_user_id: int | None = override_user_id
     else:
@@ -420,6 +425,8 @@ def _resolve_acting_user(team_id: int, author_login: str, override_user_id: int 
         acting_user_id = user.id if user is not None else None
     if acting_user_id is None:
         return ResolveActingUserResult(acting_user_id=None)
+    if report_id is not None:
+        ReviewReport.objects.for_team(team_id).filter(id=report_id).update(acting_user_id=acting_user_id)
     settings = ReviewUserSettings.load(team_id, acting_user_id)
     return ResolveActingUserResult(
         acting_user_id=acting_user_id,
@@ -442,7 +449,7 @@ async def resolve_acting_user_activity(input: ResolveActingUserInput) -> Resolve
     The CLI/eval passes an explicit `override_user_id` to test a known user's perspectives on any PR.
     """
     return await database_sync_to_async(_resolve_acting_user, thread_sensitive=False)(
-        input.team_id, input.author_login, input.override_user_id
+        input.team_id, input.author_login, input.override_user_id, input.report_id
     )
 
 

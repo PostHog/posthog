@@ -35,6 +35,12 @@ class ReviewReport(UUIDModel, TeamScopedRootMixin):
     pr_url = models.TextField()
     head_branch = models.CharField(max_length=255)
     base_branch = models.CharField(max_length=255)
+    # Whose configuration drives this report's reviews (the PR author on the label path) — stamped at
+    # acting-user resolve on every run, so it works for future non-PR triggers too. Powers "your
+    # recent reviews"; db_constraint=False keeps the migration lock-free on hot posthog_user.
+    acting_user = models.ForeignKey(
+        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, related_name="+", db_constraint=False
+    )
     status = models.CharField(max_length=20, choices=Status, default=Status.ACTIVE)
     run_count = models.IntegerField(default=0)
     last_run_at = models.DateTimeField(null=True, blank=True)

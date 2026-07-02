@@ -331,7 +331,10 @@ class ReviewPRWorkflow:
         acting = await workflow.execute_activity(
             resolve_acting_user_activity,
             ResolveActingUserInput(
-                team_id=inputs.team_id, author_login=meta.author_login, override_user_id=inputs.acting_user_id
+                team_id=inputs.team_id,
+                author_login=meta.author_login,
+                override_user_id=inputs.acting_user_id,
+                report_id=report_id,
             ),
             start_to_close_timeout=_QUICK_TIMEOUT,
             retry_policy=_RETRY,

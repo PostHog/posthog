@@ -3,7 +3,7 @@ from posthog.test.base import BaseTest
 from parameterized import parameterized
 from social_django.models import UserSocialAuth
 
-from products.review_hog.backend.models import ReviewUserSettings
+from products.review_hog.backend.models import ReviewReport, ReviewUserSettings
 from products.review_hog.backend.temporal.activities import _resolve_acting_user
 
 _SELF = "SELF"
@@ -49,3 +49,17 @@ class TestResolveActingUser(BaseTest):
         result = _resolve_acting_user(self.team.id, "octocat", None)
         assert result.review_labeled_prs is False
         assert result.urgency_threshold == "must_fix"
+
+    def test_resolve_stamps_the_acting_user_onto_the_report(self) -> None:
+        # "Your recent reviews" filters on this stamp — if resolve stops writing it, the list goes empty.
+        report = ReviewReport.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            repository="PostHog/posthog",
+            pr_number=7,
+            pr_url="https://github.com/PostHog/posthog/pull/7",
+            head_branch="feat",
+            base_branch="main",
+        )
+        _resolve_acting_user(self.team.id, "octocat", None, report_id=str(report.id))
+        report.refresh_from_db()
+        assert report.acting_user_id == self.user.id

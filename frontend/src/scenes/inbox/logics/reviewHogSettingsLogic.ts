@@ -14,6 +14,7 @@ import {
     reviewHogBlindSpotsPartialUpdate,
     reviewHogPerspectivesList,
     reviewHogPerspectivesPartialUpdate,
+    reviewHogReviewsList,
     reviewHogSettingsPartialUpdate,
     reviewHogSettingsRetrieve,
     reviewHogValidatorsList,
@@ -23,6 +24,7 @@ import type {
     PatchedReviewUserSettingsApi,
     ReviewBlindSpotsConfigApi,
     ReviewPerspectiveConfigApi,
+    ReviewRecentReviewApi,
     ReviewUserSettingsApi,
     ReviewValidatorConfigApi,
 } from 'products/review_hog/frontend/generated/api.schemas'
@@ -140,6 +142,12 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
                 loadValidators: async () => await reviewHogValidatorsList(currentProjectId()),
             },
         ],
+        recentReviews: [
+            null as ReviewRecentReviewApi[] | null,
+            {
+                loadRecentReviews: async () => await reviewHogReviewsList(currentProjectId()),
+            },
+        ],
     })),
 
     reducers({
@@ -208,6 +216,7 @@ export const reviewHogSettingsLogic = kea<reviewHogSettingsLogicType>([
             actions.loadPerspectives()
             actions.loadBlindSpots()
             actions.loadValidators()
+            actions.loadRecentReviews()
         },
         updateSettingsFailure: () => {
             // The global loaders toast already surfaced the error; just reconcile the optimistic state.

@@ -4,6 +4,7 @@ from products.review_hog.backend.api import (
     ReviewBlindSpotsConfigViewSet,
     ReviewHogTriggerViewSet,
     ReviewPerspectiveConfigViewSet,
+    ReviewRecentReviewsViewSet,
     ReviewUserSettingsViewSet,
     ReviewValidatorConfigViewSet,
 )
@@ -32,6 +33,13 @@ def register_routes(routers: RouterRegistry) -> None:
         r"review_hog/blind_spots",
         ReviewBlindSpotsConfigViewSet,
         "project_review_hog_blind_spots",
+        ["team_id"],
+    )
+    # Team-scoped: the requesting user's recent reviews (read-only meta for the config UI).
+    routers.projects.register(
+        r"review_hog/reviews",
+        ReviewRecentReviewsViewSet,
+        "project_review_hog_reviews",
         ["team_id"],
     )
     # Team-scoped: per-user trigger opt-outs + urgency threshold, at review_hog/settings (the viewset

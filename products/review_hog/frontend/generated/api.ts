@@ -15,6 +15,7 @@ import type {
     PatchedReviewValidatorConfigSelectApi,
     ReviewBlindSpotsConfigApi,
     ReviewPerspectiveConfigApi,
+    ReviewRecentReviewApi,
     ReviewUserSettingsApi,
     ReviewValidatorConfigApi,
 } from './api.schemas'
@@ -96,6 +97,24 @@ export const reviewHogPerspectivesPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedReviewPerspectiveConfigUpdateApi),
+    })
+}
+
+export const getReviewHogReviewsListUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/review_hog/reviews/`
+}
+
+/**
+ * The most recent completed ReviewHog reviews of the requesting user's pull requests on this project, newest first (at most 10).
+ * @summary List the user's recent reviews
+ */
+export const reviewHogReviewsList = async (
+    projectId: string,
+    options?: RequestInit
+): Promise<ReviewRecentReviewApi[]> => {
+    return apiMutator<ReviewRecentReviewApi[]>(getReviewHogReviewsListUrl(projectId), {
+        ...options,
+        method: 'GET',
     })
 }
 

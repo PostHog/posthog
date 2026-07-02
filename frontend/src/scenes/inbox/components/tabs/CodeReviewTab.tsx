@@ -5,11 +5,12 @@ import { LemonBanner, LemonButton, LemonSkeleton, LemonSlider, LemonSwitch, Lemo
 
 import { Logomark } from 'lib/brand/Logomark'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
+import { TZLabel } from 'lib/components/TZLabel'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonDrawer } from 'lib/lemon-ui/LemonDrawer'
 import { urls } from 'scenes/urls'
 
-import type { UrgencyThresholdEnumApi } from 'products/review_hog/frontend/generated/api.schemas'
+import type { ReviewRecentReviewApi, UrgencyThresholdEnumApi } from 'products/review_hog/frontend/generated/api.schemas'
 
 import { ReviewSkillKind, reviewHogSettingsLogic } from '../../logics/reviewHogSettingsLogic'
 
@@ -123,6 +124,73 @@ function PipelineSection(): JSX.Element {
                     </div>
                 ))}
             </div>
+        </section>
+    )
+}
+
+function FindingCounts({ review }: { review: ReviewRecentReviewApi }): JSX.Element {
+    const total = review.must_fix_count + review.should_fix_count + review.consider_count
+    if (total === 0) {
+        return <span>No findings</span>
+    }
+    return (
+        <span className="flex items-center gap-2">
+            {review.must_fix_count > 0 && (
+                <span className="font-medium text-danger">{review.must_fix_count} must fix</span>
+            )}
+            {review.should_fix_count > 0 && (
+                <span className="font-medium text-warning">{review.should_fix_count} should fix</span>
+            )}
+            {review.consider_count > 0 && <span>{review.consider_count} consider</span>}
+        </span>
+    )
+}
+
+/** Compact proof-of-life block under the hero — hidden entirely until the user has reviews. */
+function RecentReviewsSection(): JSX.Element | null {
+    const { recentReviews } = useValues(reviewHogSettingsLogic)
+
+    if (!recentReviews?.length) {
+        return null
+    }
+
+    return (
+        <section className="flex flex-col gap-4">
+            <SectionHeader title="Your recent reviews">
+                The latest ReviewHog runs on pull requests you authored.
+            </SectionHeader>
+            <LemonCard hoverEffect={false} className="divide-y divide-primary p-0">
+                {recentReviews.map((review) => (
+                    <div key={`${review.repository}#${review.pr_number}`} className="flex items-center gap-4 px-4 py-3">
+                        <div className="min-w-0 flex-1">
+                            <div className="flex items-center gap-2">
+                                <span className="truncate text-sm font-semibold">
+                                    {review.repository}#{review.pr_number}
+                                </span>
+                                {!review.published && (
+                                    <LemonTag type="muted" size="small">
+                                        Not published
+                                    </LemonTag>
+                                )}
+                            </div>
+                            <div className="flex items-center gap-2 text-xs text-secondary">
+                                <FindingCounts review={review} />
+                                <span className="text-tertiary">·</span>
+                                <TZLabel time={review.last_run_at} />
+                            </div>
+                        </div>
+                        <LemonButton
+                            size="small"
+                            type="secondary"
+                            to={review.github_url}
+                            targetBlank
+                            sideIcon={<IconExternal />}
+                        >
+                            {review.github_url.includes('/pull/') ? 'View PR' : 'View branch'}
+                        </LemonButton>
+                    </div>
+                ))}
+            </LemonCard>
         </section>
     )
 }
@@ -485,6 +553,7 @@ export function CodeReviewTab(): JSX.Element {
                 </LemonBanner>
             )}
 
+            <RecentReviewsSection />
             <PipelineSection />
             <TriggersSection />
             <UrgencySection />

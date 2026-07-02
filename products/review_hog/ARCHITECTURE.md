@@ -197,7 +197,7 @@ floor and blind-spots/validator are **exactly-one-active with deactivation block
   `pnpm install` hard-failed on `ERR_PNPM_TRUST_DOWNGRADE` for kea's `reselect@5.1.1` (a supply-chain
   guard — not bypassed).
 - **`ReviewUserSettings`** (migration 0008; one row per team+user, `db_constraint=False` FKs):
-  `review_inbox_prs` (default off, **stored but inert** — the Inbox auto-review trigger doesn't exist),
+  `review_inbox_prs` (default off, **stored but inert** — the Inbox auto-review trigger doesn't exist; its design is Stage 6),
   `review_labeled_prs` (default on), `urgency_threshold` (`consider`/`should_fix`/`must_fix`, default
   `should_fix`, values mirror `IssuePriority`). GET/PATCH singleton at `review_hog/settings` — the
   action method is `user_settings` because a method named `settings` shadows DRF's `APIView.settings`
@@ -228,7 +228,8 @@ floor and blind-spots/validator are **exactly-one-active with deactivation block
   DB, then reset), blind-spot deactivation blocked with the toast. New workflow tests cover the opt-out
   skip, the CLI-override bypass, and threshold threading into body+publish.
 - **Still deferred:** reset-to-canonical (needs the force-re-pull helper in `lazy_seed`); the
-  "Review all your Inbox PRs" behavior (toggle stores, nothing consumes); non-staff rollout.
+  "Review all your Inbox PRs" behavior (toggle stores, nothing consumes — **now designed, see Stage 6**);
+  non-staff rollout.
 
 #### ✅ Follow-up 2026-07-02 — adversarial review (partial) caught a real regression; fixed 2, reverted 1 as overengineered
 
@@ -322,6 +323,32 @@ enum labels leaking into generated docs; the opt-out skips review compute but no
 Verified after fixes: 324 backend tests (both dirs), 31 inbox jest tests, ruff + targeted oxlint/oxfmt,
 tsgo clean on touched files (whole-app tsgo fails on unrelated stale-typegen in other products),
 `hogli build:openapi` round-trips with zero generated drift.
+
+#### ✅ BUILT 2026-07-02 — "Your recent reviews" block + `ReviewReport.acting_user`
+
+Compact proof-of-life block at the top of the Code review tab (between hero and pipeline, **hidden
+until the user has completed reviews** — placement picked by the user from proposed variants), plus UI
+polish from the same session: single-active accent border removed (cards identical to perspectives),
+"Edit skill" links go to the skill's own page (`urls.skill(name)`, card + drawer footer via
+`ViewedSkill.skillName`), the Inbox-PRs trigger row uses the real `Logomark`, and the three-bar
+`ReviewHogMark` is deleted.
+
+- **`ReviewReport.acting_user`** (migration 0009, nullable FK, `db_constraint=False`, SET_NULL):
+  stamped in `_resolve_acting_user` via a new defaulted `ResolveActingUserInput.report_id`. It's "whose
+  configuration drove this run", not "PR author" — so it survives future non-PR (branch-only)
+  triggers, which was the user's design question. Old reports are null until their next run.
+- **`GET review_hog/reviews/`** (`ReviewRecentReviewsViewSet`): the requesting user's 10 most recent
+  completed reports (`acting_user=me, last_run_at set`), newest first. Per row: repo, pr_number,
+  head_branch, `github_url` (**pr_url, falling back to the branch tree URL** — both PR and branch are
+  valid cases), run_count, last_run_at, published, and valid-finding counts by **effective** priority
+  from `load_valid_findings(run_index=run_count)` (latest turn only). No `status` field — a `status`
+  ChoiceField would collide with existing OpenAPI enum names, and the UI doesn't need it. PR title
+  deliberately omitted (only lives in the heavy pr_snapshot JSON).
+- **UI:** rows show `repo#number`, colored severity counts, "Not published" tag when applicable,
+  relative time, and a "View PR"/"View branch" button to `github_url`.
+- Tests: resolve stamping; list scoping (mine + completed only); counts scoped to the latest run with
+  validator priority overrides applied + branch-URL fallback. 327 backend tests + 31 inbox jest green;
+  migration verified lock-free via sqlmigrate (no `REFERENCES`, plain nullable ADD COLUMN).
 
 ### ✅ Stage 1 — mergeability + docs (current)
 
@@ -1969,6 +1996,127 @@ first so the latest fixes are loaded.
   **For the CLI** this is a footgun: either detect an in-flight run for the PR and warn that `--publish` won't take
   effect until it closes (re-run after it finishes — `ALLOW_DUPLICATE` then starts a fresh turn that honors the
   flag), or simply don't overlap runs. Not a code defect — the publish path itself works.
+
+---
+
+### 🔭 Stage 6 — Inbox trigger: auto-review self-driving implementations (DESIGNED 2026-07-02 — not built)
+
+> **Status: DESIGNED, no code.** Investigation + design converged with the maintainer 2026-07-02 (chat).
+> This stage consumes the stored-but-inert `ReviewUserSettings.review_inbox_prs` (the "Review all your
+> Inbox PRs" switch on the Code-review tab) and adds the second production entry point beside the Stage-5
+> label trigger. Build order at the end; nothing here has landed.
+> **The self-contained implementation spec is [`STAGE_6_PLAN.md`](STAGE_6_PLAN.md)** — verified file/line
+> anchors, exact signatures, gate matrix, migrations, tests, and the multi-team/multi-repo audit; hand
+> that file to the implementing agent so it doesn't re-research this surface.
+
+**Goal.** Every self-driving (Signals) implementation gets reviewed automatically: when a signals-origin
+implementation task run finishes having pushed code, ReviewHog reviews what it produced. If the run opened
+a PR, the review publishes back as PR comments (Stage-5 behavior); if there is no PR (future branch-only
+implementations), the same review runs and its findings/verdicts/body are **stored only** — usable for
+shadow-fixing before anything is published, and publishable on a later turn once a PR exists. The signal
+report's artefact log records the review either way, so a report reads as the full story: signals →
+research → implementation `task_run` → `commit`s → `code_review` → merge/`RESOLVED`.
+
+**Decisions locked (maintainer, 2026-07-02):**
+
+- **Two triggers only:** the Stage-5 `reviewhog` label (unchanged) and **"self-driving implementation
+  task finished"** (new, internal). **No GitHub webhook for the inbox path** — the implementation runs in
+  our own Temporal worker; its completion is a DB state change we observe first-hand. (A
+  `pull_request opened` webhook trigger was considered and rejected: PR-centric, and it dies the day
+  implementations stop opening PRs.)
+- **Scope:** tasks with `Task.signal_report_id` set, nothing else (Slack / MaxAI / user-created task
+  origins excluded for now).
+- **The review target is the implementation output** (branch/diff) — the PR is a publish destination,
+  not the identity. PR resolvable → publish; no PR → store-only. No shadow-mode flag: the target's shape
+  decides.
+- **Failed run, or a run that pushed nothing → do nothing.**
+- **Repeat turns are allowed from day one.** Re-review relies on previous findings (maintainer: assume
+  the loop works) — the `head_sha` watermark early-exit, working-state resume, and covered-set
+  (Stage 5b) are the mechanism; the first dogfood turns are its first real exercise.
+- **Acting user = `task.created_by`** — the GitHub PR author is a bot, so the label flow's author-login
+  mapping can't apply. Their perspectives / blind-spots / validator / urgency threshold drive the run;
+  the **single existing threshold knob** applies (no separate inbox threshold).
+- **Gate:** `review_inbox_prs` (default **off** — the budget gate for 100%-coverage cost), checked
+  cheaply at the trigger **and** snapshotted in `resolve_acting_user` like `review_labeled_prs`. Gates
+  become **trigger-aware**: label → `review_labeled_prs`, inbox → `review_inbox_prs`, CLI/eval →
+  ungated. (The `workflow.py` gate comment already warns the next trigger must add a source input
+  instead of reusing `acting_user_id is None`.)
+- **Agent read path = `execute_sql`** (MCP) over the review_hog tables, joining from the artefact's
+  `review_report_id`; `ReviewReport.report_markdown` carries the full rendered body even for stored-only
+  turns. No dedicated read API is required by this stage.
+
+**Trigger mechanics (the new entry point).** A `post_save` receiver on `tasks.TaskRun`, registered by
+review_hog — exact precedent on the same model: `track_task_run_completion`
+(`products/tasks/backend/models.py:1739`). Fires when `status=COMPLETED` and `task.signal_report_id` is
+set and the run pushed commits (exact marker — `output` keys vs the report's `commit` artefacts — to pin
+down at build time). Then: settings gate → `transaction.on_commit` →
+`start_review_pr_workflow(..., publish=True, acting_user_id=task.created_by, trigger_source="inbox",
+signal_report_id=...)`.
+
+- **Why not the alternatives.** Calling review*hog from tasks (the webhook handler or
+  `ProcessTaskWorkflow`) is a **product dependency cycle** — review_hog already imports the Tasks facade
+  (`facade.agents`). The receiver keeps every edge in the existing direction (review_hog → tasks,
+  review_hog → signals) with zero tasks changes. **Temporal composition** — starting `"ReviewPRWorkflow"`
+  by registered name string, no import edge — is the right shape \_later*, when the shadow-fix loop
+  becomes an orchestrated graph (implement → review → fix → publish); the receiver stays a thin adapter
+  so that second entry slots in beside it, not inside it.
+- **Idempotency.** The deterministic per-target workflow id collapses duplicate fires (see the Stage-5b
+  `USE_EXISTING` note for the join semantics); a run completing mid-review doesn't queue a turn — the
+  next trigger starts one, and a same-head turn hits the existing "nothing changed" early-exit. Keep the
+  receiver module import-light (`django-startup-time`): types + client only, never workflow/activity
+  imports.
+
+**Target resolution & publish rule.** The fetch stage resolves an **open PR for the run's head branch**
+(one API call — precedent: code-workstreams `discover_branch_prs`). Found → the existing `PRFetcher` path
+(PR comments keep feeding dedup) and the publish stage runs. Not found → fetch the **compare diff** (head
+vs base — the same files+diff shape; precedent: `GitHubIntegration.get_diff`, already behind Signals'
+commit-artefact `diff` action), the publish stage is skipped, `outcome=stored`. The pipeline middle
+(chunk → perspectives → dedup → validate) is untouched — it consumes `pr_files`/diff and doesn't care
+about the source. A stored review publishes on the **next** turn for that target once a PR exists (resume
+reuses rows; `published_head_sha` still gates double-posting).
+
+**Data-model changes.**
+
+- `ReviewReport`: `pr_number` **nullable** + branch-based identity for PR-less targets (split unique
+  constraint; a branch-keyed workflow-id variant) — cheap now, a production migration later. New
+  provenance columns `signal_report_id` (+ `trigger_source`) — durable on the review row because signals
+  artefacts are API-deletable.
+- `ReviewPRWorkflowInputs`: + `trigger_source`, `signal_report_id`. `ResolveActingUserResult`: +
+  `review_inbox_prs`.
+- **Signals side — the report's record of the review:** new
+  `SignalReportArtefact.ArtefactType.CODE_REVIEW` (log type) + content model in signals'
+  `artefact_schemas.py` (its registry has an exact-coverage test): `{review_report_id, repository,
+head_sha, head_branch, base_branch, pr_number?, pr_url?, review_url?, outcome:
+published|stored|failed, counts: {must_fix, should_fix, consider}}`. Appended once per turn at
+  completion **or failure** (not on gate-skips — nothing was done), attributed
+  `ArtefactAttribution.system()`. **Pointer-first by design** (maintainer): enough for an agent to go
+  look by itself (SQL join on `review_report_id`), no digest/summary duplication. The write direction
+  review_hog → signals matches the existing edge (the `artefact_attribution` import).
+- **Rejected: merging the two artefact tables** — their similarity is pattern-level by design. Different
+  parents/identity (label reviews have no `SignalReport`; one report can produce several targets);
+  ReviewHog's working-state rows (`pr_snapshot` holds whole diffs) are MB-scale resume substrate, not
+  activity-log content — the Inbox fetches a report's artefacts at `limit=1000` to render; and signals
+  artefacts are user-mutable (PATCH/DELETE) while ReviewHog's rows are resume-correctness substrate that
+  must not be.
+
+**Out of scope (this stage):** GitHub webhooks for the inbox path; a shadow-mode flag; a dedicated
+findings read API/MCP tool; non-signal-report task origins; promo-comment copy + fleet cost controls
+before non-staff rollout (the per-user default-off switch is the budget gate; consider a feature flag for
+fleet-level control during alpha).
+
+**Build order:**
+
+1. **Inputs + gates + provenance** — `trigger_source`/`signal_report_id` through
+   `ReviewPRWorkflowInputs`; the trigger-aware settings gate in `resolve_acting_user` (+
+   `review_inbox_prs` in the snapshot); `ReviewReport.signal_report_id`/`trigger_source` columns.
+2. **The signals `code_review` artefact** — type + schema + the end-of-turn write (completion and
+   failure paths).
+3. **The trigger** — the `TaskRun` receiver behind the settings gate (+ the pushed-commits marker
+   decision).
+4. **Branch targets** — PR-by-branch resolve in fetch, the compare fallback, nullable `pr_number`
+   identity + the branch workflow id.
+5. **Dogfood e2e** — one inbox-triggered turn end-to-end (artefact lands on the report, comments land on
+   the draft PR), then a repeat turn on the same report (the first real exercise of re-review).
 
 ---
 
