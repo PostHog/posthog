@@ -1798,7 +1798,7 @@ class LemonSqueezySourceConfig(config.Config):
 
 @config.config
 class LessAnnoyingCRMSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
