@@ -948,7 +948,8 @@ class DeputySourceConfig(config.Config):
 
 @config.config
 class DevinAISourceConfig(config.Config):
-    pass
+    api_key: str
+    org_id: str
 
 
 @config.config
@@ -1946,7 +1947,8 @@ class MarketoSourceConfig(config.Config):
 
 @config.config
 class MarketstackSourceConfig(config.Config):
-    pass
+    access_key: str
+    symbols: str | None = None
 
 
 @config.config
