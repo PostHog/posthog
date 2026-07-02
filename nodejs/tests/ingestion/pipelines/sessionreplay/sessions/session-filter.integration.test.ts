@@ -2,9 +2,14 @@ import { v4 as uuidv4 } from 'uuid'
 
 import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
 import { SessionFilter, SessionFilterConfig } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
+import { SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
 
 // nosemgrep: redis-unencrypted-transport (local testing only)
 const REDIS_URL = process.env.REDIS_URL || 'redis://127.0.0.1'
+
+// Single-session convenience over the batched isBlocked.
+const blocked = (filter: SessionFilter, teamId: number, sessionId: string): Promise<boolean> =>
+    filter.isBlocked(new SessionSet().add(teamId, sessionId)).then((m) => m.get(teamId, sessionId) ?? false)
 
 describe('SessionFilter integration', () => {
     let sessionFilter: SessionFilter
@@ -45,14 +50,14 @@ describe('SessionFilter integration', () => {
             for (let i = 1; i <= 5; i++) {
                 const sessionId = `${testRunId}-session-${i}`
                 await sessionFilter.handleNewSession(teamId, sessionId)
-                const isBlocked = await sessionFilter.isBlocked(teamId, sessionId)
+                const isBlocked = await blocked(sessionFilter, teamId, sessionId)
                 expect(isBlocked).toBe(false)
             }
 
             // 6th session should be rate limited and blocked
             const blockedSessionId = `${testRunId}-session-6`
             await sessionFilter.handleNewSession(teamId, blockedSessionId)
-            const isBlocked = await sessionFilter.isBlocked(teamId, blockedSessionId)
+            const isBlocked = await blocked(sessionFilter, teamId, blockedSessionId)
             expect(isBlocked).toBe(true)
         })
 
@@ -75,7 +80,7 @@ describe('SessionFilter integration', () => {
 
             // Second session should be blocked
             await filter1.handleNewSession(teamId, sessionId)
-            expect(await filter1.isBlocked(teamId, sessionId)).toBe(true)
+            expect(await blocked(filter1, teamId, sessionId)).toBe(true)
 
             // Create a new filter instance (simulating a new consumer)
             const filter2 = new SessionFilter({
@@ -88,11 +93,11 @@ describe('SessionFilter integration', () => {
             })
 
             // The blocked session should still be blocked (fetched from Redis)
-            const isBlockedInNewFilter = await filter2.isBlocked(teamId, sessionId)
+            const isBlockedInNewFilter = await blocked(filter2, teamId, sessionId)
             expect(isBlockedInNewFilter).toBe(true)
 
             // A new session that was never blocked should not be blocked
-            const isNewSessionBlocked = await filter2.isBlocked(teamId, `${testRunId}-never-blocked`)
+            const isNewSessionBlocked = await blocked(filter2, teamId, `${testRunId}-never-blocked`)
             expect(isNewSessionBlocked).toBe(false)
         })
 
@@ -114,7 +119,7 @@ describe('SessionFilter integration', () => {
             // Second session would be rate limited but should NOT be blocked
             const session2 = `${testRunId}-disabled-session-2`
             await disabledFilter.handleNewSession(teamId, session2)
-            expect(await disabledFilter.isBlocked(teamId, session2)).toBe(false)
+            expect(await blocked(disabledFilter, teamId, session2)).toBe(false)
         })
 
         it('should correctly cache blocked status locally', async () => {
@@ -135,12 +140,12 @@ describe('SessionFilter integration', () => {
             await filter.handleNewSession(teamId, blockedSession)
 
             // First isBlocked call goes to Redis
-            const isBlocked1 = await filter.isBlocked(teamId, blockedSession)
+            const isBlocked1 = await blocked(filter, teamId, blockedSession)
             expect(isBlocked1).toBe(true)
 
             // Second call should be served from cache (we can't directly verify this
             // in integration test, but we can verify the result is consistent)
-            const isBlocked2 = await filter.isBlocked(teamId, blockedSession)
+            const isBlocked2 = await blocked(filter, teamId, blockedSession)
             expect(isBlocked2).toBe(true)
         })
     })
