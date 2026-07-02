@@ -89,6 +89,10 @@ function createFingerprint(
     }
 }
 
+export function hasNonToolbarShadowRoots(pageElements: HTMLElement[]): boolean {
+    return pageElements.some((el) => !!el.shadowRoot && el.id !== TOOLBAR_ID)
+}
+
 export function buildDOMIndex(pageElements: HTMLElement[]): DOMIndex {
     const index: DOMIndex = {
         byId: new Map(),
@@ -152,27 +156,51 @@ function filterByPosition(candidates: HTMLElement[], eventElement: ElementType, 
     })
 }
 
+// position disambiguates siblings that share an identifier, but must not exclude a sole
+// candidate (or all candidates) whose sibling position drifted since capture
+function preferPositionMatches(candidates: HTMLElement[], eventElement: ElementType, index: DOMIndex): HTMLElement[] {
+    if (candidates.length <= 1) {
+        return candidates
+    }
+    const positioned = filterByPosition(candidates, eventElement, index)
+    return positioned.length ? positioned : candidates
+}
+
+// derived once per chain level, not per candidate: matchesDataAttribute builds a RegExp per call
+function getMatchedDataAttribute(
+    eventElement: ElementType,
+    dataAttributes: string[]
+): { name: string; value: string } | null {
+    const matchedAttr = matchesDataAttribute(eventElement, dataAttributes)
+    if (!matchedAttr) {
+        return null
+    }
+    const value = eventElement.attributes?.[`attr__${matchedAttr}`]
+    return value === undefined ? null : { name: matchedAttr, value }
+}
+
 function getCandidatesFromIndex(
     eventElement: ElementType,
     dataAttributes: string[],
     matchLinksByHref: boolean,
     index: DOMIndex
 ): HTMLElement[] {
-    const matchedAttr = matchesDataAttribute(eventElement, dataAttributes)
-    if (matchedAttr && eventElement.attributes) {
-        const value = eventElement.attributes[`attr__${matchedAttr}`]
-        if (value !== undefined) {
-            const candidates = index.byDataAttr.get(matchedAttr)?.get(value) || []
-            if (candidates.length) {
-                return filterByPosition(candidates, eventElement, index)
-            }
+    // a configured data attribute or an id identifies the element on its own — mirroring
+    // elementToSelector, which early-returns on these — so sibling-position drift from injected
+    // DOM must not exclude a uniquely identified candidate; position still breaks ties between
+    // siblings that share the identifier
+    const matchedDataAttribute = getMatchedDataAttribute(eventElement, dataAttributes)
+    if (matchedDataAttribute) {
+        const candidates = index.byDataAttr.get(matchedDataAttribute.name)?.get(matchedDataAttribute.value) || []
+        if (candidates.length) {
+            return preferPositionMatches(candidates, eventElement, index)
         }
     }
 
     if (eventElement.attr_id) {
         const candidates = index.byId.get(eventElement.attr_id) || []
         if (candidates.length) {
-            return filterByPosition(candidates, eventElement, index)
+            return preferPositionMatches(candidates, eventElement, index)
         }
     }
 
@@ -193,19 +221,6 @@ function getCandidatesFromIndex(
     }
 
     return filterByPosition(candidates, eventElement, index)
-}
-
-// derived once per chain level, not per candidate: matchesDataAttribute builds a RegExp per call
-function getMatchedDataAttribute(
-    eventElement: ElementType,
-    dataAttributes: string[]
-): { name: string; value: string } | null {
-    const matchedAttr = matchesDataAttribute(eventElement, dataAttributes)
-    if (!matchedAttr) {
-        return null
-    }
-    const value = eventElement.attributes?.[`attr__${matchedAttr}`]
-    return value === undefined ? null : { name: matchedAttr, value }
 }
 
 function fingerprintMatchesEventElement(
@@ -229,9 +244,10 @@ function fingerprintMatchesEventElement(
     }
     // an id or configured data attribute identifies the ancestor on its own, so DOM drift that
     // shifts sibling positions (cookie banners, injected wrappers) shouldn't kill the match —
-    // mirroring elementToSelector, which early-returns on these without position
+    // mirroring elementToSelector, which early-returns on these without position; the id guard
+    // above already established id equality
     const identifiedWithoutPosition =
-        (!!eventElement.attr_id && fingerprint.id === eventElement.attr_id) ||
+        !!eventElement.attr_id ||
         (!!matchedDataAttribute && fingerprint.dataAttrs.get(matchedDataAttribute.name) === matchedDataAttribute.value)
     return identifiedWithoutPosition || matchesPosition(fingerprint, eventElement)
 }
@@ -306,7 +322,7 @@ export function matchEventToElementUsingSelectors(
     dataAttributes: string[],
     matchLinksByHref: boolean,
     pageElements: HTMLElement[],
-    selectorCache: Map<string, HTMLElement[]>,
+    selectorCache: Map<string, HTMLElement[] | null>,
     hasShadowRoots: boolean
 ): CountedHTMLElement | null {
     let lastSelector: string | undefined
@@ -318,8 +334,14 @@ export function matchEventToElementUsingSelectors(
             elementToSelector(matchLinksByHref ? element : { ...element, href: undefined }, dataAttributes) || '*'
         const combinedSelector = lastSelector ? `${selector} > ${lastSelector}` : selector
 
+        // null marks a selector that previously threw — repeat encounters bail out exactly like
+        // the original failure did
+        let domElements = selectorCache.get(combinedSelector)
+        if (domElements === null) {
+            break
+        }
+
         try {
-            let domElements: HTMLElement[] | undefined = selectorCache.get(combinedSelector)
             if (domElements === undefined) {
                 domElements = hasShadowRoots
                     ? Array.from(querySelectorAllDeep(combinedSelector, document, pageElements))
@@ -354,12 +376,10 @@ export function matchEventToElementUsingSelectors(
         } catch {
             // sentinel-cache the failing selector so repeated rows neither re-throw nor re-log,
             // and truncate: event-derived selectors can embed long customer-page attribute values
-            if (!selectorCache.has(combinedSelector)) {
-                selectorCache.set(combinedSelector, [])
-                toolbarLogger.warn('heatmap', 'Failed to resolve heatmap element with selector', {
-                    selector: combinedSelector.slice(0, 200),
-                })
-            }
+            selectorCache.set(combinedSelector, null)
+            toolbarLogger.warn('heatmap', 'Failed to resolve heatmap element with selector', {
+                selector: combinedSelector.slice(0, 200),
+            })
             break
         }
 
