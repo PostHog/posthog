@@ -195,6 +195,8 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
     @action(methods=["POST"], detail=False, url_path="generate")
     def generate(self, request: Request, **kwargs) -> Response:
         if not self.team.organization.is_ai_data_processing_approved:
+            # Cross-boundary contract: the frontend (pulseLogic AI_CONSENT_ERROR_CODE) matches this
+            # code to show the consent banner — rename both sides together.
             raise ValidationError(
                 "AI data processing must be approved for this organization to generate briefs.",
                 code="ai_consent_required",
