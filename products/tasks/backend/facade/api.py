@@ -33,7 +33,11 @@ from posthog.event_usage import groups
 from posthog.models import User
 from posthog.models.integration import Integration
 
-from products.tasks.backend.constants import RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS, is_blocked_sandbox_env_key
+from products.tasks.backend.constants import (
+    RESERVED_SANDBOX_ENVIRONMENT_VARIABLE_KEYS,
+    SNAPSHOT_KIND_DIRECTORY,
+    is_blocked_sandbox_env_key,
+)
 from products.tasks.backend.logic.code_workstreams.default_workflow import build_default_bindings
 from products.tasks.backend.logic.code_workstreams.validation import validate_bindings
 from products.tasks.backend.models import (
@@ -3335,11 +3339,16 @@ def run_task(
         extra_state = extra_state or {}
         extra_state["resume_from_run_id"] = str(resume_from_run_id)
         if prev_state.snapshot_external_id:
-            extra_state["snapshot_external_id"] = prev_state.snapshot_external_id
-            extra_state["snapshot_kind"] = prev_state.resume_snapshot_kind()
+            snapshot_kind = prev_state.resume_snapshot_kind()
             snapshot_mount_path = prev_state.resume_snapshot_mount_path()
-            if snapshot_mount_path is not None:
-                extra_state["snapshot_mount_path"] = snapshot_mount_path
+            # A directory snapshot whose stored mount path is no longer allowed (e.g. legacy
+            # "/tmp" captures) is unusable — don't carry it into the new run's state, or the
+            # missing path would get re-defaulted downstream and mount mismatched content.
+            if snapshot_kind != SNAPSHOT_KIND_DIRECTORY or snapshot_mount_path is not None:
+                extra_state["snapshot_external_id"] = prev_state.snapshot_external_id
+                extra_state["snapshot_kind"] = snapshot_kind
+                if snapshot_mount_path is not None:
+                    extra_state["snapshot_mount_path"] = snapshot_mount_path
 
         if prev_state.sandbox_environment_id and sandbox_environment_id is None:
             sandbox_environment_id = prev_state.sandbox_environment_id

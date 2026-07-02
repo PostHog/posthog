@@ -8,7 +8,11 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
 
-from products.tasks.backend.constants import SNAPSHOT_KIND_FILESYSTEM, filter_user_sandbox_env_vars
+from products.tasks.backend.constants import (
+    SNAPSHOT_KIND_DIRECTORY,
+    SNAPSHOT_KIND_FILESYSTEM,
+    filter_user_sandbox_env_vars,
+)
 from products.tasks.backend.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
 from products.tasks.backend.logic.services.agentsh import ENV_FILE, INFRASTRUCTURE_DOMAINS, _get_debug_only_domains
 from products.tasks.backend.logic.services.connection_token import (
@@ -305,10 +309,17 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
                 used_snapshot = snapshot is not None
                 snapshot_lookup_timer.set_used_snapshot(used_snapshot)
             if snapshot is not None:
-                snapshot_source = "repository"
                 snapshot_metadata = get_sandbox_snapshot_metadata(snapshot)
-                snapshot_kind = snapshot_metadata.kind
-                snapshot_mount_path = snapshot_metadata.mount_path
+                if snapshot_metadata.kind == SNAPSHOT_KIND_DIRECTORY and snapshot_metadata.mount_path is None:
+                    # Directory snapshot with a mount path that is no longer allowed (e.g. the
+                    # legacy "/tmp" default): its content layout matches that path, so it can't
+                    # be remapped. Provision fresh instead of restoring it.
+                    snapshot = None
+                    used_snapshot = False
+                else:
+                    snapshot_source = "repository"
+                    snapshot_kind = snapshot_metadata.kind
+                    snapshot_mount_path = snapshot_metadata.mount_path
         elif not has_repo:
             emit_agent_log(ctx.run_id, "debug", "Creating environment without repository")
 
@@ -356,10 +367,22 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         # kind of new snapshot created after this run.
         resume_snapshot_external_id = run_state.snapshot_external_id
         if resume_snapshot_external_id:
-            used_snapshot = True
-            snapshot_source = "resume"
-            snapshot_kind = run_state.resume_snapshot_kind()
-            snapshot_mount_path = run_state.resume_snapshot_mount_path()
+            resume_snapshot_kind = run_state.resume_snapshot_kind()
+            resume_snapshot_mount_path = run_state.resume_snapshot_mount_path()
+            if resume_snapshot_kind == SNAPSHOT_KIND_DIRECTORY and resume_snapshot_mount_path is None:
+                # Same invalidation as the repository-snapshot branch above, for directory
+                # snapshots referenced from run state (e.g. legacy "/tmp" captures).
+                emit_agent_log(
+                    ctx.run_id,
+                    "debug",
+                    "Previous session snapshot is unusable; resuming with a fresh sandbox",
+                )
+                resume_snapshot_external_id = None
+            else:
+                used_snapshot = True
+                snapshot_source = "resume"
+                snapshot_kind = resume_snapshot_kind
+                snapshot_mount_path = resume_snapshot_mount_path
 
         activity.logger.info(
             "resume_decision",
