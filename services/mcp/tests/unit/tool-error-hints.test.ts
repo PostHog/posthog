@@ -52,13 +52,12 @@ describe('getToolRecoveryHint', () => {
         expect(hint).toContain("Don't guess project ids")
     })
 
-    it.each([
-        // A project sub-resource 404 means the sub-resource is missing, not the
-        // project — the name-lookup hint would be misleading noise there.
-        'https://us.posthog.com/api/projects/2/insights/999/',
-        // A 5xx on the project endpoint is a server bug, not a missing id.
-    ])('does not fire the name-lookup hint for %s', (url: string) => {
-        expect(getToolRecoveryHint({ url, status: 404 })).toBeUndefined()
+    it('does not fire the name-lookup hint for a 404 on a project sub-resource', () => {
+        // A sub-resource 404 means the sub-resource is missing, not the project —
+        // the name-lookup hint would be misleading noise there.
+        expect(
+            getToolRecoveryHint({ url: 'https://us.posthog.com/api/projects/2/insights/999/', status: 404 })
+        ).toBeUndefined()
     })
 
     it('does not fire the name-lookup hint for a 5xx on the project retrieve endpoint', () => {
