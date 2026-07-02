@@ -92,15 +92,19 @@ class GoogleSheetsSource(SimpleSource[GoogleSheetsSourceConfig]):
         self, config: GoogleSheetsSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
         client = google_sheets_client()
+        service_account_email = settings.GOOGLE_SHEETS_SERVICE_ACCOUNT_CLIENT_EMAIL
         try:
             client.open_by_url(config.spreadsheet_url)
             return True, None
         except gspread.SpreadsheetNotFound:
-            return False, "Spreadsheet not found at URL provided"
+            return (
+                False,
+                f'We couldn\'t find a spreadsheet at that URL. Check the link, and make sure the sheet is shared with our service account "{service_account_email}" (Viewer access is enough). See https://posthog.com/docs/cdp/sources/google-sheets',
+            )
         except PermissionError:
             return (
                 False,
-                "Permissions missing from spreadsheet. View documentation at https://posthog.com/docs/cdp/sources/google-sheets",
+                f'PostHog doesn\'t have access to this spreadsheet. Share it with our service account "{service_account_email}" — Viewer access is enough — then try again. See https://posthog.com/docs/cdp/sources/google-sheets',
             )
         except Exception as e:
             return False, str(e)

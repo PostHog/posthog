@@ -1,13 +1,65 @@
+from contextlib import asynccontextmanager
+
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.temporal.common.errors import is_expected_error
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract import (
+    NON_RETRYABLE_ERROR_RETRY_LIMIT,
+    handle_non_retryable_error,
     run_pre_write_defensive_compact,
 )
+from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 
 _EXTRACT_MODULE = "products.warehouse_sources.backend.temporal.data_imports.pipelines.common.extract"
+
+
+def _fake_redis(attempts: int):
+    redis = MagicMock()
+    redis.incr = AsyncMock(return_value=attempts)
+    redis.expire = AsyncMock()
+
+    @asynccontextmanager
+    async def _cm():
+        yield redis
+
+    return _cm
+
+
+class TestHandleNonRetryableError:
+    @staticmethod
+    def _job_inputs() -> MagicMock:
+        return MagicMock(team_id=1, source_id="src", run_id="run")
+
+    @staticmethod
+    def _logger() -> MagicMock:
+        return MagicMock(adebug=AsyncMock())
+
+    @pytest.mark.asyncio
+    async def test_under_retry_limit_reraises_error_flagged_expected(self) -> None:
+        # Below the limit the raw error is re-raised so Temporal retries it — but it must be flagged
+        # expected so the interceptor stops reporting the (already customer-surfaced) config failure
+        # on every attempt. That flag suppression is the whole point of this path.
+        original = PermissionError("share the sheet with our service account")
+        with patch(f"{_EXTRACT_MODULE}._get_redis", _fake_redis(1)):
+            with pytest.raises(PermissionError) as exc_info:
+                await handle_non_retryable_error(self._job_inputs(), "denied", self._logger(), original)
+
+        assert exc_info.value is original
+        assert is_expected_error(original) is True
+
+    @pytest.mark.asyncio
+    async def test_over_retry_limit_raises_non_retryable(self) -> None:
+        # Past the limit we give up with NonRetryableException so Temporal stops retrying (it's in
+        # the activity's non_retryable_error_types) rather than looping forever.
+        with patch(f"{_EXTRACT_MODULE}._get_redis", _fake_redis(NON_RETRYABLE_ERROR_RETRY_LIMIT + 1)):
+            with pytest.raises(NonRetryableException):
+                await handle_non_retryable_error(
+                    self._job_inputs(), "denied", self._logger(), PermissionError("denied")
+                )
 
 
 class TestRunPreWriteDefensiveCompact:

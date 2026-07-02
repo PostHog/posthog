@@ -11,6 +11,7 @@ from temporalio import activity
 from posthog.exceptions_capture import capture_exception
 from posthog.redis import get_async_client
 from posthog.sync import database_sync_to_async_pool
+from posthog.temporal.common.errors import mark_expected_error
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.common.load import get_incremental_field_value
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.cdp_producer import CDPProducer
@@ -170,6 +171,12 @@ async def handle_non_retryable_error(
     logger: FilteringBoundLogger,
     error: Exception,
 ) -> NoReturn:
+    # This error was classified as non-retryable — i.e. an expected, user-actionable condition
+    # (bad credentials, an unshared/deleted remote) whose message the customer already sees. Flag
+    # it so the Temporal interceptor skips reporting it to error tracking on every attempt; without
+    # this, an expected config failure lands as a fresh internal issue on each retry and each run.
+    mark_expected_error(error)
+
     async with _get_redis() as redis_client:
         if redis_client is None:
             await logger.adebug(f"Failed to get Redis client for non-retryable error tracking. error={error_msg}")

@@ -5,6 +5,8 @@ from temporalio.exceptions import ActivityError, ApplicationError, ChildWorkflow
 from posthog.temporal.common.errors import (
     MAX_ERROR_MESSAGE_CHARS,
     MAX_ERROR_TRACE_CHARS,
+    is_expected_error,
+    mark_expected_error,
     truncate_for_temporal_payload,
     unwrap_temporal_cause,
 )
@@ -82,3 +84,24 @@ class TestUnwrapTemporalCause:
 
     def test_returns_none_when_wrapper_chain_bottoms_out_on_non_application(self) -> None:
         assert unwrap_temporal_cause(_activity_error(ValueError("not an app error"))) is None
+
+
+class TestExpectedError:
+    def test_mark_returns_same_object_and_flags_expected(self) -> None:
+        err = PermissionError("share the sheet with our service account")
+        assert mark_expected_error(err) is err
+        assert is_expected_error(err) is True
+
+    @pytest.mark.parametrize(
+        "exc,expected",
+        [
+            # A plain error is a defect worth capturing.
+            (ValueError("boom"), False),
+            (RuntimeError("boom"), False),
+            # NonRetryableException is matched by class name (no product import) — it already
+            # signals a classified, customer-surfaced config failure, not a defect.
+            (type("NonRetryableException", (Exception,), {})(), True),
+        ],
+    )
+    def test_recognizes_non_retryable_by_class_name(self, exc: BaseException, expected: bool) -> None:
+        assert is_expected_error(exc) is expected

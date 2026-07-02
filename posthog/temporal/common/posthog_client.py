@@ -14,6 +14,7 @@ from temporalio.worker import (
     WorkflowInterceptorClassInput,
 )
 
+from posthog.temporal.common.errors import is_expected_error
 from posthog.temporal.common.interceptor import ALL_TASK_QUEUES
 from posthog.temporal.common.logger import get_write_only_logger
 
@@ -69,6 +70,11 @@ class _PostHogClientActivityInboundInterceptor(ActivityInboundInterceptor):
             # control flow, not defects — re-raise without reporting them to error tracking.
             if temporalio.exceptions.is_cancelled_exception(e):
                 raise
+            # Likewise for expected, user-actionable config failures (e.g. a data-import source
+            # the customer hasn't shared with our service account): the sync still fails and the
+            # customer already sees the message, so reporting them here is pure internal noise.
+            if is_expected_error(e):
+                raise
             activity_info = activity.info()
             capture_kwargs = {
                 "properties": {
@@ -103,6 +109,8 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
                 raise  # Already captured at the activity level
             if temporalio.exceptions.is_cancelled_exception(e):
                 raise  # Expected cancellation (worker drain, timeout, cancel), not a defect
+            if is_expected_error(e):
+                raise  # Expected, user-actionable config failure, not a defect
             try:
                 workflow_info = workflow.info()
                 capture_kwargs = {
