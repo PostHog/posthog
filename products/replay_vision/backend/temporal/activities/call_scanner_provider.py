@@ -186,10 +186,10 @@ async def _run_mission(
         },
     )
     cache_client = GoogleGenAIClient(api_key=api_key)
-    model = f"models/{snapshot.model.value}"
+    model = f"models/{snapshot.model}"
     metric_labels = {
-        "provider": snapshot.provider.value,
-        "model": snapshot.model.value,
+        "provider": snapshot.provider,
+        "model": snapshot.model,
         "scanner_type": snapshot.scanner_type.value,
     }
 
@@ -224,7 +224,7 @@ async def _run_mission(
                 # cached-content + response-schema combination, a stale cache reference, or a transient provider error.
                 logger.warning(
                     "replay_vision.video_cache.run_failed_retrying_inline",
-                    model=snapshot.model.value,
+                    model=snapshot.model,
                     error=str(exc),
                     error_type=type(exc).__name__,
                     exc_info=True,

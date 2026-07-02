@@ -104,12 +104,30 @@ from products.replay_vision.backend.temporal.types import (
     ScannerCallOutput,
     ScannerLlmInputs,
     ScannerResult,
+    ScannerSnapshot,
     SessionMetadata,
     UploadedVideo,
 )
 from products.replay_vision.backend.temporal.workflow import _extract_kind_for_type, _root_cause_message
 from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
 from products.signals.backend.models import SignalSourceConfig
+
+
+def test_scanner_snapshot_loads_rows_with_retired_model_and_provider_ids() -> None:
+    snapshot = ScannerSnapshot.load_for(
+        uuid.uuid4(),
+        {
+            "name": "old-scanner",
+            "scanner_type": "monitor",
+            "scanner_version": 1,
+            "model": "gemini-1.0-flash-retired-preview",
+            "provider": "hooli",
+            "emits_signals": False,
+            "scanner_config": {"prompt": "p"},
+        },
+    )
+    assert snapshot.model == "gemini-1.0-flash-retired-preview"
+    assert snapshot.provider == "hooli"
 
 
 def _make_scanner(**overrides) -> ReplayScanner:
