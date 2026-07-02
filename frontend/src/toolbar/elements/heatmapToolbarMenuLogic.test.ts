@@ -120,5 +120,13 @@ describe('heatmapToolbarMenuLogic', () => {
                 'getElementStats',
             ])
         })
+
+        it('does not fetch element stats when clickmaps are toggled off while the request is debouncing', async () => {
+            await expectLogic(logic, () => {
+                logic.actions.enableHeatmap()
+                logic.actions.toggleClickmapsEnabled(false)
+            }).toDispatchActions(['getElementStats', 'getElementStatsSuccess'])
+            expect(toolbarApi.elementStats.list).not.toHaveBeenCalled()
+        })
     })
 })
