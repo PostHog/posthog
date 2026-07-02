@@ -61,6 +61,7 @@ from products.replay_vision.backend.temporal.activities.observation_state import
     mark_observation_succeeded_activity,
 )
 from products.replay_vision.backend.temporal.activities.upload_video_to_gemini import upload_video_to_gemini_activity
+from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import (
     INELIGIBLE_SESSION_ERROR_TYPE,
     SCANNER_FAILURE_ERROR_TYPE,
@@ -2370,3 +2371,36 @@ async def test_apply_scanner_workflow_succeeds_when_the_signal_activity_fails() 
     assert mark_observation_failed_activity not in called
     succeeded = next(arg for fn, arg in mocks.activity_calls if fn is mark_observation_succeeded_activity)
     assert succeeded.scanner_result.signals_count == 0
+
+
+# `track_activity` folds in `close_db_connections` so the long-lived worker never reuses a pooled
+# connection killed by a pgbouncer recycle / failover (which surfaces as `ProtocolViolation: unknown pkt`).
+_CLOSE_CONNECTIONS_TARGET = "posthog.temporal.common.utils._close_initialized_connections"
+
+
+class TestTrackActivityEvictsStaleConnections:
+    def test_sync_activity_evicts_connections_around_body(self) -> None:
+        @track_activity()
+        def body(value: int) -> int:
+            return value + 1
+
+        with (
+            patch(_CLOSE_CONNECTIONS_TARGET) as mock_close,
+            patch("posthog.temporal.common.utils.settings.TEST", False),
+        ):
+            assert body(1) == 2
+
+        assert mock_close.call_count == 2  # evicted before and after the body
+
+    async def test_async_activity_evicts_connections_around_body(self) -> None:
+        @track_activity()
+        async def body(value: int) -> int:
+            return value + 1
+
+        with (
+            patch(_CLOSE_CONNECTIONS_TARGET) as mock_close,
+            patch("posthog.temporal.common.utils.settings.TEST", False),
+        ):
+            assert await body(1) == 2
+
+        assert mock_close.call_count == 2
