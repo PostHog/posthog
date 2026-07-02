@@ -172,11 +172,12 @@ tools:
         description: >
             Create a new data warehouse saved query (view). If a view with the same name already exists, it will be
             updated instead (upsert behavior). The query must be valid HogQL. After creation, the view can be referenced
-            by name in other HogQL queries.
+            by name in other HogQL queries. Creating a view infers its column schema by running the query against the
+            warehouse; if that fails with a transient 'column_inference_failed' error (a warehouse timeout under load),
+            retry shortly, or set soft_update=true to save without inferring columns.
         exclude_params:
             - deleted
             - edited_history_id
-            - soft_update
             - is_materialized
             - origin
             - status
@@ -192,6 +193,11 @@ tools:
                 description:
                     Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table
                     names.
+            soft_update:
+                description:
+                    Set to true only to recover from a transient 'column_inference_failed' error, or to save a draft. It
+                    skips inferring the column schema against the warehouse, so the view is created without columns and
+                    is not queryable by name until it is materialized or re-created. Leave unset/false for normal use.
     view-delete:
         operation: warehouse_saved_queries_destroy
         enabled: true
@@ -312,10 +318,11 @@ tools:
             control materialization schedule: '15min' (the fastest cadence), '30min', '1hour', '6hour', '12hour',
             '24hour', '7day', '30day', or 'never' to pause scheduled materialization. IMPORTANT: when updating the query
             field, you must first retrieve the view to get its latest_history_id, then pass that value as
-            edited_history_id for conflict detection.
+            edited_history_id for conflict detection. Re-inference runs the query against the warehouse; if it fails
+            with a transient 'column_inference_failed' error (a warehouse timeout under load), retry shortly, or set
+            soft_update=true to save without re-inferring columns.
         exclude_params:
             - deleted
-            - soft_update
             - is_materialized
             - origin
             - status
@@ -335,6 +342,11 @@ tools:
                 description:
                     Required when updating the query field. Get this from latest_history_id on the retrieve response. Used for
                     optimistic concurrency control.
+            soft_update:
+                description:
+                    Set to true only to recover from a transient 'column_inference_failed' error, or to save a draft. It
+                    skips re-inferring the column schema against the warehouse, keeping the view's existing columns
+                    unchanged. Leave unset/false for normal use so column changes are picked up.
     warehouse-column-annotations-create:
         operation: warehouse_column_annotations_create
         enabled: true

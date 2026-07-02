@@ -1,6 +1,6 @@
 import uuid
 from datetime import datetime
-from typing import Any, cast
+from typing import Any, NoReturn, cast
 
 from django.conf import settings
 from django.db import transaction
@@ -112,6 +112,28 @@ class SyncFrequencyField(serializers.ChoiceField):
 
     def get_attribute(self, instance: DataWarehouseSavedQuery) -> str | None:
         return sync_frequency_interval_to_sync_frequency(instance.sync_frequency_interval)
+
+
+# Raised to the client when inferring a view's column schema fails. Column inference runs the
+# view's query against the warehouse (a blocking, uncached ClickHouse execution), so it can fail
+# transiently when warehouse capacity is tight. The structured `code` lets callers (the SQL editor,
+# API and MCP clients) tell a transient inference failure apart from a genuinely invalid query — so
+# they retry deliberately or fall back to `soft_update` instead of blindly hammering the endpoint.
+COLUMN_INFERENCE_FAILED_CODE = "column_inference_failed"
+COLUMN_INFERENCE_FAILED_MESSAGE = (
+    "Could not infer the column schema for this view: the query could not be executed against the "
+    "warehouse. This is often a transient timeout when warehouse capacity is tight, so retrying "
+    "shortly may succeed. Alternatively, pass `soft_update: true` to save the view without inferring "
+    "columns (they'll be filled in when the view is next materialized), or supply the column `types` "
+    "explicitly."
+)
+
+
+def _raise_column_inference_error(exc: Exception) -> NoReturn:
+    # Capture the underlying failure — it was previously swallowed by a bare `except`, leaving us blind
+    # to the real cause (timeout vs. warehouse error vs. bad query).
+    capture_exception(exc)
+    raise serializers.ValidationError(detail=COLUMN_INFERENCE_FAILED_MESSAGE, code=COLUMN_INFERENCE_FAILED_CODE)
 
 
 def delete_saved_query(saved_query: DataWarehouseSavedQuery) -> None:
@@ -288,7 +310,14 @@ class DataWarehouseSavedQuerySerializer(
         write_only=True,
         required=False,
         allow_null=True,
-        help_text="If true, skip column inference and validation. For saving drafts.",
+        help_text=(
+            "If true, save the view without inferring its column schema from the warehouse. Column "
+            "inference runs the query against ClickHouse (a blocking, uncached call that can time out "
+            "when warehouse capacity is tight), so this lets you save drafts or recover from a "
+            "transient inference failure. The column schema is left empty on create (and unchanged on "
+            "update) until the view is materialized or re-saved with the query; provide `types` "
+            "instead to set the schema immediately."
+        ),
     )
     dag_id = serializers.UUIDField(
         write_only=True, required=False, allow_null=True, help_text="Optional DAG to place this view into"
@@ -389,8 +418,8 @@ class DataWarehouseSavedQuerySerializer(
                     view.columns = columns
 
                 view.external_tables = view.s3_tables
-            except Exception:
-                raise serializers.ValidationError("Failed to retrieve types for view")
+            except Exception as e:
+                _raise_column_inference_error(e)
 
         with transaction.atomic():
             view.save()
@@ -500,27 +529,32 @@ class DataWarehouseSavedQuerySerializer(
 
             # Only update columns and status if the query has changed
             if "query" in validated_data:
-                try:
-                    # The columns will be inferred from the query
-                    client_types = self.context["request"].data.get("types", [])
-                    if len(client_types) == 0:
-                        view.columns = view.get_columns()
-                    else:
-                        columns = {
-                            str(item[0]): {
-                                "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
-                                "clickhouse": item[1],
-                                "valid": True,
+                # `soft_update` skips the blocking column inference (matching create), so drafts and
+                # retries after a transient inference timeout can save without re-executing the query.
+                # The previously inferred columns are kept as-is until the view is next re-saved with
+                # types or materialized.
+                if not soft_update:
+                    try:
+                        # The columns will be inferred from the query
+                        client_types = self.context["request"].data.get("types", [])
+                        if len(client_types) == 0:
+                            view.columns = view.get_columns()
+                        else:
+                            columns = {
+                                str(item[0]): {
+                                    "hogql": CLICKHOUSE_HOGQL_MAPPING[clean_type(str(item[1]))].__name__,
+                                    "clickhouse": item[1],
+                                    "valid": True,
+                                }
+                                for item in client_types
                             }
-                            for item in client_types
-                        }
-                        view.columns = columns
+                            view.columns = columns
 
-                    view.external_tables = view.s3_tables
-                except RecursionError:
-                    raise serializers.ValidationError("Model contains a cycle")
-                except Exception:
-                    raise serializers.ValidationError("Failed to retrieve types for view")
+                        view.external_tables = view.s3_tables
+                    except RecursionError:
+                        raise serializers.ValidationError("Model contains a cycle")
+                    except Exception as e:
+                        _raise_column_inference_error(e)
 
                 view.status = DataWarehouseSavedQuery.Status.MODIFIED
                 view.save()

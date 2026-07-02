@@ -289,6 +289,24 @@ class TestSavedQuery(APIBaseTest):
 
             mock_get_columns.assert_not_called()
 
+    def test_create_column_inference_failure_returns_structured_error(self):
+        with patch.object(DataWarehouseSavedQuery, "get_columns", side_effect=Exception("clickhouse timeout")):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+                {
+                    "name": "event_view",
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": "select event as event from events LIMIT 100",
+                    },
+                },
+            )
+
+        self.assertEqual(response.status_code, 400, response.content)
+        self.assertEqual(response.json()["code"], "column_inference_failed")
+        # A failed inference must not leave a half-created, column-less view behind.
+        self.assertFalse(DataWarehouseSavedQuery.objects.filter(team=self.team, name="event_view").exists())
+
     def test_create_name_overlap_error(self):
         response = self.client.post(
             f"/api/environments/{self.team.id}/warehouse_saved_queries/",
@@ -732,6 +750,38 @@ class TestSavedQuery(APIBaseTest):
             )
 
             mock_get_columns.assert_not_called()
+
+    def test_update_with_soft_update_skips_column_inference(self):
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "event_view",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select event as event from events LIMIT 100",
+                },
+            },
+        )
+        self.assertEqual(response.status_code, 201)
+        saved_query = response.json()
+
+        # soft_update must skip the blocking column inference on update the same way it does on create
+        # (and the way types does), so drafts and retries after a transient timeout can save without
+        # re-executing the query against the warehouse.
+        with patch.object(DataWarehouseSavedQuery, "get_columns") as mock_get_columns:
+            response = self.client.patch(
+                f"/api/projects/{self.team.id}/warehouse_saved_queries/{saved_query['id']}",
+                {
+                    "query": {
+                        "kind": "HogQLQuery",
+                        "query": "select event as event, uuid as uuid from events LIMIT 100",
+                    },
+                    "soft_update": True,
+                },
+            )
+
+        self.assertEqual(response.status_code, 200, response.content)
+        mock_get_columns.assert_not_called()
 
     def test_delete_with_existing_schedule(self):
         response = self.client.post(
