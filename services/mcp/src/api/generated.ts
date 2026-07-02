@@ -14998,8 +14998,9 @@ export namespace Schemas {
      * Shared serializer for the physical-table and saved-query-view annotation surfaces.
      *
      * Subclasses add a `Meta` (model + fields) and the parent foreign-key field (`table`/`saved_query`),
-     * and set `parent_field_name` to that FK's name. Everything else — the shared field definitions, the
-     * column-name validation, and the immutable-FK-on-update rule — lives here.
+     * and set `parent_field_name` to that FK's name. The shared field definitions and the
+     * immutable-FK-on-update rule live here; column-name validation lives on the viewset so it runs after
+     * the editor-access check (avoiding a schema leak to callers denied the parent).
      */
     export interface DataWarehouseSavedQueryColumnAnnotation {
       readonly id: string;
@@ -35496,8 +35497,9 @@ export namespace Schemas {
      * Shared serializer for the physical-table and saved-query-view annotation surfaces.
      *
      * Subclasses add a `Meta` (model + fields) and the parent foreign-key field (`table`/`saved_query`),
-     * and set `parent_field_name` to that FK's name. Everything else — the shared field definitions, the
-     * column-name validation, and the immutable-FK-on-update rule — lives here.
+     * and set `parent_field_name` to that FK's name. The shared field definitions and the
+     * immutable-FK-on-update rule live here; column-name validation lives on the viewset so it runs after
+     * the editor-access check (avoiding a schema leak to callers denied the parent).
      */
     export interface WarehouseColumnAnnotation {
       readonly id: string;
@@ -36633,8 +36635,9 @@ export namespace Schemas {
      * Shared serializer for the physical-table and saved-query-view annotation surfaces.
      *
      * Subclasses add a `Meta` (model + fields) and the parent foreign-key field (`table`/`saved_query`),
-     * and set `parent_field_name` to that FK's name. Everything else — the shared field definitions, the
-     * column-name validation, and the immutable-FK-on-update rule — lives here.
+     * and set `parent_field_name` to that FK's name. The shared field definitions and the
+     * immutable-FK-on-update rule live here; column-name validation lives on the viewset so it runs after
+     * the editor-access check (avoiding a schema leak to callers denied the parent).
      */
     export interface PatchedDataWarehouseSavedQueryColumnAnnotation {
       readonly id?: string;
@@ -42452,8 +42455,9 @@ export namespace Schemas {
      * Shared serializer for the physical-table and saved-query-view annotation surfaces.
      *
      * Subclasses add a `Meta` (model + fields) and the parent foreign-key field (`table`/`saved_query`),
-     * and set `parent_field_name` to that FK's name. Everything else — the shared field definitions, the
-     * column-name validation, and the immutable-FK-on-update rule — lives here.
+     * and set `parent_field_name` to that FK's name. The shared field definitions and the
+     * immutable-FK-on-update rule live here; column-name validation lives on the viewset so it runs after
+     * the editor-access check (avoiding a schema leak to callers denied the parent).
      */
     export interface PatchedWarehouseColumnAnnotation {
       readonly id?: string;

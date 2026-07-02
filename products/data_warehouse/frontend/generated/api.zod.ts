@@ -145,7 +145,7 @@ export const SavedQueryColumnAnnotationsCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe(
-        "Shared serializer for the physical-table and saved-query-view annotation surfaces.\n\nSubclasses add a `Meta` (model + fields) and the parent foreign-key field (`table`\/`saved_query`),\nand set `parent_field_name` to that FK's name. Everything else — the shared field definitions, the\ncolumn-name validation, and the immutable-FK-on-update rule — lives here."
+        "Shared serializer for the physical-table and saved-query-view annotation surfaces.\n\nSubclasses add a `Meta` (model + fields) and the parent foreign-key field (`table`\/`saved_query`),\nand set `parent_field_name` to that FK's name. The shared field definitions and the\nimmutable-FK-on-update rule live here; column-name validation lives on the viewset so it runs after\nthe editor-access check (avoiding a schema leak to callers denied the parent)."
     )
 
 /**
@@ -169,7 +169,7 @@ export const SavedQueryColumnAnnotationsUpdateBody = /* @__PURE__ */ zod
             ),
     })
     .describe(
-        "Shared serializer for the physical-table and saved-query-view annotation surfaces.\n\nSubclasses add a `Meta` (model + fields) and the parent foreign-key field (`table`\/`saved_query`),\nand set `parent_field_name` to that FK's name. Everything else — the shared field definitions, the\ncolumn-name validation, and the immutable-FK-on-update rule — lives here."
+        "Shared serializer for the physical-table and saved-query-view annotation surfaces.\n\nSubclasses add a `Meta` (model + fields) and the parent foreign-key field (`table`\/`saved_query`),\nand set `parent_field_name` to that FK's name. The shared field definitions and the\nimmutable-FK-on-update rule live here; column-name validation lives on the viewset so it runs after\nthe editor-access check (avoiding a schema leak to callers denied the parent)."
     )
 
 /**
@@ -197,7 +197,7 @@ export const SavedQueryColumnAnnotationsPartialUpdateBody = /* @__PURE__ */ zod
             ),
     })
     .describe(
-        "Shared serializer for the physical-table and saved-query-view annotation surfaces.\n\nSubclasses add a `Meta` (model + fields) and the parent foreign-key field (`table`\/`saved_query`),\nand set `parent_field_name` to that FK's name. Everything else — the shared field definitions, the\ncolumn-name validation, and the immutable-FK-on-update rule — lives here."
+        "Shared serializer for the physical-table and saved-query-view annotation surfaces.\n\nSubclasses add a `Meta` (model + fields) and the parent foreign-key field (`table`\/`saved_query`),\nand set `parent_field_name` to that FK's name. The shared field definitions and the\nimmutable-FK-on-update rule live here; column-name validation lives on the viewset so it runs after\nthe editor-access check (avoiding a schema leak to callers denied the parent)."
     )
 
 /**
@@ -221,7 +221,7 @@ export const WarehouseColumnAnnotationsCreateBody = /* @__PURE__ */ zod
             ),
     })
     .describe(
-        "Shared serializer for the physical-table and saved-query-view annotation surfaces.\n\nSubclasses add a `Meta` (model + fields) and the parent foreign-key field (`table`\/`saved_query`),\nand set `parent_field_name` to that FK's name. Everything else — the shared field definitions, the\ncolumn-name validation, and the immutable-FK-on-update rule — lives here."
+        "Shared serializer for the physical-table and saved-query-view annotation surfaces.\n\nSubclasses add a `Meta` (model + fields) and the parent foreign-key field (`table`\/`saved_query`),\nand set `parent_field_name` to that FK's name. The shared field definitions and the\nimmutable-FK-on-update rule live here; column-name validation lives on the viewset so it runs after\nthe editor-access check (avoiding a schema leak to callers denied the parent)."
     )
 
 /**
@@ -245,7 +245,7 @@ export const WarehouseColumnAnnotationsUpdateBody = /* @__PURE__ */ zod
             ),
     })
     .describe(
-        "Shared serializer for the physical-table and saved-query-view annotation surfaces.\n\nSubclasses add a `Meta` (model + fields) and the parent foreign-key field (`table`\/`saved_query`),\nand set `parent_field_name` to that FK's name. Everything else — the shared field definitions, the\ncolumn-name validation, and the immutable-FK-on-update rule — lives here."
+        "Shared serializer for the physical-table and saved-query-view annotation surfaces.\n\nSubclasses add a `Meta` (model + fields) and the parent foreign-key field (`table`\/`saved_query`),\nand set `parent_field_name` to that FK's name. The shared field definitions and the\nimmutable-FK-on-update rule live here; column-name validation lives on the viewset so it runs after\nthe editor-access check (avoiding a schema leak to callers denied the parent)."
     )
 
 /**
@@ -270,7 +270,7 @@ export const WarehouseColumnAnnotationsPartialUpdateBody = /* @__PURE__ */ zod
             ),
     })
     .describe(
-        "Shared serializer for the physical-table and saved-query-view annotation surfaces.\n\nSubclasses add a `Meta` (model + fields) and the parent foreign-key field (`table`\/`saved_query`),\nand set `parent_field_name` to that FK's name. Everything else — the shared field definitions, the\ncolumn-name validation, and the immutable-FK-on-update rule — lives here."
+        "Shared serializer for the physical-table and saved-query-view annotation surfaces.\n\nSubclasses add a `Meta` (model + fields) and the parent foreign-key field (`table`\/`saved_query`),\nand set `parent_field_name` to that FK's name. The shared field definitions and the\nimmutable-FK-on-update rule live here; column-name validation lives on the viewset so it runs after\nthe editor-access check (avoiding a schema leak to callers denied the parent)."
     )
 
 /**
