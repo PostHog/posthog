@@ -4,6 +4,7 @@ import { combineUrl } from 'kea-router'
 import { Link } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
+import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
 import { dateMapping } from 'lib/utils/dateFilters'
 import { pluralize } from 'lib/utils/strings'
@@ -18,7 +19,11 @@ import { MetricTile } from '../components/MetricTile'
 import { PullRequestTable } from '../components/PullRequestTable'
 import { formatCost, formatMinutes } from '../components/runTables'
 import { RepoScopeChip, ScopeBar } from '../components/ScopeBar'
+import { Section, SectionNav } from '../components/Section'
+import { ShareRow } from '../components/ShareRow'
 import { compactHours, compactHoursUnit } from '../lib/format'
+
+const SHARE_COLORS = ['var(--brand-blue)', 'var(--success)', 'var(--warning)', 'var(--purple)', 'var(--danger)']
 import { AuthorLogicProps, authorLogic } from './authorLogic'
 import { SHARED_DEFAULT_DATE_FROM, engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 
@@ -50,6 +55,8 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
         medianOpenToMergeSeconds,
         rerunCycles,
         openPrCount,
+        workflowCosts,
+        workflowCostsLoading,
         sourceId,
     } = useValues(authorLogic)
     const { dateFrom, dateTo } = useValues(engineeringAnalyticsFiltersLogic)
@@ -134,14 +141,21 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                     </div>
                 </div>
 
-                <div className="flex flex-col gap-2">
-                    <div className="flex items-baseline gap-2">
-                        <h3 className="mb-0">Pull requests</h3>
-                        {!prsLoading && <span className="text-xs text-secondary">{pluralize(prs.length, 'PR')}</span>}
-                        <span className="text-xs text-tertiary">
-                            same table as the repo overview — one component, scoped to one author
-                        </span>
-                    </div>
+                <SectionNav
+                    items={[
+                        { id: 'author-prs', label: 'Pull requests' },
+                        { id: 'author-cost', label: 'Cost' },
+                    ]}
+                />
+
+                <Section
+                    id="author-prs"
+                    title="Pull requests"
+                    note="same table as the repo overview — one component, scoped to one author"
+                    right={
+                        !prsLoading ? <span className="text-secondary">{pluralize(prs.length, 'PR')}</span> : undefined
+                    }
+                >
                     <PullRequestTable
                         rows={prs}
                         loading={prsLoading}
@@ -152,7 +166,53 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
                         dataAttr="engineering-analytics-author-pr-table"
                         emptyState={`No pull requests for ${handle} in the last year.`}
                     />
-                </div>
+                </Section>
+
+                <Section
+                    id="author-cost"
+                    title="Where their CI minutes go"
+                    note="runs attributed via their pull requests, over the window above"
+                >
+                    {workflowCosts.length > 0 ? (
+                        <LemonCard hoverEffect={false} className="p-4 lg:max-w-xl">
+                            <h3 className="mb-1 text-xs font-semibold text-secondary">By workflow</h3>
+                            {workflowCosts.slice(0, 8).map((cost, i) => {
+                                const total = workflowCosts.reduce((sum, c) => sum + (c.estimated_cost_usd ?? 0), 0)
+                                return (
+                                    <ShareRow
+                                        key={cost.workflow_name || '(unknown)'}
+                                        label={cost.workflow_name || '(unknown workflow)'}
+                                        sub={`${formatMinutes(cost.billable_minutes)} billable`}
+                                        value={formatCost(cost.estimated_cost_usd)}
+                                        share={total > 0 ? (cost.estimated_cost_usd ?? 0) / total : 0}
+                                        color={SHARE_COLORS[i % SHARE_COLORS.length]}
+                                        to={
+                                            prs[0]
+                                                ? combineUrl(
+                                                      urls.engineeringAnalyticsWorkflowRuns(
+                                                          prs[0].repoOwner,
+                                                          prs[0].repoName,
+                                                          cost.workflow_name
+                                                      ),
+                                                      sourceId ? { source: sourceId } : {}
+                                                  ).url
+                                                : undefined
+                                        }
+                                    />
+                                )
+                            })}
+                            <div className="mt-2 border-t border-primary pt-2 text-[11px] text-tertiary">
+                                Author pages exist for finding and explaining your own work — not for ranking people.
+                            </div>
+                        </LemonCard>
+                    ) : (
+                        <span className="text-xs text-secondary">
+                            {workflowCostsLoading
+                                ? 'Loading…'
+                                : "No cost data — the job-level source isn't synced, or nothing ran in the window."}
+                        </span>
+                    )}
+                </Section>
             </div>
         </SceneContent>
     )

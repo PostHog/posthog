@@ -27,14 +27,16 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { EntityHeader, VerdictPill } from '../components/EntityHeader'
 import { FailureLogGroups } from '../components/FailureLogs'
+import { GroupedJobsTable } from '../components/GroupedJobsTable'
 import { MetricTile } from '../components/MetricTile'
 import { PullRequestStateTag } from '../components/PullRequestStateTag'
+import { RunConclusionTag } from '../components/runTables'
 import { RepoScopeChip, ScopeBar } from '../components/ScopeBar'
 import { Section, SectionNav } from '../components/Section'
+import type { WorkflowJobApi } from '../generated/api.schemas'
 import { compactUsd } from '../lib/format'
 import { githubCommitUrl, githubPrUrl } from '../lib/github'
 import { LifecycleSummary, WorkflowRun, isPassingConclusion } from '../lib/lifecycle'
-import { verdictTag } from '../lib/runStatus'
 import type { WorkflowHealthRow } from './engineeringAnalyticsLogic'
 import {
     PrCommitRuns,
@@ -274,15 +276,6 @@ function runRowKey(run: WorkflowRun): string {
     return `${run.workflow}@${run.startedAt ?? run.finishedAt ?? run.runId ?? ''}`
 }
 
-/** One tag for a run's (or a workflow's latest-run) state, running included. */
-function RunConclusionTag({ conclusion }: { conclusion: string | null }): JSX.Element {
-    if (conclusion == null) {
-        return <LemonTag type="completion">Running</LemonTag>
-    }
-    const tag = verdictTag(conclusion)
-    return <LemonTag type={tag.type}>{tag.label}</LemonTag>
-}
-
 /** The runs of one workflow on this PR, one row per push × attempt — jobs live on the run page. */
 function PerPushRunsTable({
     runs,
@@ -291,6 +284,10 @@ function PerPushRunsTable({
     repoOwner,
     repoName,
     sourceId,
+    runJobs,
+    runJobsLoading,
+    expandedRunKeys,
+    setRunExpanded,
 }: {
     runs: PrRunRow[]
     runCostByKey: Record<string, { minutes: number | null; cost: number | null }>
@@ -298,6 +295,10 @@ function PerPushRunsTable({
     repoOwner: string
     repoName: string
     sourceId: string | null
+    runJobs: Record<string, WorkflowJobApi[]>
+    runJobsLoading: boolean
+    expandedRunKeys: string[]
+    setRunExpanded: (rowKey: string, expanded: boolean, runId: number | null, runAttempt: number | null) => void
 }): JSX.Element {
     // Oldest push first so rows read in the same order as the timeline strip.
     const ordered = [...runs].sort((a, b) => (a.startedAt ?? '').localeCompare(b.startedAt ?? ''))
@@ -403,6 +404,32 @@ function PerPushRunsTable({
             embedded
             rowKey={runRowKey}
             useURLForSorting={false}
+            onRow={(run) =>
+                run.runId != null
+                    ? {
+                          className: 'cursor-pointer',
+                          onClick: () =>
+                              setRunExpanded(
+                                  runRowKey(run),
+                                  !expandedRunKeys.includes(runRowKey(run)),
+                                  run.runId,
+                                  run.runAttempt
+                              ),
+                      }
+                    : {}
+            }
+            expandable={{
+                noIndent: true,
+                rowExpandable: (run) => run.runId != null,
+                isRowExpanded: (run) => expandedRunKeys.includes(runRowKey(run)),
+                expandedRowRender: (run) => (
+                    <GroupedJobsTable
+                        jobs={run.runId != null ? runJobs[jobCacheKey(run.runId, run.runAttempt)] : undefined}
+                        loading={runJobsLoading}
+                        embedded
+                    />
+                ),
+            }}
             nouns={['run', 'runs']}
         />
     )
@@ -421,6 +448,10 @@ function PrWorkflowsTable({
     repoOwner,
     repoName,
     sourceId,
+    runJobs,
+    runJobsLoading,
+    expandedRunKeys,
+    setRunExpanded,
 }: {
     rows: WorkflowHealthRow[]
     filteredRuns: PrRunRow[]
@@ -431,6 +462,10 @@ function PrWorkflowsTable({
     repoOwner: string
     repoName: string
     sourceId: string | null
+    runJobs: Record<string, WorkflowJobApi[]>
+    runJobsLoading: boolean
+    expandedRunKeys: string[]
+    setRunExpanded: (rowKey: string, expanded: boolean, runId: number | null, runAttempt: number | null) => void
 }): JSX.Element {
     const latestByWorkflow = latestRunPerWorkflow(filteredRuns)
     const columns: LemonTableColumns<WorkflowHealthRow> = [
@@ -541,6 +576,10 @@ function PrWorkflowsTable({
                         repoOwner={repoOwner}
                         repoName={repoName}
                         sourceId={sourceId}
+                        runJobs={runJobs}
+                        runJobsLoading={runJobsLoading}
+                        expandedRunKeys={expandedRunKeys}
+                        setRunExpanded={setRunExpanded}
                     />
                 ),
             }}
@@ -574,8 +613,11 @@ export function PullRequestDetailScene(): JSX.Element {
         failureLogsLoading,
         latestPushStats,
         failingJobLabelByWorkflow,
+        runJobs,
+        runJobsLoading,
+        expandedRunKeys,
     } = useValues(pullRequestDetailLogic)
-    const { loadLifecycle, loadPrRuns, setWorkflowFilter } = useActions(pullRequestDetailLogic)
+    const { loadLifecycle, loadPrRuns, setWorkflowFilter, setRunExpanded } = useActions(pullRequestDetailLogic)
 
     const pullRequest = lifecycle?.pull_request
     const githubUrl = pullRequest
@@ -819,6 +861,10 @@ export function PullRequestDetailScene(): JSX.Element {
                         repoOwner={repoOwner}
                         repoName={repoName}
                         sourceId={sourceId}
+                        runJobs={runJobs}
+                        runJobsLoading={runJobsLoading}
+                        expandedRunKeys={expandedRunKeys}
+                        setRunExpanded={setRunExpanded}
                     />
                 )}
             </Section>

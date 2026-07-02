@@ -7,9 +7,9 @@
 //     page carries to the next instead of snapping back to defaults.
 
 import { useActions, useValues } from 'kea'
-import { Fragment, ReactNode } from 'react'
+import { Fragment, ReactNode, useState } from 'react'
 
-import { LemonSelect, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonDropdown, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { cn } from 'lib/utils/css-classes'
@@ -18,7 +18,6 @@ import { dateMapping } from 'lib/utils/dateFilters'
 import type { GitHubSourceApi } from '../generated/api.schemas'
 import { SHARED_DEFAULT_DATE_FROM, engineeringAnalyticsFiltersLogic } from '../scenes/engineeringAnalyticsFiltersLogic'
 import { engineeringAnalyticsLogic } from '../scenes/engineeringAnalyticsLogic'
-import { BranchFilter } from './BranchFilter'
 
 // The endpoints require a window start (no "all time"); relative windows + Custom only. Covers a CI-health
 // "right now" (24h) through a quarterly spend window.
@@ -90,6 +89,77 @@ export function RepoScopeChip({ label, to }: { label: string; to: string }): JSX
     )
 }
 
+// Quick presets for the default branch. We can't tell main from master without another query, so offer
+// both — picking the active one clears back to all branches.
+const DEFAULT_BRANCHES = ['main', 'master']
+
+/** The branch scope as a chip ("branch: master") opening a small picker — server-side head_branch
+ *  filter shared across pages via engineeringAnalyticsFiltersLogic, so the scope carries between them. */
+function BranchScopeChip(): JSX.Element {
+    const { branchInput, appliedBranch } = useValues(engineeringAnalyticsFiltersLogic)
+    const { setBranchFilter, applyBranchFilter } = useActions(engineeringAnalyticsFiltersLogic)
+    const [visible, setVisible] = useState(false)
+
+    // Stage + apply a branch in one click; picking the active preset clears back to all branches.
+    const selectBranch = (branch: string): void => {
+        setBranchFilter(branch)
+        applyBranchFilter()
+        setVisible(false)
+    }
+
+    return (
+        <LemonDropdown
+            visible={visible}
+            onVisibilityChange={setVisible}
+            closeOnClickInside={false}
+            overlay={
+                <div className="flex w-64 flex-col gap-2 p-1">
+                    <LemonInput
+                        type="search"
+                        size="small"
+                        placeholder="Branch name (exact)"
+                        value={branchInput}
+                        onChange={setBranchFilter}
+                        onPressEnter={() => {
+                            applyBranchFilter()
+                            setVisible(false)
+                        }}
+                        autoFocus
+                        data-attr="engineering-analytics-branch-filter"
+                    />
+                    <div className="flex flex-wrap gap-1">
+                        {DEFAULT_BRANCHES.map((branch) => (
+                            <LemonButton
+                                key={branch}
+                                size="xsmall"
+                                type={appliedBranch === branch ? 'primary' : 'secondary'}
+                                onClick={() => selectBranch(appliedBranch === branch ? '' : branch)}
+                            >
+                                {branch}
+                            </LemonButton>
+                        ))}
+                        <LemonButton
+                            size="xsmall"
+                            type={appliedBranch === '' ? 'primary' : 'secondary'}
+                            onClick={() => selectBranch('')}
+                        >
+                            all branches
+                        </LemonButton>
+                    </div>
+                </div>
+            }
+        >
+            <span className={cn(CHIP_CLASS, 'cursor-pointer')} title="One branch scope for every section below">
+                branch:{' '}
+                <strong className={cn('font-semibold', appliedBranch ? 'text-primary' : 'text-tertiary')}>
+                    {appliedBranch || 'all'}
+                </strong>
+                <span className="text-[8px] text-tertiary">▼</span>
+            </span>
+        </LemonDropdown>
+    )
+}
+
 export function ScopeBar({
     repoSlot,
     crumbs = [],
@@ -151,7 +221,7 @@ export function ScopeBar({
                         </Link>
                     </span>
                 )}
-                {showBranch && <BranchFilter />}
+                {showBranch && <BranchScopeChip />}
                 {showDate && (
                     <DateFilter
                         dateFrom={dateFrom}

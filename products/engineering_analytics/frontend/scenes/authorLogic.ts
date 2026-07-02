@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, key, path, props, selectors } from 'kea'
+import { afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { ApiConfig } from 'lib/api'
@@ -8,7 +8,8 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import { engineeringAnalyticsPullRequests } from '../generated/api'
+import { engineeringAnalyticsAuthorWorkflowCosts, engineeringAnalyticsPullRequests } from '../generated/api'
+import type { WorkflowCostApi } from '../generated/api.schemas'
 import type { authorLogicType } from './authorLogicType'
 import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import { PullRequestRow, toPullRequestRow } from './engineeringAnalyticsLogic'
@@ -37,7 +38,7 @@ export const authorLogic = kea<authorLogicType>([
         values: [engineeringAnalyticsFiltersLogic, ['dateFrom', 'dateTo']],
     })),
 
-    loaders(({ props }) => ({
+    loaders(({ props, values }) => ({
         prs: [
             [] as PullRequestRow[],
             {
@@ -53,6 +54,27 @@ export const authorLogic = kea<authorLogicType>([
                 },
             },
         ],
+        // The author's CI spend split by workflow over the shared window — "where their CI minutes go".
+        // [] when the job-level source isn't synced.
+        workflowCosts: [
+            [] as WorkflowCostApi[],
+            {
+                loadWorkflowCosts: async (): Promise<WorkflowCostApi[]> =>
+                    await engineeringAnalyticsAuthorWorkflowCosts(projectId(), {
+                        author: props.handle,
+                        date_from: values.dateFrom ?? undefined,
+                        date_to: values.dateTo ?? undefined,
+                        source_id: props.sourceId ?? undefined,
+                    }),
+            },
+        ],
+    })),
+
+    listeners(({ actions }) => ({
+        // The shared window scopes the cost breakdown — reload it when the picker changes.
+        [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => {
+            actions.loadWorkflowCosts()
+        },
     })),
 
     selectors({
@@ -125,5 +147,6 @@ export const authorLogic = kea<authorLogicType>([
 
     afterMount(({ actions }) => {
         actions.loadPrs()
+        actions.loadWorkflowCosts()
     }),
 ])

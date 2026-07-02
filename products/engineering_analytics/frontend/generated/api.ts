@@ -11,6 +11,7 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
 import type {
     CICardSummaryApi,
     CIFailureLogsApi,
+    EngineeringAnalyticsAuthorWorkflowCostsParams,
     EngineeringAnalyticsCiCardsParams,
     EngineeringAnalyticsCiFailureLogsParams,
     EngineeringAnalyticsJobAggregatesParams,
@@ -38,6 +39,7 @@ import type {
     QuarantineRequestResultApi,
     RepoOverviewApi,
     RunFailureLogsApi,
+    WorkflowCostApi,
     WorkflowHealthItemApi,
     WorkflowJobAggregateApi,
     WorkflowJobApi,
@@ -45,6 +47,39 @@ import type {
     WorkflowRunDetailApi,
     WorkflowRunnerCostApi,
 } from './api.schemas'
+
+export const getEngineeringAnalyticsAuthorWorkflowCostsUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsAuthorWorkflowCostsParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/author_workflow_costs/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/author_workflow_costs/`
+}
+
+/**
+ * One author's estimated CI cost split by workflow over a window (date_from default -30d), highest spend first. Runs are attributed to the author through their pull requests (attribution is by PR number). Returns an empty list when the job-level source isn't synced.
+ */
+export const engineeringAnalyticsAuthorWorkflowCosts = async (
+    projectId: string,
+    params: EngineeringAnalyticsAuthorWorkflowCostsParams,
+    options?: RequestInit
+): Promise<WorkflowCostApi[]> => {
+    return apiMutator<WorkflowCostApi[]>(getEngineeringAnalyticsAuthorWorkflowCostsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
 
 export const getEngineeringAnalyticsCiCardsUrl = (projectId: string, params?: EngineeringAnalyticsCiCardsParams) => {
     const normalizedParams = new URLSearchParams()

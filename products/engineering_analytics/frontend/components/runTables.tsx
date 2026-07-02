@@ -43,6 +43,15 @@ export function timeAxis(items: { startedAt: string | null; finishedAt: string |
     return { axisStart: starts.length ? Math.min(...starts) : null, axisEnd: ends.length ? Math.max(...ends) : null }
 }
 
+/** One boxed tag for a run's state, running included — the run-level counterpart of StatusDot. */
+export function RunConclusionTag({ conclusion }: { conclusion: string | null }): JSX.Element {
+    if (conclusion == null) {
+        return <LemonTag type="completion">Running</LemonTag>
+    }
+    const tag = verdictTag(conclusion)
+    return <LemonTag type={tag.type}>{tag.label}</LemonTag>
+}
+
 /** Compact status: a colored dot + label rather than a boxed tag — far less noise down a long list. */
 export function StatusDot({ conclusion }: { conclusion: string | null }): JSX.Element {
     const tag = verdictTag(conclusion)
