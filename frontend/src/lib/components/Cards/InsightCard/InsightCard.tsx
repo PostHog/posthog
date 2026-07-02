@@ -160,7 +160,7 @@ function InsightCardInternal(
     const { ref: inViewRef, inView } = useInView({ rootMargin: '500px' })
     const { isVisible: isPageVisible } = usePageVisibility()
 
-    /** Wether the page is active and the line graph is currently in view. Used to free resources, by not rendering
+    /** Whether the page is active and the line graph is currently in view. Used to free resources, by not rendering
      * insight cards that aren't visible. See also https://wiki.whatwg.org/wiki/Canvas_Context_Loss_and_Restoration.
      *
      * We add an extra check to make sure all insights are visible in Storybook.

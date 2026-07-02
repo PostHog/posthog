@@ -1033,7 +1033,7 @@ export function setLatestVersionsOnQuery<T = any>(node: T, options?: { recursion
     return cloned as T
 }
 
-/** Checks wether a given query node satisfies all latest versions of the query schema. */
+/** Checks whether a given query node satisfies all latest versions of the query schema. */
 export function checkLatestVersionsOnQuery(node: any): boolean {
     if (node === null || typeof node !== 'object') {
         return true

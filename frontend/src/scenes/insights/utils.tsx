@@ -608,7 +608,7 @@ export function getTrendDatasetPosition(dataset: IndexedTrendResult): number {
     return dataset.seriesIndex ?? dataset.colorIndex ?? ((dataset as any).index as number)
 }
 
-/** Type guard to determine wether we have a FunnelStepWithConversionMetrics or a FlattenedFunnelStepByBreakdown */
+/** Type guard to determine whether we have a FunnelStepWithConversionMetrics or a FlattenedFunnelStepByBreakdown */
 function isFunnelStepWithConversionMetrics(
     dataset: FlattenedFunnelStepByBreakdown | FunnelStepWithConversionMetrics
 ): dataset is FunnelStepWithConversionMetrics {

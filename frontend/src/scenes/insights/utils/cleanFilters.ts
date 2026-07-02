@@ -200,7 +200,7 @@ type CommonFiltersType = {
     [K in CommonFiltersTypeKeys]: FilterType[K]
 }
 
-/** Heuristic for determining wether this is a new insight, usually set by url.
+/** Heuristic for determining whether this is a new insight, usually set by url.
  * In the most basic case something like `/insights/new?insight=TRENDS`. */
 const isNewInsight = (filters: Partial<AnyFilterType>): boolean => {
     if (Object.keys(filters).length === 0) {
