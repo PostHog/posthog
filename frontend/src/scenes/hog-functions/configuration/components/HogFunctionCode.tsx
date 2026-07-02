@@ -95,8 +95,9 @@ export function HogFunctionCode(): JSX.Element {
                             ) : null}
                             {mightDropEvents && (
                                 <LemonBanner type="warning" className="mt-2">
-                                    <b>Warning:</b> Returning null or undefined will drop the event. If this is
-                                    unintentional, return the event object instead.
+                                    <b>Warning:</b> Returning null or undefined will drop the{' '}
+                                    {type === 'transformation_log' ? 'record' : 'event'}. If this is unintentional,
+                                    return the {type === 'transformation_log' ? 'record' : 'event'} object instead.
                                 </LemonBanner>
                             )}
                             {type === 'source_webhook' && (

@@ -202,7 +202,10 @@ export function HogFunctionTest(): JSX.Element {
                             <span>Testing</span>
                         </h2>
                         {inactive ? (
-                            <p>Click here to test your function with an example {isDataWarehouse ? 'row' : 'event'}</p>
+                            <p>
+                                Click here to test your function with an example{' '}
+                                {isDataWarehouse ? 'row' : type === 'transformation_log' ? 'record' : 'event'}
+                            </p>
                         ) : null}
                     </div>
 
@@ -375,7 +378,8 @@ export function HogFunctionTest(): JSX.Element {
                                           : 'Error'}
                                 </LemonBanner>
 
-                                {type === 'transformation' && testResult.status !== 'error' ? (
+                                {(type === 'transformation' || type === 'transformation_log') &&
+                                testResult.status !== 'error' ? (
                                     <>
                                         <div className="flex gap-2 justify-between items-center">
                                             <LemonLabel>Transformation result</LemonLabel>
@@ -392,14 +396,21 @@ export function HogFunctionTest(): JSX.Element {
                                                 />
                                             )}
                                         </div>
-                                        <p>Below you can see the event after the transformation has been applied.</p>
+                                        <p>
+                                            Below you can see the {type === 'transformation_log' ? 'record' : 'event'}{' '}
+                                            after the transformation has been applied.
+                                        </p>
                                         {testResult.result ? (
                                             <>
                                                 {!sortedTestsResult?.hasDiff && (
                                                     <LemonBanner type="info">
                                                         {testResult.status === 'skipped'
-                                                            ? 'The event was not modified as it did not match the filter criteria.'
-                                                            : 'The event was unmodified by the transformation.'}
+                                                            ? `The ${
+                                                                  type === 'transformation_log' ? 'record' : 'event'
+                                                              } was not modified as it did not match the filter criteria.`
+                                                            : `The ${
+                                                                  type === 'transformation_log' ? 'record' : 'event'
+                                                              } was unmodified by the transformation.`}
                                                     </LemonBanner>
                                                 )}
                                                 <CodeEditorResizeable

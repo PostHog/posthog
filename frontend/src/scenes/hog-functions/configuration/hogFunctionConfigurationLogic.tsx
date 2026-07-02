@@ -105,7 +105,7 @@ const NEW_FUNCTION_TEMPLATE: HogFunctionTemplateType = {
     status: 'stable',
 }
 
-export const TYPES_WITH_GLOBALS: HogFunctionTypeType[] = ['transformation', 'destination']
+export const TYPES_WITH_GLOBALS: HogFunctionTypeType[] = ['transformation', 'transformation_log', 'destination']
 export const TYPES_WITH_REAL_EVENTS: HogFunctionTypeType[] = ['destination', 'site_destination', 'transformation']
 export const TYPES_WITH_VOLUME_WARNING: HogFunctionTypeType[] = ['destination', 'site_destination']
 
@@ -113,7 +113,24 @@ const TYPE_TO_PRODUCT_KEY: Partial<Record<HogFunctionTypeType, ProductKey>> = {
     destination: ProductKey.PIPELINE_DESTINATIONS,
     site_destination: ProductKey.PIPELINE_DESTINATIONS,
     transformation: ProductKey.PIPELINE_TRANSFORMATIONS,
+    transformation_log: ProductKey.LOGS,
     site_app: ProductKey.SITE_APPS,
+}
+
+// Sample record shown in the log transformation testing UI (no events table to sample from).
+const EXAMPLE_LOG_RECORD: NonNullable<CyclotronJobInvocationGlobals['record']> = {
+    body: 'GET /api/users 200 in 42ms user=jane@example.com',
+    attributes: { 'http.method': 'GET', 'http.status_code': '200' },
+    resource_attributes: { 'service.name': 'api', 'k8s.namespace.name': 'production' },
+    severity_text: 'info',
+    severity_number: 9,
+    service_name: 'api',
+    instrumentation_scope: 'http.server',
+    event_name: null,
+    timestamp: 1780000000000000000,
+    observed_timestamp: 1780000000000000000,
+    trace_id: null,
+    span_id: null,
 }
 
 export function sanitizeInputs(
@@ -740,9 +757,11 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                             ? 'Web scripts'
                             : type === 'transformation'
                               ? 'Transformations'
-                              : type === 'source_webhook'
-                                ? 'Sources'
-                                : 'Destinations'
+                              : type === 'transformation_log'
+                                ? 'Log transformations'
+                                : type === 'source_webhook'
+                                  ? 'Sources'
+                                  : 'Destinations'
                     payload._create_in_folder = `Unfiled/${typeFolder}`
                 }
                 await asyncActions.upsertHogFunction(payload as HogFunctionConfigurationType)
@@ -839,6 +858,18 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         exampleInvocationGlobals: [
             (s) => [s.configuration, s.currentProject, s.groupTypes, s.contextId, s.survey],
             (configuration, currentProject, groupTypes, contextId, survey): CyclotronJobInvocationGlobals => {
+                // Log transformations are seeded with a sample record (no event), so the inline
+                // tester shows something useful to run against instead of an empty object.
+                if (configuration?.type === 'transformation_log') {
+                    return {
+                        project: {
+                            id: currentProject?.id ?? 0,
+                            name: currentProject?.name ?? '',
+                            url: `${window.location.origin}/project/${currentProject?.id}`,
+                        },
+                        record: EXAMPLE_LOG_RECORD,
+                    } as CyclotronJobInvocationGlobals
+                }
                 const currentUrl = window.location.href.split('#')[0]
                 const eventId = uuid()
                 const personId = uuid()
@@ -982,6 +1013,17 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     return {
                         project: baseGlobals.project,
                         event: baseGlobals.event,
+                        inputs,
+                    }
+                }
+
+                // Log transformations receive `project` and `record` at runtime (see
+                // buildLogRecordGlobals). There is no event table to sample from, so show a
+                // representative record the user can edit.
+                if (configuration.type === 'transformation_log') {
+                    return {
+                        project: baseGlobals.project,
+                        record: EXAMPLE_LOG_RECORD,
                         inputs,
                     }
                 }
@@ -1224,7 +1266,7 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
         mightDropEvents: [
             (s) => [s.configuration, s.type],
             (configuration, type) => {
-                if (type !== 'transformation') {
+                if (type !== 'transformation' && type !== 'transformation_log') {
                     return false
                 }
                 const hogCode = configuration.hog || ''
@@ -1292,14 +1334,14 @@ export const hogFunctionConfigurationLogic = kea<hogFunctionConfigurationLogicTy
                     return false
                 }
 
-                return ['source_webhook', 'transformation', 'destination'].includes(type)
+                return ['source_webhook', 'transformation', 'transformation_log', 'destination'].includes(type)
             },
         ],
 
         showTesting: [
             (s) => [s.type],
             (type) => {
-                return ['destination', 'internal_destination', 'transformation'].includes(type)
+                return ['destination', 'internal_destination', 'transformation', 'transformation_log'].includes(type)
             },
         ],
 

@@ -40,8 +40,15 @@ export const getLogsSqlEditorTabId = (id: string): string => `logs-sql-editor-${
 // A static id would persist across projects in the same browser, leaking one project's pinned log payloads into another.
 export const LOGS_SCENE_VIEWER_ID = `logs-scene-${window.POSTHOG_APP_CONTEXT?.current_team?.id ?? 'unknown'}`
 
-export type LogsSceneActiveTab = 'viewer' | 'services' | 'alerts' | 'sql' | 'configuration'
-const VALID_ACTIVE_TABS: LogsSceneActiveTab[] = ['viewer', 'services', 'alerts', 'sql', 'configuration']
+export type LogsSceneActiveTab = 'viewer' | 'services' | 'alerts' | 'sql' | 'transformations' | 'configuration'
+const VALID_ACTIVE_TABS: LogsSceneActiveTab[] = [
+    'viewer',
+    'services',
+    'alerts',
+    'sql',
+    'transformations',
+    'configuration',
+]
 export const DEFAULT_ACTIVE_TAB: LogsSceneActiveTab = 'viewer'
 
 const resolveActiveTabFromParams = (params: Params): LogsSceneActiveTab | null => {
