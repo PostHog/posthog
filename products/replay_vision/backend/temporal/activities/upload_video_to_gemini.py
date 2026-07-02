@@ -14,6 +14,7 @@ from google.genai import (
 from temporalio import activity
 
 from posthog.storage import object_storage
+from posthog.temporal.common.utils import aretry_on_db_connection_drop
 
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.temporal.decorators import track_activity
@@ -35,7 +36,7 @@ async def upload_video_to_gemini_activity(inputs: UploadVideoToGeminiInputs) -> 
     workflow_id = activity.info().workflow_id
     if workflow_id is None:
         raise ScannerFailureError("upload_video_to_gemini_activity has no workflow_id", kind=FailureKind.INTERNAL_ERROR)
-    asset = await ExportedAsset.objects.aget(id=inputs.asset_id)
+    asset = await aretry_on_db_connection_drop(lambda: ExportedAsset.objects.aget(id=inputs.asset_id))
 
     video_bytes: bytes | None
     if asset.content:

@@ -4,6 +4,8 @@ from django.utils.timezone import now
 
 from temporalio import activity
 
+from posthog.temporal.common.utils import aretry_on_db_connection_drop
+
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.types import EnsureSessionAssetInputs, EnsureSessionAssetOutput
@@ -21,8 +23,8 @@ _ASSET_EXPIRES_AFTER_DAYS = 90
 @track_activity()
 async def ensure_session_asset_activity(inputs: EnsureSessionAssetInputs) -> EnsureSessionAssetOutput:
     """Get-or-create the `is_system=True` MP4 ExportedAsset for `(team, session)`; concurrent runs may produce orphaned duplicates that the asset expiry cleans up."""
-    existing = (
-        await ExportedAsset.objects.filter(
+    existing = await aretry_on_db_connection_drop(
+        lambda: ExportedAsset.objects.filter(
             team_id=inputs.team_id,
             export_format=_EXPORT_FORMAT,
             export_context__session_recording_id=inputs.session_id,
@@ -39,18 +41,20 @@ async def ensure_session_asset_activity(inputs: EnsureSessionAssetInputs) -> Ens
         return EnsureSessionAssetOutput(asset_id=existing.id)
 
     created_at = now()
-    asset = await ExportedAsset.objects.acreate(
-        team_id=inputs.team_id,
-        export_format=_EXPORT_FORMAT,
-        export_context={
-            "session_recording_id": inputs.session_id,
-            "playback_speed": _PLAYBACK_SPEED,
-            "recording_fps": _RECORDING_FPS,
-            "show_metadata_footer": _SHOW_METADATA_FOOTER,
-            "mouse_tail": _MOUSE_TAIL,
-        },
-        created_at=created_at,
-        expires_after=created_at + dt.timedelta(days=_ASSET_EXPIRES_AFTER_DAYS),
-        is_system=True,
+    asset = await aretry_on_db_connection_drop(
+        lambda: ExportedAsset.objects.acreate(
+            team_id=inputs.team_id,
+            export_format=_EXPORT_FORMAT,
+            export_context={
+                "session_recording_id": inputs.session_id,
+                "playback_speed": _PLAYBACK_SPEED,
+                "recording_fps": _RECORDING_FPS,
+                "show_metadata_footer": _SHOW_METADATA_FOOTER,
+                "mouse_tail": _MOUSE_TAIL,
+            },
+            created_at=created_at,
+            expires_after=created_at + dt.timedelta(days=_ASSET_EXPIRES_AFTER_DAYS),
+            is_system=True,
+        )
     )
     return EnsureSessionAssetOutput(asset_id=asset.id)
