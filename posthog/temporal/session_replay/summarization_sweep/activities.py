@@ -1,7 +1,7 @@
 import json
 import hashlib
-from collections.abc import Mapping
-from typing import Any
+from collections.abc import Callable, Coroutine, Mapping
+from typing import Any, ParamSpec, TypeVar
 
 import structlog
 from temporalio import activity
@@ -12,6 +12,7 @@ from posthog.redis import get_async_client
 from posthog.session_recordings.ai_summary_cap import consume_summary_quota, headroom
 from posthog.sync import database_sync_to_async, database_sync_to_async_pool
 from posthog.temporal.common.search_attributes import POSTHOG_SCHEDULE_FINGERPRINT_KEY
+from posthog.temporal.common.utils import close_db_connections
 from posthog.temporal.session_replay.rasterize_recording.activities.stuck_counter import read_stuck_session_ids
 from posthog.temporal.session_replay.summarization_sweep.constants import (
     CH_QUERY_MAX_EXECUTION_SECONDS,
@@ -38,6 +39,23 @@ from products.replay.backend.models.session_summaries import SingleSessionSummar
 from products.signals.backend.models import SignalSourceConfig
 
 logger = structlog.get_logger(__name__)
+
+_P = ParamSpec("_P")
+_R = TypeVar("_R")
+
+
+def _pool_db(func: Callable[_P, _R]) -> Callable[_P, Coroutine[Any, Any, _R]]:
+    """Dispatch a main-DB call on the shared (non-thread-sensitive) pool, evicting the
+    pool thread's connections before and after the call.
+
+    The pool reuses worker threads across unrelated activity executions. A connection left
+    in a bad state — e.g. a query cut short when an activity times out or is cancelled — would
+    otherwise be inherited by the next call reusing that thread, where reading stale bytes off
+    it surfaces as psycopg's ``lost synchronization with server``. Evicting around each call
+    (as ``close_db_connections`` does, and as it must run inside the pool thread to target the
+    same connection the query uses) keeps every dispatch on a fresh connection.
+    """
+    return database_sync_to_async_pool(close_db_connections(func))
 
 
 def _is_team_summarization_allowed(team_id: int) -> bool:
@@ -108,7 +126,7 @@ async def find_sessions_for_team_activity(inputs: FindSessionsInput) -> FindSess
     if not enabled:
         return FindSessionsResult(team_id=inputs.team_id)
 
-    team, session_ids, system_user = await database_sync_to_async_pool(_load_team_user_and_sessions)(
+    team, session_ids, system_user = await _pool_db(_load_team_user_and_sessions)(
         inputs.team_id, inputs.lookback_minutes
     )
     if not session_ids:
@@ -117,7 +135,7 @@ async def find_sessions_for_team_activity(inputs: FindSessionsInput) -> FindSess
         logger.warning("No user found to run summarization", team_id=inputs.team_id)
         return FindSessionsResult(team_id=inputs.team_id)
 
-    existing_summaries = await database_sync_to_async_pool(SingleSessionSummary.objects.summaries_exist)(
+    existing_summaries = await _pool_db(SingleSessionSummary.objects.summaries_exist)(
         team_id=inputs.team_id,
         session_ids=session_ids,
         extra_summary_context=None,
@@ -125,7 +143,7 @@ async def find_sessions_for_team_activity(inputs: FindSessionsInput) -> FindSess
     sessions_to_summarize = [sid for sid in session_ids if not existing_summaries.get(sid)]
     # Recording-only sessions never write a summary row, so summaries_exist can't dedup them.
     if sessions_to_summarize:
-        sessions_with_events = await database_sync_to_async_pool(filter_session_ids_with_events)(
+        sessions_with_events = await _pool_db(filter_session_ids_with_events)(
             team=team,
             session_ids=sessions_to_summarize,
             lookback_minutes=inputs.lookback_minutes,
@@ -138,7 +156,7 @@ async def find_sessions_for_team_activity(inputs: FindSessionsInput) -> FindSess
     # Hard-cap the dispatch list by the team's remaining monthly headroom. Without
     # this, an autonomous sweep can drain the bucket and starve the DRF entrypoint.
     # Race against concurrent DRF traffic is fine — the cap is a backstop, not billing.
-    available = await database_sync_to_async(headroom, thread_sensitive=False)(inputs.team_id)
+    available = await _pool_db(headroom)(inputs.team_id)
     if available <= 0:
         return FindSessionsResult(team_id=inputs.team_id)
     sessions_to_summarize = sessions_to_summarize[:available]
