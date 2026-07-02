@@ -75,6 +75,7 @@ import {
 import { FixErrorButton } from './components/FixErrorButton'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
+import { trimRedundantTail } from './syncWarnings'
 import TabScroller from './TabScroller'
 
 interface RowDetailsModalProps {
@@ -984,14 +985,6 @@ function InternalDataTableVisualization(
         </div>
     )
 }
-
-// The backend `message` is kept self-contained (it also feeds LLM/MCP contexts), so it restates
-// "results may be out of date" — which the banner header already says. Strip that redundant tail
-// for display only, while preserving any "a new sync is in progress" detail.
-const trimRedundantTail = (message: string): string =>
-    message
-        .replace(/\.\s*(A new sync is in progress) but results may be out of date\.?\s*$/i, '. $1.')
-        .replace(/\.\s*Results may be out of date\.?\s*$/i, '.')
 
 const SyncWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warnings'] }): JSX.Element | null => {
     if (!warnings || warnings.length === 0) {
