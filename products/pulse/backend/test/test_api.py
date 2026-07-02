@@ -39,6 +39,8 @@ class TestPulseAPI(APIBaseTest):
         self.organization.save()
         response = self.client.post(f"/api/projects/{self.team.id}/pulse/briefs/generate/")
         assert response.status_code == status.HTTP_400_BAD_REQUEST
+        # The frontend matches this code to show the consent banner — it is part of the API contract.
+        assert response.json()["code"] == "ai_consent_required"
         mock_connect.assert_not_called()
 
     def test_generate_creates_brief_and_starts_workflow(self, mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
