@@ -165,6 +165,7 @@ __all__ = [
     "send_user_message",
     "select_repository_for_message",
     "set_task_run_output",
+    "set_task_title",
     "signal_report_queryset",
     "signal_task_run_user_message",
     "signal_workflow_completion",
@@ -2639,8 +2640,13 @@ def _list_tasks_queryset(
         latest_run_status = latest_run.values("status")[:1]
         qs = qs.annotate(_latest_run_status=Subquery(latest_run_status)).filter(_latest_run_status=status_filter)
 
+    # `internal` controls default visibility, not access — task visibility (applied above) is the real
+    # authorization boundary. `all` returns both and is open to any team member; `true` (only-internal)
+    # stays a staff/debug view; the default excludes internal tasks so the main task list stays clean.
     internal_param = filters.get("internal")
-    if internal_param is True and is_debug_or_staff:
+    if internal_param == "all":
+        pass
+    elif internal_param == "true" and is_debug_or_staff:
         qs = qs.filter(internal=True)
     else:
         qs = qs.filter(internal=False)
@@ -2857,6 +2863,15 @@ def create_task(team_id: int, user_id: int | None, *, validated_data: dict) -> c
             )
 
     return _task_detail_to_dto(_task_detail_queryset().get(pk=task.pk))
+
+
+def set_task_title(task_id: str | UUID, team_id: int, title: str) -> bool:
+    """Set a task's title, team-scoped. For automated relabels — e.g. backfilling a Signals research
+    task with ``"Research: <report title>"`` once research produces the title. Leaves
+    ``title_manually_set`` untouched (this isn't a user edit) and clamps to the column length. Returns
+    whether a row was updated.
+    """
+    return bool(Task.objects.filter(id=task_id, team_id=team_id).update(title=title[:255]))
 
 
 def update_task(
