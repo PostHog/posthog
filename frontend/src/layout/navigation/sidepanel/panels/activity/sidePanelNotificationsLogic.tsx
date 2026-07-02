@@ -110,7 +110,7 @@ export interface ChangelogFlagPayload {
 }
 
 export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>([
-    path(['layout', 'navigation-3000', 'sidepanel', 'panels', 'activity', 'sidePanelNotificationsLogic']),
+    path(['layout', 'navigation', 'sidepanel', 'panels', 'activity', 'sidePanelNotificationsLogic']),
     connect(() => ({
         values: [
             sidePanelContextLogic,

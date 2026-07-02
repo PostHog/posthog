@@ -10,6 +10,7 @@ import posthog from 'posthog-js'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { addProjectIdIfMissing, removeProjectIdIfPresent, stripTrailingSlash } from 'lib/utils/kea-router'
+import { migrateKeaLocalStorageKeys } from 'lib/utils/keaLocalStorageMigration'
 import { identifierToHuman } from 'lib/utils/strings'
 
 import { disposablesPlugin } from '~/kea-disposables'
@@ -65,6 +66,7 @@ export function initKea({
     beforePlugins,
     replaceInitialPathInWindow,
 }: InitKeaProps = {}): void {
+    migrateKeaLocalStorageKeys()
     const plugins = [
         ...(beforePlugins || []),
         disposablesPlugin,

@@ -63,7 +63,7 @@ const MAXIMUM_SIDEBAR_WIDTH_PX: number = 1024
 const MAXIMUM_SIDEBAR_WIDTH_PERCENTAGE: number = 50
 
 export const navigationLogic = kea<navigationLogicType>([
-    path(['layout', 'navigation-3000', 'navigationLogic']),
+    path(['layout', 'navigation', 'navigationLogic']),
     props({} as { inputElement?: HTMLInputElement | null }),
     windowValues(() => ({
         mobileLayout: (window: Window) => window.innerWidth < 992, // Sync width threshold with Sass variable $lg!

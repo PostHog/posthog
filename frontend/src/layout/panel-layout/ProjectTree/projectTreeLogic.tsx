@@ -61,7 +61,7 @@ const FOLDER_LOADING = [
 ]
 
 export const projectTreeLogic = kea<projectTreeLogicType>([
-    path(['layout', 'navigation-3000', 'components', 'projectTreeLogic']),
+    path(['layout', 'panel-layout', 'ProjectTree', 'projectTreeLogic']),
     props({} as ProjectTreeLogicProps),
     key((props) => props.key),
     connect(() => ({

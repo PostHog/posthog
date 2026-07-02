@@ -9,7 +9,7 @@ import type { themeLogicType } from './themeLogicType'
 import { Theme, themes } from './themes'
 
 export const themeLogic = kea<themeLogicType>([
-    path(['layout', 'navigation-3000', 'themeLogic']),
+    path(['layout', 'navigation', 'themeLogic']),
     connect(() => ({
         logic: [sceneLogic],
         values: [userLogic, ['themeMode'], featureFlagLogic, ['featureFlags']],

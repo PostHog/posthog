@@ -78,7 +78,7 @@ function matchesFilters(entry: AccessControlSettingsEntry, filters: AccessContro
 export const accessControlsLogic = kea<accessControlsLogicType>([
     path([
         'layout',
-        'navigation-3000',
+        'navigation',
         'sidepanel',
         'panels',
         'access_control',
