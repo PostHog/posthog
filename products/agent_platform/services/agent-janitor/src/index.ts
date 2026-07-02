@@ -204,6 +204,7 @@ async function main(): Promise<void> {
         sandboxes,
         dryRunWallMs: config.dryRunWallMs,
         dryRunMemoryMb: config.dryRunMemoryMb,
+        dryRunMaxConcurrent: config.dryRunMaxConcurrent,
     })
     app.listen(config.port, () => {
         log.info({ port: config.port }, 'listening')

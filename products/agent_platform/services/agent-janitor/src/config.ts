@@ -218,6 +218,14 @@ export const AgentJanitorConfigSchema = PlatformConfigSchema.extend({
         .positive()
         .default(256)
         .describe('Memory cap for a single dry-run sandbox.'),
+    dryRunMaxConcurrent: z.coerce
+        .number()
+        .int()
+        .positive()
+        .default(2)
+        .describe(
+            'Max dry-run sandboxes in flight at once, janitor-wide. Requests past the cap get a 429 — dry-run is an interactive authoring surface, not a batch one, so callers retry rather than queue.'
+        ),
 })
 
 export type AgentJanitorConfig = z.infer<typeof AgentJanitorConfigSchema>
@@ -257,6 +265,7 @@ const ENV_KEY_MAP = extendEnvKeyMap<AgentJanitorConfig>(PLATFORM_ENV_KEY_MAP, {
     SANDBOX_OUTBOUND_CIDR_ALLOWLIST: 'sandboxOutboundCidrAllowlist',
     AGENT_DRY_RUN_WALL_MS: 'dryRunWallMs',
     AGENT_DRY_RUN_MEMORY_MB: 'dryRunMemoryMb',
+    AGENT_DRY_RUN_MAX_CONCURRENT: 'dryRunMaxConcurrent',
 })
 
 export function loadAgentJanitorConfig(env: NodeJS.ProcessEnv = process.env): AgentJanitorConfig {

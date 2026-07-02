@@ -148,6 +148,8 @@ export interface JanitorServerOpts {
     dryRunWallMs?: number
     /** Memory cap per dry-run sandbox. Defaults applied at boot. */
     dryRunMemoryMb?: number
+    /** Max dry-run sandboxes in flight at once. Defaults applied at boot. */
+    dryRunMaxConcurrent?: number
 }
 
 const SessionStateSchema = z.enum(['queued', 'running', 'completed', 'closed', 'failed'])
@@ -941,6 +943,7 @@ export function buildJanitorApp(opts: JanitorServerOpts): Express {
                 sandboxes: opts.sandboxes,
                 dryRunWallMs: opts.dryRunWallMs,
                 dryRunMemoryMb: opts.dryRunMemoryMb,
+                dryRunMaxConcurrent: opts.dryRunMaxConcurrent,
             })
         )
     }

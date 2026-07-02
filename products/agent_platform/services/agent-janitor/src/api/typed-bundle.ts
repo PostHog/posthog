@@ -99,10 +99,13 @@ export interface TypedBundleRouterOpts {
     dryRunWallMs?: number
     /** Memory cap per dry-run sandbox (MB). Default: 256. */
     dryRunMemoryMb?: number
+    /** Max dry-run sandboxes in flight at once (janitor-wide). Default: 2. */
+    dryRunMaxConcurrent?: number
 }
 
 const DEFAULT_DRY_RUN_WALL_MS = 10_000
 const DEFAULT_DRY_RUN_MEMORY_MB = 256
+const DEFAULT_DRY_RUN_MAX_CONCURRENT = 2
 
 const DryRunBodySchema = z.object({
     /** Synthetic args the tool's `actions.default` is called with. */
@@ -364,6 +367,14 @@ export function buildTypedBundleRouter(opts: TypedBundleRouterOpts): Router {
     // Per-call lifecycle (acquire → invoke → release) so we don't carry
     // session-shaped sandbox state. May split out into `agent-exec` later
     // if execution duties grow enough to crowd out CRUD.
+    //
+    // In-flight cap: dry-run spawns sandboxes outside the session
+    // execution queue, so without a bound a caller with agents:write
+    // could exhaust the sandbox backend by hammering this route. A
+    // process-wide counter is the right scope — this is an availability
+    // guard for the janitor host / shared backend, not per-team fairness
+    // (revisit if dry-run traffic ever justifies a per-team quota).
+    let dryRunsInFlight = 0
     router.post(
         '/tools/:tool_id/dry_run',
         asyncHandler(async (req, res) => {
@@ -440,11 +451,14 @@ export function buildTypedBundleRouter(opts: TypedBundleRouterOpts): Router {
             } = { ok: false, error: { code: 'dry_run_unknown', message: 'no response produced' } }
             let sandbox: Awaited<ReturnType<SandboxPool['acquireForSession']>> | undefined
 
-            // TODO(dry-run-throttle): unbounded fan-out — a user with
-            // agents:write can repeatedly POST and spawn sandboxes outside
-            // the session execution queue. Gate on per-team concurrency /
-            // quota before acquireForSession, or route dry-runs through the
-            // queued execution path.
+            // Admission control before any sandbox is acquired. 429 (not a
+            // queue) — dry-run is interactive; the author just retries.
+            const maxConcurrent = opts.dryRunMaxConcurrent ?? DEFAULT_DRY_RUN_MAX_CONCURRENT
+            if (dryRunsInFlight >= maxConcurrent) {
+                res.status(429).json({ error: 'dry_run_throttled', max_concurrent: maxConcurrent })
+                return
+            }
+            dryRunsInFlight++
             try {
                 try {
                     sandbox = await opts.sandboxes.acquireForSession({
@@ -495,6 +509,7 @@ export function buildTypedBundleRouter(opts: TypedBundleRouterOpts): Router {
                         // release surface as a request failure.
                     })
                 }
+                dryRunsInFlight--
                 const durationMs = Date.now() - startedAt
                 res.status(status).json({ tool_id: toolId, ...body, duration_ms: durationMs })
             }
