@@ -1,4 +1,5 @@
-import React, { FunctionComponent, ReactNode, useCallback, useMemo } from 'react'
+import { useMergeRefs } from '@floating-ui/react'
+import React, { FunctionComponent, ReactNode, cloneElement, useCallback, useMemo } from 'react'
 
 import { KeyboardShortcut, KeyboardShortcutProps } from '~/layout/navigation-3000/components/KeyboardShortcut'
 
@@ -112,14 +113,18 @@ export interface LemonMenuProps
     focusBasedKeyboardNavigation?: boolean
 }
 
-export function LemonMenu({
-    items,
-    activeItemIndex,
-    tooltipPlacement,
-    onVisibilityChange,
-    focusBasedKeyboardNavigation = true,
-    ...dropdownProps
-}: LemonMenuProps): JSX.Element {
+export const LemonMenu = React.forwardRef<HTMLElement, LemonMenuProps>(function LemonMenu(
+    {
+        items,
+        activeItemIndex,
+        tooltipPlacement,
+        onVisibilityChange,
+        focusBasedKeyboardNavigation = true,
+        children,
+        ...dropdownProps
+    },
+    ref
+): JSX.Element {
     const { referenceRef, itemsRef } = useKeyboardNavigation<HTMLElement, HTMLButtonElement>(
         items.flatMap((item) => (item && isLemonMenuSection(item) ? item.items : item)).length,
         activeItemIndex,
@@ -139,6 +144,11 @@ export function LemonMenu({
         [onVisibilityChange, activeItemIndex]
     )
 
+    // LemonMenu renders no DOM itself — only the trigger child does. Forward an externally-provided
+    // ref (e.g. from <Shortcut />) onto that child so it lands on a real DOM node, otherwise consumers
+    // attaching a ref to LemonMenu silently get nothing.
+    const triggerRef = useMergeRefs([ref, (children as { ref?: React.Ref<HTMLElement> }).ref])
+
     return (
         <LemonDropdown
             overlay={
@@ -153,9 +163,12 @@ export function LemonMenu({
             referenceRef={referenceRef}
             onVisibilityChange={_onVisibilityChange}
             {...dropdownProps}
-        />
+        >
+            {cloneElement(children, { ref: triggerRef })}
+        </LemonDropdown>
     )
-}
+})
+LemonMenu.displayName = 'LemonMenu'
 
 export interface LemonMenuOverlayProps {
     items: LemonMenuItems

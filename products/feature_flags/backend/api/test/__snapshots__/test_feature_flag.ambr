@@ -5,7 +5,7 @@
   SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'group'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___group,
-            tupleElement(argMax(tuple(person.team_id), person.version), 1) AS team_id,
+            argMax(person.team_id, person.version) AS team_id,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -13,7 +13,7 @@
                                                     FROM person AS where_optimization
                                                     WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.team_id, 99999), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'group'), ''), 'null'), '^"|"$', ''), tuple('0', '1', '2', '3'))))))
      GROUP BY person.id
-     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE and(equals(persons.team_id, 99999), in(persons.properties___group, tuple('0', '1', '2', '3')))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -46,7 +46,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT count(DISTINCT groups.key) AS `count(DISTINCT groups.key)`
   FROM
-    (SELECT tupleElement(argMax(tuple(groups.team_id), toTimeZone(groups._timestamp, 'UTC')), 1) AS team_id,
+    (SELECT argMax(groups.team_id, toTimeZone(groups._timestamp, 'UTC')) AS team_id,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -82,7 +82,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT count(DISTINCT groups.key) AS `count(DISTINCT groups.key)`
   FROM
-    (SELECT tupleElement(argMax(tuple(groups.team_id), toTimeZone(groups._timestamp, 'UTC')), 1) AS team_id,
+    (SELECT argMax(groups.team_id, toTimeZone(groups._timestamp, 'UTC')) AS team_id,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -110,7 +110,7 @@
   SELECT count(DISTINCT groups.key) AS `count(DISTINCT groups.key)`
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
-            tupleElement(argMax(tuple(groups.team_id), toTimeZone(groups._timestamp, 'UTC')), 1) AS team_id,
+            argMax(groups.team_id, toTimeZone(groups._timestamp, 'UTC')) AS team_id,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -147,7 +147,7 @@
   SELECT count(DISTINCT groups.key) AS `count(DISTINCT groups.key)`
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(groups.group_properties, 'industry'), ''), 'null'), '^"|"$', '')), toTimeZone(groups._timestamp, 'UTC')), 1) AS properties___industry,
-            tupleElement(argMax(tuple(groups.team_id), toTimeZone(groups._timestamp, 'UTC')), 1) AS team_id,
+            argMax(groups.team_id, toTimeZone(groups._timestamp, 'UTC')) AS team_id,
             groups.group_type_index AS index,
             groups.group_key AS key
      FROM groups
@@ -203,7 +203,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
   FROM
-    (SELECT tupleElement(argMax(tuple(person.team_id), person.version), 1) AS team_id,
+    (SELECT argMax(person.team_id, person.version) AS team_id,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -217,7 +217,7 @@
                                                                                                                                                                                                                                                                                           FROM cohortpeople
                                                                                                                                                                                                                                                                                           WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
      GROUP BY person.id
-     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE and(equals(persons.team_id, 99999), and(in(persons.id,
                                                      (SELECT cohortpeople.person_id AS person_id
                                                       FROM cohortpeople
@@ -253,11 +253,21 @@
 # ---
 # name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts
   '''
+  SELECT person_id
+  FROM person_static_cohort
+  WHERE team_id = 99999
+    AND cohort_id = 99999
+    AND person_id IN ['00000000-0000-4000-8000-000000000000', '00000000-0000-4000-8000-000000000001', '00000000-0000-4000-8000-000000000002']
+  GROUP BY person_id
+  '''
+# ---
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.1
+  '''
   /* user_id:0 request:_snapshot_ */
   SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'group'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___group,
-            tupleElement(argMax(tuple(person.team_id), person.version), 1) AS team_id,
+            argMax(person.team_id, person.version) AS team_id,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -268,7 +278,7 @@
                                                                                                                                                           FROM person_static_cohort
                                                                                                                                                           WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999)))), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'group'), ''), 'null'), '^"|"$', ''), tuple('1', '2', '4', '5', '6'))))))
      GROUP BY person.id
-     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE and(equals(persons.team_id, 99999), and(in(persons.id,
                                                      (SELECT person_static_cohort.person_id AS person_id
                                                       FROM person_static_cohort
@@ -287,7 +297,7 @@
                      use_hive_partitioning=0
   '''
 # ---
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.1
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.2
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT count(1)
@@ -299,7 +309,7 @@
      HAVING max(is_deleted) = 0 SETTINGS optimize_aggregation_in_order = 1)
   '''
 # ---
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.2
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.3
   '''
   
   SELECT count(DISTINCT person_id)
@@ -309,12 +319,12 @@
     AND version = 0
   '''
 # ---
-# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.3
+# name: TestBlastRadius.test_user_blast_radius_with_multiple_static_cohorts.4
   '''
   /* user_id:0 request:_snapshot_ */
   SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
   FROM
-    (SELECT tupleElement(argMax(tuple(person.team_id), person.version), 1) AS team_id,
+    (SELECT argMax(person.team_id, person.version) AS team_id,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -328,7 +338,7 @@
                                                                                                                                                                                                                                                                          FROM cohortpeople
                                                                                                                                                                                                                                                                          WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
      GROUP BY person.id
-     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE and(equals(persons.team_id, 99999), and(in(persons.id,
                                                      (SELECT person_static_cohort.person_id AS person_id
                                                       FROM person_static_cohort
@@ -356,7 +366,7 @@
   SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
   FROM
     (SELECT tupleElement(argMax(tuple(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(person.properties, 'group'), ''), 'null'), '^"|"$', '')), person.version), 1) AS properties___group,
-            tupleElement(argMax(tuple(person.team_id), person.version), 1) AS team_id,
+            argMax(person.team_id, person.version) AS team_id,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -364,7 +374,7 @@
                                                     FROM person AS where_optimization
                                                     WHERE and(equals(where_optimization.team_id, 99999), equals(where_optimization.team_id, 99999), or(ifNull(equals(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'group'), ''), 'null'), '^"|"$', ''), 'none'), 0), in(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(where_optimization.properties, 'group'), ''), 'null'), '^"|"$', ''), tuple('1', '2', '3')))))))
      GROUP BY person.id
-     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE and(equals(persons.team_id, 99999), or(ifNull(equals(persons.properties___group, 'none'), 0), in(persons.properties___group, tuple('1', '2', '3'))))
   LIMIT 100 SETTINGS readonly=2,
                      max_execution_time=60,
@@ -407,7 +417,7 @@
   /* user_id:0 request:_snapshot_ */
   SELECT count(DISTINCT persons.id) AS `count(DISTINCT persons.id)`
   FROM
-    (SELECT tupleElement(argMax(tuple(person.team_id), person.version), 1) AS team_id,
+    (SELECT argMax(person.team_id, person.version) AS team_id,
             person.id AS id
      FROM person
      WHERE and(equals(person.team_id, 99999), in(id,
@@ -418,7 +428,7 @@
                                                                                                                                                           FROM cohortpeople
                                                                                                                                                           WHERE and(equals(cohortpeople.team_id, 99999), equals(cohortpeople.cohort_id, 99999), equals(cohortpeople.version, 0))))))))
      GROUP BY person.id
-     HAVING and(equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, 'UTC')), person.version), 1), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
   WHERE and(equals(persons.team_id, 99999), in(persons.id,
                                                  (SELECT cohortpeople.person_id AS person_id
                                                   FROM cohortpeople
@@ -586,6 +596,7 @@
          "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."event_retention_months",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
          "posthog_team"."proactive_tasks_enabled",
@@ -637,17 +648,9 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
-         "posthog_team"."plugins_opt_in",
-         "posthog_team"."opt_out_capture",
-         "posthog_team"."event_names",
-         "posthog_team"."event_names_with_usage",
-         "posthog_team"."event_properties",
-         "posthog_team"."event_properties_with_usage",
-         "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
          "posthog_team"."experiment_recalculation_time",
@@ -785,6 +788,7 @@
          "posthog_featureflag"."updated_at",
          "posthog_featureflag"."deleted",
          "posthog_featureflag"."active",
+         "posthog_featureflag"."archived",
          "posthog_featureflag"."version",
          "posthog_featureflag"."last_modified_by_id",
          "posthog_featureflag"."rollback_conditions",
@@ -857,6 +861,7 @@
          "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."event_retention_months",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
          "posthog_team"."proactive_tasks_enabled",
@@ -908,17 +913,9 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
-         "posthog_team"."plugins_opt_in",
-         "posthog_team"."opt_out_capture",
-         "posthog_team"."event_names",
-         "posthog_team"."event_names_with_usage",
-         "posthog_team"."event_properties",
-         "posthog_team"."event_properties_with_usage",
-         "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
          "posthog_team"."experiment_recalculation_time",
@@ -966,6 +963,7 @@
          "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."event_retention_months",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
          "posthog_team"."proactive_tasks_enabled",
@@ -1020,7 +1018,6 @@
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
          "posthog_team"."experiment_recalculation_time",
@@ -1182,6 +1179,7 @@
          "posthog_team"."session_recording_trigger_groups",
          "posthog_team"."session_replay_config",
          "posthog_team"."session_recording_retention_period",
+         "posthog_team"."event_retention_months",
          "posthog_team"."conversations_enabled",
          "posthog_team"."conversations_settings",
          "posthog_team"."proactive_tasks_enabled",
@@ -1233,17 +1231,9 @@
          "posthog_team"."modifiers",
          "posthog_team"."correlation_config",
          "posthog_team"."session_recording_retention_period_days",
-         "posthog_team"."plugins_opt_in",
-         "posthog_team"."opt_out_capture",
-         "posthog_team"."event_names",
-         "posthog_team"."event_names_with_usage",
-         "posthog_team"."event_properties",
-         "posthog_team"."event_properties_with_usage",
-         "posthog_team"."event_properties_numerical",
          "posthog_team"."external_data_workspace_id",
          "posthog_team"."external_data_workspace_last_synced_at",
          "posthog_team"."api_query_rate_limit",
-         "posthog_team"."revenue_tracking_config",
          "posthog_team"."drop_events_older_than",
          "posthog_team"."base_currency",
          "posthog_team"."experiment_recalculation_time",
@@ -1340,6 +1330,7 @@
          "posthog_experiment"."created_at",
          "posthog_experiment"."updated_at",
          "posthog_experiment"."archived",
+         "posthog_experiment"."feature_flag_auto_archived",
          "posthog_experiment"."deleted",
          "posthog_experiment"."type",
          "posthog_experiment"."variants",
@@ -1351,6 +1342,7 @@
          "posthog_experiment"."stats_config",
          "posthog_experiment"."scheduling_config",
          "posthog_experiment"."running_time_calculation",
+         "posthog_experiment"."excluded_variants",
          "posthog_experiment"."only_count_matured_users",
          "posthog_experiment"."status",
          "posthog_experiment"."conclusion",
@@ -1361,22 +1353,53 @@
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.27
   '''
-  /* user_id:0 request:_snapshot_ */
-  SELECT id
-  FROM person
-  INNER JOIN
-    (SELECT person_id
-     FROM person_static_cohort
-     WHERE team_id = 99999
-       AND cohort_id = 99999
-     GROUP BY person_id,
-              cohort_id,
-              team_id) cohort_persons ON cohort_persons.person_id = person.id
+  /* user_id:0 celery:posthog.tasks.calculate_cohort.insert_cohort_from_feature_flag */
+  SELECT person_id
+  FROM person_static_cohort
   WHERE team_id = 99999
-  GROUP BY id
-  HAVING max(is_deleted) = 0
-  ORDER BY argMax(person.created_at, version) DESC, id DESC
-  LIMIT 100 SETTINGS optimize_aggregation_in_order = 1
+    AND cohort_id = 99999
+    AND person_id IN ['00000000-0000-4000-8000-000000000000']
+  GROUP BY person_id
+  '''
+# ---
+# name: TestFeatureFlag.test_creating_static_cohort.28
+  '''
+  /* user_id:0 request:_snapshot_ */
+  SELECT persons.id AS id
+  FROM
+    (SELECT argMax(toTimeZone(person.created_at, 'UTC'), person.version) AS created_at,
+            person.id AS id
+     FROM person
+     WHERE and(equals(person.team_id, 99999), in(id,
+                                                   (SELECT where_optimization.id AS id
+                                                    FROM person AS where_optimization
+                                                    WHERE and(equals(where_optimization.team_id, 99999), in(where_optimization.id,
+                                                                                                              (SELECT person_static_cohort.person_id AS person_id
+                                                                                                               FROM person_static_cohort
+                                                                                                               WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999))))))))
+     GROUP BY person.id
+     HAVING and(equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, 'UTC'), person.version), plus(now64(6, 'UTC'), toIntervalDay(1))))) AS persons
+  WHERE in(persons.id,
+             (SELECT person_static_cohort.person_id AS person_id
+              FROM person_static_cohort
+              WHERE and(equals(person_static_cohort.team_id, 99999), equals(person_static_cohort.cohort_id, 99999))))
+  ORDER BY persons.created_at DESC,
+           persons.id DESC
+  LIMIT 101
+  OFFSET 0 SETTINGS optimize_aggregation_in_order=1,
+                    join_algorithm='auto',
+                    readonly=2,
+                    max_execution_time=60,
+                    allow_experimental_object_type=1,
+                    max_ast_elements=4000000,
+                    max_expanded_ast_elements=4000000,
+                    max_bytes_before_external_group_by=0,
+                    transform_null_in=1,
+                    optimize_min_equality_disjunction_chain_length=4294967295,
+                    optimize_rewrite_aggregate_function_with_if=0,
+                    optimize_min_inequality_conjunction_chain_length=4294967295,
+                    allow_experimental_join_condition=1,
+                    use_hive_partitioning=0
   '''
 # ---
 # name: TestFeatureFlag.test_creating_static_cohort.3
@@ -1455,8 +1478,10 @@
          "ee_accesscontrol"."role_id",
          "ee_accesscontrol"."created_by_id",
          "ee_accesscontrol"."created_at",
-         "ee_accesscontrol"."updated_at"
+         "ee_accesscontrol"."updated_at",
+         "posthog_team"."organization_id" AS "_team_organization_id"
   FROM "ee_accesscontrol"
+  INNER JOIN "posthog_team" ON ("ee_accesscontrol"."team_id" = "posthog_team"."id")
   LEFT OUTER JOIN "posthog_organizationmembership" ON ("ee_accesscontrol"."organization_member_id" = "posthog_organizationmembership"."id")
   WHERE (("ee_accesscontrol"."organization_member_id" IS NULL
           AND "ee_accesscontrol"."role_id" IS NULL
@@ -1527,6 +1552,7 @@
          "posthog_featureflag"."updated_at",
          "posthog_featureflag"."deleted",
          "posthog_featureflag"."active",
+         "posthog_featureflag"."archived",
          "posthog_featureflag"."version",
          "posthog_featureflag"."last_modified_by_id",
          "posthog_featureflag"."rollback_conditions",
@@ -1650,6 +1676,7 @@
          "posthog_experiment"."created_at",
          "posthog_experiment"."updated_at",
          "posthog_experiment"."archived",
+         "posthog_experiment"."feature_flag_auto_archived",
          "posthog_experiment"."deleted",
          "posthog_experiment"."type",
          "posthog_experiment"."variants",
@@ -1661,6 +1688,7 @@
          "posthog_experiment"."stats_config",
          "posthog_experiment"."scheduling_config",
          "posthog_experiment"."running_time_calculation",
+         "posthog_experiment"."excluded_variants",
          "posthog_experiment"."only_count_matured_users",
          "posthog_experiment"."status",
          "posthog_experiment"."conclusion",

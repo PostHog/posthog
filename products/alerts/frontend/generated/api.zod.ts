@@ -50,6 +50,9 @@ export const alertsSimulateCreateBodyDetectorConfigOneOneoneTypeDefault = `lof`
 export const alertsSimulateCreateBodyDetectorConfigOneOnetwoTypeDefault = `ocsvm`
 export const alertsSimulateCreateBodyDetectorConfigOneOnethreeTypeDefault = `pca`
 export const alertsSimulateCreateBodySeriesIndexDefault = 0
+export const alertsSimulateCreateBodyConfigOneOneTypeDefault = `TrendsAlertConfig`
+export const alertsSimulateCreateBodyConfigOneTwoTypeDefault = `HogQLAlertConfig`
+export const alertsSimulateCreateBodyConfigOneThreeTypeDefault = `FunnelsAlertConfig`
 
 export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
     insight: zod.number().describe('Insight ID to simulate the detector on.'),
@@ -1062,11 +1065,71 @@ export const AlertsSimulateCreateBody = /* @__PURE__ */ zod.object({
     series_index: zod
         .number()
         .default(alertsSimulateCreateBodySeriesIndexDefault)
-        .describe('Zero-based index of the series to analyze.'),
+        .describe('Zero-based index of the series to analyze (trends insights only).'),
     date_from: zod
         .string()
         .nullish()
         .describe(
-            "Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). If not provided, uses the detector's minimum required samples."
+            "Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). If not provided, uses the detector's minimum required samples. Trends insights only — a SQL query's own rows are the series."
+        ),
+    config: zod
+        .union([
+            zod
+                .union([
+                    zod.object({
+                        check_ongoing_interval: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'When true, evaluate the current (still incomplete) time interval in addition to completed ones.'
+                            ),
+                        series_index: zod
+                            .number()
+                            .describe("Zero-based index of the series in the insight's query to monitor."),
+                        type: zod.enum(['TrendsAlertConfig']).default(alertsSimulateCreateBodyConfigOneOneTypeDefault),
+                    }),
+                    zod.object({
+                        column: zod
+                            .union([zod.string(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Name of the result column to evaluate. When unset, the single numeric column is used (an error if the result has more than one numeric column).'
+                            ),
+                        evaluation: zod
+                            .enum(['last_row', 'first_row', 'any_row'])
+                            .describe('How to read the result rows — an explicit choice, no implicit default.'),
+                        label_column: zod
+                            .union([zod.string(), zod.null()])
+                            .optional()
+                            .describe(
+                                'Column whose value labels the evaluated row(s) in breach messages: every row in `any_row` mode, or the single evaluated row in `last_row`\/`first_row`. When unset, the first non-evaluated column is used, falling back to the row number (any_row) or the value column name (last_row\/first_row).'
+                            ),
+                        type: zod.enum(['HogQLAlertConfig']).default(alertsSimulateCreateBodyConfigOneTwoTypeDefault),
+                    }),
+                    zod.object({
+                        check_ongoing_interval: zod
+                            .union([zod.boolean(), zod.null()])
+                            .optional()
+                            .describe(
+                                'When true, evaluate the current (still in-progress) period; by default only completed periods are used.'
+                            ),
+                        funnel_step: zod
+                            .union([zod.number(), zod.null()])
+                            .optional()
+                            .describe('Zero-based step index to evaluate. Null = the last step (overall conversion).'),
+                        metric: zod.enum(['conversion_from_start', 'conversion_from_previous']),
+                        type: zod
+                            .enum(['FunnelsAlertConfig'])
+                            .default(alertsSimulateCreateBodyConfigOneThreeTypeDefault),
+                    }),
+                ])
+                .describe(
+                    'Per-insight-kind alert config, discriminated by ``type`` — keeps the OpenAPI (and the\ngenerated frontend types and MCP tool schemas) in sync with every kind alerts support.'
+                ),
+            zod.null(),
+        ])
+        .optional()
+        .describe(
+            'Per-insight-kind alert config. For SQL insights, selects the evaluated column and read direction (last_row\/first_row) so the preview matches the alert; ignored for trends.'
         ),
 })

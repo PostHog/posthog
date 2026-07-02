@@ -10,8 +10,8 @@ from products.replay_vision.backend.rrule import compute_next_occurrences
 
 
 def default_selection() -> dict[str, Any]:
-    # Past-day summarizer observations — the most common "and then" group summary.
-    return {"scanner_type": "summarizer", "window_days": 1}
+    # Past day's observations from the bound scanner — the most common "and then" group summary.
+    return {"window_days": 1}
 
 
 class TriggerType(models.TextChoices):
@@ -70,10 +70,9 @@ class VisionAction(TeamScopedRootMixin, UUIDModel):
     selection = models.JSONField(
         default=default_selection,
         help_text=(
-            "Observation filter applied at synthesis time. "
-            "Supported keys: scanner_type (string — filters observations by scanner type, "
-            "independent of the bound `scanner` FK which scopes scheduling), "
-            "scanner_ids (list[str]), verdict, tags, scores, status, window_days."
+            "Observation filter applied at synthesis time, over the action's bound `scanner` "
+            "(one action per scanner). Supported keys: scanner_ids (list[str], to override the bound "
+            "scanner), verdict, tags, scores, status, window_days."
         ),
     )
     synthesis_config = models.JSONField(default=dict, help_text="Synthesis options, e.g. {prompt_guide}.")
@@ -181,6 +180,9 @@ class VisionActionRun(TeamScopedRootMixin, UUIDModel):
     # generic so new channels don't each add a column. synthesized_markdown stays the canonical report.
     output = models.JSONField(default=dict)
     observation_count = models.PositiveIntegerField(default=0)
+    # UUIDs of the ReplayObservations this run's summary actually included, in summary order. Empty for
+    # runs created before this was tracked (and for skipped/failed runs that summarized nothing).
+    observation_ids = models.JSONField(default=list)
     error = models.JSONField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)

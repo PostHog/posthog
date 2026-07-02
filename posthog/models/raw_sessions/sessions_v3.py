@@ -257,7 +257,7 @@ new_line = "\n"
 
 # See https://kb.altinity.com/altinity-kb-queries-and-syntax/jsonextract-to-parse-many-attributes-at-a-time/
 # Or https://posthog.slack.com/archives/C02JQ320FV3/p1721406540313379?thread_ts=1721334861.073739&cid=C02JQ320FV3
-LEGACY_PROPERTIES = f"""
+PROPERTIES = f"""
         JSONExtract(properties, 'Tuple(
             `$current_url` Nullable(String),
             `$external_click_url` Nullable(String),
@@ -286,12 +286,6 @@ LEGACY_PROPERTIES = f"""
 {f",{new_line}".join([f"            `{ad_id}` Nullable(String)" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])}
         )') as p,
         JSONExtractString(person_properties, 'email') as _person_email,
-        mapSort(
-            mapFilter(
-                (key, _) -> key like '$feature/%%',
-                CAST(JSONExtractKeysAndValues(properties, 'String'), 'Map(String, String)')
-            )
-        ) as properties_group_feature_flags,
         tupleElement(p, '$current_url') as _current_url,
         tupleElement(p, '$external_click_url') as _external_click_url,
         tupleElement(p, '$browser') as _browser,
@@ -323,10 +317,6 @@ LEGACY_PROPERTIES = f"""
 {f",{new_line}".join([f"            if({ad_id} IS NOT NULL, '{ad_id}', NULL)" for ad_id in SESSION_V3_LOWER_TIER_AD_IDS])}
         ]) AS Array(String)) as ad_ids_set,
         tupleElement(p, '$host') as _host"""
-
-
-def _properties_sql() -> str:
-    return LEGACY_PROPERTIES
 
 
 def RAW_SESSION_TABLE_MV_SELECT_SQL_V3(source_table, where="TRUE", include_session_timestamp=False):
@@ -422,7 +412,7 @@ AND {where}
     """.format(
         source_table=source_table,
         where=where,
-        PROPERTIES=_properties_sql(),
+        PROPERTIES=PROPERTIES,
         session_timestamp="fromUnixTimestamp64Milli(toUInt64(bitShiftRight(`$session_id_uuid`, 80))) AS session_timestamp,"
         if include_session_timestamp
         else "",

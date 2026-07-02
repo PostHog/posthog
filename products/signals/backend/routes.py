@@ -4,6 +4,8 @@ import products.signals.backend.views as signals
 from products.signals.backend.scout_harness.views import (
     SignalProjectProfileViewSet,
     SignalScoutConfigViewSet,
+    SignalScoutMembersViewSet,
+    SignalScoutMetadataViewSet,
     SignalScoutRunViewSet,
     SignalScratchpadViewSet,
 )
@@ -14,9 +16,6 @@ def register_routes(routers: RouterRegistry) -> None:
     routers.register_legacy_dual_route(r"signals", SignalViewSet, "project_signals", ["team_id"])
     signal_reports_router = routers.projects.register(
         r"signals/reports", signals.SignalReportViewSet, "environment_signal_reports", ["team_id"]
-    )
-    signal_reports_router.register(
-        r"tasks", signals.SignalReportTaskViewSet, "environment_signal_report_tasks", ["team_id", "report_id"]
     )
     signal_reports_router.register(
         r"artefacts",
@@ -33,9 +32,9 @@ def register_routes(routers: RouterRegistry) -> None:
     routers.projects.register(
         r"signals/processing", signals.SignalProcessingViewSet, "environment_signal_processing", ["team_id"]
     )
-    # Signals agent HTTP surface — exposed via MCP as `signals-scout-*` tools. Reads (runs,
-    # memory, project profile) are public-grantable via `signal_scout:read`; writes are
-    # sandbox-scope only via `signal_scout_internal:write`.
+    # Signals agent HTTP surface — exposed via MCP as `signals-scout-*` tools. Most reads (runs,
+    # memory, project profile) are public-grantable via `signal_scout:read`; writes — and the member
+    # roster read — are sandbox-scope only via the internal `signal_scout_internal` scope object.
     routers.projects.register(
         r"signals/scout/runs", SignalScoutRunViewSet, "environment_signals_scout_runs", ["team_id"]
     )
@@ -49,5 +48,19 @@ def register_routes(routers: RouterRegistry) -> None:
         r"signals/scout/project_profile",
         SignalProjectProfileViewSet,
         "environment_signals_scout_project_profile",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"signals/scout/metadata",
+        SignalScoutMetadataViewSet,
+        "environment_signals_scout_metadata",
+        ["team_id"],
+    )
+    # Reviewer-routing roster. `signal_scout_internal:read` (internal scope) → sandbox-only, never in
+    # the public MCP catalog; the org-nested member tools the scoped-team token can't reach can't serve this.
+    routers.projects.register(
+        r"signals/scout/members",
+        SignalScoutMembersViewSet,
+        "environment_signals_scout_members",
         ["team_id"],
     )

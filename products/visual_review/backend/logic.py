@@ -30,8 +30,8 @@ import structlog
 if TYPE_CHECKING:
     from posthog.models.integration import GitHubIntegration
 
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.helpers.trigram_search import TrigramSearchField, apply_trigram_search, normalize_search_term
-from posthog.models.integration import GitHubRateLimitError
 
 from .classifier import SnapshotClassifier
 from .db import READER_DB, WRITER_DB
@@ -434,6 +434,7 @@ def _get_merge_base_sha(github: GitHubIntegration, repo_full_name: str, base: st
             "GET",
             f"https://api.github.com/repos/{repo_full_name}/compare/{quote(base, safe='')}...{quote(head, safe='')}",
             access_token=access_token,
+            installation_id=github.github_installation_id,
             timeout=10,
         )
     except requests.RequestException:
@@ -473,6 +474,7 @@ def _get_default_branch(github: GitHubIntegration, repo_full_name: str) -> str:
             "GET",
             f"https://api.github.com/repos/{repo_full_name}",
             access_token=access_token,
+            installation_id=github.github_installation_id,
             timeout=10,
         )
     except requests.RequestException:
@@ -1141,6 +1143,23 @@ def _approved_baseline_updates(snapshots: Iterable[RunSnapshot]) -> list[dict]:
     ]
 
 
+def _format_change_counts(changed: int, new: int, removed: int) -> str:
+    """'N changed, M new, K removed', omitting zero counts; '' when all are zero."""
+    parts = []
+    if changed:
+        parts.append(f"{changed} changed")
+    if new:
+        parts.append(f"{new} new")
+    if removed:
+        parts.append(f"{removed} removed")
+    return ", ".join(parts)
+
+
+def _changes_summary(run: Run) -> str:
+    """Change summary from the run's denormalized (quarantine-excluded) counts."""
+    return _format_change_counts(run.changed_count, run.new_count, run.removed_count)
+
+
 def _update_counts_and_post_status(run: Run) -> int:
     """Re-stamp quarantine, recount snapshots, compute unresolved, and post commit status.
 
@@ -1182,15 +1201,15 @@ def _update_counts_and_post_status(run: Run) -> int:
     repo = run.repo
     if run.error_message:
         _post_commit_status(run, repo, "error", f"Visual review failed: {run.error_message[:100]}")
+    elif run.purpose == RunPurpose.OBSERVE:
+        # Default-branch (tracking-only) runs never gate — there's no PR to approve.
+        # Report any changes as a green, informational status instead of a blocking
+        # failure; the per-snapshot detail lives in the VR UI (linked via target_url).
+        summary = _changes_summary(run)
+        description = f"Tracking only: {summary} recorded" if summary else "Tracking only: no visual changes"
+        _post_commit_status(run, repo, "success", description)
     elif unresolved > 0:
-        parts = []
-        if run.changed_count:
-            parts.append(f"{run.changed_count} changed")
-        if run.new_count:
-            parts.append(f"{run.new_count} new")
-        if run.removed_count:
-            parts.append(f"{run.removed_count} removed")
-        _post_commit_status(run, repo, "failure", f"Visual changes detected: {', '.join(parts)}")
+        _post_commit_status(run, repo, "failure", f"Visual changes detected: {_changes_summary(run)}")
         _post_review_prompt_comment(run, repo)
     elif pending_commit > 0:
         _post_commit_status(
@@ -1367,6 +1386,7 @@ def _resolve_repo_by_id(github, repo_external_id: int) -> str | None:
         "GET",
         f"https://api.github.com/repositories/{repo_external_id}",
         access_token=access_token,
+        installation_id=github.github_installation_id,
         timeout=10,
     )
     if response.status_code == 200:
@@ -1398,7 +1418,9 @@ def _github_api_request(
     access_token = github.get_access_token()
 
     url = f"https://api.github.com/repos/{repo.repo_full_name}/{safe_path}"
-    response = github_request(method, url, access_token=access_token, **kwargs)
+    response = github_request(
+        method, url, access_token=access_token, installation_id=github.github_installation_id, **kwargs
+    )
 
     if response.status_code == 404 and repo.repo_external_id:
         new_full_name = _resolve_repo_by_id(github, repo.repo_external_id)
@@ -1413,7 +1435,9 @@ def _github_api_request(
             repo.save(update_fields=["repo_full_name"])
 
             url = f"https://api.github.com/repos/{new_full_name}/{safe_path}"
-            response = github_request(method, url, access_token=access_token, **kwargs)
+            response = github_request(
+                method, url, access_token=access_token, installation_id=github.github_installation_id, **kwargs
+            )
 
     return response
 
@@ -1432,6 +1456,7 @@ def _get_pr_info(github, repo_full_name: str, pr_number: int) -> dict:
         "GET",
         f"https://api.github.com/repos/{repo_full_name}/pulls/{pr_number}",
         access_token=access_token,
+        installation_id=github.github_installation_id,
         timeout=10,
     )
 
@@ -1467,6 +1492,7 @@ def _fetch_baseline_file(
         "GET",
         f"https://api.github.com/repos/{repo_full_name}/contents/{file_path}",
         access_token=access_token,
+        installation_id=github.github_installation_id,
         params={"ref": branch},
         timeout=10,
     )
@@ -1565,7 +1591,13 @@ def _post_commit_status(
     from .github import github_request
 
     context = f"PostHog Visual Review / {run.run_type}"
-    if run.is_partial:
+    # Tracking-only (observe) and partial runs must never satisfy the gating context that
+    # branch protection evaluates. Both purpose and is_partial are client-supplied, so an
+    # observe run posted to the gating context could green a PR head SHA's required check
+    # without review. Route them to a distinct, non-gating context instead.
+    if run.purpose == RunPurpose.OBSERVE:
+        context = f"{context} (tracking)"
+    elif run.is_partial:
         context = f"{context} (partial)"
         description = f"{description} (partial run)"
 
@@ -1585,6 +1617,7 @@ def _post_commit_status(
             "POST",
             f"https://api.github.com/repos/{repo.repo_full_name}/statuses/{run.commit_sha}",
             access_token=access_token,
+            installation_id=github.github_installation_id,
             json={
                 "state": state,
                 "description": description[:140],
@@ -1818,17 +1851,17 @@ _MAX_COMMENT_IMAGES = 8
 
 
 def _comment_image_url(repo: Repo, artifact: Artifact | None) -> str | None:
-    """Presigned URL for embedding a snapshot image in a PR comment.
+    """Presigned URL for the full-resolution snapshot image in a PR comment.
 
-    Prefers the thumbnail to keep the comment lightweight. Returns None when the
-    artifact is missing or object storage is disabled — the caller renders an
-    empty cell in that case.
+    Serves the original artifact (not the thumbnail) so the embedded image opens at full
+    resolution when clicked — GitHub constrains the rendered size via the ``<img width>``
+    attribute but links the original. Returns None when the artifact is missing or object
+    storage is disabled — the caller renders an empty cell in that case.
     """
     if artifact is None:
         return None
-    display = artifact.thumbnail or artifact
     storage = ArtifactStorage(str(repo.id))
-    return storage.get_presigned_download_url(display.content_hash, expiration=_COMMENT_IMAGE_URL_EXPIRATION)
+    return storage.get_presigned_download_url(artifact.content_hash, expiration=_COMMENT_IMAGE_URL_EXPIRATION)
 
 
 _TABLE_BREAKING_CHARS_RE = re.compile(r"[\x00-\x1f\x7f]")
@@ -1864,7 +1897,12 @@ def _snapshot_link_cell(run: Run, repo: Repo, snapshot: RunSnapshot, suffix: str
 
 
 def _image_cell(url: str | None, alt: str) -> str:
-    """Render an image (or an empty placeholder) for a before/after table cell."""
+    """Render an image (or an empty placeholder) for a before/after table cell.
+
+    The image is constrained to ``_COMMENT_IMAGE_WIDTH`` so the table stays compact, but
+    ``src`` points at the full-resolution original — GitHub opens that original when the
+    image is clicked.
+    """
     if not url:
         return "_(none)_"
     # Escape both attributes — a URL containing a quote would otherwise break out of src.
@@ -1904,9 +1942,7 @@ def _build_snapshot_image_tables(run: Run, repo: Repo) -> str:
         _postable_snapshot_qs(run)
         .select_related(
             "current_artifact",
-            "current_artifact__thumbnail",
             "baseline_artifact",
-            "baseline_artifact__thumbnail",
         )
         .order_by("identifier")
     )
@@ -1973,14 +2009,8 @@ def _build_approval_comment_body(run: Run, repo: Repo, approver: _Approver | Non
     baseline_sha = run.metadata.get("baseline_commit_sha")
     sha_text = f" — baseline updated in `{baseline_sha[:7]}`" if isinstance(baseline_sha, str) and baseline_sha else ""
 
-    summary = ", ".join(
-        f"{counts[result]} {label}"
-        for result, label in (
-            (SnapshotResult.CHANGED, "changed"),
-            (SnapshotResult.NEW, "new"),
-            (SnapshotResult.REMOVED, "removed"),
-        )
-        if counts.get(result)
+    summary = _format_change_counts(
+        counts[SnapshotResult.CHANGED], counts[SnapshotResult.NEW], counts[SnapshotResult.REMOVED]
     )
 
     sections = [

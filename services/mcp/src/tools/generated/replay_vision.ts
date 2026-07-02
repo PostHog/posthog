@@ -158,6 +158,9 @@ const visionScannersEstimateCreate = (): ToolBase<
         if (params.sampling_rate !== undefined) {
             body['sampling_rate'] = params.sampling_rate
         }
+        if (params.scanner_id !== undefined) {
+            body['scanner_id'] = params.scanner_id
+        }
         const result = await context.api.request<Schemas.EstimateResponse>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/vision/scanners/estimate/`,
@@ -247,6 +250,7 @@ const visionScannersObservationsList = (): ToolBase<
                 limit: params.limit,
                 offset: params.offset,
                 order_by: params.order_by,
+                recording_subject: params.recording_subject,
                 session_id: params.session_id,
                 status: params.status,
                 tags: params.tags,

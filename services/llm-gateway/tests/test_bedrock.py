@@ -1,3 +1,4 @@
+import json
 from typing import Any
 from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
@@ -5,6 +6,8 @@ import pytest
 from botocore.exceptions import ClientError
 from fastapi import HTTPException
 from fastapi.testclient import TestClient
+
+from llm_gateway.metrics.prometheus import BEDROCK_COUNT_TOKENS_DROPPED_PROPERTIES, BEDROCK_COUNT_TOKENS_ERRORS
 
 BEDROCK_SETTINGS_PATCH = patch(
     "llm_gateway.api.anthropic.get_settings",
@@ -118,6 +121,8 @@ class TestBedrockSpecific:
             pytest.param("claude-sonnet-4-6", "bedrock/us.anthropic.claude-sonnet-4-6", id="anthropic_name_mapped"),
             pytest.param("claude-opus-4-7", "bedrock/us.anthropic.claude-opus-4-7", id="opus_4_7_inference_profile"),
             pytest.param("claude-opus-4-8", "bedrock/us.anthropic.claude-opus-4-8", id="opus_4_8_inference_profile"),
+            pytest.param("claude-fable-5", "bedrock/us.anthropic.claude-fable-5", id="fable_5_inference_profile"),
+            pytest.param("claude-sonnet-5", "bedrock/us.anthropic.claude-sonnet-5", id="sonnet_5_inference_profile"),
             pytest.param(
                 "us.anthropic.claude-sonnet-4-6", "bedrock/us.anthropic.claude-sonnet-4-6", id="already_bedrock_id"
             ),
@@ -446,6 +451,17 @@ class TestBedrockCountTokensViaProvider:
             detail={"error": {"message": "Access denied", "type": "permission_error"}},
         )
 
+        runtime_errors_before = BEDROCK_COUNT_TOKENS_ERRORS.labels(
+            transport="runtime",
+            error_type="Exception",
+            product="llm_gateway",
+        )._value.get()
+        mantle_errors_before = BEDROCK_COUNT_TOKENS_ERRORS.labels(
+            transport="mantle",
+            error_type="HTTPException",
+            product="llm_gateway",
+        )._value.get()
+
         response = authenticated_client.post(
             "/v1/messages/count_tokens",
             json=valid_request_body,
@@ -455,6 +471,22 @@ class TestBedrockCountTokensViaProvider:
         assert response.status_code == 502
         assert "Failed to count tokens via Bedrock" in response.json()["error"]["message"]
         assert mock_request_count.labels.call_args.kwargs["status_code"] == "502"
+        assert (
+            BEDROCK_COUNT_TOKENS_ERRORS.labels(
+                transport="runtime",
+                error_type="Exception",
+                product="llm_gateway",
+            )._value.get()
+            == runtime_errors_before + 1
+        )
+        assert (
+            BEDROCK_COUNT_TOKENS_ERRORS.labels(
+                transport="mantle",
+                error_type="HTTPException",
+                product="llm_gateway",
+            )._value.get()
+            == mantle_errors_before + 1
+        )
 
     @patch("llm_gateway.api.anthropic.get_settings")
     @patch("llm_gateway.api.anthropic.count_tokens_with_bedrock_mantle", new_callable=AsyncMock)
@@ -492,6 +524,12 @@ class TestBedrockCountTokensViaProvider:
         )
         mock_mantle_count_tokens.return_value = 77
 
+        runtime_errors_before = BEDROCK_COUNT_TOKENS_ERRORS.labels(
+            transport="runtime",
+            error_type="ClientError",
+            product="llm_gateway",
+        )._value.get()
+
         with patch("llm_gateway.api.anthropic.logger") as mock_logger:
             response = authenticated_client.post(
                 "/v1/messages/count_tokens",
@@ -501,6 +539,14 @@ class TestBedrockCountTokensViaProvider:
 
         assert response.status_code == 200
         assert response.json()["input_tokens"] == 77
+        assert (
+            BEDROCK_COUNT_TOKENS_ERRORS.labels(
+                transport="runtime",
+                error_type="ClientError",
+                product="llm_gateway",
+            )._value.get()
+            == runtime_errors_before + 1
+        )
         assert mock_mantle_count_tokens.await_count == 1
         mantle_count_tokens_call = mock_mantle_count_tokens.await_args
         assert mantle_count_tokens_call is not None
@@ -616,6 +662,123 @@ class TestBedrockCountTokensViaProvider:
         assert mock_to_thread.called
         assert callable(mock_to_thread.call_args.args[0])
 
+    @pytest.mark.asyncio
+    @patch("llm_gateway.bedrock.get_bedrock_runtime_client")
+    async def test_count_tokens_strips_unsigned_thinking_blocks(self, mock_get_client: MagicMock) -> None:
+        from llm_gateway.bedrock import count_tokens_with_bedrock
+
+        mock_client = MagicMock()
+        mock_client.count_tokens.return_value = {"inputTokens": 42}
+        mock_get_client.return_value = mock_client
+
+        unsigned_thinking = {"type": "thinking", "thinking": "cannot be replayed", "index": 0}
+        signed_thinking = {"type": "thinking", "thinking": "can be replayed", "signature": "sig", "index": 0}
+        request_data: dict[str, Any] = {
+            "max_tokens": 2048,
+            "system": "Be brief.",
+            "messages": [
+                {"role": "user", "content": "Hello"},
+                {"role": "assistant", "content": [unsigned_thinking, {"type": "text", "text": "Answer"}]},
+                {"role": "assistant", "content": [unsigned_thinking]},
+                {"role": "assistant", "content": [signed_thinking, {"type": "text", "text": "Signed answer"}]},
+            ],
+            "tools": [{"name": "x", "description": "", "input_schema": {"type": "object"}}],
+            "tool_choice": {"type": "tool", "name": "x"},
+        }
+        unsigned_thinking_drops_before = BEDROCK_COUNT_TOKENS_DROPPED_PROPERTIES.labels(
+            transport="runtime",
+            property="messages.content.thinking_without_signature",
+            product="llm_gateway",
+        )._value.get()
+        empty_message_drops_before = BEDROCK_COUNT_TOKENS_DROPPED_PROPERTIES.labels(
+            transport="runtime",
+            property="messages.empty_after_sanitization",
+            product="llm_gateway",
+        )._value.get()
+        top_level_system_drops_before = BEDROCK_COUNT_TOKENS_DROPPED_PROPERTIES.labels(
+            transport="runtime",
+            property="top_level.system",
+            product="llm_gateway",
+        )._value.get()
+
+        with patch("llm_gateway.bedrock.logger") as mock_logger:
+            result = await count_tokens_with_bedrock(
+                request_data,
+                "us.anthropic.claude-sonnet-4-6",
+                "us-east-1",
+                123.0,
+                product="llm_gateway",
+            )
+
+        assert result == 42
+        call_kwargs = mock_client.count_tokens.call_args.kwargs
+        assert call_kwargs["modelId"] == "anthropic.claude-sonnet-4-6"
+
+        body = json.loads(call_kwargs["input"]["invokeModel"]["body"])
+        assert "system" not in body
+        assert "tools" not in body
+        assert "tool_choice" not in body
+        assert body["messages"] == [
+            {"role": "user", "content": "Hello"},
+            {"role": "assistant", "content": [{"type": "text", "text": "Answer"}]},
+            {"role": "assistant", "content": [signed_thinking, {"type": "text", "text": "Signed answer"}]},
+        ]
+        assert request_data["messages"][1]["content"][0] == unsigned_thinking
+        assert (
+            BEDROCK_COUNT_TOKENS_DROPPED_PROPERTIES.labels(
+                transport="runtime",
+                property="messages.content.thinking_without_signature",
+                product="llm_gateway",
+            )._value.get()
+            == unsigned_thinking_drops_before + 2
+        )
+        assert (
+            BEDROCK_COUNT_TOKENS_DROPPED_PROPERTIES.labels(
+                transport="runtime",
+                property="messages.empty_after_sanitization",
+                product="llm_gateway",
+            )._value.get()
+            == empty_message_drops_before + 1
+        )
+        assert (
+            BEDROCK_COUNT_TOKENS_DROPPED_PROPERTIES.labels(
+                transport="runtime",
+                property="top_level.system",
+                product="llm_gateway",
+            )._value.get()
+            == top_level_system_drops_before + 1
+        )
+        mock_logger.warning.assert_called_once_with(
+            "Bedrock CountTokens request sanitized",
+            model="us.anthropic.claude-sonnet-4-6",
+            product="llm_gateway",
+            transport="runtime",
+            dropped_properties=[
+                "messages.content.thinking_without_signature",
+                "messages.empty_after_sanitization",
+                "top_level.system",
+                "top_level.tool_choice",
+                "top_level.tools",
+            ],
+            dropped_property_counts={
+                "messages.content.thinking_without_signature": 2,
+                "messages.empty_after_sanitization": 1,
+                "top_level.system": 1,
+                "top_level.tool_choice": 1,
+                "top_level.tools": 1,
+            },
+            dropped_paths=[
+                "messages[1].content[0]",
+                "messages[2].content[0]",
+                "messages[2]",
+                "system",
+                "tool_choice",
+                "tools",
+            ],
+            dropped_items_total=6,
+            dropped_paths_truncated=False,
+        )
+
 
 class TestModelMapping:
     @pytest.mark.parametrize(
@@ -625,6 +788,7 @@ class TestModelMapping:
             pytest.param("claude-opus-4-6", "us.anthropic.claude-opus-4-6-v1", id="opus_4_6"),
             pytest.param("claude-sonnet-4-5", "us.anthropic.claude-sonnet-4-5-20250929-v1:0", id="sonnet_4_5"),
             pytest.param("claude-sonnet-4-6", "us.anthropic.claude-sonnet-4-6", id="sonnet_4_6"),
+            pytest.param("claude-sonnet-5", "us.anthropic.claude-sonnet-5", id="sonnet_5"),
             pytest.param("claude-haiku-4-5", "us.anthropic.claude-haiku-4-5-20251001-v1:0", id="haiku_4_5"),
         ],
     )
@@ -728,7 +892,10 @@ class TestBedrockMantleCountTokens:
         mock_async_client_cls.return_value.__aenter__.return_value = mock_client
 
         request_data = {
-            "messages": [{"role": "user", "content": "Hello"}],
+            "messages": [
+                {"role": "assistant", "content": [{"type": "thinking", "thinking": "bad"}]},
+                {"role": "user", "content": "Hello"},
+            ],
             "system": "Be brief.",
             "tools": [{"name": "x", "description": "", "input_schema": {"type": "object"}}],
         }
@@ -756,15 +923,30 @@ class TestBedrockMantleCountTokens:
         signed_url = mock_sign.call_args.args[0]
         assert signed_url == "https://bedrock-mantle.us-east-1.api.aws/anthropic/v1/messages/count_tokens"
         # The signed payload carries the native Anthropic shape with the prefix-stripped model id.
-        import json
-
         signed_body = json.loads(mock_sign.call_args.args[1])
         assert signed_body["model"] == "anthropic.claude-opus-4-8"
-        assert signed_body["messages"] == request_data["messages"]
+        assert signed_body["messages"] == [{"role": "user", "content": "Hello"}]
         assert signed_body["system"] == request_data["system"]
         assert signed_body["tools"] == request_data["tools"]
         # The same signed payload bytes are what gets POSTed.
         assert mock_client.post.call_args.kwargs["content"] == mock_sign.call_args.args[1]
+        mock_logger.warning.assert_called_once_with(
+            "Bedrock CountTokens request sanitized",
+            model="us.anthropic.claude-opus-4-8",
+            product="llm_gateway",
+            transport="mantle",
+            dropped_properties=[
+                "messages.content.thinking_without_signature",
+                "messages.empty_after_sanitization",
+            ],
+            dropped_property_counts={
+                "messages.content.thinking_without_signature": 1,
+                "messages.empty_after_sanitization": 1,
+            },
+            dropped_paths=["messages[0].content[0]", "messages[0]"],
+            dropped_items_total=2,
+            dropped_paths_truncated=False,
+        )
 
     @pytest.mark.asyncio
     @patch("llm_gateway.bedrock._sign_bedrock_mantle_request")

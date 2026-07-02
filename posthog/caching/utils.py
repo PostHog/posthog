@@ -4,10 +4,7 @@ from typing import Any, Optional, Union
 
 from dateutil.parser import isoparse, parser
 
-from posthog.hogql.escape_sql import escape_clickhouse_identifier
-
 from posthog.clickhouse.client import sync_execute
-from posthog.models.event.sql import EVENTS_QUERY_TABLE
 from posthog.models.filters.filter import Filter
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
@@ -32,16 +29,15 @@ def ensure_is_date(candidate: Optional[Union[str, datetime]]) -> Optional[dateti
 
 
 def largest_teams(limit: int) -> set[int]:
-    events_table = escape_clickhouse_identifier(EVENTS_QUERY_TABLE())
     teams_by_event_count = sync_execute(
         """
             SELECT team_id, COUNT(*) AS event_count
-            FROM {events_table}
+            FROM events
             WHERE timestamp > subtractDays(now(), 7)
             GROUP BY team_id
             ORDER BY event_count DESC
             LIMIT %(limit)s
-        """.format(events_table=events_table),
+        """,
         {"limit": limit},
     )
     return {int(team_id) for team_id, _ in teams_by_event_count}
@@ -49,15 +45,14 @@ def largest_teams(limit: int) -> set[int]:
 
 def _populate_active_teams(redis) -> dict[int, float]:
     # NOTE: the ClickHouse `now()` function used here does not cooperate with freezegun.
-    events_table = escape_clickhouse_identifier(EVENTS_QUERY_TABLE())
     teams_by_recency = sync_execute(
         """
         SELECT team_id, date_diff('second', max(timestamp), now()) AS age
-        FROM {events_table}
+        FROM events
         WHERE timestamp > date_sub(DAY, 3, now()) AND timestamp < now()
         GROUP BY team_id
         ORDER BY age;
-    """.format(events_table=events_table)
+    """
     )
     teams = dict(teams_by_recency)
     # Marker is set even on empty results, so callers don't re-query for every inactive team.

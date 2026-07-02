@@ -116,14 +116,13 @@ from posthog.models.event.sql import (
     DROP_EVENTS_TABLE_SQL,
     EVENTS_JSON_DATA_TABLE,
     EVENTS_JSON_TABLE_SQL,
-    EVENTS_QUERY_TABLE,
     EVENTS_TABLE_SQL,
     TRUNCATE_EVENTS_RECENT_TABLE_SQL,
     WRITABLE_EVENTS_DATA_TABLE,
     WRITABLE_EVENTS_JSON_TABLE,
     WRITABLE_EVENTS_JSON_TABLE_SQL,
 )
-from posthog.models.event.util import bulk_create_events
+from posthog.models.event.util import _resolve_person_for_bulk_event, bulk_create_events
 from posthog.models.exchange_rate.sql import (
     DROP_EXCHANGE_RATE_DICTIONARY_SQL,
     DROP_EXCHANGE_RATE_TABLE_SQL,
@@ -134,7 +133,6 @@ from posthog.models.exchange_rate.sql import (
 from posthog.models.group.sql import TRUNCATE_GROUPS_TABLE_SQL
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import OrganizationMembership
-from posthog.models.person import Person
 from posthog.models.person.sql import (
     DROP_PERSON_TABLE_SQL,
     PERSONS_TABLE_SQL,
@@ -143,7 +141,6 @@ from posthog.models.person.sql import (
     TRUNCATE_PERSON_DISTINCT_ID_TABLE_SQL,
     TRUNCATE_PERSON_STATIC_COHORT_TABLE_SQL,
 )
-from posthog.models.person.util import bulk_create_persons
 from posthog.models.personal_api_key import PersonalAPIKey
 from posthog.models.precalculated_events.sql import (
     DROP_PRECALCULATED_EVENTS_KAFKA_TABLE_SQL,
@@ -163,7 +160,6 @@ from posthog.models.raw_sessions.sessions_v2 import (
     DROP_RAW_SESSION_SHARDED_TABLE_SQL,
     DROP_RAW_SESSION_VIEW_SQL,
     DROP_RAW_SESSION_WRITABLE_TABLE_SQL,
-    RAW_SESSION_TABLE_UPDATE_SQL,
     RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL,
     RAW_SESSIONS_TABLE_MV_SQL,
     RAW_SESSIONS_TABLE_SQL,
@@ -177,7 +173,6 @@ from posthog.models.raw_sessions.sessions_v3 import (
     DROP_RAW_SESSION_SHARDED_TABLE_SQL_V3,
     DROP_RAW_SESSION_VIEW_SQL_V3,
     DROP_RAW_SESSION_WRITABLE_TABLE_SQL_V3,
-    RAW_SESSION_TABLE_MV_UPDATE_SQL_V3,
     RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL_V3,
     RAW_SESSIONS_TABLE_MV_RECORDINGS_SQL_V3,
     RAW_SESSIONS_TABLE_MV_SQL_V3,
@@ -189,7 +184,6 @@ from posthog.models.sessions.sql import (
     DROP_SESSION_MATERIALIZED_VIEW_SQL,
     DROP_SESSION_TABLE_SQL,
     DROP_SESSION_VIEW_SQL,
-    SESSION_TABLE_UPDATE_SQL,
     SESSIONS_TABLE_MV_SQL,
     SESSIONS_TABLE_SQL,
     SESSIONS_VIEW_SQL,
@@ -235,9 +229,9 @@ cast(Any, freezegun).configure(
     extend_ignore_list=["posthog.test.assert_faster_than", "transformers"],
 )
 
-persons_cache_tests: list[dict[str, Any]] = []
 events_cache_tests: list[dict[str, Any]] = []
-persons_ordering_int: int = 0
+
+from posthog.test.persons import stage_person_for_bulk_create  # noqa: E402
 
 # Expand string diffs
 unittest.util._MAX_LENGTH = 2000  # type: ignore
@@ -676,8 +670,7 @@ class PostHogTestCase(SimpleTestCase):
     # to `False` will set up test data on every test case instead.
     CLASS_DATA_LEVEL_SETUP = True
 
-    # Allow tests to use the persons databases (for Person/PersonDistinctId models)
-    databases = {"default", "persons_db_writer", "persons_db_reader"}
+    databases = {"default"}
 
     # Test data definition stubs
     organization: Organization = cast(Organization, None)
@@ -697,7 +690,7 @@ class PostHogTestCase(SimpleTestCase):
             _setup_test_data(cls)
 
     def setUp(self):
-        get_instance_setting.cache_clear()
+        get_instance_setting.cache_clear()  # type: ignore[attr-defined]
 
         if get_instance_setting("PERSON_ON_EVENTS_ENABLED"):
             from posthog.models.team import util
@@ -708,8 +701,10 @@ class PostHogTestCase(SimpleTestCase):
             _setup_test_data(self)
 
     def tearDown(self):
-        if len(persons_cache_tests) > 0:
-            persons_cache_tests.clear()
+        from posthog.test.persons import has_unflushed_persons, reset_persons_state
+
+        if has_unflushed_persons():
+            reset_persons_state()
             raise Exception(
                 "Some persons created in this test weren't flushed, which can lead to inconsistent test results. Add flush_persons_and_events() right after creating all persons."
             )
@@ -721,8 +716,7 @@ class PostHogTestCase(SimpleTestCase):
             )
         # We might be using memory cache in tests at Django level, but we also use `redis` directly in some places, so we need to clear Redis
         redis.get_client().flushdb()
-        global persons_ordering_int
-        persons_ordering_int = 0
+        reset_persons_state()
         super().tearDown()
 
     def validate_basic_html(self, html_message, site_url, preheader=None):
@@ -908,25 +902,7 @@ class NonAtomicBaseTest(PostHogTestCase, ErrorResponsesMixin, TransactionTestCas
         # Required when models are moved between Django apps, as PostgreSQL
         # needs CASCADE to handle FK constraints across app boundaries.
         for db_name in cast(Any, self)._databases_names(include_mirrors=False):
-            if db_name in ("persons_db_writer", "persons_db_reader"):
-                # Manually truncate persons database tables
-                # Can't use Django's flush because it emits post_migrate signals that try to
-                # create contenttypes/permissions tables that don't exist in persons database
-                conn = connections[db_name]
-                with conn.cursor() as cursor:
-                    cursor.execute("""
-                                   SELECT tablename
-                                   FROM pg_tables
-                                   WHERE schemaname = 'public'
-                                     AND tablename NOT LIKE 'pg_%'
-                                     AND tablename NOT LIKE '_sqlx_%'
-                                     AND tablename NOT LIKE '_persons_migrations'
-                                   """)
-                    tables = [row[0] for row in cursor.fetchall()]
-                    if tables:
-                        cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE")
-            else:
-                call_command("flush", verbosity=0, interactive=False, database=db_name, allow_cascade=True)
+            call_command("flush", verbosity=0, interactive=False, database=db_name, allow_cascade=True)
 
 
 class NonAtomicBaseTestKeepIdentities(PostHogTestCase, ErrorResponsesMixin, TransactionTestCase):
@@ -945,23 +921,13 @@ class NonAtomicBaseTestKeepIdentities(PostHogTestCase, ErrorResponsesMixin, Tran
         for db_name in cast(Any, self)._databases_names(include_mirrors=False):
             conn = connections[db_name]
             with conn.cursor() as cursor:
-                if db_name in ("persons_db_writer", "persons_db_reader"):
-                    cursor.execute("""
-                                   SELECT tablename
-                                   FROM pg_tables
-                                   WHERE schemaname = 'public'
-                                     AND tablename NOT LIKE 'pg_%'
-                                     AND tablename NOT LIKE '_sqlx_%'
-                                     AND tablename NOT LIKE '_persons_migrations'
-                                   """)
-                else:
-                    cursor.execute("""
-                                   SELECT tablename
-                                   FROM pg_tables
-                                   WHERE schemaname = 'public'
-                                     AND tablename NOT LIKE 'pg_%'
-                                     AND tablename NOT LIKE 'django_%'
-                                   """)
+                cursor.execute("""
+                               SELECT tablename
+                               FROM pg_tables
+                               WHERE schemaname = 'public'
+                                 AND tablename NOT LIKE 'pg_%'
+                                 AND tablename NOT LIKE 'django_%'
+                               """)
                 tables = [row[0] for row in cursor.fetchall()]
                 if tables:
                     cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} CASCADE")
@@ -1555,11 +1521,9 @@ def _flush_ai_events(events: list[dict[str, Any]], person_mapping: dict) -> None
             team = event.get("team")
             team_id = event.get("team_id") or (team.pk if team else None)
             if team_id:
-                from posthog.models import PersonDistinctId
-
-                pdi = PersonDistinctId.objects.filter(team_id=team_id, distinct_id=distinct_id).first()
-                if pdi:
-                    event["person_id"] = str(pdi.person.uuid)
+                person = _resolve_person_for_bulk_event(team_id, distinct_id)
+                if person is not None:
+                    event["person_id"] = str(person.uuid)
 
     from posthog.models.ai_events.test_util import bulk_create_ai_events
 
@@ -1578,10 +1542,9 @@ def flush_persons_and_events():
     pass of writing a test. Only consider adding it after the test has failed, and you think that lack of flushing is
     the cause.
     """
-    person_mapping = {}
-    if len(persons_cache_tests) > 0:
-        person_mapping = bulk_create_persons(persons_cache_tests)
-        persons_cache_tests.clear()
+    from posthog.test.persons import flush_persons_to_db_and_clickhouse
+
+    person_mapping = flush_persons_to_db_and_clickhouse()
     if len(events_cache_tests) > 0:
         bulk_create_events(events_cache_tests, person_mapping)
         _flush_ai_events(events_cache_tests, person_mapping)
@@ -1641,27 +1604,8 @@ def _warn_if_session_id_malformed(session_id: str):
 
 
 def _create_person(*args, **kwargs):
-    """
-    Create a person in tests. NOTE: all persons get batched and only created when sync_execute is called
-    Pass immediate=True to create immediately and get a pk back
-    """
-    global persons_ordering_int
-    if not (kwargs.get("uuid")):
-        kwargs["uuid"] = uuid.UUID(
-            int=persons_ordering_int, version=4
-        )  # make sure the ordering of uuids is always consistent
-    persons_ordering_int += 1
-    # If we've done freeze_time just create straight away
-    if kwargs.get("immediate") or (
-        hasattr(dt.datetime.now(), "__module__") and dt.datetime.now().__module__ == "freezegun.api"
-    ):
-        kwargs.pop("immediate", None)
-        return Person.objects.create(**kwargs)
-    if len(args) > 0:
-        kwargs["distinct_ids"] = [args[0]]  # allow calling _create_person("distinct_id")
-
-    persons_cache_tests.append(kwargs)
-    return Person(**{key: value for key, value in kwargs.items() if key != "distinct_ids"})
+    """Thin wrapper — delegates to posthog.test.persons.stage_person_for_bulk_create."""
+    return stage_person_for_bulk_create(*args, **kwargs)
 
 
 def _create_action(**kwargs):
@@ -1742,21 +1686,6 @@ def run_clickhouse_statement_in_parallel(statements: list[str]) -> None:
 
         if exceptions:
             raise exceptions[0]
-
-
-def refresh_clickhouse_events_schema_dependent_objects() -> None:
-    for statement in [
-        SESSION_TABLE_UPDATE_SQL(),
-        RAW_SESSION_TABLE_UPDATE_SQL(),
-        RAW_SESSION_TABLE_MV_UPDATE_SQL_V3(),
-        RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL(),
-        RAW_SESSIONS_CREATE_OR_REPLACE_VIEW_SQL_V3(),
-    ]:
-        sync_execute(statement, flush=False)
-
-
-def enforce_clickhouse_events_schema_setting() -> None:
-    refresh_clickhouse_events_schema_dependent_objects()
 
 
 def clickhouse_events_table_drop_statements() -> list[str]:
@@ -1922,8 +1851,6 @@ def reset_clickhouse_database() -> None:
             ),
         ]
     )
-    enforce_clickhouse_events_schema_setting()
-
 
 class ClickhouseDestroyTablesMixin(BaseTest):
     """
@@ -2198,7 +2125,7 @@ def create_person_id_override_by_distinct_id(
     person_ids_result = sync_execute(
         f"""
         SELECT DISTINCT person_id
-        FROM {EVENTS_QUERY_TABLE()}
+        FROM events
         WHERE team_id = {team_id} AND distinct_id = '{distinct_id_to}'
         """
     )

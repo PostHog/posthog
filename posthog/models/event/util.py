@@ -4,7 +4,6 @@ from datetime import UTC, datetime
 from typing import Any, Literal, Optional, Union
 from zoneinfo import ZoneInfo
 
-from django.conf import settings
 from django.utils import timezone
 
 from dateutil.parser import isoparse
@@ -15,40 +14,13 @@ from posthog.clickhouse.client import sync_execute
 from posthog.kafka_client.client import ClickhouseProducer
 from posthog.kafka_client.topics import KAFKA_EVENTS_JSON
 from posthog.models.element.element import Element, chain_to_elements, elements_to_string
-from posthog.models.event.sql import (
-    BULK_INSERT_EVENT_SQL,
-    EVENTS_DATA_TABLE,
-    EVENTS_INSERT_DATA_TABLE,
-    EVENTS_QUERY_TABLE,
-    INSERT_EVENT_SQL,
-)
+from posthog.models.event.sql import BULK_INSERT_EVENT_SQL, INSERT_EVENT_SQL
 from posthog.models.person import Person
+from posthog.models.person.util import get_person_by_distinct_id
 from posthog.models.team import Team
 from posthog.settings import TEST
 
 ZERO_DATE = datetime(1970, 1, 1)
-CLICKHOUSE_JSON_MIN_INT = -(2**63)
-CLICKHOUSE_JSON_MAX_UINT = 2**64 - 1
-
-
-def _normalize_clickhouse_json_value(value: Any) -> Any:
-    if isinstance(value, bool) or value is None:
-        return value
-    if isinstance(value, int):
-        if CLICKHOUSE_JSON_MIN_INT <= value <= CLICKHOUSE_JSON_MAX_UINT:
-            return value
-        return float(value)
-    if isinstance(value, list):
-        return [_normalize_clickhouse_json_value(item) for item in value]
-    if isinstance(value, tuple):
-        return [_normalize_clickhouse_json_value(item) for item in value]
-    if isinstance(value, dict):
-        return {key: _normalize_clickhouse_json_value(nested_value) for key, nested_value in value.items()}
-    return value
-
-
-def _json_dumps_for_clickhouse(value: dict[str, Any]) -> str:
-    return json.dumps(_normalize_clickhouse_json_value(value))
 
 
 def create_event(
@@ -89,7 +61,7 @@ def create_event(
     data = {
         "uuid": str(event_uuid),
         "event": event,
-        "properties": _json_dumps_for_clickhouse(properties),
+        "properties": json.dumps(properties),
         "timestamp": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
         "team_id": team.id,
         "project_id": team.project_id,
@@ -97,13 +69,13 @@ def create_event(
         "elements_chain": elements_chain,
         "created_at": timestamp.strftime("%Y-%m-%d %H:%M:%S.%f"),
         "person_id": str(person_id) if person_id else "00000000-0000-0000-0000-000000000000",
-        "person_properties": _json_dumps_for_clickhouse(person_properties) if person_properties is not None else "{}",
+        "person_properties": json.dumps(person_properties) if person_properties is not None else "",
         "person_created_at": format_clickhouse_timestamp(person_created_at, ZERO_DATE),
-        "group0_properties": _json_dumps_for_clickhouse(group0_properties) if group0_properties is not None else "{}",
-        "group1_properties": _json_dumps_for_clickhouse(group1_properties) if group1_properties is not None else "{}",
-        "group2_properties": _json_dumps_for_clickhouse(group2_properties) if group2_properties is not None else "{}",
-        "group3_properties": _json_dumps_for_clickhouse(group3_properties) if group3_properties is not None else "{}",
-        "group4_properties": _json_dumps_for_clickhouse(group4_properties) if group4_properties is not None else "{}",
+        "group0_properties": json.dumps(group0_properties) if group0_properties is not None else "",
+        "group1_properties": json.dumps(group1_properties) if group1_properties is not None else "",
+        "group2_properties": json.dumps(group2_properties) if group2_properties is not None else "",
+        "group3_properties": json.dumps(group3_properties) if group3_properties is not None else "",
+        "group4_properties": json.dumps(group4_properties) if group4_properties is not None else "",
         "group0_created_at": format_clickhouse_timestamp(group0_created_at, ZERO_DATE),
         "group1_created_at": format_clickhouse_timestamp(group1_created_at, ZERO_DATE),
         "group2_created_at": format_clickhouse_timestamp(group2_created_at, ZERO_DATE),
@@ -113,8 +85,6 @@ def create_event(
     }
     p = ClickhouseProducer()
     p.produce(topic=KAFKA_EVENTS_JSON, sql=INSERT_EVENT_SQL(), data=data)
-    if TEST and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-        p.produce(topic=KAFKA_EVENTS_JSON, sql=INSERT_EVENT_SQL(table_name=EVENTS_DATA_TABLE()), data=data)
 
     return str(event_uuid)
 
@@ -131,6 +101,14 @@ def format_clickhouse_timestamp(
         else (raw_timestamp or default).astimezone(ZoneInfo("UTC"))
     )
     return parsed_datetime.strftime("%Y-%m-%d %H:%M:%S.%f")
+
+
+def _resolve_person_for_bulk_event(team_id: int, distinct_id: str) -> Optional[Person]:
+    """Resolve the person for a test event by distinct_id via personhog."""
+    try:
+        return get_person_by_distinct_id(int(team_id), str(distinct_id))
+    except Exception:
+        return None
 
 
 def bulk_create_events(
@@ -211,15 +189,12 @@ def bulk_create_events(
             person_id = person.uuid
             person_created_at = person.created_at or datetime64_default_timestamp
         else:
-            try:
-                person = Person.objects.get(  # nosemgrep: no-direct-persons-db-orm
-                    persondistinctid__distinct_id=event["distinct_id"],
-                    persondistinctid__team_id=team_id,
-                )
-                person_properties = person.properties
-                person_id = person.uuid
-                person_created_at = person.created_at or datetime64_default_timestamp
-            except Person.DoesNotExist:
+            resolved_person = _resolve_person_for_bulk_event(team_id, event["distinct_id"])
+            if resolved_person is not None:
+                person_properties = resolved_person.properties
+                person_id = resolved_person.uuid
+                person_created_at = resolved_person.created_at or datetime64_default_timestamp
+            else:
                 person_properties = {}
                 person_id = event.get("person_id", uuid.uuid4())
                 person_created_at = datetime64_default_timestamp
@@ -240,7 +215,10 @@ def bulk_create_events(
         for property_key, value in (event.get("properties") or {}).items():
             if property_key.startswith("$group_"):
                 group_type_index = property_key[-1]
-                group = get_group_by_key(team_id, int(group_type_index), value)
+                try:
+                    group = get_group_by_key(team_id, int(group_type_index), value)
+                except Exception:
+                    group = None
                 if group is None:
                     continue
                 group_property_key = f"group{group_type_index}_properties"
@@ -259,34 +237,22 @@ def bulk_create_events(
         event = {
             "uuid": str(event["event_uuid"]) if event.get("event_uuid") else str(uuid.uuid4()),
             "event": event["event"],
-            "properties": _json_dumps_for_clickhouse(properties),
+            "properties": json.dumps(properties),
             "timestamp": timestamp,
             "team_id": team_id,
             "distinct_id": str(event["distinct_id"]),
             "elements_chain": elements_chain,
             "created_at": timestamp,
             "person_id": event["person_id"] if event.get("person_id") else str(uuid.uuid4()),
-            "person_properties": (
-                _json_dumps_for_clickhouse(event["person_properties"]) if event.get("person_properties") else "{}"
-            ),
+            "person_properties": json.dumps(event["person_properties"]) if event.get("person_properties") else "{}",
             "person_created_at": (
                 event["person_created_at"] if event.get("person_created_at") else datetime64_default_timestamp
             ),
-            "group0_properties": (
-                _json_dumps_for_clickhouse(event["group0_properties"]) if event.get("group0_properties") else "{}"
-            ),
-            "group1_properties": (
-                _json_dumps_for_clickhouse(event["group1_properties"]) if event.get("group1_properties") else "{}"
-            ),
-            "group2_properties": (
-                _json_dumps_for_clickhouse(event["group2_properties"]) if event.get("group2_properties") else "{}"
-            ),
-            "group3_properties": (
-                _json_dumps_for_clickhouse(event["group3_properties"]) if event.get("group3_properties") else "{}"
-            ),
-            "group4_properties": (
-                _json_dumps_for_clickhouse(event["group4_properties"]) if event.get("group4_properties") else "{}"
-            ),
+            "group0_properties": json.dumps(event["group0_properties"]) if event.get("group0_properties") else "{}",
+            "group1_properties": json.dumps(event["group1_properties"]) if event.get("group1_properties") else "{}",
+            "group2_properties": json.dumps(event["group2_properties"]) if event.get("group2_properties") else "{}",
+            "group3_properties": json.dumps(event["group3_properties"]) if event.get("group3_properties") else "{}",
+            "group4_properties": json.dumps(event["group4_properties"]) if event.get("group4_properties") else "{}",
             "group0_created_at": (
                 event["group0_created_at"] if event.get("group0_created_at") else datetime64_default_timestamp
             ),
@@ -311,8 +277,6 @@ def bulk_create_events(
             **{"{}_{}".format(key, index): value for key, value in event.items()},
         }
     sync_execute(BULK_INSERT_EVENT_SQL() + ", ".join(inserts), params, flush=False)
-    if TEST and settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-        sync_execute(BULK_INSERT_EVENT_SQL(table_name=EVENTS_DATA_TABLE()) + ", ".join(inserts), params, flush=False)
 
 
 @extend_schema_serializer(component_name="EventElement")
@@ -335,28 +299,16 @@ class ElementSerializer(serializers.ModelSerializer):
         ]
 
 
-def property_paths_to_allow_list(property_paths: Optional[list[str]]) -> Optional[set[str]]:
-    if property_paths is None:
-        return None
-    return {path.split(".", 1)[0] for path in property_paths}
-
-
-def parse_properties(properties: str | dict[str, Any], allow_list: Optional[set[str]] = None) -> dict:
+def parse_properties(properties: str, allow_list: Optional[set[str]] = None) -> dict:
     # parse_constants gets called for any NaN, Infinity etc values
     # we just want those to be returned as None
-    props: object = properties
-    for _ in range(2):
-        if isinstance(props, dict):
-            break
-        if not isinstance(props, str):
-            break
-        props = json.loads(props or "{}", parse_constant=lambda x: None)
-    if not isinstance(props, dict):
-        raise TypeError("Expected event properties to parse into a dictionary")
+    if allow_list is None:
+        allow_list = set()
+    props = json.loads(properties or "{}", parse_constant=lambda x: None)
     return {
         key: value.strip('"') if isinstance(value, str) else value
         for key, value in props.items()
-        if allow_list is None or key in allow_list
+        if not allow_list or key in allow_list
     }
 
 
@@ -381,9 +333,7 @@ class ClickhouseEventSerializer(serializers.Serializer):
 
     @extend_schema_field(serializers.DictField())
     def get_properties(self, event):
-        props = parse_properties(
-            event["properties"], allow_list=property_paths_to_allow_list(event.get("property_paths"))
-        )
+        props = parse_properties(event["properties"])
         restricted = self.context.get("restricted_event_properties")
         if restricted:
             props = {k: v for k, v in props.items() if k not in restricted}
@@ -437,13 +387,12 @@ class ClickhouseEventSerializer(serializers.Serializer):
 
 
 def get_agg_event_count_for_teams(team_ids: list[Union[str, int]]) -> int:
-    events_table = EVENTS_QUERY_TABLE()
     result = sync_execute(
         """
         SELECT count(1) as count
-        FROM {events_table}
+        FROM events
         WHERE team_id IN (%(team_id_clause)s)
-    """.format(events_table=events_table),
+    """,
         {"team_id_clause": team_ids},
     )[0][0]
     return result
@@ -452,28 +401,26 @@ def get_agg_event_count_for_teams(team_ids: list[Union[str, int]]) -> int:
 def get_agg_events_with_groups_count_for_teams_and_period(
     team_ids: list[Union[str, int]], begin: datetime, end: datetime
 ) -> int:
-    events_table = EVENTS_QUERY_TABLE()
     result = sync_execute(
         """
         SELECT count(1) as count
-        FROM {events_table}
+        FROM events
         WHERE team_id IN (%(team_id_clause)s)
         AND timestamp between %(begin)s AND %(end)s
         AND ($group_0 != '' OR $group_1 != '' OR $group_2 != '' OR $group_3 != '' OR $group_4 != '')
-    """.format(events_table=events_table),
+    """,
         {"team_id_clause": team_ids, "begin": begin, "end": end},
     )[0][0]
     return result
 
 
 def get_event_count_for_team(team_id: Union[str, int]) -> int:
-    events_table = EVENTS_QUERY_TABLE()
     result = sync_execute(
         """
         SELECT count(1) as count
-        FROM {events_table}
+        FROM events
         WHERE team_id = %(team_id)s
-    """.format(events_table=events_table),
+    """,
         {"team_id": str(team_id)},
     )[0][0]
     return result
@@ -483,40 +430,36 @@ def get_event_count() -> int:
     """
     ```SELECT count(1) as count FROM events``` is too slow on cloud
     """
-    events_data_table = EVENTS_INSERT_DATA_TABLE()
     result = sync_execute(
         """
-        SELECT sum(rows) FROM system.parts WHERE (active = 1) AND (table = %(events_data_table)s)
-    """,
-        {"events_data_table": events_data_table},
+        SELECT sum(rows) FROM system.parts WHERE (active = 1) AND (table = 'sharded_events')
+    """
     )[0][0]
     return result
 
 
 def get_event_count_for_last_month() -> int:
-    events_table = EVENTS_QUERY_TABLE()
     result = sync_execute(
         """
         -- count of events last month
         SELECT
         COUNT(1) freq
-        FROM {events_table}
+        FROM events
         WHERE
         toStartOfMonth(timestamp) = toStartOfMonth(date_sub(MONTH, 1, now()))
-    """.format(events_table=events_table)
+    """
     )[0][0]
     return result
 
 
 def get_event_count_month_to_date() -> int:
-    events_table = EVENTS_QUERY_TABLE()
     result = sync_execute(
         """
         -- count of events month to date
         SELECT
         COUNT(1) freq
-        FROM {events_table}
+        FROM events
         WHERE toStartOfMonth(timestamp) = toStartOfMonth(now());
-    """.format(events_table=events_table)
+    """
     )[0][0]
     return result

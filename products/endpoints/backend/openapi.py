@@ -2,8 +2,8 @@ from django.conf import settings
 
 from rest_framework.request import Request
 
+from products.endpoints.backend.logic.strategies import InsightEndpointStrategy
 from products.endpoints.backend.models import Endpoint, EndpointVersion
-from products.endpoints.backend.services.strategies import InsightEndpointStrategy
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 INSIGHT_VARIABLE_TYPE_TO_OPENAPI: dict[str, dict] = {
@@ -31,6 +31,15 @@ def generate_openapi_spec(
     target_version = version or endpoint.get_version()
     description = target_version.description
 
+    schemas = _build_component_schemas(endpoint, target_version, team_id)
+    variables_required = bool(schemas.get("Variables", {}).get("required"))
+    if variables_required:
+        # The Variables schema's `required` array only fires once the caller
+        # actually includes a `variables` key. Make `variables` itself
+        # required on EndpointRunRequest too, otherwise an SDK client that
+        # POSTs `{}` passes validation.
+        schemas["EndpointRunRequest"].setdefault("required", []).append("variables")
+
     return {
         "openapi": "3.0.3",
         "info": {
@@ -47,7 +56,7 @@ def generate_openapi_spec(
                     "description": description or f"Execute the {endpoint.name} endpoint",
                     "security": [{"PersonalAPIKey": []}],
                     "requestBody": {
-                        "required": False,
+                        "required": variables_required,
                         "content": {
                             "application/json": {
                                 "schema": {"$ref": "#/components/schemas/EndpointRunRequest"},
@@ -82,9 +91,25 @@ def generate_openapi_spec(
                                 }
                             },
                         },
-                        "400": {"description": "Invalid request"},
+                        "400": {
+                            "description": (
+                                "Invalid request, or the query is too expensive to run inline. "
+                                "Query-cost failures carry a stable `code`: `query_timeout`, "
+                                "`query_memory_limit`, `query_too_large`, or `query_estimated_too_slow` — "
+                                "narrow the query's scope (e.g. a smaller date range) or materialize the endpoint."
+                            ),
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}},
+                        },
                         "401": {"description": "Authentication required"},
                         "404": {"description": "Endpoint not found"},
+                        "503": {
+                            "description": (
+                                "The shared ClickHouse query pool is momentarily at capacity (`code`: "
+                                "`query_capacity`). Retry shortly; materialize the endpoint to run on dedicated "
+                                "compute that isn't affected by shared query load."
+                            ),
+                            "content": {"application/json": {"schema": {"$ref": "#/components/schemas/Error"}}},
+                        },
                     },
                 }
             }
@@ -97,7 +122,7 @@ def generate_openapi_spec(
                     "description": "Personal API Key from PostHog. Get one at /settings/user-api-keys",
                 }
             },
-            "schemas": _build_component_schemas(endpoint, target_version, team_id),
+            "schemas": schemas,
         },
     }
 
@@ -108,6 +133,27 @@ def _build_component_schemas(endpoint: Endpoint, version: EndpointVersion, team_
     is_materialized = bool(version and version.is_materialized and version.saved_query)
 
     schemas: dict = {
+        "Error": {
+            "type": "object",
+            "description": "Error response body.",
+            "properties": {
+                "type": {
+                    "type": "string",
+                    "description": "Coarse error category (e.g. 'validation_error', 'server_error'). Branch on `code`, not `type`.",
+                },
+                "code": {
+                    "type": "string",
+                    "description": "Stable machine-readable error code to branch on, e.g. 'query_timeout' or 'query_capacity'.",
+                },
+                "detail": {"type": "string", "description": "Human-readable explanation and remediation."},
+                "attr": {
+                    "type": "string",
+                    "nullable": True,
+                    "description": "The request field that caused the error, when applicable.",
+                },
+            },
+            "required": ["type", "code", "detail"],
+        },
         "EndpointRunRequest": {
             "type": "object",
             "properties": {
@@ -241,9 +287,9 @@ def _build_variables_schema(query: dict, is_materialized: bool, team_id: int) ->
     """Build schema for variables based on query type and materialization state."""
     query_kind = query.get("kind")
     properties: dict = {}
+    required: list[str] = []
 
     if query_kind == "HogQLQuery":
-        # HogQL: variables from query definition, with types from InsightVariable model
         variables = query.get("variables", {})
         if variables:
             variable_ids = list(variables.keys())
@@ -269,6 +315,8 @@ def _build_variables_schema(query: dict, is_materialized: bool, team_id: int) ->
                 }
                 if default_value is not None:
                     properties[code_name]["example"] = default_value
+                else:
+                    required.append(code_name)
     else:
         # Insight queries - only include breakdown for supported query types
         if query_kind in InsightEndpointStrategy.BREAKDOWN_SUPPORTED_QUERY_TYPES:
@@ -280,9 +328,13 @@ def _build_variables_schema(query: dict, is_materialized: bool, team_id: int) ->
                     "description": f"Filter by {breakdown} breakdown value",
                     "example": "Chrome",
                 }
+                # Materialized insights resolve the breakdown column at materialization
+                # time, so callers have to supply the value at execution; non-materialized
+                # insights can fall back to the saved filter.
+                if is_materialized:
+                    required.append(breakdown)
 
         if not is_materialized:
-            # Non-materialized also supports date variables
             properties["date_from"] = {
                 "type": "string",
                 "description": "Filter results from this date (ISO format or relative like '-7d')",
@@ -297,9 +349,12 @@ def _build_variables_schema(query: dict, is_materialized: bool, team_id: int) ->
     if not properties:
         return None
 
-    return {
+    schema: dict = {
         "type": "object",
         "description": "Query variables. For HogQL: code_names from query. For insights: breakdown property and date_from/date_to.",
         "properties": properties,
         "additionalProperties": False,
     }
+    if required:
+        schema["required"] = required
+    return schema

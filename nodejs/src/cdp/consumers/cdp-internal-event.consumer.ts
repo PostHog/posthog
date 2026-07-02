@@ -1,13 +1,13 @@
 import { Message } from 'node-rdkafka'
 
+import { KAFKA_CDP_INTERNAL_EVENTS } from '~/common/config/kafka-topics'
+import { KafkaConsumerInterface, createKafkaConsumer } from '~/common/kafka/consumer'
 import { instrumentFn, instrumented } from '~/common/tracing/tracing-utils'
+import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
+import { captureException } from '~/common/utils/posthog'
 
-import { KAFKA_CDP_INTERNAL_EVENTS } from '../../config/kafka-topics'
-import { KafkaConsumerInterface, createKafkaConsumer } from '../../kafka/consumer'
 import { HealthCheckResult, PluginsServerConfig } from '../../types'
-import { parseJSON } from '../../utils/json-parse'
-import { logger } from '../../utils/logger'
-import { captureException } from '../../utils/posthog'
 import { CdpInternalEventSchema } from '../schema'
 import { HogFunctionInvocationPipeline } from '../services/hog-function-invocation-pipeline.service'
 import { JobQueue } from '../services/job-queue/job-queue.interface'

@@ -5,15 +5,20 @@ import * as fs from 'fs/promises'
 import * as os from 'os'
 import * as path from 'path'
 
-import { BrowserPool } from '../capture/browser-pool'
-import { rasterizeRecording } from '../capture/recorder'
-import { RasterizationError } from '../errors'
-import { createLogger } from '../logger'
-import { RasterizationMetrics } from '../metrics'
-import { computeVideoTimestamps } from '../postprocess'
-import { uploadToS3 } from '../storage'
-import { ActivityTimings, RasterizationProgress, RasterizeRecordingInput, RasterizeRecordingOutput } from '../types'
-import { elapsed } from '../utils'
+import { BrowserPool } from '~/session-replay/recording-rasterizer/capture/browser-pool'
+import { rasterizeRecording } from '~/session-replay/recording-rasterizer/capture/recorder'
+import { RasterizationError } from '~/session-replay/recording-rasterizer/errors'
+import { createLogger } from '~/session-replay/recording-rasterizer/logger'
+import { RasterizationMetrics } from '~/session-replay/recording-rasterizer/metrics'
+import { computeVideoTimestamps } from '~/session-replay/recording-rasterizer/postprocess'
+import { uploadToS3 } from '~/session-replay/recording-rasterizer/storage'
+import {
+    ActivityTimings,
+    RasterizationProgress,
+    RasterizeRecordingInput,
+    RasterizeRecordingOutput,
+} from '~/session-replay/recording-rasterizer/types'
+import { elapsed } from '~/session-replay/recording-rasterizer/utils'
 
 function toActivityError(err: unknown): Error {
     if (err instanceof RasterizationError && !err.retryable) {

@@ -11,6 +11,7 @@ from parameterized import parameterized
 from products.replay_vision.backend.models import ReplayObservation, ReplayScanner, VisionAction, VisionActionRun
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ObservationTrigger
 from products.replay_vision.backend.models.replay_scanner import ScannerModel, ScannerType
+from products.replay_vision.backend.models.vision_action import VisionActionRunStatus
 from products.replay_vision.backend.temporal.vision_actions.synthesis import _markdown_to_slack, _synthesize
 from products.replay_vision.backend.temporal.vision_actions.types import SynthesisStatus, SynthesizeGroupSummaryInputs
 from products.replay_vision.backend.tests.helpers import snapshot_for
@@ -76,7 +77,7 @@ class TestVisionActionSynthesis(BaseTest):
             patch(f"{_SYNTH_PATH}.is_team_over_ai_credit_budget", return_value=False),
             patch(f"{_SYNTH_PATH}.genai", _mock_genai(llm_content)),
         ):
-            return _synthesize(SynthesizeGroupSummaryInputs(run_id=run.id))
+            return _synthesize(SynthesizeGroupSummaryInputs(run_id=run.id, team_id=self.team.id))
 
     def test_happy_path_persists_markdown_and_slack(self) -> None:
         self._observation("Users churned at checkout", title="Checkout")
@@ -94,6 +95,67 @@ class TestVisionActionSynthesis(BaseTest):
         # Slack conversion: heading + bold → *...* — stored under output["slack"]
         self.assertIn("*Summary*", run.output["slack"])
         self.assertIn("*Two*", run.output["slack"])
+
+    def test_summary_leads_with_scanner_window_and_count_header(self) -> None:
+        # The report must always state which scanner it's for, how many recordings it covers, and the
+        # window start — prepended in code so it's present regardless of what the LLM returns.
+        self._observation("Users churned at checkout", title="Checkout")
+        self._observation("Onboarding looked smooth", title="Onboarding", session_id="s2")
+        action = self._action()
+        run = self._run_for(action)
+
+        self._synthesize(action, run, llm_content="# Summary\nThemes.")
+
+        run.refresh_from_db()
+        self.assertTrue(
+            run.synthesized_markdown.startswith("**Summary for summarizer** — 2 recordings since "),
+            run.synthesized_markdown,
+        )
+        # The header rides into the Slack payload too (bold header → *bold*).
+        self.assertIn("*Summary for summarizer*", run.output["slack"])
+
+    def test_summary_header_sanitizes_scanner_name(self) -> None:
+        # A scanner name is free text; markdown/mrkdwn control chars must be stripped so they can't
+        # garble the bold header (the "**" bold regex breaks on an interior "*").
+        self.scanner.name = "Check*out_flow"
+        self.scanner.save()
+        self._observation("churned")
+        action = self._action()
+        run = self._run_for(action)
+
+        self._synthesize(action, run)
+
+        run.refresh_from_db()
+        self.assertIn("**Summary for Checkoutflow**", run.synthesized_markdown)
+
+    def test_summary_header_defangs_links_in_scanner_name(self) -> None:
+        # A scanner name is free text and lands in the header; a name with link/image markdown must not
+        # become an active external link/image in the delivered report (in-app or Slack).
+        self.scanner.name = "Checkout ![x](https://evil.example/pixel)"
+        self.scanner.save()
+        self._observation("churned")
+        action = self._action()
+        run = self._run_for(action)
+
+        self._synthesize(action, run)
+
+        run.refresh_from_db()
+        self.assertNotIn("](https://evil.example", run.synthesized_markdown)
+        self.assertNotIn("](https://evil.example", run.output["slack"])
+
+    def test_persists_only_included_observation_ids(self) -> None:
+        # observation_ids must track the summaries actually included — a blank-summary observation is
+        # skipped by _fetch_observations, so its id must not land in the persisted list.
+        included = self._observation("Users churned at checkout", title="Checkout")
+        self._observation("   ", session_id="s2")  # blank summary → excluded from the summary and the ids
+        action = self._action()
+        run = self._run_for(action)
+
+        result = self._synthesize(action, run)
+
+        self.assertEqual(result.observation_count, 1)
+        run.refresh_from_db()
+        self.assertEqual(run.observation_ids, [str(included.id)])
 
     def test_empty_model_output_skips_without_persisting(self) -> None:
         # An empty generation must not persist synthesized_markdown="" — that would read as "not done"
@@ -121,7 +183,7 @@ class TestVisionActionSynthesis(BaseTest):
             patch(f"{_SYNTH_PATH}.is_team_over_ai_credit_budget", return_value=False),
             patch(f"{_SYNTH_PATH}.genai", _NO_LLM),
         ):
-            result = _synthesize(SynthesizeGroupSummaryInputs(run_id=run.id))
+            result = _synthesize(SynthesizeGroupSummaryInputs(run_id=run.id, team_id=self.team.id))
 
         self.assertEqual(result.status, SynthesisStatus.SYNTHESIZED)
         self.assertEqual(result.observation_count, 5)
@@ -137,9 +199,10 @@ class TestVisionActionSynthesis(BaseTest):
     def test_short_circuit_gates(self, gate: str, expected: SynthesisStatus) -> None:
         # Each gate must return early without persisting markdown and without ever touching the LLM.
         if gate == "empty_window":
+            # First run looks back 24h; a 10-day-old observation falls outside it.
             obs = self._observation("old news")
             ReplayObservation.objects.filter(pk=obs.pk).update(created_at=datetime.now(UTC) - timedelta(days=10))
-            action = self._action(selection={"scanner_type": "summarizer", "window_days": 1})
+            action = self._action()
         else:
             self._observation("something")
             action = self._action(created_by=None if gate == "no_creator" else self.user)
@@ -154,7 +217,7 @@ class TestVisionActionSynthesis(BaseTest):
             patch(f"{_SYNTH_PATH}.is_team_over_ai_credit_budget", return_value=(gate == "over_budget")),
             patch(f"{_SYNTH_PATH}.genai", _NO_LLM),
         ):
-            result = _synthesize(SynthesizeGroupSummaryInputs(run_id=run.id))
+            result = _synthesize(SynthesizeGroupSummaryInputs(run_id=run.id, team_id=self.team.id))
 
         self.assertEqual(result.status, expected)
         run.refresh_from_db()
@@ -192,15 +255,66 @@ class TestVisionActionSynthesis(BaseTest):
         self.assertNotIn("https://evil.example.com)", run.synthesized_markdown)  # link target gone
         self.assertIn("`https://evil.example.com`", run.synthesized_markdown)  # bare url defanged
 
-    def test_window_days_omitted_includes_all(self) -> None:
-        obs = self._observation("ancient")
-        ReplayObservation.objects.filter(pk=obs.pk).update(created_at=datetime.now(UTC) - timedelta(days=365))
-        action = self._action(selection={})  # no window_days → no time filter
+    def test_first_run_looks_back_24h(self) -> None:
+        # No previous run → the window is the last 24h; anything older is excluded.
+        self._observation("today", session_id="recent")
+        old = self._observation("ancient", session_id="old")
+        ReplayObservation.objects.filter(pk=old.pk).update(created_at=datetime.now(UTC) - timedelta(days=2))
+        action = self._action()
+        run = self._run_for(action)
+
+        result = self._synthesize(action, run)
+        self.assertEqual(result.status, SynthesisStatus.SYNTHESIZED)
+        self.assertEqual(result.observation_count, 1)  # only the recent observation
+
+    def test_window_starts_at_previous_completed_run(self) -> None:
+        # A prior completed run extends the window back to its scheduled_at, beyond the 24h default.
+        action = self._action()
+        previous = VisionActionRun(
+            vision_action=action,
+            team=self.team,
+            idempotency_key="prev",
+            status=VisionActionRunStatus.COMPLETED,
+            scheduled_at=datetime.now(UTC) - timedelta(days=3),
+        )
+        previous.save()
+        obs = self._observation("two days ago")
+        ReplayObservation.objects.filter(pk=obs.pk).update(created_at=datetime.now(UTC) - timedelta(days=2))
         run = self._run_for(action)
 
         result = self._synthesize(action, run)
         self.assertEqual(result.status, SynthesisStatus.SYNTHESIZED)
         self.assertEqual(result.observation_count, 1)
+
+    def test_window_excludes_observations_after_this_runs_scheduled_tick(self) -> None:
+        # The window is half-open [prev.scheduled_at, this.scheduled_at). An observation created after
+        # this run's scheduled tick (during the scheduling/execution lag) is deferred to the next run
+        # rather than summarized by both — guarding against double-counting across consecutive runs.
+        action = self._action()
+        previous = VisionActionRun(
+            vision_action=action,
+            team=self.team,
+            idempotency_key="prev",
+            status=VisionActionRunStatus.COMPLETED,
+            scheduled_at=datetime.now(UTC) - timedelta(days=2),
+        )
+        previous.save()
+        in_window = self._observation("inside the window", session_id="in")
+        ReplayObservation.objects.filter(pk=in_window.pk).update(created_at=datetime.now(UTC) - timedelta(hours=12))
+        after_tick = self._observation("created during execution lag", session_id="after")
+        ReplayObservation.objects.filter(pk=after_tick.pk).update(created_at=datetime.now(UTC))
+
+        run = VisionActionRun(
+            vision_action=action,
+            team=self.team,
+            idempotency_key="k1",
+            scheduled_at=datetime.now(UTC) - timedelta(hours=1),
+        )
+        run.save()
+
+        result = self._synthesize(action, run)
+        self.assertEqual(result.status, SynthesisStatus.SYNTHESIZED)
+        self.assertEqual(result.observation_count, 1)  # only the in-window one; the post-tick one waits for next run
 
     def test_prompt_guide_passed_to_llm(self) -> None:
         self._observation("something")
@@ -220,7 +334,7 @@ class TestVisionActionSynthesis(BaseTest):
             patch(f"{_SYNTH_PATH}.is_team_over_ai_credit_budget", return_value=False),
             patch(f"{_SYNTH_PATH}.genai", SimpleNamespace(Client=_capturing_client)),
         ):
-            _synthesize(SynthesizeGroupSummaryInputs(run_id=run.id))
+            _synthesize(SynthesizeGroupSummaryInputs(run_id=run.id, team_id=self.team.id))
 
         human = captured["human"]
         self.assertIn("focus on rage clicks", human)

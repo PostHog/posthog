@@ -45,10 +45,13 @@ import { ChartDisplayType, GraphType } from '~/types'
 import { AxisSeries, AxisSeriesSettings, formatDataWithSettings } from '../../dataVisualizationLogic'
 import { AxisBreakdownSeries } from '../seriesBreakdownLogic'
 import { lineGraphLogic } from './lineGraphLogic'
+import { SqlBarGraph } from './SqlBarGraph'
+import { SqlComboGraph } from './SqlComboGraph'
 import { SqlLineGraph } from './SqlLineGraph'
 import {
     AREA_FILL_OPACITY,
-    canRenderSqlLineGraph,
+    canRenderSqlBarGraph,
+    canRenderSqlComboGraph,
     capYSeriesData,
     exceedsMaxSeries,
     isAreaSeries,
@@ -139,6 +142,9 @@ export type LineGraphProps = {
     dashboardId?: string
     goalLines?: GoalLine[]
     className?: string
+    /** Called when the user clicks a data point. Receives the series key, x-axis index, and label.
+     *  When provided, the SQL chart shows a "click to inspect" hint in the tooltip. */
+    onPointClick?: (seriesKey: string, dataIndex: number, label: string) => void
 }
 
 const LegacyLineGraph = ({
@@ -626,6 +632,10 @@ const LegacyLineGraph = ({
                     showTooltip()
 
                     pinTooltip(() => {
+                        if (!chart.canvas?.isConnected) {
+                            return
+                        }
+
                         // Hide crosshair on tooltip unpin
                         if ((chart as any).crosshair) {
                             ;(chart as any).crosshair.enabled = false
@@ -728,13 +738,26 @@ const LegacyLineGraph = ({
     )
 }
 
+export function sqlChartComponentFor(
+    props: LineGraphProps,
+    newChartsEnabled: boolean
+): (props: LineGraphProps) => JSX.Element {
+    if (!newChartsEnabled) {
+        return LegacyLineGraph
+    }
+    if (canRenderSqlComboGraph(props)) {
+        return SqlComboGraph
+    }
+    if (canRenderSqlBarGraph(props)) {
+        return SqlBarGraph
+    }
+    return SqlLineGraph
+}
+
 export const LineGraph = (props: LineGraphProps): JSX.Element => {
     const { featureFlags } = useValues(featureFlagLogic)
     const newChartsEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_QUILL_SQL_CHARTS]
 
-    if (newChartsEnabled && canRenderSqlLineGraph(props)) {
-        return <SqlLineGraph {...props} />
-    }
-
-    return <LegacyLineGraph {...props} />
+    const Component = sqlChartComponentFor(props, newChartsEnabled)
+    return <Component {...props} />
 }

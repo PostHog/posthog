@@ -6,7 +6,7 @@ from posthog.temporal.health_checks.detectors import DEFAULT_EXECUTION_POLICY
 from posthog.temporal.health_checks.framework import AlertContent, HealthCheck, Remediation
 from posthog.temporal.health_checks.models import HealthCheckResult
 
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
 
 class ExternalDataFailureCheck(HealthCheck):

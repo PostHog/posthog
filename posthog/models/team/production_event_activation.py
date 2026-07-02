@@ -71,7 +71,6 @@ from posthog.clickhouse.query_tagging import Feature, Product, tags_context
 from posthog.cloud_utils import is_cloud
 from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
-from posthog.models.event.sql import EVENTS_QUERY_TABLE
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team.team import Team
 from posthog.ph_client import ph_scoped_capture
@@ -334,7 +333,7 @@ def _teams_meeting_criterion(team_ids: Iterable[int]) -> dict[int, ProductionTra
                     %(host_length_cap)s
                 ) AS host,
                 {lib_expr} AS lib
-            FROM {EVENTS_QUERY_TABLE()}
+            FROM events
             WHERE team_id IN %(team_ids)s
               AND timestamp >= now() - toIntervalDay(%(window_days)s)
         )
@@ -425,18 +424,12 @@ def _teams_with_mobile_users(
     device-scoped id) is the unit. This is the only leg that reads `properties`:
     `$is_emulator` is matched against its raw JSON value to DROP events
     affirmatively flagged as emulators (`true`/`"true"`) — events without the
-    flag are kept, since most mobile events don't carry it. The caller scopes
-    `team_ids` to the residual set of not-yet-qualified teams with enough
-    mobile users to keep that read small.
+    flag are kept, since most mobile events don't carry it. JSONExtractRaw forces
+    a full `properties` read, so the caller scopes `team_ids` to the residual set
+    of not-yet-qualified teams with enough mobile users to keep that read small.
     """
     if not team_ids:
         return {}
-
-    is_emulator_raw_expr = (
-        "ifNull(toString(properties.`$is_emulator`), '')"
-        if EVENTS_QUERY_TABLE() == "events_json"
-        else "JSONExtractRaw(properties, '$is_emulator')"
-    )
 
     # As in `_teams_meeting_criterion`: the interpolated fragment is a
     # server-side SQL expression from get_property_string_expr, never user
@@ -454,8 +447,8 @@ def _teams_with_mobile_users(
                 team_id,
                 distinct_id,
                 {lib_expr} AS lib,
-                {is_emulator_raw_expr} AS is_emulator_raw
-            FROM {EVENTS_QUERY_TABLE()}
+                JSONExtractRaw(properties, '$is_emulator') AS is_emulator_raw
+            FROM events
             WHERE team_id IN %(team_ids)s
               AND timestamp >= now() - toIntervalDay(%(window_days)s)
         )
@@ -518,7 +511,7 @@ def _earliest_production_host_timestamps(
                     %(host_length_cap)s
                 ) AS host,
                 timestamp
-            FROM {EVENTS_QUERY_TABLE()}
+            FROM events
             WHERE team_id IN %(team_ids)s
               AND timestamp >= now() - toIntervalDay(%(window_days)s)
         )

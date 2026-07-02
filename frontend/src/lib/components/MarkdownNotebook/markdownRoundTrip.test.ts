@@ -367,6 +367,17 @@ describe('markdown round trip', () => {
             expect(serializeNode(node)).toEqual('````md\nExample:\n```js\nconst a = 1\n```\ndone\n````')
         })
 
+        it('uses a longer fence for inline backtick runs inside code', () => {
+            const node: NotebookBlockNode = {
+                id: '',
+                type: 'code',
+                language: 'javascript',
+                text: 'console.log("```")',
+            }
+
+            expect(serializeNode(node)).toEqual('````javascript\nconsole.log("```")\n````')
+        })
+
         it('round-trips code containing fence lines exactly', () => {
             const codeText = '```\ninner\n```\n````\ndeeper\n````'
             const document = makeDocument([

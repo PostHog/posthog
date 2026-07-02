@@ -6,14 +6,12 @@ from collections import (
 from collections.abc import Callable, Iterable
 from typing import Any, Literal, Optional, Union, cast
 
-from django.conf import settings as django_settings
 from django.db.models import QuerySet
 
 from rest_framework import exceptions
 
 from posthog.hogql import ast
 from posthog.hogql.database.s3_table import S3Table
-from posthog.hogql.escape_sql import escape_clickhouse_json_subcolumn_identifier
 from posthog.hogql.hogql import HogQLContext
 from posthog.hogql.parser import parse_expr
 from posthog.hogql.visitor import TraversingVisitor
@@ -22,7 +20,6 @@ from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.materialized_columns import TableWithProperties, get_materialized_column_for_property
 from posthog.constants import PropertyOperatorType
 from posthog.models.event import Selector
-from posthog.models.event.sql import EVENTS_PROPERTIES_JSON_SUBCOLUMNS, PERSON_PROPERTIES_JSON_SUBCOLUMNS
 from posthog.models.group.sql import GET_GROUP_IDS_BY_PROPERTY_SQL
 from posthog.models.person.sql import GET_DISTINCT_IDS_BY_PERSON_ID_FILTER, GET_DISTINCT_IDS_BY_PROPERTY_SQL
 from posthog.models.property import (
@@ -65,80 +62,6 @@ StringMatching = Literal["selector", "tag_name", "href", "text"]
 # {type: 'AND', groups: [
 #     A, B, C, D
 # ]}
-
-
-def _use_events_json_schema_subcolumns(
-    table: TableWithProperties,
-    materialised_table_column: str,
-    use_json_schema_subcolumns: bool = True,
-) -> bool:
-    return (
-        use_json_schema_subcolumns
-        and django_settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
-        and table == "events"
-        and materialised_table_column in ("properties", "person_properties")
-    )
-
-
-def _can_use_events_json_subcolumn(property_name: str) -> bool:
-    return "%" not in property_name
-
-
-def _events_json_column_expr(column: str, table_alias: Optional[str]) -> str:
-    table_string = f"{table_alias}." if table_alias is not None and table_alias != "" else ""
-    return column if "." in column else f"{table_string}{column}"
-
-
-def _events_json_subcolumn_expr(column: str, property_name: str, table_alias: Optional[str]) -> str:
-    return (
-        f"{_events_json_column_expr(column, table_alias)}.{escape_clickhouse_json_subcolumn_identifier(property_name)}"
-    )
-
-
-def _events_json_subcolumn_string_expr(column: str, property_name: str, table_alias: Optional[str]) -> str:
-    field = _events_json_subcolumn_expr(column, property_name, table_alias)
-    return f"ifNull(toString({field}), '')"
-
-
-def _events_json_subcolumn_type(materialised_table_column: str, property_name: str) -> str | None:
-    subcolumns_by_column = {
-        "properties": EVENTS_PROPERTIES_JSON_SUBCOLUMNS,
-        "person_properties": PERSON_PROPERTIES_JSON_SUBCOLUMNS,
-    }
-    return subcolumns_by_column[materialised_table_column].get(property_name)
-
-
-def _events_json_subcolumn_presence_expr(
-    column: str,
-    property_name: str,
-    table_alias: Optional[str],
-    materialised_table_column: str,
-    *,
-    is_present: bool,
-) -> str | None:
-    if not _can_use_events_json_subcolumn(property_name):
-        return None
-
-    field = _events_json_subcolumn_expr(column, property_name, table_alias)
-    column_type = _events_json_subcolumn_type(materialised_table_column, property_name)
-    if column_type is None or column_type.startswith("Nullable("):
-        function = "isNotNull" if is_present else "isNull"
-        return f"{function}({field})"
-    if column_type == "String":
-        function = "notEmpty" if is_present else "empty"
-        return f"{function}({field})"
-    raise ValueError(f"Unsupported non-nullable events JSON subcolumn type for {property_name}: {column_type}")
-
-
-def _events_json_raw_extract_expr(column: str, var: str, table_alias: Optional[str]) -> str:
-    return trim_quotes_expr(f"JSONExtractRaw(toString({_events_json_column_expr(column, table_alias)}), {var})")
-
-
-def _date_property_expr(property_expr: str) -> str:
-    return (
-        f"coalesce(parseDateTimeBestEffortOrNull({property_expr}), "
-        f"parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10)))"
-    )
 
 
 # Property json is of the form:
@@ -334,7 +257,7 @@ def parse_prop_clauses(
                 prop,
                 idx,
                 prepend=f"personquery_{prepend}",
-                allow_denormalized_props=allow_denormalized_props,
+                allow_denormalized_props=True,
                 transform_expression=lambda column_name: f"argMax(person.{column_name}, version)",
                 property_operator=property_operator,
             )
@@ -475,21 +398,14 @@ def prop_filter_json_extract(
     if transform_expression is not None:
         prop_var = transform_expression(prop_var)
 
-    property_table_name = "events" if use_event_column else property_table(prop)
-    materialised_table_column = use_event_column if use_event_column else "properties"
-    uses_events_json_subcolumn = _use_events_json_schema_subcolumns(
-        property_table_name,
-        materialised_table_column,
-    )
-
     property_expr, is_denormalized = get_property_string_expr(
-        property_table_name,
+        "events" if use_event_column else property_table(prop),
         prop.key,
         f"%(k{prepend}_{idx})s",
         prop_var,
         allow_denormalized_props,
         table_name,
-        materialised_table_column=materialised_table_column,
+        materialised_table_column=use_event_column if use_event_column else "properties",
     )
 
     if is_denormalized and transform_expression:
@@ -570,29 +486,6 @@ def prop_filter_json_extract(
             "k{}_{}".format(prepend, idx): prop.key,
             "v{}_{}".format(prepend, idx): prop.value,
         }
-        if uses_events_json_subcolumn and (
-            presence_expr := _events_json_subcolumn_presence_expr(
-                prop_var,
-                str(prop.key),
-                table_name,
-                materialised_table_column,
-                is_present=True,
-            )
-        ):
-            return (
-                " {property_operator} {left}".format(left=presence_expr, property_operator=property_operator),
-                params,
-            )
-        if uses_events_json_subcolumn:
-            return (
-                " {property_operator} JSONHas(toString({prop_var}), %(k{prepend}_{idx})s)".format(
-                    idx=idx,
-                    prepend=prepend,
-                    prop_var=_events_json_column_expr(prop_var, table_name),
-                    property_operator=property_operator,
-                ),
-                params,
-            )
         if is_denormalized:
             return (
                 " {property_operator} {left} != ''".format(left=property_expr, property_operator=property_operator),
@@ -612,30 +505,6 @@ def prop_filter_json_extract(
             "k{}_{}".format(prepend, idx): prop.key,
             "v{}_{}".format(prepend, idx): prop.value,
         }
-        if uses_events_json_subcolumn and (
-            presence_expr := _events_json_subcolumn_presence_expr(
-                prop_var,
-                str(prop.key),
-                table_name,
-                materialised_table_column,
-                is_present=False,
-            )
-        ):
-            return (
-                " {property_operator} {left}".format(left=presence_expr, property_operator=property_operator),
-                params,
-            )
-        if uses_events_json_subcolumn:
-            return (
-                " {property_operator} (isNull({left}) OR NOT JSONHas(toString({prop_var}), %(k{prepend}_{idx})s))".format(
-                    idx=idx,
-                    prepend=prepend,
-                    prop_var=_events_json_column_expr(prop_var, table_name),
-                    left=property_expr,
-                    property_operator=property_operator,
-                ),
-                params,
-            )
         if is_denormalized:
             return (
                 " {property_operator} {left} = ''".format(left=property_expr, property_operator=property_operator),
@@ -659,7 +528,10 @@ def prop_filter_json_extract(
         # if we're comparing against a date with no time,
         # truncate the values in the DB which may have times
         granularity = "day" if re.match(r"^\d{4}-\d{2}-\d{2}$", prop.value) else "second"
-        query = f"AND date_trunc('{granularity}', {_date_property_expr(property_expr)}) = %({prop_value_param_key})s"
+        query = f"""AND date_trunc('{granularity}', coalesce(
+            parseDateTimeBestEffortOrNull({property_expr}),
+            parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))
+        )) = %({prop_value_param_key})s"""
 
         return (
             query,
@@ -675,12 +547,16 @@ def prop_filter_json_extract(
         # use 2019-01-01 23:59:59
         is_date_only = re.match(r"^\d{4}-\d{2}-\d{2}$", prop.value)
 
+        try_parse_as_date = f"parseDateTimeBestEffortOrNull({property_expr})"
+        try_parse_as_timestamp = f"parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))"
+        first_of_date_or_timestamp = f"coalesce({try_parse_as_date},{try_parse_as_timestamp})"
+
         if is_date_only:
             adjusted_value = f"subtractSeconds(addDays(toDate(%({prop_value_param_key})s), 1), 1)"
         else:
             adjusted_value = f"%({prop_value_param_key})s"
 
-        query = f"""{property_operator} {_date_property_expr(property_expr)} > {adjusted_value}"""
+        query = f"""{property_operator} {first_of_date_or_timestamp} > {adjusted_value}"""
 
         return (
             query,
@@ -690,7 +566,10 @@ def prop_filter_json_extract(
         # TODO introducing duplication in these branches now rather than refactor too early
         assert isinstance(prop.value, str)
         prop_value_param_key = "v{}_{}".format(prepend, idx)
-        query = f"""{property_operator} {_date_property_expr(property_expr)} < %({prop_value_param_key})s"""
+        try_parse_as_date = f"parseDateTimeBestEffortOrNull({property_expr})"
+        try_parse_as_timestamp = f"parseDateTimeBestEffortOrNull(substring({property_expr}, 1, 10))"
+        first_of_date_or_timestamp = f"coalesce({try_parse_as_date},{try_parse_as_timestamp})"
+        query = f"""{property_operator} {first_of_date_or_timestamp} < %({prop_value_param_key})s"""
 
         return (
             query,
@@ -709,7 +588,7 @@ def prop_filter_json_extract(
             params,
         )
     else:
-        if is_json(prop.value) and not is_denormalized and not uses_events_json_subcolumn:
+        if is_json(prop.value) and not is_denormalized:
             clause = " {property_operator} has(%(v{prepend}_{idx})s, replaceRegexpAll(visitParamExtractRaw({prop_var}, %(k{prepend}_{idx})s),' ', ''))"
             params = {
                 "k{}_{}".format(prepend, idx): prop.key,
@@ -752,7 +631,6 @@ def get_single_or_multi_property_string_expr(
     allow_denormalized_props=True,
     materialised_table_column: str = "properties",
     normalize_url: bool = False,
-    use_json_schema_subcolumns: bool = True,
 ) -> tuple[str, dict[str, Any]]:
     """
     When querying for breakdown properties:
@@ -780,7 +658,6 @@ def get_single_or_multi_property_string_expr(
             column,
             allow_denormalized_props,
             materialised_table_column=materialised_table_column,
-            use_json_schema_subcolumns=use_json_schema_subcolumns,
         )
 
         expression = normalize_url_breakdown(expression, normalize_url)
@@ -796,7 +673,6 @@ def get_single_or_multi_property_string_expr(
                 column,
                 allow_denormalized_props,
                 materialised_table_column=materialised_table_column,
-                use_json_schema_subcolumns=use_json_schema_subcolumns,
             )
             expressions.append(normalize_url_breakdown(expr, normalize_url))
 
@@ -825,7 +701,6 @@ def get_property_string_expr(
     allow_denormalized_props: bool = True,
     table_alias: Optional[str] = None,
     materialised_table_column: str = "properties",
-    use_json_schema_subcolumns: bool = True,
 ) -> tuple[str, bool]:
     """
 
@@ -842,12 +717,6 @@ def get_property_string_expr(
         (optional) alias of the table being queried
     :return:
     """
-    if _use_events_json_schema_subcolumns(table, materialised_table_column, use_json_schema_subcolumns):
-        property_name_string = str(property_name)
-        if _can_use_events_json_subcolumn(property_name_string):
-            return _events_json_subcolumn_string_expr(column, property_name_string, table_alias), False
-        return _events_json_raw_extract_expr(column, var, table_alias), False
-
     table_string = f"{table_alias}." if table_alias is not None and table_alias != "" else ""
 
     if (

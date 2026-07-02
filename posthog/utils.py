@@ -14,7 +14,6 @@ import datetime
 import datetime as dt
 import ipaddress
 import dataclasses
-from ast import literal_eval
 from collections.abc import Callable, Generator, Mapping, Sequence
 from contextlib import contextmanager, suppress
 from enum import Enum
@@ -583,18 +582,6 @@ def _build_template_context(
                     )
                     posthog_app_context["custom_products"] = user_product_list.data
 
-                with tracer.start_as_current_span("template.promoted_product_intent"):
-                    from posthog.models.product_intent.promoted_product_lookup import get_promoted_product_intent
-
-                    # Best-effort — the promoted-product sidebar entry is experimental.
-                    # If the lookup fails for any reason, hide it for this request
-                    # rather than 500ing the page render.
-                    try:
-                        posthog_app_context["promoted_product_intent"] = get_promoted_product_intent(user.team.pk)
-                    except Exception:
-                        capture_exception()
-                        posthog_app_context["promoted_product_intent"] = None
-
                 with tracer.start_as_current_span("template.user_home_settings"):
                     home_settings = UserHomeSettings.objects.filter(team=user.team, user=user).first()
                     posthog_app_context["homepage"] = (home_settings.homepage or None) if home_settings else None
@@ -987,30 +974,6 @@ def convert_property_value(input: Union[str, bool, dict, list, int, Optional[str
     if isinstance(input, dict) or isinstance(input, list):
         return json.dumps(input, sort_keys=True)
     return str(input)
-
-
-def parse_jsonish_property_value(input: object) -> object:
-    if isinstance(input, float | int | bool | uuid.UUID | list | tuple | dict):
-        return input
-    if not isinstance(input, str):
-        return input
-
-    parsed: object = input.replace('\\"', '"')
-    for _ in range(2):
-        if not isinstance(parsed, str):
-            return parsed
-        parsed_str = parsed
-        try:
-            parsed = json.loads(parsed_str)
-        except (json.JSONDecodeError, TypeError):
-            if parsed_str.startswith(("[", "{")):
-                with suppress(ValueError, SyntaxError):
-                    return literal_eval(parsed_str)
-            if len(parsed_str) >= 2 and parsed_str[0] == '"' and parsed_str[-1] == '"':
-                parsed = parsed_str[1:-1]
-                continue
-            return parsed
-    return parsed
 
 
 def get_compare_period_dates(

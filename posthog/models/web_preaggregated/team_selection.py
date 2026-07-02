@@ -1,7 +1,7 @@
+from posthog.clickhouse.client.connection import ClickHouseUser, get_clickhouse_creds
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import ReplacingMergeTree
-from posthog.models.event.sql import EVENTS_QUERY_TABLE
-from posthog.settings.data_stores import CLICKHOUSE_DATABASE, CLICKHOUSE_PASSWORD, CLICKHOUSE_USER
+from posthog.settings.data_stores import CLICKHOUSE_DATABASE
 
 WEB_PRE_AGGREGATED_TEAM_SELECTION_TABLE_NAME = "web_pre_aggregated_teams"
 WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME = "web_pre_aggregated_teams_dict"
@@ -33,7 +33,7 @@ FROM (
         team_id,
         toDate(timestamp) AS day,
         count() AS daily_pageviews
-    FROM {EVENTS_QUERY_TABLE()}
+    FROM events
     WHERE timestamp >= now() - INTERVAL 30 DAY
       AND event = '$pageview'
     GROUP BY
@@ -68,7 +68,7 @@ FROM (
         team_id,
         toStartOfWeek(timestamp, 1) AS week_start,
         count() AS weekly_pageviews
-    FROM {EVENTS_QUERY_TABLE()}
+    FROM events
     WHERE timestamp >= toStartOfWeek(now(), 1) - INTERVAL 4 WEEK
       AND timestamp < toStartOfWeek(now(), 1)
       AND event = '$pageview'
@@ -118,6 +118,9 @@ WHERE version > 0
 """.replace("\n", " ").strip()
 
 
+CLICKHOUSE_DICT_READER_USER, CLICKHOUSE_DICT_READER_PASSWORD = get_clickhouse_creds(ClickHouseUser.DICT_READER)
+
+
 def WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_SQL(on_cluster=True):
     return """
 CREATE DICTIONARY IF NOT EXISTS {dictionary_name} {on_cluster_clause} (
@@ -130,8 +133,8 @@ LAYOUT(HASHED())""".format(
         dictionary_name=f"`{WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_NAME}`",
         on_cluster_clause=ON_CLUSTER_CLAUSE(on_cluster),
         query=WEB_PRE_AGGREGATED_TEAM_SELECTION_DICTIONARY_QUERY(),
-        clickhouse_user=CLICKHOUSE_USER,
-        clickhouse_password=CLICKHOUSE_PASSWORD,
+        clickhouse_user=CLICKHOUSE_DICT_READER_USER,
+        clickhouse_password=CLICKHOUSE_DICT_READER_PASSWORD,
     )
 
 

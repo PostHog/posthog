@@ -11,7 +11,6 @@ from dateutil.relativedelta import relativedelta
 from posthog.api.dead_letter_queue import get_dead_letter_queue_size
 from posthog.cache_utils import cache_for
 from posthog.clickhouse.client import query_with_columns, sync_execute
-from posthog.models.event.sql import EVENTS_QUERY_TABLE
 from posthog.models.event.util import get_event_count, get_event_count_for_last_month, get_event_count_month_to_date
 from posthog.session_recordings.models.system_status_queries import get_recording_status_month_to_date
 
@@ -128,10 +127,9 @@ def system_status() -> Generator[SystemStatusRow]:
     # This timestamp is a naive timestamp (does not include a timezone)
     # ClickHouse always stores timezone agnostic unix timestamp
     # See https://clickhouse.com/docs/en/sql-reference/data-types/datetime#usage-remarks
-    events_table = EVENTS_QUERY_TABLE()
     last_event_ingested_timestamp = sync_execute(
-        f"""
-    SELECT max(_timestamp) FROM {events_table}
+        """
+    SELECT max(_timestamp) FROM events
     WHERE timestamp >= now() - INTERVAL 1 HOUR
     """
     )[0][0]
@@ -181,10 +179,9 @@ def is_alive() -> bool:
 
 def dead_letter_queue_ratio() -> tuple[bool, int]:
     dead_letter_queue_events_last_day = get_dead_letter_queue_size(0, timezone.now() - timedelta(days=1))
-    events_table = EVENTS_QUERY_TABLE()
 
     total_events_ingested_last_day = sync_execute(
-        f"SELECT count(*) as b from {events_table} WHERE _timestamp >= (NOW() - INTERVAL 1 DAY)"
+        "SELECT count(*) as b from events WHERE _timestamp >= (NOW() - INTERVAL 1 DAY)"
     )[0][0]
 
     dead_letter_queue_ingestion_ratio = dead_letter_queue_events_last_day / max(
@@ -223,7 +220,6 @@ def get_clickhouse_slow_log() -> list[dict]:
         columns_to_remove=[
             "address",
             "initial_address",
-            "connection_address",
             "query_duration_ms",
             "event_time",
             "event_date",

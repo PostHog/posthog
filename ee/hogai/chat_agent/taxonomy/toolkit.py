@@ -1,6 +1,5 @@
 import asyncio
 from collections.abc import Iterable, Sequence
-from datetime import date, datetime
 from functools import cached_property
 from typing import Optional, Union, cast
 from uuid import uuid4
@@ -46,7 +45,6 @@ from ee.hogai.chat_agent.taxonomy.format import (
 from ee.hogai.chat_agent.taxonomy.virtual_properties import (
     PropertyDefinitionOrVirtual,
     VirtualPropertyGroup,
-    get_property_definition_type,
     get_virtual_property_definition,
     get_virtual_property_sample_values,
     list_virtual_properties,
@@ -838,38 +836,15 @@ class TaxonomyAgentToolkit:
                 results.append(TaxonomyErrorMessages.property_not_found(property_name, entity_name))
                 continue
 
-            sample_values = prop_result.sample_values
-            if get_property_definition_type(property_definition) == PropertyType.Datetime:
-                sample_values = self._normalize_datetime_sample_values(sample_values)
-
             result = self._format_property_values(
                 property_name,
-                sample_values,
+                prop_result.sample_values,
                 prop_result.sample_count,
                 format_as_string=property_is_string_like(property_definition),
             )
             results.append(result)
 
         return results
-
-    @staticmethod
-    def _normalize_datetime_sample_values(sample_values: list) -> list:
-        normalized_values = []
-        for value in sample_values:
-            if isinstance(value, datetime):
-                normalized_values.append(value.isoformat())
-                continue
-            if isinstance(value, date):
-                normalized_values.append(value.isoformat())
-                continue
-            if isinstance(value, str):
-                try:
-                    normalized_values.append(datetime.fromisoformat(value).isoformat())
-                    continue
-                except ValueError:
-                    pass
-            normalized_values.append(value)
-        return normalized_values
 
     def _collect_tools(self, tool_metadata: dict[str, list[tuple[TaxonomyTool, str]]]) -> dict:
         """

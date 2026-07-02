@@ -412,11 +412,10 @@ def _create_experiments(
 
 def _count_events_in_clickhouse(team_id: int) -> int:
     from posthog.clickhouse.client import sync_execute
-    from posthog.models.event.sql import EVENTS_QUERY_TABLE
 
     with tags_context(product=Product.INTERNAL, feature=Feature.MANAGEMENT_COMMAND):
         result = sync_execute(
-            f"SELECT count() FROM {EVENTS_QUERY_TABLE()} WHERE team_id = %(team_id)s",
+            "SELECT count() FROM events WHERE team_id = %(team_id)s",
             {"team_id": team_id},
         )
     return int(result[0][0])
@@ -430,10 +429,8 @@ def _wait_for_events_in_clickhouse(team_id: int, expected_count: int, timeout_se
     count = 0
     while time.monotonic() < deadline:
         count = _count_events_in_clickhouse(team_id)
-        if count == expected_count:
+        if count >= expected_count:
             return
-        if count > expected_count:
-            raise ValueError(f"Expected {expected_count} events in ClickHouse for team {team_id}, but found {count}")
         time.sleep(0.5)
     raise TimeoutError(
         f"Expected {expected_count} events in ClickHouse for team {team_id}, "
@@ -447,10 +444,13 @@ def _create_events_and_persons(data: PlaywrightWorkspaceSetupData, team: Team) -
 
     import uuid as uuid_module
 
-    from posthog.models import Person, PersonDistinctId
     from posthog.models.event.util import create_event
     from posthog.models.person.util import create_person, create_person_distinct_id
     from posthog.models.utils import UUIDT
+    from posthog.test.persons import (
+        add_distinct_id,
+        create_person as create_test_person,
+    )
 
     person_uuids: dict[str, str] = {}
 
@@ -460,10 +460,10 @@ def _create_events_and_persons(data: PlaywrightWorkspaceSetupData, team: Team) -
             person_uuid = str(UUIDT())
             props = person_spec.properties or {}
             create_person(team_id=team.pk, version=0, uuid=person_uuid, properties=props)
-            pg_person = Person.objects.create(team=team, uuid=person_uuid, properties=props)
+            pg_person = create_test_person(team=team, uuid=person_uuid, properties=props)
             for distinct_id in person_spec.distinct_ids:
                 create_person_distinct_id(team_id=team.pk, distinct_id=distinct_id, person_id=person_uuid)
-                PersonDistinctId.objects.create(team=team, person=pg_person, distinct_id=distinct_id)
+                add_distinct_id(person=pg_person, distinct_id=distinct_id)
                 person_uuids[distinct_id] = person_uuid
 
     if not data.events:
@@ -485,8 +485,8 @@ def _create_events_and_persons(data: PlaywrightWorkspaceSetupData, team: Team) -
         props = person_props.get(distinct_id, {})
         create_person(team_id=team.pk, version=0, uuid=person_uuid, properties=props)
         create_person_distinct_id(team_id=team.pk, distinct_id=distinct_id, person_id=person_uuid)
-        pg_person = Person.objects.create(team=team, uuid=person_uuid, properties=props)
-        PersonDistinctId.objects.create(team=team, person=pg_person, distinct_id=distinct_id)
+        pg_person = create_test_person(team=team, uuid=person_uuid, properties=props)
+        add_distinct_id(person=pg_person, distinct_id=distinct_id)
 
     baseline_count = _count_events_in_clickhouse(team.pk)
 
@@ -505,7 +505,7 @@ def _create_events_and_persons(data: PlaywrightWorkspaceSetupData, team: Team) -
     _wait_for_events_in_clickhouse(team.pk, baseline_count + len(data.events))
 
     # Populate event/property definitions so the taxonomic filter works
-    from posthog.demo.matrix.taxonomy_inference import infer_taxonomy_for_team
+    from products.demo.backend.facade.api import infer_taxonomy_for_team
 
     with tags_context(product=Product.INTERNAL, feature=Feature.MANAGEMENT_COMMAND):
         infer_taxonomy_for_team(team.pk)

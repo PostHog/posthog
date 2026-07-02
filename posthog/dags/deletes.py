@@ -27,7 +27,7 @@ from posthog.clickhouse.plugin_log_entries import PLUGIN_LOG_ENTRIES_TABLE
 from posthog.dags.common import JobOwners
 from posthog.dags.person_overrides import squash_person_overrides
 from posthog.models.async_deletion import AsyncDeletion, DeletionType
-from posthog.models.event.sql import EVENTS_INSERT_DATA_TABLE
+from posthog.models.event.sql import EVENTS_DATA_TABLE
 from posthog.models.group.sql import GROUPS_TABLE
 from posthog.models.person.sql import (
     PERSON_DISTINCT_ID2_TABLE,
@@ -485,6 +485,7 @@ def create_deletes_dict(
 
 @dagster.op
 def create_adhoc_event_deletes_dict(
+    context: dagster.OpExecutionContext,
     config: DeleteConfig,
     cluster: dagster.ResourceParam[ClickhouseCluster],
 ) -> AdhocEventDeletesDictionary:
@@ -510,6 +511,21 @@ def create_adhoc_event_deletes_dict(
             max_memory_usage=config.max_memory_usage,
         )
     ).result()
+
+    # The dictionary holds identical data on every host, so count the loaded ids on a single
+    # data node (verifying replica identity is the job of load_and_verify_adhoc_event_deletes_dictionary).
+    def count_ids(client: Client) -> int:
+        result = client.execute(f"SELECT count() FROM {del_dict.qualified_name}")
+        return result[0][0] if result else 0
+
+    ids_added = cluster.any_host_by_role(count_ids, NodeRole.DATA).result()
+
+    context.add_output_metadata(
+        {
+            "ids_added": dagster.MetadataValue.int(ids_added),
+            "dictionary_name": dagster.MetadataValue.text(del_dict.qualified_name),
+        }
+    )
 
     return del_dict
 
@@ -584,7 +600,7 @@ def delete_events(
     )
 
     delete_mutation_runner = LightweightDeleteMutationRunner(
-        table=EVENTS_INSERT_DATA_TABLE(),
+        table=EVENTS_DATA_TABLE(),
         predicate="""or(
             (dictHas(%(pending_deletes_dictionary)s, (team_id, %(person_deletion_type)s, person_id)) AND timestamp <= dictGet(%(pending_deletes_dictionary)s, 'created_at', (team_id, %(person_deletion_type)s, person_id))),
             (dictHas(%(pending_deletes_dictionary)s, (team_id, %(team_deletion_type)s, team_id))),
@@ -818,7 +834,7 @@ def find_partitions_to_cleanup(
     """Find partitions that contain old events for the specified teams."""
     query = f"""
         SELECT toYYYYMM(timestamp) as partition, count(1) as rows
-        FROM {EVENTS_INSERT_DATA_TABLE()}
+        FROM {EVENTS_DATA_TABLE()}
         WHERE team_id IN %(team_ids)s
         AND age('month', timestamp, now()) >= %(min_age_months)s
         GROUP BY partition
@@ -862,7 +878,7 @@ def cleanup_old_events_by_partition(
         context.log.info(f"Processing partition {partition} ({idx}/{total_partitions})")
 
         delete_mutation_runner = LightweightDeleteMutationRunner(
-            table=EVENTS_INSERT_DATA_TABLE(),
+            table=EVENTS_DATA_TABLE(),
             predicate="""
                 team_id IN %(team_ids)s
                 AND age('month', timestamp, now()) >= %(min_age_months)s

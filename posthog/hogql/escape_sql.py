@@ -22,7 +22,8 @@ escape_chars_map = {
     "\\": "\\\\",
 }
 singlequote_escape_chars_map = {**escape_chars_map, "'": "\\'"}
-backquote_escape_chars_map = {**escape_chars_map, "`": "\\`"}
+# The HogQL/ClickHouse parsers only accept a doubled backtick inside a quoted identifier, not a backslash-escaped one.
+backquote_escape_chars_map = {**escape_chars_map, "`": "``"}
 
 
 def safe_identifier(identifier: str) -> str:
@@ -264,6 +265,15 @@ def escape_duckdb_identifier(v: str) -> str:
     """Escape an identifier for DuckDB. Same quoting rules as Postgres but no length limit,
     and with DuckDB's additional reserved keywords treated as requiring quotes."""
     return _quote_postgres_wire_identifier(v, extra_reserved_keywords=DUCKDB_EXTRA_RESERVED_KEYWORDS)
+
+
+def escape_snowflake_identifier(v: str) -> str:
+    # Always double-quote: Snowflake folds unquoted identifiers to uppercase, so quoting
+    # preserves the column's stored case. ``%`` is rejected for parity with the other
+    # parameterized direct-query escapers (the connector treats it as a placeholder).
+    if "%" in v:
+        raise QueryError(f'The Snowflake identifier "{v}" is not permitted as it contains the "%" character')
+    return '"' + v.replace('"', '""') + '"'
 
 
 def _quote_postgres_wire_identifier(v: str, extra_reserved_keywords: set[str] | None) -> str:

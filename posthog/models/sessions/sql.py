@@ -3,7 +3,6 @@ from django.conf import settings
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.kafka_engine import trim_quotes_expr
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
-from posthog.models.event.sql import EVENTS_INSERT_DATA_TABLE, json_subcolumn_expr
 
 # V1 Sessions table
 TABLE_BASE_NAME = "sessions"
@@ -141,14 +140,7 @@ SETTINGS index_granularity=512
     )
 
 
-def _events_json_subcolumn_string_expr(column_name: str) -> str:
-    field = json_subcolumn_expr("properties", column_name)
-    return f"ifNull(toString({field}), '')"
-
-
 def source_column(column_name: str) -> str:
-    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-        return _events_json_subcolumn_string_expr(column_name)
     return trim_quotes_expr(f"JSONExtractRaw(properties, '{column_name}')")
 
 
@@ -195,12 +187,11 @@ sumMap(CAST(([event], [1]), 'Map(String, UInt64)')) as event_count_map,
 sumIf(1, event='$pageview') as pageview_count,
 sumIf(1, event='$autocapture') as autocapture_count
 
-FROM {database}.{events_source_table}
+FROM {database}.sharded_events
 WHERE `$session_id` IS NOT NULL AND `$session_id` != '' AND team_id IN ({allowed_team_ids})
 GROUP BY `$session_id`, team_id
 """.format(
     database=settings.CLICKHOUSE_DATABASE,
-    events_source_table=EVENTS_INSERT_DATA_TABLE(),
     current_url_property=source_column("$current_url"),
     referring_domain_property=source_column("$referring_domain"),
     utm_source_property=source_column("utm_source"),

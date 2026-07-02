@@ -59,20 +59,6 @@ DISTRIBUTED_EVENTS_JSON_TABLE = "events_json"
 KAFKA_EVENTS_NATIVE_JSON_TABLE = "kafka_events_json_native_json"
 
 
-def EVENTS_INSERT_DATA_TABLE() -> str:
-    return EVENTS_JSON_DATA_TABLE if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else EVENTS_DATA_TABLE()
-
-
-def EVENTS_QUERY_TABLE() -> str:
-    return DISTRIBUTED_EVENTS_JSON_TABLE if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA else "events"
-
-
-def EVENTS_PROPERTIES_COLUMN() -> str:
-    if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-        return "properties"
-    return f"toJSONString(events.properties) AS properties, {EVENTS_PROPERTIES_JSON_PRESENT_PATHS('events.properties')} AS property_paths"
-
-
 EVENTS_PROPERTIES_JSON_SUBCOLUMNS: dict[str, str] = {
     "$active_feature_flags": "String",
     "$ai_experiment_id": "Nullable(String)",
@@ -219,7 +205,7 @@ def PERSON_PROPERTIES_JSON_TYPE() -> str:
 
 
 def TRUNCATE_EVENTS_TABLE_SQL():
-    return f"TRUNCATE TABLE IF EXISTS {EVENTS_INSERT_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
+    return f"TRUNCATE TABLE IF EXISTS {EVENTS_DATA_TABLE()} {ON_CLUSTER_CLAUSE()}"
 
 
 def DROP_EVENTS_TABLE_SQL():
@@ -342,10 +328,6 @@ def EVENTS_JSON_DATA_TABLE_ENGINE():
 
 def _json_subcolumn(column: str, path: str) -> str:
     return f"{_escape_clickhouse_identifier(column)}.{_escape_clickhouse_identifier(path)}"
-
-
-def json_subcolumn_expr(column: str, path: str) -> str:
-    return _json_subcolumn(column, path)
 
 
 EVENTS_JSON_DATA_COMPATIBILITY_COLUMNS = f"""
@@ -987,12 +969,9 @@ def DISTRIBUTED_EVENTS_TABLE_SQL(on_cluster=True):
     )
 
 
-def INSERT_EVENT_SQL(table_name: str | None = None) -> str:
-    if table_name is None:
-        table_name = EVENTS_INSERT_DATA_TABLE()
-
-    return f"""
-INSERT INTO {table_name}
+INSERT_EVENT_SQL = lambda: (
+    f"""
+INSERT INTO {EVENTS_DATA_TABLE()}
 (
     uuid,
     event,
@@ -1047,14 +1026,12 @@ VALUES
     0
 )
 """
+)
 
 
-def BULK_INSERT_EVENT_SQL(table_name: str | None = None) -> str:
-    if table_name is None:
-        table_name = EVENTS_INSERT_DATA_TABLE()
-
-    return f"""
-INSERT INTO {table_name}
+BULK_INSERT_EVENT_SQL = lambda: (
+    f"""
+INSERT INTO {EVENTS_DATA_TABLE()}
 (
     uuid,
     event,
@@ -1083,72 +1060,8 @@ INSERT INTO {table_name}
 )
 VALUES
 """
+)
 
-
-SELECT_PROP_VALUES_SQL_WITH_FILTER = """
-SELECT
-    DISTINCT {property_field}
-FROM
-    {events_table} AS events
-WHERE
-    team_id = %(team_id)s
-    {property_exists_filter}
-    {parsed_date_from}
-    {parsed_date_to}
-    {event_filter}
-    {value_filter}
-{order_by_clause}
-LIMIT 10
-"""
-
-SELECT_EVENT_BY_TEAM_AND_CONDITIONS_SQL = """
-SELECT
-    events.uuid AS uuid,
-    events.event AS event,
-    {properties_column},
-    events.timestamp AS timestamp,
-    events.team_id AS team_id,
-    events.distinct_id AS distinct_id,
-    events.elements_chain AS elements_chain,
-    events.created_at AS created_at
-FROM
-    {events_table} AS events
-where events.team_id = %(team_id)s
-{conditions}
-ORDER BY events.timestamp {order} {limit}
-"""
-
-SELECT_EVENT_BY_TEAM_AND_CONDITIONS_FILTERS_SQL = """
-SELECT
-    events.uuid AS uuid,
-    events.event AS event,
-    {properties_column},
-    events.timestamp AS timestamp,
-    events.team_id AS team_id,
-    events.distinct_id AS distinct_id,
-    events.elements_chain AS elements_chain,
-    events.created_at AS created_at
-FROM {events_table} AS events
-WHERE
-events.team_id = %(team_id)s
-{conditions}
-{filters}
-ORDER BY events.timestamp {order} {limit}
-"""
-
-SELECT_ONE_EVENT_SQL = """
-SELECT
-    events.uuid AS uuid,
-    events.event AS event,
-    {properties_column},
-    events.timestamp AS timestamp,
-    events.team_id AS team_id,
-    events.distinct_id AS distinct_id,
-    events.elements_chain AS elements_chain,
-    events.created_at AS created_at
-FROM {events_table} AS events
-WHERE events.uuid = %(event_id)s AND events.team_id = %(team_id)s
-"""
 
 NULL_SQL = """
 -- Creates zero values for all date axis ticks for the given date_from, date_to range
@@ -1181,22 +1094,12 @@ SELECT toUInt16(0) AS total, {date_from_truncated}
 """
 
 EVENT_JOIN_PERSON_SQL = """
-INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) as pdi ON {event_table_alias}.distinct_id = pdi.distinct_id
+INNER JOIN ({GET_TEAM_PERSON_DISTINCT_IDS}) as pdi ON events.distinct_id = pdi.distinct_id
 """
 
 GET_EVENTS_WITH_PROPERTIES = """
-SELECT
-    events.uuid AS uuid,
-    events.event AS event,
-    {properties_column},
-    events.timestamp AS timestamp,
-    events.team_id AS team_id,
-    events.distinct_id AS distinct_id,
-    events.elements_chain AS elements_chain,
-    events.created_at AS created_at
-FROM {events_table} AS events
-WHERE
-events.team_id = %(team_id)s
+SELECT * FROM events WHERE
+team_id = %(team_id)s
 {filters}
 {order_by}
 """
@@ -1208,15 +1111,15 @@ ELEMENT_TAG_COUNT = """
 SELECT concat('<', {tag_regex}, '> ', {text_regex}) AS tag_name,
        events.elements_chain,
        count(*) as tag_count
-FROM {events_table} AS events
+FROM events
 WHERE events.team_id = %(team_id)s AND event = '$autocapture'
 GROUP BY tag_name, elements_chain
 ORDER BY tag_count desc, tag_name
 LIMIT %(limit)s
-""".format(tag_regex=EXTRACT_TAG_REGEX, text_regex=EXTRACT_TEXT_REGEX, events_table="{events_table}")
+""".format(tag_regex=EXTRACT_TAG_REGEX, text_regex=EXTRACT_TEXT_REGEX)
 
 GET_CUSTOM_EVENTS = """
-SELECT DISTINCT event FROM {events_table} AS events where team_id = %(team_id)s AND event NOT IN ['$autocapture', '$pageview', '$identify', '$pageleave', '$screen']
+SELECT DISTINCT event FROM events where team_id = %(team_id)s AND event NOT IN ['$autocapture', '$pageview', '$identify', '$pageleave', '$screen']
 """
 
 #
@@ -1224,9 +1127,7 @@ SELECT DISTINCT event FROM {events_table} AS events where team_id = %(team_id)s 
 #
 
 COPY_EVENTS_BETWEEN_TEAMS = COPY_ROWS_BETWEEN_TEAMS_BASE_SQL.format(
-    table_name=WRITABLE_EVENTS_JSON_TABLE
-    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
-    else WRITABLE_EVENTS_DATA_TABLE(),
+    table_name=WRITABLE_EVENTS_DATA_TABLE(),
     columns_except_team_id="""uuid, event, properties, timestamp, distinct_id, elements_chain, created_at, person_id, person_created_at,
     person_properties, group0_properties, group1_properties, group2_properties, group3_properties, group4_properties,
      group0_created_at, group1_created_at, group2_created_at, group3_created_at, group4_created_at, person_mode""",

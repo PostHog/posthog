@@ -101,6 +101,7 @@ export class RequestContext {
                 mcpClientVersion: this.props.mcpClientVersion,
                 mcpProtocolVersion: this.props.mcpProtocolVersion,
                 mcpConsumer: this.props.mcpConsumer,
+                taskId: this.props.taskId,
             })
         }
         return this.apiInstance
@@ -118,6 +119,18 @@ export class RequestContext {
             return undefined
         }
         return this.sessionManager.getSessionUuid(sessionId)
+    }
+
+    /**
+     * Resolves the UUID emitted as `$session_id`. Prefers the explicit
+     * `?sessionId=` param and falls back to the MCP protocol session id, so
+     * sessions are still attributed for clients that don't pass an explicit
+     * session id. Without the fallback `$session_id` is absent on most events
+     * and the MCP analytics dashboard — which aggregates sessions on
+     * `$session_id` — counts zero.
+     */
+    async getEffectiveSessionUuid(requestContext: MCPRequestContext): Promise<string | undefined> {
+        return this.getSessionUuid(requestContext.sessionId ?? requestContext.mcpSessionId)
     }
 
     getDistinctId(): Promise<string> {
@@ -232,6 +245,7 @@ export class RequestContext {
         try {
             const resolvedDistinctId = distinctId ?? (await this.getDistinctId())
             const clientName = await this.tokenCache.get('clientName')
+            const sessionUuid = await this.getEffectiveSessionUuid(this.requestContext)
             const contextProperties = analyticsContext ? buildMCPContextProperties(analyticsContext) : {}
             const previousContextProperties = previousContext
                 ? buildMCPContextProperties(previousContext, { prefix: 'previous_' })
@@ -244,9 +258,7 @@ export class RequestContext {
                 ...(Object.keys(groups).length > 0 ? { groups } : {}),
                 properties: {
                     ...this.buildClientProperties(),
-                    ...(this.requestContext.sessionId
-                        ? { $session_id: await this.getSessionUuid(this.requestContext.sessionId) }
-                        : {}),
+                    ...(sessionUuid ? { $session_id: sessionUuid } : {}),
                     ...(clientName ? { $mcp_oauth_client_name: clientName } : {}),
                     ...contextProperties,
                     ...previousContextProperties,

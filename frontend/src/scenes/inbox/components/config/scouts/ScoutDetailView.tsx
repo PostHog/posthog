@@ -11,7 +11,9 @@ import { scoutDetailLogic } from '../../../logics/scoutDetailLogic'
 import { scoutFleetLogic } from '../../../logics/scoutFleetLogic'
 import { SCOUT_RUNS_WINDOW_SPAN, scoutRunsWindowLabel } from '../../../utils/scoutRunsWindow'
 import { ScoutEmissionCard } from './ScoutEmissionCard'
+import { ScoutReportCard } from './ScoutReportCard'
 import { ScoutRowCard } from './ScoutRowCard'
+import { ScoutRunHistorySection } from './ScoutRunHistorySection'
 
 /**
  * Full-width scout detail surface, rendered over the inbox list at `/inbox/scouts/:skillName`.
@@ -57,6 +59,10 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
                 <>
                     <ScoutRowCard config={config} rollup={rollup} onUpdate={updateScoutConfig} asHeader />
 
+                    {config.description ? (
+                        <p className="text-sm text-secondary leading-snug mb-0">{config.description}</p>
+                    ) : null}
+
                     <div className="flex flex-col gap-1">
                         <span className="text-xs font-medium text-default uppercase tracking-wide">
                             Last {SCOUT_RUNS_WINDOW_SPAN}
@@ -66,6 +72,12 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
                                 <>
                                     {pluralize(rollup.runCount, 'run')} · {rollup.completedCount} completed ·{' '}
                                     {rollup.failedCount} failed · {pluralize(rollup.emittedCount, 'signal')} emitted
+                                    {rollup.authoredReportIds.size > 0 && (
+                                        <> · {pluralize(rollup.authoredReportIds.size, 'report')} authored</>
+                                    )}
+                                    {rollup.editedReportIds.size > 0 && (
+                                        <> · {pluralize(rollup.editedReportIds.size, 'report')} edited</>
+                                    )}
                                 </>
                             ) : (
                                 'No runs in this window.'
@@ -76,12 +88,49 @@ export function ScoutDetailView({ skillName }: { skillName: string }): JSX.Eleme
                         </span>
                     </div>
 
+                    <ScoutReportsSection skillName={skillName} />
+
                     <ScoutSignalsSection skillName={skillName} />
 
-                    <div className="rounded border border-dashed border-primary bg-bg-light px-4 py-6 text-center text-sm text-muted">
-                        Run history is coming to this view soon.
-                    </div>
+                    <ScoutRunHistorySection skillName={skillName} />
                 </>
+            )}
+        </div>
+    )
+}
+
+/**
+ * The Reports section: the inbox reports this scout authored or edited directly via the report
+ * channel (`emit_report` / `edit_report`) in the recent window, newest-updated first. Distinct from
+ * the Signals section, which lists weak `emit_signal` findings. Hidden entirely for the common scout
+ * that never authors a report, so it only appears for report-channel scouts.
+ */
+function ScoutReportsSection({ skillName }: { skillName: string }): JSX.Element | null {
+    const { reportRows, touchedReports, scoutReportsLoading, runsWindowLoadedOnce } = useValues(
+        scoutDetailLogic({ skillName })
+    )
+
+    // Most scouts never author a report — keep the section out entirely rather than show an empty box.
+    if (touchedReports.length === 0) {
+        return null
+    }
+
+    const loading = !runsWindowLoadedOnce || (scoutReportsLoading && reportRows.length === 0)
+
+    return (
+        <div className="flex flex-col gap-2">
+            <span className="text-xs font-medium text-default uppercase tracking-wide">Reports</span>
+            {loading ? (
+                <LemonSkeleton className="h-12 w-full rounded" />
+            ) : reportRows.length === 0 ? (
+                // Touched ids exist but none resolved — the reports were deleted, or the fetch failed.
+                <div className="rounded border border-dashed border-primary bg-bg-light px-4 py-6 text-center text-sm text-muted">
+                    Couldn’t load the reports this scout authored.
+                </div>
+            ) : (
+                reportRows.map(({ report, action }) => (
+                    <ScoutReportCard key={report.id} report={report} action={action} />
+                ))
             )}
         </div>
     )
@@ -96,6 +145,7 @@ function ScoutSignalsSection({ skillName }: { skillName: string }): JSX.Element 
     const { emissionRows, emissionsLoading, emissionsLoadFailed, runsWindowLoadedOnce, runsWindowComplete } = useValues(
         scoutDetailLogic({ skillName })
     )
+    const { selectedScoutFindingId } = useValues(inboxSceneLogic)
 
     // "Loading" until the fleet's runs window has settled once AND this scout's emissions have
     // resolved — otherwise a fresh deep-link would flash the empty state before we know the
@@ -103,6 +153,10 @@ function ScoutSignalsSection({ skillName }: { skillName: string }): JSX.Element 
     // quiet-scout empty state from flickering to a skeleton every 60s poll.
     const loading = !runsWindowLoadedOnce || emissionsLoading
     const hasRows = emissionRows.length > 0
+    // The unique emission the deep-link resolves to: the newest row whose finding matches.
+    const deepLinkedEmissionId = selectedScoutFindingId
+        ? (emissionRows.find(({ emission }) => emission.finding_id === selectedScoutFindingId)?.emission.id ?? null)
+        : null
 
     return (
         <div className="flex flex-col gap-2">
@@ -123,8 +177,18 @@ function ScoutSignalsSection({ skillName }: { skillName: string }): JSX.Element 
                 </div>
             ) : (
                 <>
-                    {emissionRows.map(({ emission, run }) => (
-                        <ScoutEmissionCard key={emission.id} emission={emission} run={run} />
+                    {emissionRows.map(({ emission, run, report }) => (
+                        <ScoutEmissionCard
+                            key={emission.id}
+                            skillName={skillName}
+                            emission={emission}
+                            run={run}
+                            report={report}
+                            // `finding_id` repeats across runs (it's a dedup trace id, not unique), so only
+                            // mark the newest matching emission — rows are newest-first — to keep the
+                            // highlight/scroll deterministic for a single shared link.
+                            isDeepLinked={emission.id === deepLinkedEmissionId}
+                        />
                     ))}
                     {!runsWindowComplete && (
                         <span className="text-xs text-muted">

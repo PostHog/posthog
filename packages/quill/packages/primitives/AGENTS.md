@@ -130,18 +130,20 @@ Don't hand-roll `<p className="text-xs text-muted-foreground">` when `<Text size
 
 ## Component Catalog
 
-| Component    | Variants                                                 | Sizes                                                | Notes                                                                              |
-| ------------ | -------------------------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------- |
-| Button       | default, primary, outline, destructive, link, link-muted | default, xs, sm, lg, icon, icon-xs, icon-sm, icon-lg | `loading` overlays a centered spinner and disables the button (width stays stable) |
-| Badge        | default, info, destructive, warning, success             | —                                                    | Semantic status                                                                    |
-| Toggle       | default, outline                                         | default, sm, lg, icon                                |                                                                                    |
-| Chip         | outline                                                  | sm                                                   | Use with ChipClose                                                                 |
-| Separator    | —                                                        | —                                                    | orientation: horizontal/vertical                                                   |
-| Spinner      | —                                                        | —                                                    | SVG, accepts svg props                                                             |
-| Skeleton     | —                                                        | —                                                    | Pulsing placeholder div                                                            |
-| SkeletonText | —                                                        | —                                                    | lines, minWidth, maxWidth                                                          |
-| Progress     | —                                                        | —                                                    | value: 0-100                                                                       |
-| Slider       | —                                                        | —                                                    | value, min, max                                                                    |
+| Component    | Variants                                                 | Sizes                                                | Notes                                                                                                                  |
+| ------------ | -------------------------------------------------------- | ---------------------------------------------------- | ---------------------------------------------------------------------------------------------------------------------- |
+| Button       | default, primary, outline, destructive, link, link-muted | default, xs, sm, lg, icon, icon-xs, icon-sm, icon-lg | `loading` overlays a centered spinner and disables the button (width stays stable)                                     |
+| Badge        | default, info, destructive, warning, success             | —                                                    | Semantic status                                                                                                        |
+| Toggle       | default, outline                                         | default, sm, lg, icon                                |                                                                                                                        |
+| Chip         | outline                                                  | sm                                                   | Use with ChipClose                                                                                                     |
+| Separator    | —                                                        | —                                                    | orientation: horizontal/vertical                                                                                       |
+| Spinner      | —                                                        | —                                                    | SVG, accepts svg props                                                                                                 |
+| Skeleton     | —                                                        | —                                                    | Pulsing placeholder div                                                                                                |
+| SkeletonText | —                                                        | —                                                    | lines, minWidth, maxWidth                                                                                              |
+| Progress     | —                                                        | —                                                    | value: 0-100                                                                                                           |
+| Slider       | —                                                        | —                                                    | value, min, max                                                                                                        |
+| Avatar       | —                                                        | lg, default, sm, xs                                  | Compose `Avatar > AvatarImage + AvatarFallback`; image errors fall back to initials/icon                               |
+| AvatarGroup  | —                                                        | default, sm, xs                                      | Row of Avatars; `stacked` overlaps + spreads on hover (no reflow), `reverse` spreads left; `size` forwards to children |
 
 ---
 
@@ -235,6 +237,19 @@ Stack cards with merged borders:
   <Card>...</Card>
 </CardGroup>
 ```
+
+`size="sm"` tightens the card's gap + block padding (`0.75rem`). `flush` lets a full-bleed child (a `Table`, a chart) run corner to corner: it drops the card's section gap + bottom padding and the `CardContent`'s inline padding, while the header keeps its own padding + divider. Use it instead of hand-writing `gap-0 pb-0` on the Card and `p-0` on the CardContent.
+
+```tsx
+<Card flush>
+  <CardHeader>
+    <CardTitle>Revenue</CardTitle>
+  </CardHeader>
+  <CardContent>{/* Table / chart runs to the card edges */}</CardContent>
+</Card>
+```
+
+For a stat tile (headline number + change pill + sparkline), don't hand-build one in a `Card` — wrap `Metric` (from `@posthog/quill-components/metric`) in `<Card flush>`. See its section in `../components/AGENTS.md`.
 
 ### Field (forms)
 
@@ -666,6 +681,87 @@ Vertical: `<ButtonGroup orientation="vertical">`
 Item variants: default, outline, pressable, muted, menuItem
 Item sizes: default, sm, xs
 
+### Avatar
+
+Compose `Avatar > AvatarImage + AvatarFallback`. The fallback (initials or a bare lucide icon — don't `size-*` it) shows when there's no image or the image errors. `size="xs"` (1.25rem), `"sm"` (1.5rem), default (2rem), or `"lg"` (2.35rem). For a clickable profile avatar, pass `render={<a href="…" />}` (or `<button />`) — the avatar renders as that element and gains pointer + focus ring; the `AvatarImage` `alt` becomes the link's accessible name, so keep it meaningful.
+
+```tsx
+<Avatar>
+  <AvatarImage src={user.avatarUrl} alt={user.name} />
+  <AvatarFallback>{initials}</AvatarFallback>
+</Avatar>
+```
+
+`AvatarGroup` lays Avatars out in a row — gapped by default, or `stacked` to overlap them. The leftmost avatar sits on top (so a leading `+N` count reads in front). Hovering (or focusing) a stacked group spreads it back to the inline gap; the spread is a `transform`, so the container box never changes and nothing reflows — the avatars slide out over the space beside them. `reverse` mirrors it: the pile anchors to its right edge, the rightmost avatar sits on top, and it spreads left (use it at the right end of a row so it grows inward). `size` on the group forwards to bare Avatar children and tunes the overlap; a non-Avatar child (a `+N` count built from a styled `AvatarFallback`) passes through untouched — put it first (default) or last (`reverse`) so it sits on top. The stacked ring defaults to the app background; on a different surface (a `Card`), override `--quill-avatar-ring` so it matches, e.g. `className="[--quill-avatar-ring:var(--card)]"`.
+
+```tsx
+<AvatarGroup stacked size="sm">
+  {members.map((m) => (
+    <Avatar key={m.id}>
+      <AvatarImage src={m.avatarUrl} alt={m.name} />
+      <AvatarFallback>{m.initials}</AvatarFallback>
+    </Avatar>
+  ))}
+</AvatarGroup>
+```
+
+### Thread item (chat feed row)
+
+A feed-style message row — Slack-like channel surfaces where every message aligns start. Use `ChatBubble`/`ChatMessage` for conversational back-and-forth instead. The row highlights on hover/focus-within and reveals `ThreadItemActions` (a `role="toolbar"`, hidden with opacity so its buttons stay tabbable). The toolbar is a Base UI Toolbar — one tab stop, arrow keys rove between actions. Fill it with `ThreadItemAction` — a Button wrapped in a Tooltip where `label` is both the `aria-label` and the tooltip content (one source of truth); it forwards all Button props including `render` (`render={<a href="…" />}` for a link action) and forwards its ref, so it also works as a render target (`DropdownMenuTrigger render={<ThreadItemAction …/>}`). `ThreadItemActions` carries its own `TooltipProvider`, so the tooltips work without app-root setup; a `ThreadItemAction` used outside the toolbar (e.g. an add-reaction button in `ThreadItemReactions`) needs a `TooltipProvider` ancestor. Don't hand-roll `Tooltip > Button` pairs inside the toolbar. `ThreadItemReaction` is a Base UI Toggle (`pressed`/`onPressedChange`); give it an `aria-label` with the emoji name + count and wrap the glyph in `ThreadItemReactionEmoji` (aria-hidden). `ThreadItemAuthor` and `ThreadItemReplies` accept `render` (author as profile link/button via `render={<a href="…" />}` — it keeps the foreground name color with underline on hover, never link-tinted; replies as link); `ThreadItemReplies` is a Button (variant `default`) stretched to the content column. On continuation rows (same author), drop the header and put a `ThreadItemTimestamp` in the gutter — it shows only while the row is hovered/focused — and start the body with an `sr-only` author span so screen readers still hear who is speaking.
+
+`ThreadItemHeader` is an open flex row — put author meta (a `Badge`, a bot tag) between the author and timestamp. Inside `ThreadItemBody`, use `ThreadItemMention` for @mentions (a tinted pill; `render={<button />}` to open a profile) and `ThreadItemLink` for inline links. For image/file previews, use `ThreadItemAttachment` (a Base UI Collapsible, open by default) > `ThreadItemAttachmentTrigger` (the filename + rotating chevron, `aria-expanded` built in) + `ThreadItemAttachmentContent` > `ThreadItemAttachmentImage` (framed `img` — `alt` is required by the type).
+
+```tsx
+<ThreadItemBody>
+  <ThreadItemMention render={<button type="button" />}>@Adam L</ThreadItemMention> why this checkbox? See{' '}
+  <ThreadItemLink href="/docs">the docs</ThreadItemLink>.
+</ThreadItemBody>
+<ThreadItemAttachment>
+  <ThreadItemAttachmentTrigger>image.png</ThreadItemAttachmentTrigger>
+  <ThreadItemAttachmentContent>
+    <ThreadItemAttachmentImage src={url} alt="Screenshot of the setting" />
+  </ThreadItemAttachmentContent>
+</ThreadItemAttachment>
+```
+
+```tsx
+<ThreadItemGroup>
+  <ThreadItem>
+    <ThreadItemGutter>
+      <Avatar>…</Avatar>
+    </ThreadItemGutter>
+    <ThreadItemContent>
+      <ThreadItemHeader>
+        <ThreadItemAuthor>Adam L</ThreadItemAuthor>
+        <ThreadItemTimestamp dateTime="2026-07-01T16:23:00">4:23 PM</ThreadItemTimestamp>
+      </ThreadItemHeader>
+      <ThreadItemBody>Message text…</ThreadItemBody>
+      <ThreadItemReactions>
+        <ThreadItemReaction pressed={pressed} onPressedChange={setPressed} aria-label="Victory hand, 1 reaction">
+          <ThreadItemReactionEmoji>✌️</ThreadItemReactionEmoji>1
+        </ThreadItemReaction>
+        <ThreadItemAction label="Add reaction" className="rounded-full">
+          <SmilePlusIcon />
+        </ThreadItemAction>
+      </ThreadItemReactions>
+      <ThreadItemReplies onClick={openThread}>
+        <AvatarGroup size="xs">…</AvatarGroup>
+        <ThreadItemRepliesLabel>1 reply</ThreadItemRepliesLabel>
+        <ThreadItemRepliesMeta>Today at 4:40 PM</ThreadItemRepliesMeta>
+      </ThreadItemReplies>
+    </ThreadItemContent>
+    <ThreadItemActions>
+      <ThreadItemAction label="Add reaction">
+        <SmilePlusIcon />
+      </ThreadItemAction>
+      <ThreadItemAction label="More actions">
+        <EllipsisVerticalIcon />
+      </ThreadItemAction>
+    </ThreadItemActions>
+  </ThreadItem>
+</ThreadItemGroup>
+```
+
 ### Keyboard Shortcuts
 
 ```tsx
@@ -732,7 +828,46 @@ const range = getPaginationRange(pageCount, pageIndex)
 
 ### Table
 
-Compose `Table > TableHeader/TableBody/TableFooter > TableRow > TableHead/TableCell`. Per-cell options on `TableHead`/`TableCell`: `sticky="left" | "right"` (frozen column), `align="left" | "center" | "right"` (horizontal), `valign="top" | "middle" | "bottom"` (vertical), `expand` (absorb leftover width). `align` also positions an inline-flex header Button. On `Table`: `stickyHeader` (or `"page"`) for a sticky header, `fullWidth` to fill the container — pair `fullWidth` with `expand` on one column to choose which one stretches.
+Compose `Table > TableHeader/TableBody/TableFooter > TableRow > TableHead/TableCell`. Per-cell options on `TableHead`/`TableCell`: `sticky="left" | "right"` (frozen column), `align="left" | "center" | "right"` (horizontal), `valign="top" | "middle" | "bottom"` (vertical), `expand` (absorb leftover width). `align` also positions an inline-flex header Button. On `Table`: `stickyHeader` (or `"page"`) for a sticky header, `fullWidth` to fill the container — pair `fullWidth` with `expand` on one column to choose which one stretches, `size="sm"` to tighten head/cell inline padding to `0.75rem` (from `1rem`) for dense tables and to align edge columns with a `Card size="sm"`.
+
+**Backgrounds: transparent by default, opaque when sticky.** Plain cells and headers are transparent, so a `Table` inherits whatever surface it sits on (inside a `Card`, a tinted panel). Sticky parts (`stickyHeader`, `stickyHeader="page"`, `sticky="left"/"right"`) get an opaque background automatically — they'd otherwise bleed scrolled-under content — so you don't add `bg-background` yourself. It defaults to the app background; if the table sits on a different surface, override the inherited `--quill-table-sticky-bg` custom property on the `Table` so the frozen cells match — e.g. inside a `Card`, `className="[--quill-table-sticky-bg:var(--card)]"`.
+
+**Empty state — use `TableEmpty`, not a hand-rolled cell.** Drop `TableEmpty` in where a `TableBody` would go; it renders its own `tbody > tr > td` with a full-span `colSpan` (defaults huge, browsers clamp to the real column count) and centers its content. Put `<Empty>` or plain text inside — no manual `colSpan`, no `h-full`. To make it fill the body area, give the `Table` a height (e.g. `className="h-full"` with a height-bounded container); otherwise it sizes to its content. Don't put an `<Empty>` (a `div`) as a direct child of `Table` — that's invalid table markup and the browser hoists it out of the grid.
+
+```tsx
+<Table fullWidth className="h-full">
+  <TableHeader>{/* … */}</TableHeader>
+  <TableEmpty>
+    <Empty>
+      <EmptyHeader>
+        <EmptyMedia variant="icon">
+          <InboxIcon />
+        </EmptyMedia>
+        <EmptyTitle>No members yet</EmptyTitle>
+        <EmptyDescription>Invite teammates to start collaborating.</EmptyDescription>
+      </EmptyHeader>
+      <EmptyContent>
+        <Button>Invite member</Button>
+      </EmptyContent>
+    </Empty>
+  </TableEmpty>
+</Table>
+```
+
+**Table in a Card — let the table own the edges.** A `Table` sits flush inside a `Card` because its cells are transparent (they inherit the card surface). Pass `flush` on the `Card` so the table reaches the card's rounded edges with no double padding (it drops the card's section gap + bottom padding and the `CardContent`'s inline padding — no `className` needed on either), and use `fullWidth` on the `Table`. For an empty/loading table that should fill a tall card, build the height chain `Card min-h-* → CardContent flex-1 → Table h-full` so `TableEmpty` stretches to the body area. Inside a `Card size="sm"`, also pass `size="sm"` on the `Table` so its edge columns line up with the card's tighter `0.75rem` inline padding (header title, footer).
+
+```tsx
+<Card size="sm" flush>
+  <CardHeader>
+    <CardTitle>Members</CardTitle>
+  </CardHeader>
+  <CardContent>
+    <Table size="sm" fullWidth>
+      {/* … */}
+    </Table>
+  </CardContent>
+</Card>
+```
 
 ### Menubar
 

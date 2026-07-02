@@ -11,11 +11,11 @@ import posthog.temporal.ai  # noqa: F401
 from posthog.api import data_color_theme, metalytics, my_notifications, project, user_integration, user_push_token
 from posthog.api.csp_reporting import CSPReportingViewSet
 from posthog.api.js_snippet import JsSnippetViewSet
+from posthog.api.product_enablement import ProductEnablementViewSet
 from posthog.api.query_performance_proxy import QueryPerformanceProxyViewSet
 from posthog.api.routing import DefaultRouterPlusPlus, RouterRegistry
 from posthog.api.sdk_health import SdkHealthViewSet
 from posthog.api.wizard import http as wizard
-from posthog.approvals import api as approval_api
 from posthog.settings import EE_AVAILABLE
 
 from ee.api.quota_limits import QuotaLimitsViewSet
@@ -39,6 +39,7 @@ from . import (
     event_schema,
     health_issue,
     hog,
+    identity_provider_config,
     ingestion_warnings,
     instance_settings,
     instance_status,
@@ -74,7 +75,7 @@ from .column_configuration import ColumnConfigurationViewSet
 from .core_event import CoreEventViewSet
 from .data_management import DataManagementViewSet
 from .event_filter_config import EventFilterConfigViewSet
-from .file_system import file_system, file_system_shortcut, persisted_folder, user_product_list
+from .file_system import file_system, file_system_shortcut, user_product_list
 from .llm_prompt import LLMPromptViewSet
 from .oauth import OrganizationOAuthApplicationViewSet
 from .session import SessionViewSet
@@ -172,6 +173,14 @@ projects_router.register(
     "project_quota_limits",
     ["team_id"],
 )
+# Self-driving turns products ON (via the `products-enable` MCP tool) before enabling their
+# signal sources. Gated by the narrow `product_enablement` scope, never `project:write`.
+projects_router.register(
+    r"product_enablement",
+    ProductEnablementViewSet,
+    "project_product_enablement",
+    ["team_id"],
+)
 
 register_legacy_dual_route_team_nested_viewset(
     r"column_configurations",
@@ -253,19 +262,6 @@ projects_router.register(
     ["team_id"],
 )
 
-register_legacy_dual_route_team_nested_viewset(
-    r"persisted_folder",
-    persisted_folder.PersistedFolderViewSet,
-    "environment_persisted_folder",
-    ["team_id"],
-)
-
-projects_router.register(
-    r"desktop_persisted_folder",
-    persisted_folder.DesktopPersistedFolderViewSet,
-    "project_desktop_persisted_folder",
-    ["team_id"],
-)
 
 register_legacy_dual_route_team_nested_viewset(
     r"user_product_list",
@@ -345,6 +341,12 @@ organizations_router.register(
     r"domains",
     organization_domain.OrganizationDomainViewset,
     "organization_domains",
+    ["organization_id"],
+)
+organizations_router.register(
+    r"identity_provider_configs",
+    identity_provider_config.IdentityProviderConfigViewSet,
+    "organization_identity_provider_configs",
     ["organization_id"],
 )
 organizations_router.register(
@@ -610,20 +612,6 @@ register_legacy_dual_route_team_nested_viewset(
 
 projects_router.register(r"js-snippet", JsSnippetViewSet, "project_js_snippet", ["team_id"])
 
-
-register_legacy_dual_route_team_nested_viewset(
-    r"change_requests",
-    approval_api.ChangeRequestViewSet,
-    "project_change_requests",
-    ["team_id"],
-)
-
-register_legacy_dual_route_team_nested_viewset(
-    r"approval_policies",
-    approval_api.ApprovalPolicyViewSet,
-    "project_approval_policies",
-    ["team_id"],
-)
 
 register_legacy_dual_route_team_nested_viewset(
     r"core_events",

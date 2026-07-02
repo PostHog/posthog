@@ -30,7 +30,7 @@ single-trace and list reads don't diverge.
 
 ## Product docs go under `docs/`
 
-Rollout plans, migration plans, and product ADRs belong in
+Product ADRs and engineering decision records belong in
 `products/ai_observability/docs/`, not at the product root.
 
 ## Custom `@action` methods need explicit scope action lists
@@ -74,7 +74,3 @@ forget, the new endpoint silently 403s every API-key caller. The default
 test client uses `force_login` and skips the scope check, so unit tests
 pass even when the production path is broken. Verify with a personal
 API key (or via the MCP layer) before merging.
-
-## See also
-
-- [docs/ai-events-table-rollout.md](./docs/ai-events-table-rollout.md) — ongoing `ai_events` ClickHouse table rollout.

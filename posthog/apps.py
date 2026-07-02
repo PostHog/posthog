@@ -15,6 +15,7 @@ from posthog.utils import (
     get_instance_region,
     get_machine_id,
     initialize_self_capture_api_token,
+    str_to_bool,
 )
 
 logger = structlog.get_logger(__name__)
@@ -25,6 +26,12 @@ class PostHogConfig(AppConfig):
     verbose_name = "PostHog"
 
     def ready(self):
+        # Route all JSONField (jsonb) decode through orjson before any query runs.
+        if settings.JSONFIELD_ORJSON_DECODE:
+            from posthog.helpers.orjson_jsonfield import apply as apply_orjson_jsonfield  # noqa: PLC0415
+
+            apply_orjson_jsonfield()
+
         import posthog.storage.team_access_cache_signal_handlers  # noqa: F401
         from posthog.storage.gateway_credential_signal_handlers import (
             connect_signal_handlers as connect_gateway_credential_signal_handlers,
@@ -66,7 +73,10 @@ class PostHogConfig(AppConfig):
             "environment": os.getenv("OTEL_SERVICE_ENVIRONMENT"),
         }
 
-        posthoganalytics.capture_exception_code_variables = True  # ty: ignore[invalid-assignment]
+        if str_to_bool(os.environ.get("TEMPORAL_DISABLE_EXCEPTION_VARIABLE_CAPTURE", "false")):
+            posthoganalytics.capture_exception_code_variables = False
+        else:
+            posthoganalytics.capture_exception_code_variables = True  # ty: ignore[invalid-assignment]
 
         if settings.E2E_TESTING:
             posthoganalytics.api_key = "phc_ex7Mnvi4DqeB6xSQoXU1UVPzAmUIpiciRKQQXGGTYQO"  # ty: ignore[invalid-assignment]

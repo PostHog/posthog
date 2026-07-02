@@ -1,6 +1,6 @@
 ---
 name: django-migrations
-description: Django migration patterns and safety workflow for PostHog. Use when creating, adjusting, or reviewing Django/Postgres migrations, including non-blocking index/constraint changes, multi-phase schema changes, data backfills, migration conflict rebasing, and product model moves that require SeparateDatabaseAndState.
+description: Django migration patterns and safety workflow for PostHog. Use when creating, adjusting, or reviewing Django/Postgres migrations, including non-blocking index/constraint changes, multi-phase schema changes, data backfills, migration conflict rebasing, and product model moves that require SeparateDatabaseAndState. Also use for any deletion or removal of a model, table, column, product, or app — including deleting migration files or retiring a feature — even when no migration is written.
 ---
 
 # Django migrations
@@ -28,9 +28,12 @@ If the task is a ClickHouse migration, use `clickhouse-migrations` instead.
 
 - **Add/drop an index** → `SafeAddIndexConcurrently` / `SafeRemoveIndexConcurrently` (`model_name` + `models.Index`). Never use Django's `AddIndexConcurrently` — CI blocks it.
 - **Add a CHECK constraint** → `AddConstraintNotValid` then `ValidateConstraint` in a later migration (or same migration with `atomic = False`).
+- **Add a ForeignKey to a [hot table](#hot-table-hazard)** → declare the FK with `db_constraint=False` on the model (so `CreateModel` / `AddField` emit no parent lock), then add the DB constraint back with `AddForeignKeyNotValid` and follow up with `ValidateForeignKey` in a later migration. See [foreign keys to hot tables](#foreign-keys-to-hot-tables).
 - **Index expressed only as raw SQL** (no Django `Index`) → `CreateIndexConcurrently` / `DropIndexConcurrently` wrapped in `SeparateDatabaseAndState`.
 
 All concurrent-index ops require `atomic = False`.
+
+Meta-principle when you hit a risky-but-common pattern with no helper: don't hand-roll the safe DDL from docs — ship a drop-in helper in `posthog/migration_helpers` and point the CI policy at it. A one-import helper beats a wall of caveated `RunSQL` every time.
 
 ## Hot table hazard
 
@@ -41,6 +44,13 @@ Before writing a migration that touches one of these models:
 - For `Team`: put domain-specific fields on a Team extension model instead — `posthog/models/team/README.md`. That's a `CREATE TABLE`, no lock on `posthog_team`.
 - `CREATE INDEX CONCURRENTLY` (via `SafeAddIndexConcurrently`) is fine — `SHARE UPDATE EXCLUSIVE` doesn't block reads or writes.
 - If the field genuinely belongs on the hot table (core identity, cross-product settings, SDK config), the `HotTableAlterPolicy` analyzer blocks the migration in CI until `<app_label>.<migration_name>` is added to `posthog/management/migration_analysis/hot_table_acknowledged_migrations.txt`. That acknowledgment also means coordinating the deploy with infra for a low-traffic window.
+
+### Foreign keys to hot tables
+
+A `ForeignKey` _targeting_ a hot table is the same hazard from the other side, and it bites from **any** app — a plain product-app `CreateModel` or `AddField` with `to="posthog.team"` (or `settings.AUTH_USER_MODEL`, which is `posthog_user`). Creating the FK constraint takes a `SHARE ROW EXCLUSIVE` lock on the referenced parent, which conflicts with the `ROW EXCLUSIVE` every `INSERT`/`UPDATE`/`DELETE` on the parent holds; under write traffic the lock queues and `lock_timeout` cancels it on each `bin/migrate` retry. `HotTableAlterPolicy` now flags this case. Two ways out:
+
+- **`db_constraint=False` on the `ForeignKey`** — emits no FK constraint and takes **no** lock on the parent at all (app-level enforcement only). This is the only truly lock-free path.
+- **A real DB constraint, two-phase** — declare the FK `db_constraint=False`, then add it back as a DB constraint with `AddForeignKeyNotValid`, and `ValidateForeignKey` in a later migration. Be honest: `ADD CONSTRAINT ... NOT VALID` still takes a _brief_ `SHARE ROW EXCLUSIVE` lock on the parent for the metadata add — it skips the row scan, so it shrinks the lock window but does not eliminate it. `VALIDATE` then runs lock-free on the parent.
 
 ## Cross-language `NOT NULL` hazard
 

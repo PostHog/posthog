@@ -122,6 +122,42 @@ wrappers:
             - modifiers
             - samplingFactor
 
+    query-web-overview:
+        schema_ref: AssistantWebOverviewQuery
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Run a web analytics overview query
+        description_file: ./prompts/query-web-overview.md
+        system_prompt_hint: Web analytics KPIs — visitors, sessions, bounce rate, session duration
+        ui_resource_uri: ui://posthog/query-results.html
+        exclude_properties:
+            - response
+            - modifiers
+            - samplingFactor
+
+    query-web-stats:
+        schema_ref: AssistantWebStatsTableQuery
+        enabled: true
+        scopes:
+            - query:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: Run a web analytics breakdown table query
+        description_file: ./prompts/query-web-stats.md
+        system_prompt_hint: Web analytics breakdowns — top pages, UTMs, devices, countries, with bounce rate
+        ui_resource_uri: ui://posthog/query-results.html
+        exclude_properties:
+            - response
+            - modifiers
+            - samplingFactor
+
     query-llm-traces-list:
         schema_ref: AssistantTracesQuery
         enabled: true
@@ -224,6 +260,44 @@ wrappers:
         title: List persons in a retention cohort
         description_file: ./prompts/query-retention-actors.md
         system_prompt_hint: List persons in a retention acquisition cohort and which intervals they returned in
+        ui_resource_uri: ui://posthog/insight-actors.html
+        use_optimized_output: true
+        exclude_properties:
+            - response
+            - modifiers
+
+    query-stickiness-actors:
+        schema_ref: AssistantStickinessActorsQuery
+        enabled: true
+        scopes:
+            - query:read
+            - person:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List persons behind a stickiness bar
+        description_file: ./prompts/query-stickiness-actors.md
+        system_prompt_hint: List persons who were active in a given number of intervals (one stickiness bar)
+        ui_resource_uri: ui://posthog/insight-actors.html
+        use_optimized_output: true
+        exclude_properties:
+            - response
+            - modifiers
+
+    query-funnel-actors:
+        schema_ref: AssistantFunnelsActorsQuery
+        enabled: true
+        scopes:
+            - query:read
+            - person:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        title: List persons who converted or dropped off at a funnel step
+        description_file: ./prompts/query-funnel-actors.md
+        system_prompt_hint: List persons who converted through or dropped off at a given funnel step
         ui_resource_uri: ui://posthog/insight-actors.html
         use_optimized_output: true
         exclude_properties:

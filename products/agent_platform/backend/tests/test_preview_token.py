@@ -29,7 +29,11 @@ from posthog.test.base import APIBaseTest
 
 from django.test import override_settings
 
+from posthog.models.personal_api_key import PersonalAPIKey, hash_key_value
+from posthog.models.utils import generate_random_token_personal
+
 from ..models import AgentApplication, AgentRevision
+from ..presentation.views import AgentApplicationViewSet
 
 
 def _base_spec(triggers: list[dict[str, Any]] | None = None, modes: list[str] | None = None) -> dict[str, Any]:
@@ -46,10 +50,8 @@ def _base_spec(triggers: list[dict[str, Any]] | None = None, modes: list[str] | 
         "tools": [],
         "mcps": [],
         "skills": [],
-        "integrations": [],
         "secrets": [],
         "limits": {"max_turns": 10, "max_tool_calls": 20, "max_wall_seconds": 60},
-        "entrypoint": "agent.md",
     }
 
 
@@ -57,8 +59,6 @@ def _base_spec(triggers: list[dict[str, Any]] | None = None, modes: list[str] | 
 class TestPreviewTokenResponse(APIBaseTest):
     databases = {
         "default",
-        "persons_db_writer",
-        "persons_db_reader",
         "agent_platform_db_writer",
         "agent_platform_db_reader",
     }
@@ -190,6 +190,21 @@ class TestPreviewTokenResponse(APIBaseTest):
         assert res.status_code == 400, res.content
         assert "revision_id" in res.content.decode()
 
+    def test_revision_from_different_app_in_same_team_rejected(self) -> None:
+        # A revision UUID that belongs to a SIBLING app in the same team must
+        # not mint a token under THIS app's slug — otherwise the slug-rev URL
+        # would route the caller to one app's resources via another app's
+        # access boundary. Filter is `application=application` in the view;
+        # this pins the contract end-to-end.
+        app_a = self._app("preview-bot-a")
+        app_b = self._app("preview-bot-b")
+        rev_b = self._revision(app_b, _base_spec())
+        res = self.client.get(
+            f"/api/projects/{self.team.id}/agent_applications/{app_a.slug}/preview-token/?revision_id={rev_b.id}"
+        )
+        assert res.status_code == 404, res.content
+        assert "Revision not found in this application" in res.content.decode()
+
 
 @override_settings(
     AGENT_INGRESS_ROUTING_MODE="domain",
@@ -204,8 +219,6 @@ class TestPreviewTokenDomainMode(APIBaseTest):
 
     databases = {
         "default",
-        "persons_db_writer",
-        "persons_db_reader",
         "agent_platform_db_writer",
         "agent_platform_db_reader",
     }
@@ -260,8 +273,6 @@ class TestSlackUrlSerializer(APIBaseTest):
 
     databases = {
         "default",
-        "persons_db_writer",
-        "persons_db_reader",
         "agent_platform_db_writer",
         "agent_platform_db_reader",
     }
@@ -291,3 +302,150 @@ class TestSlackUrlSerializer(APIBaseTest):
         body = self._retrieve(self._app())
         assert body["slack_events_url"] is None
         assert body["slack_interactivity_url"] is None
+
+
+@override_settings(
+    AGENT_INGRESS_PUBLIC_URL="https://ingress.example.com",
+    AGENT_INTERNAL_SIGNING_KEY="dev-internal-signing-key-do-not-use-in-prod",
+)
+class TestPreviewTokenMintPost(APIBaseTest):
+    """POST mint verb (the contract-faithful one — minting is a write). It takes
+    no body: secrets are per-revision now, so there's no per-session override to
+    pass. The token only admits the non-live revision through routing."""
+
+    databases = {
+        "default",
+        "agent_platform_db_writer",
+        "agent_platform_db_reader",
+    }
+
+    def _app(self, slug: str = "preview-mint-bot") -> AgentApplication:
+        return AgentApplication.all_teams.create(team_id=self.team.id, slug=slug, name="X", description="")
+
+    def _revision(self, app: AgentApplication) -> AgentRevision:
+        return AgentRevision.all_teams.create(
+            application=app, state="draft", bundle_uri=f"local://{app.slug}/v1", spec=_base_spec()
+        )
+
+    def _url(self, app: AgentApplication, rev: AgentRevision) -> str:
+        return f"/api/projects/{self.team.id}/agent_applications/{app.slug}/preview-token/?revision_id={rev.id}"
+
+    def test_post_mints_token(self) -> None:
+        app = self._app()
+        rev = self._revision(app)
+        res = self.client.post(self._url(app, rev))
+        assert res.status_code == 200, res.content
+        body = res.json()
+        assert body["token"], "POST mint must return a non-empty token"
+        assert body["expires_in"] > 0
+        assert body["ingress_slug"] == f"{app.slug}-{rev.id.hex}"
+
+    def test_post_on_live_revision_rejected(self) -> None:
+        app = self._app()
+        rev = self._revision(app)
+        app.live_revision = rev
+        app.save(update_fields=["live_revision"])
+        res = self.client.post(self._url(app, rev))
+        assert res.status_code == 400, res.content
+        assert "non-live revisions only" in res.content.decode()
+
+    def test_post_revision_from_different_app_in_same_team_rejected(self) -> None:
+        # Same contract as the GET path: minting under one app's slug with a
+        # revision id from a sibling app must 404, not silently mint a token
+        # that crosses the app boundary.
+        app_a = self._app("preview-mint-bot-a")
+        app_b = self._app("preview-mint-bot-b")
+        rev_b = self._revision(app_b)
+        res = self.client.post(
+            f"/api/projects/{self.team.id}/agent_applications/{app_a.slug}/preview-token/?revision_id={rev_b.id}"
+        )
+        assert res.status_code == 404, res.content
+        assert "Revision not found in this application" in res.content.decode()
+
+
+@override_settings(
+    AGENT_INGRESS_PUBLIC_URL="https://ingress.example.com",
+    AGENT_INTERNAL_SIGNING_KEY="dev-internal-signing-key-do-not-use-in-prod",
+)
+class TestPreviewTokenScopeMapping(APIBaseTest):
+    """The preview-token endpoint serves both GET (back-compat, read-scoped) and
+    POST (canonical mint, write-scoped) at one URL. DRF resolves them to
+    distinct `view.action` names via `@preview_token_mint.mapping.get`, and the
+    scope-map split is what blocks an `agents:read` token from minting a JWT
+    and calling ingress `run`/`send`/`cancel` directly. These tests pin both
+    halves of that split."""
+
+    databases = {
+        "default",
+        "agent_platform_db_writer",
+        "agent_platform_db_reader",
+    }
+
+    def _app(self, slug: str = "preview-scope-bot") -> AgentApplication:
+        return AgentApplication.all_teams.create(team_id=self.team.id, slug=slug, name="X", description="")
+
+    def _revision(self, app: AgentApplication) -> AgentRevision:
+        return AgentRevision.all_teams.create(
+            application=app, state="draft", bundle_uri=f"local://{app.slug}/v1", spec=_base_spec()
+        )
+
+    def _url(self, app: AgentApplication, rev: AgentRevision) -> str:
+        return f"/api/projects/{self.team.id}/agent_applications/{app.slug}/preview-token/?revision_id={rev.id}"
+
+    def _pat(self, *, scopes: list[str]) -> str:
+        raw = generate_random_token_personal()
+        PersonalAPIKey.objects.create(
+            label="preview-scope", user=self.user, secure_value=hash_key_value(raw), scopes=scopes
+        )
+        return raw
+
+    # ── declared scope membership ───────────────────────────────────────
+
+    def test_post_mint_is_a_declared_write_action(self) -> None:
+        # `agents:read` PATs are rejected before reaching the action body when
+        # the action name isn't in this list; pin it so the next refactor
+        # can't accidentally re-merge POST back into the read-scoped GET
+        # action and reopen the scope hole.
+        assert "preview_token_mint" in AgentApplicationViewSet.scope_object_write_actions
+        assert "preview_token_mint" not in AgentApplicationViewSet.scope_object_read_actions
+
+    def test_get_preview_token_is_a_declared_write_action(self) -> None:
+        # The `EventSource`-friendly GET sibling returns the SAME usable token
+        # as the POST, so it must be write-scoped too — a read PAT minting a
+        # JWT via GET would reopen the scope hole. Pin it so a refactor can't
+        # silently move it back to read scope.
+        assert "preview_token" in AgentApplicationViewSet.scope_object_write_actions
+        assert "preview_token" not in AgentApplicationViewSet.scope_object_read_actions
+
+    # ── runtime gate (PAT) ──────────────────────────────────────────────
+
+    def test_read_scope_pat_can_neither_get_nor_post_mint(self) -> None:
+        # The safety property: an `agents:read` PAT must NOT be able to mint a
+        # preview JWT by EITHER verb (the token, attached as
+        # `x-agent-preview-token`, would let it hit ingress
+        # `run`/`send`/`cancel` directly). Both GET and POST require write.
+        app = self._app()
+        rev = self._revision(app)
+        raw = self._pat(scopes=["agents:read"])
+        # Drop the session auth APIBaseTest set up so the PAT is the sole
+        # credential the request carries; otherwise the session cookie
+        # promotes the request back to fully-scoped user auth.
+        self.client.logout()
+        post_res = self.client.post(self._url(app, rev), HTTP_AUTHORIZATION=f"Bearer {raw}")
+        assert post_res.status_code == 403, post_res.content
+        get_res = self.client.get(self._url(app, rev), HTTP_AUTHORIZATION=f"Bearer {raw}")
+        assert get_res.status_code == 403, get_res.content
+
+    def test_write_scope_pat_can_mint_via_both_verbs(self) -> None:
+        # The positive case: `agents:write` is required for minting, and it
+        # must succeed via both the canonical POST and the EventSource GET.
+        app = self._app("preview-scope-bot-write")
+        rev = self._revision(app)
+        raw = self._pat(scopes=["agents:write"])
+        self.client.logout()
+        post_res = self.client.post(self._url(app, rev), HTTP_AUTHORIZATION=f"Bearer {raw}")
+        assert post_res.status_code == 200, post_res.content
+        assert post_res.json()["token"]
+        get_res = self.client.get(self._url(app, rev), HTTP_AUTHORIZATION=f"Bearer {raw}")
+        assert get_res.status_code == 200, get_res.content
+        assert get_res.json()["token"]

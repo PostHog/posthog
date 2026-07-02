@@ -6,6 +6,7 @@ import {
     SignalSourceProduct,
     SignalSourceType,
 } from '~/queries/schema/schema-signals'
+import type { UserBasicType } from '~/types'
 
 export type { EnrichedReviewer, RelevantCommit }
 export { SignalSourceProduct, SignalSourceType }
@@ -44,8 +45,14 @@ export interface SignalReport {
     already_addressed?: boolean | null
     /** Distinct source products contributing signals to this report. */
     source_products?: string[]
+    /** skill_name slug of the authoring scout, when scout-authored (raw slug — prettify with `scoutDisplayName`). */
+    scout_name?: string | null
     /** PR URL from the latest implementation task run, if available. */
     implementation_pr_url?: string | null
+    /** Reason code from the latest dismissal artefact (when archived). See dismissalReasons. */
+    dismissal_reason?: string | null
+    /** Free-form note from the latest dismissal artefact (when archived). */
+    dismissal_note?: string | null
 }
 
 export enum SignalReportStatus {
@@ -66,6 +73,12 @@ export interface SignalReportArtefact {
     type: string
     content: Record<string, any>
     created_at: string
+    /** Log artefacts are editable in place; null for write-once rows. */
+    updated_at?: string | null
+    /** Set when a human produced the artefact (drives the "by {name}" attribution byline). */
+    created_by?: UserBasicType | null
+    /** Set when an agent task produced the artefact (attribution reads "by agent"). */
+    task_id?: string | null
 }
 
 export interface SignalReportArtefactResponse {
@@ -89,6 +102,8 @@ export interface ToggleSignalSourceParams {
     sourceType: SignalSourceType
     enabled: boolean
     config?: Record<string, any>
+    /** True when the enable came through the data-warehouse setup wizard, for `Signal source connected`. */
+    viaSetupWizard?: boolean
 }
 
 export enum SignalSourceConfigStatus {
@@ -99,15 +114,16 @@ export enum SignalSourceConfigStatus {
 
 // ── Inbox 2.0 IA: tabs + scope ──────────────────────────────────────────────
 
-export type InboxTabKey = 'pulls' | 'reports' | 'not-actionable' | 'runs' | 'config'
+export type InboxTabKey = 'pulls' | 'reports' | 'not-actionable' | 'runs' | 'archived' | 'config'
 
-export const INBOX_TAB_KEYS: InboxTabKey[] = ['pulls', 'reports', 'not-actionable', 'runs', 'config']
+export const INBOX_TAB_KEYS: InboxTabKey[] = ['pulls', 'reports', 'not-actionable', 'runs', 'archived', 'config']
 
 export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
     pulls: 'Pull requests',
     reports: 'Reports',
     'not-actionable': 'Not actionable',
     runs: 'Runs',
+    archived: 'Archive',
     config: 'Configuration',
 }
 
@@ -119,16 +135,16 @@ export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
 export const INBOX_CONFIG_TAB_KEY: InboxTabKey = 'config'
 
 /** Tabs that show a report-count chip. */
-export const INBOX_REPORT_TAB_KEYS: InboxTabKey[] = ['pulls', 'reports', 'not-actionable', 'runs']
+export const INBOX_REPORT_TAB_KEYS: InboxTabKey[] = ['pulls', 'reports', 'not-actionable', 'runs', 'archived']
 
 /**
- * Tabs only visible to staff users (internal). Non-staff see Pull requests + Reports.
- * Not-actionable reports and the project-wide Runs debug view are internal.
+ * Tabs only visible to staff users (internal). The Not-actionable reports view is an internal
+ * triage surface; everything else (including Runs) is public to any team member.
  */
-export const INBOX_STAFF_ONLY_TAB_KEYS: InboxTabKey[] = ['not-actionable', 'runs']
+export const INBOX_STAFF_ONLY_TAB_KEYS: InboxTabKey[] = ['not-actionable']
 
-/** The three flat report-list tabs that share the keyed reportListLogic + InboxReportList primitive. */
-export const INBOX_FLAT_LIST_TAB_KEYS = ['pulls', 'reports', 'not-actionable'] as const
+/** The flat report-list tabs that share the keyed reportListLogic + InboxReportList primitive. */
+export const INBOX_FLAT_LIST_TAB_KEYS = ['pulls', 'reports', 'not-actionable', 'archived'] as const
 export type InboxFlatListTabKey = (typeof INBOX_FLAT_LIST_TAB_KEYS)[number]
 
 export interface InboxTabCounts {
@@ -136,9 +152,10 @@ export interface InboxTabCounts {
     reports: number
     'not-actionable': number
     runs: number
+    archived: number
 }
 
-export const EMPTY_TAB_COUNTS: InboxTabCounts = { pulls: 0, reports: 0, 'not-actionable': 0, runs: 0 }
+export const EMPTY_TAB_COUNTS: InboxTabCounts = { pulls: 0, reports: 0, 'not-actionable': 0, runs: 0, archived: 0 }
 
 /** `for-you` (suggested-reviewer reports), `entire-project` (all), or `teammate:<uuid>`. */
 export type InboxScope = 'for-you' | 'entire-project' | `teammate:${string}`
@@ -147,19 +164,15 @@ export const INBOX_SCOPE_FOR_YOU: InboxScope = 'for-you'
 export const INBOX_SCOPE_ENTIRE_PROJECT: InboxScope = 'entire-project'
 
 // ── SignalReport ↔ Task linkage ─────────────────────────────────────────────
+// The task↔report association is the `task_run` artefact log (see artefactTypes.ts). The
+// relationship vocabulary below is retained only for the task-creation kickoff path, where the
+// backend still accepts `signal_report_task_relationship` (implementation) when starting a PR run.
 
 export const SIGNAL_REPORT_TASK_RELATIONSHIPS = ['repo_selection', 'research', 'implementation'] as const
 
 export type SignalReportTaskRelationship = (typeof SIGNAL_REPORT_TASK_RELATIONSHIPS)[number]
 
 export const SIGNAL_REPORT_TASK_IMPLEMENTATION_RELATIONSHIP: SignalReportTaskRelationship = 'implementation'
-
-export interface SignalReportTask {
-    id: string
-    relationship: SignalReportTaskRelationship
-    task_id: string
-    created_at: string
-}
 
 // ── Autonomy config (per-user override; backend SignalUserAutonomyConfigView) ─
 
@@ -187,18 +200,48 @@ export interface SignalTeamConfig {
     updated_at?: string
 }
 
+// ── Runs (composed client-side from scout runs + signal-pipeline tasks) ───────
+
+/** Whether a run-shaped task came from a headless scout or the signals pipeline. */
+export type SignalRunKind = 'scout' | 'signal'
+
+/**
+ * One row in the Runs tab. Not a backend resource — `inboxSceneLogic` composes these from two
+ * existing endpoints: scout runs (`signals/scout/runs`, kind `scout`) and signal-pipeline tasks
+ * (`tasks?origin_product=signal_report`, kind `signal`), merged newest-first. Rows link out to the
+ * standalone Tasks scene (`/tasks/{task_id}`).
+ */
+export interface SignalRun {
+    task_id: string
+    kind: SignalRunKind
+    /** Scout: the `signals-scout-*` skill code name (shown verbatim). Signal: the report title. */
+    title: string
+    /** Latest run status, or null if unknown. Shares `TaskRunStatus` values. */
+    status: SignalScoutRunStatus | null
+    /** Signal runs: the inbox report this run belongs to, for linking to it. Null for scouts. */
+    report_id: string | null
+    created_at: string
+}
+
 // ── Scouts (backend SignalScoutConfigViewSet / SignalScoutRunViewSet) ─────────
+
+/** Canonical (PostHog-shipped) vs custom (team-authored) scout, resolved server-side. */
+export type ScoutOrigin = 'canonical' | 'custom'
 
 /** Per-(team, skill) scout config. One row per `signals-scout-*` skill. */
 export interface SignalScoutConfig {
     id: string
     /** The `signals-scout-*` skill this config controls. Fixed at creation. */
     skill_name: string
+    /** What this scout investigates, sourced from the skill's `description` metadata. Empty if absent. */
+    description: string
+    /** Where this scout came from, resolved by the backend. Only `custom` scouts are deletable. */
+    scout_origin: ScoutOrigin
     /** Whether this scout runs on its schedule. */
     enabled: boolean
     /** Whether the scout writes findings to the inbox. false = dry-run. */
     emit: boolean
-    /** Minutes between runs (10–43200). */
+    /** Minutes between runs (30–43200). */
     run_interval_minutes: number
     /** When the coordinator last dispatched this scout; null if never. */
     last_run_at: string | null
@@ -232,6 +275,12 @@ export interface SignalScoutRunSummary {
     summary: string
     emitted_count: number
     emitted_finding_ids: string[]
+    /** Reports this run authored directly via the `emit_report` channel. Distinct from `emitted_count`
+     * (weak `emit_signal` findings): a report-authoring run writes a full report instead of a finding. */
+    emitted_report_ids: string[]
+    /** Reports this run mutated via the `edit_report` channel (retitled/resummarized and/or appended a
+     * note), deduped. Can target any inbox report, so these are generally not reports the run authored. */
+    edited_report_ids: string[]
 }
 
 /** One finding a scout run emitted to the inbox. */
@@ -245,6 +294,21 @@ export interface SignalScoutEmission {
     severity: SignalReportPriority | null
     source_id: string
     emitted_at: string
+}
+
+/** Minimal projection of the inbox report a scout finding grouped into (for the linked chip). */
+export interface LinkedSignalReport {
+    id: string
+    title: string | null
+}
+
+/** One finding a run emitted, paired with the inbox report (if any) its signal grouped into. */
+export interface SignalScoutEmissionReportLink {
+    finding_id: string
+    /** Deterministic `run:<run_id>:finding:<finding_id>` join key — the stable key into the emission set. */
+    source_id: string
+    /** The inbox report this finding linked to, or null if none could be resolved (not yet grouped, deduped, deleted). */
+    report: LinkedSignalReport | null
 }
 
 // ── Report state transitions (backend `state` action: dismiss / snooze) ──────

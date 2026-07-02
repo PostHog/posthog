@@ -1,6 +1,5 @@
 import re
 from collections.abc import Iterable
-from datetime import date, datetime
 from functools import cached_property
 from typing import Literal, Optional, Union, cast
 
@@ -39,7 +38,6 @@ from ee.hogai.chat_agent.taxonomy.tools import (
 )
 from ee.hogai.chat_agent.taxonomy.virtual_properties import (
     PropertyDefinitionOrVirtual,
-    get_property_definition_type,
     get_virtual_property_definition,
     get_virtual_property_sample_values,
     list_virtual_properties,
@@ -311,25 +309,6 @@ class TaxonomyAgentToolkit:
 
         return prop_values
 
-    @staticmethod
-    def _normalize_datetime_sample_values(sample_values: list) -> list:
-        normalized_values = []
-        for value in sample_values:
-            if isinstance(value, datetime):
-                normalized_values.append(value.isoformat())
-                continue
-            if isinstance(value, date):
-                normalized_values.append(value.isoformat())
-                continue
-            if isinstance(value, str):
-                try:
-                    normalized_values.append(datetime.fromisoformat(value).isoformat())
-                    continue
-                except ValueError:
-                    pass
-            normalized_values.append(value)
-        return normalized_values
-
     def _format_virtual_property_values(self, property_name: str, property_definition: CoreFilterDefinition) -> str:
         sample_values, sample_count = get_virtual_property_sample_values(property_definition)
         if not sample_values:
@@ -366,12 +345,8 @@ class TaxonomyAgentToolkit:
                 return f"Property values for {property_name} do not exist in the taxonomy for the {verbose_name}."
             return f"The property {property_name} does not exist in the taxonomy for the {verbose_name}."
 
-        sample_values = prop.sample_values
-        if get_property_definition_type(property_definition) == PropertyType.Datetime:
-            sample_values = self._normalize_datetime_sample_values(sample_values)
-
         return self._format_property_values(
-            sample_values,
+            prop.sample_values,
             prop.sample_count,
             format_as_string=property_is_string_like(property_definition),
         )
@@ -478,12 +453,8 @@ class TaxonomyAgentToolkit:
         if not unpacked_results.sample_values and virtual_definition is not None:
             return self._format_virtual_property_values(property_name, virtual_definition)
 
-        sample_values = unpacked_results.sample_values
-        if get_property_definition_type(property_definition) == PropertyType.Datetime:
-            sample_values = self._normalize_datetime_sample_values(sample_values)
-
         return self._format_property_values(
-            sample_values,
+            unpacked_results.sample_values,
             unpacked_results.sample_count,
             format_as_string=property_is_string_like(property_definition),
         )

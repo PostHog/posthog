@@ -1,16 +1,22 @@
-from django.test import SimpleTestCase
+from django.test import SimpleTestCase, TestCase, override_settings
 
 from parameterized import parameterized
 
+from posthog.models import OAuthAccessToken, OAuthApplication, Organization, Team, User
 from posthog.temporal.oauth import (
     INTERNAL_SCOPES,
     MCP_READ_SCOPES,
     MCP_WRITE_SCOPES,
+    POSTHOG_AI_APP_CLIENT_ID_DEV,
     SCOUT_INTERNAL_SCOPES,
     SCOUT_USER_WRITE_SCOPES,
+    create_oauth_access_token_for_user,
+    create_wizard_oauth_access_token_for_user,
     has_write_scopes,
     resolve_scopes,
 )
+
+_WIZARD_CLIENT_ID = "wizard-test-client-id"
 
 
 class TestResolveScopes(SimpleTestCase):
@@ -126,3 +132,83 @@ class TestHasWriteScopes(SimpleTestCase):
     )
     def test_has_write_scopes(self, _name: str, scopes, expected: bool) -> None:
         assert has_write_scopes(scopes) == expected
+
+
+class TestCreateOAuthAccessTokenForUser(TestCase):
+    def _create_oauth_app(self, client_id: str, name: str) -> OAuthApplication:
+        return OAuthApplication.objects.create(
+            client_id=client_id,
+            name=name,
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="http://localhost:8237/callback",
+            algorithm="RS256",
+        )
+
+    def _create_user_and_team(self) -> tuple[User, Team]:
+        organization = Organization.objects.create(name="OAuth test org")
+        team = Team.objects.create(organization=organization, name="OAuth test team")
+        user = User.objects.create(email="oauth-test@example.com")
+        return user, team
+
+    @override_settings(CLOUD_DEPLOYMENT="DEV")
+    def test_posthog_ai_application_uses_dev_app(self) -> None:
+        app = self._create_oauth_app(POSTHOG_AI_APP_CLIENT_ID_DEV, "PostHog AI Dev App")
+        user, team = self._create_user_and_team()
+
+        token = create_oauth_access_token_for_user(user, team.id, application="posthog_ai")
+
+        access_token = OAuthAccessToken.objects.get(token=token)
+        assert access_token.application_id == app.id
+        assert access_token.scoped_teams == [team.id]
+
+    @override_settings(CLOUD_DEPLOYMENT="DEV")
+    def test_posthog_ai_application_requires_existing_app(self) -> None:
+        user, team = self._create_user_and_team()
+
+        with self.assertRaisesRegex(RuntimeError, "PostHog AI app not found"):
+            create_oauth_access_token_for_user(user, team.id, application="posthog_ai")
+
+
+class TestCreateWizardOAuthAccessTokenForUser(TestCase):
+    def _create_wizard_app(self, scopes: list[str]) -> OAuthApplication:
+        return OAuthApplication.objects.create(
+            client_id=_WIZARD_CLIENT_ID,
+            name="PostHog Wizard Test App",
+            client_type=OAuthApplication.CLIENT_PUBLIC,
+            authorization_grant_type=OAuthApplication.GRANT_AUTHORIZATION_CODE,
+            redirect_uris="http://localhost:8237/callback",
+            algorithm="RS256",
+            scopes=scopes,
+        )
+
+    def _create_user_and_team(self) -> tuple[User, Team]:
+        organization = Organization.objects.create(name="Wizard OAuth test org")
+        team = Team.objects.create(organization=organization, name="Wizard OAuth test team")
+        user = User.objects.create(email="wizard-oauth-test@example.com")
+        return user, team
+
+    @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID=_WIZARD_CLIENT_ID)
+    def test_mints_token_under_wizard_app_with_its_scopes(self) -> None:
+        # The token must be minted under the wizard's own app (so the gateway authorizes it like a normal wizard run)
+        # separate from the agent's sandbox token.
+        scopes = ["project:read", "insight:write", "llm_gateway:read"]
+        app = self._create_wizard_app(scopes=scopes)
+        user, team = self._create_user_and_team()
+
+        token = create_wizard_oauth_access_token_for_user(user, team.id)
+
+        assert token is not None
+        assert token.startswith("pha_")
+
+        access_token = OAuthAccessToken.objects.get(token=token)
+        assert access_token.application_id == app.id
+        assert access_token.scoped_teams == [team.id]
+        assert set(access_token.scope.split()) == set(scopes)
+
+    @override_settings(WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID=_WIZARD_CLIENT_ID)
+    def test_requires_existing_app(self) -> None:
+        user, team = self._create_user_and_team()
+
+        with self.assertRaisesRegex(RuntimeError, "Wizard app not found"):
+            create_wizard_oauth_access_token_for_user(user, team.id)

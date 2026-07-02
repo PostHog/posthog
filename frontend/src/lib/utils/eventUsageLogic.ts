@@ -7,11 +7,13 @@ import { now } from 'lib/dayjs'
 import { TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { objectClean } from 'lib/utils/objects'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
+import type { DashboardAddTileType } from 'scenes/dashboard/dashboardAddTileTypes'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { ProductTourEvent } from 'scenes/product-tours/constants'
 import { NewSurvey, SURVEY_CREATED_SOURCE, SurveyTemplateType } from 'scenes/surveys/constants'
 import { userLogic } from 'scenes/userLogic'
+import { recordWebAnalyticsInteraction } from 'scenes/web-analytics/achievements/recordInteraction'
 
 import {
     Breakdown,
@@ -72,6 +74,8 @@ import {
     Survey,
     SurveyQuestionType,
 } from '~/types'
+
+import { InteractionKindEnumApi } from 'products/web_analytics/frontend/generated/api.schemas'
 
 import type { eventUsageLogicType } from './eventUsageLogicType'
 
@@ -525,6 +529,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             pinned,
             source,
         }),
+        reportDashboardMovedToFolder: (props: {
+            fromDepth: number
+            toDepth: number
+            fromUnfiled: boolean
+            toUnfiled: boolean
+        }) => props,
+        reportDashboardListSearched: (searchLength: number, resultsCount: number) => ({ searchLength, resultsCount }),
+        reportDashboardsTreeFolderNavigated: (depth: number, hasSubfolders: boolean) => ({ depth, hasSubfolders }),
+        reportDashboardMoveInitiated: (method: 'single' | 'bulk', count: number) => ({ method, count }),
         reportDashboardFrontEndUpdate: (
             dashboardId: number | undefined,
             attribute: 'name' | 'description' | 'tags',
@@ -583,6 +596,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCustomChannelTypeRulesUpdated: (numRules: number) => ({ numRules }),
         reportPropertySelectOpened: true,
         reportCreatedDashboardFromModal: true,
+        reportDashboardTileInsertedInline: (
+            tileType: DashboardAddTileType,
+            column: number,
+            row: number,
+            fullWidth: boolean
+        ) => ({ tileType, column, row, fullWidth }),
         /** Dashboard created via PostHog web app from a template (new dashboard modal / template chooser). */
         reportWebDashboardCreatedFromTemplate: (payload: {
             dashboard_id: number
@@ -1512,6 +1531,28 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 source,
             })
         },
+        reportDashboardMovedToFolder: async ({ fromDepth, toDepth, fromUnfiled, toUnfiled }) => {
+            // Coarse fields only — never folder/dashboard names (customer-controlled).
+            posthog.capture('dashboard moved to folder', {
+                from_depth: fromDepth,
+                to_depth: toDepth,
+                moved_from_unfiled: fromUnfiled,
+                moved_to_unfiled: toUnfiled,
+            })
+        },
+        reportDashboardListSearched: async ({ searchLength, resultsCount }) => {
+            // Length + count only, never the query text (can contain sensitive names).
+            posthog.capture('dashboard list searched', {
+                search_length: searchLength,
+                results_count: resultsCount,
+            })
+        },
+        reportDashboardsTreeFolderNavigated: async ({ depth, hasSubfolders }) => {
+            posthog.capture('dashboards tree folder navigated', { depth, has_subfolders: hasSubfolders })
+        },
+        reportDashboardMoveInitiated: async ({ method, count }) => {
+            posthog.capture('dashboard move initiated', { method, count })
+        },
         reportDashboardFrontEndUpdate: async ({ dashboardId, attribute, originalLength, newLength }) => {
             posthog.capture(`dashboard frontend updated`, {
                 dashboard_id: dashboardId,
@@ -1621,6 +1662,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportCreatedDashboardFromModal: async () => {
             posthog.capture('created new dashboard from modal')
+        },
+        reportDashboardTileInsertedInline: async ({ tileType, column, row, fullWidth }) => {
+            posthog.capture('dashboard tile inserted inline', {
+                tile_type: tileType,
+                column,
+                row,
+                full_width: fullWidth,
+            })
         },
         reportWebDashboardCreatedFromTemplate: async (payload) => {
             posthog.capture('dashboard created from template', {
@@ -2498,15 +2547,19 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportWebAnalyticsFilterApplied: ({ props }) => {
             posthog.capture('web analytics filter applied', props)
+            recordWebAnalyticsInteraction(InteractionKindEnumApi.Data)
         },
         reportWebAnalyticsFilterRemoved: ({ props }) => {
             posthog.capture('web analytics filter removed', props)
+            recordWebAnalyticsInteraction(InteractionKindEnumApi.Data)
         },
         reportWebAnalyticsDateRangeChanged: ({ props }) => {
             posthog.capture('web analytics date range changed', props)
+            recordWebAnalyticsInteraction(InteractionKindEnumApi.Data)
         },
         reportWebAnalyticsCompareToggled: ({ props }) => {
             posthog.capture('web analytics compare toggled', props)
+            recordWebAnalyticsInteraction(InteractionKindEnumApi.Data)
         },
         reportWebAnalyticsConversionGoalSet: ({ props }) => {
             posthog.capture('web analytics conversion goal set', props)
@@ -2525,6 +2578,7 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportWebAnalyticsPathCleaningToggled: ({ props }) => {
             posthog.capture('web analytics path cleaning toggled', props)
+            recordWebAnalyticsInteraction(InteractionKindEnumApi.Data)
         },
         // Customer Analytics
         reportCustomerAnalyticsDashboardBusinessModeChanged: async ({ business_mode }) => {

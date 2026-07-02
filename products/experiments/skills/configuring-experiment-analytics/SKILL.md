@@ -53,13 +53,69 @@ skill to resolve it to a concrete ID before proceeding.
 
 ## Metrics
 
-Metrics are added via `experiment-update` after creation. The `metrics` array **replaces** the entire list, so always get the current experiment first via `experiment-get` to preserve existing metrics.
+A metric reaches an experiment one of two ways, both via `experiment-update`:
 
-### Step 1: Discover available events (REQUIRED — always do this first)
+- **Inline metric** — defined directly on the experiment. Sent in the `metrics` array, which
+  **replaces** the entire inline list, so always get the current experiment first via `experiment-get`
+  to preserve existing metrics.
+- **Shared (saved) metric** — a reusable metric object that can be attached to many experiments.
+  Attached by ID via `saved_metrics_ids` (this list also **replaces** the experiment's existing
+  saved-metric links, so resend the full set — see Step 1).
 
-Before suggesting or configuring ANY metric, you MUST call `read-data-schema` to discover
+**Prefer reusing a shared metric over duplicating it inline.** Build a new inline metric only when
+no suitable shared metric already exists.
+
+### Step 1: Check for an existing shared metric (REQUIRED — match by definition, not name)
+
+Before building any new inline metric, you MUST check whether the project already has a shared
+(saved) metric that measures the same thing, and reuse it. Duplicating a metric that already exists
+as a shared metric fragments measurement and is exactly what we want to avoid.
+
+**Reuse is decided by the metric _definition_ — the event or action plus the metric type — not the
+name.** Saved metrics are named by each team's own conventions, which you cannot guess, so you must
+compare on what each metric measures (its `query`), never on its title.
+
+**Workflow:**
+
+1. **Know what you're about to build first.** Settle the target event(s)/action(s) and metric type
+   (mean / funnel / ratio / retention) before searching — see Step 2 to confirm the event exists via
+   `read-data-schema`. You can only recognize a duplicate once you know the concrete event/action,
+   so this check runs _after_ you've pinned down the event, not before.
+2. **Search by the event, then compare each candidate's `query`.** Call `experiment-saved-metrics-list`
+   with `?event=<the event you're measuring>` to find metrics that reference it — matched directly (an
+   `EventsNode`) **or** via the step events of any action a metric references, so action-based metrics are
+   found by the event their action fires on. Then for each returned row, inspect its **`query`** (not the
+   `name`/`description`): a saved metric is a reuse match when its `query` measures the **same event or
+   action with the same `metric_type`** (and compatible `math`) as the metric you'd otherwise build, even
+   if its name is different.
+   - **Match on the event, not the action's name.** An action-based metric is discoverable by the event
+     the action fires on — pass that event, not the action's label.
+   - **Do not use `search` for this.** `search` matches only the metric's own `name` / `description` / tags —
+     never the underlying event or action — so it cannot find a definition match. Use `search` only when the
+     user names a specific saved metric to attach (name resolution, not a definition match).
+3. **If a saved metric matches the definition** — confirm the match with the user by name/description,
+   then attach it instead of building a new one:
+   - Call `experiment-get` to read the experiment's current `saved_metrics`.
+   - Call `experiment-update` with `saved_metrics_ids` set to the full desired set — it **replaces**
+     existing links, so include the already-attached ones plus the new entry. Each entry has shape
+     `{ "id": <saved-metric id>, "metadata": { "type": "primary" } }` — set `type` to `"primary"` or
+     `"secondary"`. `metadata` is optional and defaults to primary.
+   - **Watch the id when rebuilding the set:** each item in the `saved_metrics` you just read has a
+     top-level `id` (the _link_ id) AND a `saved_metric` field (the _metric_ id). `saved_metrics_ids`
+     wants the **`saved_metric`** value, not the link `id` — sending the link `id` attaches the wrong
+     metric or fails validation.
+   - You do not need to build the inline metric — the shared metric already encodes its events.
+4. **If nothing in the library measures the same event/action + type** — build an inline metric
+   (Step 2+). When that inline metric is likely to be reused across experiments, offer to create it
+   as a shared metric instead, via `experiment-saved-metrics-create`, then attach it as above, so the
+   next experiment can reuse it.
+
+### Step 2: Discover available events (REQUIRED before building an inline metric)
+
+Before suggesting or building any new inline metric, you MUST call `read-data-schema` to discover
 what events actually exist in the project. Do NOT skip this step. Do NOT suggest event names
 based on what you think the project might track — only use events you have confirmed exist.
+(Attaching an existing shared metric from Step 1 does not need this — it already encodes its events.)
 
 This applies even when:
 
@@ -90,7 +146,7 @@ RIGHT: *calls read-data-schema* → "Here are the events in your project
   `order_confirmed`. Which of these represents a successful checkout?"
 ```
 
-### Step 2: Choose metric type
+### Step 3: Choose metric type
 
 There are four metric types. Each has `kind: "ExperimentMetric"`:
 
@@ -130,7 +186,7 @@ The start occurrence never counts as its own completion (only a distinct later e
 
 See `references/metric-configuration.md` for the full rendered `ExperimentMetric` schema (all four metric types, with required fields per type) plus WRONG/RIGHT JSON pairs for the failure modes that come up most often (ratio with `is_set` filter instead of `math: "sum"` + `math_property`; retention without `retention_window_start` / `start_handling`). Read it before assembling a ratio or retention payload — the required fields are authoritative.
 
-### Step 3: Primary vs secondary
+### Step 4: Primary vs secondary
 
 - **Primary metrics** — the main success criteria for the experiment. These drive the ship/end decision.
 - **Secondary metrics** — additional measurements for context. Useful for guardrail metrics (e.g., ensuring a conversion improvement doesn't increase error rates).

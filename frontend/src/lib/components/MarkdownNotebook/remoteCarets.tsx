@@ -1,4 +1,4 @@
-import { MutableRefObject, RefObject, useLayoutEffect, useState } from 'react'
+import { MutableRefObject, RefObject, useEffect, useState } from 'react'
 
 import {
     findTextPosition,
@@ -37,6 +37,8 @@ export type RemoteNotebookCaret = {
     position: MarkdownNotebookCaretPosition
     /** Notebook version the position was computed against, when known. */
     version?: number
+    isAI?: boolean
+    isAIThinking?: boolean
     isFading?: boolean
 }
 
@@ -227,7 +229,7 @@ export function RemoteCaretOverlay({
 }): JSX.Element | null {
     const [layouts, setLayouts] = useState<Record<string, RemoteCaretLayout>>({})
 
-    useLayoutEffect(() => {
+    useEffect(() => {
         const container = containerRef.current
         if (!container) {
             return
@@ -272,6 +274,19 @@ export function RemoteCaretOverlay({
                 if (!layout) {
                     return null
                 }
+                const caretFlag = (
+                    <span className="MarkdownNotebook__remote-caret-flag">
+                        <span className="MarkdownNotebook__remote-caret-name">{caret.userName}</span>
+                        {caret.isAI && caret.isAIThinking ? (
+                            <span className="MarkdownNotebook__remote-caret-ai-dots">
+                                <span>.</span>
+                                <span>.</span>
+                                <span>.</span>
+                            </span>
+                        ) : null}
+                    </span>
+                )
+
                 if (layout.width !== undefined) {
                     // Block-level presence: the user is on a component/table, not at a text offset.
                     const style = {
@@ -286,7 +301,7 @@ export function RemoteCaretOverlay({
                         : 'MarkdownNotebook__remote-block'
                     return (
                         <div key={caret.clientId} className={className} style={style}>
-                            <span className="MarkdownNotebook__remote-caret-flag">{caret.userName}</span>
+                            {caretFlag}
                         </div>
                     )
                 }
@@ -301,7 +316,7 @@ export function RemoteCaretOverlay({
                     : 'MarkdownNotebook__remote-caret'
                 return (
                     <div key={caret.clientId} className={className} style={style}>
-                        <span className="MarkdownNotebook__remote-caret-flag">{caret.userName}</span>
+                        {caretFlag}
                     </div>
                 )
             })}

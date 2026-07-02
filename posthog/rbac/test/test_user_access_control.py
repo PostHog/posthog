@@ -18,9 +18,11 @@ from posthog.rbac.user_access_control import (
     get_effective_access_level_for_member,
     get_effective_access_level_for_role,
     get_field_access_control_map,
+    model_to_resource,
 )
 
 from products.dashboards.backend.models.dashboard import Dashboard
+from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun
 
 try:
     from ee.models.rbac.access_control import AccessControl
@@ -83,6 +85,13 @@ class BaseUserAccessControlTest(BaseTest):
 
 @pytest.mark.ee
 class TestUserAccessControl(BaseUserAccessControlTest):
+    def test_vision_action_models_map_to_vision_action_resource(self):
+        # VisionAction/VisionActionRun's _meta.model_name (visionaction/visionactionrun) differs from the
+        # vision_action scope object, so without the explicit mapping they silently drop out of
+        # object-level access control and a per-action grant wouldn't be enforced.
+        assert model_to_resource(VisionAction()) == "vision_action"
+        assert model_to_resource(VisionActionRun()) == "vision_action"
+
     def test_no_organization_id_passed(self):
         # Create a user without an organization
         user_without_org = User.objects.create(email="no-org@posthog.com", password="testtest")
@@ -1937,3 +1946,103 @@ class TestAccessControlMissingEE(BaseTest):
         qs = FileSystem.objects.filter(team=self.team)
         result = self.uac.filter_and_annotate_file_system_queryset(qs)
         assert list(result) == list(qs)
+
+
+class TestBlockedResourceIdsByScope(BaseTest):
+    """
+    Tests the deny-set precedence used by HogQL system tables.
+
+    These exercise UserAccessControl.blocked_resource_ids_by_scope directly,
+    which is also the single source of truth for the HogQL printer guard and
+    the cache-key fingerprint in query_runner.py.
+    """
+
+    def setUp(self):
+        super().setUp()
+        from posthog.constants import AvailableFeature
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+        self.membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        self.membership.level = OrganizationMembership.Level.MEMBER
+        self.membership.save()
+
+        self.uac = UserAccessControl(self.user, self.team)
+
+    def _blocked(self, resource="dashboard") -> set[str]:
+        return self.uac.blocked_resource_ids_by_scope.get(resource, set())
+
+    def test_empty_for_org_admin(self):
+        self.membership.level = OrganizationMembership.Level.ADMIN
+        self.membership.save()
+        self.uac = UserAccessControl(self.user, self.team)
+        assert self._blocked() == set()
+
+    def test_no_object_overrides_means_no_blocked_ids(self):
+        assert self._blocked() == set()
+
+    def test_object_default_none_blocks_object(self):
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id="42",
+            access_level="none",
+        )
+        assert "42" in self._blocked()
+
+    def test_object_default_editor_allows_object(self):
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id="42",
+            access_level="editor",
+        )
+        assert "42" not in self._blocked()
+
+    def test_object_default_none_with_member_editor_override_allows(self):
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id="42",
+            access_level="none",
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id="42",
+            access_level="editor",
+            organization_member=self.membership,
+        )
+        assert "42" not in self._blocked()
+
+    def test_object_default_editor_with_member_none_blocks(self):
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id="42",
+            access_level="editor",
+        )
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id="42",
+            access_level="none",
+            organization_member=self.membership,
+        )
+        assert "42" in self._blocked()
+
+    def test_multiple_objects_mixed_access(self):
+        AccessControl.objects.create(team=self.team, resource="dashboard", resource_id="10", access_level="none")
+        AccessControl.objects.create(team=self.team, resource="dashboard", resource_id="20", access_level="editor")
+        AccessControl.objects.create(team=self.team, resource="dashboard", resource_id="30", access_level="none")
+        AccessControl.objects.create(
+            team=self.team,
+            resource="dashboard",
+            resource_id="30",
+            access_level="editor",
+            organization_member=self.membership,
+        )
+        assert self._blocked() == {"10"}

@@ -4,8 +4,6 @@ from datetime import datetime, timedelta
 from freezegun import freeze_time
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
-from posthog.clickhouse.client import sync_execute
-from posthog.models.event.sql import EVENTS_INSERT_DATA_TABLE
 from posthog.models.event.util import bulk_create_events
 
 from products.live_debugger.backend.models import LiveDebuggerBreakpoint
@@ -15,7 +13,9 @@ class TestLiveDebuggerBreakpointModel(ClickhouseTestMixin, BaseTest):
     def setUp(self):
         super().setUp()
         # Clean ClickHouse events table before each test
-        sync_execute(f"TRUNCATE TABLE IF EXISTS {EVENTS_INSERT_DATA_TABLE()}")
+        from posthog.clickhouse.client import sync_execute
+
+        sync_execute("TRUNCATE TABLE IF EXISTS sharded_events")
 
         self.breakpoint = LiveDebuggerBreakpoint.objects.create(
             team=self.team,

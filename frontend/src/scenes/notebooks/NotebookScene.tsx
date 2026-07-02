@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 import { router } from 'kea-router'
-import { useEffect } from 'react'
+import { useEffect, useState } from 'react'
 
 import { IconInfo, IconOpenSidebar } from '@posthog/icons'
 import { LemonButton, LemonTag } from '@posthog/lemon-ui'
@@ -9,7 +9,10 @@ import { AccessDenied } from 'lib/components/AccessDenied'
 import { NotFound } from 'lib/components/NotFound'
 import { JSONContent } from 'lib/components/RichContentEditor/types'
 import { UserActivityIndicator } from 'lib/components/UserActivityIndicator/UserActivityIndicator'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { useFileSystemLogView } from 'lib/hooks/useFileSystemLogView'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { cn } from 'lib/utils/css-classes'
 import { SceneExport } from 'scenes/sceneTypes'
 
 import { SceneBreadcrumbBackButton } from '~/layout/scenes/components/SceneBreadcrumbs'
@@ -30,6 +33,7 @@ import { NotebookShareModal } from './Notebook/NotebookShareModal'
 import { NotebookMenu } from './NotebookMenu'
 import { notebookPanelLogic } from './NotebookPanel/notebookPanelLogic'
 import { NotebookSceneLogicProps, notebookSceneLogic } from './notebookSceneLogic'
+import { NotebookSceneMenuBar } from './NotebookSceneMenuBar'
 import { LOCAL_NOTEBOOK_TEMPLATES } from './NotebookTemplates/notebookTemplates'
 import { NotebookTarget } from './types'
 
@@ -54,6 +58,9 @@ export function NotebookScene(): JSX.Element {
     const isMarkdownNotebook = isMarkdownNotebookContent(content)
     const { selectNotebook, closeSidePanel } = useActions(notebookPanelLogic)
     const { selectedNotebook, visibility } = useValues(notebookPanelLogic)
+    const [isMarkdownSourceOpen, setIsMarkdownSourceOpen] = useState(false)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const sceneMenuBarEnabled = !!featureFlags[FEATURE_FLAGS.SCENE_MENU_BAR]
 
     useEffect(() => {
         if (notebookId === 'new') {
@@ -77,6 +84,10 @@ export function NotebookScene(): JSX.Element {
             createNotebook(NotebookTarget.Scene, title, content)
         }
         // oxlint-disable-next-line exhaustive-deps
+    }, [notebookId])
+
+    useEffect(() => {
+        setIsMarkdownSourceOpen(false)
     }, [notebookId])
 
     useFileSystemLogView({
@@ -120,7 +131,8 @@ export function NotebookScene(): JSX.Element {
 
     return (
         <>
-            <div className="flex items-center justify-between">
+            <NotebookSceneMenuBar shortId={notebookId} />
+            <div className={cn('flex items-center justify-between', sceneMenuBarEnabled && 'mt-2')}>
                 <div className="flex gap-2 items-center">
                     <SceneBreadcrumbBackButton />
                     {isTemplate && <LemonTag type="highlight">TEMPLATE</LemonTag>}
@@ -132,7 +144,7 @@ export function NotebookScene(): JSX.Element {
                     <NotebookSyncInfo shortId={notebookId} />
                     <NotebookPresence shortId={notebookId} />
 
-                    <NotebookMenu shortId={notebookId} />
+                    {!sceneMenuBarEnabled && <NotebookMenu shortId={notebookId} />}
 
                     {!isMarkdownNotebook ? (
                         <>
@@ -156,34 +168,57 @@ export function NotebookScene(): JSX.Element {
                                     : ''}
                                 Guide
                             </LemonButton>
-                            <NotebookTableOfContentsButton type="secondary" size="small" />
+                            {/* Moved into the View menu under SCENE_MENU_BAR. */}
+                            {!sceneMenuBarEnabled && <NotebookTableOfContentsButton type="secondary" size="small" />}
                         </>
                     ) : null}
-                    <NotebookKernelInfoButton type="secondary" size="small" />
-                    {/* Markdown notebooks have no width toggle — they always fill the content width. */}
-                    {!isMarkdownNotebook && <NotebookExpandButton type="secondary" size="small" inPanel={false} />}
-                    <LemonButton
-                        type="secondary"
-                        size="small"
-                        onClick={() => {
-                            selectNotebook(notebookId)
-                        }}
-                        tooltip={
-                            <>
-                                Opens the notebook in a context panel, that can be accessed from anywhere in the PostHog
-                                app. This is great for dragging and dropping elements like insights, recordings or even
-                                feature flags into your active notebook.
-                            </>
-                        }
-                        aria-label="Open in context panel"
-                        sideIcon={<IconOpenSidebar />}
-                    >
-                        <span className="hidden lg:inline">Open in context panel</span>
-                    </LemonButton>
+                    {!sceneMenuBarEnabled && (
+                        <NotebookKernelInfoButton
+                            type="secondary"
+                            size="small"
+                            onBeforeShowKernelInfo={
+                                isMarkdownNotebook ? () => setIsMarkdownSourceOpen(false) : undefined
+                            }
+                        />
+                    )}
+                    {!sceneMenuBarEnabled && (
+                        <NotebookExpandButton
+                            type="secondary"
+                            size="small"
+                            inPanel={false}
+                            isMarkdownNotebook={isMarkdownNotebook}
+                        />
+                    )}
+                    {!sceneMenuBarEnabled && (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            onClick={() => {
+                                selectNotebook(notebookId)
+                            }}
+                            tooltip={
+                                <>
+                                    Opens the notebook in a context panel, that can be accessed from anywhere in the
+                                    PostHog app. This is great for dragging and dropping elements like insights,
+                                    recordings or even feature flags into your active notebook.
+                                </>
+                            }
+                            aria-label="Open in context panel"
+                            sideIcon={<IconOpenSidebar />}
+                        >
+                            <span className="hidden lg:inline">Open in context panel</span>
+                        </LemonButton>
+                    )}
                 </div>
             </div>
 
-            <Notebook key={notebookId} shortId={notebookId} editable={!isTemplate} />
+            <Notebook
+                key={notebookId}
+                shortId={notebookId}
+                editable={!isTemplate}
+                markdownSourceOpen={isMarkdownSourceOpen}
+                onMarkdownSourceOpenChange={setIsMarkdownSourceOpen}
+            />
             <NotebookShareModal shortId={notebookId} />
         </>
     )

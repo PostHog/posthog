@@ -292,7 +292,6 @@ class TestWebPreaggregatedInserts(WebAnalyticsPreAggregatedTestBase):
         assert ")\n\n    SELECT" in bounces_insert
 
 
-@pytest.mark.django_db
 class TestCentralizedFilters:
     """Test the centralized filter functionality introduced for UTC boundary fixes."""
 

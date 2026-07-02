@@ -3,6 +3,7 @@ from typing import Literal
 from posthog.test.base import BaseTest
 from unittest import mock
 
+from django.conf import settings
 from django.test import override_settings
 
 from posthog.hogql.constants import MAX_SELECT_RETURNED_ROWS
@@ -16,15 +17,16 @@ from posthog.hogql.parser import parse_select
 from posthog.hogql.printer import prepare_and_print_ast
 from posthog.hogql.query import create_default_modifiers_for_team
 
-from posthog.models.event.sql import EVENTS_QUERY_TABLE
+from posthog.models.event.sql import DISTRIBUTED_EVENTS_JSON_TABLE
 
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
 
 class TestS3Table(BaseTest):
     def _events_from_sql(self) -> str:
-        events_query_table = EVENTS_QUERY_TABLE()
-        return f"{events_query_table} AS events" if events_query_table != "events" else "events"
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            return f"{DISTRIBUTED_EVENTS_JSON_TABLE} AS events"
+        return "events"
 
     def _init_database(self):
         self.database = Database.create_for(team=self.team)

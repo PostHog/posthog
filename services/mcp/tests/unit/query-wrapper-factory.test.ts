@@ -95,6 +95,8 @@ describe('createQueryWrapper _posthogUrl', () => {
         lifecycleActors: ReturnType<typeof vi.fn>
         pathsActors: ReturnType<typeof vi.fn>
         retentionActors: ReturnType<typeof vi.fn>
+        stickinessActors: ReturnType<typeof vi.fn>
+        funnelActors: ReturnType<typeof vi.fn>
     } {
         const actorsResponse = {
             query: { kind: 'ActorsQuery', source: { kind: 'InsightActorsQuery' } },
@@ -106,14 +108,23 @@ describe('createQueryWrapper _posthogUrl', () => {
         const lifecycleActors = vi.fn().mockResolvedValue(actorsResponse)
         const pathsActors = vi.fn().mockResolvedValue(actorsResponse)
         const retentionActors = vi.fn().mockResolvedValue(actorsResponse)
+        const stickinessActors = vi.fn().mockResolvedValue(actorsResponse)
+        const funnelActors = vi.fn().mockResolvedValue(actorsResponse)
         const context = {
             api: {
-                query: vi.fn().mockReturnValue({ trendsActors, lifecycleActors, pathsActors, retentionActors }),
+                query: vi.fn().mockReturnValue({
+                    trendsActors,
+                    lifecycleActors,
+                    pathsActors,
+                    retentionActors,
+                    stickinessActors,
+                    funnelActors,
+                }),
                 getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
             },
             stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
         } as unknown as Context
-        return { context, trendsActors, lifecycleActors, pathsActors, retentionActors }
+        return { context, trendsActors, lifecycleActors, pathsActors, retentionActors, stickinessActors, funnelActors }
     }
 
     const actorsSchema = z.object({
@@ -121,50 +132,31 @@ describe('createQueryWrapper _posthogUrl', () => {
         source: z.looseObject({ kind: z.string() }),
     })
 
-    it('dispatches TrendsQuery source to trendsActors', async () => {
-        const { context, trendsActors, lifecycleActors } = createActorsDispatchContext()
+    const ACTOR_HANDLERS = [
+        'trendsActors',
+        'lifecycleActors',
+        'pathsActors',
+        'retentionActors',
+        'stickinessActors',
+        'funnelActors',
+    ] as const
+
+    it.each([
+        ['TrendsQuery', 'trendsActors'],
+        ['LifecycleQuery', 'lifecycleActors'],
+        ['PathsQuery', 'pathsActors'],
+        ['RetentionQuery', 'retentionActors'],
+        ['StickinessQuery', 'stickinessActors'],
+        ['FunnelsQuery', 'funnelActors'],
+    ] as const)('dispatches %s source to %s and no other handler', async (sourceKind, expectedHandler) => {
+        const ctx = createActorsDispatchContext()
         const tool = createQueryWrapper({ name: 'test', schema: actorsSchema, kind: 'InsightActorsQuery' })()
 
-        const result = (await tool.handler(context, { source: { kind: 'TrendsQuery' } })) as any
+        const result = (await tool.handler(ctx.context, { source: { kind: sourceKind } })) as any
 
-        expect(trendsActors).toHaveBeenCalledOnce()
-        expect(lifecycleActors).not.toHaveBeenCalled()
-        expect(result._posthogUrl).toContain('DataTableNode')
-    })
-
-    it('dispatches LifecycleQuery source to lifecycleActors', async () => {
-        const { context, trendsActors, lifecycleActors } = createActorsDispatchContext()
-        const tool = createQueryWrapper({ name: 'test', schema: actorsSchema, kind: 'InsightActorsQuery' })()
-
-        const result = (await tool.handler(context, { source: { kind: 'LifecycleQuery' } })) as any
-
-        expect(lifecycleActors).toHaveBeenCalledOnce()
-        expect(trendsActors).not.toHaveBeenCalled()
-        expect(result._posthogUrl).toContain('DataTableNode')
-    })
-
-    it('dispatches PathsQuery source to pathsActors', async () => {
-        const { context, trendsActors, lifecycleActors, pathsActors } = createActorsDispatchContext()
-        const tool = createQueryWrapper({ name: 'test', schema: actorsSchema, kind: 'InsightActorsQuery' })()
-
-        const result = (await tool.handler(context, { source: { kind: 'PathsQuery' } })) as any
-
-        expect(pathsActors).toHaveBeenCalledOnce()
-        expect(trendsActors).not.toHaveBeenCalled()
-        expect(lifecycleActors).not.toHaveBeenCalled()
-        expect(result._posthogUrl).toContain('DataTableNode')
-    })
-
-    it('dispatches RetentionQuery source to retentionActors', async () => {
-        const { context, trendsActors, lifecycleActors, pathsActors, retentionActors } = createActorsDispatchContext()
-        const tool = createQueryWrapper({ name: 'test', schema: actorsSchema, kind: 'InsightActorsQuery' })()
-
-        const result = (await tool.handler(context, { source: { kind: 'RetentionQuery' } })) as any
-
-        expect(retentionActors).toHaveBeenCalledOnce()
-        expect(trendsActors).not.toHaveBeenCalled()
-        expect(lifecycleActors).not.toHaveBeenCalled()
-        expect(pathsActors).not.toHaveBeenCalled()
+        for (const handler of ACTOR_HANDLERS) {
+            expect(ctx[handler]).toHaveBeenCalledTimes(handler === expectedHandler ? 1 : 0)
+        }
         expect(result._posthogUrl).toContain('DataTableNode')
     })
 
@@ -338,8 +330,8 @@ describe('createQueryWrapper actors dispatch', () => {
         const factory = createQueryWrapper({ name: 'test', schema: actorsSchema, kind: 'InsightActorsQuery' })
         const tool = factory()
 
-        await expect(tool.handler(context, { source: { kind: 'StickinessQuery' } })).rejects.toThrow(
-            'Unsupported source kind for actors query: StickinessQuery'
+        await expect(tool.handler(context, { source: { kind: 'FunnelCorrelationQuery' } })).rejects.toThrow(
+            'Unsupported source kind for actors query: FunnelCorrelationQuery'
         )
     })
 })

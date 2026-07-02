@@ -1,3 +1,7 @@
+// .FunnelTooltip styles live in FunnelBarVertical.scss; import here so they load on the quill funnel
+// charts that reuse this tooltip (the old FunnelBarVertical that used to pull them in is gone).
+import './FunnelBarVertical/FunnelBarVertical.scss'
+
 import clsx from 'clsx'
 import { useValues } from 'kea'
 import { useEffect, useRef } from 'react'
@@ -22,7 +26,7 @@ import { FunnelStepWithConversionMetrics } from '~/types'
 
 import { funnelDataLogic } from './funnelDataLogic'
 import { funnelTooltipLogic } from './funnelTooltipLogic'
-import { funnelComparePeriodDateRange } from './funnelUtils'
+import { funnelComparePeriodDateRange, funnelTooltipHeaderLabel, hasBreakdown } from './funnelUtils'
 
 /** The tooltip is offset horizontally by a few pixels from the bar to give it some breathing room. */
 const FUNNEL_TOOLTIP_OFFSET_PX = 4
@@ -36,6 +40,8 @@ export interface FunnelTooltipProps {
     embedded?: boolean
     /** Date range of the hovered series' compare period; shown when the series is compare-tagged. */
     comparePeriodDateRange?: string | null
+    /** Baseline conversion rate across all breakdown values; shown only for breakdown variants past the first step. */
+    aggregateConversionRate?: number | null
 }
 
 export function FunnelTooltip({
@@ -46,6 +52,7 @@ export function FunnelTooltip({
     breakdownFilter,
     embedded = false,
     comparePeriodDateRange,
+    aggregateConversionRate,
 }: FunnelTooltipProps): JSX.Element {
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
@@ -62,16 +69,21 @@ export function FunnelTooltip({
                 <strong>
                     <EntityFilterInfo filter={getActionFilterFromFunnelStep(series)} allowWrap />
                     <span className="mx-1">•</span>
-                    {series.compare_label
-                        ? `${series.compare_label === 'current' ? 'Current' : 'Previous'}${
-                              comparePeriodDateRange ? ` (${comparePeriodDateRange})` : ''
-                          }`
-                        : formatBreakdownLabel(
-                              series.breakdown_value,
-                              breakdownFilter,
-                              allCohorts.results,
-                              formatPropertyValueForDisplay
-                          )}
+                    {funnelTooltipHeaderLabel({
+                        // Pure compare bars (no real breakdown) show only the period; breakdown and
+                        // breakdown + compare bars show the breakdown value (plus the period if any).
+                        breakdownLabel:
+                            !series.compare_label || hasBreakdown(series.breakdown_value)
+                                ? formatBreakdownLabel(
+                                      series.breakdown_value,
+                                      breakdownFilter,
+                                      allCohorts.results,
+                                      formatPropertyValueForDisplay
+                                  )
+                                : null,
+                        compareLabel: series.compare_label,
+                        comparePeriodDateRange,
+                    })}
                 </strong>
             </LemonRow>
             <LemonDivider className="my-2" />
@@ -91,6 +103,12 @@ export function FunnelTooltip({
                         <td>Conversion so far</td>
                         <td>{percentage(series.conversionRates.total, 2, true)}</td>
                     </tr>
+                    {stepIndex > 0 && aggregateConversionRate != null && (
+                        <tr>
+                            <td>Baseline conversion rate</td>
+                            <td>{percentage(aggregateConversionRate, 2, true)}</td>
+                        </tr>
+                    )}
                     {stepIndex > 0 && (
                         <tr>
                             <td>Conversion from previous</td>

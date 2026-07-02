@@ -1,5 +1,4 @@
 import json
-import uuid
 from datetime import datetime
 from typing import cast
 
@@ -33,13 +32,11 @@ from posthog.schema import (
 
 from posthog.constants import ExperimentNoResultsErrorKeys
 from posthog.models.filters.utils import GroupTypeIndex
-from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 from products.actions.backend.models.action import Action
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.test.experiment_query_runner.base import ExperimentQueryRunnerBaseTest
-from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 
 
 @override_settings(IN_UNIT_TESTING=True)
@@ -80,7 +77,6 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self._save_experiment_with_precomputation(experiment, use_precomputation)
 
         # Control: 8 successes, 7 failures (15 total exposures)
-        control_success_events = []
         for i in range(15):
             _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
             _create_event(
@@ -95,11 +91,8 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
                 },
             )
             if i < 8:  # First 8 users make purchases
-                event_uuid = str(uuid.uuid4())
-                control_success_events.append(event_uuid)
                 _create_event(
                     team=self.team,
-                    event_uuid=event_uuid,
                     event="purchase",
                     distinct_id=f"user_control_{i}",
                     timestamp="2020-01-02T12:01:00Z",
@@ -167,156 +160,6 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
 
         # Check that we have the correct data for rendering the funnel chart
         self.assertEqual(control_variant.step_counts, [8])  # contains data for funnel chart
-        control_sampled_success_events = [s.event_uuid for s in control_variant.step_sessions[1]]
-        self.assertEqual(sorted(control_success_events), sorted(control_sampled_success_events))
-
-    @freeze_time("2020-01-01T12:00:00Z")
-    @snapshot_clickhouse_queries
-    def test_funnel_metric_with_steps_data_disabled(self):
-        feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.parameters = {"funnel_steps_data_disabled": True}
-        experiment.save()
-
-        feature_flag_property = f"$feature/{feature_flag.key}"
-
-        metric = ExperimentFunnelMetric(
-            series=[EventsNode(event="purchase")],
-        )
-
-        experiment_query = ExperimentQuery(
-            experiment_id=experiment.id,
-            kind="ExperimentQuery",
-            metric=metric,
-        )
-
-        experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
-
-        for i in range(15):
-            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="$feature_flag_called",
-                distinct_id=f"user_control_{i}",
-                timestamp="2020-01-02T12:00:00Z",
-                properties={
-                    feature_flag_property: "control",
-                    "$feature_flag_response": "control",
-                    "$feature_flag": feature_flag.key,
-                },
-            )
-            if i < 8:
-                _create_event(
-                    team=self.team,
-                    event="purchase",
-                    distinct_id=f"user_control_{i}",
-                    timestamp="2020-01-02T12:01:00Z",
-                    properties={feature_flag_property: "control"},
-                )
-
-        for i in range(15):
-            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="$feature_flag_called",
-                distinct_id=f"user_test_{i}",
-                timestamp="2020-01-02T12:00:00Z",
-                properties={
-                    feature_flag_property: "test",
-                    "$feature_flag_response": "test",
-                    "$feature_flag": feature_flag.key,
-                },
-            )
-            if i < 10:
-                _create_event(
-                    team=self.team,
-                    event="purchase",
-                    distinct_id=f"user_test_{i}",
-                    timestamp="2020-01-02T12:01:00Z",
-                    properties={feature_flag_property: "test"},
-                )
-
-        flush_persons_and_events()
-
-        query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = query_runner.calculate()
-
-        control_variant = result.baseline
-        test_variant = result.variant_results[0]
-
-        # Step counts should still be present
-        self.assertEqual(control_variant.step_counts, [8])
-        self.assertEqual(test_variant.step_counts, [10])
-
-        # Step sessions should be absent
-        self.assertIsNone(control_variant.step_sessions)
-        self.assertIsNone(test_variant.step_sessions)
-
-    @parameterized.expand(
-        [
-            # (name, experiment_parameters, team_config_value, expect_disabled)
-            ("team_config_only", {}, True, True),
-            ("experiment_overrides_team", {"funnel_steps_data_disabled": False}, True, False),
-        ]
-    )
-    @freeze_time("2020-01-01T12:00:00Z")
-    def test_funnel_metric_steps_data_disabled_team_config(
-        self, name, experiment_parameters, team_config_value, expect_disabled
-    ):
-        feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.parameters = experiment_parameters
-        experiment.save()
-
-        config = get_or_create_team_extension(self.team, TeamExperimentsConfig)
-        config.funnel_steps_data_disabled = team_config_value
-        config.save()
-
-        feature_flag_property = f"$feature/{feature_flag.key}"
-        metric = ExperimentFunnelMetric(series=[EventsNode(event="purchase")])
-        experiment_query = ExperimentQuery(experiment_id=experiment.id, kind="ExperimentQuery", metric=metric)
-        experiment.metrics = [metric.model_dump(mode="json")]
-        experiment.save()
-
-        for variant, convert_count in (("control", 8), ("test", 10)):
-            for i in range(15):
-                distinct_id = f"user_{variant}_{i}"
-                _create_person(distinct_ids=[distinct_id], team_id=self.team.pk)
-                _create_event(
-                    team=self.team,
-                    event="$feature_flag_called",
-                    distinct_id=distinct_id,
-                    timestamp="2020-01-02T12:00:00Z",
-                    properties={
-                        feature_flag_property: variant,
-                        "$feature_flag_response": variant,
-                        "$feature_flag": feature_flag.key,
-                    },
-                )
-                if i < convert_count:
-                    _create_event(
-                        team=self.team,
-                        event="purchase",
-                        distinct_id=distinct_id,
-                        timestamp="2020-01-02T12:01:00Z",
-                        properties={feature_flag_property: variant},
-                    )
-
-        flush_persons_and_events()
-
-        result = ExperimentQueryRunner(query=experiment_query, team=self.team).calculate()
-        control_variant = result.baseline
-        test_variant = result.variant_results[0]
-
-        self.assertEqual(control_variant.step_counts, [8])
-        self.assertEqual(test_variant.step_counts, [10])
-        if expect_disabled:
-            self.assertIsNone(control_variant.step_sessions)
-            self.assertIsNone(test_variant.step_sessions)
-        else:
-            self.assertIsNotNone(control_variant.step_sessions)
-            self.assertIsNotNone(test_variant.step_sessions)
 
     @parameterized.expand(
         [
@@ -1571,243 +1414,6 @@ class TestExperimentFunnelMetric(ExperimentQueryRunnerBaseTest):
         self._save_experiment_with_precomputation(experiment, use_precomputation)
 
         query_runner = ExperimentQueryRunner(query=experiment_query, team=self.team)
-        result = query_runner.calculate()
-
-        assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
-
-        control_variant = result.baseline
-        assert control_variant is not None
-        test_variant = result.variant_results[0]
-        assert test_variant is not None
-
-        self.assertEqual(control_variant.sum, 8)  # 8 successful funnels
-        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 5)  # 5 failures
-        self.assertEqual(test_variant.sum, 6)  # 6 successful funnels
-        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # 7 failures
-
-    @parameterized.expand(
-        [
-            ("direct", False),
-            ("precomputed", True),
-        ]
-    )
-    @freeze_time("2024-01-01T12:00:00Z")
-    @snapshot_clickhouse_queries
-    def test_funnel_metric_duplicate_events(self, name, use_precomputation):
-        self._setup_precomputation_test(use_precomputation)
-
-        feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist"}
-        experiment.save()
-
-        ff_property = f"$feature/{feature_flag.key}"
-
-        # Create test data with sufficient sample sizes for statistics
-        # Control group: 8 successful funnels, 5 failures (13 total)
-        for i in range(13):
-            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="$feature_flag_called",
-                distinct_id=f"user_control_{i}",
-                timestamp="2024-01-02T12:00:00Z",
-                properties={
-                    "$feature_flag_response": "control",
-                    ff_property: "control",
-                    "$feature_flag": feature_flag.key,
-                },
-            )
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id=f"user_control_{i}",
-                timestamp="2024-01-02T12:01:00Z",
-                properties={ff_property: "control"},
-            )
-            if i < 8:  # First 8 users complete the funnel
-                _create_event(
-                    team=self.team,
-                    event="purchase",
-                    distinct_id=f"user_control_{i}",
-                    timestamp="2024-01-02T12:02:00Z",
-                    properties={ff_property: "control"},
-                )
-
-        # Test group: 6 successful funnels, 7 failures (13 total)
-        for i in range(13):
-            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="$feature_flag_called",
-                distinct_id=f"user_test_{i}",
-                timestamp="2024-01-02T12:00:00Z",
-                properties={
-                    "$feature_flag_response": "test",
-                    ff_property: "test",
-                    "$feature_flag": feature_flag.key,
-                },
-            )
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id=f"user_test_{i}",
-                timestamp="2024-01-02T12:01:00Z",
-                properties={ff_property: "test"},
-            )
-            if i < 6:  # First 6 users complete the funnel
-                _create_event(
-                    team=self.team,
-                    event="purchase",
-                    distinct_id=f"user_test_{i}",
-                    timestamp="2024-01-02T12:02:00Z",
-                    properties={ff_property: "test"},
-                )
-
-        flush_persons_and_events()
-
-        action = Action.objects.create(name="purchase action", team=self.team, steps_json=[{"event": "purchase"}])
-        action.save()
-
-        metric = ExperimentFunnelMetric(
-            series=[
-                EventsNode(event="$pageview"),
-                ActionsNode(id=action.id),
-            ],
-        )
-
-        experiment_query = ExperimentQuery(
-            experiment_id=experiment.id,
-            kind="ExperimentQuery",
-            metric=metric,
-        )
-
-        experiment.metrics = [metric.model_dump(mode="json")]
-        self._save_experiment_with_precomputation(experiment, use_precomputation)
-
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query,
-            team=self.team,
-        )
-        result = query_runner.calculate()
-
-        assert result.variant_results is not None
-        self.assertEqual(len(result.variant_results), 1)
-
-        control_variant = result.baseline
-        assert control_variant is not None
-        test_variant = result.variant_results[0]
-        assert test_variant is not None
-
-        self.assertEqual(control_variant.sum, 8)  # 8 successful funnels
-        self.assertEqual(control_variant.number_of_samples - control_variant.sum, 5)  # 5 failures
-        self.assertEqual(test_variant.sum, 6)  # 6 successful funnels
-        self.assertEqual(test_variant.number_of_samples - test_variant.sum, 7)  # 7 failures
-
-    @parameterized.expand(
-        [
-            ("direct", False),
-            ("precomputed", True),
-        ]
-    )
-    @freeze_time("2024-01-01T12:00:00Z")
-    @snapshot_clickhouse_queries
-    def test_funnel_metric_events_out_of_order(self, name, use_precomputation):
-        self._setup_precomputation_test(use_precomputation)
-
-        feature_flag = self.create_feature_flag()
-        experiment = self.create_experiment(feature_flag=feature_flag)
-        experiment.stats_config = {"method": "frequentist"}
-        experiment.save()
-
-        ff_property = f"$feature/{feature_flag.key}"
-
-        # Control group: 8 successful funnels, 5 failures (13 total)
-        for i in range(13):
-            _create_person(distinct_ids=[f"user_control_{i}"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="$feature_flag_called",
-                distinct_id=f"user_control_{i}",
-                timestamp="2024-01-02T12:00:00Z",
-                properties={
-                    "$feature_flag_response": "control",
-                    ff_property: "control",
-                    "$feature_flag": feature_flag.key,
-                },
-            )
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id=f"user_control_{i}",
-                timestamp="2024-01-02T12:01:00Z",
-                properties={ff_property: "control"},
-            )
-            if i < 8:  # First 8 users complete the funnel
-                _create_event(
-                    team=self.team,
-                    event="purchase",
-                    distinct_id=f"user_control_{i}",
-                    timestamp="2024-01-02T12:02:00Z",
-                    properties={ff_property: "control"},
-                )
-
-        # Test group: 6 successful funnels, 7 failures (13 total)
-        for i in range(13):
-            _create_person(distinct_ids=[f"user_test_{i}"], team_id=self.team.pk)
-            _create_event(
-                team=self.team,
-                event="$feature_flag_called",
-                distinct_id=f"user_test_{i}",
-                timestamp="2024-01-02T12:00:00Z",
-                properties={
-                    "$feature_flag_response": "test",
-                    ff_property: "test",
-                    "$feature_flag": feature_flag.key,
-                },
-            )
-            _create_event(
-                team=self.team,
-                event="$pageview",
-                distinct_id=f"user_test_{i}",
-                timestamp="2024-01-02T12:01:00Z",
-                properties={ff_property: "test"},
-            )
-            if i < 6:  # First 6 users complete the funnel
-                _create_event(
-                    team=self.team,
-                    event="purchase",
-                    distinct_id=f"user_test_{i}",
-                    timestamp="2024-01-02T12:02:00Z",
-                    properties={ff_property: "test"},
-                )
-
-        flush_persons_and_events()
-
-        action = Action.objects.create(name="purchase action", team=self.team, steps_json=[{"event": "purchase"}])
-        action.save()
-
-        metric = ExperimentFunnelMetric(
-            series=[
-                EventsNode(event="$pageview"),
-                ActionsNode(id=action.id),
-            ],
-        )
-
-        experiment_query = ExperimentQuery(
-            experiment_id=experiment.id,
-            kind="ExperimentQuery",
-            metric=metric,
-        )
-
-        experiment.metrics = [metric.model_dump(mode="json")]
-        self._save_experiment_with_precomputation(experiment, use_precomputation)
-
-        query_runner = ExperimentQueryRunner(
-            query=experiment_query,
-            team=self.team,
-        )
         result = query_runner.calculate()
 
         assert result.variant_results is not None

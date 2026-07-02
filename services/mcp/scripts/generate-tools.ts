@@ -673,6 +673,14 @@ function composeToolSchema(
                 paramFallbacks[paramName] = override.fallback
             }
 
+            // An `optional` override must also surface as optional in the agent-facing
+            // JSON Schema. When combined with `cast` the field is wrapped in
+            // `z.preprocess(...)`, which doesn't propagate inner `.optional()` (zod 4
+            // marks it required), so register it here for `wrapWithCast` to re-apply.
+            if (override.optional) {
+                optionalParamNames.add(paramName)
+            }
+
             const castHelper = override.cast === 'string-int' ? 'castStringToInt' : null
             if (castHelper) {
                 castHelperImports.add(castHelper)
@@ -704,7 +712,13 @@ function composeToolSchema(
                 if (isWriteOp && !bodyFieldNames.includes(paramName)) {
                     bodyFieldNames.push(paramName)
                 }
-            } else if (override.description || override.default !== undefined || override.optional || castHelper) {
+            } else if (
+                override.description ||
+                override.default !== undefined ||
+                override.optional ||
+                override.required ||
+                castHelper
+            ) {
                 // Locate the Orval source schema this param came from, so we can reference
                 // its original field type via .shape and wrap it with .describe(...) / .default(...) / .optional() / cast.
                 let sourceImport: string | null = null
@@ -717,6 +731,12 @@ function composeToolSchema(
                 }
                 if (sourceImport) {
                     let expr = `${sourceImport}.shape['${paramName}']`
+                    if (override.required) {
+                        // PATCH body fields are `.optional()` in the Orval shape; unwrap so the
+                        // tool schema requires the field, matching the backend serializer.
+                        expr += '.unwrap()'
+                        optionalParamNames.delete(paramName)
+                    }
                     if (override.default !== undefined) {
                         expr += `.default(${JSON.stringify(override.default)}).optional()`
                     }
@@ -866,6 +886,10 @@ function buildResponseFilter(config: ToolConfig): {
 
 function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar = 'result'): string {
     const baseUrl = config.url_prefix ?? category.url_prefix
+    // agent_note wraps the final returned expression so the note rides the same object the
+    // agent reads — point-of-use guidance without growing the tool description.
+    const noteLiteral = config.agent_note ? JSON.stringify(config.agent_note) : null
+    const noted = (expr: string): string => (noteLiteral ? `withAgentNote(${expr}, ${noteLiteral})` : expr)
 
     if (config.list && config.enrich_url) {
         const { prefix, field, suffix, source } = parseEnrichUrl(config.enrich_url)
@@ -876,27 +900,27 @@ function buildEnrichment(config: ToolConfig, category: CategoryConfig, resultVar
                 `enrich_url '{params.${field}}' is not supported on list tools — list items are enriched from the response array`
             )
         }
-        return [
-            `        return await withPostHogUrl(context, {`,
+        const enriched = [
+            `await withPostHogUrl(context, {`,
             `            ...${resultVar},`,
             `            results: await Promise.all((${resultVar}.results ?? []).map((item) => withPostHogUrl(context, item, \`${baseUrl}/${prefix}\${item.${field}}${suffix}\`))),`,
             `        }, '${baseUrl}')`,
-            ``,
         ].join('\n')
+        return `        return ${noted(enriched)}\n`
     }
 
     if (config.list) {
-        return `        return await withPostHogUrl(context, ${resultVar}, '${baseUrl}')\n`
+        return `        return ${noted(`await withPostHogUrl(context, ${resultVar}, '${baseUrl}')`)}\n`
     }
 
     if (config.enrich_url) {
         const { prefix, field, suffix, source } = parseEnrichUrl(config.enrich_url)
         const sourceExpr = source === 'params' ? `params.${field}` : `${resultVar}.${field}`
 
-        return `        return await withPostHogUrl(context, ${resultVar}, \`${baseUrl}/${prefix}\${${sourceExpr}}${suffix}\`)\n`
+        return `        return ${noted(`await withPostHogUrl(context, ${resultVar}, \`${baseUrl}/${prefix}\${${sourceExpr}}${suffix}\`)`)}\n`
     }
 
-    return `        return ${resultVar}\n`
+    return `        return ${noted(resultVar)}\n`
 }
 
 // ------------------------------------------------------------------
@@ -920,6 +944,8 @@ function generateToolCode(
     responseType: string | undefined
     needsWithPostHogUrl: boolean
     hasEnrichment: boolean
+    needsWithAgentNote: boolean
+    hasAgentNote: boolean
     responseFilterImport: 'pickResponseFields' | 'omitResponseFields' | null
 } {
     const schemaName = `${toPascalCase(toolName)}Schema`
@@ -1046,16 +1072,19 @@ function generateToolCode(
     // Response filtering — pick/omit fields before enrichment
     const responseFilter = buildResponseFilter(config)
     if (responseFilter.code) {
-        // Warn if filtering might break enrich_url
+        // Warn if filtering might break enrich_url — only for response-sourced fields;
+        // '{params.x}' fields are read from the request params, so filtering can't break them.
         if (config.enrich_url) {
-            const { field } = parseEnrichUrl(config.enrich_url)
-            if (config.response?.exclude?.includes(field)) {
-                console.warn(`Warning: tool "${toolName}" excludes response field "${field}" used by enrich_url`)
-            }
-            if (config.response?.include?.length && !config.response?.include.includes(field)) {
-                console.warn(
-                    `Warning: tool "${toolName}" uses response_include without "${field}" needed by enrich_url`
-                )
+            const { field, source } = parseEnrichUrl(config.enrich_url)
+            if (source === 'result') {
+                if (config.response?.exclude?.includes(field)) {
+                    console.warn(`Warning: tool "${toolName}" excludes response field "${field}" used by enrich_url`)
+                }
+                if (config.response?.include?.length && !config.response?.include.includes(field)) {
+                    console.warn(
+                        `Warning: tool "${toolName}" uses response_include without "${field}" needed by enrich_url`
+                    )
+                }
             }
         }
     }
@@ -1080,6 +1109,13 @@ function generateToolCode(
         resultType = responseType ? `WithPostHogUrl<${responseType}>` : 'unknown'
     } else {
         resultType = responseType ?? 'unknown'
+    }
+
+    // agent_note wraps whatever the enrichment produced (or the bare result).
+    const hasAgentNote = !!config.agent_note
+    const needsWithAgentNote = hasAgentNote && !!responseType
+    if (needsWithAgentNote) {
+        resultType = `WithAgentNote<${resultType}>`
     }
 
     const appKey = config.ui_app ?? null
@@ -1114,6 +1150,8 @@ function generateToolCode(
             responseType,
             needsWithPostHogUrl,
             hasEnrichment,
+            needsWithAgentNote,
+            hasAgentNote,
             responseFilterImport: responseFilter.helperImport,
         }
     }
@@ -1142,6 +1180,8 @@ const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${resultType}> => ${fa
         responseType,
         needsWithPostHogUrl,
         hasEnrichment,
+        needsWithAgentNote,
+        hasAgentNote,
         responseFilterImport: responseFilter.helperImport,
     }
 }
@@ -1260,6 +1300,8 @@ function generateCustomSchemaToolCode(
     responseType: string | undefined
     needsWithPostHogUrl: boolean
     hasEnrichment: boolean
+    needsWithAgentNote: boolean
+    hasAgentNote: boolean
     responseFilterImport: 'pickResponseFields' | 'omitResponseFields' | null
 } {
     const pathParamNames = extractPathParams(resolved.path)
@@ -1323,10 +1365,14 @@ function generateCustomSchemaToolCode(
         }
     }
 
+    const hasAgentNote = !!config.agent_note
+    const needsWithAgentNote = hasAgentNote && !!responseType
+    const customResultType = needsWithAgentNote ? `WithAgentNote<${responseType}>` : (responseType ?? 'unknown')
+
     const code = `
 const ${schemaName} = ${baseSchemaExpr}
 
-const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${responseType ?? 'unknown'}> => ({
+const ${factoryName} = (): ToolBase<typeof ${schemaName}, ${customResultType}> => ({
     name: '${toolName}',
     schema: ${schemaName},
     handler: async (context: Context, params: z.infer<typeof ${schemaName}>) => {
@@ -1343,6 +1389,8 @@ ${handlerBody}    },
         responseType,
         needsWithPostHogUrl: false,
         hasEnrichment: false,
+        needsWithAgentNote,
+        hasAgentNote,
         responseFilterImport: responseFilter.helperImport,
     }
 }
@@ -1424,6 +1472,9 @@ function generateCategoryFile(
 
     let hasEnrichment = false
 
+    let hasWithAgentNote = false
+    let hasAgentNote = false
+
     const responseFilterImports = new Set<string>()
 
     for (const [name, config, resolved] of enabledTools) {
@@ -1457,6 +1508,12 @@ function generateCategoryFile(
         }
         if (result.hasEnrichment) {
             hasEnrichment = true
+        }
+        if (result.needsWithAgentNote) {
+            hasWithAgentNote = true
+        }
+        if (result.hasAgentNote) {
+            hasAgentNote = true
         }
         if (result.responseFilterImport) {
             responseFilterImports.add(result.responseFilterImport)
@@ -1589,8 +1646,14 @@ function generateCategoryFile(
     if (hasWithPostHogUrl) {
         toolUtilsTypeImports.push('WithPostHogUrl')
     }
+    if (hasWithAgentNote) {
+        toolUtilsTypeImports.push('WithAgentNote')
+    }
     if (hasEnrichment) {
         toolUtilsValueImports.push('withPostHogUrl')
+    }
+    if (hasAgentNote) {
+        toolUtilsValueImports.push('withAgentNote')
     }
     for (const imp of responseFilterImports) {
         toolUtilsValueImports.push(imp)

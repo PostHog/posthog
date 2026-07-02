@@ -10,10 +10,7 @@ import json
 from datetime import UTC, datetime, timedelta
 from typing import TYPE_CHECKING, Any, Optional
 
-from django.conf import settings
-
 from posthog.clickhouse.client import sync_execute
-from posthog.models.event.sql import EVENTS_QUERY_TABLE
 
 if TYPE_CHECKING:
     from posthog.models.person import Person
@@ -147,16 +144,10 @@ def build_person_properties_at_time(
     if not isinstance(row_limit, int) or row_limit <= 0:
         raise ValueError("row_limit must be a positive integer")
 
-    json_has_set_expr = (
-        "isNotNull(properties.`$set`)"
-        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
-        else "JSONHas(properties, '$set')"
-    )
-
     if include_set_once:
-        event_filter = f"event IN ('$set', '$set_once') OR {json_has_set_expr}"
+        event_filter = "event IN ('$set', '$set_once') OR JSONHas(properties, '$set')"
     else:
-        event_filter = f"event = '$set' OR {json_has_set_expr}"
+        event_filter = "event = '$set' OR JSONHas(properties, '$set')"
 
     # Pulls every property-update event in the window. Existence is established
     # upstream by get_person_and_distinct_ids_for_identifier (Postgres row);
@@ -169,7 +160,7 @@ def build_person_properties_at_time(
         JSONExtractRaw(properties, '$set') AS set_json,
         JSONExtractRaw(properties, '$set_once') AS set_once_json,
         event AS event_name
-    FROM {EVENTS_QUERY_TABLE()}
+    FROM events
     WHERE team_id = %(team_id)s
         AND distinct_id IN %(distinct_ids)s
         AND timestamp >= %(lower_bound)s

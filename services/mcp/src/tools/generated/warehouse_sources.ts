@@ -37,9 +37,10 @@ import {
     ExternalDataSourcesUpdateWebhookInputsCreateBody,
     ExternalDataSourcesUpdateWebhookInputsCreateParams,
     ExternalDataSourcesWebhookInfoRetrieveParams,
+    ExternalDataSourcesWizardRetrieveQueryParams,
 } from '@/generated/warehouse_sources/api'
 import { ExternalDataSourcePayloadSchema, ExternalDataSourceTypeSchema } from '@/schema/tool-inputs'
-import { withPostHogUrl, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
+import { withPostHogUrl, omitResponseFields, pickResponseFields, type WithPostHogUrl } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const DataWarehouseSourceConnectLinkSchema = ExternalDataSourcesConnectLinkRetrieveQueryParams.extend({
@@ -86,6 +87,9 @@ const dataWarehouseSourceSetup = (): ToolBase<typeof DataWarehouseSourceSetupSch
         }
         if (params.description !== undefined) {
             body['description'] = params.description
+        }
+        if (params.direct_query_enabled !== undefined) {
+            body['direct_query_enabled'] = params.direct_query_enabled
         }
         const result = await context.api.request<Schemas.SourceSetupResponse>({
             method: 'POST',
@@ -139,6 +143,9 @@ const externalDataSchemasCancel = (): ToolBase<typeof ExternalDataSchemasCancelS
         }
         if (params.incremental_field_type !== undefined) {
             body['incremental_field_type'] = params.incremental_field_type
+        }
+        if (params.incremental_field_lookback_seconds !== undefined) {
+            body['incremental_field_lookback_seconds'] = params.incremental_field_lookback_seconds
         }
         if (params.sync_frequency !== undefined) {
             body['sync_frequency'] = params.sync_frequency
@@ -207,6 +214,9 @@ const externalDataSchemasIncrementalFieldsCreate = (): ToolBase<
         if (params.incremental_field_type !== undefined) {
             body['incremental_field_type'] = params.incremental_field_type
         }
+        if (params.incremental_field_lookback_seconds !== undefined) {
+            body['incremental_field_lookback_seconds'] = params.incremental_field_lookback_seconds
+        }
         if (params.sync_frequency !== undefined) {
             body['sync_frequency'] = params.sync_frequency
         }
@@ -253,7 +263,13 @@ const externalDataSchemasList = (): ToolBase<
                 search: params.search,
             },
         })
-        return await withPostHogUrl(context, result, '/data-management/sources')
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                omitResponseFields(item, ['table.columns', 'available_columns'])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/data-management/sources')
     },
 })
 
@@ -281,6 +297,9 @@ const externalDataSchemasPartialUpdate = (): ToolBase<
         }
         if (params.incremental_field_type !== undefined) {
             body['incremental_field_type'] = params.incremental_field_type
+        }
+        if (params.incremental_field_lookback_seconds !== undefined) {
+            body['incremental_field_lookback_seconds'] = params.incremental_field_lookback_seconds
         }
         if (params.sync_frequency !== undefined) {
             body['sync_frequency'] = params.sync_frequency
@@ -331,6 +350,9 @@ const externalDataSchemasReload = (): ToolBase<typeof ExternalDataSchemasReloadS
         if (params.incremental_field_type !== undefined) {
             body['incremental_field_type'] = params.incremental_field_type
         }
+        if (params.incremental_field_lookback_seconds !== undefined) {
+            body['incremental_field_lookback_seconds'] = params.incremental_field_lookback_seconds
+        }
         if (params.sync_frequency !== undefined) {
             body['sync_frequency'] = params.sync_frequency
         }
@@ -379,6 +401,9 @@ const externalDataSchemasResync = (): ToolBase<typeof ExternalDataSchemasResyncS
         }
         if (params.incremental_field_type !== undefined) {
             body['incremental_field_type'] = params.incremental_field_type
+        }
+        if (params.incremental_field_lookback_seconds !== undefined) {
+            body['incremental_field_lookback_seconds'] = params.incremental_field_lookback_seconds
         }
         if (params.sync_frequency !== undefined) {
             body['sync_frequency'] = params.sync_frequency
@@ -502,6 +527,9 @@ const externalDataSourcesCreate = (): ToolBase<
         if (params.access_method !== undefined) {
             body['access_method'] = params.access_method
         }
+        if (params.direct_query_enabled !== undefined) {
+            body['direct_query_enabled'] = params.direct_query_enabled
+        }
         body['created_via'] = 'mcp'
         const result = await context.api.request<Schemas.ExternalDataSourceSerializers>({
             method: 'POST',
@@ -539,6 +567,9 @@ const externalDataSourcesCreateWebhookCreate = (): ToolBase<
         }
         if (params.description !== undefined) {
             body['description'] = params.description
+        }
+        if (params.direct_query_enabled !== undefined) {
+            body['direct_query_enabled'] = params.direct_query_enabled
         }
         if (params.job_inputs !== undefined) {
             body['job_inputs'] = params.job_inputs
@@ -579,6 +610,9 @@ const externalDataSourcesDeleteWebhookCreate = (): ToolBase<
         }
         if (params.description !== undefined) {
             body['description'] = params.description
+        }
+        if (params.direct_query_enabled !== undefined) {
+            body['direct_query_enabled'] = params.direct_query_enabled
         }
         if (params.job_inputs !== undefined) {
             body['job_inputs'] = params.job_inputs
@@ -626,7 +660,13 @@ const externalDataSourcesList = (): ToolBase<
                 search: params.search,
             },
         })
-        return await withPostHogUrl(context, result, '/data-management/sources')
+        const filtered = {
+            ...result,
+            results: (result.results ?? []).map((item: any) =>
+                omitResponseFields(item, ['schemas.*.table.columns', 'schemas.*.available_columns'])
+            ),
+        } as typeof result
+        return await withPostHogUrl(context, filtered, '/data-management/sources')
     },
 })
 
@@ -658,6 +698,9 @@ const externalDataSourcesPartialUpdate = (): ToolBase<
         if (params.description !== undefined) {
             body['description'] = params.description
         }
+        if (params.direct_query_enabled !== undefined) {
+            body['direct_query_enabled'] = params.direct_query_enabled
+        }
         if (params.job_inputs !== undefined) {
             body['job_inputs'] = params.job_inputs
         }
@@ -683,6 +726,9 @@ const externalDataSourcesRefreshSchemas = (): ToolBase<typeof ExternalDataSource
         if (params.created_via !== undefined) {
             body['created_via'] = params.created_via
         }
+        if (params.direct_query_enabled !== undefined) {
+            body['direct_query_enabled'] = params.direct_query_enabled
+        }
         const result = await context.api.request<unknown>({
             method: 'POST',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/${encodeURIComponent(String(params.id))}/refresh_schemas/`,
@@ -704,6 +750,9 @@ const externalDataSourcesReload = (): ToolBase<typeof ExternalDataSourcesReloadS
         const body: Record<string, unknown> = {}
         if (params.created_via !== undefined) {
             body['created_via'] = params.created_via
+        }
+        if (params.direct_query_enabled !== undefined) {
+            body['direct_query_enabled'] = params.direct_query_enabled
         }
         const result = await context.api.request<unknown>({
             method: 'POST',
@@ -760,6 +809,9 @@ const externalDataSourcesUpdateWebhookInputsCreate = (): ToolBase<
         if (params.description !== undefined) {
             body['description'] = params.description
         }
+        if (params.direct_query_enabled !== undefined) {
+            body['direct_query_enabled'] = params.direct_query_enabled
+        }
         if (params.job_inputs !== undefined) {
             body['job_inputs'] = params.job_inputs
         }
@@ -792,17 +844,19 @@ const externalDataSourcesWebhookInfoRetrieve = (): ToolBase<
     },
 })
 
-const ExternalDataSourcesWizardSchema = z.object({})
+const ExternalDataSourcesWizardSchema = ExternalDataSourcesWizardRetrieveQueryParams
 
 const externalDataSourcesWizard = (): ToolBase<typeof ExternalDataSourcesWizardSchema, unknown> => ({
     name: 'external-data-sources-wizard',
     schema: ExternalDataSourcesWizardSchema,
-    // eslint-disable-next-line no-unused-vars
     handler: async (context: Context, params: z.infer<typeof ExternalDataSourcesWizardSchema>) => {
         const projectId = await context.stateManager.getProjectId()
         const result = await context.api.request<unknown>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/external_data_sources/wizard/`,
+            query: {
+                source_type: params.source_type,
+            },
         })
         const filtered = pickResponseFields(result, [
             '*.name',

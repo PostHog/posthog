@@ -1,0 +1,185 @@
+/* stylelint-disable selector-class-pattern -- descendant/attr selectors fall outside strict BEM */
+@layer components {
+    /* =========================================================================
+       Avatar — a circular image with an initials/icon fallback. Size is driven by
+       a single custom property so the image, fallback, and circle all track it.
+       ========================================================================= */
+    .quill-avatar {
+        --avatar-size: 2rem;
+
+        position: relative;
+        display: inline-flex;
+        flex-shrink: 0;
+        align-items: center;
+        justify-content: center;
+        width: var(--avatar-size);
+        height: var(--avatar-size);
+        overflow: hidden;
+        font-size: var(--text-xs, 0.75rem);
+        line-height: 1;
+        color: var(--muted-foreground);
+        user-select: none;
+        background-color: var(--muted);
+        border-radius: var(--radius-sm);
+    }
+
+    /* Avatar as a profile trigger (render={<a />} / <button />): pointer + focus ring. */
+    a.quill-avatar,
+    button.quill-avatar {
+        cursor: pointer;
+    }
+
+    a.quill-avatar:focus-visible,
+    button.quill-avatar:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 30%, transparent);
+    }
+
+    .quill-avatar[data-size='xs'] {
+        --avatar-size: 1.25rem;
+
+        font-size: var(--text-xxs, 0.625rem);
+    }
+
+    .quill-avatar[data-size='sm'] {
+        --avatar-size: 1.5rem;
+
+        font-size: var(--text-xxs, 0.625rem);
+    }
+
+    .quill-avatar[data-size='lg'] {
+        --avatar-size: 2.35rem;
+
+        font-size: var(--text-xxs, 0.625rem);
+    }
+
+    .quill-avatar__image {
+        width: 100%;
+        height: 100%;
+        object-fit: cover;
+        border-radius: inherit;
+    }
+
+    .quill-avatar__fallback {
+        display: flex;
+        align-items: center;
+        justify-content: center;
+        width: 100%;
+        height: 100%;
+        font-weight: 500;
+        text-transform: uppercase;
+    }
+
+    /* Fallback icons (a bare lucide glyph) size to ~60% of the circle. */
+    .quill-avatar__fallback > svg:not([class*='size-']) {
+        width: 60%;
+        height: 60%;
+    }
+
+    /* =========================================================================
+       AvatarGroup — inline by default; `stacked` overlaps and spreads on hover.
+       ========================================================================= */
+    .quill-avatar-group {
+        /* Magnitude each stacked avatar overlaps the previous one. */
+        --avatar-overlap: 0.625rem;
+
+        /* Gap between avatars when inline, and the gap the stack spreads back to. */
+        --avatar-gap: 0.25rem;
+
+        position: relative;
+        display: inline-flex;
+        align-items: center;
+        width: max-content;
+    }
+
+    .quill-avatar-group[data-size='sm'] {
+        --avatar-overlap: 0.5rem;
+    }
+
+    .quill-avatar-group[data-size='xs'] {
+        --avatar-overlap: 0.4375rem;
+    }
+
+    .quill-avatar-group__item {
+        /* Default spread: anchor the left edge, fan right by index × (overlap + gap),
+           which cancels the negative margins and lands the avatars `--avatar-gap`
+           apart. `reverse` overrides this below. */
+        --avatar-spread: calc(var(--avatar-index) * (var(--avatar-overlap) + var(--avatar-gap)));
+
+        position: relative;
+
+        /* Leftmost on top by default: a leading `+N` count and each avatar's left
+           edge sit above the next. `reverse` flips this to rightmost-on-top. */
+        z-index: calc(var(--avatar-count, 0) - var(--avatar-index));
+        display: inline-flex;
+    }
+
+    /* Reverse: anchor the right edge, fan left, and put the rightmost avatar on top. */
+    .quill-avatar-group[data-reverse] .quill-avatar-group__item {
+        --avatar-spread: calc(
+            -1 * (var(--avatar-count) - 1 - var(--avatar-index)) * (var(--avatar-overlap) + var(--avatar-gap))
+        );
+
+        z-index: calc(var(--avatar-index) + 1);
+    }
+
+    /* Inline (default): plain gap, no overlap. */
+    .quill-avatar-group:not([data-stacked]) {
+        gap: var(--avatar-gap);
+    }
+
+    /* Stacked: pull each avatar (bar the first) back over the previous one. A ring in
+       the surface colour separates the overlaps; it defaults to the app background —
+       override `--quill-avatar-ring` (e.g. to `var(--card)`) when the group sits on a
+       different surface so the ring matches. */
+    .quill-avatar-group[data-stacked] .quill-avatar-group__item:not(:first-child) {
+        margin-left: calc(-1 * var(--avatar-overlap));
+    }
+
+    .quill-avatar-group[data-stacked] [data-slot='avatar'] {
+        box-shadow: 0 0 0 2px var(--quill-avatar-ring, var(--background));
+    }
+
+    /* Invisible hit bridge. When spread, the avatars are `--avatar-gap` apart and
+       the gaps fall outside the group's (un-reflowed) box — hovering one would drop
+       `:hover` and the pile would flicker shut. Each item extends its hit area half
+       a gap on either side so neighbours meet, giving one continuous hover surface.
+       It sits behind the avatar (z-index: -1), so clicks still reach the avatar. */
+    .quill-avatar-group[data-stacked] .quill-avatar-group__item::after {
+        position: absolute;
+        inset-block: 0;
+
+        /* Half the gap, plus 1px so adjacent bridges overlap instead of meeting at a seam. */
+        inset-inline: calc(-0.5 * var(--avatar-gap) - 1px);
+        z-index: -1;
+        content: '';
+    }
+
+    /* On-screen elements repositioning → ease-in-out (cubic). will-change keeps the
+       transform on the GPU for the small, bounded set of avatars in a group. */
+    .quill-avatar-group[data-stacked] .quill-avatar-group__item {
+        transition: transform 200ms cubic-bezier(0.645, 0.045, 0.355, 1);
+        will-change: transform;
+    }
+
+    .quill-avatar-group[data-stacked]:focus-within .quill-avatar-group__item {
+        transform: translateX(var(--avatar-spread));
+    }
+
+    /* Hover/focus spreads the stack to the inline gap WITHOUT reflow: only
+       `transform` moves, so the container's box stays put and nothing around it
+       reflows — the avatars slide out over whatever sits beside them. The hover
+       trigger is gated to real pointers so a touch tap doesn't leave the pile stuck
+       open; focus-within stays ungated for keyboard users with focusable avatars. */
+    @media (hover: hover) and (pointer: fine) {
+        .quill-avatar-group[data-stacked]:hover .quill-avatar-group__item {
+            transform: translateX(var(--avatar-spread));
+        }
+    }
+
+    @media (prefers-reduced-motion: reduce) {
+        .quill-avatar-group[data-stacked] .quill-avatar-group__item {
+            transition: none;
+        }
+    }
+}

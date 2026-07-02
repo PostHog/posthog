@@ -24,7 +24,6 @@ class TestAITemporalModuleIntegrity:
             "ChatAgentWorkflow",
             "ResearchAgentWorkflow",
             "SummarizeLLMTracesWorkflow",
-            "SlackConversationRunnerWorkflow",
             "AnomalyInvestigationWorkflow",
         ]
         actual_workflow_names = [workflow.__name__ for workflow in ai.AI_WORKFLOWS]
@@ -51,7 +50,6 @@ class TestAITemporalModuleIntegrity:
             "process_chat_agent_activity",
             "process_research_agent_activity",
             "summarize_llm_traces_activity",
-            "process_slack_conversation_activity",
             "investigate_anomaly_activity",
         ]
         actual_activity_names = [activity.__name__ for activity in ai.AI_ACTIVITIES]
@@ -73,7 +71,6 @@ class TestAITemporalModuleIntegrity:
         expected_exports = [
             "SyncVectorsInputs",
             "SummarizeLLMTracesInputs",
-            "SlackConversationRunnerWorkflowInputs",
         ]
         actual_exports = ai.__all__
         assert len(actual_exports) == len(expected_exports), (
@@ -248,6 +245,7 @@ class TestSignalsProductModuleIntegrity:
             "fetch_error_tracking_issues_activity",
             "assign_and_emit_signal_activity",
             "capture_signal_dropped_activity",
+            "check_signals_quota_limited_activity",
             "delete_report_activity",
             "emit_eval_signal_activity",
             "fetch_report_contexts_activity",
@@ -312,7 +310,6 @@ class TestAIObservabilityModuleIntegrity:
             "AIObservabilityEvaluationSamplerWorkflow",
             "AIObservabilityEvaluationClusteringCoordinatorWorkflow",
             "AIObservabilityEvaluationClusteringWorkflow",
-            "ClassifySentimentWorkflow",
             "RunEvaluationWorkflow",
         ]
         actual_workflow_names = [w.__name__ for w in LLM_ANALYTICS_WORKFLOWS]
@@ -350,7 +347,6 @@ class TestAIObservabilityModuleIntegrity:
             "generate_evaluation_cluster_labels_activity",
             "compute_evaluation_cluster_aggregates_activity",
             "emit_evaluation_cluster_events_activity",
-            "classify_sentiment_activity",
             "fetch_evaluation_activity",
             "increment_trial_eval_count_activity",
             "disable_evaluation_activity",

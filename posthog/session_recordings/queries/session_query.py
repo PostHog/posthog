@@ -1,7 +1,6 @@
 from typing import Optional, Union
 
 from posthog.models import Filter
-from posthog.models.event.sql import EVENTS_QUERY_TABLE
 from posthog.models.filters.path_filter import PathFilter
 from posthog.models.filters.retention_filter import RetentionFilter
 from posthog.models.filters.stickiness_filter import StickinessFilter
@@ -45,7 +44,7 @@ class SessionQuery:
                     "$session_id"{f" AS {self._session_id_alias}" if self._session_id_alias else ""},
                     dateDiff('second',min(timestamp), max(timestamp)) as session_duration
                 FROM
-                    {EVENTS_QUERY_TABLE()}
+                    events
                 WHERE
                     {self._session_id_alias or '"$session_id"'} != ''
                     AND team_id = %(team_id)s

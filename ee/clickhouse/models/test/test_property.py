@@ -13,15 +13,11 @@ from posthog.test.base import (
     snapshot_clickhouse_queries,
 )
 
-from django.conf import settings
-from django.test import override_settings
-
 from rest_framework.exceptions import ValidationError
 
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import PropertyOperatorType
 from posthog.models.element import Element
-from posthog.models.event.sql import EVENTS_QUERY_TABLE
 from posthog.models.filters import Filter
 from posthog.models.instance_setting import get_instance_setting
 from posthog.models.organization import Organization
@@ -55,7 +51,7 @@ class TestPropFormat(ClickhouseTestMixin, BaseTest):
             hogql_context=filter.hogql_context,
             **kwargs,
         )
-        final_query = f"SELECT uuid FROM {EVENTS_QUERY_TABLE()} WHERE team_id = %(team_id)s {query}"
+        final_query = "SELECT uuid FROM events WHERE team_id = %(team_id)s {}".format(query)
         return sync_execute(
             final_query,
             {**params, **filter.hogql_context.values, "team_id": self.team.pk},
@@ -799,13 +795,9 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
             """
             params.update(person_join_params)
 
-        final_query = f"SELECT uuid FROM {EVENTS_QUERY_TABLE()} AS events {joins} WHERE team_id = %(team_id)s {query}"
-        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            self.assertNotIn('"mat_', final_query.lower())
-            self.assertNotIn("`mat_", final_query.lower())
-        else:
-            # Make sure we don't accidentally use json on the properties field
-            self.assertNotIn("json", final_query.lower())
+        final_query = f"SELECT uuid FROM events {joins} WHERE team_id = %(team_id)s {query}"
+        # Make sure we don't accidentally use json on the properties field
+        self.assertNotIn("json", final_query.lower())
         return sync_execute(
             final_query,
             {**params, **filter.hogql_context.values, "team_id": self.team.pk},
@@ -1005,11 +997,6 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
         self.assertEqual(
             string_expr,
             (
-                "ifNull(toString(properties.some_non_mat_prop), '')",
-                False,
-            )
-            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
-            else (
                 "replaceRegexpAll(JSONExtractRaw(properties, 'some_non_mat_prop'), '^\"|\"$', '')",
                 False,
             ),
@@ -1025,11 +1012,6 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
         self.assertEqual(
             string_expr,
             (
-                "ifNull(toString(e.properties.some_non_mat_prop), '')",
-                False,
-            )
-            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
-            else (
                 "replaceRegexpAll(JSONExtractRaw(e.properties, 'some_non_mat_prop'), '^\"|\"$', '')",
                 False,
             ),
@@ -1037,22 +1019,12 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
 
         materialize("events", "some_mat_prop")
         string_expr = get_property_string_expr("events", "some_mat_prop", "'some_mat_prop'", "properties")
-        self.assertEqual(
-            string_expr,
-            ("ifNull(toString(properties.some_mat_prop), '')", False)
-            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
-            else ('"mat_some_mat_prop"', True),
-        )
+        self.assertEqual(string_expr, ('"mat_some_mat_prop"', True))
 
         string_expr = get_property_string_expr(
             "events", "some_mat_prop", "'some_mat_prop'", "properties", table_alias="e"
         )
-        self.assertEqual(
-            string_expr,
-            ("ifNull(toString(e.properties.some_mat_prop), '')", False)
-            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
-            else ('e."mat_some_mat_prop"', True),
-        )
+        self.assertEqual(string_expr, ('e."mat_some_mat_prop"', True))
 
         materialize("events", "some_mat_prop2", table_column="person_properties")
         materialize("events", "some_mat_prop3", table_column=cast(Any, "group2_properties"))
@@ -1063,113 +1035,11 @@ class TestPropDenormalized(ClickhouseTestMixin, BaseTest):
             "properties",
             materialised_table_column="person_properties",
         )
-        self.assertEqual(
-            string_expr,
-            ("ifNull(toString(properties.some_mat_prop2), '')", False)
-            if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
-            else ('"mat_pp_some_mat_prop2"', True),
-        )
-
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
-    def test_get_property_string_expr_uses_json_subcolumn_for_new_events_schema(self):
-        string_expr = get_property_string_expr("events", "some_non_mat_prop", "'some_non_mat_prop'", "properties")
-        self.assertEqual(
-            string_expr,
-            (
-                "ifNull(toString(properties.some_non_mat_prop), '')",
-                False,
-            ),
-        )
-
-        string_expr = get_property_string_expr(
-            "events",
-            "$current_url",
-            "'$current_url'",
-            "properties",
-            table_alias="e",
-        )
-        self.assertEqual(
-            string_expr,
-            (
-                "ifNull(toString(e.properties.`$current_url`), '')",
-                False,
-            ),
-        )
-
-        string_expr = get_property_string_expr(
-            "events",
-            "email",
-            "'email'",
-            "person_properties",
-            materialised_table_column="person_properties",
-        )
-        self.assertEqual(
-            string_expr,
-            (
-                "ifNull(toString(person_properties.email), '')",
-                False,
-            ),
-        )
-
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
-    def test_get_property_string_expr_falls_back_for_percent_key_on_new_events_schema(self):
-        string_expr = get_property_string_expr("events", "bad%key", "%(key)s", "properties")
-
-        self.assertEqual(
-            string_expr,
-            (
-                """replaceRegexpAll(JSONExtractRaw(toString(properties), %(key)s), '^"|"$', '')""",
-                False,
-            ),
-        )
-
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
-    def test_prop_filter_json_extract_uses_typed_events_json_presence(self):
-        browser_is_set, _ = prop_filter_json_extract(
-            Property(key="$browser", operator="is_set", value="is_set"),
-            0,
-            allow_denormalized_props=False,
-        )
-        browser_is_not_set, _ = prop_filter_json_extract(
-            Property(key="$browser", operator="is_not_set", value="is_not_set"),
-            0,
-            allow_denormalized_props=False,
-        )
-        trace_is_set, _ = prop_filter_json_extract(
-            Property(key="$ai_trace_id", operator="is_set", value="is_set"),
-            0,
-            allow_denormalized_props=False,
-        )
-        dynamic_is_set, _ = prop_filter_json_extract(
-            Property(key="some_random_prop", operator="is_set", value="is_set"),
-            0,
-            allow_denormalized_props=False,
-        )
-
-        assert browser_is_set == " AND notEmpty(properties.`$browser`)"
-        assert browser_is_not_set == " AND empty(properties.`$browser`)"
-        assert trace_is_set == " AND isNotNull(properties.`$ai_trace_id`)"
-        assert dynamic_is_set == " AND isNotNull(properties.some_random_prop)"
-
-    @override_settings(CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA=True)
-    def test_prop_filter_json_extract_falls_back_for_percent_key_on_new_events_schema(self):
-        exact_query, params = prop_filter_json_extract(
-            Property(key="bad%key", operator="exact", value="x"),
-            0,
-            allow_denormalized_props=False,
-        )
-        is_set_query, _ = prop_filter_json_extract(
-            Property(key="bad%key", operator="is_set", value="is_set"),
-            0,
-            allow_denormalized_props=False,
-        )
-
-        assert "JSONExtractRaw(toString(properties), %(k_0)s)" in exact_query
-        assert "JSONHas(toString(properties), %(k_0)s)" in is_set_query
-        assert params["k_0"] == "bad%key"
+        self.assertEqual(string_expr, ('"mat_pp_some_mat_prop2"', True))
 
 
-def _parse_prop_clauses_defaults_results() -> list[tuple[str, dict[str, object]]]:
+@pytest.mark.django_db
+def test_parse_prop_clauses_defaults(snapshot):
     filter = Filter(
         data={
             "properties": [
@@ -1184,47 +1054,35 @@ def _parse_prop_clauses_defaults_results() -> list[tuple[str, dict[str, object]]
         }
     )
 
-    return [
+    assert (
         parse_prop_grouped_clauses(
             property_group=filter.property_groups,
             allow_denormalized_props=False,
             team_id=1,
             hogql_context=filter.hogql_context,
-        ),
+        )
+        == snapshot
+    )
+    assert (
         parse_prop_grouped_clauses(
             property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.USING_PERSON_PROPERTIES_COLUMN,
             allow_denormalized_props=False,
             team_id=1,
             hogql_context=filter.hogql_context,
-        ),
+        )
+        == snapshot
+    )
+    assert (
         parse_prop_grouped_clauses(
             team_id=1,
             property_group=filter.property_groups,
             person_properties_mode=PersonPropertiesMode.DIRECT,
             allow_denormalized_props=False,
             hogql_context=filter.hogql_context,
-        ),
-    ]
-
-
-def _split_query_lines(result: tuple[str, dict[str, object]]) -> tuple[list[str], dict[str, object]]:
-    query, params = result
-    return query.split("\n"), params
-
-
-@pytest.mark.django_db
-@pytest.mark.skipif(settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA, reason="legacy events schema snapshot")
-def test_parse_prop_clauses_defaults(snapshot):
-    for result in _parse_prop_clauses_defaults_results():
-        snapshot.assert_match(_split_query_lines(result))
-
-
-@pytest.mark.django_db
-@pytest.mark.skipif(not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA, reason="new events schema snapshot")
-def test_parse_prop_clauses_defaults_new_events_schema(snapshot):
-    for result in _parse_prop_clauses_defaults_results():
-        snapshot.assert_match(_split_query_lines(result))
+        )
+        == snapshot
+    )
 
 
 @pytest.mark.django_db
@@ -1338,10 +1196,6 @@ TEST_BREAKDOWN_PROCESSING = [
             "replaceRegexpAll(JSONExtractRaw(properties, %(breakdown_param_1)s), '^\"|\"$', '') AS prop",
             {"breakdown_param_1": "$browser"},
         ),
-        (
-            "ifNull(toString(properties.`$browser`), '') AS prop",
-            {"breakdown_param_1": "$browser"},
-        ),
     ),
     (
         ["$browser"],
@@ -1350,10 +1204,6 @@ TEST_BREAKDOWN_PROCESSING = [
         "properties",
         (
             "array(replaceRegexpAll(JSONExtractRaw(properties, %(breakdown_param_1)s), '^\"|\"$', '')) AS value",
-            {"breakdown_param_1": "$browser"},
-        ),
-        (
-            "array(ifNull(toString(properties.`$browser`), '')) AS value",
             {"breakdown_param_1": "$browser"},
         ),
     ),
@@ -1366,18 +1216,12 @@ TEST_BREAKDOWN_PROCESSING = [
             "array(replaceRegexpAll(JSONExtractRaw(properties, %(breakdown_param_1)s), '^\"|\"$', ''),replaceRegexpAll(JSONExtractRaw(properties, %(breakdown_param_2)s), '^\"|\"$', '')) AS prop",
             {"breakdown_param_1": "$browser", "breakdown_param_2": "$browser_version"},
         ),
-        (
-            "array(ifNull(toString(properties.`$browser`), ''),ifNull(toString(properties.`$browser_version`), '')) AS prop",
-            {"breakdown_param_1": "$browser", "breakdown_param_2": "$browser_version"},
-        ),
     ),
 ]
 
 
 @pytest.mark.django_db
-@pytest.mark.parametrize(
-    "breakdown, table, query_alias, column, expected, expected_new_events_schema", TEST_BREAKDOWN_PROCESSING
-)
+@pytest.mark.parametrize("breakdown, table, query_alias, column, expected", TEST_BREAKDOWN_PROCESSING)
 def test_breakdown_query_expression(
     clean_up_materialised_columns,
     breakdown: Union[str, list[str]],
@@ -1385,12 +1229,8 @@ def test_breakdown_query_expression(
     query_alias: Literal["prop", "value"],
     column: str,
     expected: tuple[str, dict[str, Any]],
-    expected_new_events_schema: tuple[str, dict[str, Any]],
 ):
     actual = get_single_or_multi_property_string_expr(breakdown, table, query_alias, column)
-
-    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-        expected = expected_new_events_schema
 
     assert actual == expected
 
@@ -1438,11 +1278,6 @@ def test_breakdown_query_expression_materialised(
         column,
         materialised_table_column=materialise_column,
     )
-    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-        expected_with = (
-            "array(ifNull(toString(properties.`$browser`), '')) AS value",
-            {"breakdown_param_1": "$browser"},
-        )
     assert actual == expected_with
 
     materialize(table, breakdown[0], table_column=cast(Any, materialise_column))
@@ -1453,12 +1288,6 @@ def test_breakdown_query_expression_materialised(
         column,
         materialised_table_column=materialise_column,
     )
-
-    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-        expected_without = (
-            "array(ifNull(toString(properties.`$browser`), '')) AS value",
-            {"breakdown_param_1": "$browser"},
-        )
 
     assert actual == expected_without
 
@@ -1926,7 +1755,7 @@ def test_prop_filter_json_extract(test_events, clean_up_materialised_columns, pr
         [
             str(uuid)
             for (uuid,) in sync_execute(
-                f"SELECT uuid FROM {EVENTS_QUERY_TABLE()} WHERE team_id = %(team_id)s {query}",
+                f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}",
                 {"team_id": team.pk, **params},
             )
         ]
@@ -1952,7 +1781,7 @@ def test_prop_filter_json_extract_materialized(
         [
             str(uuid)
             for (uuid,) in sync_execute(
-                f"SELECT uuid FROM {EVENTS_QUERY_TABLE()} WHERE team_id = %(team_id)s {query}",
+                f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}",
                 {"team_id": team.pk, **params},
             )
         ]
@@ -1976,16 +1805,13 @@ def test_prop_filter_json_extract_nullable_materialized_is_set_uses_json(
         query, params = prop_filter_json_extract(property, 0, allow_denormalized_props=True)
 
         assert column.name not in query
-        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-            assert "isNull" in query or "isNotNull" in query
-        else:
-            assert "JSONHas" in query
+        assert "JSONHas" in query
 
         uuids = sorted(
             [
                 str(uuid)
                 for (uuid,) in sync_execute(
-                    f"SELECT uuid FROM {EVENTS_QUERY_TABLE()} WHERE team_id = %(team_id)s {query}",
+                    f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}",
                     {"team_id": team.pk, **params},
                 )
             ]
@@ -2019,7 +1845,7 @@ def test_prop_filter_json_extract_person_on_events_materialized(
         [
             str(uuid)
             for (uuid,) in sync_execute(
-                f"SELECT uuid FROM {EVENTS_QUERY_TABLE()} WHERE team_id = %(team_id)s {query}",
+                f"SELECT uuid FROM events WHERE team_id = %(team_id)s {query}",
                 {"team_id": team.pk, **params},
             )
         ]

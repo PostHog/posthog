@@ -1,14 +1,15 @@
 import clsx from 'clsx'
 import { router } from 'kea-router'
 
-import { IconArchive, IconPullRequest } from '@posthog/icons'
+import { IconArchive, IconPullRequest, IconUndo } from '@posthog/icons'
 import { LemonButton, LemonTag, LemonTagType, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
+import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
 import { urls } from 'scenes/urls'
 
-import { InboxFlatListTabKey, SignalReport, SignalReportStatus } from '../../types'
-import { DismissalReasonValue } from '../../utils/dismissalReasons'
+import { InboxFlatListTabKey, SignalReport, SignalReportStatus, SignalSourceProduct } from '../../types'
+import { dismissalReasonLabel, DismissalReasonValue } from '../../utils/dismissalReasons'
 import {
     deriveHeadline,
     displayConventionalCommitTitle,
@@ -37,16 +38,28 @@ export function ConventionalCommitScopeTag({ type, scope }: { type: string; scop
 }
 
 /** Icon stack + primary source-product label, with a `+ n` tail when more sources contributed. */
-export function InboxCardSourceMeta({ sourceProducts }: { sourceProducts?: string[] | null }): JSX.Element | null {
+export function InboxCardSourceMeta({
+    sourceProducts,
+    scoutName,
+}: {
+    sourceProducts?: string[] | null
+    /** Authoring scout's display name, when scout-authored — appended to the "Scout" label. */
+    scoutName?: string | null
+}): JSX.Element | null {
     const [primary, ...overflow] = knownSourceProductEntries(sourceProducts)
     if (!primary) {
         return null
     }
+    // Name the authoring scout on a scout-authored report so it's clear at a glance who wrote it.
+    const primaryLabel =
+        primary.key === SignalSourceProduct.SIGNALS_SCOUT && scoutName
+            ? `${primary.meta.label} · ${scoutName}`
+            : primary.meta.label
     return (
         <div className="flex items-center gap-2 min-w-0 text-xs text-tertiary leading-none select-none">
             <SourceProductIconRow entries={[primary, ...overflow]} className="flex items-center gap-1.5 shrink-0" />
             <span>
-                {primary.meta.label}
+                {primaryLabel}
                 {overflow.length > 0 ? ` + ${overflow.length}` : null}
             </span>
         </div>
@@ -131,12 +144,18 @@ export function ReportCard({
     tabKey = 'reports',
     attached = false,
     onArchive,
+    onRestore,
 }: {
     report: SignalReport
     tabKey?: InboxFlatListTabKey
     attached?: boolean
     onArchive?: (reason: DismissalReasonValue, note: string) => void
+    onRestore?: () => void
 }): JSX.Element {
+    const isArchived = tabKey === 'archived'
+    // Resolved reports are terminal (their implementation PR merged) – shown for reference in the
+    // Archive tab but with no row action: they can't be restored or re-archived.
+    const isResolved = report.status === SignalReportStatus.RESOLVED
     const prUrl = safeHttpUrl(report.implementation_pr_url)
     const prUrlParts = prUrl ? parsePrUrlParts(prUrl) : null
     const hasPr = prUrlParts != null
@@ -150,12 +169,30 @@ export function ReportCard({
     const headline = deriveHeadline(report.summary)
     const detailUrl = urls.inboxReport(tabKey, report.id)
 
-    const { isArchiving, onArchiveClick } = useReportArchive({ reportId: report.id, cardTitle, onArchive })
+    const { isArchiving, onArchiveClick } = useReportArchive({
+        reportId: report.id,
+        cardTitle,
+        report,
+        surface: 'list_row',
+        onArchive,
+    })
+
+    // On the Archive tab, surface why it was dismissed (reason tag + note tooltip) when we have it.
+    // Key off the report still being suppressed, not the tab: a report that was dismissed, restored,
+    // then resolved keeps its old dismissal artefact, and showing that tag would mislabel finished work.
+    const dismissalLabel =
+        isArchived && report.status === SignalReportStatus.SUPPRESSED
+            ? dismissalReasonLabel(report.dismissal_reason)
+            : null
 
     // PR cards show repo · source; reports show source · status · actionability.
     const showMeta = hasPr
         ? repoSlug != null || hasSource
-        : hasSource || !isReady || report.actionability != null || report.is_suggested_reviewer === true
+        : hasSource ||
+          !isReady ||
+          report.actionability != null ||
+          report.is_suggested_reviewer === true ||
+          !!dismissalLabel
 
     return (
         <div className={clsx('relative', inboxCardRowClassName(attached, { dashed: !hasPr }))}>
@@ -176,7 +213,7 @@ export function ReportCard({
                     {/* Pad clear of the absolute PR badge on mobile, where the title spans the full card width. */}
                     <div
                         className={clsx(
-                            'min-w-0 break-words font-semibold text-sm leading-snug',
+                            'min-w-0 break-words font-semibold text-sm leading-snug text-balance',
                             hasPr && 'pr-14 @lg:pr-0'
                         )}
                     >
@@ -187,28 +224,46 @@ export function ReportCard({
                     </div>
 
                     {headline ? (
-                        <div className={clsx('mt-0.5 min-w-0', !hasPr && !isReady && 'opacity-80')}>
-                            <p className="break-words line-clamp-2 text-xs text-secondary leading-snug m-0">
-                                {headline}
-                            </p>
-                        </div>
+                        <p
+                            className={clsx(
+                                'min-w-0',
+                                !hasPr && !isReady && 'opacity-80',
+                                'break-words line-clamp-2 text-xs text-secondary leading-snug m-0'
+                            )}
+                        >
+                            {headline}
+                        </p>
                     ) : !hasPr ? (
-                        <div className={clsx('mt-0.5 min-w-0', !isReady && 'opacity-80')}>
-                            <p className="break-words line-clamp-2 text-xs text-tertiary italic leading-snug m-0">
-                                No summary yet – still collecting context.
-                            </p>
-                        </div>
+                        <p
+                            className={clsx(
+                                'min-w-0',
+                                !isReady && 'opacity-80',
+                                'break-words line-clamp-2 text-xs text-tertiary italic leading-snug m-0'
+                            )}
+                        >
+                            No summary yet – still collecting context.
+                        </p>
                     ) : null}
 
                     {showMeta ? (
                         <div className="flex items-center flex-wrap mt-1.5 min-w-0 gap-2.5 text-xs text-tertiary leading-none select-none">
                             {hasPr && repoSlug ? <span className="truncate font-mono">{repoSlug}</span> : null}
-                            <InboxCardSourceMeta sourceProducts={report.source_products} />
+                            <InboxCardSourceMeta
+                                sourceProducts={report.source_products}
+                                scoutName={scoutDisplayName(report.scout_name)}
+                            />
                             {!hasPr && (!isReady || !report.actionability) && (
                                 <SignalReportStatusBadge status={report.status} />
                             )}
                             {!hasPr && report.actionability && (
                                 <SignalReportActionabilityBadge actionability={report.actionability} />
+                            )}
+                            {dismissalLabel && (
+                                <Tooltip title={report.dismissal_note || undefined}>
+                                    <LemonTag size="small" icon={<IconArchive />}>
+                                        {dismissalLabel}
+                                    </LemonTag>
+                                </Tooltip>
                             )}
                         </div>
                     ) : null}
@@ -224,30 +279,52 @@ export function ReportCard({
                 </div>
             </Link>
 
-            <div className="flex items-center justify-end gap-2.5 shrink-0 @lg:self-stretch @lg:border-l @lg:border-primary @lg:pl-3">
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    icon={<IconArchive />}
-                    tooltip="Archive this report"
-                    aria-label="Archive this report"
-                    loading={isArchiving}
-                    onClick={onArchiveClick}
-                >
-                    Archive
-                </LemonButton>
-                <LemonButton
-                    type="primary"
-                    size="small"
-                    onClick={(event) => {
-                        event.preventDefault()
-                        event.stopPropagation()
-                        router.actions.push(detailUrl)
-                    }}
-                >
-                    Review
-                </LemonButton>
-            </div>
+            {/* Terminal resolved reports carry no row action – skip the action column (and its divider). */}
+            {!isResolved && (
+                <div className="flex items-center justify-end gap-2.5 shrink-0 @lg:self-stretch @lg:border-l @lg:border-primary @lg:pl-3">
+                    {isArchived ? (
+                        <LemonButton
+                            type="secondary"
+                            size="small"
+                            icon={<IconUndo />}
+                            tooltip="Restore this report to the inbox"
+                            aria-label="Restore this report to the inbox"
+                            onClick={(event) => {
+                                event.preventDefault()
+                                event.stopPropagation()
+                                onRestore?.()
+                            }}
+                        >
+                            Restore
+                        </LemonButton>
+                    ) : (
+                        <>
+                            <LemonButton
+                                type="secondary"
+                                size="small"
+                                icon={<IconArchive />}
+                                tooltip="Archive this report"
+                                aria-label="Archive this report"
+                                loading={isArchiving}
+                                onClick={onArchiveClick}
+                            >
+                                Archive
+                            </LemonButton>
+                            <LemonButton
+                                type="primary"
+                                size="small"
+                                onClick={(event) => {
+                                    event.preventDefault()
+                                    event.stopPropagation()
+                                    router.actions.push(detailUrl)
+                                }}
+                            >
+                                Review
+                            </LemonButton>
+                        </>
+                    )}
+                </div>
+            )}
         </div>
     )
 }

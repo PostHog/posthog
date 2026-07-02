@@ -1,7 +1,12 @@
+import { isDevEnv, isProdEnv, isTestEnv } from '~/common/utils/env-utils'
+
 import type { BaseServerConfig } from '../servers/base-server'
-import { isDevEnv, isProdEnv, isTestEnv } from '../utils/env-utils'
 
 export const DEFAULT_HTTP_SERVER_PORT = 6738
+
+// Public dev-only default for the internal API secret. Never accepted as a valid secret in production
+// (mirrors LOCAL_DEV_INTERNAL_API_SECRET on the Django side).
+export const LOCAL_DEV_INTERNAL_API_SECRET = 'posthog123'
 
 export enum KafkaSaslMechanism {
     Plain = 'plain',
@@ -17,6 +22,8 @@ export enum PluginServerMode {
     recordings_blob_ingestion_v2 = 'recordings-blob-ingestion-v2',
     // TODO: Remove once charts deploy with mode=recordings-blob-ingestion-v2 for overflow pods
     recordings_blob_ingestion_v2_overflow = 'recordings-blob-ingestion-v2-overflow',
+    recordings_blob_ingestion_v2_ml_mirror = 'recordings-blob-ingestion-v2-ml-mirror',
+    recordings_blob_ingestion_v2_ml_parquet_sink = 'recordings-blob-ingestion-v2-ml-parquet-sink',
     cdp_processed_events = 'cdp-processed-events',
     cdp_person_updates = 'cdp-person-updates',
     cdp_data_warehouse_events = 'cdp-data-warehouse-events',
@@ -28,6 +35,7 @@ export enum PluginServerMode {
     cdp_cyclotron_worker_hogflow = 'cdp-cyclotron-worker-hogflow',
     cdp_cyclotron_worker_hogflow_legacy_pg = 'cdp-cyclotron-worker-hogflow-legacy-pg',
     cdp_cyclotron_worker_email = 'cdp-cyclotron-worker-email',
+    cdp_cyclotron_worker_email_legacy_pg = 'cdp-cyclotron-worker-email-legacy-pg',
     cdp_api = 'cdp-api',
     cdp_legacy_on_event = 'cdp-legacy-on-event',
     evaluation_scheduler = 'evaluation-scheduler',
@@ -35,6 +43,7 @@ export enum PluginServerMode {
     ingestion_error_tracking = 'ingestion-errortracking',
     ingestion_metrics = 'ingestion-metrics',
     cdp_batch_hogflow_requests = 'cdp-batch-hogflow-requests',
+    cdp_cyclotron_worker_batch_resolve = 'cdp-cyclotron-worker-batch-resolve',
     cdp_cyclotron_v2_janitor = 'cdp-cyclotron-v2-janitor',
     cdp_rerun_worker = 'cdp-rerun-worker',
     recording_api = 'recording-api',
@@ -322,7 +331,8 @@ export function getDefaultCommonConfig(): CommonConfig {
         INTERNAL_API_BASE_URL: isProdEnv()
             ? 'http://posthog-web-django.posthog.svc.cluster.local:8000'
             : 'http://localhost:8000',
-        INTERNAL_API_SECRET: isProdEnv() ? '' : 'posthog123',
+        INTERNAL_API_SECRET: isProdEnv() ? '' : LOCAL_DEV_INTERNAL_API_SECRET,
+        INTERNAL_API_SECRET_FALLBACKS: '',
         HOGFLOW_SCHEDULER_POLL_INTERVAL_MS: 60_000,
         HOGFLOW_SCHEDULER_MAX_POLL_INTERVAL_MS: 5 * 60_000,
         HOGFLOW_SCHEDULER_HEALTH_TIMEOUT_MS: 10 * 60_000,

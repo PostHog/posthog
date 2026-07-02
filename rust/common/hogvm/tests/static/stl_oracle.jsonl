@@ -1,0 +1,125 @@
+{"fn":"concat","label":"concat#0","match":"exact","bytecode":["_H",1,32,"a",32,"b",32,"c",2,"concat",3,2,"print",1],"expected":"abc"}
+{"fn":"concat","label":"concat#1","match":"exact","bytecode":["_H",1,33,1,31,32,"x",2,"concat",3,2,"print",1],"expected":"1x"}
+{"fn":"lower","label":"lower#0","match":"exact","bytecode":["_H",1,32,"HeLLo",2,"lower",1,2,"print",1],"expected":"hello"}
+{"fn":"upper","label":"upper#0","match":"exact","bytecode":["_H",1,32,"HeLLo",2,"upper",1,2,"print",1],"expected":"HELLO"}
+{"fn":"reverse","label":"reverse#0","match":"exact","bytecode":["_H",1,32,"abc",2,"reverse",1,2,"print",1],"expected":"cba"}
+{"fn":"trim","label":"trim#0","match":"exact","bytecode":["_H",1,32,"  hi  ",2,"trim",1,2,"print",1],"expected":"hi"}
+{"fn":"trimLeft","label":"trimLeft#0","match":"exact","bytecode":["_H",1,32,"  hi  ",2,"trimLeft",1,2,"print",1],"expected":"hi  "}
+{"fn":"trimRight","label":"trimRight#0","match":"exact","bytecode":["_H",1,32,"  hi  ",2,"trimRight",1,2,"print",1],"expected":"  hi"}
+{"fn":"substring","label":"substring#0","match":"exact","bytecode":["_H",1,32,"hello world",33,1,33,5,2,"substring",3,2,"print",1],"expected":"hello"}
+{"fn":"replaceOne","label":"replaceOne#0","match":"exact","bytecode":["_H",1,32,"hello",32,"l",32,"L",2,"replaceOne",3,2,"print",1],"expected":"heLlo"}
+{"fn":"replaceAll","label":"replaceAll#0","match":"exact","bytecode":["_H",1,32,"hello",32,"l",32,"L",2,"replaceAll",3,2,"print",1],"expected":"heLLo"}
+{"fn":"splitByString","label":"splitByString#0","match":"exact","bytecode":["_H",1,32,",",32,"a,b,c",2,"splitByString",2,2,"print",1],"expected":"['a', 'b', 'c']"}
+{"fn":"startsWith","label":"startsWith#0","match":"exact","bytecode":["_H",1,32,"hello",32,"he",2,"startsWith",2,2,"print",1],"expected":"true"}
+{"fn":"position","label":"position#0","match":"exact","bytecode":["_H",1,32,"hello",32,"l",2,"position",2,2,"print",1],"expected":"3"}
+{"fn":"positionCaseInsensitive","label":"positionCaseInsensitive#0","match":"exact","bytecode":["_H",1,32,"heLLo",32,"l",2,"positionCaseInsensitive",2,2,"print",1],"expected":"3"}
+{"fn":"encodeURLComponent","label":"encodeURLComponent#0","match":"exact","bytecode":["_H",1,32,"a b&c=d",2,"encodeURLComponent",1,2,"print",1],"expected":"a%20b%26c%3Dd"}
+{"fn":"decodeURLComponent","label":"decodeURLComponent#0","match":"exact","bytecode":["_H",1,32,"a%20b%26c",2,"decodeURLComponent",1,2,"print",1],"expected":"a b&c"}
+{"fn":"base64Encode","label":"base64Encode#0","match":"exact","bytecode":["_H",1,32,"hello",2,"base64Encode",1,2,"print",1],"expected":"aGVsbG8="}
+{"fn":"base64Decode","label":"base64Decode#0","match":"exact","bytecode":["_H",1,32,"aGVsbG8=",2,"base64Decode",1,2,"print",1],"expected":"hello"}
+{"fn":"tryDecodeURLComponent","label":"tryDecodeURLComponent#0","match":"exact","bytecode":["_H",1,32,"a%20b",2,"tryDecodeURLComponent",1,2,"print",1],"expected":"a b"}
+{"fn":"length","label":"length#0","match":"exact","bytecode":["_H",1,32,"hello",2,"length",1,2,"print",1],"expected":"5"}
+{"fn":"length","label":"length#1","match":"exact","bytecode":["_H",1,33,1,33,2,33,3,43,3,2,"length",1,2,"print",1],"expected":"3"}
+{"fn":"empty","label":"empty#0","match":"exact","bytecode":["_H",1,32,"",2,"empty",1,2,"print",1],"expected":"true"}
+{"fn":"empty","label":"empty#1","match":"exact","bytecode":["_H",1,43,0,2,"empty",1,2,"print",1],"expected":"true"}
+{"fn":"empty","label":"empty#2","match":"exact","bytecode":["_H",1,33,0,2,"empty",1,2,"print",1],"expected":"false"}
+{"fn":"notEmpty","label":"notEmpty#0","match":"exact","bytecode":["_H",1,32,"x",2,"notEmpty",1,2,"print",1],"expected":"true"}
+{"fn":"notEmpty","label":"notEmpty#1","match":"exact","bytecode":["_H",1,43,0,2,"notEmpty",1,2,"print",1],"expected":"false"}
+{"fn":"keys","label":"keys#0","match":"exact","bytecode":["_H",1,32,"a",33,1,32,"b",33,2,42,2,2,"keys",1,2,"print",1],"expected":"['a', 'b']"}
+{"fn":"values","label":"values#0","match":"exact","bytecode":["_H",1,32,"a",33,1,32,"b",33,2,42,2,2,"values",1,2,"print",1],"expected":"[1, 2]"}
+{"fn":"has","label":"has#0","match":"exact","bytecode":["_H",1,33,1,33,2,33,3,43,3,33,2,2,"has",2,2,"print",1],"expected":"true"}
+{"fn":"indexOf","label":"indexOf#0","match":"exact","bytecode":["_H",1,33,10,33,20,33,30,43,3,33,20,2,"indexOf",2,2,"print",1],"expected":"2"}
+{"fn":"arrayPushBack","label":"arrayPushBack#0","match":"exact","bytecode":["_H",1,33,1,33,2,43,2,33,3,2,"arrayPushBack",2,2,"print",1],"expected":"[1, 2, 3]"}
+{"fn":"arrayPushFront","label":"arrayPushFront#0","match":"exact","bytecode":["_H",1,33,1,33,2,43,2,33,0,2,"arrayPushFront",2,2,"print",1],"expected":"[0, 1, 2]"}
+{"fn":"arrayPopBack","label":"arrayPopBack#0","match":"exact","bytecode":["_H",1,33,1,33,2,33,3,43,3,2,"arrayPopBack",1,2,"print",1],"expected":"[1, 2]"}
+{"fn":"arrayPopFront","label":"arrayPopFront#0","match":"exact","bytecode":["_H",1,33,1,33,2,33,3,43,3,2,"arrayPopFront",1,2,"print",1],"expected":"[2, 3]"}
+{"fn":"arraySort","label":"arraySort#0","match":"exact","bytecode":["_H",1,33,3,33,1,33,2,43,3,2,"arraySort",1,2,"print",1],"expected":"[1, 2, 3]"}
+{"fn":"arrayReverse","label":"arrayReverse#0","match":"exact","bytecode":["_H",1,33,1,33,2,33,3,43,3,2,"arrayReverse",1,2,"print",1],"expected":"[3, 2, 1]"}
+{"fn":"arrayReverseSort","label":"arrayReverseSort#0","match":"exact","bytecode":["_H",1,33,1,33,3,33,2,43,3,2,"arrayReverseSort",1,2,"print",1],"expected":"[3, 2, 1]"}
+{"fn":"arrayStringConcat","label":"arrayStringConcat#0","match":"exact","bytecode":["_H",1,33,1,33,2,33,3,43,3,32,"-",2,"arrayStringConcat",2,2,"print",1],"expected":"1-2-3"}
+{"fn":"tuple","label":"tuple#0","match":"exact","bytecode":["_H",1,33,1,32,"a",29,2,"tuple",3,2,"print",1],"expected":"(1, 'a', true)"}
+{"fn":"range","label":"range#0","match":"exact","bytecode":["_H",1,33,5,2,"range",1,2,"print",1],"expected":"[0, 1, 2, 3, 4]"}
+{"fn":"range","label":"range#1","match":"exact","bytecode":["_H",1,33,2,33,6,2,"range",2,2,"print",1],"expected":"[2, 3, 4, 5]"}
+{"fn":"round","label":"round#0","match":"exact","bytecode":["_H",1,34,2.5,2,"round",1,2,"print",1],"expected":"2"}
+{"fn":"round","label":"round#1","match":"exact","bytecode":["_H",1,34,2.4,2,"round",1,2,"print",1],"expected":"2"}
+{"fn":"floor","label":"floor#0","match":"exact","bytecode":["_H",1,34,2.9,2,"floor",1,2,"print",1],"expected":"2"}
+{"fn":"min2","label":"min2#0","match":"exact","bytecode":["_H",1,33,3,33,5,2,"min2",2,2,"print",1],"expected":"3"}
+{"fn":"max2","label":"max2#0","match":"exact","bytecode":["_H",1,33,3,33,5,2,"max2",2,2,"print",1],"expected":"5"}
+{"fn":"toInt","label":"toInt#0","match":"exact","bytecode":["_H",1,32,"42",2,"toInt",1,2,"print",1],"expected":"42"}
+{"fn":"toInt","label":"toInt#1","match":"exact","bytecode":["_H",1,34,3.9,2,"toInt",1,2,"print",1],"expected":"3"}
+{"fn":"toFloat","label":"toFloat#0","match":"exact","bytecode":["_H",1,32,"3.14",2,"toFloat",1,2,"print",1],"expected":"3.14"}
+{"fn":"toString","label":"toString#0","match":"exact","bytecode":["_H",1,33,42,2,"toString",1,2,"print",1],"expected":"42"}
+{"fn":"toString","label":"toString#1","match":"exact","bytecode":["_H",1,29,2,"toString",1,2,"print",1],"expected":"true"}
+{"fn":"toString","label":"toString#2","match":"exact","bytecode":["_H",1,33,1,32,"2",33,3,43,3,2,"toString",1,2,"print",1],"expected":"[1, '2', 3]"}
+{"fn":"toString","label":"toString#3","match":"exact","bytecode":["_H",1,31,2,"toString",1,2,"print",1],"expected":"null"}
+{"fn":"typeof","label":"typeof#0","match":"exact","bytecode":["_H",1,33,1,2,"typeof",1,2,"print",1],"expected":"integer"}
+{"fn":"typeof","label":"typeof#1","match":"exact","bytecode":["_H",1,32,"x",2,"typeof",1,2,"print",1],"expected":"string"}
+{"fn":"typeof","label":"typeof#2","match":"exact","bytecode":["_H",1,33,1,43,1,2,"typeof",1,2,"print",1],"expected":"array"}
+{"fn":"typeof","label":"typeof#3","match":"exact","bytecode":["_H",1,32,"a",33,1,42,1,2,"typeof",1,2,"print",1],"expected":"object"}
+{"fn":"typeof","label":"typeof#4","match":"exact","bytecode":["_H",1,31,2,"typeof",1,2,"print",1],"expected":"null"}
+{"fn":"ifNull","label":"ifNull#0","match":"exact","bytecode":["_H",1,31,32,"x",2,"ifNull",2,2,"print",1],"expected":"x"}
+{"fn":"ifNull","label":"ifNull#1","match":"exact","bytecode":["_H",1,32,"y",32,"x",2,"ifNull",2,2,"print",1],"expected":"y"}
+{"fn":"coalesce","label":"coalesce#0","match":"exact","bytecode":["_H",1,31,31,33,3,2,"coalesce",3,2,"print",1],"expected":"3"}
+{"fn":"assumeNotNull","label":"assumeNotNull#0","match":"exact","bytecode":["_H",1,33,5,2,"assumeNotNull",1,2,"print",1],"expected":"5"}
+{"fn":"isNull","label":"isNull#0","match":"exact","bytecode":["_H",1,31,2,"isNull",1,2,"print",1],"expected":"true"}
+{"fn":"isNull","label":"isNull#1","match":"exact","bytecode":["_H",1,33,1,2,"isNull",1,2,"print",1],"expected":"false"}
+{"fn":"isNotNull","label":"isNotNull#0","match":"exact","bytecode":["_H",1,31,2,"isNotNull",1,2,"print",1],"expected":"false"}
+{"fn":"isNotNull","label":"isNotNull#1","match":"exact","bytecode":["_H",1,33,1,2,"isNotNull",1,2,"print",1],"expected":"true"}
+{"fn":"jsonStringify","label":"jsonStringify#0","match":"exact","bytecode":["_H",1,32,"a",33,1,32,"b",33,2,33,3,43,2,42,2,2,"jsonStringify",1,2,"print",1],"expected":"{\"a\": 1, \"b\": [2, 3]}"}
+{"fn":"jsonParse","label":"jsonParse#0","match":"exact","bytecode":["_H",1,32,"{\"a\":1,\"b\":[2,3]}",2,"jsonParse",1,2,"print",1],"expected":"{'a': 1, 'b': [2, 3]}"}
+{"fn":"isValidJSON","label":"isValidJSON#0","match":"exact","bytecode":["_H",1,32,"{\"a\":1}",2,"isValidJSON",1,2,"print",1],"expected":"true"}
+{"fn":"isValidJSON","label":"isValidJSON#1","match":"exact","bytecode":["_H",1,32,"nope",2,"isValidJSON",1,2,"print",1],"expected":"false"}
+{"fn":"JSONHas","label":"JSONHas#0","match":"exact","bytecode":["_H",1,32,"a",33,1,42,1,32,"a",2,"JSONHas",2,2,"print",1],"expected":"true"}
+{"fn":"JSONHas","label":"JSONHas#1","match":"exact","bytecode":["_H",1,32,"a",33,1,42,1,32,"z",2,"JSONHas",2,2,"print",1],"expected":"false"}
+{"fn":"JSONLength","label":"JSONLength#0","match":"exact","bytecode":["_H",1,32,"a",33,1,32,"b",33,2,42,2,2,"JSONLength",1,2,"print",1],"expected":"2"}
+{"fn":"JSONExtractString","label":"JSONExtractString#0","match":"exact","bytecode":["_H",1,32,"{\"a\":\"x\"}",32,"a",2,"JSONExtractString",2,2,"print",1],"expected":"x"}
+{"fn":"JSONExtractInt","label":"JSONExtractInt#0","match":"exact","bytecode":["_H",1,32,"{\"a\":7}",32,"a",2,"JSONExtractInt",2,2,"print",1],"expected":"7"}
+{"fn":"JSONExtractFloat","label":"JSONExtractFloat#0","match":"exact","bytecode":["_H",1,32,"{\"a\":1.5}",32,"a",2,"JSONExtractFloat",2,2,"print",1],"expected":"1.5"}
+{"fn":"JSONExtractBool","label":"JSONExtractBool#0","match":"exact","bytecode":["_H",1,32,"{\"a\":true}",32,"a",2,"JSONExtractBool",2,2,"print",1],"expected":"true"}
+{"fn":"JSONExtract","label":"JSONExtract#0","match":"exact","bytecode":["_H",1,32,"{\"a\":{\"b\":7}}",32,"a",32,"b",2,"JSONExtract",3,2,"print",1],"expected":"{'b': 7}"}
+{"fn":"JSONExtractArrayRaw","label":"JSONExtractArrayRaw#0","match":"exact","bytecode":["_H",1,32,"[1,2,3]",2,"JSONExtractArrayRaw",1,2,"print",1],"expected":"[1, 2, 3]"}
+{"fn":"match","label":"match#0","match":"exact","bytecode":["_H",1,32,"fish",32,"fi",2,"match",2,2,"print",1],"expected":"true"}
+{"fn":"extractRegex","label":"extractRegex#0","match":"exact","bytecode":["_H",1,32,"abc123",32,"\\d+",2,"extractRegex",2,2,"print",1],"expected":"123"}
+{"fn":"multiSearchAnyCaseInsensitive","label":"multiSearchAnyCaseInsensitive#0","match":"exact","bytecode":["_H",1,32,"Hello World",32,"foo",32,"world",43,2,2,"multiSearchAnyCaseInsensitive",2,2,"print",1],"expected":"1"}
+{"fn":"md5Hex","label":"md5Hex#0","match":"exact","bytecode":["_H",1,32,"hello",2,"md5Hex",1,2,"print",1],"expected":"5d41402abc4b2a76b9719d911017c592"}
+{"fn":"md5","label":"md5#0","match":"exact","bytecode":["_H",1,32,"hello",32,"hex",2,"md5",2,2,"print",1],"expected":"5d41402abc4b2a76b9719d911017c592"}
+{"fn":"sha256Hex","label":"sha256Hex#0","match":"exact","bytecode":["_H",1,32,"hello",2,"sha256Hex",1,2,"print",1],"expected":"2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"}
+{"fn":"sha256","label":"sha256#0","match":"exact","bytecode":["_H",1,32,"hello",32,"hex",2,"sha256",2,2,"print",1],"expected":"2cf24dba5fb0a30e26e83b2ac5b9e29e1b161e5c1fa7425e73043362938b9824"}
+{"fn":"sha256HmacChain","label":"sha256HmacChain#0","match":"exact","bytecode":["_H",1,32,"key",32,"data",43,2,2,"sha256HmacChain",1,2,"print",1],"expected":"5031fe3d989c6d1537a013fa6e739da23463fdaec3b70137d828e36ace221bd0"}
+{"fn":"sha256HmacChainHex","label":"sha256HmacChainHex#0","match":"exact","bytecode":["_H",1,32,"key",32,"data",43,2,2,"sha256HmacChainHex",1,2,"print",1],"expected":"5031fe3d989c6d1537a013fa6e739da23463fdaec3b70137d828e36ace221bd0"}
+{"fn":"toUUID","label":"toUUID#0","match":"exact","bytecode":["_H",1,32,"123e4567-e89b-12d3-a456-426614174000",2,"toUUID",1,2,"print",1],"expected":"123e4567-e89b-12d3-a456-426614174000"}
+{"fn":"isIPAddressInRange","label":"isIPAddressInRange#0","match":"exact","bytecode":["_H",1,32,"192.168.1.5",32,"192.168.1.0/24",2,"isIPAddressInRange",2,2,"print",1],"expected":"true"}
+{"fn":"isIPAddressInRange","label":"isIPAddressInRange#1","match":"exact","bytecode":["_H",1,32,"10.0.0.1",32,"192.168.1.0/24",2,"isIPAddressInRange",2,2,"print",1],"expected":"false"}
+{"fn":"toDateTime","label":"toDateTime#0","match":"exact","bytecode":["_H",1,32,"2021-01-01 12:34:56",2,"toDateTime",1,2,"print",1],"expected":"DateTime(1609504496.0, 'UTC')"}
+{"fn":"toDateTime","label":"toDateTime#1","match":"exact","bytecode":["_H",1,33,1700000000,2,"toDateTime",1,2,"print",1],"expected":"DateTime(1700000000.0, 'UTC')"}
+{"fn":"toDate","label":"toDate#0","match":"exact","bytecode":["_H",1,32,"2021-06-15",2,"toDate",1,2,"print",1],"expected":"Date(2021, 6, 15)"}
+{"fn":"fromUnixTimestamp","label":"fromUnixTimestamp#0","match":"exact","bytecode":["_H",1,33,1700000000,2,"fromUnixTimestamp",1,2,"print",1],"expected":"DateTime(1700000000.0, 'UTC')"}
+{"fn":"toUnixTimestamp","label":"toUnixTimestamp#0","match":"exact","bytecode":["_H",1,32,"2021-01-01 12:34:56",2,"toDateTime",1,2,"toUnixTimestamp",1,2,"print",1],"expected":"1609504496.0"}
+{"fn":"toYear","label":"toYear#0","match":"exact","bytecode":["_H",1,32,"2021-01-01 12:34:56",2,"toDateTime",1,2,"toYear",1,2,"print",1],"expected":"2021"}
+{"fn":"toMonth","label":"toMonth#0","match":"exact","bytecode":["_H",1,32,"2021-01-01 12:34:56",2,"toDateTime",1,2,"toMonth",1,2,"print",1],"expected":"1"}
+{"fn":"toStartOfDay","label":"toStartOfDay#0","match":"exact","bytecode":["_H",1,32,"2021-01-01 12:34:56",2,"toDateTime",1,2,"toStartOfDay",1,2,"print",1],"expected":"DateTime(1609459200.0, 'UTC')"}
+{"fn":"toStartOfMonth","label":"toStartOfMonth#0","match":"exact","bytecode":["_H",1,32,"2021-01-01 12:34:56",2,"toDateTime",1,2,"toStartOfMonth",1,2,"print",1],"expected":"DateTime(1609459200.0, 'UTC')"}
+{"fn":"formatDateTime","label":"formatDateTime#0","match":"exact","bytecode":["_H",1,32,"2021-01-01 12:34:56",2,"toDateTime",1,32,"%Y-%m-%d",2,"formatDateTime",2,2,"print",1],"expected":"2021-01-01"}
+{"fn":"dateDiff","label":"dateDiff#0","match":"exact","bytecode":["_H",1,32,"day",32,"2021-01-01 12:34:56",2,"toDateTime",1,32,"2021-01-05 12:34:56",2,"toDateTime",1,2,"dateDiff",3,2,"print",1],"expected":"4"}
+{"fn":"dateAdd","label":"dateAdd#0","match":"exact","bytecode":["_H",1,32,"day",33,3,32,"2021-01-01 12:34:56",2,"toDateTime",1,2,"dateAdd",3,2,"print",1],"expected":"DateTime(1609763696.0, 'UTC')"}
+{"fn":"addDays","label":"addDays#0","match":"exact","bytecode":["_H",1,32,"2021-01-01 12:34:56",2,"toDateTime",1,33,3,2,"addDays",2,2,"print",1],"expected":"DateTime(1609763696.0, 'UTC')"}
+{"fn":"dateTrunc","label":"dateTrunc#0","match":"exact","bytecode":["_H",1,32,"day",32,"2021-01-01 12:34:56",2,"toDateTime",1,2,"dateTrunc",2,2,"print",1],"expected":"DateTime(1609459200.0, 'UTC')"}
+{"fn":"toStartOfHour","label":"toStartOfHour#0","match":"exact","bytecode":["_H",1,32,"2021-01-01 12:34:56",2,"toDateTime",1,2,"toStartOfHour",1,2,"print",1],"expected":"DateTime(1609502400.0, 'UTC')"}
+{"fn":"toStartOfWeek","label":"toStartOfWeek#0","match":"exact","bytecode":["_H",1,32,"2021-01-01 12:34:56",2,"toDateTime",1,2,"toStartOfWeek",1,2,"print",1],"expected":"DateTime(1609113600.0, 'UTC')"}
+{"fn":"toTimeZone","label":"toTimeZone#0","match":"exact","bytecode":["_H",1,32,"2021-01-01 12:34:56",2,"toDateTime",1,32,"America/New_York",2,"toTimeZone",2,2,"print",1],"expected":"DateTime(1609504496.0, 'America/New_York')"}
+{"fn":"toYYYYMM","label":"toYYYYMM#0","match":"exact","bytecode":["_H",1,32,"2021-01-01 12:34:56",2,"toDateTime",1,2,"toYYYYMM",1,2,"print",1],"expected":"202101"}
+{"fn":"toUnixTimestampMilli","label":"toUnixTimestampMilli#0","match":"exact","bytecode":["_H",1,32,"2021-01-01 12:34:56",2,"toDateTime",1,2,"toUnixTimestampMilli",1,2,"print",1],"expected":"1609504496000"}
+{"fn":"fromUnixTimestampMilli","label":"fromUnixTimestampMilli#0","match":"exact","bytecode":["_H",1,33,1700000000123,2,"fromUnixTimestampMilli",1,2,"print",1],"expected":"DateTime(1700000000.123, 'UTC')"}
+{"fn":"toIntervalDay","label":"toIntervalDay#0","match":"exact","bytecode":["_H",1,33,3,2,"toIntervalDay",1,2,"print",1],"expected":"{'__hogInterval__': true, 'value': 3, 'unit': 'day'}"}
+{"fn":"toIntervalHour","label":"toIntervalHour#0","match":"exact","bytecode":["_H",1,33,2,2,"toIntervalHour",1,2,"print",1],"expected":"{'__hogInterval__': true, 'value': 2, 'unit': 'hour'}"}
+{"fn":"toIntervalMinute","label":"toIntervalMinute#0","match":"exact","bytecode":["_H",1,33,30,2,"toIntervalMinute",1,2,"print",1],"expected":"{'__hogInterval__': true, 'value': 30, 'unit': 'minute'}"}
+{"fn":"toIntervalMonth","label":"toIntervalMonth#0","match":"exact","bytecode":["_H",1,33,1,2,"toIntervalMonth",1,2,"print",1],"expected":"{'__hogInterval__': true, 'value': 1, 'unit': 'month'}"}
+{"fn":"sortableSemver","label":"sortableSemver#0","match":"exact","bytecode":["_H",1,32,"1.20.3",2,"sortableSemver",1,2,"print",1],"expected":"[1, 20, 3]"}
+{"fn":"Error","label":"Error#0","match":"exact","bytecode":["_H",1,32,"boom",2,"Error",1,2,"print",1],"expected":"Error('boom')"}
+{"fn":"HogError","label":"HogError#0","match":"exact","bytecode":["_H",1,32,"MyError",32,"boom",2,"HogError",2,2,"print",1],"expected":"MyError('boom')"}
+{"fn":"RetryError","label":"RetryError#0","match":"exact","bytecode":["_H",1,32,"retry me",2,"RetryError",1,2,"print",1],"expected":"RetryError('retry me')"}
+{"fn":"NotImplementedError","label":"NotImplementedError#0","match":"exact","bytecode":["_H",1,32,"nope",2,"NotImplementedError",1,2,"print",1],"expected":"NotImplementedError('nope')"}
+{"fn":"now","label":"now#0","match":"smoke","bytecode":["_H",1,2,"now",0,2,"print",1],"expected":""}
+{"fn":"today","label":"today#0","match":"smoke","bytecode":["_H",1,2,"today",0,2,"print",1],"expected":""}
+{"fn":"randomFloat","label":"randomFloat#0","match":"smoke","bytecode":["_H",1,2,"randomFloat",0,2,"print",1],"expected":""}
+{"fn":"generateUUIDv4","label":"generateUUIDv4#0","match":"smoke","bytecode":["_H",1,2,"generateUUIDv4",0,2,"print",1],"expected":""}

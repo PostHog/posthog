@@ -30,6 +30,7 @@ base64 = { workspace = true }
 rdkafka = { workspace = true }
 uuid = { workspace = true }
 chrono = { workspace = true }
+siphasher = { workspace = true }
 apache-avro = { version = "0.21.0", features = ["zstandard"] }
 prost = { workspace = true }
 bytes = { workspace = true }

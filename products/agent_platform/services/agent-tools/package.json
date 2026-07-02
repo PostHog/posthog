@@ -13,6 +13,8 @@
     },
     "scripts": {
         "lint": "oxlint --quiet .",
+        "format": "oxfmt .",
+        "format:check": "oxfmt --check .",
         "typescript:check": "tsc --noEmit -p .",
         "test": "vitest run"
     },
@@ -25,7 +27,7 @@
         "@aws-sdk/client-s3": "^3.723.0",
         "@types/node": "catalog:",
         "typescript": "catalog:",
-        "vitest": "^2.1.9"
+        "vitest": "^4.1.0"
     },
     "engines": {
         "node": ">=24 <25"

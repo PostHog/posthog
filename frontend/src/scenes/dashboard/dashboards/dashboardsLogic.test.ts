@@ -3,6 +3,7 @@ import { MOCK_DEFAULT_USER } from 'lib/api.mock'
 import { router } from 'kea-router'
 import { expectLogic, truth } from 'kea-test-utils'
 
+import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { DashboardsFilters, DashboardsTab, dashboardsLogic } from 'scenes/dashboard/dashboards/dashboardsLogic'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
@@ -81,9 +82,6 @@ describe('dashboardsLogic', () => {
         dashboardsModel.mount()
         await expectLogic(dashboardsModel).toDispatchActions(['loadDashboardsSuccess'])
         sceneLogic({ scenes }).mount()
-        sceneLogic.actions.setTabs([
-            { id: '1', title: '...', pathname: '/', search: '', hash: '', active: true, iconType: 'blank' },
-        ])
 
         logic = dashboardsLogic({ tabId: '1' })
         logic.mount()
@@ -214,12 +212,16 @@ describe('dashboardsLogic', () => {
             },
         })
 
+        const reportSearched = jest.spyOn(eventUsageLogic.actions, 'reportDashboardListSearched')
         await expectLogic(logic, () => {
             logic.actions.setSearch('needl')
         }).toDispatchActions(['loadSearchedDashboardsSuccess'])
 
         expect(logic.values.dashboards).toHaveLength(1)
         expect(logic.values.dashboards[0].name).toBe('needle')
+        // Findability signal fires once per settled search: term length + result count, never the query text.
+        // Covers the dashboards-list-view experiment instrumentation (flag: dashboards-list-view · experiment 379125).
+        expect(reportSearched).toHaveBeenCalledWith(5, 1)
     })
 
     it('does not refetch when only pinned / shared / createdBy change', async () => {

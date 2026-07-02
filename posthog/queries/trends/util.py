@@ -19,8 +19,7 @@ from posthog.models.filters.properties_timeline_filter import PropertiesTimeline
 from posthog.models.filters.utils import validate_group_type_index
 from posthog.models.property.util import get_property_string_expr
 from posthog.models.team import Team
-from posthog.queries.person_distinct_id_query import get_team_distinct_ids_query
-from posthog.queries.util import correct_result_for_sampling, get_earliest_timestamp
+from posthog.queries.util import correct_result_for_sampling
 
 logger = structlog.get_logger(__name__)
 
@@ -69,10 +68,7 @@ def process_math(
             join_condition = ""
             aggregate_operation = f"count(DISTINCT {event_table_alias + '.' if event_table_alias else ''}distinct_id)"
         else:
-            join_condition = EVENT_JOIN_PERSON_SQL.format(
-                GET_TEAM_PERSON_DISTINCT_IDS=get_team_distinct_ids_query(team.pk),
-                event_table_alias=event_table_alias or "events",
-            )
+            join_condition = EVENT_JOIN_PERSON_SQL
             aggregate_operation = f"count(DISTINCT {person_id_alias})"
     elif entity.math == "unique_group":
         validate_group_type_index("math_group_type_index", entity.math_group_type_index, required=True)
@@ -127,12 +123,15 @@ def parse_response(
 def get_active_user_params(filter: Filter, entity: Entity, team_id: int) -> tuple[dict[str, Any], dict[str, Any]]:
     diff = timedelta(days=7 if entity.math == WEEKLY_ACTIVE else 30)
 
+    # Imported here to avoid a circular import at module load (timestamp_utils pulls in HogQL).
+    from posthog.hogql_queries.utils.timestamp_utils import get_earliest_timestamp_unfiltered  # noqa: PLC0415
+
     date_from: datetime.datetime
     if filter.date_from:
         date_from = filter.date_from
     else:
         try:
-            date_from = get_earliest_timestamp(team_id)
+            date_from = get_earliest_timestamp_unfiltered(Team.objects.get(pk=team_id))
         except IndexError:
             raise ValidationError("Active User queries require a lower date bound")
     date_to = filter.date_to

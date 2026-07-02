@@ -330,7 +330,7 @@ describe('markdownNotebookDowngrade', () => {
     it('converts component tags to their v1 node type with props as attrs', () => {
         expect(convertMarkdownToNotebookContent('<Query query={{"kind":"DataTableNode"}} />')).toEqual({
             type: 'doc',
-            content: [{ type: NotebookNodeType.Query, attrs: { query: { kind: 'DataTableNode' } } }],
+            content: [{ type: NotebookNodeType.Query, attrs: { query: { kind: 'DataTableNode' }, edit: true } }],
         })
     })
 
@@ -366,7 +366,9 @@ describe('markdownNotebookDowngrade', () => {
         })
     })
 
-    it.each([['<Chat id="c1" />'], ['<Prompt text="hello" />']])('drops %s blocks', (markdown) => {
+    it('drops Prompt blocks', () => {
+        const markdown = '<Prompt text="hello" />'
+
         expect(convertMarkdownToNotebookContent(markdown)).toEqual({ type: 'doc', content: [] })
     })
 

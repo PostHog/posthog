@@ -2,7 +2,6 @@ from django.conf import settings
 
 from posthog.clickhouse.cluster import ON_CLUSTER_CLAUSE
 from posthog.clickhouse.table_engines import AggregatingMergeTree, Distributed, ReplicationScheme
-from posthog.models.event.sql import EVENTS_INSERT_DATA_TABLE, EVENTS_QUERY_TABLE, json_subcolumn_expr
 
 TABLE_BASE_NAME = "raw_sessions"
 
@@ -170,30 +169,20 @@ SAMPLE BY cityHash64(session_id_v7)
     )
 
 
-def _events_json_subcolumn_string_expr(column_name: str) -> str:
-    field = json_subcolumn_expr("properties", column_name)
-    return f"ifNull(toString({field}), '')"
-
-
 def source_url_column(column_name: str) -> str:
-    return f"nullIf({source_string_column(column_name)}, '')"
+    return f"nullIf(JSONExtractString(properties, '{column_name}'), '')"
 
 
 def source_string_column(column_name: str) -> str:
-    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-        return _events_json_subcolumn_string_expr(column_name)
     return f"JSONExtractString(properties, '{column_name}')"
 
 
 def source_int_column(column_name: str) -> str:
-    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-        return f"toInt64OrZero({source_string_column(column_name)})"
     return f"JSONExtractInt(properties, '{column_name}')"
 
 
 def source_nullable_float_column(column_name: str) -> str:
-    if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-        return f"toFloat64OrNull(nullIf({source_string_column(column_name)}, ''))"
+    # this is what we do in queries, but it seems pretty awful
     return f"""accurateCastOrNull(replaceRegexpAll(nullIf(nullIf(JSONExtractRaw(properties, '{column_name}'), ''), 'null'), '^"|"$', ''), 'Float64')"""
 
 
@@ -272,11 +261,10 @@ SELECT
 
     -- vitals
     initializeAggregation('argMinState', {vitals_lcp}, timestamp) as vitals_lcp
-FROM {database}.{events_query_table}
+FROM {database}.events
 WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7
 """.format(
     database=settings.CLICKHOUSE_DATABASE,
-    events_query_table=EVENTS_QUERY_TABLE(),
     current_url=source_url_column("$current_url"),
     current_url_string=source_string_column("$current_url"),
     external_click_url=source_string_column("$external_click_url"),
@@ -395,7 +383,7 @@ SELECT
 
     -- web vitals
     argMinState({vitals_lcp}, timestamp) as vitals_lcp
-FROM {database}.{events_source_table}
+FROM {database}.sharded_events
 WHERE bitAnd(bitShiftRight(toUInt128(accurateCastOrNull(`$session_id`, 'UUID')), 76), 0xF) == 7 -- has a session id and is valid uuidv7)
 GROUP BY
     team_id,
@@ -404,7 +392,6 @@ GROUP BY
     session_id_v7
 """.format(
     database=settings.CLICKHOUSE_DATABASE,
-    events_source_table=EVENTS_INSERT_DATA_TABLE(),
     current_url=source_url_column("$current_url"),
     current_url_string=source_string_column("$current_url"),
     external_click_url=source_string_column("$external_click_url"),

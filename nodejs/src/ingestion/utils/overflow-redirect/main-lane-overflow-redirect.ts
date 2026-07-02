@@ -1,5 +1,7 @@
-import { HealthCheckResult } from '../../../types'
-import { MemoryRateLimiter } from '../overflow-detector'
+import { Component } from '~/ingestion/common/scopes'
+import { MemoryRateLimiter } from '~/ingestion/utils/overflow-detector'
+import { HealthCheckResult } from '~/types'
+
 import {
     overflowRedirectCacheHitsTotal,
     overflowRedirectCacheSize,
@@ -17,6 +19,8 @@ export interface MainLaneOverflowRedirectConfig {
     localCacheTTLSeconds: number
     bucketCapacity: number
     replenishRate: number
+    /** Redis keyspace this service operates on. Fixed per pipeline. */
+    overflowType: OverflowType
 }
 
 interface CacheEntry {
@@ -42,6 +46,7 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
     private localCacheTTLSeconds: number
     private statefulEnabled: boolean
     private redisRepository: OverflowRedisRepository
+    private overflowType: OverflowType
 
     constructor(config: MainLaneOverflowRedirectConfig) {
         this.redisRepository = config.redisRepository
@@ -49,6 +54,7 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
         this.rateLimiter = new MemoryRateLimiter(config.bucketCapacity, config.replenishRate)
         this.localCacheTTLSeconds = config.localCacheTTLSeconds
         this.statefulEnabled = config.statefulEnabled
+        this.overflowType = config.overflowType
     }
 
     private localCacheKey(type: OverflowType, token: string, distinctId: string): string {
@@ -74,7 +80,8 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
         })
     }
 
-    async handleEventBatch(type: OverflowType, batch: OverflowEventBatch[]): Promise<Set<string>> {
+    async handleEventBatch(batch: OverflowEventBatch[]): Promise<Set<string>> {
+        const type = this.overflowType
         const toRedirect = new Set<string>()
         const redirectSource = new Map<string, 'redis' | 'rate_limiter'>()
         const needsRateLimitCheck: OverflowEventBatch[] = []
@@ -208,5 +215,15 @@ export class MainLaneOverflowRedirect implements OverflowRedirectService {
     shutdown(): Promise<void> {
         this.localCache.clear()
         return Promise.resolve()
+    }
+}
+
+/** Scope component for the main-lane overflow redirect (rate-limiting). */
+export class MainLaneOverflowRedirectComponent implements Component<OverflowRedirectService> {
+    constructor(private readonly config: MainLaneOverflowRedirectConfig) {}
+
+    start(): Promise<{ value: OverflowRedirectService; stop: () => Promise<void> }> {
+        const service = new MainLaneOverflowRedirect(this.config)
+        return Promise.resolve({ value: service, stop: () => service.shutdown() })
     }
 }
