@@ -440,6 +440,14 @@ interface ToolErrorClassification {
     errorType: ToolErrorType
     /** Upstream HTTP status, when the failure came from a PostHog API error. */
     status?: number
+    /**
+     * Machine-readable error code the backend attached to the response body
+     * (`{ "code": ... }`). Lets the dashboard break a coarse bucket like
+     * `api_4xx` down by the specific failure the endpoint reported — e.g. a
+     * warehouse `setup` 400 splits into `no_tables_found` vs `invalid_credentials`
+     * vs `invalid_config` instead of collapsing into one opaque reason.
+     */
+    code?: string
 }
 
 /**
@@ -477,10 +485,10 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
         return { errorType: 'rate_limited', status: apiError.status }
     }
     if (apiError instanceof PostHogApiError && apiError.status >= 500) {
-        return { errorType: 'api_5xx', status: apiError.status }
+        return { errorType: 'api_5xx', status: apiError.status, code: apiError.code }
     }
     if (apiError instanceof PostHogApiError) {
-        return { errorType: 'api_4xx', status: apiError.status }
+        return { errorType: 'api_4xx', status: apiError.status, code: apiError.code }
     }
     return { errorType: 'internal' }
 }
@@ -489,11 +497,14 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
  * Properties stamped onto an errored `$mcp_tool_call` so the dashboard can slice
  * failures by reason. `$mcp_error_type` aligns with the SDK's native field; the
  * SDK derives a generic type from the thrown error when none is supplied, and an
- * explicit value here overrides it.
+ * explicit value here overrides it. `$mcp_error_code` adds the backend's own
+ * machine-readable code (when the response body carried one) so a coarse
+ * `api_4xx` bucket can be broken down by the specific reason the endpoint gave.
  */
 function errorAnalyticsProperties(classification: ToolErrorClassification): Record<string, unknown> {
     return {
         $mcp_error_type: classification.errorType,
         ...(classification.status !== undefined ? { $mcp_error_status: classification.status } : {}),
+        ...(classification.code !== undefined ? { $mcp_error_code: classification.code } : {}),
     }
 }
