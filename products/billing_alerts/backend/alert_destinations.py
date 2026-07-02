@@ -1,40 +1,37 @@
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any, Literal
 
 from posthog.models import Team
 
 from products.billing_alerts.backend.models import BillingAlertConfiguration
 
+from common.alerting.destinations import (
+    DESTINATION_TYPE_BY_TEMPLATE_ID,
+    TEMPLATE_ID_BY_DESTINATION_TYPE,
+    EventKindSpec,
+    build_slack_destination_config,
+    build_teams_destination_config,
+    build_webhook_destination_config,
+)
+
 EventKind = Literal["firing", "resolved", "errored", "broken"]
 DestinationType = Literal["slack", "webhook", "teams"]
 
 BILLING_ALERT_DESTINATION_IDS_PROPERTY = "billing_alert_destination_ids"
 
-TEMPLATE_ID_BY_DESTINATION_TYPE: dict[DestinationType, str] = {
-    "slack": "template-slack",
-    "webhook": "template-webhook",
-    "teams": "template-microsoft-teams",
-}
-DESTINATION_TYPE_BY_TEMPLATE_ID = {
-    template_id: destination_type for destination_type, template_id in TEMPLATE_ID_BY_DESTINATION_TYPE.items()
-}
+__all__ = [
+    "BILLING_ALERT_DESTINATION_IDS_PROPERTY",
+    "DESTINATION_TYPE_BY_TEMPLATE_ID",
+    "EVENT_KINDS",
+    "EVENT_KIND_CONFIG",
+    "TEMPLATE_ID_BY_DESTINATION_TYPE",
+    "DestinationType",
+    "EventKind",
+    "build_destination_config",
+]
 
-
-@dataclass(frozen=True)
-class EventKindSpec:
-    event_id: str
-    display_kind: str
-    header: str
-    details: tuple[tuple[str, str], ...]
-    button_url: str
-    button_label: str
-    webhook_body: dict[str, Any]
-
-    def destination_description(self, alert_name: str) -> str:
-        return f'Sends {self.display_kind} notifications for billing alert "{alert_name}".'
-
+_PRODUCT_LABEL = "billing alert"
 
 _BASE_DATA = {
     "alert_id": "{event.properties.alert_id}",
@@ -69,6 +66,7 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
             "timestamp": "{event.properties.triggered_at}",
             "data": _BASE_DATA,
         },
+        product_label=_PRODUCT_LABEL,
     ),
     "resolved": EventKindSpec(
         event_id="$billing_alert_resolved",
@@ -88,6 +86,7 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
             "timestamp": "{event.properties.triggered_at}",
             "data": _BASE_DATA,
         },
+        product_label=_PRODUCT_LABEL,
     ),
     "errored": EventKindSpec(
         event_id="$billing_alert_errored",
@@ -109,6 +108,7 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
                 "consecutive_failures": "{event.properties.consecutive_failures}",
             },
         },
+        product_label=_PRODUCT_LABEL,
     ),
     "broken": EventKindSpec(
         event_id="$billing_alert_auto_disabled",
@@ -130,88 +130,16 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
                 "consecutive_failures": "{event.properties.consecutive_failures}",
             },
         },
+        product_label=_PRODUCT_LABEL,
     ),
 }
 
 EVENT_KINDS: tuple[EventKind, ...] = tuple(EVENT_KIND_CONFIG.keys())
 
-_HOG_FUNCTION_NAME_MAX_LEN = 400
-
-
-def _clip_name(name: str) -> str:
-    if len(name) <= _HOG_FUNCTION_NAME_MAX_LEN:
-        return name
-    return name[: _HOG_FUNCTION_NAME_MAX_LEN - 3] + "..."
-
-
-def _filter_for(alert: BillingAlertConfiguration, kind: EventKind) -> dict[str, Any]:
-    return {
-        "events": [{"id": EVENT_KIND_CONFIG[kind].event_id, "type": "events"}],
-        "properties": [
-            {
-                "key": "alert_id",
-                "value": str(alert.id),
-                "operator": "exact",
-                "type": "event",
-            }
-        ],
-    }
-
-
-def _slack_body(spec: EventKindSpec) -> str:
-    return "\n".join(f"*{label}:* {value}" for label, value in spec.details)
-
-
-def _slack_blocks(spec: EventKindSpec) -> list[dict]:
-    return [
-        {"type": "header", "text": {"type": "plain_text", "text": spec.header}},
-        {"type": "section", "text": {"type": "mrkdwn", "text": _slack_body(spec)}},
-        {
-            "type": "context",
-            "elements": [
-                {"type": "mrkdwn", "text": "Organization billing alert"},
-                {"type": "mrkdwn", "text": "Project: <{project.url}|{project.name}>"},
-            ],
-        },
-        {"type": "divider"},
-        {
-            "type": "actions",
-            "elements": [
-                {
-                    "url": spec.button_url,
-                    "text": {"text": spec.button_label, "type": "plain_text"},
-                    "type": "button",
-                }
-            ],
-        },
-    ]
-
-
-def _teams_text(spec: EventKindSpec) -> str:
-    details = "\n\n".join(f"**{label}:** {value}" for label, value in spec.details)
-    return f"**{spec.header}**\n\n{details}\n\n[{spec.button_label}]({spec.button_url})"
-
-
-def _hog_function_config(
-    alert: BillingAlertConfiguration,
-    team: Team,
-    kind: EventKind,
-    *,
-    template_id: str,
-    name_suffix: str,
-    inputs: dict[str, Any],
-) -> dict[str, Any]:
-    spec = EVENT_KIND_CONFIG[kind]
-    return {
-        "team": team,
-        "type": "internal_destination",
-        "enabled": True,
-        "filters": _filter_for(alert, kind),
-        "name": _clip_name(f"Billing alert - {alert.name} ({spec.display_kind}) -> {name_suffix}"),
-        "description": spec.destination_description(alert.name),
-        "template_id": template_id,
-        "inputs": inputs,
-    }
+_SLACK_CONTEXT_ELEMENTS = (
+    "Organization billing alert",
+    "Project: <{project.url}|{project.name}>",
+)
 
 
 def build_destination_config(
@@ -221,42 +149,33 @@ def build_destination_config(
     data: dict[str, Any],
 ) -> dict[str, Any]:
     spec = EVENT_KIND_CONFIG[kind]
+    alert_id = str(alert.id)
     if data["type"] == "slack":
         channel_display = data.get("slack_channel_name") or "channel"
-        return _hog_function_config(
-            alert,
-            team,
-            kind,
-            template_id=TEMPLATE_ID_BY_DESTINATION_TYPE["slack"],
-            name_suffix=f"Slack #{channel_display}",
-            inputs={
-                "blocks": {"value": _slack_blocks(spec)},
-                "text": {"value": spec.header},
-                "slack_workspace": {"value": data["slack_workspace_id"]},
-                "channel": {"value": data["slack_channel_id"]},
-            },
+        return build_slack_destination_config(
+            team=team,
+            spec=spec,
+            alert_id=alert_id,
+            alert_name=alert.name,
+            name=f"Billing alert - {alert.name} ({spec.display_kind}) -> Slack #{channel_display}",
+            slack_workspace_id=data["slack_workspace_id"],
+            slack_channel_id=data["slack_channel_id"],
+            context_elements=_SLACK_CONTEXT_ELEMENTS,
         )
     if data["type"] == "teams":
-        return _hog_function_config(
-            alert,
-            team,
-            kind,
-            template_id=TEMPLATE_ID_BY_DESTINATION_TYPE["teams"],
-            name_suffix="Microsoft Teams",
-            inputs={
-                "webhookUrl": {"value": data["webhook_url"]},
-                "text": {"value": _teams_text(spec)},
-            },
+        return build_teams_destination_config(
+            team=team,
+            spec=spec,
+            alert_id=alert_id,
+            alert_name=alert.name,
+            name=f"Billing alert - {alert.name} ({spec.display_kind}) -> Microsoft Teams",
+            webhook_url=data["webhook_url"],
         )
-    return _hog_function_config(
-        alert,
-        team,
-        kind,
-        template_id=TEMPLATE_ID_BY_DESTINATION_TYPE["webhook"],
-        name_suffix=f"Webhook {data['webhook_url']}",
-        inputs={
-            "body": {"value": spec.webhook_body},
-            "url": {"value": data["webhook_url"]},
-            "headers": {"value": {"Content-Type": "application/json", "X-PostHog-Webhook-Version": "1"}},
-        },
+    return build_webhook_destination_config(
+        team=team,
+        spec=spec,
+        alert_id=alert_id,
+        alert_name=alert.name,
+        name=f"Billing alert - {alert.name} ({spec.display_kind}) -> Webhook {data['webhook_url']}",
+        webhook_url=data["webhook_url"],
     )

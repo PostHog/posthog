@@ -18,6 +18,11 @@ from rest_framework.response import Response
 
 from posthog.schema import LogsAlertFilters
 
+from posthog.alerting.destinations import (
+    AlertDestinationOwnershipError,
+    create_alert_destination_hog_functions,
+    soft_delete_alert_destinations,
+)
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
 from posthog.event_usage import report_user_action
@@ -28,7 +33,6 @@ from posthog.models.user import User
 from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.utils import relative_date_parse
 
-from products.cdp.backend.api.hog_function import HogFunctionSerializer
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 from products.logs.backend.alert_check_query import AlertCheckQuery, BucketedCount
 from products.logs.backend.alert_destinations import (
@@ -868,8 +872,8 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
 
-        with transaction.atomic():
-            hog_functions = [self._build_and_create_hog_function(alert, data, kind) for kind in EVENT_KINDS]
+        configs = [self._build_destination_config(alert, data, kind) for kind in EVENT_KINDS]
+        hog_functions = create_alert_destination_hog_functions(configs, request=self.request)
 
         report_user_action(
             request.user,
@@ -891,16 +895,14 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         serializer.is_valid(raise_exception=True)
         hog_function_ids = serializer.validated_data["hog_function_ids"]
 
-        with transaction.atomic():
-            updated = HogFunction.objects.filter(
+        try:
+            soft_delete_alert_destinations(
                 team_id=self.team_id,
-                id__in=hog_function_ids,
-                filters__properties__contains=[{"key": "alert_id", "value": str(alert.id)}],
-            ).update(deleted=True)
-            if updated != len(hog_function_ids):
-                # Ownership check: if the filtered UPDATE touched fewer rows than we were asked
-                # to delete, something in the list doesn't belong to this alert. Roll back.
-                raise ValidationError("One or more HogFunctions do not belong to this alert.")
+                alert_id=str(alert.id),
+                hog_function_ids=hog_function_ids,
+            )
+        except AlertDestinationOwnershipError:
+            raise ValidationError("One or more HogFunctions do not belong to this alert.")
 
         report_user_action(
             request.user,
@@ -909,33 +911,23 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
         return Response(status=204)
 
-    def _build_and_create_hog_function(
+    def _build_destination_config(
         self,
         alert: LogsAlertConfiguration,
         data: dict,
         kind: EventKind,
-    ) -> HogFunction:
+    ) -> dict:
         if data["type"] == "slack":
-            config = build_slack_config(
+            return build_slack_config(
                 alert,
                 kind,
                 slack_workspace_id=data["slack_workspace_id"],
                 slack_channel_id=data["slack_channel_id"],
                 slack_channel_name=data.get("slack_channel_name"),
             )
-        elif data["type"] == "teams":
-            config = build_teams_config(alert, kind, webhook_url=data["webhook_url"])
-        else:
-            config = build_webhook_config(alert, kind, webhook_url=data["webhook_url"])
-
-        # Route through HogFunctionSerializer so template lookup and bytecode compilation run.
-        team = config.pop("team")
-        serializer = HogFunctionSerializer(
-            data=config,
-            context={"request": self.request, "get_team": lambda: team, "is_create": True},
-        )
-        serializer.is_valid(raise_exception=True)
-        return serializer.save(team=team)
+        if data["type"] == "teams":
+            return build_teams_config(alert, kind, webhook_url=data["webhook_url"])
+        return build_webhook_config(alert, kind, webhook_url=data["webhook_url"])
 
     @extend_schema(
         request=None,

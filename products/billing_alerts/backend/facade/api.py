@@ -6,19 +6,17 @@ from uuid import UUID
 from django.db import transaction
 from django.db.models import QuerySet
 
+from posthog.alerting.destinations import (
+    AlertDestinationOwnershipError,
+    create_alert_destination_hog_functions,
+    destination_types_for_alerts as shared_destination_types_for_alerts,
+    soft_delete_alert_destinations,
+    soft_delete_all_alert_destinations,
+)
 from posthog.models.integration import Integration
 from posthog.models.team.team import Team
 
-from products.cdp.backend.api.hog_function import HogFunctionSerializer
-from products.cdp.backend.models.hog_functions.hog_function import HogFunction
-
-from ..alert_destinations import (
-    DESTINATION_TYPE_BY_TEMPLATE_ID,
-    EVENT_KINDS,
-    TEMPLATE_ID_BY_DESTINATION_TYPE,
-    EventKind,
-    build_destination_config,
-)
+from ..alert_destinations import EVENT_KINDS, EventKind, build_destination_config
 from ..logic.notifications import dispatch_billing_alert_event
 from ..logic.state_machine import evaluate_and_record_billing_alert, event_should_dispatch
 from ..models import BillingAlertConfiguration, BillingAlertEvent
@@ -59,50 +57,15 @@ def evaluate_and_dispatch_alert(alert: BillingAlertConfiguration) -> BillingAler
 
 def delete_alert_and_destinations(alert: BillingAlertConfiguration) -> None:
     with transaction.atomic():
-        HogFunction.objects.filter(
-            team_id=alert.execution_team_id,
-            deleted=False,
-            template_id__in=list(TEMPLATE_ID_BY_DESTINATION_TYPE.values()),
-            filters__properties__contains=[{"key": "alert_id", "value": str(alert.id)}],
-        ).update(deleted=True, enabled=False)
+        soft_delete_all_alert_destinations(team_id=alert.execution_team_id, alert_id=str(alert.id))
         alert.delete()
 
 
 def destination_types_for_alerts(alerts: list[BillingAlertConfiguration]) -> dict[str, list[str]]:
-    alert_ids = {str(alert.id) for alert in alerts}
-    team_ids = {alert.execution_team_id for alert in alerts}
-    destination_types_by_alert_id: dict[str, set[str]] = {alert_id: set() for alert_id in alert_ids}
-
-    if not alert_ids or not team_ids:
-        return {}
-
-    hog_functions = HogFunction.objects.filter(
-        team_id__in=team_ids,
-        deleted=False,
-        template_id__in=list(DESTINATION_TYPE_BY_TEMPLATE_ID),
-    ).values_list("template_id", "filters")
-
-    for template_id, filters in hog_functions:
-        if template_id is None:
-            continue
-        destination_type = DESTINATION_TYPE_BY_TEMPLATE_ID.get(template_id)
-        if destination_type is None or not isinstance(filters, dict):
-            continue
-
-        properties = filters.get("properties") or []
-        if not isinstance(properties, list):
-            continue
-
-        for property_filter in properties:
-            if not isinstance(property_filter, dict) or property_filter.get("key") != "alert_id":
-                continue
-            alert_id = str(property_filter.get("value"))
-            if alert_id in destination_types_by_alert_id:
-                destination_types_by_alert_id[alert_id].add(destination_type)
-
-    return {
-        alert_id: sorted(destination_types) for alert_id, destination_types in destination_types_by_alert_id.items()
-    }
+    return shared_destination_types_for_alerts(
+        team_ids={alert.execution_team_id for alert in alerts},
+        alert_ids={str(alert.id) for alert in alerts},
+    )
 
 
 def slack_integration_belongs_to_team(*, integration_id: int, team_id: int) -> bool:
@@ -114,37 +77,20 @@ def slack_integration_belongs_to_team(*, integration_id: int, team_id: int) -> b
 
 
 def create_destination(alert: BillingAlertConfiguration, *, request: Any, data: dict[str, Any]) -> list[UUID]:
-    with transaction.atomic():
-        hog_functions = [_build_and_create_hog_function(alert, alert.team, data, kind, request) for kind in EVENT_KINDS]
+    configs = [build_destination_config(alert, alert.team, kind, data) for kind in EVENT_KINDS]
+    hog_functions = create_alert_destination_hog_functions(configs, request=request)
     return [hog_function.id for hog_function in hog_functions]
 
 
-def _build_and_create_hog_function(
-    alert: BillingAlertConfiguration,
-    team: Team,
-    data: dict[str, Any],
-    kind: EventKind,
-    request: Any,
-) -> HogFunction:
-    config = build_destination_config(alert, team, kind, data)
-    destination_team = config.pop("team")
-    serializer = HogFunctionSerializer(
-        data=config,
-        context={"request": request, "get_team": lambda: destination_team, "is_create": True},
-    )
-    serializer.is_valid(raise_exception=True)
-    return serializer.save(team=destination_team)
-
-
 def delete_destination(alert: BillingAlertConfiguration, hog_function_ids: list[UUID]) -> None:
-    with transaction.atomic():
-        updated = HogFunction.objects.filter(
+    try:
+        soft_delete_alert_destinations(
             team_id=alert.execution_team_id,
-            id__in=hog_function_ids,
-            filters__properties__contains=[{"key": "alert_id", "value": str(alert.id)}],
-        ).update(deleted=True, enabled=False)
-        if updated != len(hog_function_ids):
-            raise BillingAlertDestinationOwnershipError
+            alert_id=str(alert.id),
+            hog_function_ids=hog_function_ids,
+        )
+    except AlertDestinationOwnershipError as e:
+        raise BillingAlertDestinationOwnershipError from e
 
 
 __all__ = [

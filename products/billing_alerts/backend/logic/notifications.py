@@ -7,12 +7,11 @@ from django.utils import timezone
 
 import structlog
 
-from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
+from posthog.alerting.destinations import find_alert_destination_hog_functions, produce_alert_internal_event
 from posthog.exceptions_capture import capture_exception
 
 from products.billing_alerts.backend.alert_destinations import (
     BILLING_ALERT_DESTINATION_IDS_PROPERTY,
-    DESTINATION_TYPE_BY_TEMPLATE_ID,
     EVENT_KIND_CONFIG,
     EventKind,
 )
@@ -66,15 +65,10 @@ def _destination_hog_functions(event: BillingAlertEvent) -> list[HogFunction]:
     kind = _kind_for_event(event)
     if kind is None:
         return []
-    event_id = EVENT_KIND_CONFIG[kind].event_id
-    return list(
-        HogFunction.objects.filter(
-            team_id=alert.execution_team_id,
-            deleted=False,
-            template_id__in=list(DESTINATION_TYPE_BY_TEMPLATE_ID),
-            filters__events__contains=[{"id": event_id, "type": "events"}],
-            filters__properties__contains=[{"key": "alert_id", "value": str(alert.id)}],
-        ).only("id", "template_id")
+    return find_alert_destination_hog_functions(
+        team_id=alert.execution_team_id,
+        alert_id=str(alert.id),
+        event_id=EVENT_KIND_CONFIG[kind].event_id,
     )
 
 
@@ -88,14 +82,11 @@ def _produce_billing_alert_internal_event(
     notification_sent_at: datetime,
 ) -> None:
     try:
-        produce_internal_event(
+        produce_alert_internal_event(
             team_id=team_id,
-            event=InternalEventEvent(
-                event=event_name,
-                distinct_id=f"team_{team_id}",
-                properties=properties,
-                uuid=event_id,
-            ),
+            event_name=event_name,
+            properties=properties,
+            uuid=event_id,
         )
     except Exception as e:
         BillingAlertEvent.objects.filter(id=event_id, notification_sent_at=notification_sent_at).update(

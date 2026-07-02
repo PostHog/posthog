@@ -2,7 +2,12 @@ from django.test import SimpleTestCase
 
 from parameterized import parameterized
 
-from products.logs.backend.alert_destinations import EVENT_KIND_CONFIG, EVENT_KINDS, EventKind, _slack_body, _teams_text
+from products.logs.backend.alert_destinations import EVENT_KIND_CONFIG, EVENT_KINDS, EventKind
+
+from common.alerting.destinations import (
+    slack_body as _slack_body,
+    teams_text as _teams_text,
+)
 
 
 class TestSlackBody(SimpleTestCase):

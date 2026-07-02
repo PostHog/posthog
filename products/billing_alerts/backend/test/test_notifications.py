@@ -92,7 +92,7 @@ class TestBillingAlertNotifications(BaseTest):
         event = self._event(alert)
         destination = self._destination(alert, template_id)
 
-        with patch("products.billing_alerts.backend.logic.notifications.produce_internal_event") as produce:
+        with patch("posthog.alerting.destinations.produce_internal_event") as produce:
             with self.captureOnCommitCallbacks(execute=True):
                 dispatched = dispatch_billing_alert_event(event, now=NOW)
 
@@ -123,7 +123,7 @@ class TestBillingAlertNotifications(BaseTest):
         event = self._event(alert, model_event_kind)
         self._destination(alert, "template-slack", destination_event_kind)
 
-        with patch("products.billing_alerts.backend.logic.notifications.produce_internal_event") as produce:
+        with patch("posthog.alerting.destinations.produce_internal_event") as produce:
             with self.captureOnCommitCallbacks(execute=True):
                 assert dispatch_billing_alert_event(event, now=NOW) == 1
 
@@ -135,7 +135,7 @@ class TestBillingAlertNotifications(BaseTest):
         event = self._event(alert)
         destination = self._destination(alert, "template-slack")
 
-        with patch("products.billing_alerts.backend.logic.notifications.produce_internal_event") as produce:
+        with patch("posthog.alerting.destinations.produce_internal_event") as produce:
             with self.captureOnCommitCallbacks(execute=True):
                 assert dispatch_billing_alert_event(event, now=NOW) == 1
             assert dispatch_billing_alert_event(event, now=NOW) == 0
@@ -150,7 +150,7 @@ class TestBillingAlertNotifications(BaseTest):
         destination = self._destination(alert, "template-slack")
         BillingAlertEvent.objects.filter(id=event.id).update(targets_notified={"hog_functions": [str(destination.id)]})
 
-        with patch("products.billing_alerts.backend.logic.notifications.produce_internal_event") as produce:
+        with patch("posthog.alerting.destinations.produce_internal_event") as produce:
             assert dispatch_billing_alert_event(event, now=NOW) == 0
 
         produce.assert_not_called()
@@ -162,7 +162,7 @@ class TestBillingAlertNotifications(BaseTest):
 
         with self.assertRaises(RuntimeError):
             with patch(
-                "products.billing_alerts.backend.logic.notifications.produce_internal_event",
+                "posthog.alerting.destinations.produce_internal_event",
                 side_effect=RuntimeError("kafka unavailable"),
             ):
                 with self.captureOnCommitCallbacks(execute=True):

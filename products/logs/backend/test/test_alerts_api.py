@@ -1729,7 +1729,7 @@ class TestSimulateEvaluatorLifecycleParity(ClickhouseTestMixin, APIBaseTest):
         self._checkpoint_patcher.start()
         self.addCleanup(self._checkpoint_patcher.stop)
         self._kafka_patcher = patch(
-            "products.logs.backend.temporal.activities.produce_internal_event",
+            "posthog.alerting.destinations.produce_internal_event",
             return_value=None,
         )
         self._kafka_patcher.start()

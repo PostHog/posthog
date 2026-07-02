@@ -20,7 +20,7 @@ from pydantic import ValidationError as PydanticValidationError
 
 from posthog.schema import PropertyGroupFilter
 
-from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
+from posthog.alerting.destinations import produce_alert_internal_event
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.sync import database_sync_to_async_pool
@@ -1235,14 +1235,11 @@ def _produce_alert_internal_event(
     now: datetime,
 ) -> bool:
     try:
-        produce_internal_event(
+        produce_alert_internal_event(
             team_id=alert.team_id,
-            event=InternalEventEvent(
-                event=event_name,
-                distinct_id=f"team_{alert.team_id}",
-                properties=properties,
-                timestamp=now.isoformat(),
-            ),
+            event_name=event_name,
+            properties=properties,
+            timestamp=now,
         )
         return True
     except Exception as e:
