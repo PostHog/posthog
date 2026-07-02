@@ -4,6 +4,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.awin import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.awin.awin import AwinResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.awin.source import AwinSource
@@ -30,8 +32,9 @@ class TestAwinSourceClass:
         assert config.name.value == "Awin"
         assert len(config.fields) == 1
         field = config.fields[0]
+        assert isinstance(field, SourceFieldInputConfig)
         assert field.name == "api_token"
-        assert field.type.value == "password"
+        assert field.type == SourceFieldInputConfigType.PASSWORD
         assert field.required is True
         assert field.secret is True
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/awin"
