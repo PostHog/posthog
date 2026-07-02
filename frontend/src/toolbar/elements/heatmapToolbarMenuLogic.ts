@@ -204,7 +204,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             },
         ],
         clickmapsEnabled: [
-            false,
+            true,
             {
                 toggleClickmapsEnabled: (_, { enabled }) => enabled,
             },
@@ -563,7 +563,9 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         },
 
         maybeLoadClickmap: async () => {
-            if (values.clickmapsEnabled) {
+            // this logic stays mounted while the heatmap menu is closed, so navigation
+            // must not fetch stats until the user is actually looking
+            if (values.heatmapEnabled && values.clickmapsEnabled) {
                 actions.getElementStats()
             }
         },
