@@ -377,4 +377,199 @@ describe('CDP hog invocation rerun e2e', () => {
         // ── 6. The hog function's fetch was called twice — once original, once rerun ─
         expect(mockFetch.mock.calls.length).toBeGreaterThanOrEqual(2)
     })
+
+    // Reproduces the class of bug observed on Google Ads reruns during the
+    // 2026-07-02 DEVELOPER_TOKEN_INVALID incident: the template's input
+    // resolves to `{person.properties.gclid}`; on rerun the paginator strips
+    // `person` from `invocation_globals` and the cyclotron worker rehydrates
+    // it from Postgres via `getCyclotronPerson(distinct_id)`. So the rerun
+    // runs against *current* person state, not the state at the time of the
+    // original send. If the customer's person no longer has `gclid` (drift
+    // between send-time and rerun-time), the rerun hits the template's
+    // `if (empty(inputs.gclid)) skip` guard and the send never fires — even
+    // though the original invocation legitimately had a gclid.
+    //
+    // Both tests here run the same paginator → worker → executor loop; the
+    // difference is what the mock personRepo returns on the rerun-time lookup.
+    describe('when the input resolves via person.properties', () => {
+        const buildGclidFn = async (): Promise<HogFunctionType> => {
+            // Mirrors the shape of the Google Ads template: skip if gclid is
+            // empty, otherwise fetch. Simpler than the real template so the
+            // test surface stays small.
+            const hog = `
+            if (empty(inputs.gclid)) {
+                print('Empty gclid. Skipping...')
+                return
+            }
+            let res := fetch(inputs.url, { 'method': 'POST', 'body': f'gclid={inputs.gclid}' });
+            print('Fetch response:', res);
+            `
+            return await _insertHogFunction(hub.postgres, team.id, {
+                type: 'destination',
+                hog,
+                bytecode: await compileHog(hog),
+                inputs_schema: [
+                    { key: 'url', type: 'string', label: 'URL', secret: false, required: true },
+                    { key: 'gclid', type: 'string', label: 'gclid', secret: false, required: false },
+                ],
+                inputs: {
+                    url: {
+                        value: 'https://example.com/google-ads-webhook',
+                        bytecode: ['_h', 32, 'https://example.com/google-ads-webhook'],
+                    },
+                    // `{person.properties.gclid}` — no coalesce; the real
+                    // template also falls back to `$initial_gclid`, but for
+                    // the bug reproduction one lookup is enough.
+                    gclid: {
+                        value: '{person.properties.gclid}',
+                        bytecode: await compileHog('return person.properties.gclid'),
+                    },
+                },
+                ...HOG_FILTERS_EXAMPLES.no_filters,
+            })
+        }
+
+        const runOriginalAndAssertLifecycleRow = async (gclidFn: HogFunctionType): Promise<string> => {
+            mockFetch.mockResolvedValue({
+                status: 200,
+                json: () => Promise.resolve({ ok: true }),
+                text: () => Promise.resolve('{"ok":true}'),
+                headers: { 'Content-Type': 'application/json' },
+                dump: () => Promise.resolve(),
+            })
+
+            // Original invocation carries `gclid: 'ABC123'` on globals.person
+            // so the template's empty-check passes and the fetch fires.
+            const gclidGlobals = createHogExecutionGlobals({
+                project: { id: team.id } as any,
+                event: {
+                    uuid: '11111111-1111-1111-1111-111111111111',
+                    event: '$pageview',
+                    distinct_id: 'distinct_id',
+                    properties: { $current_url: 'https://posthog.com?gclid=ABC123' },
+                    timestamp: '2026-07-02T09:00:00Z',
+                } as any,
+                person: {
+                    id: 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e1',
+                    name: 'test',
+                    url: 'http://localhost:8000/persons/1',
+                    properties: { email: 'rerun-e2e@posthog.com', gclid: 'ABC123' },
+                },
+            })
+
+            const { invocations } = await eventsConsumer.processBatch([gclidGlobals])
+            expect(invocations).toHaveLength(1)
+
+            await waitForExpect(async () => {
+                const rows = await clickhouse.query<PersistedRow>(
+                    `SELECT invocation_id, status, is_retry, attempts, error_kind, function_kind
+                     FROM hog_invocation_results
+                     WHERE team_id = ${team.id} AND function_id = '${gclidFn.id}' AND status = 'succeeded'`
+                )
+                expect(rows.length).toBeGreaterThanOrEqual(1)
+            }, 30_000)
+
+            const rows = await clickhouse.query<PersistedRow>(
+                `SELECT invocation_id, status, is_retry, attempts, error_kind, function_kind, invocation_globals
+                 FROM hog_invocation_results
+                 WHERE team_id = ${team.id} AND function_id = '${gclidFn.id}' AND status = 'succeeded'`
+            )
+            expect(mockFetch.mock.calls.length).toBe(1)
+            return rows[0].invocation_id
+        }
+
+        const triggerRerunAndWaitForCompletion = async (
+            gclidFn: HogFunctionType,
+            originalInvocationId: string
+        ): Promise<void> => {
+            const windowStart = new Date(Date.now() - 7 * 24 * 60 * 60 * 1000).toISOString()
+            const windowEnd = new Date(Date.now() + 24 * 60 * 60 * 1000).toISOString()
+            const rerunJobId = await rerunManager.enqueue(team.id, 'hog_function', gclidFn.id, {
+                filter: {
+                    window_start: windowStart,
+                    window_end: windowEnd,
+                    status: ['succeeded'],
+                    invocation_ids: [originalInvocationId],
+                },
+            })
+
+            rerunWorker = new CdpRerunWorkerConsumer(
+                { ...hub, CDP_CYCLOTRON_JOB_QUEUE_CONSUMER_MODE: 'postgres' },
+                cdpDeps,
+                { hog_function: kafkaQueue, hog_flow: postgresV2Queue }
+            )
+            await rerunWorker.start()
+
+            await waitForExpect(async () => {
+                const res = await nodeAssertPool.query('SELECT status FROM cyclotron_jobs WHERE id = $1', [rerunJobId])
+                expect(res.rows[0]?.status).toBe('completed')
+            }, 30_000)
+        }
+
+        it('reruns the invocation when Postgres person still has the field', async () => {
+            // Healthy path: the Postgres person still has `gclid`, so the
+            // worker's rehydration populates `globals.person.properties.gclid`,
+            // `inputs.gclid` resolves to it, and the rerun fetches.
+            const gclidFn = await buildGclidFn()
+            const originalInvocationId = await runOriginalAndAssertLifecycleRow(gclidFn)
+
+            const personRepo = cdpDeps.personRepository as jest.Mocked<PersonReadRepository>
+            personRepo.fetchPersonsByDistinctIds.mockResolvedValue([
+                {
+                    id: '1',
+                    uuid: 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e1',
+                    team_id: team.id,
+                    properties: { email: 'rerun-e2e@posthog.com', gclid: 'ABC123' },
+                    properties_last_updated_at: {},
+                    properties_last_operation: null,
+                    created_at: DateTime.utc(),
+                    version: 1,
+                    is_identified: true,
+                    is_user_id: null,
+                    last_seen_at: null,
+                    distinct_id: 'distinct_id',
+                },
+            ])
+
+            await triggerRerunAndWaitForCompletion(gclidFn, originalInvocationId)
+
+            // Original + rerun both fetched.
+            expect(mockFetch.mock.calls.length).toBeGreaterThanOrEqual(2)
+        })
+
+        it('skips the rerun when Postgres person no longer has the field', async () => {
+            // Drift path: the Postgres person no longer has `gclid`, so the
+            // worker's rehydration returns `properties` without it. The
+            // template's `if (empty(inputs.gclid))` guard fires and the fetch
+            // is never called on the rerun — matching the production symptom.
+            const gclidFn = await buildGclidFn()
+            const originalInvocationId = await runOriginalAndAssertLifecycleRow(gclidFn)
+
+            const personRepo = cdpDeps.personRepository as jest.Mocked<PersonReadRepository>
+            personRepo.fetchPersonsByDistinctIds.mockResolvedValue([
+                {
+                    id: '1',
+                    uuid: 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e1',
+                    team_id: team.id,
+                    // No `gclid` here — simulates the value being missing on
+                    // the current Postgres person (drift, merge, whatever
+                    // path we're actually hitting in production).
+                    properties: { email: 'rerun-e2e@posthog.com' },
+                    properties_last_updated_at: {},
+                    properties_last_operation: null,
+                    created_at: DateTime.utc(),
+                    version: 1,
+                    is_identified: true,
+                    is_user_id: null,
+                    last_seen_at: null,
+                    distinct_id: 'distinct_id',
+                },
+            ])
+
+            await triggerRerunAndWaitForCompletion(gclidFn, originalInvocationId)
+
+            // Only the original fetch — rerun hit the empty-gclid skip.
+            expect(mockFetch.mock.calls.length).toBe(1)
+        })
+    })
 })
