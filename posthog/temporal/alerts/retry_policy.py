@@ -55,6 +55,10 @@ _REAL_TIME_EVALUATE_RETRY_POLICY = RetryPolicy(
     non_retryable_error_types=list(USER_QUERY_ERROR_NAMES),
 )
 
+# Calibrated 2026-07-02 against slo_operation_completed (alert_check, prod, last 7d, n=884k):
+# p50=2.1s  p95=10.1s  p99=23.3s  max=358.8s (~6 min)
+# workflow_execution gives ~1 min headroom over observed max;
+# evaluate_start_to_close covers p99 with room for the 2-retry budget.
 _REAL_TIME_TIMEOUTS = AlertTimeouts(
     workflow_execution=dt.timedelta(minutes=7),
     activity_schedule_to_close=dt.timedelta(minutes=6),
