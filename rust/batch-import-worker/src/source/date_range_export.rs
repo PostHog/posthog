@@ -455,6 +455,10 @@ impl DateRangeExportSource {
                 raw_file_path.display()
             )
         })?;
+        // Final check once the whole `.raw` is on disk: the per-chunk `record` calls are
+        // throttled, so a part smaller than the check interval could otherwise exceed the
+        // limit without ever being measured. This enforces the limit at the part boundary.
+        guard.check().await?;
         info!(
             "Streamed {} bytes to file {} for key: {}",
             total_bytes,

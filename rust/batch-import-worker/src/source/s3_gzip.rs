@@ -236,6 +236,11 @@ impl DataSource for GzipS3Source {
             return Ok(());
         }
 
+        // Final check once the whole `.raw` is on disk: the per-chunk `record` calls are
+        // throttled, so a part smaller than the check interval could otherwise exceed the
+        // limit without ever being measured. This enforces the limit at the part boundary.
+        guard.check().await?;
+
         debug!(
             "Streamed {total_bytes} compressed bytes to {} for key: {key}",
             raw_file_path.display()

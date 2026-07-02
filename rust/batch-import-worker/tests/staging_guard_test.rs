@@ -65,6 +65,35 @@ async fn test_prepare_key_pauses_when_staging_over_budget() {
 }
 
 #[tokio::test]
+async fn test_prepare_key_pauses_when_single_part_exceeds_budget() {
+    // Staging starts empty (so the pre-download check passes at 0 bytes), and the
+    // downloaded part alone exceeds the limit while staying far below the guard's
+    // per-chunk check interval (256 MiB) -- so only the post-download check can catch
+    // it. Proves the limit is enforced at the part boundary, not just at download start.
+    let server = MockServer::start();
+    let _mock = server.mock(|when, then| {
+        when.method(httpmock::Method::GET).path("/export");
+        then.status(200).body(vec![0u8; 1024]);
+    });
+
+    let staging = TempDir::new().unwrap();
+    let source = build_source(server.url("/export"), staging.path(), 512);
+    source.prepare_for_job().await.unwrap();
+    let keys = source.keys().await.unwrap();
+    let key = &keys[0];
+
+    let err = source
+        .prepare_key(key)
+        .await
+        .expect_err("prepare_key must fail when the part alone exceeds the budget");
+    let chain = format!("{err:#}");
+    assert!(
+        chain.contains("Staging disk limit exceeded"),
+        "expected user-facing staging-limit message, got: {chain}"
+    );
+}
+
+#[tokio::test]
 async fn test_prepare_key_succeeds_when_guard_disabled() {
     let server = MockServer::start();
     let _mock = server.mock(|when, then| {
