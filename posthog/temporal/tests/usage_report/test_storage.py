@@ -93,6 +93,22 @@ def test_write_json_roundtrip_via_minio(minio_workflow_ctx: WorkflowContext) -> 
     assert decoded == {"data": [[1, 100], [2, 50]], "meta": {"version": 1}}
 
 
+def test_write_json_compressed_roundtrip_via_minio(minio_workflow_ctx: WorkflowContext) -> None:
+    """`compress=True` payloads must come back through `read_json`'s gzip
+    sniffing — a regression here crashes the aggregation activity's readback
+    of every per-query intermediate.
+    """
+    key = queries_key(minio_workflow_ctx, "teams_with_event_count_in_period")
+    payload = {"data": [(1, 100), (2, 50)], "meta": {"version": 1}}
+
+    write_json(key, payload, compress=True)
+
+    body = object_storage.read_bytes(key, bucket=storage.bucket())
+    assert body is not None
+    assert body[:2] == b"\x1f\x8b", "compressed intermediates should be gzip on the wire"
+    assert storage.read_json(key) == {"data": [[1, 100], [2, 50]], "meta": {"version": 1}}
+
+
 def test_write_jsonl_chunk_gzip_roundtrip_via_minio(minio_workflow_ctx: WorkflowContext) -> None:
     """End-to-end: gzipped JSONL written via the helper is downloadable
     and decompresses to the original lines.
@@ -147,12 +163,12 @@ def test_write_jsonl_chunk_gzip_handles_empty_input_via_minio(minio_workflow_ctx
 # trigger it against real S3 short of taking the bucket offline.
 
 
-def test_write_jsonl_chunk_gzip_does_one_put_object_call() -> None:
-    """Each chunk should land via a single `object_storage.write` call.
-    Multiple writes per chunk would defeat the whole point of batching the
+def test_write_jsonl_chunk_gzip_does_one_upload_call() -> None:
+    """Each chunk should land via a single `object_storage.write_stream` call.
+    Multiple uploads per chunk would defeat the whole point of batching the
     upload — verify that path here so it stays single-shot.
     """
-    with patch("posthog.temporal.usage_report.storage.object_storage.write") as mock_write:
+    with patch("posthog.temporal.usage_report.storage.object_storage.write_stream") as mock_write:
         write_jsonl_chunk_gzip(
             "some/key.jsonl.gz",
             [

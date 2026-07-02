@@ -54,7 +54,11 @@ from posthog.utils import get_instance_region
 
 logger = structlog.get_logger(__name__)
 
-CHUNK_SIZE_ORGS = 50_000
+# Small enough that a run produces several chunks, so the concurrent
+# encode+gzip+PUT fan-out below has work to overlap (zlib releases the GIL
+# while compressing); large enough that each object is still MBs and the
+# manifest stays short.
+CHUNK_SIZE_ORGS = 10_000
 SQS_POINTER_VERSION = 2
 
 # Separate SQS queue for v2 messages so the existing per-org `usage_reports`
@@ -92,7 +96,9 @@ async def run_query_to_s3(inputs: RunQueryToS3Inputs) -> RunQueryToS3Result:
         duration_ms = int((time.monotonic() - started) * 1000)
 
         key = queries_key(inputs.ctx, inputs.query_name)
-        await sync_to_async(write_json)(key, result)
+        # Compressed: big row-shaped results shrink ~8-10x, which speeds up
+        # both this PUT and the readback in the aggregation activity.
+        await sync_to_async(write_json)(key, result, compress=True)
 
         return RunQueryToS3Result(
             query_name=inputs.query_name,
@@ -106,8 +112,9 @@ async def aggregate_and_chunk_org_reports(inputs: AggregateInputs) -> AggregateR
     """Read per-query S3 files, build org reports, and write JSONL chunks.
 
     The aggregation logic is delegated to `aggregator` so this activity reads
-    as a sequence of named steps. Output is byte-compatible with the existing
-    Celery flow so we can validate parity before billing cuts over.
+    as a sequence of named steps. Each decoded per-org payload is identical to
+    what the existing Celery flow emits (pinned by `test_parity.py`) so we can
+    validate parity before billing cuts over.
     """
     async with Heartbeater():
         all_data = await sync_to_async(load_all_data)(inputs.query_results)

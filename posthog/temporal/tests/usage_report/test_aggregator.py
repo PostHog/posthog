@@ -14,7 +14,7 @@ from typing import Any, cast
 import pytest
 from unittest.mock import patch
 
-from posthog.tasks.usage_report import InstanceMetadata, OrgReport, UsageReportCounters
+from posthog.tasks.usage_report import InstanceMetadata, OrgReport, UsageReportCounters, serialize_full_org_report
 from posthog.temporal.usage_report.aggregator import (
     batched,
     build_manifest,
@@ -156,33 +156,78 @@ def test_load_all_data_multi_output_missing_source_key_yields_empty() -> None:
 
 
 class _FakeOrgReport:
-    """Minimal stand-in: only `organization_id` is touched directly by
-    `iter_chunk_lines`. The rest goes through `serialize_full_org_report`,
-    which we mock per test.
+    """Minimal stand-in for tests that only touch `organization_id`
+    (filtering / sorting).
     """
 
     def __init__(self, organization_id: str) -> None:
         self.organization_id = organization_id
 
 
-def test_iter_chunk_lines_emits_id_and_report() -> None:
-    org_a = _FakeOrgReport("org-a")
-    org_b = _FakeOrgReport("org-b")
+def _instance_metadata() -> InstanceMetadata:
+    # Structured fields are deliberately non-None (self-hosted shape) so the
+    # serializer's normalization of nested lists/dicts is exercised, not just
+    # the cloud all-None shape.
+    return InstanceMetadata(
+        deployment_infrastructure="test",
+        realm="hosted-clickhouse",
+        period={
+            "start_inclusive": "2026-05-04T00:00:00+00:00",
+            "end_inclusive": "2026-05-04T23:59:59.999999+00:00",
+        },
+        site_url="https://us.posthog.com",
+        product="open source",
+        helm={"chart": "posthog", "version": "1.0"},
+        clickhouse_version="24.8",
+        users_who_logged_in=[{"id": 1, "distinct_id": "d1"}, {"id": 2, "distinct_id": "d2", "email": "a@b.c"}],
+        users_who_logged_in_count=2,
+        users_who_signed_up=[{"id": 3, "distinct_id": "d3"}],
+        users_who_signed_up_count=1,
+        table_sizes={"posthog_event": 100, "posthog_sessionrecordingevent": 0},
+        plugins_installed={"a-plugin": 2},
+        plugins_enabled={"a-plugin": 1},
+        instance_tag="none",
+    )
 
-    def fake_serialize(report, _meta) -> dict:
-        if report.organization_id == "org-a":
-            return {"event_count_in_period": 10, "has_non_zero_usage": True}
-        return {"event_count_in_period": 0, "has_non_zero_usage": False}
 
-    with patch("posthog.temporal.usage_report.aggregator.serialize_full_org_report", side_effect=fake_serialize):
-        result = list(
-            iter_chunk_lines(cast(list[OrgReport], [org_a, org_b]), instance_metadata=cast(InstanceMetadata, None))
+def _zero_counters(**overrides: Any) -> UsageReportCounters:
+    fields: dict[str, Any] = {f.name: 0 for f in dataclasses.fields(UsageReportCounters)}
+    fields.update(overrides)
+    return UsageReportCounters(**fields)
+
+
+def _as_billing_sees_it(report_dict: dict[str, Any]) -> dict[str, Any]:
+    """Normalize through JSON exactly like the send path does, so the
+    comparison is about what billing decodes rather than in-memory types.
+    """
+    return json.loads(json.dumps(report_dict, default=str))
+
+
+def test_iter_chunk_lines_matches_legacy_serializer() -> None:
+    """The fast per-org serializer must decode to exactly what the legacy
+    `serialize_full_org_report` emits — drift here is drift in what billing
+    receives. Exercises the nested `teams` breakdown, instance-metadata
+    fields, and the `has_non_zero_usage` flag on both a usage and a
+    zero-usage org.
+    """
+    metadata = _instance_metadata()
+    org_a = _empty_org_report("org-a", event_count_in_period=10)
+    org_a.teams = {
+        "1": _zero_counters(event_count_in_period=4),
+        "2": _zero_counters(event_count_in_period=6, dwh_total_storage_in_s3_in_mib=1.5),
+    }
+    org_a.team_count = 2
+    org_b = _empty_org_report("org-b")
+
+    lines = list(iter_chunk_lines([org_a, org_b], metadata))
+
+    assert [line["organization_id"] for line in lines] == ["org-a", "org-b"]
+    for line, org in zip(lines, [org_a, org_b]):
+        assert _as_billing_sees_it(line["usage_report"]) == _as_billing_sees_it(
+            serialize_full_org_report(org, metadata)
         )
-
-    assert result == [
-        {"organization_id": "org-a", "usage_report": {"event_count_in_period": 10, "has_non_zero_usage": True}},
-        {"organization_id": "org-b", "usage_report": {"event_count_in_period": 0, "has_non_zero_usage": False}},
-    ]
+    assert lines[0]["usage_report"]["has_non_zero_usage"] is True
+    assert lines[1]["usage_report"]["has_non_zero_usage"] is False
 
 
 # ---- build_manifest ------------------------------------------------------

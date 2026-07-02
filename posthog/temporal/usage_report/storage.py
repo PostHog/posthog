@@ -16,6 +16,7 @@ from typing import Any
 
 from django.conf import settings
 
+import orjson
 import structlog
 
 from posthog.storage import object_storage
@@ -56,32 +57,45 @@ def manifest_key(ctx: WorkflowContext) -> str:
     return f"{run_prefix(ctx)}/manifest.json"
 
 
-def write_json(key: str, obj: Any) -> None:
+def write_json(key: str, obj: Any, *, compress: bool = False) -> None:
     """Write a JSON-encoded object to S3 with `application/json` content type.
 
     Uses `default=str` to coerce datetimes / Decimal / etc. into strings; the
     aggregation activity reads these back and feeds them through existing
     helpers that already tolerate string ints.
+
+    `compress=True` gzips the body before the PUT. Row-shaped query results
+    compress ~8-10x even at level 1 (which costs almost no CPU), cutting both
+    the upload here and the download in `load_all_data`. Keep the manifest
+    uncompressed — it's part of the billing-facing contract; only the
+    per-query intermediates (read back exclusively by `read_json`) opt in.
     """
-    object_storage.write(
-        key,
-        json.dumps(obj, default=str),
-        extras={"ContentType": "application/json"},
-        bucket=bucket(),
-    )
+    body: str | bytes = json.dumps(obj, default=str)
+    extras = {"ContentType": "application/json"}
+    if compress:
+        body = gzip.compress(body.encode("utf-8"), compresslevel=1)
+        extras["ContentEncoding"] = "gzip"
+    object_storage.write(key, body, extras=extras, bucket=bucket())
 
 
 def read_json(key: str) -> Any:
-    """Read a JSON object from S3. Raises if the key is missing."""
+    """Read a JSON object from S3. Raises if the key is missing.
+
+    Sniffs the gzip magic bytes instead of trusting metadata so it can read
+    both compressed and uncompressed payloads — a run can span a deploy where
+    the query activities wrote one format and aggregation reads with the other.
+    """
     raw = object_storage.read_bytes(key, bucket=bucket())
     if raw is None:
         raise FileNotFoundError(f"S3 key not found: {key}")
+    if raw[:2] == b"\x1f\x8b":
+        raw = gzip.decompress(raw)
     return json.loads(raw)
 
 
 def write_jsonl_chunk_gzip(key: str, lines: Iterable[dict[str, Any]]) -> int:
-    """Stream-encode `lines` as JSONL straight into gzip, then PUT the
-    compressed body to S3 in a single `put_object` call.
+    """Stream-encode `lines` as JSONL straight into gzip, then upload the
+    compressed body to S3 in a single `upload_fileobj` call.
 
     Per-line: one encoded `bytes` is fed to `gzip.GzipFile.write` and
     immediately compressed into the underlying `BytesIO`. We never hold
@@ -89,18 +103,39 @@ def write_jsonl_chunk_gzip(key: str, lines: Iterable[dict[str, Any]]) -> int:
     `compressed_size` plus gzip's 32 KB window and one in-flight encoded
     line. That matters when several chunks are written concurrently, since
     a naive `b"\\n".join(...)` would double-allocate ~25–50 MB per chunk.
+
+    Encoding and compression choices are the hot loop of the whole upload:
+
+    * orjson over stdlib json — several times faster per line.
+      `OPT_PASSTHROUGH_DATETIME` + `default=str` keeps datetime coercion
+      identical to the legacy `json.dumps(..., default=str)` (`str(dt)`,
+      space-separated), and `OPT_NON_STR_KEYS` matches stdlib's int-key
+      coercion. Parsed-payload parity with the Celery path is pinned by
+      `test_parity.py`.
+    * `compresslevel=6` over GzipFile's default 9 — roughly half the
+      compression CPU for ~1% larger chunks; zlib also releases the GIL
+      here, so concurrent chunk writers genuinely overlap.
+    * `write_stream` (multipart `upload_fileobj`) over `put_object` —
+      uploads large chunks in concurrent parts and avoids `getvalue()`
+      copying the whole compressed body.
     """
     line_count = 0
     buffer = io.BytesIO()
-    with gzip.GzipFile(fileobj=buffer, mode="wb") as gz:
+    with gzip.GzipFile(fileobj=buffer, mode="wb", compresslevel=6) as gz:
         for line in lines:
-            gz.write(json.dumps(line, separators=(",", ":"), default=str).encode("utf-8"))
-            gz.write(b"\n")
+            gz.write(
+                orjson.dumps(
+                    line,
+                    default=str,
+                    option=orjson.OPT_APPEND_NEWLINE | orjson.OPT_PASSTHROUGH_DATETIME | orjson.OPT_NON_STR_KEYS,
+                )
+            )
             line_count += 1
 
-    object_storage.write(
+    buffer.seek(0)
+    object_storage.write_stream(
         key,
-        buffer.getvalue(),
+        buffer,
         extras={"ContentType": "application/x-ndjson", "ContentEncoding": "gzip"},
         bucket=bucket(),
     )

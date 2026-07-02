@@ -404,6 +404,11 @@ class ObjectStorage(ObjectStorageClient):
 
 
 _client: ObjectStorageClient = UnavailableStorage()
+# Guards first-time construction: boto3 client *use* is thread-safe, but
+# creating clients from the shared default session concurrently is not, and
+# concurrent first-callers exist (e.g. thread pools whose first task touches
+# S3). Same pattern as `_accelerated_client_lock` below.
+_client_lock = threading.Lock()
 
 
 def is_usable_endpoint(endpoint: str | None) -> bool:
@@ -420,49 +425,55 @@ def object_storage_client() -> ObjectStorageClient:
     if not settings.OBJECT_STORAGE_ENABLED:
         _client = UnavailableStorage()
     elif isinstance(_client, UnavailableStorage):
-        s3_config = Config(
-            signature_version="s3v4",
-            connect_timeout=1,
-            retries={"max_attempts": 1},
-        )
-        aws_client = client(
-            "s3",
-            endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
-            aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-            aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-            config=s3_config,
-            region_name=settings.OBJECT_STORAGE_REGION,
-        )
-        presigned_client = None
-        public_endpoint = settings.OBJECT_STORAGE_PUBLIC_ENDPOINT
-        if public_endpoint != settings.OBJECT_STORAGE_ENDPOINT:
-            # A misconfigured public endpoint (e.g. an unsubstituted `${POSTHOG_DOMAIN}`
-            # deployment template literal) must never take down the read path: every reader
-            # routes through this factory, and boto3 raises `ValueError` when handed an
-            # invalid endpoint. Validate up front and degrade to the internal client so
-            # presigned URLs lose their public host but reads keep working.
-            if is_usable_endpoint(public_endpoint):
-                try:
-                    presigned_client = client(
-                        "s3",
-                        endpoint_url=public_endpoint,
-                        aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
-                        aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
-                        config=s3_config,
-                        region_name=settings.OBJECT_STORAGE_REGION,
-                    )
-                except Exception as e:
-                    logger.exception("object_storage.invalid_public_endpoint", endpoint=public_endpoint, error=e)
-                    capture_exception(e)
-            else:
-                # The Django system check only fails `manage.py`-style startup; gunicorn/ASGI
-                # workers skip it, so capture here too to surface the bad config in Sentry.
-                error = ValueError(f"Invalid OBJECT_STORAGE_PUBLIC_ENDPOINT: {public_endpoint!r}")
-                logger.error("object_storage.invalid_public_endpoint", endpoint=public_endpoint, error=error)
-                capture_exception(error)
-        _client = ObjectStorage(aws_client, presigned_client)
+        with _client_lock:
+            if isinstance(_client, UnavailableStorage):  # re-check now that we hold the lock
+                _client = _build_object_storage_client()
 
     return _client
+
+
+def _build_object_storage_client() -> ObjectStorage:
+    s3_config = Config(
+        signature_version="s3v4",
+        connect_timeout=1,
+        retries={"max_attempts": 1},
+    )
+    aws_client = client(
+        "s3",
+        endpoint_url=settings.OBJECT_STORAGE_ENDPOINT,
+        aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+        aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+        config=s3_config,
+        region_name=settings.OBJECT_STORAGE_REGION,
+    )
+    presigned_client = None
+    public_endpoint = settings.OBJECT_STORAGE_PUBLIC_ENDPOINT
+    if public_endpoint != settings.OBJECT_STORAGE_ENDPOINT:
+        # A misconfigured public endpoint (e.g. an unsubstituted `${POSTHOG_DOMAIN}`
+        # deployment template literal) must never take down the read path: every reader
+        # routes through this factory, and boto3 raises `ValueError` when handed an
+        # invalid endpoint. Validate up front and degrade to the internal client so
+        # presigned URLs lose their public host but reads keep working.
+        if is_usable_endpoint(public_endpoint):
+            try:
+                presigned_client = client(
+                    "s3",
+                    endpoint_url=public_endpoint,
+                    aws_access_key_id=settings.OBJECT_STORAGE_ACCESS_KEY_ID,
+                    aws_secret_access_key=settings.OBJECT_STORAGE_SECRET_ACCESS_KEY,
+                    config=s3_config,
+                    region_name=settings.OBJECT_STORAGE_REGION,
+                )
+            except Exception as e:
+                logger.exception("object_storage.invalid_public_endpoint", endpoint=public_endpoint, error=e)
+                capture_exception(e)
+        else:
+            # The Django system check only fails `manage.py`-style startup; gunicorn/ASGI
+            # workers skip it, so capture here too to surface the bad config in Sentry.
+            error = ValueError(f"Invalid OBJECT_STORAGE_PUBLIC_ENDPOINT: {public_endpoint!r}")
+            logger.error("object_storage.invalid_public_endpoint", endpoint=public_endpoint, error=error)
+            capture_exception(error)
+    return ObjectStorage(aws_client, presigned_client)
 
 
 def write(file_name: str, content: Union[str, bytes], extras: dict | None = None, bucket: str | None = None) -> None:

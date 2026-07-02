@@ -10,9 +10,11 @@ the per-org `count()` N+1 in the legacy helper never fires for Temporal.
 Activities import from here.
 """
 
+import json
 import itertools
 import dataclasses
-from collections.abc import Iterable, Iterator
+from collections.abc import Callable, Iterable, Iterator
+from concurrent.futures import ThreadPoolExecutor
 from datetime import datetime
 from typing import Any
 
@@ -21,6 +23,7 @@ from django.db.models import Count
 
 from posthog.models import OrganizationMembership, Team
 from posthog.tasks.usage_report import (
+    FullUsageReport,
     InstanceMetadata,
     OrgReport,
     UsageReportCounters,
@@ -28,11 +31,27 @@ from posthog.tasks.usage_report import (
     _get_teams_for_usage_reports,
     convert_team_usage_rows_to_dict,
     has_non_zero_usage,
-    serialize_full_org_report,
 )
 from posthog.temporal.usage_report.queries import QUERY_INDEX
 from posthog.temporal.usage_report.storage import bucket, read_json
 from posthog.temporal.usage_report.types import Manifest, RunQueryToS3Result, WorkflowContext
+
+
+def _load_one_query(result: RunQueryToS3Result) -> list[tuple[str, dict[int, int]]]:
+    """Fetch one per-query file and convert it to its `all_data` entries.
+
+    Conversion happens here, inside the download worker, so the raw row
+    payload (the memory-heavy shape — one small list per team) is released
+    as soon as it's been folded into the compact per-team dict.
+    """
+    spec = QUERY_INDEX[result.query_name]
+    raw = read_json(result.s3_key)
+    if spec.output == "multi":
+        return [
+            (dest_key, convert_team_usage_rows_to_dict(raw.get(source_key, [])))
+            for source_key, dest_key in spec.multi_keys_mapping.items()
+        ]
+    return [(spec.name, convert_team_usage_rows_to_dict(raw))]
 
 
 def load_all_data(query_results: list[RunQueryToS3Result]) -> dict[str, dict[int, int]]:
@@ -42,18 +61,55 @@ def load_all_data(query_results: list[RunQueryToS3Result]) -> dict[str, dict[int
     specs are fanned out into the destination keys defined in their
     `multi_keys_mapping` so downstream code sees the same flat shape the
     Celery path produces today.
+
+    ~50 S3 GETs dominate wall-clock here when fetched back-to-back, so they
+    run concurrently; decoding still serializes on the GIL but overlaps with
+    the other threads' network waits.
     """
-    all_data: dict[str, dict[int, int]] = {}
-    for result in query_results:
-        spec = QUERY_INDEX[result.query_name]
-        raw = read_json(result.s3_key)
-        if spec.output == "multi":
-            for source_key, dest_key in spec.multi_keys_mapping.items():
-                rows = raw.get(source_key, [])
-                all_data[dest_key] = convert_team_usage_rows_to_dict(rows)
-        else:
-            all_data[spec.name] = convert_team_usage_rows_to_dict(raw)
-    return all_data
+    with ThreadPoolExecutor(max_workers=8) as pool:
+        return {
+            dest_key: converted
+            for entries in pool.map(_load_one_query, query_results)
+            for dest_key, converted in entries
+        }
+
+
+def make_org_line_serializer(instance_metadata: InstanceMetadata) -> Callable[[OrgReport], dict[str, Any]]:
+    """Build a fast equivalent of `posthog.tasks.usage_report.serialize_full_org_report`.
+
+    The legacy helper pays for three recursive `dataclasses.asdict` passes per
+    organization (org report → kwargs, instance metadata → kwargs, then the
+    assembled `FullUsageReport` all over again), each deep-copying every leaf —
+    including the per-team counter dataclasses and the run-constant instance
+    metadata. At tens of thousands of orgs that is the dominant CPU cost of the
+    chunk-upload step. Here the instance metadata is converted once per run and
+    each org line is assembled with flat dict copies; output keys follow
+    `FullUsageReport` field order so the emitted JSON matches the legacy shape
+    key-for-key. Parity with the legacy serializer is pinned by
+    `test_iter_chunk_lines_matches_legacy_serializer` and `test_parity.py`.
+    """
+    # The json round-trip applies the same `default=str` coercion the legacy
+    # path defers to send time, and normalizes tuples/non-str keys, so every
+    # line is plain JSON-native data by the time the chunk writer encodes it.
+    instance_dict: dict[str, Any] = json.loads(json.dumps(dataclasses.asdict(instance_metadata), default=str))
+    field_names = [field.name for field in dataclasses.fields(FullUsageReport)]
+
+    def serialize(org_report: OrgReport) -> dict[str, Any]:
+        org_vars = vars(org_report)
+        report: dict[str, Any] = {}
+        for name in field_names:
+            if name == "teams":
+                report[name] = {team_id: dict(vars(team)) for team_id, team in org_report.teams.items()}
+            elif name in org_vars:
+                report[name] = org_vars[name]
+            else:
+                report[name] = instance_dict[name]
+        # Same trick as `filter_orgs_with_usage`: every field the check reads
+        # lives on `UsageReportCounters`, so the `OrgReport` works directly.
+        report["has_non_zero_usage"] = has_non_zero_usage(org_report)
+        return report
+
+    return serialize
 
 
 def iter_chunk_lines(
@@ -65,11 +121,11 @@ def iter_chunk_lines(
     Filtering by `has_non_zero_usage` happens upstream in the activity, so
     everything yielded here is expected to have usage.
     """
+    serialize = make_org_line_serializer(instance_metadata)
     for org_report in org_reports:
-        report_dict = serialize_full_org_report(org_report, instance_metadata)
         yield {
             "organization_id": org_report.organization_id,
-            "usage_report": report_dict,
+            "usage_report": serialize(org_report),
         }
 
 
