@@ -52,9 +52,19 @@ ALTER TABLE {_DB}.metric_samples
 """
 
 operations = [
-    run_sql_with_exceptions(ALTER_SERIES_BASE, node_roles=[NodeRole.LOGS], is_alter_on_replicated_table=True),
-    run_sql_with_exceptions(ALTER_SERIES_TTL, node_roles=[NodeRole.LOGS], is_alter_on_replicated_table=True),
-    run_sql_with_exceptions(ALTER_SAMPLES_BASE, node_roles=[NodeRole.LOGS], is_alter_on_replicated_table=True),
-    run_sql_with_exceptions(ALTER_SERIES_DISTRIBUTED, node_roles=[NodeRole.LOGS]),
-    run_sql_with_exceptions(ALTER_SAMPLES_DISTRIBUTED, node_roles=[NodeRole.LOGS]),
+    run_sql_with_exceptions(
+        ALTER_SERIES_BASE, node_roles=[NodeRole.LOGS], sharded=False, is_alter_on_replicated_table=True
+    ),
+    run_sql_with_exceptions(
+        ALTER_SERIES_TTL, node_roles=[NodeRole.LOGS], sharded=False, is_alter_on_replicated_table=True
+    ),
+    run_sql_with_exceptions(
+        ALTER_SAMPLES_BASE, node_roles=[NodeRole.LOGS], sharded=False, is_alter_on_replicated_table=True
+    ),
+    run_sql_with_exceptions(
+        ALTER_SERIES_DISTRIBUTED, node_roles=[NodeRole.LOGS], sharded=False, is_alter_on_replicated_table=False
+    ),
+    run_sql_with_exceptions(
+        ALTER_SAMPLES_DISTRIBUTED, node_roles=[NodeRole.LOGS], sharded=False, is_alter_on_replicated_table=False
+    ),
 ]
