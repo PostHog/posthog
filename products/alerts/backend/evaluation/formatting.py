@@ -61,8 +61,6 @@ def humanize_breakdown_label(label: str) -> str:
     """Swap the internal breakdown sentinels for their display strings. The sentinels are globally
     unique tokens, so a substring replace covers every label shape — standalone, action-prefixed
     ("signed_up - <sentinel>"), and "::"-joined multi-breakdown values — without fragile splitting."""
-    if not isinstance(label, str):
-        return label
     return label.replace(BREAKDOWN_OTHER_STRING_LABEL, BREAKDOWN_OTHER_DISPLAY).replace(
         BREAKDOWN_NULL_STRING_LABEL, BREAKDOWN_NULL_DISPLAY
     )
