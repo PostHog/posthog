@@ -439,11 +439,18 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
             recoverableApiError instanceof PostHogValidationError ||
             (recoverableApiError.status >= 400 && recoverableApiError.status < 500)
         if (isFourXx) {
+            // Most 4xx bodies name the offending field, but a few (e.g. a bare
+            // "Not found." on an exact-id lookup) leave the agent stuck. Append a
+            // recovery hint when one applies so it can self-correct.
+            const recoveryHint =
+                recoverableApiError instanceof PostHogApiError
+                    ? getToolRecoveryHint({ url: recoverableApiError.url, status: recoverableApiError.status })
+                    : undefined
             return {
                 content: [
                     {
                         type: 'text',
-                        text: `Error: [${toolName}]: ${recoverableApiError.message}`,
+                        text: `Error: [${toolName}]: ${recoverableApiError.message}${recoveryHint ? `\n\n${recoveryHint}` : ''}`,
                     },
                 ],
                 isError: true,

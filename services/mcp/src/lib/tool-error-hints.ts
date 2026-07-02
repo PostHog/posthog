@@ -1,9 +1,11 @@
 /**
- * Actionable recovery hints appended to non-recoverable tool errors (5xx).
+ * Actionable recovery hints appended to tool errors that the raw API body
+ * leaves an agent stuck on.
  *
  * `handleToolError` returns the raw PostHog API error verbatim. For a 5xx that
- * body is usually an opaque "Internal Server Error" that gives an agent nothing
- * to act on — it just retries the same failing call. These hints add a short,
+ * body is usually an opaque "Internal Server Error"; for a not-found on an
+ * exact-id lookup it's a bare "Not found." — both give an agent nothing to act
+ * on, so it just retries the same failing call. These hints add a short,
  * endpoint-aware "here's how to recover" footer, modeled on the multi-line
  * guidance that `MissingProjectContextError` and `formatPermissionErrorMessage`
  * already give for their cases (name the next tools to call, in order).
@@ -39,6 +41,32 @@ const LOGS_QUERY_URL_FRAGMENTS = [
     '/logs/sparkline/',
 ]
 
+/**
+ * A 404 on the function-template *retrieve* endpoint is the exception to the
+ * "4xx already carries an actionable detail" rule below: the API body is a bare
+ * "Not found.", and template IDs are exact and often can't be derived from the
+ * destination name (e.g. Slack is `template-slack`, but Encharge is
+ * `segment-encharge-cloud-actions`). Agents guess an ID from the destination
+ * name, miss, and get no signal on what a valid ID looks like. Steer them to
+ * list-then-retrieve so they resolve the exact ID instead of re-guessing.
+ */
+const HOG_FUNCTION_TEMPLATE_NOT_FOUND_HINT = [
+    'No function template has that exact ID. Template IDs are exact and often cannot be guessed from the destination name (e.g. Slack is `template-slack`, but Encharge is `segment-encharge-cloud-actions`).',
+    '',
+    'To find the right one:',
+    '1. Call `cdp-function-templates-list` (optionally filter by `type`, e.g. `destination` or `transformation`) to see every available template and its exact `id`.',
+    '2. Retry `cdp-function-templates-retrieve` with that `id` as `template_id`.',
+    '',
+    'If nothing matches the destination you need, PostHog may not ship a dedicated template for it — the generic `template-webhook` (HTTP) destination can usually be configured instead.',
+].join('\n')
+
+/**
+ * Matches a function-template *retrieve* URL — a non-empty id segment after the
+ * `/hog_function_templates/` collection. The list URL (no id segment) does not
+ * match, so a hint only fires for a genuine id miss.
+ */
+const HOG_FUNCTION_TEMPLATE_RETRIEVE_URL = /\/hog_function_templates\/[^/?]+\/?(?:$|\?)/
+
 interface RecoveryHintInput {
     /** The failed request URL (from `PostHogApiError.url`), if the error was an HTTP failure. */
     url?: string | undefined
@@ -50,12 +78,17 @@ interface RecoveryHintInput {
  * Returns an actionable recovery hint for a failed tool call, or `undefined`
  * when none applies.
  *
- * Only fires for server-side failures (5xx) or non-HTTP errors with no status —
- * 4xx responses already carry an actionable validation detail and must not be
- * buried under a generic hint.
+ * Fires for server-side failures (5xx) and non-HTTP errors with no status. The
+ * one 4xx it fires for is a 404 on the function-template retrieve endpoint,
+ * whose "Not found." body is not actionable; every other 4xx already carries a
+ * validation detail and must not be buried under a generic hint.
  */
 export function getToolRecoveryHint({ url, status }: RecoveryHintInput): string | undefined {
-    // 4xx is recoverable agent input, already surfaced verbatim upstream.
+    // The one 4xx worth a hint: a not-found on an exact-id template lookup.
+    if (status === 404 && url && HOG_FUNCTION_TEMPLATE_RETRIEVE_URL.test(url)) {
+        return HOG_FUNCTION_TEMPLATE_NOT_FOUND_HINT
+    }
+    // Every other 4xx is recoverable agent input, already surfaced verbatim upstream.
     if (status !== undefined && status < 500) {
         return undefined
     }
