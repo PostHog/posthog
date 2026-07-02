@@ -28,8 +28,7 @@ const DEFAULT_DATE_FILTER: DateFilter = { dateFrom: '-7d', dateTo: null }
 // the time buckets, so the query only needs the doubled date range. `__BUCKET__`
 // is replaced with a dateTrunc at the active interval at call time.
 //
-// Queries key on the canonical, $-prefixed event — PostHog's MCP server dual-emits a
-// legacy `mcp_tool_call` alias, so matching both names would double-count it.
+// Key on the canonical event only — also matching the legacy `mcp_tool_call` alias would double-count.
 const KPI_QUERY = `
 SELECT
     __BUCKET__ AS bucket,

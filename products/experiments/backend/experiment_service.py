@@ -515,6 +515,21 @@ class ExperimentService:
                 f"Must be one of: {', '.join(sorted(variant_keys))}"
             )
 
+    # Feature-flag config keys that belong on the linked FeatureFlag (the source of truth). They are
+    # accepted as create/update input to build/sync the flag, projected back into the deprecated
+    # `parameters` API field at read time (see ExperimentBaseSerializer), but never persisted into
+    # the `parameters` column.
+    FEATURE_FLAG_CONFIG_KEYS = ("feature_flag_variants", "rollout_percentage", "aggregation_group_type_index")
+
+    @classmethod
+    def _strip_feature_flag_config(cls, parameters: dict | None) -> dict | None:
+        """Return ``parameters`` without the feature-flag config keys, so they are not stored in the
+        deprecated column. Callers consume those keys earlier to build/sync the flag; reads
+        re-derive them from it. Returns a new dict, leaving the caller's input untouched."""
+        if not parameters:
+            return parameters
+        return {k: v for k, v in parameters.items() if k not in cls.FEATURE_FLAG_CONFIG_KEYS}
+
     @staticmethod
     def _variant_keys(variants: list | None) -> list[str]:
         """Extract variant keys from a feature_flag_variants list, skipping malformed entries."""
@@ -855,7 +870,9 @@ class ExperimentService:
             "name": name,
             "description": description,
             "type": type,
-            "parameters": parameters,
+            # Feature-flag config was already consumed by _ensure_feature_flag above; strip it so it
+            # lives only on the flag, not mirrored into the deprecated `parameters` column.
+            "parameters": self._strip_feature_flag_config(parameters),
             "running_time_calculation": running_time_calculation,
             "excluded_variants": excluded_variants,
             "metrics": metrics if metrics is not None else [],
@@ -888,15 +905,40 @@ class ExperimentService:
             self._sync_saved_metrics(experiment, saved_metrics_ids, serializer_context)
 
         self._validate_metric_ordering_on_create(experiment)
-        self._report_experiment_created(
-            experiment,
-            serializer_context=serializer_context,
-            event_source=event_source,
-            allow_unknown_events=allow_unknown_events,
-            creation_mode=creation_mode,
+        # Defer the analytics capture until after commit so create_experiment's @transaction.atomic
+        # doesn't hold posthog_experiment / posthog_filesystem locks open across an external SDK call.
+        transaction.on_commit(
+            lambda: self._report_experiment_created_safe(
+                experiment,
+                serializer_context=serializer_context,
+                event_source=event_source,
+                allow_unknown_events=allow_unknown_events,
+                creation_mode=creation_mode,
+            )
         )
 
         return experiment
+
+    def _report_experiment_created_safe(
+        self,
+        experiment: Experiment,
+        *,
+        serializer_context: dict | None,
+        event_source: EventSource | None,
+        allow_unknown_events: bool,
+        creation_mode: ExperimentCreationMode,
+    ) -> None:
+        # Post-commit: the experiment is already persisted, so analytics failures must not break the request.
+        try:
+            self._report_experiment_created(
+                experiment,
+                serializer_context=serializer_context,
+                event_source=event_source,
+                allow_unknown_events=allow_unknown_events,
+                creation_mode=creation_mode,
+            )
+        except Exception:
+            logger.exception("experiment_created_analytics_failed", experiment_id=experiment.id)
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -2249,6 +2291,10 @@ class ExperimentService:
             feature_flag.save()
 
         # --- apply changes and save ----------------------------------------
+        # Feature-flag config was already synced to the flag above; strip it so it is not mirrored
+        # into the deprecated `parameters` column. Reads re-derive it from the flag.
+        if update_data.get("parameters") is not None:
+            update_data["parameters"] = self._strip_feature_flag_config(update_data["parameters"])
         for attr, value in update_data.items():
             setattr(experiment, attr, value)
         experiment.save()
