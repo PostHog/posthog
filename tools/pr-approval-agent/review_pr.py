@@ -241,7 +241,11 @@ class Pipeline:
         while time.monotonic() < deadline:
             print(_warn(f"in-flight bot review ({', '.join(bots)}) — waiting {BOT_REVIEW_POLL_SECONDS}s"))
             time.sleep(BOT_REVIEW_POLL_SECONDS)
-            self._fetch()
+            try:
+                self._fetch()
+            except Exception as exc:
+                print(_warn(f"refetch failed ({exc}); treating as still in flight"))
+                continue
             bots = self._in_flight_bot_reviewers()
             if not bots:
                 return None
@@ -251,16 +255,16 @@ class Pipeline:
         self.reviewer_output = {
             "verdict": "WAIT",
             "reasoning": (
-                f"{bot_list} still has a review in flight (👀) after "
+                f"{bot_list} still {'have' if len(bots) > 1 else 'has'} a review in flight (👀) after "
                 f"{BOT_REVIEW_WAIT_BUDGET_SECONDS // 60} minutes — not approving over an "
                 "unfinished review. The `stamphog` label has been kept; the review re-runs "
-                "on the next push, or re-apply the label once the reviewer finishes."
+                "on the next push, or remove and re-apply the label once the reviewer finishes."
             ),
             "risk": "unknown",
             "issues": [],
         }
         print(f"\n{_warn('WAIT')} — bot review still in flight ({bot_list}); label retained for retry")
-        self._capture_review_completed("PENDING", "WAIT")
+        self._capture_review_completed("SKIPPED", "WAIT")
         return self.final_verdict
 
     def _refuse_pending_migration_check(self) -> str:
@@ -429,10 +433,13 @@ class Pipeline:
     def _check_size(self) -> tuple[bool, str]:
         lines, files = substantive_size(self.pr.files)
         binary_count = sum(1 for f in self.pr.files if f.get("binary"))
-        suffix = f", {binary_count} binary" if binary_count else ""
         exempt_files = len(self.pr.files) - files
+        suffix_parts = []
+        if binary_count:
+            suffix_parts.append(f"{binary_count} binary")
         if exempt_files:
-            suffix += f"; {self.pr.lines_total}L/{len(self.pr.files)}F incl. docs/generated/snapshots"
+            suffix_parts.append(f"{self.pr.lines_total}L/{len(self.pr.files)}F incl. docs/generated/snapshots")
+        suffix = (", " + "; ".join(suffix_parts)) if suffix_parts else ""
         if lines > MAX_LINES or files > MAX_FILES:
             return (
                 False,

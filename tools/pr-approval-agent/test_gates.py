@@ -264,6 +264,7 @@ def test_dwh_source_mixed_still_denies() -> None:
     [
         pytest.param("docs/internal/monorepo-layout.md", True, id="markdown"),
         pytest.param(".agents/skills/foo/SKILL.md", True, id="skill-markdown"),
+        pytest.param("docs/example-snippet.ts", True, id="docs-dir-artifact-extension"),
         pytest.param("posthog/api/test/__snapshots__/test_api.ambr", True, id="ambr-snapshot"),
         pytest.param("frontend/__snapshots__/scene.storyshot", True, id="snapshots-dir"),
         pytest.param("frontend/src/generated/core/api.schemas.ts", True, id="generated-dir"),
@@ -278,6 +279,9 @@ def test_dwh_source_mixed_still_denies() -> None:
         pytest.param("docker-compose.dev.yml", False, id="yaml-config"),
         pytest.param("package.json", False, id="json-config"),
         pytest.param("regenerated_totals.py", False, id="generated-substring-not-dir"),
+        pytest.param("frontend/src/generated/core/evil.py", False, id="generated-dir-executable-py"),
+        pytest.param("frontend/src/generated/core/build.sh", False, id="generated-dir-executable-sh"),
+        pytest.param("docs/generate_sidebar.py", False, id="docs-dir-executable-py"),
     ],
 )
 def test_is_size_exempt(path: str, exempt: bool) -> None:

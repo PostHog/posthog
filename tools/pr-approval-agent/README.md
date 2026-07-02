@@ -71,10 +71,14 @@ Deny-list (hard gate)
   ▼
 Size ceiling (hard gate)
   - >500 substantive lines or >20 substantive files → too large for auto-review
-  - Docs (.md/.txt/.rst), snapshots (.snap/.ambr, __snapshots__/), images,
-    lockfiles, and generated/ artifacts don't count toward the ceiling —
-    they inflate diffs without adding review surface. They still count toward
-    tier classification and still appear in the diff the LLM reads.
+  - Docs (.md/.txt/.rst anywhere; artifact-extension files under docs/),
+    snapshots (.snap/.ambr, __snapshots__/), images,
+    `.lock`-extension files (e.g. `yarn.lock`), and generated/ artifacts
+    (regenerated-artifact extensions only: .ts/.tsx/.js/.jsx/.json/.md/.snap/.pyi/.txt)
+    don't count toward the ceiling — they inflate diffs without adding review
+    surface. Note: `pnpm-lock.yaml` and `package-lock.json` are not `.lock`-extension
+    files and do count toward the ceiling. All files still count toward tier
+    classification and still appear in the diff the LLM reads.
   │
   ▼
 Tier classification

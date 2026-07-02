@@ -585,7 +585,9 @@ SIZE_EXEMPT_EXTENSIONS = {
 }
 
 _SIZE_EXEMPT_PATH_RE = re.compile(
-    r"(?:^|/)(?:docs|__snapshots__|generated)/"
+    r"(?:^|/)__snapshots__/"
+    r"|(?:^|/)docs/.*\.(ts|tsx|js|jsx|json|md|snap|pyi|txt)$"
+    r"|(?:^|/)generated/.*\.(ts|tsx|js|jsx|json|md|snap|pyi|txt)$"
     r"|\.gen\.(ts|tsx|js|jsx)$"
     r"|\.generated\.(ts|tsx|js|jsx)$"
     r"|^frontend/src/queries/schema/",
