@@ -380,4 +380,20 @@ body:not(.storybook-test-runner) {
             box-shadow: -16px 0 16px 16px rgb(0 0 0 / 25%);
         }
     }
+
+    // Pin the header row to the top while the body scrolls. The header th needs its own
+    // background so scrolling rows don't show through, and a z-index above the sticky/pinned
+    // body cells (z-index 6) so it stays on top as rows pass underneath.
+    .LemonTable--sticky-header .LemonTable__content > table > thead > tr > th {
+        position: sticky;
+        top: 0;
+        z-index: 7;
+        background: var(--lemon-table-background-color);
+    }
+
+    // The corner cell (a header that is also horizontally pinned) must sit above both.
+    .LemonTable--sticky-header .LemonTable__header--sticky,
+    .LemonTable--sticky-header .LemonTable__header--pinned {
+        z-index: 8;
+    }
 }

@@ -892,7 +892,7 @@ export function DataTable({
                         <div className="absolute right-0 z-10 p-1">{editorButton}</div>
                     ) : null}
                     {showResultsTable && (
-                        <div className="relative">
+                        <div className={clsx('relative', embedded && 'flex flex-col flex-1 min-h-0')}>
                             {usedWebAnalyticsLazyPrecompute ? (
                                 <PreAggregatedBadge
                                     variant="precomputed"
@@ -918,6 +918,10 @@ export function DataTable({
                                 }}
                                 sorting={null}
                                 useURLForSorting={false}
+                                // Inside constrained containers (dashboard tiles, embedded views) let the
+                                // body scroll and keep the column headers pinned to the top.
+                                allowContentScroll={embedded}
+                                stickyHeader={embedded}
                                 emptyState={
                                     responseError ? (
                                         sourceFeatures.has(QueryFeature.displayResponseError) ? (
