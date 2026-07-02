@@ -229,7 +229,7 @@ describe('sqlLineGraphAdapter', () => {
             )
         })
 
-        it('falls back for percent-stacked bars (unsupported by ComboChart)', () => {
+        it('renders natively for percent-stacked bars', () => {
             expect(
                 canRenderSqlComboGraph(
                     baseProps({
@@ -238,17 +238,23 @@ describe('sqlLineGraphAdapter', () => {
                         chartSettings: { stackBars100: true },
                     })
                 )
-            ).toBe(false)
+            ).toBe(true)
         })
     })
 
     describe('comboBarLayoutForDisplay', () => {
         it.each([
-            ['stacked for a stacked bar graph', ChartDisplayType.ActionsStackedBar, 'stacked'],
-            ['grouped for a bar graph', ChartDisplayType.ActionsBar, 'grouped'],
-            ['grouped for a line graph', ChartDisplayType.ActionsLineGraph, 'grouped'],
-        ])('returns %s', (_name, visualizationType, expected) => {
-            expect(comboBarLayoutForDisplay(visualizationType)).toBe(expected)
+            ['stacked for a stacked bar graph', ChartDisplayType.ActionsStackedBar, {}, 'stacked'],
+            ['grouped for a bar graph', ChartDisplayType.ActionsBar, {}, 'grouped'],
+            ['grouped for a line graph', ChartDisplayType.ActionsLineGraph, {}, 'grouped'],
+            [
+                'percent for a stacked bar graph when stackBars100 is on',
+                ChartDisplayType.ActionsStackedBar,
+                { stackBars100: true },
+                'percent',
+            ],
+        ])('returns %s', (_name, visualizationType, chartSettings, expected) => {
+            expect(comboBarLayoutForDisplay(visualizationType, chartSettings as ChartSettings)).toBe(expected)
         })
     })
 
@@ -805,6 +811,18 @@ describe('sqlLineGraphAdapter', () => {
                 visualizationType: ChartDisplayType.ActionsBar,
             })
             expect('trendLines' in config).toBe(true)
+        })
+
+        it('skips trend lines for percent-stacked bars, where they would render off-scale', () => {
+            const ySeriesData = [ySeries('a', [1, 2], { display: { trendLine: true } })]
+            const config = buildComboChartConfig({
+                xData: dateXData,
+                chartSettings: { stackBars100: true },
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsStackedBar,
+                ySeriesData,
+            })
+            expect(config.trendLines).toEqual([])
         })
 
         it('honors leftYAxisSettings for the single y-axis', () => {
