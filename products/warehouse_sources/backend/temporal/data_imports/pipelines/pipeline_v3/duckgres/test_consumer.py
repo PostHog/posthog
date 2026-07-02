@@ -393,11 +393,8 @@ class TestDuckgresEnablementGating:
 class TestMidClaimRetire:
     @pytest.mark.asyncio
     async def test_terminally_retired_batch_aborts_group_without_any_status_write(self):
-        # A co-claimed chunk retired mid-group (superseded by a replace run)
-        # must abort the whole group WITHOUT writing any status: processing it
-        # could swap stale backfill data over a table the replace has rebuilt,
-        # and even an 'executing' row would mask the terminal 'failed' from
-        # every latest-status consumer (un-retiring the run).
+        # A chunk retired mid-claim must abort the whole group with NO status
+        # write — even an 'executing' row would mask the terminal 'failed'.
         consumer = _make_consumer()
 
         with (
@@ -424,9 +421,8 @@ class TestMidClaimRetire:
 
     @pytest.mark.asyncio
     async def test_status_write_blocked_by_terminal_failed_aborts_group(self):
-        # Applies to every state (executing, succeeded, waiting_retry): a write
-        # blocked by a terminal 'failed' means the batch was retired while
-        # claimed, and stamping any later status would un-retire it.
+        # Any status write blocked by a terminal 'failed' means the batch was
+        # retired while claimed; stamping a later status would un-retire it.
         adapter = DuckgresBatchConsumerAdapter()
         conn = _make_healthy_conn()
 
@@ -447,10 +443,8 @@ class TestMidClaimRetire:
 class TestGroupLeaseRenewal:
     @pytest.mark.asyncio
     async def test_boundary_ownership_check_extends_the_lease(self):
-        # A group can hold a whole backfill run of quick chunks whose in-batch
-        # heartbeats never fire; the per-batch ownership check must renew the
-        # lease (with the configured TTL) or a long group loses ownership
-        # mid-run and gets reclaimed while actively processing.
+        # Quick chunks never trigger in-batch heartbeats, so the per-batch
+        # ownership check must renew the lease or a long group loses it mid-run.
         adapter = DuckgresBatchConsumerAdapter(lease_ttl_seconds=900)
         conn = _make_healthy_conn()
 
@@ -468,9 +462,8 @@ class TestGroupLeaseRenewal:
 class TestErrorPathOwnershipFencing:
     @pytest.mark.asyncio
     async def test_error_status_suppressed_when_ownership_lost_mid_batch(self):
-        # A worker can outlive its lease (expiry mid-batch, group reclaimed);
-        # its error path must not stamp waiting_retry — or fail the whole run —
-        # over the new owner's lifecycle. It must abandon with no write.
+        # A worker that outlived its lease must abandon with no write, not
+        # stamp waiting_retry (or fail the run) over the new owner's lifecycle.
         consumer = _make_consumer(max_attempts=3)
         consumer._process_batch = AsyncMock(side_effect=ValueError("boom"))
         lock_conn = _make_healthy_conn()
@@ -512,10 +505,8 @@ class TestErrorPathOwnershipFencing:
 class TestGroupConnectionFailure:
     @pytest.mark.asyncio
     async def test_leases_released_when_group_connection_fails(self):
-        # Leases are claimed at fetch time on the poll connection; if opening
-        # the per-group connection then fails, the leases must still be
-        # released (via the poll connection) — otherwise every poll renews
-        # them and other pods are locked out of the groups indefinitely.
+        # A failed group-connection open must still release the fetch-time
+        # leases via the poll conn, or every poll renews them indefinitely.
         consumer = _make_consumer()
         batches = [_make_batch()]
 
@@ -535,10 +526,8 @@ class TestFencedRecoverySweep:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("fenced_result", [True, False])
     async def test_stale_batch_requeued_only_through_the_fenced_write(self, fenced_result):
-        # The sweep must requeue via the write-time fence (still executing,
-        # still older than grace, no live lease) and must never release leases
-        # afterwards — the poll loop can reclaim a just-requeued group with the
-        # same owner token while the sweep is still running.
+        # The sweep must requeue via the write-time fence and never release
+        # leases afterwards (the poll loop can reclaim a group mid-sweep).
         consumer = _make_consumer(max_attempts=3)
         stale_batch = _make_batch(latest_attempt=1)
 

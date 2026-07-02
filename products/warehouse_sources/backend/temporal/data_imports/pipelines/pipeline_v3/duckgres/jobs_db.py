@@ -23,9 +23,8 @@ DUCKGRES_STATUS_TABLE = "sourcebatchduckgresstatus"
 # command. The eligibility queries here use per-batch LATERAL lookups instead.
 DUCKGRES_STATUS_VIEW = "v_latest_source_batch_duckgres_status"
 DUCKGRES_APPLY_TABLE = "sourcebatchduckgresapply"
-# Duckgres-sink twin of the delta queue's sourcegrouplease: same claim/renew
-# mechanics, separate table because both consumers process the same
-# (team_id, schema_id) groups independently and must never contend.
+# Twin of the delta queue's sourcegrouplease — separate table because both
+# consumers process the same (team_id, schema_id) groups and must never contend.
 DUCKGRES_LEASE_TABLE = "sourceduckgresgrouplease"
 
 
@@ -165,25 +164,18 @@ class DuckgresBatchQueue:
         Duckgres has its own sink state. A source batch is eligible only after the
         Delta consumer marks that exact batch row as succeeded.
 
-        Group ownership is a row in ``sourceduckgresgrouplease`` keyed by
-        (team_id, schema_id), claimed-or-renewed for each candidate group in a
-        writable CTE exactly like the delta queue's lease claim: free, owned by
-        ``owner_token``, or expired leases are claimable; a live lease held by
-        another pod drops that group's rows via the ``JOIN claimed``. This
-        replaces the old session advisory lock so an abandoned group simply
-        expires instead of wedging until the holder's server session dies.
+        Group ownership is a ``sourceduckgresgrouplease`` row per
+        (team_id, schema_id), claimed-or-renewed in the writable CTE like the
+        delta queue's lease claim: free, own, or expired leases are claimable;
+        another pod's live lease drops the group via ``JOIN claimed``. Unlike
+        the old session advisory lock, an abandoned group simply expires.
 
-        Mixed-version rollout (advisory-lock pods alongside lease pods) is a
-        single cutover, mirroring the delta queue's own migration: the group
-        claim is pacing, not the correctness guarantee. Concurrent processors
-        are arbitrated per batch by the duckgres-side apply marker, which
-        shares the data write's transaction and rolls the loser back
-        (``DuckgresBatchAlreadyAppliedError`` — a handled no-op), and each
-        side's eligibility query skips batches the other has marked executing
-        or applied. Deliberately NOT probing the old advisory lock here: a
-        zombie session holding it would wedge the group indefinitely — the
-        exact failure mode leases remove. Worst case in the mixed window is
-        transient duplicate work, never a double-write.
+        Mixed-version rollout is a single cutover (as with the delta queue's
+        migration): the claim is pacing, not correctness — concurrent
+        processors are arbitrated per batch by the duckgres-side apply marker
+        (``DuckgresBatchAlreadyAppliedError``, a handled no-op). We deliberately
+        do NOT probe the old advisory lock: a zombie session holding it would
+        wedge the group indefinitely, the failure mode leases remove.
 
         ``retry_backoff_base_seconds`` gates the ``waiting_retry`` branch on the age
         of the latest Duckgres status row, mirroring the Delta queue's backoff.
@@ -204,19 +196,13 @@ class DuckgresBatchQueue:
         would apply them — including replace-head batches that bypass the unprimed
         block. Computed by ``sink_eligible_schema_ids``.
 
-        Intra-run head-of-line: LIVE batches stay strictly ordered — a batch is
-        ineligible until every lower batch_index in its run has an apply marker
-        (inserts/merges must apply in order). Backfill CHUNKS relax this: a
-        pending predecessor blocks a chunk only when it cannot be returned
-        AHEAD of it in this same fetch — not delta-succeeded, sorting after the
-        chunk in the fetch's (created_at, batch_index) order (a reconcile
-        replay re-inserts dropped chunks with a fresh created_at), executing,
-        waiting_retry inside its backoff window, or succeeded-without-marker.
-        Co-claimable predecessors sort earlier in the same poll window, land in
-        the same (team_id, schema_id) group, and the consumer processes a group
-        strictly in order and halts on the first non-success — so chunk 0's
-        CREATE still applies before any insert and a whole run's chunks can
-        drain in one claim instead of one chunk per poll cycle.
+        Intra-run head-of-line: LIVE batches stay strictly ordered (any
+        unapplied lower batch_index blocks). Backfill CHUNKS relax this so a
+        whole run drains in one claim: a pending predecessor blocks a chunk
+        only when it cannot be returned AHEAD of it in this same fetch (see the
+        gate's inline comments). Co-claimable predecessors sort earlier, land
+        in the same group, and the group is processed strictly in order with a
+        halt on first non-success — so chunk 0's CREATE still applies first.
 
         Cross-run head-of-line: a batch is ineligible while an older run (by run
         start time) of the same (team_id, schema_id) still has unapplied,
@@ -241,20 +227,17 @@ class DuckgresBatchQueue:
                         b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                         AND (%(team_ids)s::bigint[] IS NULL OR b.team_id = ANY(%(team_ids)s))
                         AND (%(eligible_schema_ids)s::varchar[] IS NULL OR b.schema_id = ANY(%(eligible_schema_ids)s))
-                        -- Groups this pod is already processing: their batches can
-                        -- become momentarily eligible between the group's own
-                        -- batches, and re-claiming them would burn the candidate
-                        -- LIMIT and max_groups budget on work that can't start.
+                        -- In-flight groups: re-claiming them burns the LIMIT and
+                        -- max_groups budget on work this pod can't start.
                         AND NOT (
                             %(exclude_team_ids)s::bigint[] IS NOT NULL
                             AND (b.team_id, b.schema_id) IN (
                                 SELECT * FROM unnest(%(exclude_team_ids)s::bigint[], %(exclude_schema_ids)s::varchar[])
                             )
                         )
-                        -- Groups live-leased by ANOTHER pod are unclaimable; filter
-                        -- them BEFORE the candidate LIMIT or one large leased
-                        -- backfill's momentarily-eligible chunks can fill the whole
-                        -- window and return no work while other schemas wait.
+                        -- Other pods' live-leased groups are unclaimable; filter
+                        -- BEFORE the LIMIT or one leased backfill can fill the
+                        -- window and starve other schemas.
                         AND NOT EXISTS (
                             SELECT 1 FROM {DUCKGRES_LEASE_TABLE} bl
                             WHERE bl.team_id = b.team_id
@@ -313,23 +296,16 @@ class DuckgresBatchQueue:
                                 )
                                 AND a.id IS NULL
                                 AND (
-                                    -- LIVE batches: strict order — any unapplied
-                                    -- predecessor blocks.
+                                    -- LIVE batches: any unapplied predecessor blocks.
                                     {LIVE_BATCH_SQL_PREDICATE}
-                                    -- Backfill chunks: an unapplied predecessor blocks
-                                    -- only when it cannot be co-claimed in this fetch;
-                                    -- otherwise it is returned alongside (it sorts
-                                    -- earlier) and the group loop applies it first.
-                                    -- Not delta-succeeded blocks: enqueue_chunks writes
-                                    -- every chunk pre-succeeded atomically, so this
-                                    -- state should not exist — fail closed rather than
-                                    -- lean on that invariant from here.
+                                    -- Backfill chunks: block only on predecessors that
+                                    -- cannot be co-claimed AHEAD of this chunk —
+                                    -- not delta-succeeded (fail closed; enqueue_chunks
+                                    -- writes chunks pre-succeeded atomically):
                                     OR ds_prev.job_state IS DISTINCT FROM 'succeeded'
-                                    -- A predecessor that sorts AFTER this chunk in the
-                                    -- fetch's (created_at, batch_index) order cannot be
-                                    -- relied on to apply first (a reconcile replay
-                                    -- re-inserts dropped chunks with a fresh created_at)
-                                    -- — keep blocking until it actually applies.
+                                    -- sorting later in the fetch order (a reconcile
+                                    -- replay re-inserts dropped chunks with a fresh
+                                    -- created_at):
                                     OR (prev.created_at, prev.batch_index) > (b.created_at, b.batch_index)
                                     OR dgs_prev.job_state = 'executing'
                                     OR dgs_prev.job_state = 'succeeded'
@@ -368,14 +344,9 @@ class DuckgresBatchQueue:
                     LIMIT %(limit)s
                 ),
                 candidate_groups AS (
-                    -- Cap leased groups to the consumer's free slots (oldest
-                    -- work first): leasing a group this pod cannot start would
-                    -- block other pods from it — every subsequent poll renews
-                    -- the same owner's lease — for as long as this pod stays
-                    -- saturated. NULL = no cap (tests/dev). Other-owner live
-                    -- leases are already filtered out of candidates above, so
-                    -- the budget is spent on claimable groups; the claim CTE
-                    -- below stays the authoritative arbiter.
+                    -- Cap leased groups to the consumer's free slots, oldest work
+                    -- first (NULL = no cap): a leased-but-unstarted group would be
+                    -- renewed by every poll and stay dark to other pods.
                     SELECT c.team_id, c.schema_id
                     FROM candidates c
                     GROUP BY c.team_id, c.schema_id
@@ -618,21 +589,15 @@ class DuckgresBatchQueue:
         """Append a status row only if the batch's latest status is not terminal 'failed'.
 
         The consumer routes every status write through this so a terminal
-        'failed' (supersede, replan, fail_run — which can land at any point in
-        a claimed batch's lifecycle, including mid-processing) is never masked
-        by a later executing/succeeded/waiting_retry row in the latest-status
-        views. The guard is evaluated in the same statement snapshot as the
-        insert, so any failure committed before this statement is respected.
-        Returns False (and inserts nothing) when the batch is retired.
+        'failed' (supersede/replan/fail_run can land at any point in a claimed
+        batch's lifecycle) is never masked by a later row in the latest-status
+        views. Guard and insert share one statement snapshot; returns False
+        (writing nothing) when the batch is retired.
 
-        Accepted residual race: a failure writer whose statement OVERLAPS this
-        one can be mutually invisible (both snapshots predate the other's
-        commit), leaving this row as latest. That window is one statement wide,
-        the same class the supersede design already accepts by skipping
-        'executing' victims (in-flight attempts may complete), and it converges
-        via the periodic supersede/reconcile passes. Closing it would require a
-        per-batch lock shared by every failure writer — deliberately not worth
-        that machinery.
+        Accepted residual: a failure writer whose statement overlaps this one
+        can be mutually invisible. One statement wide, same class the supersede
+        design accepts by skipping 'executing' victims, converges via the
+        periodic sweeps — closing it needs a shared per-batch lock, not worth it.
         """
         cursor = await conn.execute(
             f"""
@@ -665,15 +630,12 @@ class DuckgresBatchQueue:
     ) -> bool:
         """Flip a stale 'executing' batch to waiting_retry — fenced at write time.
 
-        The recovery scan observes "stale executing, no live lease", but between
-        that read and this write another pod can reclaim the group, a rival
-        sweep can requeue the same batch, or a live worker without a lease (an
-        old advisory-lock pod during the mixed-version window) can heartbeat a
-        fresh 'executing' row. The insert therefore re-checks everything in its
-        own statement snapshot: the batch's latest status must still be
-        'executing', still older than ``grace_seconds``, and the group must
-        still carry no live lease. Returns False when skipped — the batch is
-        picked up by a later sweep once it is genuinely stale again.
+        Between the unlocked stale scan and this write, the group can be
+        reclaimed, a rival sweep can requeue first, or a leaseless live worker
+        (old advisory-lock pod in the mixed-version window) can heartbeat a
+        fresh 'executing'. The insert re-checks all of it in its own snapshot:
+        latest status still 'executing', older than ``grace_seconds``, and no
+        live lease. Returns False when skipped; a later sweep retries.
         """
         cursor = await conn.execute(
             f"""
@@ -719,15 +681,11 @@ class DuckgresBatchQueue:
     ) -> bool:
         """Terminally fail a run from recovery — fenced inside the insert itself.
 
-        The stale scan is unlocked, so between it and this write a rival sweep
-        may have requeued the anchor batch, another pod may have reclaimed the
-        group, or a live leaseless worker (old advisory-lock pod during the
-        mixed-version window) may have heartbeated a fresh 'executing' row.
-        The failure rows are therefore inserted only while, in this statement's
-        own snapshot, the anchor batch's latest status is still 'executing',
-        still older than ``grace_seconds``, AND the group carries no live
-        lease. Returns False (and writes nothing) when the fence fails. The
-        group error path uses ``fail_run`` instead — it legitimately fails
+        Same fence as ``requeue_stale_executing``, keyed on the anchor batch:
+        the failure rows land only while its latest status is still 'executing',
+        older than ``grace_seconds``, and the group has no live lease — all in
+        this statement's snapshot. Returns False when the fence refuses. The
+        group error path uses ``fail_run`` instead, since it legitimately fails
         runs while holding its own live lease.
         """
         cursor = await conn.execute(
@@ -778,12 +736,8 @@ class DuckgresBatchQueue:
         *,
         batch_id: str,
     ) -> bool:
-        """Whether the batch's LATEST duckgres status is terminal 'failed'.
-
-        A co-claimed batch can be terminally retired while it waits in a group
-        task's claim (superseded by a replace run, or a backfill replan); the
-        consumer re-checks this before processing each batch.
-        """
+        """Whether the batch's LATEST duckgres status is terminal 'failed' — the
+        consumer's per-batch re-check for co-claimed batches retired mid-claim."""
         async with conn.cursor() as cur:
             await cur.execute(
                 f"""
@@ -884,13 +838,10 @@ class DuckgresBatchQueue:
         owner_token: str,
         lease_ttl_seconds: int = LEASE_TTL_SECONDS,
     ) -> bool:
-        """Extend this owner's group lease. Returns False if the lease was lost
-        (row gone, reclaimed, or expired).
-
-        The ``expires_at > now()`` predicate is the fencing rule: once a lease
-        expires, recovery may have re-queued the group's batches, so the stale
-        owner must not resurrect it here — re-claiming goes through the fetch's
-        claim CTE, never through renewal.
+        """Extend this owner's group lease. Returns False when lost (gone,
+        reclaimed, or expired) — an expired lease must never be resurrected here
+        (recovery may have re-queued the group); re-claiming goes through the
+        fetch's claim CTE only.
         """
         async with conn.cursor() as cur:
             await cur.execute(
@@ -913,13 +864,9 @@ class DuckgresBatchQueue:
         *,
         grace_seconds: int = 0,
     ) -> list[PendingBatch]:
-        """Find batches stuck in 'executing' whose group lease is absent or expired (previous pod gone).
-
-        Mirrors the delta queue's lease-based sweep: an abandoned lease expires
-        on its own, so this can always reclaim a genuinely orphaned group —
-        unlike the old advisory-lock probe, which a lingering server session
-        could hold forever.
-        """
+        """Find batches stuck in 'executing' whose group lease is absent or
+        expired — unlike the old advisory-lock probe, an abandoned lease always
+        expires, so orphaned groups are always reclaimable."""
         async with conn.cursor(row_factory=dict_row) as cur:
             await cur.execute(
                 f"""
@@ -948,12 +895,8 @@ class DuckgresBatchQueue:
         batches: list[PendingBatch],
         owner_token: str,
     ) -> None:
-        """Release the group leases for ``batches``' groups held by ``owner_token``.
-
-        The ``owner_token`` predicate is load-bearing: if this owner's lease
-        already expired and another pod reclaimed the group, the delete must be
-        a no-op rather than removing the new owner's lease.
-        """
+        """Release the group leases for ``batches``' groups held by ``owner_token``
+        — the owner predicate keeps this a no-op if another pod reclaimed the group."""
         pairs = list({(b.team_id, b.schema_id) for b in batches})
         if not pairs:
             return

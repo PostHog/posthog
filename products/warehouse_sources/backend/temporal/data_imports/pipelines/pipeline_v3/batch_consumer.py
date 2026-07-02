@@ -617,11 +617,9 @@ class BatchConsumer:
         heartbeat_task: asyncio.Task[None] | None = None
         try:
             start = time.monotonic()
-            # BEFORE the executing write: adapters may read the batch's latest
-            # status here (the duckgres mid-claim retire check), and the engine's
-            # own 'executing' row would mask a terminal status written while the
-            # batch waited in this claim. Neutral for the delta adapter, whose
-            # should_process_batch is a constant True.
+            # Before the executing write: adapters may read the batch's latest
+            # status here, and our own 'executing' row would mask a terminal
+            # status written while the batch waited in this claim.
             should_process = await self._adapter.should_process_batch(status_conn, batch=batch)
 
             # Pre-increment: if we OOM during processing, recovery sees attempt=N+1

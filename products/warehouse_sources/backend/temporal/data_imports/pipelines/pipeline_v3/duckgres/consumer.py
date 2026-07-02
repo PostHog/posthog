@@ -83,14 +83,13 @@ class DuckgresBatchConsumerAdapter:
     executing_state: str = SourceBatchDuckgresStatus.State.EXECUTING.value
     succeeded_state: str = SourceBatchDuckgresStatus.State.SUCCEEDED.value
     waiting_retry_state: str = SourceBatchDuckgresStatus.State.WAITING_RETRY.value
-    # Lease ownership is token-based (sourceduckgresgrouplease), so any connection
-    # works per group — the poll loop keeps claiming new groups while others are
-    # in flight instead of barriering on the slowest batch of each poll cycle.
+    # Lease ownership is token-based, so groups get their own connections and
+    # the poll loop keeps claiming while groups run (no per-cycle barrier).
     per_group_connections: bool = True
 
     def __init__(self, lease_ttl_seconds: int = LEASE_TTL_SECONDS) -> None:
-        # TTL used when verify_advisory_lock extends the lease at batch
-        # boundaries; the consumer passes its configured group-lease TTL.
+        # TTL for verify_advisory_lock's boundary renewals (the consumer's
+        # configured group-lease TTL).
         self._lease_ttl_seconds = lease_ttl_seconds
         self._team_ids: list[int] | None = None
         self._team_ids_fetched_at: float | None = None
@@ -257,15 +256,10 @@ class DuckgresBatchConsumerAdapter:
         attempt: int,
         error_response: dict[str, Any] | None = None,
     ) -> None:
-        # Invariant: the sink never writes ANY status over a terminal 'failed'.
-        # A supersede/replan/fail_run can retire the batch at any point in its
-        # lifecycle — before the executing write, or mid-processing (replan and
-        # fail_run target executing batches too) — and statuses are latest-row-
-        # wins, so an unconditional executing/succeeded/waiting_retry write
-        # would mask the terminal state and un-retire the run. A blocked insert
-        # means the batch was retired out from under this claim: abort the
-        # group without writing (see update_status_unless_failed for the
-        # accepted residual race).
+        # Invariant: never write ANY status over a terminal 'failed' — statuses
+        # are latest-row-wins, so an unconditional write would un-retire a batch
+        # a supersede/replan/fail_run retired mid-claim. A blocked insert means
+        # abort the group with no write (see update_status_unless_failed).
         inserted = await DuckgresBatchQueue.update_status_unless_failed(
             conn,
             batch_id=batch_id,
@@ -302,13 +296,10 @@ class DuckgresBatchConsumerAdapter:
         schema_id: str,
         owner_token: str,
     ) -> bool:
-        # Verify-and-extend: the engine checks ownership at every batch boundary,
-        # and a group can hold a whole backfill run of quick chunks whose in-batch
-        # heartbeats never fire (each chunk finishes before the heartbeat's first
-        # sleep elapses). Without renewing here, a group running longer than the
-        # lease TTL would lose ownership mid-run and be reclaimed while actively
-        # processing. Renewal returns False exactly when the lease was lost, so
-        # it is a strict superset of a read-only verify.
+        # Verify-and-extend: a group of quick chunks can outlive the lease TTL
+        # without any in-batch heartbeat firing, so the engine's per-batch
+        # ownership check doubles as the renewal. Returns False exactly when
+        # the lease was lost — a strict superset of a read-only verify.
         return await DuckgresBatchQueue.renew_lease(
             conn,
             team_id=team_id,
@@ -341,10 +332,9 @@ class DuckgresBatchConsumerAdapter:
         grace_seconds: int,
         keep_locks: bool = False,
     ) -> list[PendingBatch]:
-        # keep_locks is meaningless for a lease sink: get_stale_executing holds
-        # nothing, and the lease LEFT JOIN already excludes live groups. The
-        # DuckgresBatchConsumer overrides _recovery_sweep, so the base engine's
-        # keep-then-unlock recovery flow never runs for this adapter.
+        # keep_locks is meaningless for a lease sink (nothing is held), and the
+        # base engine's keep-then-unlock sweep never runs for this adapter —
+        # DuckgresBatchConsumer overrides _recovery_sweep.
         return await DuckgresBatchQueue.get_stale_executing(conn, grace_seconds=grace_seconds)
 
     async def reconcile_failed_runs(
@@ -366,13 +356,9 @@ class DuckgresBatchConsumerAdapter:
         *,
         batch: PendingBatch,
     ) -> bool:
-        # A co-claimed batch can be terminally retired while it waits in this
-        # group's claim (superseded by a newer replace run, or a backfill
-        # replan): applying it anyway could swap stale backfill data over a
-        # table the replace run has since rebuilt. Abort the WHOLE group with
-        # no status write — the 'failed' status must stand, and any successor
-        # in this claim is retired too (skipping just this batch would let the
-        # swap proceed).
+        # A batch retired mid-claim (supersede/replan) must abort the WHOLE
+        # group with no status write: applying it could swap stale backfill data
+        # over a rebuilt table, and its successors in this claim are retired too.
         if await DuckgresBatchQueue.is_failed(conn, batch_id=batch.id):
             raise OwnershipLostError(f"batch {batch.id} was terminally retired while claimed")
         already_applied = await DuckgresBatchQueue.has_applied(conn, batch=batch)
@@ -393,21 +379,11 @@ class DuckgresBatchConsumerAdapter:
 
 
 class DuckgresBatchConsumer(SharedBatchConsumer):
-    """Duckgres batch consumer: the shared engine plus the sink's lease-safety
-    behaviors, kept out of the base engine so the delta consumer is unaffected.
-
-    Overrides:
-    - _fetch_batches: caps leased groups to free slots and excludes in-flight
-      groups, so a saturated pod never pins groups it cannot start.
-    - _unlock_group: releases leases via the poll connection when the group
-      connection failed to open (a claimed-but-unstarted group would otherwise
-      be renewed by every poll and block other pods indefinitely).
-    - _handle_batch_failure: fences error-path status writes on ownership — a
-      worker that outlived its lease must not stamp retry/terminal states over
-      the new owner's lifecycle.
-    - _recovery_sweep: fenced requeue/terminal-failure (write-time re-check of
-      state, staleness age, and lease absence) and no post-sweep lease release
-      (an owner-scoped delete could strip a lease the poll loop just claimed).
+    """The shared engine plus the sink's lease-safety overrides, kept out of the
+    base engine so the delta consumer is unaffected: group-capped claiming
+    (_fetch_batches), lease release on connect failure (_unlock_group),
+    ownership-fenced error writes (_handle_batch_failure), and a fenced
+    recovery sweep with no post-sweep lease release (_recovery_sweep).
     """
 
     def __init__(
@@ -416,8 +392,7 @@ class DuckgresBatchConsumer(SharedBatchConsumer):
         process_batch: ProcessBatchFn,
         health_reporter: Callable[[], None] | None = None,
     ) -> None:
-        # __post_init__ resolves lease_ttl_seconds (defaults to recovery grace),
-        # so the adapter's boundary renewals use the same TTL as the claim.
+        # The adapter's boundary renewals must use the same TTL as the claim.
         adapter = DuckgresBatchConsumerAdapter(lease_ttl_seconds=config.lease_ttl_seconds or LEASE_TTL_SECONDS)
         super().__init__(
             config=config,
@@ -431,21 +406,18 @@ class DuckgresBatchConsumer(SharedBatchConsumer):
     async def _fetch_batches(self, conn: psycopg.AsyncConnection[Any], *, available: int) -> list[PendingBatch]:
         return await self._duckgres_adapter.fetch_and_lock(
             conn,
-            # Full poll_limit, NOT the base engine's _fetch_limit batch-count
-            # heuristic: a single backfill run legitimately co-claims many
-            # chunks into one group, and max_groups below already bounds the
-            # over-claim by GROUPS — the precise unit a lease covers.
+            # Full poll_limit, not the base _fetch_limit heuristic: one backfill
+            # run legitimately co-claims many chunks, and max_groups below bounds
+            # the over-claim by groups — the unit a lease covers.
             limit=self._config.poll_limit,
             retry_backoff_base_seconds=self._config.retry_backoff_base_seconds,
             owner_token=self._owner_token,
             lease_ttl_seconds=self._lease_ttl_seconds,
-            # Never lease more groups than we have slots to start: an unstarted
-            # group's lease would be renewed by every subsequent poll and block
-            # other pods from it for as long as this pod stays saturated.
+            # A leased-but-unstarted group is renewed by every poll and stays
+            # dark to other pods, so never lease beyond our free slots.
             max_groups=available,
-            # In-flight groups can't be started again; without the exclusion
-            # their momentarily-eligible batches re-consume the claim budget
-            # and starve other schemas.
+            # In-flight groups can't start again; re-claiming them starves
+            # other schemas of the budget.
             exclude_groups=list(self._in_flight),
         )
 
@@ -458,11 +430,9 @@ class DuckgresBatchConsumer(SharedBatchConsumer):
         schema_id: str,
     ) -> None:
         if group_conn is None:
-            # The group connection never materialized (queue-DB blip, pool
-            # exhaustion) but the leases were already claimed at fetch time.
-            # Release them via the poll connection — lease release is
-            # token-scoped, any connection works — or this pod pins the groups
-            # (every poll renews its own leases) until it can connect again.
+            # Connect failed but the leases were claimed at fetch time. Release
+            # them via the poll connection (release is token-scoped) or this
+            # pod pins the groups — every poll renews its own leases.
             try:
                 fallback_conn = await self._ensure_poll_conn()
             except Exception:
@@ -488,11 +458,9 @@ class DuckgresBatchConsumer(SharedBatchConsumer):
         lock_conn: psycopg.AsyncConnection[Any] | None,
         status_conn: psycopg.AsyncConnection[Any],
     ) -> None:
-        # Fence the error-path writes on ownership: a worker can outlive its
-        # lease (expiry mid-batch, group reclaimed), and a stale writer must
-        # not stamp waiting_retry over the new owner's lifecycle — or fail the
-        # whole run out from under the pod now processing it. Raising abandons
-        # the group with no status write; the new owner drives the batch.
+        # A worker can outlive its lease mid-batch; a stale writer must not
+        # stamp waiting_retry — or fail the run — over the new owner's
+        # lifecycle. Raising abandons the group with no status write.
         try:
             await self._verify_ownership(lock_conn, batch)
         except OwnershipLostError:
@@ -510,11 +478,9 @@ class DuckgresBatchConsumer(SharedBatchConsumer):
 
         grace_seconds = self._config.recovery_grace_seconds
         assert grace_seconds is not None
-        # get_stale_executing already excludes any group with a live lease and
-        # holds nothing itself, so — unlike the base sweep — no claims are
-        # released afterwards: this pod's poll loop can reclaim a just-requeued
-        # group (same owner token) while the sweep is still running, and an
-        # owner-scoped delete here would strip that fresh lease mid-flight.
+        # Unlike the base sweep, no claims are released afterwards: the poll
+        # loop can reclaim a just-requeued group (same owner token) mid-sweep,
+        # and an owner-scoped delete would strip that fresh lease.
         stale = await self._duckgres_adapter.get_stale_executing(conn, grace_seconds=grace_seconds)
         if not stale:
             self._metrics.recovery_sweeps_total.labels(outcome="clean").inc()
@@ -547,10 +513,9 @@ class DuckgresBatchConsumer(SharedBatchConsumer):
                 attempt=batch.latest_attempt,
             )
             try:
-                # Both writes are fenced inside the insert itself (still
-                # 'executing', still older than grace, no live lease), so a
-                # batch retired, reclaimed, or freshly heartbeated between the
-                # unlocked stale scan and the write is skipped, never clobbered.
+                # Both writes are fenced inside the insert (still 'executing',
+                # older than grace, no live lease): a batch that moved since
+                # the unlocked scan is skipped, never clobbered.
                 if batch.latest_attempt >= self._config.max_attempts:
                     failed = await DuckgresBatchQueue.fail_run_if_stale(
                         conn, batch=batch, reason="max retries exceeded (likely OOM)", grace_seconds=grace_seconds

@@ -679,10 +679,9 @@ class TestBackfillChunkClaiming:
 
     @pytest.mark.asyncio
     async def test_replayed_predecessor_with_newer_created_at_blocks_successor(self, conn):
-        # Reconcile replay re-inserts a dropped chunk with a fresh created_at,
-        # so chunk 0 can sort AFTER chunk 1 in the fetch order. Co-claiming
-        # chunk 1 would apply it before chunk 0's CREATE (marker-then-wipe data
-        # loss); it must stay blocked until chunk 0 actually applies.
+        # A reconcile replay re-inserts chunk 0 with a fresh created_at, so it
+        # sorts AFTER chunk 1; chunk 1 must stay blocked until chunk 0 applies
+        # (co-claiming it would apply before the CREATE — data loss).
         await _insert_chunk(conn, batch_index=1, chunk_count=2)
         chunk0 = await _insert_chunk(conn, batch_index=0, chunk_count=2)
 
@@ -700,9 +699,8 @@ class TestBackfillChunkClaiming:
 
     @pytest.mark.asyncio
     async def test_chunks_blocked_behind_non_delta_succeeded_predecessor(self, conn):
-        # enqueue_chunks writes every chunk pre-succeeded atomically, so this
-        # state shouldn't exist — but the gate must fail closed rather than let
-        # chunk 1 apply before chunk 0's CREATE if that invariant ever breaks.
+        # enqueue_chunks writes chunks pre-succeeded atomically, so this state
+        # shouldn't exist — the gate must fail closed anyway.
         await _insert_chunk(conn, batch_index=0, delta_succeeded=False)
         await _insert_chunk(conn, batch_index=1)
 
@@ -731,9 +729,8 @@ class TestBackfillChunkClaiming:
 
     @pytest.mark.asyncio
     async def test_executing_insert_refuses_when_latest_status_is_failed(self, conn):
-        # Closes the TOCTOU between the mid-claim retire check and the
-        # 'executing' write: a supersede landing in between must block the
-        # insert, or the new 'executing' row would mask the terminal 'failed'.
+        # A supersede landing between the retire check and the executing write
+        # must block the insert, or the new row masks the terminal 'failed'.
         chunk0 = await _insert_chunk(conn, batch_index=0)
 
         assert await DuckgresBatchQueue.update_status_unless_failed(conn, batch_id=chunk0, job_state="executing")
@@ -748,9 +745,8 @@ class TestBackfillChunkClaiming:
 
     @pytest.mark.asyncio
     async def test_is_failed_tracks_latest_status(self, conn):
-        # Guards the mid-claim retire check: a supersede/replan writes 'failed'
-        # for a chunk already sitting in a group's claim, and the consumer must
-        # see it. A later status must clear it again (latest-row semantics).
+        # The mid-claim retire check must see a 'failed' written under a
+        # claimed chunk, and a later status must clear it (latest-row wins).
         chunk0 = await _insert_chunk(conn, batch_index=0)
         assert not await DuckgresBatchQueue.is_failed(conn, batch_id=chunk0)
 
@@ -795,9 +791,8 @@ class TestDuckgresGroupLease:
 
     @pytest.mark.asyncio
     async def test_max_groups_caps_leased_groups_leaving_the_rest_claimable(self, conn):
-        # A saturated pod must not lease groups it has no slot to start —
-        # every subsequent poll would renew those leases and block other pods
-        # from the work for as long as the pod stays busy.
+        # A pod must not lease groups it has no slot to start — every poll
+        # renews them, blocking other pods.
         older = await _insert_batch(conn, schema_id="schema-1")
         await BatchQueue.update_status(conn, batch_id=older, job_state="succeeded", attempt=1)
         newer = await _insert_batch(conn, schema_id="schema-2")
@@ -812,9 +807,8 @@ class TestDuckgresGroupLease:
 
     @pytest.mark.asyncio
     async def test_excluded_in_flight_groups_do_not_consume_the_claim_budget(self, conn):
-        # A group this pod is already processing can expose momentarily
-        # eligible batches between its own batches; re-claiming it would burn
-        # the max_groups budget and starve other schemas' work.
+        # Re-claiming an in-flight group burns the max_groups budget and
+        # starves other schemas.
         mine = await _insert_batch(conn, schema_id="schema-1")
         await BatchQueue.update_status(conn, batch_id=mine, job_state="succeeded", attempt=1)
         other = await _insert_batch(conn, schema_id="schema-2")
@@ -828,10 +822,8 @@ class TestDuckgresGroupLease:
 
     @pytest.mark.asyncio
     async def test_other_owners_leased_group_cannot_flood_the_candidate_limit(self, conn):
-        # Another pod's live-leased backfill can expose momentarily eligible
-        # chunks; they must be filtered BEFORE the candidate LIMIT or a small
-        # poll window fills with unclaimable rows and returns no work while
-        # other schemas wait.
+        # Another pod's leased backfill must be filtered BEFORE the candidate
+        # LIMIT, or its chunks fill the window and hide other schemas' work.
         for i in range(3):
             await _insert_chunk(conn, batch_index=i)
         claimed = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-b")
@@ -851,9 +843,8 @@ class TestDuckgresGroupLease:
         await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
         await conn.execute(f"UPDATE {DUCKGRES_LEASE_TABLE} SET expires_at = now() - interval '1 second'")
 
-        # An expired lease is dead even for its original owner: renewal must not
-        # resurrect it (recovery may have re-queued the group's batches) — the
-        # only way back in is the fetch's claim CTE.
+        # An expired lease is dead even for its original owner — the only way
+        # back in is the fetch's claim CTE.
         assert not await DuckgresBatchQueue.renew_lease(conn, team_id=1, schema_id="schema-1", owner_token="owner-a")
 
         assert len(await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-b")) == 1
@@ -862,10 +853,8 @@ class TestDuckgresGroupLease:
 
     @pytest.mark.asyncio
     async def test_requeue_is_fenced_on_live_lease_and_current_status(self, conn):
-        # The recovery sweep's scan-to-write gap: another pod can reclaim the
-        # group (or a rival sweep can requeue first) after the stale scan. The
-        # requeue write must re-check both in its own snapshot or it would
-        # stamp waiting_retry into an actively owned group.
+        # The requeue write must re-check lease and status in its own snapshot,
+        # or the scan-to-write gap stamps waiting_retry into an owned group.
         batch_id = await _insert_batch(conn)
         await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
         claimed = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
@@ -896,10 +885,9 @@ class TestDuckgresGroupLease:
 
     @pytest.mark.asyncio
     async def test_fresh_executing_heartbeat_blocks_recovery_writes(self, conn):
-        # During the mixed-version window an old advisory-lock pod processes
-        # without any lease row, heartbeating fresh 'executing' statuses. The
-        # recovery writes must re-check the status AGE at write time or they
-        # would requeue/fail a batch that is demonstrably alive.
+        # An old advisory-lock pod processes leaselessly, heartbeating fresh
+        # 'executing' rows; recovery writes must re-check the status AGE or
+        # they requeue/fail a batch that is demonstrably alive.
         batch_id = await _insert_batch(conn)
         await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
         claimed = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")

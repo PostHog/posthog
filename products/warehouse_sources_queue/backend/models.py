@@ -147,12 +147,11 @@ class SourceGroupLease(models.Model):
 class SourceDuckgresGroupLease(ProductTeamModel):
     """Lease-based mutual exclusion for the duckgres sink's (team_id, schema_id) groups.
 
-    Same mechanics as [SourceGroupLease] but a separate table: the delta consumer
-    and the duckgres sink process the same groups independently, so they must
-    never contend for one lease row. Replaces the duckgres sink's session-scoped
-    advisory lock, whose ownership was tied to a live server session and could be
-    orphaned indefinitely on SIGKILL or pgbouncer session lingering. All access
-    is via raw SQL in ``duckgres/jobs_db.py`` — this model exists for
+    Same mechanics as [SourceGroupLease], but a separate table: both consumers
+    process the same groups independently and must never contend for one lease
+    row. Replaces the sink's session-scoped advisory lock, which could be
+    orphaned indefinitely on SIGKILL or a lingering pgbouncer session. All
+    access is raw SQL in ``duckgres/jobs_db.py``; this model exists for
     migration/introspection.
     """
 
