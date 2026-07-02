@@ -362,7 +362,7 @@ class AviationstackSourceConfig(config.Config):
 
 @config.config
 class AwinSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -1927,7 +1927,7 @@ class MailjetSourceConfig(config.Config):
 
 @config.config
 class MailosaurSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2238,7 +2238,7 @@ class OpenAIAdsSourceConfig(config.Config):
 
 @config.config
 class OpenAQSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2248,7 +2248,9 @@ class OpenDataDcSourceConfig(config.Config):
 
 @config.config
 class OpenExchangeRatesSourceConfig(config.Config):
-    pass
+    app_id: str
+    base_currency: str | None = None
+    start_date: str | None = None
 
 
 @config.config
