@@ -789,7 +789,10 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     578: ErrorCodeMeta("INVALID_FORMAT_INSERT_QUERY_WITH_DATA"),
     579: ErrorCodeMeta("INCORRECT_PART_TYPE"),
     580: ErrorCodeMeta("CANNOT_SET_ROUNDING_MODE"),
-    581: ErrorCodeMeta("TOO_LARGE_DISTRIBUTED_DEPTH"),
+    581: ErrorCodeMeta(
+        "TOO_LARGE_DISTRIBUTED_DEPTH",
+        user_safe="This query is too complex to run. Try reducing its complexity, for example by simplifying nested subqueries or joins.",
+    ),
     582: ErrorCodeMeta("NO_SUCH_PROJECTION_IN_TABLE"),
     583: ErrorCodeMeta("ILLEGAL_PROJECTION"),
     584: ErrorCodeMeta("PROJECTION_NOT_USED"),
