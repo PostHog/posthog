@@ -48,7 +48,7 @@ export function EntityHeader({
     slug,
     right,
 }: {
-    /** Emoji or icon shown in the bordered square; omit for text-only entities (authors). */
+    /** Icon shown in the bordered square; omit for text-only entities (authors). */
     icon?: ReactNode
     title: string
     /** Muted addition after the title (e.g. the run id). */

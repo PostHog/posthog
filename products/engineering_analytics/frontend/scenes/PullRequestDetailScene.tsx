@@ -2,7 +2,7 @@ import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 import { Fragment, ReactNode } from 'react'
 
-import { IconExternal } from '@posthog/icons'
+import { IconExternal, IconPullRequest } from '@posthog/icons'
 import {
     LemonButton,
     LemonInput,
@@ -681,7 +681,7 @@ export function PullRequestDetailScene(): JSX.Element {
             {pullRequest ? (
                 <>
                     <EntityHeader
-                        icon={pullRequest.state === 'merged' ? '🟣' : pullRequest.state === 'closed' ? '🔴' : '🟢'}
+                        icon={<IconPullRequest />}
                         title={pullRequest.title}
                         slug={
                             <>

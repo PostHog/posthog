@@ -5,6 +5,7 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
+import { IconBox } from '@posthog/icons'
 import { LemonCard, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { Sparkline } from 'lib/components/Sparkline'
@@ -48,7 +49,7 @@ function RepoEntityHeader({
     const name = repoFullName.split('/')[1] || repoFullName || 'Repository'
     return (
         <EntityHeader
-            icon="📦"
+            icon={<IconBox />}
             title={name}
             slug={
                 <>

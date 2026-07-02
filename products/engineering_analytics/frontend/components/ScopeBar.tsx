@@ -9,6 +9,7 @@
 import { useActions, useValues } from 'kea'
 import { Fragment, ReactNode, useState } from 'react'
 
+import { IconX } from '@posthog/icons'
 import { LemonButton, LemonDropdown, LemonInput, LemonSelect, Link } from '@posthog/lemon-ui'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
@@ -217,7 +218,7 @@ export function ScopeBar({
                     >
                         <strong className="font-semibold text-primary">{lensFilter.label}</strong>
                         <Link to={lensFilter.to} className="px-0.5 text-tertiary hover:text-primary">
-                            ✕
+                            <IconX />
                         </Link>
                     </span>
                 )}

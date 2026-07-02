@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
-import { IconExternal } from '@posthog/icons'
+import { IconExternal, IconGear } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -295,7 +295,7 @@ export function WorkflowRunsScene(): JSX.Element {
                 showBranch
             />
             <EntityHeader
-                icon="⚙️"
+                icon={<IconGear />}
                 title={workflowName}
                 slug={
                     <>

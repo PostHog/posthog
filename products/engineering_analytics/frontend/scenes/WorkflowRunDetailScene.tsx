@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
-import { IconExternal } from '@posthog/icons'
+import { IconCheckCircle, IconExternal, IconHourglass, IconPause, IconXCircle } from '@posthog/icons'
 import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
@@ -155,13 +155,15 @@ export function WorkflowRunDetailScene(): JSX.Element {
                     />
                     <EntityHeader
                         icon={
-                            run.conclusion == null
-                                ? '⏳'
-                                : isDecisiveFailure(run.conclusion)
-                                  ? '❌'
-                                  : run.conclusion === 'success'
-                                    ? '✅'
-                                    : '⏸️'
+                            run.conclusion == null ? (
+                                <IconHourglass className="text-muted" />
+                            ) : isDecisiveFailure(run.conclusion) ? (
+                                <IconXCircle className="text-danger" />
+                            ) : run.conclusion === 'success' ? (
+                                <IconCheckCircle className="text-success" />
+                            ) : (
+                                <IconPause className="text-muted" />
+                            )
                         }
                         title={run.workflow_name}
                         titleSuffix={`#${run.id}`}
