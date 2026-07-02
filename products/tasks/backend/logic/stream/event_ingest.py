@@ -7,6 +7,7 @@ from dataclasses import dataclass
 from typing import cast
 
 from django.conf import settings
+from django.db import InterfaceError, OperationalError, close_old_connections
 
 import structlog
 import posthoganalytics
@@ -296,6 +297,14 @@ async def _heartbeat_workflow_if_needed(redis_stream: TaskRunRedisStream, run_id
 
 
 def _heartbeat_workflow(run_id: str, agent_active: bool) -> None:
+    # This runs on a sync_to_async thread that Django never health-checks (the ASGI wrapper
+    # intercepts the request before Django's connection lifecycle runs), so a pooled connection
+    # Postgres has since closed can be reused. Mirror push_dispatcher/custom_prompt_internals and
+    # clear stale connections first. Gated on `not settings.TEST` since it trips pytest-django's
+    # DB-access guard when the ORM read is patched.
+    if not settings.TEST:
+        close_old_connections()
+
     try:
         task_run = TaskRun.objects.get(id=run_id)
     except TaskRun.DoesNotExist:
@@ -311,6 +320,9 @@ async def _dispatch_awaiting_input_if_interactive(run_id: str) -> None:
 
 
 def _dispatch_awaiting_input_if_interactive_sync(run_id: str) -> None:
+    if not settings.TEST:
+        close_old_connections()
+
     try:
         task_run = TaskRun.objects.select_related("task__created_by", "team").get(id=run_id)
     except TaskRun.DoesNotExist:
@@ -360,11 +372,22 @@ def _is_session_update(event: dict) -> bool:
 
 
 def _task_run_exists_sync(run_id: str, task_id: str, team_id: int) -> bool:
+    if not settings.TEST:
+        close_old_connections()
     return TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id).exists()
 
 
-def _task_run_exists(run_id: str, task_id: str, team_id: int) -> Awaitable[bool]:
-    return sync_to_async(_task_run_exists_sync, thread_sensitive=True)(run_id, task_id, team_id)
+async def _task_run_exists(run_id: str, task_id: str, team_id: int) -> bool:
+    """Existence check on a sync_to_async thread whose pooled connection Django never
+    health-checks. `close_old_connections()` clears a stale connection before the read; a
+    single retry recovers a transparent reconnect since this is a side-effect-free read.
+    An uncaught OperationalError here would otherwise crash the whole ingest request."""
+    run_check = sync_to_async(_task_run_exists_sync, thread_sensitive=True)
+    try:
+        return await run_check(run_id, task_id, team_id)
+    except (OperationalError, InterfaceError):
+        logger.warning("task_run_event_ingest_exists_db_reconnect", run_id=run_id, exc_info=True)
+        return await run_check(run_id, task_id, team_id)
 
 
 def _get_bearer_token(scope: ASGIMessage) -> str | None:
