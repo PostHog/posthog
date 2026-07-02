@@ -4,6 +4,9 @@ from typing import Any
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
+    OwnershipLostError,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer import (
     DuckgresBatchConsumer,
     DuckgresBatchConsumerAdapter,
@@ -389,10 +392,6 @@ class TestMidClaimRetire:
         # could swap stale backfill data over a table the replace has rebuilt,
         # and even an 'executing' row would mask the terminal 'failed' from
         # every latest-status consumer (un-retiring the run).
-        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
-            OwnershipLostError,
-        )
-
         consumer = _make_consumer()
 
         with (
@@ -422,10 +421,6 @@ class TestMidClaimRetire:
         # Applies to every state (executing, succeeded, waiting_retry): a write
         # blocked by a terminal 'failed' means the batch was retired while
         # claimed, and stamping any later status would un-retire it.
-        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
-            OwnershipLostError,
-        )
-
         adapter = DuckgresBatchConsumerAdapter()
         conn = _make_healthy_conn()
 

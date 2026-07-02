@@ -376,10 +376,6 @@ class TestRecoverySweep:
         # A batch terminally retired between the stale scan and the re-queue
         # write surfaces as OwnershipLostError from the adapter; the sweep
         # (including the unwrapped startup sweep) must skip it, not crash.
-        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
-            OwnershipLostError,
-        )
-
         consumer = _make_consumer(max_attempts=3)
         stale_batch = _make_batch(latest_attempt=1)
 
