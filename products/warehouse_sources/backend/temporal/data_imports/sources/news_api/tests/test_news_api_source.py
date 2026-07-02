@@ -4,6 +4,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.schema import SourceFieldInputConfig
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import NewsApiSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.news_api.news_api import NewsApiResumeConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.news_api.source import NewsApiSource
@@ -31,7 +33,7 @@ class TestNewsApiSource:
         assert expected_key in self.source.get_non_retryable_errors()
 
     def test_source_config_required_fields(self) -> None:
-        fields = {f.name: f for f in self.source.get_source_config.fields}
+        fields = {f.name: f for f in self.source.get_source_config.fields if isinstance(f, SourceFieldInputConfig)}
         assert set(fields) == {"api_key", "query", "language"}
         assert fields["api_key"].required is True
         assert fields["api_key"].secret is True
@@ -89,10 +91,11 @@ class TestNewsApiSource:
         inputs.db_incremental_field_last_value = "2026-03-04T00:00:00"
 
         captured: dict[str, Any] = {}
+        sentinel = MagicMock()
 
-        def fake_source(**kwargs: Any) -> str:
+        def fake_source(**kwargs: Any) -> Any:
             captured.update(kwargs)
-            return "response"
+            return sentinel
 
         with patch(
             "products.warehouse_sources.backend.temporal.data_imports.sources.news_api.source.news_api_source",
@@ -100,7 +103,7 @@ class TestNewsApiSource:
         ):
             result = self.source.source_for_pipeline(_config(language="en"), MagicMock(), inputs)
 
-        assert result == "response"
+        assert result is sentinel
         assert captured["endpoint"] == "everything"
         assert captured["query"] == "bitcoin"
         assert captured["language"] == "en"

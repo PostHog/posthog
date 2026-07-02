@@ -109,7 +109,7 @@ class TestErrorCode:
         assert _error_code(requests.HTTPError(response=resp)) is None
 
     def test_returns_none_without_response(self) -> None:
-        assert _error_code(requests.HTTPError()) is None
+        assert _error_code(requests.HTTPError(response=None)) is None  # type: ignore[arg-type]
 
 
 class TestFetchPageRetry:
@@ -131,7 +131,7 @@ class TestFetchPageRetry:
     def test_client_error_raises_immediately(self) -> None:
         # A 401 is a permanent credential failure — it must surface at once, not burn retries.
         resp = MagicMock(status_code=401, ok=False, text="unauthorized")
-        resp.raise_for_status.side_effect = requests.HTTPError("401 Client Error")
+        resp.raise_for_status.side_effect = requests.HTTPError("401 Client Error", response=resp)
         session = MagicMock()
         session.get.return_value = resp
 

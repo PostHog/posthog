@@ -202,10 +202,13 @@ def get_rows(
 
 def _error_code(exc: requests.HTTPError) -> str | None:
     """Pull NewsAPI's machine-readable `code` out of an error response body, if present."""
-    if exc.response is None:
+    # `HTTPError.response` is typed non-optional but is None at runtime when the error carries no
+    # response, so read it defensively via getattr rather than trusting the annotation.
+    response = getattr(exc, "response", None)
+    if response is None:
         return None
     try:
-        return exc.response.json().get("code")
+        return response.json().get("code")
     except ValueError:
         return None
 
