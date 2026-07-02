@@ -6,6 +6,7 @@ import {
     computeSeriesBars,
     cornersFor,
     groupedBarCenter,
+    roundOuterStackCaps,
 } from './bar-layout'
 import type { BarRect } from './canvas-renderer'
 import { computeStackData, createBarScales } from './scales'
@@ -576,6 +577,68 @@ describe('hog-charts bar-layout', () => {
                 groupPadding: 0,
             })
             expect(groupedBarCenter(scales, 'L1', 'missing')).toBeUndefined()
+        })
+    })
+
+    describe('roundOuterStackCaps', () => {
+        // Vertical pixel space with the baseline at y=100: positive segments sit above (smaller y),
+        // negative segments extend below.
+        const rect = (dataIndex: number, y: number, height: number): BarRect => ({
+            x: 0,
+            y,
+            width: 10,
+            height,
+            corners: {},
+            dataIndex,
+        })
+
+        it('rounds whichever segment tops each band, not a fixed series (breakdown stacks)', () => {
+            const bandA = [rect(0, 60, 40), rect(0, 30, 30)] // second segment on top
+            const bandB = [rect(1, 40, 60)] // only segment
+            roundOuterStackCaps([...bandA, ...bandB], false, 100)
+            expect(bandA[0].corners.topLeft).toBeUndefined()
+            expect(bandA[1].corners).toMatchObject({ topLeft: true, topRight: true })
+            expect(bandB[0].corners).toMatchObject({ topLeft: true, topRight: true })
+        })
+
+        it('rounds both directions of a diverging stack — positive top and negative bottom', () => {
+            const bars = [rect(0, 50, 50), rect(0, 20, 30), rect(0, 100, 40)] // last extends below baseline
+            roundOuterStackCaps(bars, false, 100)
+            expect(bars[1].corners).toMatchObject({ topLeft: true, topRight: true })
+            expect(bars[2].corners).toMatchObject({ bottomLeft: true, bottomRight: true })
+            expect(bars[0].corners.topLeft).toBeUndefined()
+            expect(bars[0].corners.bottomLeft).toBeUndefined()
+        })
+
+        it('squares a previously-rounded cap when a higher segment exists in the band', () => {
+            const lower = { ...rect(0, 60, 40), corners: cornersFor(false, true, true) }
+            const upper = rect(0, 30, 30)
+            roundOuterStackCaps([lower, upper], false, 100)
+            expect(lower.corners.topLeft).toBeUndefined()
+            expect(upper.corners).toMatchObject({ topLeft: true, topRight: true })
+        })
+
+        it('skips invisible slivers so a zero-height segment cannot steal the cap', () => {
+            const visible = rect(0, 60, 40)
+            const sliver = rect(0, 59.9, 0.2)
+            roundOuterStackCaps([visible, sliver], false, 100)
+            expect(visible.corners).toMatchObject({ topLeft: true, topRight: true })
+            expect(sliver.corners.topLeft).toBeUndefined()
+        })
+
+        it('rounds the outer right/left caps in horizontal orientation', () => {
+            const hrect = (dataIndex: number, x: number, width: number): BarRect => ({
+                x,
+                y: 0,
+                width,
+                height: 10,
+                corners: {},
+                dataIndex,
+            })
+            const bars = [hrect(0, 0, 60), hrect(0, 60, 30)]
+            roundOuterStackCaps(bars, true, 0)
+            expect(bars[1].corners).toMatchObject({ topRight: true, bottomRight: true })
+            expect(bars[0].corners.topRight).toBeUndefined()
         })
     })
 })

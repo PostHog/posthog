@@ -1,6 +1,12 @@
 import { color as d3Color } from 'd3-color'
 
-import { bandCenter, type BarChartPrivate, buildBarLayers, computeBarTrackRect } from '../../../core/bar-layout'
+import {
+    bandCenter,
+    type BarChartPrivate,
+    buildBarLayers,
+    computeBarTrackRect,
+    roundOuterStackCaps,
+} from '../../../core/bar-layout'
 import {
     BAR_HIGHLIGHT_DARKEN,
     BAR_TRACK_HOVER_ALPHA,
@@ -142,6 +148,17 @@ export function drawBarChartStatic(
         stackedData,
         topStackedKeyByAxis,
     })
+
+    // Stacked cap rounding is re-resolved per band from the laid-out rects, so breakdown and
+    // diverging stacks round their actual outer segments. Pills own the corners under
+    // roundStackEnds, so skip there.
+    if (barLayout !== 'grouped' && !roundStackEnds) {
+        roundOuterStackCaps(
+            seriesBars.flatMap((sb) => sb.bars),
+            isHorizontal,
+            d3Scales.value(0)
+        )
+    }
 
     // `roundStackEnds`: round both outer ends of the whole stack into a pill by clipping
     // the bar layer to a rounded rect spanning each band's full extent, then drawing the

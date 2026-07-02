@@ -53,6 +53,75 @@ export function cornersFor(
     return corners
 }
 
+// A segment thinner than this can't visibly carry a rounded cap; skipping it stops an invisible
+// sliver (e.g. a zero-valued breakdown at the top of the stack order) from stealing the cap.
+const MIN_CAP_SEGMENT_PX = 0.5
+
+/** Re-resolve stacked cap rounding per band, geometrically, from the laid-out rects: within each
+ *  `dataIndex`, only the segment reaching furthest away from the baseline in each direction keeps
+ *  a rounded cap — everything else's cap is squared. Decided after layout so breakdown stacks
+ *  (whose top layer varies band to band) and diverging stacks (negative bottoms) round the actual
+ *  outer segment, not the last series in stack order. Mutates `corners` in place; baseline
+ *  corners are untouched. */
+export function roundOuterStackCaps(bars: BarRect[], isHorizontal: boolean, baselinePx: number): void {
+    const outerPositive = new Map<number, BarRect>()
+    const outerNegative = new Map<number, BarRect>()
+    for (const bar of bars) {
+        const size = isHorizontal ? bar.width : bar.height
+        if (size < MIN_CAP_SEGMENT_PX) {
+            continue
+        }
+        // The cap edge, signed so "further from the baseline" compares uniformly per direction.
+        // Vertical: smaller y is further up; horizontal: larger x+width is further right.
+        if (isHorizontal) {
+            if (bar.x + bar.width > baselinePx + MIN_CAP_SEGMENT_PX) {
+                const prev = outerPositive.get(bar.dataIndex)
+                if (!prev || bar.x + bar.width >= prev.x + prev.width) {
+                    outerPositive.set(bar.dataIndex, bar)
+                }
+            }
+            if (bar.x < baselinePx - MIN_CAP_SEGMENT_PX) {
+                const prev = outerNegative.get(bar.dataIndex)
+                if (!prev || bar.x <= prev.x) {
+                    outerNegative.set(bar.dataIndex, bar)
+                }
+            }
+        } else {
+            if (bar.y < baselinePx - MIN_CAP_SEGMENT_PX) {
+                const prev = outerPositive.get(bar.dataIndex)
+                if (!prev || bar.y <= prev.y) {
+                    outerPositive.set(bar.dataIndex, bar)
+                }
+            }
+            if (bar.y + bar.height > baselinePx + MIN_CAP_SEGMENT_PX) {
+                const prev = outerNegative.get(bar.dataIndex)
+                if (!prev || bar.y + bar.height >= prev.y + prev.height) {
+                    outerNegative.set(bar.dataIndex, bar)
+                }
+            }
+        }
+    }
+    for (const bar of bars) {
+        const isOuterPositive = outerPositive.get(bar.dataIndex) === bar
+        const isOuterNegative = outerNegative.get(bar.dataIndex) === bar
+        // Rewrite only the bar's own cap side (away from the baseline), so baseline-side rounding
+        // a caller may have applied is preserved.
+        const positive = isHorizontal ? bar.x + bar.width > baselinePx : bar.y < baselinePx
+        const cap = isOuterPositive || isOuterNegative || undefined
+        if (isHorizontal) {
+            if (positive) {
+                bar.corners.topRight = bar.corners.bottomRight = cap
+            } else {
+                bar.corners.topLeft = bar.corners.bottomLeft = cap
+            }
+        } else if (positive) {
+            bar.corners.topLeft = bar.corners.topRight = cap
+        } else {
+            bar.corners.bottomLeft = bar.corners.bottomRight = cap
+        }
+    }
+}
+
 function makeBarRect(
     isHorizontal: boolean,
     bandStart: number,

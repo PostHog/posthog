@@ -1,4 +1,4 @@
-import { computeBarAtIndex } from '../../../core/bar-layout'
+import { computeBarAtIndex, roundOuterStackCaps } from '../../../core/bar-layout'
 import type { BarRect } from '../../../core/canvas-renderer'
 import { type BarScaleSet, groupedBandSlot, type StackedBand } from '../../../core/scales'
 import type { BandSlot, Series } from '../../../core/types'
@@ -69,6 +69,7 @@ export function* barsAtCursor<S extends Pick<Series, 'key' | 'visibility' | 'yAx
     args: Omit<BarsAtCursorArgs, 'series'> & { series: readonly S[] }
 ): Generator<BarAtCursor<S>> {
     const { series, label, dataIndex, scales, layout, isHorizontal, stackedData, topStackedKeyByAxis } = args
+    const results: BarAtCursor<S>[] = []
     for (const s of series) {
         if (s.visibility?.excluded) {
             continue
@@ -87,9 +88,18 @@ export function* barsAtCursor<S extends Pick<Series, 'key' | 'visibility' | 'yAx
             isTopOfStack,
         })
         if (bar) {
-            yield { series: s, bar }
+            results.push({ series: s, bar })
         }
     }
+    // Match the static layer's per-band cap resolution so hover highlights round the same corners.
+    if (layout !== 'grouped') {
+        roundOuterStackCaps(
+            results.map((r) => r.bar),
+            isHorizontal,
+            scales.value(0)
+        )
+    }
+    yield* results
 }
 
 export interface ResolveBarsAtCursorResult {
