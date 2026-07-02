@@ -158,8 +158,10 @@ def get_rows(
 
     if endpoint == "columns":
         yield from _iter_columns(session, view_id, headers, logger)
-    else:
+    elif endpoint == "records":
         yield from _iter_records(session, view_id, headers, logger, resumable_source_manager)
+    else:
+        raise ValueError(f"Unknown Gridly endpoint: {endpoint!r}")
 
 
 def gridly_source(
