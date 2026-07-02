@@ -55,7 +55,10 @@ export function VirtualizedTasksList({
     }, [hasMore, loadingMore, lastRenderedIndex, tasks.length, onLoadMore])
 
     return (
-        <div ref={scrollRef} className="h-full overflow-y-auto overflow-x-hidden">
+        <div
+            ref={scrollRef}
+            className="h-full overflow-y-auto overflow-x-hidden pb-[calc(5rem_+_env(safe-area-inset-bottom))]"
+        >
             <div style={{ position: 'relative', width: '100%', height: virtualizer.getTotalSize() }}>
                 {virtualItems.map((virtualRow) => {
                     const task = tasks[virtualRow.index]
