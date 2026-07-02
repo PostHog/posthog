@@ -148,7 +148,7 @@ export function AdvertisementCard({
                     </div>
                     <div className="flex flex-col gap-1 px-2 pt-0.5 pb-2">
                         <strong className="text-sm leading-tight">{title}</strong>
-                        <p className="mb-0 text-secondary" dangerouslySetInnerHTML={{ __html: text }} />
+                        <p className="mb-0 text-secondary">{text}</p>
                     </div>
                 </>
             ) : (
@@ -166,7 +166,7 @@ export function AdvertisementCard({
                         </strong>
                         {dismissButton}
                     </div>
-                    <p className="mb-0 text-secondary" dangerouslySetInnerHTML={{ __html: text }} />
+                    <p className="mb-0 text-secondary">{text}</p>
                 </div>
             )}
         </div>
