@@ -72,6 +72,16 @@ const serializeDefinition = ({
     is_big_number: isNumericDisplayType(displayType) ? isBigNumber : false,
 })
 
+const handleNameConflict = (error: unknown, setManualErrors: (errors: { name: string }) => void): boolean => {
+    if ((error as { status?: number })?.status !== 409) {
+        return false
+    }
+    setManualErrors({ name: 'A custom property with this name already exists.' })
+    return true
+}
+
+class MissingNameError extends Error {}
+
 export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogicType>([
     path([
         'products',
@@ -136,11 +146,10 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         newWorkflowUrl: [
             null as string | null,
             {
-                createWorkflowForProperty: async (): Promise<string | null> => {
+                createWorkflowForProperty: async (): Promise<string> => {
                     const formValues = values.customPropertyForm
                     if (!formValues.name?.trim()) {
-                        actions.setCustomPropertyFormManualErrors({ name: 'Name is required' })
-                        return null
+                        throw new MissingNameError()
                     }
                     // The property must exist first — the workflow action references it by id.
                     if (!values.editingDefinition) {
@@ -270,10 +279,7 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 lemonToast.error('Property saved, but the sync configuration failed. Fix it and save again.')
                 return
             }
-            if ((error as { status?: number })?.status === 409) {
-                actions.setCustomPropertyFormManualErrors({
-                    name: 'A custom property with this name already exists.',
-                })
+            if (handleNameConflict(error, actions.setCustomPropertyFormManualErrors)) {
                 return
             }
             lemonToast.error('Failed to save custom property')
@@ -290,21 +296,19 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
             lemonToast.error('Failed to load custom properties')
         },
         createWorkflowForPropertySuccess: ({ newWorkflowUrl }) => {
-            if (!newWorkflowUrl) {
-                return
-            }
-            if (window.open(newWorkflowUrl, '_blank')) {
+            if (newWorkflowUrl && window.open(newWorkflowUrl, '_blank')) {
                 lemonToast.success('Workflow editor opened in a new tab — save the workflow there, then refresh')
             } else {
                 lemonToast.error('Could not open a new tab — check your popup blocker')
             }
         },
-        createWorkflowForPropertyFailure: ({ error }) => {
-            posthog.captureException(error, { scope: 'customPropertyDefinitionsLogic.createWorkflow' })
-            if ((error as { status?: number })?.status === 409) {
-                actions.setCustomPropertyFormManualErrors({
-                    name: 'A custom property with this name already exists.',
-                })
+        createWorkflowForPropertyFailure: ({ errorObject }) => {
+            if (errorObject instanceof MissingNameError) {
+                actions.setCustomPropertyFormManualErrors({ name: 'Name is required' })
+                return
+            }
+            posthog.captureException(errorObject, { scope: 'customPropertyDefinitionsLogic.createWorkflow' })
+            if (handleNameConflict(errorObject, actions.setCustomPropertyFormManualErrors)) {
                 return
             }
             lemonToast.error('Failed to create workflow')

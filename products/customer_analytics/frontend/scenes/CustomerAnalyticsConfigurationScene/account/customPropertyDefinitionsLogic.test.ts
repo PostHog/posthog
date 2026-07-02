@@ -302,6 +302,18 @@ describe('customPropertyDefinitionsLogic', () => {
         expect(sourceDeleted).toBe(true)
     })
 
+    it('fails the workflow CTA with a field error when the name is missing', async () => {
+        useMocks(defaultMocks())
+        mountLogic()
+        logic.actions.openCreateModal()
+
+        await expectLogic(logic, () => logic.actions.createWorkflowForProperty()).toDispatchActions([
+            'createWorkflowForPropertyFailure',
+            'setCustomPropertyFormManualErrors',
+        ])
+        expect(window.open).not.toHaveBeenCalled()
+    })
+
     it('creates the property and opens the new-workflow editor', async () => {
         useMocks(defaultMocks())
         mountLogic()
