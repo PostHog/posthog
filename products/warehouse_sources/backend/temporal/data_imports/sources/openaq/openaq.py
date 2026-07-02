@@ -23,8 +23,8 @@ OPENAQ_BASE_URL = "https://api.openaq.org"
 # (offset ceiling). We page in 1000s and stop each per-sensor fan-out at MAX_PAGES so we never
 # cross that ceiling; ascending order + the incremental datetime filter means a truncated sensor
 # resumes from its last synced value on the next sync rather than losing data.
-OPENAQ_PAGE_SIZE = 1000
-MAX_PAGES = 100
+OPENAQ_PAGE_SIZE: int = 1000
+MAX_PAGES: int = 100
 
 # The only sort field every v3 list endpoint accepts is `id`; sorting ascending gives page-stable
 # pagination for the full-refresh reference tables.
@@ -61,7 +61,7 @@ def validate_credentials(api_key: str) -> bool:
     # probe that the token itself is genuine.
     url = _build_url(f"{OPENAQ_BASE_URL}/v3/parameters", {"limit": 1})
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
+        response = make_tracked_session(redact_values=(api_key,)).get(url, headers=_get_headers(api_key), timeout=10)
         return response.status_code == 200
     except Exception:
         return False
@@ -115,7 +115,9 @@ def _flatten_sensor(location: dict[str, Any], sensor: dict[str, Any]) -> dict[st
     """Shape one embedded location sensor into a flat row with its parent-location context."""
     parameter = sensor.get("parameter") or {}
     return {
-        "id": sensor.get("id"),
+        # Direct access on the primary key so a malformed row fails fast rather than merging
+        # every id-less sensor into one null-keyed row.
+        "id": sensor["id"],
         "name": sensor.get("name"),
         "parameter_id": parameter.get("id"),
         "parameter_name": parameter.get("name"),
@@ -253,7 +255,8 @@ def _get_measurement_rows(
         resume_page = resume.page
         logger.debug(f"OpenAQ: resuming {config.name} from sensor_id={resume.parent_sensor_id}, page={resume_page}")
 
-    assert config.time_param_prefix is not None
+    if config.time_param_prefix is None:
+        raise ValueError(f"OpenAQ endpoint {config.name!r} has kind='measurement' but no time_param_prefix")
     time_params: dict[str, Any] = {}
     if should_use_incremental_field and db_incremental_field_last_value:
         time_params[f"{config.time_param_prefix}_from"] = _format_time_value(
@@ -269,7 +272,12 @@ def _get_measurement_rows(
             path = config.path.format(sensors_id=sensor_id)
             data = _fetch_page(session, _build_url(f"{OPENAQ_BASE_URL}{path}", params), headers, logger)
             results = data.get("results", [])
-            is_last = len(results) < OPENAQ_PAGE_SIZE
+            is_last = len(results) < OPENAQ_PAGE_SIZE or page >= MAX_PAGES
+            if page >= MAX_PAGES and len(results) == OPENAQ_PAGE_SIZE:
+                logger.warning(
+                    f"OpenAQ: hit MAX_PAGES={MAX_PAGES} for {config.name} sensor_id={sensor_id}; "
+                    "remaining rows sync on the next incremental run"
+                )
 
             for item in results:
                 batcher.batch(_flatten_measurement(item, sensor_id))
@@ -281,11 +289,6 @@ def _get_measurement_rows(
                         )
 
             if is_last:
-                if page >= MAX_PAGES and len(results) == OPENAQ_PAGE_SIZE:
-                    logger.warning(
-                        f"OpenAQ: hit MAX_PAGES={MAX_PAGES} for {config.name} sensor_id={sensor_id}; "
-                        "remaining rows sync on the next incremental run"
-                    )
                 break
             page += 1
 
@@ -306,8 +309,9 @@ def get_rows(
     headers = _get_headers(api_key)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
     # One session reused across every page (and every sensor, for fan-out) so urllib3 keeps the
-    # connection alive instead of re-handshaking per request.
-    session = make_tracked_session()
+    # connection alive instead of re-handshaking per request. Redact the key so it never lands in
+    # logged URLs or captured samples.
+    session = make_tracked_session(redact_values=(api_key,))
 
     if config.kind == "list":
         yield from _get_list_rows(session, headers, logger, batcher, config, resumable_source_manager)
