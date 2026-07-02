@@ -438,6 +438,30 @@ def _force_datetime(expr: ast.Expr) -> ast.Expr:
     )
 
 
+# ISO 8601 datetime string carrying an explicit timezone designator (``Z`` or ``±HH:MM`` /
+# ``±HHMM``), e.g. what Python's ``datetime.isoformat()`` emits for a tz-aware value
+# (``2026-07-02T15:12:33.156828+00:00``). ClickHouse's implicit string→DateTime64 cast rejects
+# the offset (``Cannot parse ... syntax error at position 26``), so such values must be routed
+# through ``parseDateTime64BestEffort`` — which honors the embedded offset — rather than compared
+# as a bare string constant.
+_ISO_DATETIME_WITH_TZ_RE = re.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}:\d{2}(?:\.\d+)?(?:Z|[+-]\d{2}:?\d{2})$")
+
+# Comparison operators whose bare-string constants break against DateTime64 columns when fed an
+# offset-bearing ISO value; each maps to the CompareOperationOp used to build the coerced version.
+_DATETIME_OFFSET_COMPARE_OPS: dict[PropertyOperator, ast.CompareOperationOp] = {
+    PropertyOperator.EXACT: ast.CompareOperationOp.Eq,
+    PropertyOperator.IS_NOT: ast.CompareOperationOp.NotEq,
+    PropertyOperator.LT: ast.CompareOperationOp.Lt,
+    PropertyOperator.GT: ast.CompareOperationOp.Gt,
+    PropertyOperator.LTE: ast.CompareOperationOp.LtEq,
+    PropertyOperator.GTE: ast.CompareOperationOp.GtEq,
+}
+
+
+def _is_iso_datetime_with_tz(value: ValueT) -> TypeGuard[str]:
+    return isinstance(value, str) and bool(_ISO_DATETIME_WITH_TZ_RE.match(value))
+
+
 def _validate_between_values(value: ValueT, operator: PropertyOperator) -> TypeGuard[list[str]]:
     if not isinstance(value, list) or len(value) != 2:
         raise QueryError(f"{operator} operator requires a two-element array [min, max]")
@@ -485,6 +509,16 @@ def _validate_regex(value: ValueT) -> None:
 def _expr_to_compare_op(
     expr: ast.Expr, value: ValueT, operator: PropertyOperator, property: Property, is_json_field: bool, team: Team
 ) -> ast.Expr:
+    # An offset-bearing ISO datetime value (e.g. ``2026-07-02T15:12:33.156828+00:00``) compared
+    # against a DateTime64 column can't be cast implicitly by ClickHouse — it fails at the offset.
+    # Route both sides through _force_datetime (→ parseDateTime64BestEffort) so the offset is
+    # honored, mirroring how the IS_DATE_* operators below already coerce their operands.
+    if operator in _DATETIME_OFFSET_COMPARE_OPS and _is_iso_datetime_with_tz(value):
+        return ast.CompareOperation(
+            op=_DATETIME_OFFSET_COMPARE_OPS[operator],
+            left=_force_datetime(expr),
+            right=_force_datetime(ast.Constant(value=value)),
+        )
     if operator == PropertyOperator.IS_SET:
         return ast.CompareOperation(
             op=ast.CompareOperationOp.NotEq,

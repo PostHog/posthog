@@ -362,6 +362,34 @@ class TestProperty(BaseTest):
 
     @parameterized.expand(
         [
+            ("exact", "exact", ast.CompareOperationOp.Eq),
+            ("is_not", "is_not", ast.CompareOperationOp.NotEq),
+            ("lt", "lt", ast.CompareOperationOp.Lt),
+            ("gt", "gt", ast.CompareOperationOp.Gt),
+            ("lte", "lte", ast.CompareOperationOp.LtEq),
+            ("gte", "gte", ast.CompareOperationOp.GtEq),
+        ]
+    )
+    def test_property_to_expr_offset_datetime_coerced(self, _name, operator, op):
+        # An ISO datetime string with a timezone offset (what datetime.isoformat() emits) can't be
+        # implicitly cast against a DateTime64 column, so both sides must go through toDateTime.
+        value = "2026-07-02T15:12:33.156828+00:00"
+        self.assertEqual(
+            self._property_to_expr(
+                {"type": "person_metadata", "key": "created_at", "value": value, "operator": operator},
+                scope="person",
+            ),
+            ast.CompareOperation(
+                op=op,
+                left=ast.Call(
+                    name="toDateTime", args=[ast.Call(name="toString", args=[ast.Field(chain=["created_at"])])]
+                ),
+                right=ast.Call(name="toDateTime", args=[ast.Constant(value=value)]),
+            ),
+        )
+
+    @parameterized.expand(
+        [
             ("is_date_before_relative", "-10m", "is_date_before", ast.CompareOperationOp.Lt, "2025-06-09 12:00:00"),
             ("is_date_after_relative", "-7d", "is_date_after", ast.CompareOperationOp.Gt, "2026-04-02 12:00:00"),
             ("is_date_exact_relative", "-1y", "is_date_exact", ast.CompareOperationOp.Eq, "2025-04-09 12:00:00"),
