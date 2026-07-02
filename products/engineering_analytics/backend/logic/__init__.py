@@ -25,6 +25,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     RunFailureLogs,
     WorkflowHealthItem,
     WorkflowJob,
+    WorkflowJobAggregate,
     WorkflowRunActivity,
     WorkflowRunDetail,
     WorkflowRunnerCost,
@@ -39,6 +40,7 @@ from products.engineering_analytics.backend.logic.queries.ci_failure_logs import
     query_ci_failure_logs,
     query_run_failure_logs,
 )
+from products.engineering_analytics.backend.logic.queries.job_aggregates import query_job_aggregates
 from products.engineering_analytics.backend.logic.queries.master_failures import query_master_failures
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_cost, query_workflow_runner_costs
 from products.engineering_analytics.backend.logic.queries.pr_lifecycle import query_pr_lifecycle
@@ -266,3 +268,21 @@ def build_master_failures(
 
 def build_run_failure_logs(*, curated: CuratedGitHubSource, run_id: int) -> RunFailureLogs:
     return query_run_failure_logs(curated=curated, run_id=run_id)
+
+
+def build_job_aggregates(
+    *,
+    curated: CuratedGitHubSource,
+    workflow_name: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    branch: str | None = None,
+) -> list[WorkflowJobAggregate]:
+    parsed_from = _parse_date(curated.team, date_from or _DEFAULT_WINDOW)
+    parsed_to = _parse_date(curated.team, date_to) if date_to else None
+    span_days = ((parsed_to or datetime.now(tz=parsed_from.tzinfo)) - parsed_from).days
+    if span_days > _MAX_WINDOW_DAYS:
+        raise ValueError(f"date window spans {span_days} days; the maximum is {_MAX_WINDOW_DAYS}")
+    return query_job_aggregates(
+        curated=curated, workflow_name=workflow_name, date_from=parsed_from, date_to=parsed_to, branch=branch
+    )

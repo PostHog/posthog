@@ -37,6 +37,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     WorkflowHealthBucket,
     WorkflowHealthItem,
     WorkflowJob,
+    WorkflowJobAggregate,
     WorkflowRunActivity,
     WorkflowRunActivityPoint,
     WorkflowRunDetail,
@@ -735,4 +736,52 @@ class RunFailureLogsSerializer(DataclassSerializer):
                 "the short Logs retention.",
             },
             "truncated": {"help_text": "True when the overall line cap across all jobs was hit."},
+        }
+
+
+class WorkflowJobAggregateSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = WorkflowJobAggregate
+        extra_kwargs = {
+            "job_name": {
+                "help_text": "De-sharded job name: the matrix '(G/N)' suffix is stripped and unexpanded "
+                "'${{ matrix.* }}' templates are collapsed, so shards of one matrix aggregate together."
+            },
+            "job_count": {"help_text": "Job instances observed in the window (all shards, all attempts)."},
+            "shard_count": {"help_text": "Distinct raw job names inside the group - the observed matrix width."},
+            "runs_in": {"help_text": "Distinct workflow runs the job appeared in."},
+            "run_share": {
+                "help_text": "runs_in divided by the workflow's total runs in the window; below 1.0 means the "
+                "job is conditional and skips some runs. Null when the workflow had no runs.",
+                "allow_null": True,
+            },
+            "queue_p50_seconds": {
+                "help_text": "Median queue wait (created to started) in seconds - where runner-capacity problems "
+                "hide. Null when nothing started.",
+                "allow_null": True,
+            },
+            "p50_seconds": {
+                "help_text": "Median duration of completed job instances, in seconds. Null if none completed.",
+                "allow_null": True,
+            },
+            "p95_seconds": {
+                "help_text": "95th-percentile duration of completed job instances, in seconds. Null if none completed.",
+                "allow_null": True,
+            },
+            "failure_rate": {
+                "help_text": "Decisive failures ('failure', 'timed_out') over completed instances (0-1). Null if "
+                "none completed.",
+                "allow_null": True,
+            },
+            "retry_job_count": {"help_text": "Job instances that ran on a 2nd+ run attempt - retry pressure."},
+            "billable_minutes": {
+                "help_text": "Billable (self-hosted) minutes across the group's instances; null when every "
+                "instance ran on an unknown tier.",
+                "allow_null": True,
+            },
+            "estimated_cost_usd": {
+                "help_text": "Estimated cost in USD via the runner-tier rate ladder; null when every instance ran "
+                "on an unknown tier.",
+                "allow_null": True,
+            },
         }

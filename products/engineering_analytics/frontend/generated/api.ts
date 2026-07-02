@@ -13,6 +13,7 @@ import type {
     CIFailureLogsApi,
     EngineeringAnalyticsCiCardsParams,
     EngineeringAnalyticsCiFailureLogsParams,
+    EngineeringAnalyticsJobAggregatesParams,
     EngineeringAnalyticsMasterFailuresParams,
     EngineeringAnalyticsPrCostParams,
     EngineeringAnalyticsPrLifecycleParams,
@@ -38,6 +39,7 @@ import type {
     RepoOverviewApi,
     RunFailureLogsApi,
     WorkflowHealthItemApi,
+    WorkflowJobAggregateApi,
     WorkflowJobApi,
     WorkflowRunActivityApi,
     WorkflowRunDetailApi,
@@ -102,6 +104,39 @@ export const engineeringAnalyticsCiFailureLogs = async (
     options?: RequestInit
 ): Promise<CIFailureLogsApi> => {
     return apiMutator<CIFailureLogsApi>(getEngineeringAnalyticsCiFailureLogsUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsJobAggregatesUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsJobAggregatesParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/job_aggregates/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/job_aggregates/`
+}
+
+/**
+ * Per-job aggregates for one workflow over a window (default -30d), one row per de-sharded job name (matrix shards aggregate together), busiest first: queue p50, duration p50/p95, failure rate, retry pressure, run share (below 1.0 = conditional job), and billable cost. Jobs always need their run as context — this is the aggregate view; use workflow_jobs for one run's jobs. Empty when the job-level source isn't synced.
+ */
+export const engineeringAnalyticsJobAggregates = async (
+    projectId: string,
+    params: EngineeringAnalyticsJobAggregatesParams,
+    options?: RequestInit
+): Promise<WorkflowJobAggregateApi[]> => {
+    return apiMutator<WorkflowJobAggregateApi[]>(getEngineeringAnalyticsJobAggregatesUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

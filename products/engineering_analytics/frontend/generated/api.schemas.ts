@@ -71,6 +71,54 @@ export interface CIFailureLogsApi {
     truncated: boolean
 }
 
+export interface WorkflowJobAggregateApi {
+    /** De-sharded job name: the matrix '(G/N)' suffix is stripped and unexpanded '${{ matrix.* }}' templates are collapsed, so shards of one matrix aggregate together. */
+    job_name: string
+    /** Job instances observed in the window (all shards, all attempts). */
+    job_count: number
+    /** Distinct raw job names inside the group - the observed matrix width. */
+    shard_count: number
+    /** Distinct workflow runs the job appeared in. */
+    runs_in: number
+    /**
+     * runs_in divided by the workflow's total runs in the window; below 1.0 means the job is conditional and skips some runs. Null when the workflow had no runs.
+     * @nullable
+     */
+    run_share: number | null
+    /**
+     * Median queue wait (created to started) in seconds - where runner-capacity problems hide. Null when nothing started.
+     * @nullable
+     */
+    queue_p50_seconds: number | null
+    /**
+     * Median duration of completed job instances, in seconds. Null if none completed.
+     * @nullable
+     */
+    p50_seconds: number | null
+    /**
+     * 95th-percentile duration of completed job instances, in seconds. Null if none completed.
+     * @nullable
+     */
+    p95_seconds: number | null
+    /**
+     * Decisive failures ('failure', 'timed_out') over completed instances (0-1). Null if none completed.
+     * @nullable
+     */
+    failure_rate: number | null
+    /** Job instances that ran on a 2nd+ run attempt - retry pressure. */
+    retry_job_count: number
+    /**
+     * Billable (self-hosted) minutes across the group's instances; null when every instance ran on an unknown tier.
+     * @nullable
+     */
+    billable_minutes: number | null
+    /**
+     * Estimated cost in USD via the runner-tier rate ladder; null when every instance ran on an unknown tier.
+     * @nullable
+     */
+    estimated_cost_usd: number | null
+}
+
 export interface MasterFailureGroupApi {
     /** Repository the failures occurred in. */
     repo: RepoRefApi
@@ -784,6 +832,29 @@ export type EngineeringAnalyticsCiFailureLogsParams = {
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */
     source_id?: string
+}
+
+export type EngineeringAnalyticsJobAggregatesParams = {
+    /**
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     */
+    branch?: string
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string
+    /**
+     * Workflow name to aggregate jobs for.
+     */
+    workflow_name: string
 }
 
 export type EngineeringAnalyticsMasterFailuresParams = {

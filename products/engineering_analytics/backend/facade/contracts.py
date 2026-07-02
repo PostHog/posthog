@@ -681,3 +681,29 @@ class RunFailureLogs:
     logs_available: bool
     jobs: list[CIJobFailureLog]
     truncated: bool
+
+
+@dataclass(frozen=True)
+class WorkflowJobAggregate:
+    """Per-job aggregates for one workflow over a window, one row per de-sharded job name
+    (matrix ``(G/N)`` suffix stripped; unexpanded ``${{ matrix.* }}`` templates collapsed).
+    Rates and percentiles are over completed jobs; cost is None when every instance ran on
+    an unknown tier."""
+
+    job_name: str
+    # Job instances observed in the window (all shards, all attempts).
+    job_count: int
+    # Distinct raw job names inside the group — the observed matrix width.
+    shard_count: int
+    # Distinct workflow runs the job appeared in.
+    runs_in: int
+    # runs_in / the workflow's total runs in the window — below 1.0 means the job is conditional.
+    run_share: float | None
+    queue_p50_seconds: float | None
+    p50_seconds: float | None
+    p95_seconds: float | None
+    failure_rate: float | None
+    # Job instances that ran on a 2nd+ run attempt — retry pressure.
+    retry_job_count: int
+    billable_minutes: float | None
+    estimated_cost_usd: float | None

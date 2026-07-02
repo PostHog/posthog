@@ -41,6 +41,7 @@ from products.engineering_analytics.backend.presentation.serializers import (
     RepoOverviewSerializer,
     RunFailureLogsSerializer,
     WorkflowHealthItemSerializer,
+    WorkflowJobAggregateSerializer,
     WorkflowJobSerializer,
     WorkflowRunActivitySerializer,
     WorkflowRunDetailSerializer,
@@ -143,6 +144,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         "repo_overview",
         "master_failures",
         "run_failure_logs",
+        "job_aggregates",
     ]
     scope_object_write_actions: list[str] = ["quarantine_request"]
 
@@ -798,6 +800,52 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         except ValueError as exc:
             return _bad_request(exc, fallback="Invalid source_id")
         return Response(RunFailureLogsSerializer(instance=result).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_job_aggregates",
+        parameters=[
+            OpenApiParameter(
+                name="workflow_name",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Workflow name to aggregate jobs for.",
+            ),
+            _DATE_FROM,
+            _DATE_TO,
+            _BRANCH,
+            _SOURCE_ID,
+        ],
+        responses={
+            200: WorkflowJobAggregateSerializer(many=True),
+            400: OpenApiResponse(description="Missing workflow_name, or invalid date or source_id."),
+        },
+        description=(
+            "Per-job aggregates for one workflow over a window (default -30d), one row per de-sharded job "
+            "name (matrix shards aggregate together), busiest first: queue p50, duration p50/p95, failure "
+            "rate, retry pressure, run share (below 1.0 = conditional job), and billable cost. Jobs always "
+            "need their run as context — this is the aggregate view; use workflow_jobs for one run's jobs. "
+            "Empty when the job-level source isn't synced."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def job_aggregates(self, request: Request, **kwargs) -> Response:
+        workflow_name = request.query_params.get("workflow_name")
+        if not workflow_name:
+            return Response({"detail": "workflow_name is required"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            result = api.list_job_aggregates(
+                team=self.team,
+                workflow_name=workflow_name,
+                date_from=request.query_params.get("date_from") or None,
+                date_to=request.query_params.get("date_to") or None,
+                branch=request.query_params.get("branch") or None,
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid date, workflow_name, or source_id")
+        return Response(WorkflowJobAggregateSerializer(instance=result, many=True).data)
 
     @extend_schema(
         operation_id="engineering_analytics_quarantine",
