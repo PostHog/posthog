@@ -8,6 +8,7 @@ from products.pulse.backend.models import BriefConfig
 from products.pulse.backend.sources.base import EvidenceRef, SourceItem, build_fingerprint_hint
 from products.signals.backend.facade.api import get_recent_reports
 
+# Deliberately duplicates the facade's default limit: pulse owns its own prompt budget.
 MAX_REPORTS = 20
 TITLE_MAX_CHARS = 200
 SUMMARY_MAX_CHARS = 1000
