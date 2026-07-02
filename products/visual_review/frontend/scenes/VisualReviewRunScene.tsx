@@ -228,6 +228,7 @@ export function VisualReviewRunScene(): JSX.Element {
         isRunInProgress,
         isRunProcessing,
         isReportingOnly,
+        isSavingStoryThreshold,
         failedThumbnails,
         thumbnailBasePath,
         addImagesToComment,
@@ -239,6 +240,8 @@ export function VisualReviewRunScene(): JSX.Element {
         markAsTolerated,
         quarantineSnapshot,
         unquarantineSnapshot,
+        setStoryThresholds,
+        clearStoryThresholds,
         recomputeRun,
         markThumbnailFailed,
         toggleQuarantinedThumbnails,
@@ -607,6 +610,11 @@ export function VisualReviewRunScene(): JSX.Element {
                                 quarantineSnapshot(reason, identifiers, expiresAt, sourceRunId)
                             }
                             onUnquarantine={() => unquarantineSnapshot(selectedSnapshot)}
+                            onSetStoryThresholds={(pixelThresholdPercent, structuralThresholdPercent) =>
+                                setStoryThresholds(selectedSnapshot, pixelThresholdPercent, structuralThresholdPercent)
+                            }
+                            onClearStoryThresholds={() => clearStoryThresholds(selectedSnapshot)}
+                            isSavingStoryThreshold={isSavingStoryThreshold}
                             commitSha={run.commit_sha}
                             prNumber={run.pr_number}
                             repoId={run.repo_id}

@@ -45,7 +45,8 @@ from .facade.enums import (
     SnapshotResult,
     ToleratedReason,
 )
-from .models import Artifact, QuarantinedIdentifier, Repo, Run, RunSnapshot, ToleratedHash
+from .identifiers import story_stem
+from .models import Artifact, QuarantinedIdentifier, Repo, Run, RunSnapshot, StoryThresholdOverride, ToleratedHash
 from .signing import sign_snapshot_hash, verify_signed_hash
 from .storage import ArtifactStorage
 
@@ -2966,6 +2967,72 @@ def expire_quarantine_entry(entry_id: UUID, team_id: int) -> None:
         run_type=entry.run_type,
         team_id=team_id,
     ).filter(active).update(expires_at=now)
+
+
+# --- Story threshold overrides ---
+
+
+def get_story_overrides_map(repo_id: UUID, run_type: str) -> dict[str, StoryThresholdOverride]:
+    """All threshold overrides for a repo+run_type, keyed by story stem.
+
+    Loaded once per run so the diff pipeline and the snapshot mapper can resolve
+    a snapshot's effective thresholds without a per-snapshot query.
+    """
+    return {
+        o.story_stem: o
+        for o in StoryThresholdOverride.objects.using(WRITER_DB).filter(repo_id=repo_id, run_type=run_type)
+    }
+
+
+def list_story_overrides(repo_id: UUID, team_id: int, run_type: str | None = None) -> list[StoryThresholdOverride]:
+    get_repo(repo_id, team_id)  # raises RepoNotFoundError if repo not owned by team
+    qs = StoryThresholdOverride.objects.using(WRITER_DB).filter(repo_id=repo_id, team_id=team_id)
+    if run_type:
+        qs = qs.filter(run_type=run_type)
+    return list(qs.order_by("run_type", "story_stem"))
+
+
+def set_story_threshold_override(
+    repo_id: UUID,
+    run_type: str,
+    identifier: str,
+    pixel_threshold_percent: float | None,
+    ssim_dissimilarity_threshold: float | None,
+    user_id: int,
+    team_id: int,
+) -> StoryThresholdOverride:
+    """Upsert a per-story threshold override. The stem is derived from `identifier`."""
+    get_repo(repo_id, team_id)  # raises RepoNotFoundError if repo not owned by team
+    stem = story_stem(identifier)
+    # Explicit team_id in the lookup (not just relying on the scoped manager) so
+    # the IDOR audit rule sees the scope and get_or_create writes it on create.
+    override, created = StoryThresholdOverride.objects.using(WRITER_DB).get_or_create(
+        repo_id=repo_id,
+        run_type=run_type,
+        story_stem=stem,
+        team_id=team_id,
+        defaults={
+            "pixel_threshold_percent": pixel_threshold_percent,
+            "ssim_dissimilarity_threshold": ssim_dissimilarity_threshold,
+            "created_by_id": user_id,
+        },
+    )
+    if not created:
+        override.pixel_threshold_percent = pixel_threshold_percent
+        override.ssim_dissimilarity_threshold = ssim_dissimilarity_threshold
+        override.save(
+            using=WRITER_DB,
+            update_fields=["pixel_threshold_percent", "ssim_dissimilarity_threshold", "updated_at"],
+        )
+    return override
+
+
+def delete_story_override(repo_id: UUID, run_type: str, identifier: str, team_id: int) -> None:
+    get_repo(repo_id, team_id)  # raises RepoNotFoundError if repo not owned by team
+    stem = story_stem(identifier)
+    StoryThresholdOverride.objects.using(WRITER_DB).filter(
+        repo_id=repo_id, run_type=run_type, story_stem=stem, team_id=team_id
+    ).delete()
 
 
 def update_snapshot_diff(

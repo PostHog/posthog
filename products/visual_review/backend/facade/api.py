@@ -23,6 +23,8 @@ from posthog.helpers.trigram_search import search_match_type_from_instance
 
 from .. import logic
 from ..diff_metadata import DiffMetadata
+from ..models import StoryThresholdOverride
+from ..thresholds import effective_thresholds
 from . import contracts
 from .enums import RunPurpose
 
@@ -126,10 +128,16 @@ def _parse_diff_metadata(
 
 
 def _to_snapshot(
-    snapshot, repo_id: UUID, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None
+    snapshot,
+    repo_id: UUID,
+    user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None,
+    overrides: dict[str, StoryThresholdOverride] | None = None,
 ) -> contracts.Snapshot:
     reviewed_by = (user_basic_infos or {}).get(snapshot.reviewed_by_id) if snapshot.reviewed_by_id else None
     cluster_summary, size_mismatch = _parse_diff_metadata(snapshot.diff_metadata)
+    pixel_threshold, ssim_threshold, pixel_overridden, ssim_overridden = effective_thresholds(
+        snapshot.identifier, overrides or {}
+    )
     return contracts.Snapshot(
         id=snapshot.id,
         run_id=snapshot.run_id,
@@ -152,6 +160,10 @@ def _to_snapshot(
         change_kind=snapshot.change_kind or "",
         cluster_summary=cluster_summary,
         size_mismatch=size_mismatch,
+        pixel_threshold_percent=pixel_threshold,
+        structural_threshold_percent=ssim_threshold * 100,
+        pixel_threshold_overridden=pixel_overridden,
+        structural_threshold_overridden=ssim_overridden,
     )
 
 
@@ -433,12 +445,13 @@ def get_run_snapshots(
         if team_id is not None
         else set()
     )
+    overrides = logic.get_story_overrides_map(repo_id, run_type)
     user_ids = {s.reviewed_by_id for s in snapshots if s.reviewed_by_id}
     user_basic_infos = _fetch_user_basic_infos(user_ids)
     dtos: list[contracts.Snapshot] = []
     quarantined_count = 0
     for s in snapshots:
-        dto = _to_snapshot(s, repo_id, user_basic_infos)
+        dto = _to_snapshot(s, repo_id, user_basic_infos, overrides)
         if dto.identifier in quarantined_identifiers:
             quarantined_count += 1
             if not include_quarantined:
@@ -475,7 +488,8 @@ def get_snapshot_history(repo_id: UUID, identifier: str, run_type: str) -> list[
 
 def mark_snapshot_as_tolerated(run_id: UUID, snapshot_id: UUID, user_id: int, team_id: int) -> contracts.Snapshot:
     snapshot = logic.mark_snapshot_as_tolerated(run_id, snapshot_id, user_id, team_id)
-    return _to_snapshot(snapshot, snapshot.run.repo_id)
+    overrides = logic.get_story_overrides_map(snapshot.run.repo_id, snapshot.run.run_type)
+    return _to_snapshot(snapshot, snapshot.run.repo_id, overrides=overrides)
 
 
 def get_tolerated_hashes(repo_id: UUID, identifier: str) -> list[contracts.ToleratedHashEntry]:
@@ -665,3 +679,50 @@ def unquarantine_identifier(repo_id: UUID, identifier: str, run_type: str, team_
 
 def expire_quarantine_entry(entry_id: UUID, team_id: int) -> None:
     logic.expire_quarantine_entry(entry_id=entry_id, team_id=team_id)
+
+
+# --- Story threshold overrides ---
+
+
+def _to_story_override_entry(
+    o, user_basic_infos: dict[int, contracts.UserBasicInfo] | None = None
+) -> contracts.StoryThresholdOverrideEntry:
+    created_by = (user_basic_infos or {}).get(o.created_by_id) if o.created_by_id else None
+    return contracts.StoryThresholdOverrideEntry(
+        id=o.id,
+        story_stem=o.story_stem,
+        run_type=o.run_type,
+        pixel_threshold_percent=o.pixel_threshold_percent,
+        ssim_dissimilarity_threshold=o.ssim_dissimilarity_threshold,
+        created_at=o.created_at,
+        updated_at=o.updated_at,
+        created_by=created_by,
+    )
+
+
+def list_story_overrides(
+    repo_id: UUID, team_id: int, run_type: str | None = None
+) -> list[contracts.StoryThresholdOverrideEntry]:
+    entries = logic.list_story_overrides(repo_id, team_id, run_type=run_type)
+    user_ids = {e.created_by_id for e in entries if e.created_by_id}
+    user_basic_infos = _fetch_user_basic_infos(user_ids)
+    return [_to_story_override_entry(e, user_basic_infos) for e in entries]
+
+
+def set_story_threshold_override(
+    repo_id: UUID, run_type: str, input: contracts.SetStoryThresholdInput, user_id: int, team_id: int
+) -> contracts.StoryThresholdOverrideEntry:
+    entry = logic.set_story_threshold_override(
+        repo_id=repo_id,
+        run_type=run_type,
+        identifier=input.identifier,
+        pixel_threshold_percent=input.pixel_threshold_percent,
+        ssim_dissimilarity_threshold=input.ssim_dissimilarity_threshold,
+        user_id=user_id,
+        team_id=team_id,
+    )
+    return _to_story_override_entry(entry, _fetch_user_basic_infos({user_id}))
+
+
+def delete_story_override(repo_id: UUID, run_type: str, identifier: str, team_id: int) -> None:
+    logic.delete_story_override(repo_id=repo_id, run_type=run_type, identifier=identifier, team_id=team_id)

@@ -623,6 +623,58 @@ class TestRepoRunsSearch(VisualReviewTeamScopedTestMixin, APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
 
 
+class TestStoryThresholdOverrideViewSet(VisualReviewTeamScopedTestMixin, APIBaseTest):
+    databases = PRODUCT_DATABASES
+
+    def setUp(self):
+        super().setUp()
+        self.repo = api.create_repo(team_id=self.team.id, repo_external_id=90909, repo_full_name="org/overrides")
+
+    def _url(self, suffix: str = "") -> str:
+        return f"/api/projects/{self.team.id}/visual_review/repos/{self.repo.id}/story-overrides/{suffix}"
+
+    def test_set_keys_on_story_stem_and_lists(self):
+        response = self.client.post(
+            self._url(f"{RunType.STORYBOOK}/"),
+            {"identifier": "scenes-app-dashboards--edit--wide--dark--webkit", "ssim_dissimilarity_threshold": 0.02},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        entry = response.json()
+        # Facet tokens (viewport/theme/browser) are stripped to the story stem.
+        self.assertEqual(entry["story_stem"], "scenes-app-dashboards--edit")
+        self.assertEqual(entry["ssim_dissimilarity_threshold"], 0.02)
+        self.assertIsNone(entry["pixel_threshold_percent"])
+
+        listed = self.client.get(self._url()).json()["results"]
+        self.assertEqual([e["story_stem"] for e in listed], ["scenes-app-dashboards--edit"])
+
+    def test_set_is_upsert_not_duplicate(self):
+        for ssim in (0.02, 0.05):
+            self.client.post(
+                self._url(f"{RunType.STORYBOOK}/"),
+                {"identifier": "scenes-app-dashboards--edit--light", "ssim_dissimilarity_threshold": ssim},
+                format="json",
+            )
+        results = self.client.get(self._url()).json()["results"]
+        self.assertEqual(len(results), 1)
+        self.assertEqual(results[0]["ssim_dissimilarity_threshold"], 0.05)
+
+    def test_delete_clears_override(self):
+        self.client.post(
+            self._url(f"{RunType.STORYBOOK}/"),
+            {"identifier": "scenes-app-dashboards--edit--light", "pixel_threshold_percent": 5},
+            format="json",
+        )
+        response = self.client.post(
+            self._url(f"{RunType.STORYBOOK}/delete/"),
+            {"identifier": "scenes-app-dashboards--edit--dark"},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT)
+        self.assertEqual(self.client.get(self._url()).json()["results"], [])
+
+
 class TestRunFinalizePersonalAPIKeyScopes(VisualReviewTeamScopedTestMixin, APIBaseTest):
     databases = PRODUCT_DATABASES
     CONFIG_AUTO_LOGIN = False

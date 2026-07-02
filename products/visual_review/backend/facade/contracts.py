@@ -222,6 +222,15 @@ class Snapshot:
     change_kind: str = ""
     cluster_summary: ClusterSummary | None = None
     size_mismatch: bool = False
+    # Effective classification thresholds that apply to this snapshot's story,
+    # so the UI can render both diff numbers against their thresholds and flag
+    # whether a per-story override is in effect. `structural_threshold_percent`
+    # is the SSIM dissimilarity threshold expressed as a percentage to line up
+    # with the structural diff % the UI derives from `ssim_score`.
+    pixel_threshold_percent: float = 0.0
+    structural_threshold_percent: float = 0.0
+    pixel_threshold_overridden: bool = False
+    structural_threshold_overridden: bool = False
 
 
 @dataclass(frozen=True)
@@ -358,6 +367,39 @@ class QuarantineInput:
     # "what was wrong" later. Omitted when quarantining from the snapshot
     # history page where no run is in context.
     source_run_id: UUID | None = None
+
+
+@dataclass(frozen=True)
+class StoryThresholdOverrideEntry:
+    """A per-story override of the diff classifier thresholds.
+
+    Keyed by `story_stem` (identifier with theme/viewport/browser stripped), so
+    it covers every variant of a story. Either threshold may be null, meaning
+    "use the global default". `ssim_dissimilarity_threshold` is the raw 0.0-1.0
+    fraction the classifier compares against.
+    """
+
+    id: UUID
+    story_stem: str
+    run_type: str
+    pixel_threshold_percent: float | None
+    ssim_dissimilarity_threshold: float | None
+    created_at: datetime
+    updated_at: datetime
+    created_by: UserBasicInfo | None = None
+
+
+@dataclass(frozen=True)
+class SetStoryThresholdInput:
+    """Input for setting/clearing a per-story threshold override. run_type comes from URL path.
+
+    A null threshold clears that tier back to the global default; the story
+    stem is derived server-side from `identifier`.
+    """
+
+    identifier: str
+    pixel_threshold_percent: float | None = None
+    ssim_dissimilarity_threshold: float | None = None
 
 
 @dataclass(frozen=True)

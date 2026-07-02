@@ -31,9 +31,11 @@ from ..facade.contracts import (
     Repo,
     Run,
     RunSummary,
+    SetStoryThresholdInput,
     Snapshot,
     SnapshotHistoryEntry,
     SnapshotManifestItem,
+    StoryThresholdOverrideEntry,
     ToleratedHashEntry,
     UpdateRepoRequestInput,
     UploadTarget,
@@ -84,6 +86,30 @@ class SnapshotSerializer(DataclassSerializer):
     diff_artifact = ArtifactSerializer(allow_null=True, required=False)
     reviewed_by = UserBasicInfoSerializer(allow_null=True, required=False)
     cluster_summary = ClusterSummarySerializer(allow_null=True, required=False)
+    pixel_threshold_percent = serializers.FloatField(
+        read_only=True,
+        help_text=(
+            "Effective pixel-diff threshold (percent) for this snapshot's story. A snapshot is a pixel-tier "
+            "change when its diff percentage reaches this value. Equals the global default unless a per-story "
+            "override is set (see `pixel_threshold_overridden`)."
+        ),
+    )
+    structural_threshold_percent = serializers.FloatField(
+        read_only=True,
+        help_text=(
+            "Effective structural (SSIM) threshold expressed as a percentage. A snapshot is a structural-tier "
+            "change when its structural difference — `(1 - ssim_score) * 100` — reaches this value. Equals the "
+            "global default unless a per-story override is set (see `structural_threshold_overridden`)."
+        ),
+    )
+    pixel_threshold_overridden = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether the pixel threshold above comes from a per-story override rather than the global default.",
+    )
+    structural_threshold_overridden = serializers.BooleanField(
+        read_only=True,
+        help_text="Whether the structural threshold above comes from a per-story override rather than the global default.",
+    )
 
     class Meta:
         dataclass = Snapshot
@@ -288,6 +314,56 @@ class QuarantineInputSerializer(DataclassSerializer):
 
 class UnquarantineQuerySerializer(serializers.Serializer):
     identifier = serializers.CharField(max_length=512, help_text="Snapshot identifier to unquarantine")
+
+
+class StoryThresholdOverrideEntrySerializer(DataclassSerializer):
+    created_by = UserBasicInfoSerializer(allow_null=True, required=False)
+    pixel_threshold_percent = serializers.FloatField(
+        allow_null=True,
+        required=False,
+        help_text="Overridden pixel-diff threshold (percent) for this story, or null to use the global default.",
+    )
+    ssim_dissimilarity_threshold = serializers.FloatField(
+        allow_null=True,
+        required=False,
+        help_text=(
+            "Overridden structural (SSIM) threshold as a 0.0-1.0 dissimilarity fraction for this story, or null "
+            "to use the global default. A snapshot is structurally changed when `1 - ssim_score` reaches this."
+        ),
+    )
+
+    class Meta:
+        dataclass = StoryThresholdOverrideEntry
+
+
+class SetStoryThresholdInputSerializer(DataclassSerializer):
+    identifier = serializers.CharField(
+        max_length=512,
+        help_text=(
+            "A snapshot identifier from the story. The server strips its theme/viewport/browser tokens to a "
+            "story stem, so the override applies to every variant of the story."
+        ),
+    )
+    pixel_threshold_percent = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        max_value=100,
+        help_text="Pixel-diff threshold (percent) to allow for this story. Null clears it back to the global default.",
+    )
+    ssim_dissimilarity_threshold = serializers.FloatField(
+        required=False,
+        allow_null=True,
+        min_value=0,
+        max_value=1,
+        help_text=(
+            "Structural (SSIM) threshold as a 0.0-1.0 dissimilarity fraction to allow for this story. "
+            "Null clears it back to the global default."
+        ),
+    )
+
+    class Meta:
+        dataclass = SetStoryThresholdInput
 
 
 class CreateRepoInputSerializer(DataclassSerializer):

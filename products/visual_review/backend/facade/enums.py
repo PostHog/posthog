@@ -67,6 +67,7 @@ class ClassificationReason(StrEnum):
     EXACT = "exact"  # Hash matches baseline
     TOLERATED_HASH = "tolerated_hash"  # Matched a known tolerated alternate
     BELOW_THRESHOLD = "below_threshold"  # Diffed this run, below pixel/SSIM threshold
+    STORY_OVERRIDE = "story_override"  # Below a per-story overridden threshold that a global default would have flagged
 
 
 class ChangeKind(StrEnum):

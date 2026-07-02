@@ -37,6 +37,7 @@ from ..facade.contracts import (
     CreateRunInput,
     FinalizeRunRequestInput,
     QuarantineInput,
+    SetStoryThresholdInput,
     UpdateRepoInput,
     UpdateRepoRequestInput,
 )
@@ -57,8 +58,10 @@ from .serializers import (
     RepoSerializer,
     ReviewStateCountsSerializer,
     RunSerializer,
+    SetStoryThresholdInputSerializer,
     SnapshotHistoryEntrySerializer,
     SnapshotSerializer,
+    StoryThresholdOverrideEntrySerializer,
     ToleratedHashEntrySerializer,
     UpdateRepoInputSerializer,
 )
@@ -96,11 +99,19 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
     """
 
     scope_object = "visual_review"
-    scope_object_write_actions = ["create", "partial_update", "quarantine", "unquarantine"]
+    scope_object_write_actions = [
+        "create",
+        "partial_update",
+        "quarantine",
+        "unquarantine",
+        "set_story_override",
+        "delete_story_override",
+    ]
     scope_object_read_actions = [
         "list",
         "retrieve",
         "list_quarantined",
+        "list_story_overrides",
         "thumbnail",
         "baselines",
     ]
@@ -256,6 +267,72 @@ class RepoViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         """Expire all active quarantine entries for an identifier."""
         try:
             api.unquarantine_identifier(
+                repo_id=UUID(pk),
+                identifier=request.validated_data.identifier,
+                run_type=run_type,
+                team_id=self.team_id,
+            )
+        except api.RepoNotFoundError:
+            return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(status=status.HTTP_204_NO_CONTENT)
+
+    @extend_schema(
+        parameters=[
+            OpenApiParameter("id", OpenApiTypes.STR, OpenApiParameter.PATH),
+            OpenApiParameter("run_type", str, required=False, description="Filter by run type"),
+        ],
+        responses={200: StoryThresholdOverrideEntrySerializer(many=True)},
+        description=(
+            "List per-story diff threshold overrides for a repo. Each override relaxes the pixel and/or "
+            "structural (SSIM) threshold for one story so known rendering movement stops being flagged."
+        ),
+    )
+    @action(detail=True, methods=["get"], url_path="story-overrides")
+    def list_story_overrides(self, request: Request, pk: str, **kwargs) -> Response:
+        """List per-story threshold overrides, optionally filtered by run type."""
+        run_type = request.query_params.get("run_type")
+        try:
+            entries = api.list_story_overrides(UUID(pk), team_id=self.team_id, run_type=run_type)
+        except api.RepoNotFoundError:
+            return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
+        page = self.paginate_queryset(entries)
+        if page is not None:
+            serializer = StoryThresholdOverrideEntrySerializer(instance=page, many=True)
+            return self.get_paginated_response(serializer.data)
+        return Response(StoryThresholdOverrideEntrySerializer(instance=entries, many=True).data)
+
+    @validated_request(
+        request_serializer=SetStoryThresholdInputSerializer,
+        responses={200: OpenApiResponse(response=StoryThresholdOverrideEntrySerializer)},
+    )
+    @action(detail=True, methods=["post"], url_path=r"story-overrides/(?P<run_type>[^/]+)")
+    def set_story_override(
+        self, request: TypedRequest[SetStoryThresholdInput], pk: str, run_type: str, **kwargs
+    ) -> Response:
+        """Set (upsert) the per-story threshold override for a story in a run type."""
+        try:
+            entry = api.set_story_threshold_override(
+                repo_id=UUID(pk),
+                run_type=run_type,
+                input=request.validated_data,
+                user_id=cast(int, request.user.id),
+                team_id=self.team_id,
+            )
+        except api.RepoNotFoundError:
+            return Response({"detail": "Repo not found"}, status=status.HTTP_404_NOT_FOUND)
+        return Response(StoryThresholdOverrideEntrySerializer(instance=entry).data)
+
+    @validated_request(
+        request_serializer=SetStoryThresholdInputSerializer,
+        responses={204: None},
+    )
+    @action(detail=True, methods=["post"], url_path=r"story-overrides/(?P<run_type>[^/]+)/delete")
+    def delete_story_override(
+        self, request: TypedRequest[SetStoryThresholdInput], pk: str, run_type: str, **kwargs
+    ) -> Response:
+        """Clear the per-story threshold override for a story (thresholds revert to global defaults)."""
+        try:
+            api.delete_story_override(
                 repo_id=UUID(pk),
                 identifier=request.validated_data.identifier,
                 run_type=run_type,

@@ -13,6 +13,8 @@ import {
     visualReviewReposQuarantineExpireCreate,
     visualReviewReposQuarantineList,
     visualReviewReposRetrieve,
+    visualReviewReposStoryOverridesCreate,
+    visualReviewReposStoryOverridesDeleteCreate,
     visualReviewRunsApproveCreate,
     visualReviewRunsFinalizeCreate,
     visualReviewRunsRecomputeCreate,
@@ -65,6 +67,14 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
             sourceRunId,
         }),
         unquarantineSnapshot: (snapshot: SnapshotApi) => ({ snapshot }),
+        setStoryThresholds: (
+            snapshot: SnapshotApi,
+            pixelThresholdPercent: number | null,
+            structuralThresholdPercent: number | null
+        ) => ({ snapshot, pixelThresholdPercent, structuralThresholdPercent }),
+        setStoryThresholdsSuccess: true,
+        setStoryThresholdsFailure: true,
+        clearStoryThresholds: (snapshot: SnapshotApi) => ({ snapshot }),
         recomputeRun: true,
         recomputeRunSuccess: true,
         recomputeRunFailure: true,
@@ -100,6 +110,14 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 recomputeRun: () => true,
                 recomputeRunSuccess: () => false,
                 recomputeRunFailure: () => false,
+            },
+        ],
+        isSavingStoryThreshold: [
+            false,
+            {
+                setStoryThresholds: () => true,
+                setStoryThresholdsSuccess: () => false,
+                setStoryThresholdsFailure: () => false,
             },
         ],
         failedThumbnails: [
@@ -478,6 +496,53 @@ export const visualReviewRunSceneLogic = kea<visualReviewRunSceneLogicType>([
                 actions.loadQuarantinedIdentifiers()
             } catch (e: any) {
                 lemonToast.error(e?.detail || e?.message || 'Failed to unquarantine')
+            }
+        },
+        setStoryThresholds: async ({ snapshot, pixelThresholdPercent, structuralThresholdPercent }) => {
+            const { run } = values
+            if (!run) {
+                actions.setStoryThresholdsFailure()
+                return
+            }
+            try {
+                await visualReviewReposStoryOverridesCreate(
+                    String(values.currentProjectId),
+                    run.repo_id,
+                    run.run_type,
+                    {
+                        identifier: snapshot.identifier,
+                        pixel_threshold_percent: pixelThresholdPercent,
+                        // The API stores the structural threshold as a 0-1 SSIM dissimilarity
+                        // fraction; the UI works in percent, so convert on the way out.
+                        ssim_dissimilarity_threshold:
+                            structuralThresholdPercent == null ? null : structuralThresholdPercent / 100,
+                    }
+                )
+                actions.setStoryThresholdsSuccess()
+                lemonToast.success('Story thresholds updated — re-run CI to re-evaluate this story')
+                // Reload so the effective thresholds and "edited" flags refresh immediately.
+                actions.loadSnapshots()
+            } catch (e: any) {
+                actions.setStoryThresholdsFailure()
+                lemonToast.error(e?.detail || e?.message || 'Failed to update story thresholds')
+            }
+        },
+        clearStoryThresholds: async ({ snapshot }) => {
+            const { run } = values
+            if (!run) {
+                return
+            }
+            try {
+                await visualReviewReposStoryOverridesDeleteCreate(
+                    String(values.currentProjectId),
+                    run.repo_id,
+                    run.run_type,
+                    { identifier: snapshot.identifier }
+                )
+                lemonToast.success('Story thresholds reset to defaults')
+                actions.loadSnapshots()
+            } catch (e: any) {
+                lemonToast.error(e?.detail || e?.message || 'Failed to reset story thresholds')
             }
         },
     })),

@@ -348,6 +348,54 @@ class ToleratedHash(ProductTeamModel):
         return f"{self.identifier} {self.alternate_hash[:12]}... ({self.reason})"
 
 
+class StoryThresholdOverride(ProductTeamModel):
+    """
+    Per-story overrides for the two-tier diff classifier thresholds.
+
+    Keyed by the story stem (identifier with theme/viewport/browser tokens
+    stripped — see ``identifiers.story_stem``) so one override covers every
+    variant of a story. Either threshold may be null, meaning "use the global
+    default"; the other can still be overridden independently.
+
+    A story that renders with slight non-deterministic movement trips the SSIM
+    (structural) tier every run and mints a fresh alternate hash each time, so
+    hash-based ``ToleratedHash`` never sticks. Relaxing the story's structural
+    threshold here fixes it permanently, regardless of hash.
+    """
+
+    # nosemgrep: prefer-uuid7-django-pk -- TODO: migrate to uuid7 (UUIDModel)
+    id = models.UUIDField(primary_key=True, default=uuid.uuid4, editable=False)
+    repo = models.ForeignKey(Repo, on_delete=models.CASCADE, related_name="story_threshold_overrides")
+
+    run_type = models.CharField(max_length=64)
+    story_stem = models.CharField(max_length=512)
+
+    # Null = fall back to the global default (PIXEL_DIFF_THRESHOLD_PERCENT /
+    # SSIM_DISSIMILARITY_THRESHOLD in diffing.py). Percent for the pixel tier,
+    # 0.0-1.0 dissimilarity fraction for the SSIM tier — same units the
+    # classifier compares against.
+    pixel_threshold_percent = models.FloatField(null=True, blank=True)
+    ssim_dissimilarity_threshold = models.FloatField(null=True, blank=True)
+
+    created_by_id = models.BigIntegerField(null=True, blank=True)
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["repo", "run_type", "story_stem"],
+                name="unique_story_threshold_override",
+            ),
+        ]
+        indexes = [
+            models.Index(fields=["repo", "run_type", "story_stem"], name="story_override_lookup"),
+        ]
+
+    def __str__(self) -> str:
+        return f"{self.story_stem} (pixel={self.pixel_threshold_percent}, ssim={self.ssim_dissimilarity_threshold})"
+
+
 class QuarantinedIdentifier(ProductTeamModel):
     """
     Tracks quarantine events for snapshot identifiers.

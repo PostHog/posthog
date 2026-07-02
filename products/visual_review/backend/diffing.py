@@ -16,24 +16,17 @@ from pixelhog import thumbnail as pixelhog_thumbnail
 from .diff import THUMB_HEIGHT, THUMB_WIDTH, CompareResult, compare_images
 from .diff_metadata import DiffMetadata
 from .facade.enums import ChangeKind, ClassificationReason, SnapshotResult, ToleratedReason
-from .models import RunSnapshot, ToleratedHash
+from .models import RunSnapshot, StoryThresholdOverride, ToleratedHash
+from .thresholds import PIXEL_DIFF_THRESHOLD_PERCENT, SSIM_DISSIMILARITY_THRESHOLD, effective_thresholds
 
 logger = structlog.get_logger(__name__)
 
-# Two-tier classification thresholds:
-#
-# 1. Pixel diff ratio — fast path for obvious changes. Snapshots above
-#    this are immediately classified as CHANGED.
-# 2. SSIM perceptual threshold — safety net for tall-page dilution. A real UI
-#    change at the bottom of a long screenshot affects few pixels but produces
-#    a measurable structural shift that SSIM catches.
-#
-# Only when both are below threshold is the snapshot reclassified as UNCHANGED.
-PIXEL_DIFF_THRESHOLD_PERCENT = 2.5
-SSIM_DISSIMILARITY_THRESHOLD = 0.01  # 1% structural difference
 
-
-def classify_compare_result(result: CompareResult) -> ChangeKind | None:
+def classify_compare_result(
+    result: CompareResult,
+    pixel_threshold: float = PIXEL_DIFF_THRESHOLD_PERCENT,
+    ssim_threshold: float = SSIM_DISSIMILARITY_THRESHOLD,
+) -> ChangeKind | None:
     """Classify a compare result into a ChangeKind, or None for unchanged.
 
     Pure function — no DB, no side effects — so tests can drive every
@@ -41,13 +34,17 @@ def classify_compare_result(result: CompareResult) -> ChangeKind | None:
     drives `_diff_snapshot` below; keeping it here means the production
     branch and the tests can't drift.
 
+    Thresholds default to the global constants but are overridable per story
+    (see `StoryThresholdOverride`) so a story with known rendering movement can
+    relax the tier that keeps tripping.
+
     Size mismatch is *not* a kind — pixelhog pads to the largest dims and
     we still get a real pixel/SSIM answer over that padded image. The fact
     that sizes differed is recorded separately on `DiffMetadata`.
     """
-    if result.diff_percentage >= PIXEL_DIFF_THRESHOLD_PERCENT:
+    if result.diff_percentage >= pixel_threshold:
         return ChangeKind.PIXEL
-    if (1.0 - result.ssim_score) >= SSIM_DISSIMILARITY_THRESHOLD:
+    if (1.0 - result.ssim_score) >= ssim_threshold:
         return ChangeKind.STRUCTURAL
     return None
 
@@ -124,7 +121,7 @@ def _store_diff(
     )
 
 
-def _diff_snapshot(snapshot: RunSnapshot) -> None:
+def _diff_snapshot(snapshot: RunSnapshot, overrides: dict[str, StoryThresholdOverride]) -> None:
     """Compare snapshot against baseline; classify and store diff metrics.
 
     Classification (in priority order):
@@ -132,6 +129,9 @@ def _diff_snapshot(snapshot: RunSnapshot) -> None:
     2. SSIM dissimilarity above threshold -> CHANGED, kind=structural
        (tall-page dilution safety net)
     3. Both below -> UNCHANGED (noise), auto-populate tolerance cache.
+
+    Thresholds are the global defaults unless this snapshot's story has a
+    `StoryThresholdOverride`, in which case the overridden tier(s) apply.
 
     Size mismatch is recorded as `diff_metadata.size_mismatch` and surfaced
     separately in the UI — a snapshot can have a different viewport AND a
@@ -163,14 +163,21 @@ def _diff_snapshot(snapshot: RunSnapshot) -> None:
 
     _store_thumbnail(snapshot, result)
 
-    kind = classify_compare_result(result)
+    pixel_threshold, ssim_threshold, _, _ = effective_thresholds(snapshot.identifier, overrides)
+    kind = classify_compare_result(result, pixel_threshold, ssim_threshold)
     if kind is not None:
         _store_diff(snapshot, result, kind)
         return
 
-    # Both tiers below threshold — genuine noise, reclassify and cache for future runs
+    # Below the effective thresholds — reclassify as UNCHANGED. If the global
+    # defaults would have flagged this, a per-story override is what let it
+    # pass, so record STORY_OVERRIDE (and skip the hash-tolerance write — the
+    # override already covers every future run regardless of hash).
+    flagged_by_default = classify_compare_result(result) is not None
+    reason = ClassificationReason.STORY_OVERRIDE if flagged_by_default else ClassificationReason.BELOW_THRESHOLD
+
     snapshot.result = SnapshotResult.UNCHANGED
-    snapshot.classification_reason = ClassificationReason.BELOW_THRESHOLD
+    snapshot.classification_reason = reason
     snapshot.diff_percentage = result.diff_percentage
     snapshot.diff_pixel_count = result.diff_pixel_count
     snapshot.ssim_score = result.ssim_score
@@ -183,7 +190,11 @@ def _diff_snapshot(snapshot: RunSnapshot) -> None:
         identifier=snapshot.identifier,
         diff_percentage=result.diff_percentage,
         ssim_score=result.ssim_score,
+        classification_reason=reason.value,
     )
+
+    if flagged_by_default:
+        return
 
     # Auto-populate tolerance cache so future runs skip diffing for this hash.
     # Explicit team_id in the lookup (not just defaults) so the IDOR audit
@@ -249,6 +260,13 @@ def process_diffs(run_id: UUID) -> None:
     from . import logic
 
     snapshots = logic.get_run_snapshots(run_id)
+    if not snapshots:
+        return
+
+    run = snapshots[0].run
+    overrides = {
+        o.story_stem: o for o in StoryThresholdOverride.objects.filter(repo_id=run.repo_id, run_type=run.run_type)
+    }
 
     for snapshot in snapshots:
         if snapshot.result == SnapshotResult.NEW and snapshot.current_artifact:
@@ -261,7 +279,7 @@ def process_diffs(run_id: UUID) -> None:
             continue
 
         try:
-            _diff_snapshot(snapshot)
+            _diff_snapshot(snapshot, overrides)
         except Exception as e:
             logger.warning(
                 "visual_review.snapshot_diff_failed",

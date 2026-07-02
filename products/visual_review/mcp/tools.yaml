@@ -70,6 +70,58 @@ tools:
     visual-review-repos-snapshots-list:
         operation: visual_review_repos_snapshots_list
         enabled: false
+    visual-review-repos-story-overrides-list:
+        operation: visual_review_repos_story_overrides_list
+        enabled: true
+        scopes:
+            - visual_review:read
+        annotations:
+            readOnly: true
+            destructive: false
+            idempotent: true
+        list: true
+        title: List story threshold overrides
+        description: >
+            List per-story diff threshold overrides for a repo. Each override relaxes the pixel and/or structural
+            (SSIM) threshold for one story (keyed by a story stem — the snapshot identifier with theme, viewport, and
+            browser tokens stripped) so known, harmless rendering movement stops being flagged as a change. Returns
+            each override's story stem, run type, the pixel threshold percent and/or SSIM dissimilarity threshold
+            (null means "use the global default" for that tier), and who set it. Optional `run_type` query param
+            filters to one run type.
+        feature_flag: visual-review
+    visual-review-repos-story-overrides-create:
+        operation: visual_review_repos_story_overrides_create
+        enabled: true
+        scopes:
+            - visual_review:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Set story threshold override
+        description: >
+            Set (upsert) the per-story diff threshold override for a story. Pass any snapshot `identifier` from the
+            story — the server strips its theme/viewport/browser tokens to a story stem, so the override applies to
+            every variant of the story. Set `pixel_threshold_percent` (0-100) to allow more pixel difference and/or
+            `ssim_dissimilarity_threshold` (0-1) to allow more structural difference; pass null for a tier to leave it
+            on the global default. Use this for a story with known non-deterministic rendering movement that keeps
+            being flagged — unlike tolerating a hash, this holds across every future run regardless of hash.
+        feature_flag: visual-review
+    visual-review-repos-story-overrides-delete-create:
+        operation: visual_review_repos_story_overrides_delete_create
+        enabled: true
+        scopes:
+            - visual_review:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Clear story threshold override
+        description: >
+            Clear the per-story diff threshold override for a story, reverting both tiers to the global defaults. Pass
+            any snapshot `identifier` from the story and its `run_type`; the server resolves the story stem. No-op if
+            the story has no override.
+        feature_flag: visual-review
     visual-review-repos-thumbnails-retrieve:
         operation: visual_review_repos_thumbnails_retrieve
         enabled: false

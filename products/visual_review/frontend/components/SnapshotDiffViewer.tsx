@@ -15,6 +15,7 @@ import { QuarantineAction } from './QuarantineAction'
 import { SnapshotChangeBadge, hasSnapshotChangeBadge } from './SnapshotChangeBadge'
 import { SnapshotClusterPanel } from './SnapshotClusterPanel'
 import { SnapshotStatusIndicator } from './SnapshotStatusIndicator'
+import { StoryThresholdControl } from './StoryThresholdControl'
 
 function DiffMinimap({ url, onClick }: { url: string; onClick?: () => void }): JSX.Element {
     const [loaded, setLoaded] = useState(false)
@@ -50,6 +51,9 @@ interface SnapshotDiffViewerProps {
     quarantineEntry?: QuarantinedIdentifierEntryApi | null
     onQuarantine?: (reason: string, identifiers: string[], expiresAt: string | null, sourceRunId: string | null) => void
     onUnquarantine?: () => void
+    onSetStoryThresholds?: (pixelThresholdPercent: number | null, structuralThresholdPercent: number | null) => void
+    onClearStoryThresholds?: () => void
+    isSavingStoryThreshold?: boolean
     commitSha?: string
     prNumber?: number | null
     repoId?: string | null
@@ -72,6 +76,9 @@ export function SnapshotDiffViewer({
     quarantineEntry,
     onQuarantine,
     onUnquarantine,
+    onSetStoryThresholds,
+    onClearStoryThresholds,
+    isSavingStoryThreshold,
     commitSha,
     prNumber,
     repoId,
@@ -265,6 +272,16 @@ export function SnapshotDiffViewer({
                             totalPixels={diffPixelTotal}
                             highlightedIndex={highlightedClusterIndex}
                             onHighlight={setHighlightedClusterIndex}
+                        />
+                    )}
+
+                    {/* === Story thresholds === */}
+                    {onSetStoryThresholds && onClearStoryThresholds && (
+                        <StoryThresholdControl
+                            snapshot={snapshot}
+                            isSaving={isSavingStoryThreshold}
+                            onSetThresholds={onSetStoryThresholds}
+                            onClearThresholds={onClearStoryThresholds}
                         />
                     )}
 
