@@ -2,8 +2,7 @@ from typing import Optional
 
 from posthog.hogql import ast
 from posthog.hogql.parser import parse_expr
-
-from posthog.exceptions_capture import capture_exception
+from posthog.hogql.visitor import GetFieldsTraverser
 
 
 def _extract_join_key_field(expr: ast.Expr) -> Optional[ast.Field]:
@@ -13,9 +12,14 @@ def _extract_join_key_field(expr: ast.Expr) -> Optional[ast.Field]:
     if isinstance(expr, ast.Alias):
         return _extract_join_key_field(expr.expr)
 
-    if isinstance(expr, ast.Call) and len(expr.args) > 0:
-        # We always descend into the first argument; the join-key field is expected to be args[0].
-        return _extract_join_key_field(expr.args[0])
+    if isinstance(expr, ast.Call):
+        # Descend into the arguments and return the first field we find. This handles both
+        # wrapper calls like toString(field) and conditional/multi-arg keys like
+        # if(cond, field, NULL), where the field lives in a branch rather than args[0].
+        for arg in expr.args:
+            field = _extract_join_key_field(arg)
+            if field is not None:
+                return field
 
     return None
 
@@ -26,15 +30,19 @@ def get_join_field_chain(key: str) -> Optional[list[str | int]]:
     if field is not None:
         return field.chain
 
-    capture_exception(Exception(f"Data Warehouse Join HogQL expression should be a Field or Call node: {key}"))
+    # An unsupported user-configured join key is a known limitation, not an internal error,
+    # so we don't capture it — join validation surfaces it to the user instead.
     return None
 
 
 def qualify_join_key_expr(key: str, table_name: str) -> Optional[ast.Expr]:
     expr = parse_expr(key)
-    field = _extract_join_key_field(expr)
-    if field is None:
+    fields = GetFieldsTraverser(expr).fields
+    if not fields:
         return None
 
-    field.chain = [table_name, *field.chain]
+    # Qualify every field reference in the key with the table name so multi-field keys
+    # (e.g. if(event = 'x', properties.y, NULL)) resolve against the right table.
+    for field in fields:
+        field.chain = [table_name, *field.chain]
     return expr
