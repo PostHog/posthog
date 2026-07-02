@@ -41,6 +41,13 @@ class _StubSource:
         ]
 
 
+class _RaisingSource:
+    name = "raising"
+
+    def gather(self, team, config, period_days) -> list[SourceItem]:
+        raise RuntimeError("source exploded")
+
+
 @sync_to_async
 def _set_ai_consent(team, approved: bool) -> None:
     team.organization.is_ai_data_processing_approved = approved
@@ -94,6 +101,19 @@ async def test_gather_activity_returns_serialized_items(team) -> None:
         )
     assert len(items) == 1
     assert items[0]["fingerprint_hint"] == "abc:0"
+
+
+async def test_gather_activity_survives_one_broken_source(team) -> None:
+    await _set_ai_consent(team, True)
+    env = ActivityEnvironment()
+    with patch(
+        "products.pulse.backend.temporal.activities.get_sources", return_value=[_RaisingSource(), _StubSource()]
+    ):
+        items = await env.run(
+            gather_brief_inputs_activity,
+            GenerateBriefWorkflowInputs(team_id=team.pk, brief_id="unused", brief_config_id=None, period_days=7),
+        )
+    assert [item["fingerprint_hint"] for item in items] == ["abc:0"]
 
 
 async def test_gather_activity_refuses_without_ai_consent(team) -> None:

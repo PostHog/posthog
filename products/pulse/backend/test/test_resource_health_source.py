@@ -97,7 +97,7 @@ class TestResourceHealthGather(BaseTest):
         assert item.kind == "health"
         assert "Signup alert" in item.title
         assert item.evidence == [{"type": "alert", "ref": str(alert.id), "label": "Signup alert"}]
-        assert item.fingerprint_hint == f"health:alert:{alert.id}"
+        assert item.fingerprint_hint == f"resource_health:alert:{alert.id}"
 
     @parameterized.expand(
         [
@@ -125,7 +125,7 @@ class TestResourceHealthGather(BaseTest):
         assert "Weekly report" in item.title
         assert item.numbers["failed_deliveries"] == 2
         assert item.evidence == [{"type": "subscription", "ref": str(subscription.id), "label": "Weekly report"}]
-        assert item.fingerprint_hint == f"health:subscription:{subscription.id}"
+        assert item.fingerprint_hint == f"resource_health:subscription:{subscription.id}"
 
     @parameterized.expand(
         [
@@ -161,7 +161,7 @@ class TestResourceHealthGather(BaseTest):
         assert item.kind == "health"
         assert "Signup funnel" in item.title
         assert item.evidence == [{"type": "insight", "ref": insight.short_id, "label": "Signup funnel"}]
-        assert item.fingerprint_hint == f"health:insight:{insight.short_id}"
+        assert item.fingerprint_hint == f"resource_health:insight:{insight.short_id}"
 
     def test_below_threshold_refresh_attempts_ignored(self) -> None:
         self._caching_state(self._insight(), refresh_attempt=STUCK_REFRESH_ATTEMPTS - 1)
@@ -178,3 +178,8 @@ class TestResourceHealthGather(BaseTest):
             items = ResourceHealthSource().gather(self.team, None, period_days=7)
 
         assert [item.fingerprint_hint.split(":")[1] for item in items] == ["subscription"]
+
+    def test_stuck_threshold_matches_cache_updater_give_up_point(self) -> None:
+        from posthog.caching.insight_cache import MAX_ATTEMPTS  # noqa: PLC0415 — heavy import, test-only
+
+        assert STUCK_REFRESH_ATTEMPTS == MAX_ATTEMPTS
