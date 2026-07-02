@@ -270,8 +270,6 @@ describe('buildTrendsBarAggregatedSeries', () => {
 })
 
 describe('pickAggregatedTooltipSeriesData', () => {
-    // Stacked-breakdown shape: sparse series where entry values at the hovered index are zero
-    // cells for every segment but its own.
     const entry = (key: string, value: number): { series: Series; value: number; color: string } => ({
         series: { key, label: key, data: [value] },
         value,
