@@ -811,6 +811,22 @@ class TestDuckgresGroupLease:
         assert [str(b.id) for b in other] == [newer]
 
     @pytest.mark.asyncio
+    async def test_excluded_in_flight_groups_do_not_consume_the_claim_budget(self, conn):
+        # A group this pod is already processing can expose momentarily
+        # eligible batches between its own batches; re-claiming it would burn
+        # the max_groups budget and starve other schemas' work.
+        mine = await _insert_batch(conn, schema_id="schema-1")
+        await BatchQueue.update_status(conn, batch_id=mine, job_state="succeeded", attempt=1)
+        other = await _insert_batch(conn, schema_id="schema-2")
+        await BatchQueue.update_status(conn, batch_id=other, job_state="succeeded", attempt=1)
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(
+            conn, owner_token="owner-a", max_groups=1, exclude_groups=[(1, "schema-1")]
+        )
+
+        assert [str(b.id) for b in batches] == [other]
+
+    @pytest.mark.asyncio
     async def test_expired_lease_is_reclaimable_by_another_owner(self, conn):
         batch_id = await _insert_batch(conn)
         await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)

@@ -106,6 +106,7 @@ class BatchConsumerAdapter(Protocol):
         owner_token: str,
         lease_ttl_seconds: int,
         max_groups: int,
+        exclude_groups: list[tuple[int, str]],
     ) -> list[PendingBatch]: ...
 
     async def unlock(
@@ -332,6 +333,10 @@ class BatchConsumer:
                         # subsequent poll and block other pods from it for as
                         # long as this pod stays saturated.
                         max_groups=available,
+                        # In-flight groups can't be started again; without the
+                        # exclusion their momentarily-eligible batches re-consume
+                        # the claim budget and starve other schemas.
+                        exclude_groups=list(self._in_flight),
                     )
                 except psycopg.OperationalError as e:
                     logger.exception(self._event("poll_failed_queue_db_unreachable"))

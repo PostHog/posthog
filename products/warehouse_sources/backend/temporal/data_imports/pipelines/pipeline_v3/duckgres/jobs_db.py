@@ -158,6 +158,7 @@ class DuckgresBatchQueue:
         eligible_schema_ids: list[str] | None = None,
         lease_ttl_seconds: int = LEASE_TTL_SECONDS,
         max_groups: int | None = None,
+        exclude_groups: list[tuple[int, str]] | None = None,
     ) -> list[PendingBatch]:
         """Fetch Duckgres-eligible batches whose Delta load has succeeded.
 
@@ -240,6 +241,16 @@ class DuckgresBatchQueue:
                         b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                         AND (%(team_ids)s::bigint[] IS NULL OR b.team_id = ANY(%(team_ids)s))
                         AND (%(eligible_schema_ids)s::varchar[] IS NULL OR b.schema_id = ANY(%(eligible_schema_ids)s))
+                        -- Groups this pod is already processing: their batches can
+                        -- become momentarily eligible between the group's own
+                        -- batches, and re-claiming them would burn the candidate
+                        -- LIMIT and max_groups budget on work that can't start.
+                        AND NOT (
+                            %(exclude_team_ids)s::bigint[] IS NOT NULL
+                            AND (b.team_id, b.schema_id) IN (
+                                SELECT * FROM unnest(%(exclude_team_ids)s::bigint[], %(exclude_schema_ids)s::varchar[])
+                            )
+                        )
                         AND NOT {BLOCKED_LIVE_BATCH_CONDITION}
                         AND ds.job_state = 'succeeded'
                         AND (
@@ -395,6 +406,8 @@ class DuckgresBatchQueue:
                     "owner": owner_token,
                     "ttl": lease_ttl_seconds,
                     "max_groups": max_groups,
+                    "exclude_team_ids": [team_id for team_id, _ in exclude_groups] if exclude_groups else None,
+                    "exclude_schema_ids": [schema_id for _, schema_id in exclude_groups] if exclude_groups else None,
                 },
             )
             rows = await cur.fetchall()

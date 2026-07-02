@@ -65,10 +65,12 @@ class DeltaBatchConsumerAdapter:
         owner_token: str,
         lease_ttl_seconds: int,
         max_groups: int,
+        exclude_groups: list[tuple[int, str]],
     ) -> list[PendingBatch]:
-        # max_groups is not applied here yet: the delta claim shares the same
-        # over-claim shape (leasing more groups than free slots), tracked as a
-        # follow-up to keep this queue's hot claim query untouched for now.
+        # max_groups/exclude_groups are not applied here yet: the delta claim
+        # already gates on in-flight schemas via its executing-batch exclusion,
+        # and the over-claim shape it shares (leasing more groups than free
+        # slots) is tracked as a follow-up to keep this hot query untouched.
         return await BatchQueue.get_unprocessed_and_lock(
             conn,
             owner_token=owner_token,

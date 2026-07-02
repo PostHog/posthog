@@ -236,6 +236,7 @@ class TestDuckgresEnablementGating:
                 owner_token="test-owner",
                 lease_ttl_seconds=300,
                 max_groups=16,
+                exclude_groups=[],
             )
 
         assert batches == []
@@ -283,6 +284,7 @@ class TestDuckgresEnablementGating:
                 owner_token="test-owner",
                 lease_ttl_seconds=300,
                 max_groups=16,
+                exclude_groups=[],
             )
 
         assert mock_fetch.call_args[1]["team_ids"] == [1, 2]
@@ -330,6 +332,7 @@ class TestDuckgresEnablementGating:
                 owner_token="test-owner",
                 lease_ttl_seconds=300,
                 max_groups=16,
+                exclude_groups=[],
             )
 
         assert batches == []
@@ -378,6 +381,7 @@ class TestDuckgresEnablementGating:
                 owner_token="test-owner",
                 lease_ttl_seconds=300,
                 max_groups=16,
+                exclude_groups=[],
             )
 
         assert batches == []

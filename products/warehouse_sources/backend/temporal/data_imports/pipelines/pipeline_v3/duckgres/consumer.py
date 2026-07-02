@@ -199,6 +199,7 @@ class DuckgresBatchConsumerAdapter:
         owner_token: str,
         lease_ttl_seconds: int,
         max_groups: int,
+        exclude_groups: list[tuple[int, str]],
     ) -> list[PendingBatch]:
         team_ids = await self._enabled_team_ids()
         if team_ids is not None and not team_ids:
@@ -227,6 +228,7 @@ class DuckgresBatchConsumerAdapter:
             eligible_schema_ids=self._eligible_schema_ids,
             lease_ttl_seconds=lease_ttl_seconds,
             max_groups=max_groups,
+            exclude_groups=exclude_groups,
         )
 
     async def unlock(
