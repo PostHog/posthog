@@ -13,6 +13,9 @@ export interface TraceTimelineBar {
     // Flame-chart row: an event's children always render directly below it;
     // concurrent siblings are pushed below each other's whole subtree.
     lane: number
+    // event.id of the direct parent's bar, when the parent is drawn — lets the
+    // chart draw nesting connectors and tell children from concurrent siblings.
+    parentEventId: string | null
 }
 
 export interface TraceTimelineData {
@@ -101,6 +104,7 @@ export function buildTraceTimeline(events: LLMTraceEvent[]): TraceTimelineData {
         kind: kindOf(timedEvent.event.event),
         isError: !!timedEvent.event.properties?.$ai_is_error,
         lane: 0,
+        parentEventId: null,
     }))
 
     const totalMs = Math.max(...bars.map((b) => b.startMs + b.durationMs))
@@ -116,6 +120,7 @@ export function buildTraceTimeline(events: LLMTraceEvent[]): TraceTimelineData {
             roots.push(timedEvent)
             continue
         }
+        bars[timedEvent.idx].parentEventId = parent.event.id
         const siblings = childrenOf.get(parent.nodeId)
         if (siblings) {
             siblings.push(timedEvent)

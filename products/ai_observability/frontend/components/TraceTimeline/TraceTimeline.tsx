@@ -7,7 +7,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { LLMTraceEvent } from '~/queries/schema/schema-general'
 
-import { TraceBarKind, buildTraceTimeline } from './buildTraceTimeline'
+import { TraceBarKind, TraceTimelineBar, buildTraceTimeline } from './buildTraceTimeline'
 
 // Same hues as the tree's EventTypeTag: generation green, embedding amber,
 // span neutral, trace purple. Highlight fills keep the labels inside readable.
@@ -20,7 +20,8 @@ const KIND_CLASS: Record<TraceBarKind, string> = {
 const ERROR_CLASS = 'bg-danger-highlight border-danger text-danger'
 
 const BAR_H = 16
-const LANE_GAP = 4
+// Wide enough for the nesting connectors drawn in the gap to stay legible.
+const LANE_GAP = 6
 const LANE_H = BAR_H + LANE_GAP
 // Beyond this many lanes the chart scrolls vertically instead of growing, so a
 // deeply nested trace can't crowd out the rest of the page.
@@ -69,6 +70,24 @@ export function TraceTimeline({
 }): JSX.Element | null {
     const [collapsed, setCollapsed] = useState(false)
     const { bars, totalMs, laneCount } = useMemo(() => buildTraceTimeline(events), [events])
+    // Directory-style nesting connectors: a rail along each parent's underside out
+    // to its last child's start, plus a drop-tick at each child's start. A bar
+    // without a connector is a concurrent sibling, not a nested child.
+    const { barById, rails } = useMemo(() => {
+        const byId = new Map(bars.map((b) => [b.id, b]))
+        const railEnds = new Map<string, number>()
+        for (const bar of bars) {
+            if (bar.parentEventId) {
+                railEnds.set(bar.parentEventId, Math.max(railEnds.get(bar.parentEventId) ?? -Infinity, bar.startMs))
+            }
+        }
+        return {
+            barById: byId,
+            rails: [...railEnds.entries()]
+                .map(([parentId, endMs]) => ({ parent: byId.get(parentId), endMs }))
+                .filter((r): r is { parent: TraceTimelineBar; endMs: number } => !!r.parent),
+        }
+    }, [bars])
 
     // A single bar spanning the full width says nothing — only render when the
     // timeline can actually show how the trace's latency breaks down.
@@ -142,6 +161,41 @@ export function TraceTimeline({
                                     style={{ left: `${pct(tick)}%` }}
                                 />
                             ))}
+                            {rails.map(({ parent, endMs }) => (
+                                <div
+                                    key={`rail-${parent.id}`}
+                                    aria-hidden
+                                    className="absolute border-t border-border-bold"
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={{
+                                        left: `${pct(parent.startMs)}%`,
+                                        width: `${pct(endMs - parent.startMs)}%`,
+                                        top: parent.lane * LANE_H + BAR_H + 1,
+                                    }}
+                                />
+                            ))}
+                            {bars.map((bar) => {
+                                const parent = bar.parentEventId ? barById.get(bar.parentEventId) : undefined
+                                if (!parent || parent.lane >= bar.lane) {
+                                    return null
+                                }
+                                const railTop = parent.lane * LANE_H + BAR_H + 1
+                                return (
+                                    // └-shaped elbow from the parent's underside into the
+                                    // child's left edge, directory-tree style.
+                                    <div
+                                        key={`elbow-${bar.id}`}
+                                        aria-hidden
+                                        className="absolute w-1 rounded-bl-sm border-l border-b border-border-bold"
+                                        // eslint-disable-next-line react/forbid-dom-props
+                                        style={{
+                                            left: `calc(${pct(bar.startMs)}% - 4px)`,
+                                            top: railTop,
+                                            height: bar.lane * LANE_H + BAR_H / 2 - railTop,
+                                        }}
+                                    />
+                                )
+                            })}
                             {bars.map((bar) => {
                                 const isInstant = bar.durationMs <= 0
                                 const selected = selectedEventId === bar.id

@@ -37,8 +37,22 @@ describe('buildTraceTimeline', () => {
             }),
         ])
         expect(bars).toEqual([
-            expect.objectContaining({ id: 'root', startMs: 0, durationMs: 3000, lane: 0, kind: 'trace' }),
-            expect.objectContaining({ id: 'agent', startMs: 300, durationMs: 2500, lane: 1, kind: 'span' }),
+            expect.objectContaining({
+                id: 'root',
+                startMs: 0,
+                durationMs: 3000,
+                lane: 0,
+                kind: 'trace',
+                parentEventId: null,
+            }),
+            expect.objectContaining({
+                id: 'agent',
+                startMs: 300,
+                durationMs: 2500,
+                lane: 1,
+                kind: 'span',
+                parentEventId: 'root',
+            }),
             expect.objectContaining({
                 id: 'gen',
                 startMs: 500,
@@ -46,6 +60,7 @@ describe('buildTraceTimeline', () => {
                 lane: 2,
                 kind: 'generation',
                 isError: true,
+                parentEventId: 'agent',
             }),
         ])
         expect(totalMs).toBe(3000)
