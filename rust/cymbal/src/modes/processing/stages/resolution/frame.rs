@@ -29,7 +29,7 @@ impl FrameResolver {
                 move |exc, ctx| {
                     let debug_images = debug_images.clone();
                     async move {
-                        FrameResolver::resolve_exception_frames(team_id, exc, &debug_images, ctx)
+                        FrameResolver::resolve_exception_frames(team_id, exc, debug_images, ctx)
                             .await
                     }
                 },
@@ -42,12 +42,11 @@ impl FrameResolver {
     pub async fn resolve_exception_frames(
         team_id: i32,
         mut exc: Exception,
-        debug_images: &[DebugImage],
+        debug_images: Arc<Vec<DebugImage>>,
         ctx: ResolutionStage,
     ) -> Result<Exception, UnhandledError> {
         exc.stack = match exc.stack {
             Some(Stacktrace::Raw { frames }) => {
-                let debug_images = Arc::new(debug_images.to_vec());
                 let frame_batches: Batch<Vec<Frame>> = Batch::from(frames)
                     .apply_func(
                         move |frame, ctx| {
@@ -111,7 +110,9 @@ impl ValueOperator for FrameResolver {
         mut evt: ExceptionProperties,
         ctx: ResolutionStage,
     ) -> OperatorResult<Self> {
-        let debug_images = Arc::new(evt.debug_images.clone());
+        // `debug_images` is not read again on this event (the output props drop
+        // it), so move it into the shared Arc instead of cloning the Vec.
+        let debug_images = Arc::new(std::mem::take(&mut evt.debug_images));
         evt.exception_list = FrameResolver::resolve_exception_list_frames(
             evt.team_id,
             evt.exception_list,
