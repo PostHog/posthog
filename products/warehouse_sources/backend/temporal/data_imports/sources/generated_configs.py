@@ -362,7 +362,7 @@ class AviationstackSourceConfig(config.Config):
 
 @config.config
 class AwinSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -2136,7 +2136,9 @@ class NewYorkTimesSourceConfig(config.Config):
 
 @config.config
 class NewsApiSourceConfig(config.Config):
-    pass
+    api_key: str
+    query: str
+    language: str | None = None
 
 
 @config.config
@@ -2238,7 +2240,7 @@ class OpenAIAdsSourceConfig(config.Config):
 
 @config.config
 class OpenAQSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2248,7 +2250,9 @@ class OpenDataDcSourceConfig(config.Config):
 
 @config.config
 class OpenExchangeRatesSourceConfig(config.Config):
-    pass
+    app_id: str
+    base_currency: str | None = None
+    start_date: str | None = None
 
 
 @config.config
