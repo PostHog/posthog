@@ -726,6 +726,38 @@ def _bq_row_filter_conditions(
     return conditions, parameters
 
 
+def _format_incremental_cursor_literal(
+    last_value: datetime | date,
+    incremental_field: str,
+    incremental_field_type: IncrementalFieldType,
+    bq_table: bigquery.Table,
+) -> str:
+    """Render the incremental cursor bound as a SQL literal matching the column's live type.
+
+    The `incremental_field_type` recorded at source setup can lag the column's actual BigQuery
+    type — a column retyped in BigQuery after schema discovery — so drive formatting off the live
+    schema, falling back to the stored type when the column isn't in it:
+      - DATE: date component only. A datetime literal (`1970-01-01T00:00:00`) can't be cast to DATE.
+      - DATETIME: timezone-naive. The type is tz-naive and rejects an offset literal.
+      - TIMESTAMP: keep the offset. The type is timezone-aware.
+    """
+    column_field_types = {field.name: field.field_type for field in bq_table.schema}
+    actual_type = _BQ_FIELD_TYPE_NORMALIZATION.get(column_field_types.get(incremental_field, "").upper())
+
+    if isinstance(last_value, datetime):
+        if actual_type == "DATE":
+            return f"'{last_value.date().isoformat()}'"
+        naive = actual_type == "DATETIME" or (
+            actual_type is None and incremental_field_type == IncrementalFieldType.DateTime
+        )
+        if naive and last_value.tzinfo is not None:
+            last_value = last_value.replace(tzinfo=None)
+        return f"'{last_value.isoformat()}'"
+
+    # A plain `date` cursor casts cleanly to DATE, DATETIME, and TIMESTAMP alike.
+    return f"'{last_value.isoformat()}'"
+
+
 def _get_query(
     should_use_incremental_field: bool,
     db_incremental_field_last_value: typing.Any,
@@ -749,17 +781,10 @@ def _get_query(
         else:
             last_value = db_incremental_field_last_value
 
-        if isinstance(last_value, datetime):
-            # BigQuery DATETIME columns are timezone-naive and reject a literal that carries
-            # a UTC offset (e.g. `1970-01-01T00:00:00+00:00`), failing with "Could not cast
-            # literal ... to type DATETIME". The shared initial cursor value is tz-aware UTC,
-            # so drop the offset for DATETIME fields. TIMESTAMP columns are timezone-aware and
-            # keep it.
-            if incremental_field_type == IncrementalFieldType.DateTime and last_value.tzinfo is not None:
-                last_value = last_value.replace(tzinfo=None)
-            last_value = f"'{last_value.isoformat()}'"
-        elif isinstance(last_value, date):
-            last_value = f"'{last_value.isoformat()}'"
+        if isinstance(last_value, date):
+            last_value = _format_incremental_cursor_literal(
+                last_value, incremental_field, incremental_field_type, bq_table
+            )
 
         operator = incremental_type_to_operator(incremental_field_type)
         conditions = [f"`{incremental_field}` {operator} {last_value}", *filter_conditions]
