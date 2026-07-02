@@ -4,15 +4,18 @@ from posthog.models.health_issue import HealthIssue
 from posthog.temporal.health_checks.detectors import HealthExecutionPolicy
 from posthog.temporal.health_checks.framework import AlertContent, HealthCheck, Remediation
 from posthog.temporal.health_checks.models import HealthCheckResult
+from posthog.utils import get_instance_region
 
 from products.error_tracking.backend.logic.recommendations.source_maps import SourceMapsRecommendation
 from products.error_tracking.backend.models import ErrorTrackingRecommendation
 
 RECOMMENDATIONS_PATH = "/error_tracking?activeTab=recommendations"
 SOURCE_MAPS_DOCS_URL = "https://posthog.com/docs/error-tracking/upload-source-maps"
-# Same command the source maps fix wizard modal shows (sourceMapsFixWizardLogic.wizardCommand);
-# remediation is a static per-kind constant, so the EU region flag is a note rather than interpolated.
-WIZARD_COMMAND = "npx -y @posthog/wizard@latest upload-source-maps"
+# Same command the source maps fix wizard modal shows (sourceMapsFixWizardLogic.wizardCommand),
+# including the region flag — the region is per-deployment, so import time is fine.
+WIZARD_COMMAND = "npx -y @posthog/wizard@latest upload-source-maps" + (
+    " --region eu" if get_instance_region() == "EU" else ""
+)
 
 
 class MissingSourceMapsCheck(HealthCheck):
@@ -33,12 +36,12 @@ class MissingSourceMapsCheck(HealthCheck):
     schedule = "0 7 * * *"
     remediation = Remediation(
         human=f"""
-            Run the source maps wizard in your project: `{WIZARD_COMMAND}` (add `--region eu`
-            on EU Cloud), or follow the docs at {SOURCE_MAPS_DOCS_URL}.
+            Run the source maps wizard in your project: `{WIZARD_COMMAND}`,
+            or follow the docs at {SOURCE_MAPS_DOCS_URL}.
         """,
         agent=f"""
-            Run `{WIZARD_COMMAND}` in the user's project (add `--region eu` if the project is
-            on EU Cloud), or set up uploads manually following {SOURCE_MAPS_DOCS_URL}.
+            Run `{WIZARD_COMMAND}` in the user's project, or set up uploads
+            manually following {SOURCE_MAPS_DOCS_URL}.
         """,
     )
 
