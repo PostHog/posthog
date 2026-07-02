@@ -5,6 +5,7 @@ from typing import Any
 
 import structlog
 from asgiref.sync import sync_to_async
+from clickhouse_driver.errors import SocketTimeoutError
 
 from posthog.hogql.query import execute_hogql_query
 
@@ -12,8 +13,9 @@ from posthog.errors import CH_TRANSIENT_ERRORS
 from posthog.exceptions import ClickHouseAtCapacity
 from posthog.models import Team
 
-# Errors worth retrying
-RETRIABLE_ERRORS = (ClickHouseAtCapacity, *CH_TRANSIENT_ERRORS)
+# Errors worth retrying. CH_TRANSIENT_ERRORS covers server-side query errors; SocketTimeoutError
+# covers connection-establishment timeouts against the offline cluster, which the query errors miss.
+RETRIABLE_ERRORS = (ClickHouseAtCapacity, SocketTimeoutError, *CH_TRANSIENT_ERRORS)
 
 logger = structlog.get_logger(__name__)
 
