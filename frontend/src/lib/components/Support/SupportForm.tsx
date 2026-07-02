@@ -24,7 +24,6 @@ import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import {
-    HIDDEN_TARGET_AREA_OPTIONS,
     SEVERITY_LEVEL_TO_NAME,
     SUPPORT_TICKET_TEMPLATES,
     SupportTicketKind,
@@ -157,11 +156,7 @@ export function SupportForm(): JSX.Element | null {
                                     disabled={!user}
                                     placeholder="Search for a topic"
                                     data-attr="support-form-target-area"
-                                    // hidden areas are only offered when prefilled, so they render with their label rather than the raw value
-                                    options={[
-                                        ...TARGET_AREA_OPTIONS,
-                                        ...HIDDEN_TARGET_AREA_OPTIONS.filter((option) => option.value === value),
-                                    ]}
+                                    options={TARGET_AREA_OPTIONS}
                                     value={value ? [value] : []}
                                     onChange={([newValue]) => onChange(newValue ?? null)}
                                 />

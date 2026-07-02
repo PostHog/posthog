@@ -332,18 +332,6 @@ export const TARGET_AREA_OPTIONS: { key: string; label: string; value: string }[
     (group) => group.options.map((option) => ({ key: option.label, label: option.label, value: option.value }))
 )
 
-// Target areas that are not selectable in the form but are still submitted programmatically (e.g. the
-// PostHog AI chat feedback prompts) and still exist as options on the Zendesk target-area field
-const HIDDEN_TARGET_AREA_TO_NAME = [
-    {
-        value: 'posthog-ai',
-        label: 'PostHog AI',
-    },
-] as const
-
-export const HIDDEN_TARGET_AREA_OPTIONS: { key: string; label: string; value: string }[] =
-    HIDDEN_TARGET_AREA_TO_NAME.map((option) => ({ key: option.label, label: option.label, value: option.value }))
-
 export const SEVERITY_LEVEL_TO_NAME = {
     critical: 'Outage, data loss, or data breach',
     high: 'Feature is not working at all',
@@ -360,7 +348,6 @@ export const SUPPORT_KIND_TO_SUBJECT = {
 export type SupportTicketTargetArea =
     | (typeof TARGET_AREA_TO_NAME_GENERAL)[number]['value']
     | (typeof TARGET_AREA_TO_NAME_PRODUCTS)[number]['value']
-    | (typeof HIDDEN_TARGET_AREA_TO_NAME)[number]['value']
 export type SupportTicketSeverityLevel = keyof typeof SEVERITY_LEVEL_TO_NAME
 export type SupportTicketKind = keyof typeof SUPPORT_KIND_TO_SUBJECT
 
@@ -372,11 +359,6 @@ export const getLabelBasedOnTargetArea = (target_area: SupportTicketTargetArea):
             if (option.value === target_area) {
                 return option.label
             }
-        }
-    }
-    for (const option of HIDDEN_TARGET_AREA_TO_NAME) {
-        if (option.value === target_area) {
-            return option.label
         }
     }
     return null // Return null if the value is not found
