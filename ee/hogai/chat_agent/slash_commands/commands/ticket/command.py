@@ -69,7 +69,7 @@ class TicketCommand(SlashCommand):
             # `_get_billing` is the raw read-only fetch. The public `get_billing` also syncs
             # license/org rows to the DB, and a transient failure in those writes must not
             # flip an eligible customer to "denied".
-            billing_status = BillingManager(license, self._user)._get_billing(self._team.organization, timeout=10)
+            billing_status = BillingManager(license, self._user)._get_billing(self._team.organization)
             # The billing service can omit "customer" even though the TypedDict declares it required,
             # so drop to a plain dict before the lookup (same as BillingManager.get_billing does).
             customer = cast(dict[str, Any], billing_status).get("customer") or {}

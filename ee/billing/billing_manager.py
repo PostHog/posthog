@@ -351,12 +351,7 @@ class BillingManager:
 
         return self.license
 
-    def _get_billing(
-        self,
-        organization: Organization,
-        query_params: dict[str, Any] | None = None,
-        timeout: float | None = None,
-    ) -> BillingStatus:
+    def _get_billing(self, organization: Organization, query_params: dict[str, Any] | None = None) -> BillingStatus:
         """
         Retrieves billing info and updates local models if necessary
         """
@@ -367,7 +362,6 @@ class BillingManager:
             f"{BILLING_SERVICE_URL}/api/billing",
             headers=self.get_auth_headers(organization),
             params=query_params,
-            timeout=timeout,
         )
         handle_billing_service_error(res)
 
