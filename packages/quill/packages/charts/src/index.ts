@@ -146,7 +146,7 @@ export { computeVisibleXLabels } from './overlays/AxisLabels'
 
 export { AnomalyPointsLayer } from './overlays/AnomalyPointsLayer'
 export type { AnomalyMarker } from './overlays/AnomalyPointsLayer'
-export { movingAverageKey } from './charts/TimeSeriesLineChart/utils/derived-series'
+export { movingAverageKey } from './charts/utils/derived-series'
 
 // Timeseries utils
 export { createXAxisTickCallback } from './utils/dates'

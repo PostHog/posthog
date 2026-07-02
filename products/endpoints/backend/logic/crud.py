@@ -29,11 +29,11 @@ from posthog.types import InsightQueryNode
 from products.data_modeling.backend.facade.api import delete_node_from_dag
 from products.data_warehouse.backend.facade.api import trigger_saved_query_schedule
 from products.endpoints.backend.constants import DEFAULT_DATA_FRESHNESS_SECONDS
+from products.endpoints.backend.logic.activity import EndpointContext
+from products.endpoints.backend.logic.materialization import EndpointMaterializationService
+from products.endpoints.backend.logic.validation import validate_bucket_overrides
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.rate_limit import clear_endpoint_materialization_cache
-from products.endpoints.backend.services.activity import EndpointContext
-from products.endpoints.backend.services.materialization import EndpointMaterializationService
-from products.endpoints.backend.services.validation import validate_bucket_overrides
 
 logger = structlog.get_logger(__name__)
 

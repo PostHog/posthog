@@ -20,7 +20,7 @@ from products.data_modeling.backend.facade.models import (
     Node,
     NodeType,
 )
-from products.endpoints.backend.services.materialization import prepare_executable_query
+from products.endpoints.backend.facade.temporal import prepare_executable_query
 
 LOGGER = get_logger(__name__)
 
