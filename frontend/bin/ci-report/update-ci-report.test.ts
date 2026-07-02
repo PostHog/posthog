@@ -24,6 +24,19 @@ function sectionMeta(meta: { status: string; summary: string }): string {
     return Buffer.from(JSON.stringify(meta), 'utf-8').toString('base64')
 }
 
+function legacyComment(summary: string, body = 'old body'): string {
+    return [
+        MARKER,
+        '## 🤖 CI report',
+        '',
+        `<!-- ci-report:section:bundle-size:${sectionMeta({ status: 'ok', summary })} -->`,
+        '## Bundle size',
+        '',
+        body,
+        '<!-- ci-report:section-end:bundle-size -->',
+    ].join('\n')
+}
+
 describe('ci-report section helper', () => {
     it('renders collapsed section blocks in fixed registry order regardless of write order', () => {
         // Written eager-graph -> dist-size -> bundle-size; registry order is the reverse.
@@ -91,33 +104,13 @@ describe('ci-report section helper', () => {
     )
 
     it('normalizes a multi-line summary replayed from persisted meta, not just fresh upserts', () => {
-        const persisted = [
-            MARKER,
-            '## 🤖 CI report',
-            '',
-            `<!-- ci-report:section:bundle-size:${sectionMeta({ status: 'ok', summary: 'line1\nline2' })} -->`,
-            '## Bundle size',
-            '',
-            'old body',
-            '<!-- ci-report:section-end:bundle-size -->',
-        ].join('\n')
-        const rendered: string = renderComment(parseSections(persisted))
+        const rendered: string = renderComment(parseSections(legacyComment('line1\nline2')))
         expect(rendered).toContain('<b>Bundle size</b> — line1 line2</summary>')
         expect(renderComment(parseSections(rendered))).toBe(rendered)
     })
 
     it('strips the in-body heading from sections written before the collapsible layout', () => {
-        const legacy = [
-            MARKER,
-            '## 🤖 CI report',
-            '',
-            `<!-- ci-report:section:bundle-size:${sectionMeta({ status: 'ok', summary: 'b' })} -->`,
-            '## Bundle size',
-            '',
-            'old body',
-            '<!-- ci-report:section-end:bundle-size -->',
-        ].join('\n')
-        const sections = parseSections(legacy)
+        const sections = parseSections(legacyComment('b'))
         expect(get(sections, 'bundle-size').inner).toBe('old body')
         expect(renderComment(sections)).not.toContain('## Bundle size')
     })
