@@ -80,9 +80,8 @@ export function TaskRunLog({
                         ) : null}
                         <br />
                         <br />
-                        The run may belong to a different task, or it failed before it was recorded. Pick
-                        another run from the list, or check the run's Temporal workflow for the underlying
-                        error.
+                        The run may belong to a different task, or it failed before it was recorded. Pick another run
+                        from the list, or check the run's Temporal workflow for the underlying error.
                     </>
                 }
             />

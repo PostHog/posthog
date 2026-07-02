@@ -47,10 +47,9 @@ export function TaskDetailPage({ taskId, isMobile }: TaskDetailPageProps): JSX.E
             ) : null}
             <br />
             <br />
-            Tasks are scoped to the project in the URL, so this usually means the task belongs to a different
-            project, or it was archived. If it came from a Slack thread whose run failed before it finished
-            starting up, the task may never have been created — check the run's Temporal workflow for the
-            underlying error.
+            Tasks are scoped to the project in the URL, so this usually means the task belongs to a different project,
+            or it was archived. If it came from a Slack thread whose run failed before it finished starting up, the task
+            may never have been created — check the run's Temporal workflow for the underlying error.
         </>
     )
 
