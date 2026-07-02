@@ -249,6 +249,7 @@ class TestObjectStorageClientFactory(SimpleTestCase):
             ("unsubstituted_placeholder", "https://${POSTHOG_DOMAIN}", False),
             ("placeholder_in_path", "https://example.com/${BUCKET}", False),
             ("missing_scheme", "objectstorage:19000", False),
+            ("malformed_host_comma", "https://taa-posthog-001,agillic.org", False),
             ("empty", "", False),
             ("none", None, False),
         ]
@@ -271,8 +272,8 @@ class TestObjectStorageClientFactory(SimpleTestCase):
         # Only the internal client is built; presigned degrades to the internal client.
         patched_client.assert_called_once()
         assert storage.presigned_client is storage.aws_client
-        # The bad config is surfaced to Sentry even though the read path stays up.
-        patched_capture.assert_called_once()
+        # An operator config typo is logged, not filed as an error tracking issue.
+        patched_capture.assert_not_called()
 
     @patch("posthog.storage.object_storage.capture_exception")
     @patch("posthog.storage.object_storage.client")
@@ -290,7 +291,8 @@ class TestObjectStorageClientFactory(SimpleTestCase):
         assert isinstance(storage, ObjectStorage)
         assert storage.aws_client is internal_client
         assert storage.presigned_client is internal_client
-        patched_capture.assert_called_once()
+        # Even if boto3 unexpectedly rejects a usable endpoint, degrade quietly without noise.
+        patched_capture.assert_not_called()
 
     @patch("posthog.storage.object_storage.client")
     def test_valid_public_endpoint_builds_separate_presigned_client(self, patched_client) -> None:

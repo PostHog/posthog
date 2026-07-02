@@ -1,7 +1,6 @@
 import abc
 import threading
 from typing import IO, Any, Optional, Union
-from urllib.parse import urlparse
 
 from django.conf import settings
 
@@ -9,6 +8,7 @@ import structlog
 from boto3 import client
 from botocore.client import Config
 from botocore.exceptions import ClientError
+from botocore.utils import is_valid_endpoint_url, is_valid_ipv6_endpoint_url
 
 from posthog.exceptions_capture import capture_exception
 
@@ -407,11 +407,17 @@ _client: ObjectStorageClient = UnavailableStorage()
 
 
 def is_usable_endpoint(endpoint: str | None) -> bool:
-    """A usable endpoint is a syntactically valid URL with no unsubstituted ${...} deployment placeholders."""
+    """A usable endpoint is one boto3 will accept: a URL with a scheme and a valid host, and no
+    unsubstituted ${...} deployment placeholders.
+
+    We defer to boto3's own endpoint validation so this check stays in lockstep with what the S3
+    client accepts. A bare scheme+netloc check is not enough — a fat-fingered host like
+    `https://host-001,example.org` (comma instead of a dot) has a netloc but is not a valid
+    hostname, so boto3 raises `ValueError` on it. Rejecting it here routes the bad config to the
+    clean warning path instead."""
     if not endpoint or "${" in endpoint:
         return False
-    parsed = urlparse(endpoint)
-    return bool(parsed.scheme and parsed.netloc)
+    return bool(is_valid_endpoint_url(endpoint) or is_valid_ipv6_endpoint_url(endpoint))
 
 
 def object_storage_client() -> ObjectStorageClient:
@@ -452,14 +458,16 @@ def object_storage_client() -> ObjectStorageClient:
                         region_name=settings.OBJECT_STORAGE_REGION,
                     )
                 except Exception as e:
-                    logger.exception("object_storage.invalid_public_endpoint", endpoint=public_endpoint, error=e)
-                    capture_exception(e)
+                    # Defensive fallback: `is_usable_endpoint` mirrors boto3's validation, so a
+                    # usable endpoint should not raise here. A deployment config typo is not a
+                    # product bug — log it, don't file an error tracking issue.
+                    logger.warning("object_storage.invalid_public_endpoint", endpoint=public_endpoint, error=e)
             else:
-                # The Django system check only fails `manage.py`-style startup; gunicorn/ASGI
-                # workers skip it, so capture here too to surface the bad config in Sentry.
-                error = ValueError(f"Invalid OBJECT_STORAGE_PUBLIC_ENDPOINT: {public_endpoint!r}")
-                logger.error("object_storage.invalid_public_endpoint", endpoint=public_endpoint, error=error)
-                capture_exception(error)
+                # A deployment config typo (unsubstituted ${...} placeholder or malformed host) is
+                # not a product bug. Log it as a warning rather than filing an error tracking issue.
+                # The Django system check flags it at `manage.py`-style startup, but gunicorn/ASGI
+                # workers skip that check, so this is where the bad config surfaces at runtime.
+                logger.warning("object_storage.invalid_public_endpoint", endpoint=public_endpoint)
         _client = ObjectStorage(aws_client, presigned_client)
 
     return _client
