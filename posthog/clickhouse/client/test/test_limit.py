@@ -8,7 +8,7 @@ from unittest.mock import Mock, patch
 from parameterized import parameterized
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, RateLimit
-from posthog.clickhouse.query_tagging import Product, reset_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import Product, QueryTags, query_tags, reset_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 
 
@@ -61,6 +61,18 @@ class TestRateLimit(BaseTest):
                 self.limit.use(is_api=True, team_id=9, task_id=2)
         labeled_products = {call.kwargs.get("product") for call in mock_counter.labels.call_args_list}
         self.assertIn(expected_product, labeled_products)
+
+    def test_block_counter_buckets_unknown_product(self):
+        # A product value outside the known set (e.g. a client-forged tag that slipped past validation)
+        # must collapse to "unknown" so it can't mint an unbounded Prometheus series.
+        query_tags.set(QueryTags.model_construct(product="totally-made-up-product"))
+        self.cancels.append(self.limit.use(is_api=True, team_id=9, task_id=1))
+        with patch("posthog.clickhouse.client.limit.CONCURRENT_QUERY_LIMIT_EXCEEDED_COUNTER") as mock_counter:
+            with self.assertRaises(ConcurrencyLimitExceeded):
+                self.limit.use(is_api=True, team_id=9, task_id=2)
+        labeled_products = {call.kwargs.get("product") for call in mock_counter.labels.call_args_list}
+        self.assertIn("unknown", labeled_products)
+        self.assertNotIn("totally-made-up-product", labeled_products)
 
     def test_rate_limits_no_inference(self):
         """

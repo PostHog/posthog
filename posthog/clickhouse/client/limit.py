@@ -12,8 +12,9 @@ from prometheus_client import Counter
 
 from posthog import redis, settings
 from posthog.clickhouse.cluster import ExponentialBackoff
-from posthog.clickhouse.query_tagging import add_fallback_query_tags, get_query_tags, tag_queries
+from posthog.clickhouse.query_tagging import Product, add_fallback_query_tags, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
+from posthog.schema_enums import ProductKey
 from posthog.settings import TEST
 from posthog.utils import generate_short_id
 
@@ -26,6 +27,11 @@ CONCURRENT_QUERY_LIMIT_EXCEEDED_COUNTER = Counter(
     "Number of times a team tried to exceed concurrency limit.",
     ["task_name", "team_id", "limit", "limit_name", "result", "product"],
 )
+
+# The `product` label is derived from query tags that originate in a client-supplied productKey.
+# Restricting it to known product values keeps the Prometheus series count bounded — an arbitrary
+# tag can never mint a new series.
+_KNOWN_PRODUCT_LABELS: frozenset[str] = frozenset(p.value for p in Product) | frozenset(p.value for p in ProductKey)
 
 CONCURRENT_TASKS_LIMIT_EXCEEDED_COUNTER = Counter(
     "posthog_celery_task_concurrency_limit_exceeded",
@@ -110,7 +116,8 @@ class RateLimit:
         tags = get_query_tags()
         if tags.product is None:
             add_fallback_query_tags(tags)
-        product_label = str(tags.product) if tags.product else "unknown"
+        product_value = str(tags.product) if tags.product else None
+        product_label = product_value if product_value in _KNOWN_PRODUCT_LABELS else "unknown"
 
         max_concurrency: int = self.max_concurrency
 
