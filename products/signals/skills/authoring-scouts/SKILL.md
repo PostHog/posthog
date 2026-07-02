@@ -77,7 +77,7 @@ See [`references/lifecycle-and-testing.md`](references/lifecycle-and-testing.md)
 ## Write the scout
 
 First pick the **shape**.
-[`references/scout-patterns.md`](references/scout-patterns.md) is a cookbook of the reference architectures scouts fall into — anomaly watcher, watchlist explore/exploit, cross-product correlation, recommendation/gap, warehouse-backed source, custom single-event, open-text theme, external-tool/code — each mapped to a canonical scout you can copy as scaffolding.
+[`references/scout-patterns.md`](references/scout-patterns.md) is a cookbook of the reference architectures scouts fall into — anomaly watcher, watchlist explore/exploit, cross-product correlation, recommendation/gap, warehouse-backed source, custom single-event, open-text theme, external-tool/code, state∩code intersection, daily digest/roll-up, triage over a pre-detected stream, first-person dogfooding/probe — each mapped to a canonical scout you can copy as scaffolding.
 It also makes the key point that **a scout can watch any source PostHog ingests into the data warehouse, not just analytics events** (a Slack channel sync, a billing system, a CRM, a support inbox), plus external systems reachable from the sandbox.
 Find the closest pattern, then write the body.
 
