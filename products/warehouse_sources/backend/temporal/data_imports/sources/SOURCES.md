@@ -169,6 +169,7 @@ the row lists both.
 | greenhouse              | HTTP                        | requests                                                        | ✅                          |
 | guardian                | HTTP                        | requests                                                        | ✅                          |
 | guru                    | HTTP                        | requests                                                        | ✅                          |
+| hellobaton              | HTTP                        | requests                                                        | ✅                          |
 | hibob                   | HTTP                        | requests                                                        | ✅                          |
 | hubspot                 | HTTP                        | requests                                                        | ✅                          |
 | hugging_face            | HTTP                        | requests                                                        | ✅                          |
@@ -444,7 +445,6 @@ doesn't conflict with concurrent PRs.
 - harness
 - heap
 - height
-- hellobaton
 - helpscout
 - hibob
 - high_level
