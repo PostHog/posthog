@@ -180,6 +180,16 @@ class BatchConsumerAdapter(Protocol):
         (e.g. the group was reclaimed between the stale scan and this write)."""
         ...
 
+    async def confirm_stale_before_failure(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        batch: PendingBatch,
+    ) -> bool:
+        """Re-confirm a max-attempts recovery candidate is still stale (and its
+        group unowned) right before the sweep terminally fails its run."""
+        ...
+
     async def reconcile_failed_runs(
         self,
         conn: psycopg.AsyncConnection[Any],
@@ -838,8 +848,16 @@ class BatchConsumer:
             )
             try:
                 if batch.latest_attempt >= self._config.max_attempts:
-                    logger.warning(self._event("batch_recovered_max_retries_exceeded"), attempt=batch.latest_attempt)
-                    await self._fail_run(batch, reason="max retries exceeded (likely OOM)", conn=conn)
+                    # Re-confirm at action time — the scan is unlocked, so a
+                    # rival sweep or a reclaiming pod may have moved the batch
+                    # since; failing the run then would stamp over live work.
+                    if await self._adapter.confirm_stale_before_failure(conn, batch=batch):
+                        logger.warning(
+                            self._event("batch_recovered_max_retries_exceeded"), attempt=batch.latest_attempt
+                        )
+                        await self._fail_run(batch, reason="max retries exceeded (likely OOM)", conn=conn)
+                    else:
+                        logger.info(self._event("batch_recovery_skipped_group_reclaimed"), batch_id=batch.id)
                 else:
                     requeued = await self._adapter.requeue_stale_batch(
                         conn,

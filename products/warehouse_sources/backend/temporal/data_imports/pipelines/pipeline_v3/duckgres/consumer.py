@@ -349,6 +349,14 @@ class DuckgresBatchConsumerAdapter:
     ) -> bool:
         return await DuckgresBatchQueue.requeue_stale_executing(conn, batch=batch, error_response=error_response)
 
+    async def confirm_stale_before_failure(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        batch: PendingBatch,
+    ) -> bool:
+        return await DuckgresBatchQueue.is_stale_executing_unowned(conn, batch=batch)
+
     async def reconcile_failed_runs(
         self,
         conn: psycopg.AsyncConnection[Any],

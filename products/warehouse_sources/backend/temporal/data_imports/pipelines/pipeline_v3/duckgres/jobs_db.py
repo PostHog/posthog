@@ -682,6 +682,41 @@ class DuckgresBatchQueue:
         return bool(cursor.rowcount)
 
     @staticmethod
+    async def is_stale_executing_unowned(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        batch: PendingBatch,
+    ) -> bool:
+        """Re-check a recovery candidate right before terminal action.
+
+        The stale scan is unlocked: between it and the sweep's write, a rival
+        sweep may have requeued the batch or another pod may have reclaimed the
+        group. True only while the batch's latest status is still 'executing'
+        and the group carries no live lease.
+        """
+        async with conn.cursor() as cur:
+            await cur.execute(
+                f"""
+                SELECT (
+                    SELECT cur.job_state
+                    FROM {DUCKGRES_STATUS_TABLE} cur
+                    WHERE cur.batch_id = %(batch_id)s
+                    ORDER BY cur.created_at DESC, cur.id DESC
+                    LIMIT 1
+                ) = 'executing'
+                AND NOT EXISTS (
+                    SELECT 1 FROM {DUCKGRES_LEASE_TABLE} l
+                    WHERE l.team_id = %(team_id)s
+                        AND l.schema_id = %(schema_id)s
+                        AND l.expires_at > now()
+                )
+                """,
+                {"batch_id": batch.id, "team_id": batch.team_id, "schema_id": batch.schema_id},
+            )
+            row = await cur.fetchone()
+            return bool(row and row[0])
+
+    @staticmethod
     async def is_failed(
         conn: psycopg.AsyncConnection[Any],
         *,

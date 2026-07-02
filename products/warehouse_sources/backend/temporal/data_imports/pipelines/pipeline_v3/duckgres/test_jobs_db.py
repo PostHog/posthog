@@ -837,20 +837,24 @@ class TestDuckgresGroupLease:
         claimed = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
         await DuckgresBatchQueue.update_status(conn, batch_id=batch_id, job_state="executing", attempt=1)
 
-        # Live lease (owner-a) → requeue must refuse.
+        # Live lease (owner-a) → requeue and terminal-failure checks must refuse.
         assert not await DuckgresBatchQueue.requeue_stale_executing(
             conn, batch=claimed[0], error_response={"error": "timed out"}
         )
+        assert not await DuckgresBatchQueue.is_stale_executing_unowned(conn, batch=claimed[0])
 
         await conn.execute(f"UPDATE {DUCKGRES_LEASE_TABLE} SET expires_at = now() - interval '1 second'")
+        assert await DuckgresBatchQueue.is_stale_executing_unowned(conn, batch=claimed[0])
         assert await DuckgresBatchQueue.requeue_stale_executing(
             conn, batch=claimed[0], error_response={"error": "timed out"}
         )
 
-        # Latest is now waiting_retry: a rival sweep's second requeue is a no-op.
+        # Latest is now waiting_retry: a rival sweep's second requeue is a
+        # no-op, and the terminal-failure check no longer confirms.
         assert not await DuckgresBatchQueue.requeue_stale_executing(
             conn, batch=claimed[0], error_response={"error": "timed out"}
         )
+        assert not await DuckgresBatchQueue.is_stale_executing_unowned(conn, batch=claimed[0])
 
     @pytest.mark.asyncio
     async def test_stale_executing_visible_only_after_lease_expiry(self, conn):

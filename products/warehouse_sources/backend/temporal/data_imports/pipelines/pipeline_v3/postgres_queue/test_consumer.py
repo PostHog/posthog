@@ -394,6 +394,27 @@ class TestRecoverySweep:
         mock_unlock.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_exhausted_batch_not_failed_when_stale_confirmation_fails(self):
+        # A rival sweep or a reclaiming pod can move a max-attempts batch
+        # between the unlocked stale scan and the fail write; the sweep must
+        # re-confirm at action time instead of failing live work.
+        consumer = _make_consumer(max_attempts=3)
+        stale_batch = _make_batch(latest_attempt=3)
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_stale_executing",
+                new_callable=AsyncMock,
+                return_value=[stale_batch],
+            ),
+            patch.object(consumer._adapter, "confirm_stale_before_failure", new_callable=AsyncMock, return_value=False),
+            patch.object(consumer, "_fail_run", new_callable=AsyncMock) as mock_fail,
+        ):
+            await consumer._recovery_sweep()
+
+        mock_fail.assert_not_called()
+
+    @pytest.mark.asyncio
     async def test_recovery_sweep_skips_batches_retired_mid_sweep(self):
         # A batch terminally retired between the stale scan and the re-queue
         # write surfaces as OwnershipLostError from the adapter; the sweep
