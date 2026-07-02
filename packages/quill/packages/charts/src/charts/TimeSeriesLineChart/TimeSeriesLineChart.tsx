@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
 import type {
@@ -10,18 +10,11 @@ import type {
     Series,
     TooltipConfig,
     TooltipContext,
-    YAxis,
 } from '../../core/types'
 import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { ValueLabels } from '../../overlays/ValueLabels'
 import type { GoalLineConfig } from '../../utils/goal-lines'
-import {
-    buildYAxes,
-    normalizeYAxisList,
-    primaryYAxisConfig,
-    type XAxisConfig,
-    type YAxisConfig,
-} from '../../utils/use-axis-formatters'
+import type { XAxisConfig, YAxisConfig } from '../../utils/use-axis-formatters'
 import { LineChart } from '../LineChart/LineChart'
 import {
     useDerivedSeries,
@@ -102,19 +95,16 @@ export function TimeSeriesLineChart<Meta = unknown>({
         tooltip: tooltipConfig,
         legend,
     } = config ?? {}
-    const axisList = useMemo(() => normalizeYAxisList(yAxis), [yAxis])
-    // Scalar y-config describes the primary (left) axis — drives single-axis rendering, the default
-    // value-label formatter, and the left gutter when a right-axis series is present.
-    const primaryYAxis = useMemo<YAxisConfig | undefined>(() => primaryYAxisConfig(axisList), [axisList])
-    // Per-axis configs only when the caller passed an array — a single object keeps the existing
-    // single-axis path untouched (no `yAxes` on the LineChart config).
-    const yAxes = useMemo<YAxis[] | undefined>(
-        () => (Array.isArray(yAxis) ? buildYAxes(axisList) : undefined),
-        [yAxis, axisList]
-    )
-
-    const { xTickFormatter, yTickFormatter, legendProps, chartSeries, valueLabelsConfig, valueLabelFormatter } =
-        useTimeSeries(series, labels, theme, { xAxis, yAxis: primaryYAxis, valueLabels, legend })
+    const {
+        xTickFormatter,
+        yTickFormatter,
+        legendProps,
+        chartSeries,
+        valueLabelsConfig,
+        valueLabelFormatter,
+        primaryYAxis,
+        yAxes,
+    } = useTimeSeries(series, labels, theme, { xAxis, yAxis, valueLabels, legend })
 
     const finalSeries = useDerivedSeries(chartSeries, {
         confidenceIntervals,

@@ -1,4 +1,4 @@
-import React, { useMemo } from 'react'
+import React from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
 import type {
@@ -15,13 +15,7 @@ import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { TrendLineOverlay } from '../../overlays/TrendLineOverlay'
 import { ValueLabels } from '../../overlays/ValueLabels'
 import type { GoalLineConfig } from '../../utils/goal-lines'
-import {
-    buildYAxes,
-    normalizeYAxisList,
-    primaryYAxisConfig,
-    type XAxisConfig,
-    type YAxisConfig,
-} from '../../utils/use-axis-formatters'
+import type { XAxisConfig, YAxisConfig } from '../../utils/use-axis-formatters'
 import { BarChart } from '../BarChart/BarChart'
 import { useTrendLineSeries, type TrendLineConfig } from '../utils/use-derived-series'
 import { useGoalLines, useTimeSeries } from '../utils/use-time-series'
@@ -99,10 +93,6 @@ export function TimeSeriesBarChart<Meta = unknown>({
         legend,
         trendLines,
     } = config ?? {}
-    const axisList = useMemo(() => normalizeYAxisList(yAxis), [yAxis])
-    const primaryYAxis = useMemo<YAxisConfig | undefined>(() => primaryYAxisConfig(axisList), [axisList])
-    const yAxes = useMemo(() => (Array.isArray(yAxis) ? buildYAxes(axisList) : undefined), [yAxis, axisList])
-
     const {
         xTickFormatter,
         yTickFormatter,
@@ -111,7 +101,9 @@ export function TimeSeriesBarChart<Meta = unknown>({
         chartSeries,
         valueLabelsConfig,
         valueLabelFormatter,
-    } = useTimeSeries(series, labels, theme, { xAxis, yAxis: primaryYAxis, valueLabels, legend })
+        primaryYAxis,
+        yAxes,
+    } = useTimeSeries(series, labels, theme, { xAxis, yAxis, valueLabels, legend })
 
     // `axisOrientation` flows through `barChartConfig` into chart context, so `ReferenceLine`
     // reads it automatically — no need to stamp each line here.

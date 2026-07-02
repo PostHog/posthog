@@ -1,11 +1,14 @@
 import { useMemo } from 'react'
 
 import { useChartLegend, type ChartLegendRenderProps } from '../../components/Legend/useChartLegend'
-import type { ChartLegendConfig, ChartTheme, Series, ValueDomain } from '../../core/types'
+import type { ChartLegendConfig, ChartTheme, Series, ValueDomain, YAxis } from '../../core/types'
 import type { ReferenceLineProps } from '../../overlays/ReferenceLine'
 import type { ValueLabelFormatter } from '../../overlays/ValueLabels'
 import { buildGoalLineReferenceLines, goalLineValueDomain, type GoalLineConfig } from '../../utils/goal-lines'
 import {
+    buildYAxes,
+    normalizeYAxisList,
+    primaryYAxisConfig,
     useXTickFormatter,
     useYTickFormatter,
     type XAxisConfig,
@@ -15,8 +18,10 @@ import { resolveValueLabelsConfig, useSeriesWithValueLabelAllowlist, type ValueL
 
 export interface UseTimeSeriesConfig {
     xAxis?: XAxisConfig
-    /** The primary y-axis config — drives the default y-tick and value-label formatters. */
-    yAxis?: YAxisConfig
+    /** Single object for one y-axis; array for multi-axis charts (one entry per axis, `id`
+     *  matching `Series.yAxisId`). The primary (left) entry drives the default y-tick and
+     *  value-label formatters. */
+    yAxis?: YAxisConfig | YAxisConfig[]
     valueLabels?: boolean | ValueLabelsConfig
     legend?: ChartLegendConfig
 }
@@ -34,14 +39,21 @@ export interface UseTimeSeriesResult<Meta> {
     valueLabelsConfig: ValueLabelsConfig | null
     /** Formatter for the `<ValueLabels>` overlay. Undefined when value labels are off. */
     valueLabelFormatter: ValueLabelFormatter | undefined
+    /** The primary (left) axis config — drives the base chart's scalar y fields
+     *  (`yScaleType`/`hideYAxis`/`yAxisLabel`/`showGrid`) and the left gutter when a
+     *  right-axis series is present. */
+    primaryYAxis: YAxisConfig | undefined
+    /** Per-axis configs for the base chart, only when the caller passed a `yAxis` array — a
+     *  single object keeps the existing single-axis path untouched (no `yAxes` on the config). */
+    yAxes: YAxis[] | undefined
 }
 
-/** The shared preamble of the TimeSeries* wrappers — date-aware x ticks, y ticks, the
- *  built-in click-to-toggle legend, and value-label config — kept in one place so the line/bar/
- *  combo wrappers can't drift. Legend toggling works off the raw `series` so the legend lists the
- *  user's series (not derived trend lines / CI bands); hidden ones flow onward already excluded.
- *  Chart-specific concerns (scales, layouts, derived series, goal-line resolution) stay in each
- *  wrapper. */
+/** The shared preamble of the TimeSeries* wrappers — date-aware x ticks, y ticks (primary +
+ *  multi-axis resolution), the built-in click-to-toggle legend, and value-label config — kept in
+ *  one place so the line/bar/combo wrappers can't drift. Legend toggling works off the raw
+ *  `series` so the legend lists the user's series (not derived trend lines / CI bands); hidden
+ *  ones flow onward already excluded. Chart-specific concerns (scales, layouts, derived series,
+ *  goal-line resolution) stay in each wrapper. */
 export function useTimeSeries<Meta>(
     series: Series<Meta>[],
     labels: string[],
@@ -49,8 +61,11 @@ export function useTimeSeries<Meta>(
     config: UseTimeSeriesConfig
 ): UseTimeSeriesResult<Meta> {
     const { xAxis, yAxis, valueLabels, legend } = config
+    const axisList = useMemo(() => normalizeYAxisList(yAxis), [yAxis])
+    const primaryYAxis = useMemo(() => primaryYAxisConfig(axisList), [axisList])
+    const yAxes = useMemo(() => (Array.isArray(yAxis) ? buildYAxes(axisList) : undefined), [yAxis, axisList])
     const xTickFormatter = useXTickFormatter(xAxis, labels)
-    const yTickFormatter = useYTickFormatter(yAxis)
+    const yTickFormatter = useYTickFormatter(primaryYAxis)
     const { visibleSeries, legendProps } = useChartLegend(series, theme, legend)
     const valueLabelsConfig = resolveValueLabelsConfig(valueLabels)
     const chartSeries = useSeriesWithValueLabelAllowlist(visibleSeries, valueLabelsConfig?.seriesKeys)
@@ -63,6 +78,8 @@ export function useTimeSeries<Meta>(
         chartSeries,
         valueLabelsConfig,
         valueLabelFormatter,
+        primaryYAxis,
+        yAxes,
     }
 }
 
