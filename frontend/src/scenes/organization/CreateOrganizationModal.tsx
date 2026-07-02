@@ -87,7 +87,7 @@ export function CreateOrganizationModal({
                                         type="primary"
                                         size="small"
                                         to={urls.inviteSignup(invite.id)}
-                                        data-attr="accept-pending-invite"
+                                        data-attr={`accept-pending-invite-${invite.id}`}
                                     >
                                         Accept
                                     </LemonButton>
