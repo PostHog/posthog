@@ -8,7 +8,7 @@ export interface FullSnapshotRef {
 export interface SourceEntry {
     source: SessionRecordingSnapshotSource
     index: number
-    state: 'unloaded' | 'loaded'
+    state: 'unloaded' | 'fetched' | 'loaded'
     processedSnapshots: RecordingSnapshot[] | null
     fullSnapshots: FullSnapshotRef[]
     metaTimestamps: number[]
@@ -24,5 +24,5 @@ export interface LoadBatch {
 export interface SourceLoadingState {
     startMs: number
     endMs: number
-    state: 'unloaded' | 'loaded'
+    state: 'unloaded' | 'fetched' | 'loaded'
 }

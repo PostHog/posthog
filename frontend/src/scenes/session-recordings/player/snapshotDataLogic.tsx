@@ -266,7 +266,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             if (cache.store) {
                 const fileSource = { source: SnapshotSourceType.file } as SessionRecordingSnapshotSource
                 cache.store.setSources([fileSource])
-                cache.store.markLoaded(0, snapshots)
+                cache.store.markFetched(0, snapshots)
                 cache.pendingBatch = { snapshots, sources: [fileSource] }
             }
 
@@ -365,7 +365,8 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 buckets.get(sourceEntries[seIdx].sourceIndex)?.push(snap)
             }
             for (const se of sourceEntries) {
-                cache.store?.markLoaded(se.sourceIndex, buckets.get(se.sourceIndex)!)
+                // fetched, not loaded — sources become playable only once a processing pass promotes them
+                cache.store?.markFetched(se.sourceIndex, buckets.get(se.sourceIndex)!)
             }
             actions.storeUpdated()
 

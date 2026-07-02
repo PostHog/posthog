@@ -388,6 +388,29 @@ describe('SnapshotStore', () => {
         })
     })
 
+    describe('fetched lifecycle', () => {
+        it('fetched sources are not playable until a processing pass promotes them', () => {
+            const store = new SnapshotStore()
+            store.setSources(makeSources(2))
+            const fsTs = new Date(Date.UTC(2023, 7, 11, 12, 0, 30)).getTime()
+
+            store.markFetched(0, [makeFullSnapshot(fsTs), makeSnapshot(fsTs + 100)])
+            store.markFetched(1, [makeSnapshot(fsTs + 60000)])
+
+            // fetched data is indexed but not renderable, and not refetchable either
+            expect(store.canPlayAt(fsTs + 100)).toBe(false)
+            expect(store.allLoaded).toBe(false)
+            expect(store.getUnloadedIndicesInRange(0, 1)).toEqual([0, 1])
+            expect(store.getUnfetchedIndicesInRange(0, 1)).toEqual([])
+
+            expect(store.markProcessed([0, 1])).toBe(true)
+
+            expect(store.canPlayAt(fsTs + 100)).toBe(true)
+            expect(store.allLoaded).toBe(true)
+            expect(store.getUnloadedIndicesInRange(0, 1)).toEqual([])
+        })
+    })
+
     describe('syncFullSnapshotTimestamps', () => {
         it('syncs synthetic full snapshot timestamps from processed results', () => {
             const store = new SnapshotStore()

@@ -53,17 +53,43 @@ export class SnapshotStore {
         return this.entries[index]
     }
 
+    // One-shot fetched+processed transition for data seeded outside the fetch/process pipeline (tests).
     markLoaded(sourceIndex: number, processedSnapshots: RecordingSnapshot[]): void {
+        this.ingest(sourceIndex, processedSnapshots, 'loaded')
+    }
+
+    // Raw data has arrived but hasn't been through snapshot processing yet — playable state ('loaded') is granted by markProcessed.
+    markFetched(sourceIndex: number, snapshots: RecordingSnapshot[]): void {
+        this.ingest(sourceIndex, snapshots, 'fetched')
+    }
+
+    // Flips fetched sources to loaded once a processing pass has covered them.
+    markProcessed(sourceIndexes: number[]): boolean {
+        let changed = false
+        for (const sourceIndex of sourceIndexes) {
+            const entry = this.entries[sourceIndex]
+            if (entry?.state === 'fetched') {
+                entry.state = 'loaded'
+                changed = true
+            }
+        }
+        if (changed) {
+            this.bump()
+        }
+        return changed
+    }
+
+    private ingest(sourceIndex: number, snapshots: RecordingSnapshot[], state: 'fetched' | 'loaded'): void {
         const entry = this.entries[sourceIndex]
         if (!entry) {
             return
         }
 
-        processedSnapshots.sort((a, b) => a.timestamp - b.timestamp)
+        snapshots.sort((a, b) => a.timestamp - b.timestamp)
 
         const fullSnapshots: FullSnapshotRef[] = []
         const metaTimestamps: number[] = []
-        for (const snap of processedSnapshots) {
+        for (const snap of snapshots) {
             if (snap.type === EventType.FullSnapshot) {
                 fullSnapshots.push({ timestamp: snap.timestamp, windowId: snap.windowId })
             }
@@ -72,8 +98,8 @@ export class SnapshotStore {
             }
         }
 
-        entry.state = 'loaded'
-        entry.processedSnapshots = processedSnapshots
+        entry.state = state
+        entry.processedSnapshots = snapshots
         entry.fullSnapshots = fullSnapshots
         entry.metaTimestamps = metaTimestamps
         this.bump()
@@ -86,7 +112,7 @@ export class SnapshotStore {
 
         const result: RecordingSnapshot[] = []
         for (const entry of this.entries) {
-            if (entry.state === 'loaded' && entry.processedSnapshots) {
+            if (entry.state !== 'unloaded' && entry.processedSnapshots) {
                 for (const snap of entry.processedSnapshots) {
                     result.push(snap)
                 }
@@ -247,21 +273,33 @@ export class SnapshotStore {
         return changed
     }
 
-    // Deliberately does not bump(): consumers should keep their memoized view; only loaded-state metadata remains meaningful afterwards.
+    // Deliberately does not bump(): consumers should keep their memoized view; only loaded-state metadata remains meaningful afterwards. Fetched entries keep their raw data — it hasn't been processed yet.
     clearSnapshotData(): void {
         for (const entry of this.entries) {
-            entry.processedSnapshots = null
+            if (entry.state === 'loaded') {
+                entry.processedSnapshots = null
+            }
         }
         this.mergedSnapshotsCache = null
         this.snapshotsByWindowIdCache = null
     }
 
+    // "Not yet playable" — fetched-but-unprocessed sources count; use for renderability, not for planning fetches.
     getUnloadedIndicesInRange(start: number, end: number): number[] {
+        return this.indicesInRange(start, end, (state) => state !== 'loaded')
+    }
+
+    // "Not yet requested" — what the load planner still needs to fetch from the network.
+    getUnfetchedIndicesInRange(start: number, end: number): number[] {
+        return this.indicesInRange(start, end, (state) => state === 'unloaded')
+    }
+
+    private indicesInRange(start: number, end: number, matches: (state: SourceEntry['state']) => boolean): number[] {
         const result: number[] = []
         const clampedStart = Math.max(0, start)
         const clampedEnd = Math.min(this.entries.length - 1, end)
         for (let i = clampedStart; i <= clampedEnd; i++) {
-            if (this.entries[i]?.state !== 'loaded') {
+            if (matches(this.entries[i]?.state ?? 'unloaded')) {
                 result.push(i)
             }
         }

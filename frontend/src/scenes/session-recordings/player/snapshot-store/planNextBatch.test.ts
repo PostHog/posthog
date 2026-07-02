@@ -265,6 +265,21 @@ describe('planNextBatch', () => {
         })
     })
 
+    describe('fetched sources', () => {
+        it('does not re-request fetched-but-unprocessed sources', () => {
+            const store = new SnapshotStore()
+            store.setSources(makeSources(3))
+            for (let i = 0; i < 3; i++) {
+                store.markFetched(i, [makeSnapshot(tsForMinute(i))])
+            }
+
+            // nothing to fetch even though nothing is playable yet — processing, not the network, is what's pending
+            expect(plan(store, { target: { timestamp: tsForMinute(1) } })).toBeNull()
+            expect(plan(store, { playbackPosition: tsForMinute(0) })).toBeNull()
+            expect(plan(store, { loadAll: true })).toBeNull()
+        })
+    })
+
     describe('truncation to contiguous ranges', () => {
         it.each([
             { description: 'stops at loaded source in the middle', loaded: [5], expected: [3, 4] },

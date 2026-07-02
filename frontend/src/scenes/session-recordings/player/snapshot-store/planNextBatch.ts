@@ -29,7 +29,7 @@ export function planNextBatch(
     }
 
     if (loadAll) {
-        const unloaded = store.getUnloadedIndicesInRange(0, store.sourceCount - 1)
+        const unloaded = store.getUnfetchedIndicesInRange(0, store.sourceCount - 1)
         if (unloaded.length === 0) {
             return null
         }
@@ -55,7 +55,7 @@ function planSeekBatch(store: SnapshotStore, { timestamp, windowId }: SeekTarget
     const windowEnd = Math.min(store.sourceCount - 1, targetIndex + SEEK_WINDOW_AHEAD)
 
     // Step 1: load the window around the target.
-    const unloadedInWindow = store.getUnloadedIndicesInRange(windowStart, windowEnd)
+    const unloadedInWindow = store.getUnfetchedIndicesInRange(windowStart, windowEnd)
     if (unloadedInWindow.length > 0) {
         return { sourceIndices: truncateToContiguous(unloadedInWindow.slice(0, batchSize)), reason: 'seek_target' }
     }
@@ -63,7 +63,7 @@ function planSeekBatch(store: SnapshotStore, { timestamp, windowId }: SeekTarget
     // Step 2: fill the span between the nearest usable FullSnapshot and the target, closest to the target first.
     const nearestFull = store.findNearestFullSnapshot(timestamp, windowId)
     if (nearestFull) {
-        const gapIndices = store.getUnloadedIndicesInRange(nearestFull.sourceIndex, targetIndex)
+        const gapIndices = store.getUnfetchedIndicesInRange(nearestFull.sourceIndex, targetIndex)
         if (gapIndices.length > 0) {
             return { sourceIndices: truncateToContiguous(gapIndices.slice(-batchSize)), reason: 'seek_gap_fill' }
         }
@@ -71,7 +71,7 @@ function planSeekBatch(store: SnapshotStore, { timestamp, windowId }: SeekTarget
     }
 
     // Step 3: no FullSnapshot at or before the target is loaded — hunt backward, closest sources first.
-    const backwardIndices = store.getUnloadedIndicesInRange(0, windowStart - 1)
+    const backwardIndices = store.getUnfetchedIndicesInRange(0, windowStart - 1)
     if (backwardIndices.length > 0) {
         return { sourceIndices: truncateToContiguous(backwardIndices.slice(-batchSize)), reason: 'seek_backward' }
     }
@@ -81,7 +81,7 @@ function planSeekBatch(store: SnapshotStore, { timestamp, windowId }: SeekTarget
         .fullSnapshotsAfter(timestamp)
         .some((fullSnapshot) => windowId === undefined || fullSnapshot.windowId === windowId)
     if (!hasRecoveryCandidate) {
-        const forwardIndices = store.getUnloadedIndicesInRange(windowEnd + 1, store.sourceCount - 1)
+        const forwardIndices = store.getUnfetchedIndicesInRange(windowEnd + 1, store.sourceCount - 1)
         if (forwardIndices.length > 0) {
             return { sourceIndices: truncateToContiguous(forwardIndices.slice(0, batchSize)), reason: 'seek_forward' }
         }
@@ -106,14 +106,14 @@ function planBufferAheadBatch(
     }
 
     const bufferEnd = Math.min(store.sourceCount - 1, anchorIndex + BUFFER_AHEAD_SOURCES - 1)
-    const aheadIndices = store.getUnloadedIndicesInRange(anchorIndex, bufferEnd)
+    const aheadIndices = store.getUnfetchedIndicesInRange(anchorIndex, bufferEnd)
     if (aheadIndices.length > 0) {
         return { sourceIndices: truncateToContiguous(aheadIndices.slice(0, batchSize)), reason: 'buffer_ahead' }
     }
 
     // A playhead with no usable FullSnapshot can't progress to pull the buffer window along, so scan forward until the player clamps to a recovery FullSnapshot or everything is loaded.
     if (playbackPosition !== undefined && store.findNearestFullSnapshot(playbackPosition, playbackWindowId) === null) {
-        const forwardIndices = store.getUnloadedIndicesInRange(bufferEnd + 1, store.sourceCount - 1)
+        const forwardIndices = store.getUnfetchedIndicesInRange(bufferEnd + 1, store.sourceCount - 1)
         if (forwardIndices.length > 0) {
             return { sourceIndices: truncateToContiguous(forwardIndices.slice(0, batchSize)), reason: 'seek_forward' }
         }

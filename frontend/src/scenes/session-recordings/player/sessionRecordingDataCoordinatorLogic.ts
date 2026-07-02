@@ -105,7 +105,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     'loadRecordingNotebookCommentsSuccess',
                 ],
                 snapLogic,
-                ['storeUpdated'],
+                ['storeUpdated', 'loadNextSnapshotSource'],
             ],
             values: [
                 metaLogic,
@@ -217,10 +217,15 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
 
             const sources = values.snapshotSources
             const snapshotsBySource = {} as Record<string, { snapshots: RecordingSnapshot[] }>
+            // fetched sources this pass will cover — promoted to loaded on completion, including empty ones that contribute no snapshots
+            const coveredIndexes: number[] = []
             if (sources) {
                 for (let i = 0; i < sources.length; i++) {
                     const entry = values.snapshotStore.getEntry(i)
-                    if (entry?.state === 'loaded' && entry.processedSnapshots?.length) {
+                    if (entry?.state === 'fetched') {
+                        coveredIndexes.push(i)
+                    }
+                    if (entry?.state !== 'unloaded' && entry?.processedSnapshots?.length) {
                         snapshotsBySource[keyForSource(sources[i])] = {
                             snapshots: entry.processedSnapshots,
                         }
@@ -239,17 +244,24 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
 
             breakpoint()
 
+            // Promotion is what makes these sources count as playable — the oracle, segments, and planner all key on it, so it must land with the processed snapshots.
+            const promoted = values.snapshotStore.markProcessed(coveredIndexes)
             // processAllSnapshots may synthesize full snapshots (e.g. for mobile recordings).
             // Sync them back to the store so canPlayAt() and the load planner work correctly.
-            if (values.snapshotStore.syncFullSnapshotTimestamps(result)) {
-                actions.storeUpdated()
-            }
+            const synced = values.snapshotStore.syncFullSnapshotTimestamps(result)
 
             // Release raw snapshot arrays from the store — only the metadata
             // (fullSnapshots, metaTimestamps, state) is still needed.
             values.snapshotStore.clearSnapshotData()
 
+            if (promoted || synced) {
+                actions.storeUpdated()
+            }
             actions.setProcessedSnapshots(result)
+            if (promoted) {
+                // allSourcesLoaded flips only now, so polling has to be re-armed from here rather than from the fetch path
+                actions.loadNextSnapshotSource()
+            }
         },
 
         reportUsageIfFullyLoaded: (_, breakpoint) => {
@@ -507,7 +519,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         effectiveSourceLoadingStates: [
             (s) => [s.sourceLoadingStates, s.segments],
             (states: SourceLoadingState[], segments: RecordingSegment[]): SourceLoadingState[] => {
-                let lastNonGapState: 'loaded' | 'unloaded' = 'unloaded'
+                let lastNonGapState: SourceLoadingState['state'] = 'unloaded'
                 return states.map((s) => {
                     const inGap = !segments.some(
                         (seg) => seg.kind !== 'gap' && seg.startTimestamp < s.endMs && seg.endTimestamp > s.startMs

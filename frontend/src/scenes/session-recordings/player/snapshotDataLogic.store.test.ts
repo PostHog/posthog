@@ -126,7 +126,7 @@ describe('snapshotDataLogic (store-based loading)', () => {
             expect(allSnaps.length).toBeGreaterThan(0)
         })
 
-        it('marks sources as loaded after bucketing', async () => {
+        it('marks sources as fetched, not loaded, after bucketing', async () => {
             mountLogic()
 
             await expectLogic(logic, () => {
@@ -135,8 +135,10 @@ describe('snapshotDataLogic (store-based loading)', () => {
                 .toDispatchActions(['loadSnapshotsForSourceSuccess'])
                 .toFinishAllListeners()
 
+            // playable state is granted by the coordinator's processing pass, which isn't mounted here
             const states = logic.values.sourceLoadingStates
-            expect(states.some((s) => s.state === 'loaded')).toBe(true)
+            expect(states.some((s) => s.state === 'fetched')).toBe(true)
+            expect(states.some((s) => s.state === 'loaded')).toBe(false)
         })
     })
 
@@ -340,7 +342,7 @@ describe('snapshotDataLogic (store-based loading)', () => {
                 expect(logic.values.allSourcesLoaded).toBe(false)
             })
 
-            it('becomes true once all sources have been marked loaded', () => {
+            it('becomes true only once fetched sources have been processed', () => {
                 mountLogic()
 
                 const store = logic.values.snapshotStore!
@@ -349,14 +351,15 @@ describe('snapshotDataLogic (store-based loading)', () => {
                 // Trigger selector re-evaluation with a source set
                 logic.actions.loadSnapshotSourcesSuccess([SOURCE_A, SOURCE_B])
 
-                // Not yet — no data loaded
-                store.markLoaded(0, [makeFullSnapshot(tsMs(0, 0))])
-                logic.actions.loadSnapshotsForSourceSuccess({ sources: [SOURCE_A] })
+                // Fetched data alone is not playable
+                store.markFetched(0, [makeFullSnapshot(tsMs(0, 0))])
+                store.markFetched(1, [makeSnapshot(tsMs(1, 0))])
+                logic.actions.storeUpdated()
                 expect(logic.values.allSourcesLoaded).toBe(false)
 
-                // Now mark the second source
-                store.markLoaded(1, [makeSnapshot(tsMs(1, 0))])
-                logic.actions.loadSnapshotsForSourceSuccess({ sources: [SOURCE_B] })
+                // A processing pass promotes them
+                store.markProcessed([0, 1])
+                logic.actions.storeUpdated()
                 expect(logic.values.allSourcesLoaded).toBe(true)
             })
         })
@@ -430,7 +433,7 @@ describe('snapshotDataLogic (store-based loading)', () => {
 
             const store = logic.values.snapshotStore!
             expect(store.sourceCount).toBe(1)
-            expect(store.allLoaded).toBe(true)
+            expect(store.getSourceStates()[0].state).toBe('fetched')
             expect(store.getAllLoadedSnapshots()).toHaveLength(3)
         })
 
