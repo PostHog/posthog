@@ -4,6 +4,8 @@ import { router, combineUrl } from 'kea-router'
 import { IconSparkles } from '@posthog/icons'
 import { LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
@@ -13,7 +15,7 @@ import { SceneExport } from '~/scenes/sceneTypes'
 import { askPostHogAI } from './askPostHogAI'
 import { MCPAnalyticsClustering } from './clustering/MCPAnalyticsClustering'
 import { MCPAnalyticsDashboard } from './MCPAnalyticsDashboard'
-import { MCPAnalyticsLoading, MCPAnalyticsOnboarding } from './MCPAnalyticsOnboarding'
+import { MCPAnalyticsBetaGate, MCPAnalyticsLoading, MCPAnalyticsOnboarding } from './MCPAnalyticsOnboarding'
 import { mcpAnalyticsOnboardingLogic } from './mcpAnalyticsOnboardingLogic'
 import { MCPAnalyticsTab, TAB_AI_PROMPTS, TAB_DESCRIPTIONS, mcpAnalyticsSceneLogic } from './mcpAnalyticsSceneLogic'
 import { MCPAnalyticsToolQuality } from './MCPAnalyticsToolQuality'
@@ -28,8 +30,14 @@ const DEFAULT_DOCS_URL = 'https://posthog.com/docs/mcp-analytics/installation'
 
 export function MCPAnalyticsScene(): JSX.Element {
     const { searchParams } = useValues(router)
+    const { featureFlags } = useValues(featureFlagLogic)
     const { activeTab } = useValues(mcpAnalyticsSceneLogic)
     const { onboardingState, signals } = useValues(mcpAnalyticsOnboardingLogic)
+
+    // Invite-only beta: without the flag every tab denies server-side, so gate the whole scene on it
+    // and show the request-access state instead of the raw error/empty states those denials produce.
+    const hasAccess = !!featureFlags[FEATURE_FLAGS.MCP_ANALYTICS]
+    const showOnboardedChrome = hasAccess && onboardingState === 'onboarded'
 
     const tabs: LemonTab<MCPAnalyticsTab>[] = [
         {
@@ -66,11 +74,11 @@ export function MCPAnalyticsScene(): JSX.Element {
         <SceneContent>
             <SceneTitleSection
                 name="MCP analytics"
-                description={onboardingState === 'onboarded' ? TAB_DESCRIPTIONS[activeTab] : null}
+                description={showOnboardedChrome ? TAB_DESCRIPTIONS[activeTab] : null}
                 resourceType={{ type: 'llm_analytics' }}
                 actions={
                     <>
-                        {onboardingState === 'onboarded' && (
+                        {showOnboardedChrome && (
                             <LemonButton
                                 type="secondary"
                                 size="small"
@@ -90,7 +98,9 @@ export function MCPAnalyticsScene(): JSX.Element {
             {/* `signals === null` means we don't know yet — still loading, or a transient
                 query failure. Hold the skeleton rather than falling through to the empty
                 dashboard (the very state this onboarding exists to avoid); the 20s poll retries. */}
-            {signals === null ? (
+            {!hasAccess ? (
+                <MCPAnalyticsBetaGate />
+            ) : signals === null ? (
                 <MCPAnalyticsLoading />
             ) : onboardingState && onboardingState !== 'onboarded' ? (
                 <MCPAnalyticsOnboarding state={onboardingState} />

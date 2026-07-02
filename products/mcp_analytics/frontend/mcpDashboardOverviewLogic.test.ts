@@ -561,4 +561,46 @@ describe('mcpDashboardOverviewLogic', () => {
             expect(logic.values.propertyFilters).toEqual([EVENT_FILTER])
         })
     })
+
+    describe('harness access-control handling', () => {
+        // The harness tile is the only flag-gated dashboard query; right after a user joins the
+        // beta the flag can still be propagating server-side, so its runner 400s with an
+        // access-control failure. That denial must resolve to an empty tile (loadHarnessRowsSuccess),
+        // not a global error-toast failure, while every other tile loads normally.
+        const ACCESS_CONTROL_ERROR = {
+            status: 400,
+            detail: "Access control failure. You don't have `viewer` access to the `mcp_analytics` resource.",
+        }
+
+        beforeEach(() => {
+            jest.clearAllMocks()
+            initKeaTests()
+        })
+
+        function mockHarnessRejection(error: unknown): void {
+            jest.spyOn(mockApi, 'query').mockImplementation((query: any) =>
+                query?.kind === 'MCPHarnessBreakdownQuery'
+                    ? Promise.reject(error)
+                    : (Promise.resolve({ results: [] }) as any)
+            )
+        }
+
+        it('swallows a transient flag-gate denial into an empty tile', async () => {
+            mockHarnessRejection(ACCESS_CONTROL_ERROR)
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+
+            // Reaching Success (not Failure) proves the denial was swallowed rather than toasted.
+            await expectLogic(logic).toDispatchActions(['loadHarnessRows', 'loadHarnessRowsSuccess'])
+            expect(logic.values.harnessRows).toEqual([])
+        })
+
+        it('still fails loudly on a non-access-control error', async () => {
+            mockHarnessRejection({ status: 500, detail: 'ClickHouse error while executing query.' })
+            const logic = mcpDashboardOverviewLogic()
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadHarnessRows', 'loadHarnessRowsFailure'])
+        })
+    })
 })

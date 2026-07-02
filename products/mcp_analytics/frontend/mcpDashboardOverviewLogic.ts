@@ -418,6 +418,22 @@ export function buildKPIs(rows: BucketRow[], currentStartBucket: string): KPIDat
     }
 }
 
+// The harness tile is the only dashboard query gated by the mcp-analytics flag (its runner
+// checks the flag server-side). Right after a user is added to the beta allow-list the flag can
+// still be propagating on the server, so the query 400s with an access-control failure for a beat.
+// Treat that specific denial as "no data yet" instead of letting it flash a global error toast —
+// the polling reload resolves it once the flag lands. Any other failure still surfaces normally.
+// Duck-typed on the ApiError shape (status + detail) the /query/ endpoint returns for the denial.
+function isAccessControlError(error: unknown): boolean {
+    const apiError = error as { status?: number; detail?: unknown } | null
+    return (
+        !!apiError &&
+        apiError.status === 400 &&
+        typeof apiError.detail === 'string' &&
+        apiError.detail.includes('Access control failure')
+    )
+}
+
 export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
     path(['products', 'mcp_analytics', 'frontend', 'mcpDashboardOverviewLogic']),
     connect(() => ({
@@ -521,12 +537,21 @@ export const mcpDashboardOverviewLogic = kea<mcpDashboardOverviewLogicType>([
             {
                 loadHarnessRows: async (_: void, breakpoint) => {
                     const { dateRange, properties, filterTestAccounts } = values.queryFilters
-                    const response = (await api.query({
-                        kind: NodeKind.MCPHarnessBreakdownQuery,
-                        dateRange,
-                        properties,
-                        filterTestAccounts,
-                    })) as { results?: MCPHarnessBreakdownItem[] }
+                    let response: { results?: MCPHarnessBreakdownItem[] }
+                    try {
+                        response = (await api.query({
+                            kind: NodeKind.MCPHarnessBreakdownQuery,
+                            dateRange,
+                            properties,
+                            filterTestAccounts,
+                        })) as { results?: MCPHarnessBreakdownItem[] }
+                    } catch (error) {
+                        // Swallow only the flag-gate propagation race; rethrow everything else.
+                        if (isAccessControlError(error)) {
+                            return []
+                        }
+                        throw error
+                    }
                     breakpoint()
                     return (response?.results ?? []).map((r) => ({
                         category: r.harness,

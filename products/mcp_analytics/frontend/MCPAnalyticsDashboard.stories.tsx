@@ -381,3 +381,11 @@ export const IntentClustering: Story = {
         pageUrl: urls.mcpAnalyticsIntentClustering(),
     },
 }
+
+// Project not on the mcp-analytics beta flag: the whole scene falls back to the invite-only
+// request-access state instead of the tabs (which would deny server-side).
+export const NoAccess: Story = {
+    parameters: {
+        featureFlags: [],
+    },
+}
