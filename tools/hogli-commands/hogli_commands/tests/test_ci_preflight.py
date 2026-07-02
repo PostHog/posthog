@@ -27,3 +27,33 @@ class TestKillSwitch:
         assert result.exit_code == 0
         assert json.loads(result.output)["mode"] == "disabled"
         mock_changed.assert_not_called()
+
+
+class TestStrictAndFixContracts:
+    @patch("hogli_commands.ci_preflight._emit_telemetry")
+    @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
+    @patch("hogli_commands.ci_preflight._fetch_master")
+    @patch("hogli_commands.ci_preflight.changed_files", return_value=["posthog/api/does_not_exist.py"])
+    def test_strict_exits_nonzero_on_advisory(
+        self, mock_changed: MagicMock, mock_fetch: MagicMock, mock_stale: MagicMock, mock_emit: MagicMock
+    ) -> None:
+        result = runner.invoke(cli, ["ci:preflight", "--strict"])
+        assert "build:openapi" in result.output
+        assert result.exit_code == 1
+
+    @patch("hogli_commands.ci_preflight._emit_telemetry")
+    @patch("hogli_commands.ci_preflight._capability_met", return_value=False)
+    @patch("hogli_commands.ci_preflight._staleness", return_value=("pass", "even with master", {}))
+    @patch("hogli_commands.ci_preflight._fetch_master")
+    @patch("hogli_commands.ci_preflight.changed_files", return_value=["posthog/api/does_not_exist.py"])
+    def test_fix_without_stack_still_advises_openapi(
+        self,
+        mock_changed: MagicMock,
+        mock_fetch: MagicMock,
+        mock_stale: MagicMock,
+        mock_capability: MagicMock,
+        mock_emit: MagicMock,
+    ) -> None:
+        result = runner.invoke(cli, ["ci:preflight", "--fix"])
+        assert result.exit_code == 0
+        assert "run `hogli build:openapi` and commit drift" in result.output

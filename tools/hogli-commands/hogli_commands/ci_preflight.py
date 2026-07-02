@@ -9,7 +9,7 @@ is advisory by default so it never blocks a push.
 
     hogli ci:preflight            # report what your diff could break in CI
     hogli ci:preflight --fix      # auto-remediate what's safe, report the rest
-    hogli ci:preflight --strict   # exit non-zero on any finding (for hooks/CI)
+    hogli ci:preflight --strict   # exit non-zero on failed/advisory checks (for hooks/CI)
     hogli ci:preflight --against origin/master   # diff against an explicit base
 
 ``HOGLI_PREFLIGHT_DISABLED=1`` makes the command a no-op — the rollout/emergency
@@ -43,7 +43,7 @@ from hogli.manifest import REPO_ROOT
 from hogli_commands.build import TRIGGERS as BUILD_TRIGGERS
 from hogli_commands.change_detection import changed_files, matches_globs
 
-Requirement = Literal["node", "stack"]
+Requirement = Literal["node", "stack", "clickhouse"]
 
 
 @dataclass
@@ -56,7 +56,7 @@ class DiffCheck:
     triggers: list[str]  # fnmatch globs against changed paths (`*` spans `/`, as in build.py)
     verify: list[str] | None  # advisory command; None = guidance only (no runnable local check)
     fix: list[str] | None = None  # remediation for --fix
-    requires: Requirement | None = None  # capability the check needs, else it skips
+    requires: tuple[Requirement, ...] = ()  # capabilities the check needs, else it skips
     takes_files: bool = False  # append matched files to the command
     matched: list[str] = field(default_factory=list)
 
@@ -68,10 +68,13 @@ DIFF_CHECKS: list[DiffCheck] = [
     DiffCheck(
         key="lockfile",
         label="broken pnpm-lock.yaml (blocks ALL CI)",
-        triggers=["package.json", "*/package.json", "pnpm-lock.yaml"],
-        verify=["pnpm", "install", "--frozen-lockfile"],
+        # pnpm-workspace.yaml (catalog versions) and patches/* (patchedDependencies
+        # hashes) invalidate the lockfile just like a package.json edit.
+        triggers=["package.json", "*/package.json", "pnpm-lock.yaml", "pnpm-workspace.yaml", "patches/*"],
+        # --lockfile-only validates manifest/lockfile agreement without touching node_modules.
+        verify=["pnpm", "install", "--frozen-lockfile", "--lockfile-only"],
         fix=["pnpm", "install", "--no-frozen-lockfile"],
-        requires="node",
+        requires=("node",),
     ),
     DiffCheck(
         key="ruff-lint",
@@ -94,9 +97,11 @@ DIFF_CHECKS: list[DiffCheck] = [
         label="markdown formatting (oxfmt)",
         triggers=["*.md", "*.mdx"],
         # Mirrors lint-staged's `format:markdown`, which agents bypass via --no-verify.
-        verify=["pnpm", "exec", "oxfmt", "--check"],
+        # --no-error-on-unmatched-pattern: .oxfmtrc.json ignores whole trees (rust/,
+        # fixtures, ...) and oxfmt exits 2 when every given file is ignored.
+        verify=["pnpm", "exec", "oxfmt", "--check", "--no-error-on-unmatched-pattern"],
         fix=["hogli", "format:markdown"],
-        requires="node",
+        requires=("node",),
         takes_files=True,
     ),
     DiffCheck(
@@ -120,14 +125,15 @@ DIFF_CHECKS: list[DiffCheck] = [
         # Drift detection regenerates then diffs — needs the DB. Guidance-only here.
         verify=None,
         fix=["hogli", "build:openapi"],
-        requires="stack",
+        requires=("stack",),
     ),
     DiffCheck(
         key="migrations",
         label="migration conflict / orphaned migration",
         triggers=["*/migrations/*.py"],
+        # migrations:check declares both postgresql and clickhouse services.
         verify=["hogli", "migrations:check"],
-        requires="stack",
+        requires=("stack", "clickhouse"),
     ),
 ]
 
@@ -136,36 +142,46 @@ def _has_node_modules() -> bool:
     return (REPO_ROOT / "node_modules" / ".pnpm").exists()
 
 
-def _stack_up() -> bool:
-    """Cheap probe: is local Postgres reachable? Proxy for 'dev stack is running'."""
+def _port_open(port: int) -> bool:
     try:
-        with socket.create_connection(("localhost", 5432), timeout=0.3):
+        with socket.create_connection(("localhost", port), timeout=0.3):
             return True
     except OSError:
         return False
 
 
-def _capability_met(req: Requirement | None) -> bool:
+def _capability_met(req: Requirement) -> bool:
     if req == "node":
         return _has_node_modules()
     if req == "stack":
-        return _stack_up()
-    return True
+        # Postgres reachable — proxy for "dev stack is running".
+        return _port_open(5432)
+    return _port_open(8123)  # ClickHouse HTTP
+
+
+def _unmet(chk: DiffCheck) -> list[Requirement]:
+    return [req for req in chk.requires if not _capability_met(req)]
 
 
 Status = Literal["pass", "fail", "advisory", "skipped"]
 
+# Generous: pnpm installs and migrations:check are legitimately slow, but a wedged
+# command must not hang the agent loop forever (output is captured, not streamed).
+_CHECK_TIMEOUT_SECONDS = 600
+
 
 def _run_diff_check(chk: DiffCheck, do_fix: bool) -> tuple[Status, str]:
-    if do_fix and chk.fix is not None:
+    unmet = _unmet(chk)
+    if do_fix and chk.fix is not None and not unmet:
         cmd = list(chk.fix)
-    elif chk.verify is not None:
-        cmd = list(chk.verify)
-    else:
-        # Guidance-only: advise regardless of capability, so the hint shows on a bare checkout.
+    elif chk.verify is None:
+        # Guidance-only (no runnable local check, or its fix needs an absent capability):
+        # advise regardless, so the hint still shows on a bare checkout — even with --fix.
         return "advisory", f"run `{' '.join(chk.fix or [])}` and commit drift"
-    if not _capability_met(chk.requires):
-        return "skipped", f"needs {chk.requires}"
+    elif unmet:
+        return "skipped", f"needs {', '.join(unmet)}"
+    else:
+        cmd = list(chk.verify)
     if chk.takes_files:
         # Drop deleted paths: ruff (and friends) error E902 on a path that no longer exists.
         present = [f for f in chk.matched if (REPO_ROOT / f).exists()]
@@ -174,7 +190,10 @@ def _run_diff_check(chk: DiffCheck, do_fix: bool) -> tuple[Status, str]:
         cmd += present
     if shutil.which(cmd[0]) is None:
         return "skipped", f"{cmd[0]} not found"
-    result = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True)
+    try:
+        result = subprocess.run(cmd, cwd=REPO_ROOT, capture_output=True, text=True, timeout=_CHECK_TIMEOUT_SECONDS)
+    except subprocess.TimeoutExpired:
+        return "fail", f"`{cmd[0]}` timed out after {_CHECK_TIMEOUT_SECONDS}s"
     if result.returncode == 0:
         return "pass", "fixed" if do_fix else "ok"
     lines = (result.stdout or result.stderr).strip().splitlines()
@@ -199,18 +218,28 @@ def _git(*args: str, timeout: float = 5.0) -> str | None:
     return result.stdout.strip() if result.returncode == 0 else None
 
 
+def _fetch_marker() -> Path | None:
+    """Our own TTL marker — FETCH_HEAD won't do, since fetching *any* ref touches it."""
+    raw = _git("rev-parse", "--git-path", "hogli-preflight-fetched")
+    if not raw:
+        return None
+    path = Path(raw)
+    return path if path.is_absolute() else REPO_ROOT / raw
+
+
 def _fetch_master() -> None:
-    """Refresh origin/master for an accurate behind-count, skipping the fetch if done
-    recently (the agent loop reruns preflight often). Offline → keep the local ref."""
-    head = _git("rev-parse", "--git-path", "FETCH_HEAD")
-    if head:
-        marker = Path(head) if Path(head).is_absolute() else REPO_ROOT / head
+    """Refresh origin/master for an accurate diff base and behind-count, skipping the
+    fetch if done recently (the agent loop reruns preflight often). Offline → keep
+    the local ref."""
+    marker = _fetch_marker()
+    if marker is not None:
         try:
             if time.time() - marker.stat().st_mtime < _FETCH_TTL_SECONDS:
                 return
         except OSError:
             pass
-    _git("fetch", "--quiet", "origin", "master", timeout=10.0)
+    if _git("fetch", "--quiet", "origin", "master", timeout=10.0) is not None and marker is not None:
+        marker.touch()
 
 
 def _env_int(var: str, default: int) -> int:
@@ -236,14 +265,16 @@ def _staleness() -> tuple[Status, str, dict[str, Any]]:
     """How far the branch has drifted from master, independent of the diff. On
     squash-merge master, commits behind ≈ PRs merged since the branch last synced.
     Returns (status, detail, telemetry props)."""
-    _fetch_master()
     merge_base = _git("merge-base", "HEAD", _MASTER_REF)
     if not merge_base:
         return "skipped", f"no merge-base with {_MASTER_REF}", {"stale": None}
 
     # Commits on master we don't have = how far behind; 0 means up to date.
+    # A failed/timed-out count must not read as "even with master".
     count = _git("rev-list", "--count", f"{merge_base}..{_MASTER_REF}")
-    behind = int(count) if count and count.isdigit() else 0
+    if count is None or not count.isdigit():
+        return "skipped", "could not count commits behind master", {"stale": None}
+    behind = int(count)
     if behind == 0:
         return "pass", "even with master", {"stale": False, "behind_commits": 0, "branch_age_days": 0}
 
@@ -273,7 +304,16 @@ def _emit_telemetry(summary: dict[str, Any]) -> None:
     the ``gh``/``git`` property hooks for an event ``track()`` would drop anyway."""
     if not telemetry.is_active():
         return
-    keys = ("changed_files", "triggered", "failures", "mode", "stale", "behind_commits", "branch_age_days")
+    keys = (
+        "changed_files",
+        "triggered",
+        "failures",
+        "advisories",
+        "mode",
+        "stale",
+        "behind_commits",
+        "branch_age_days",
+    )
     props: dict[str, Any] = {k: summary[k] for k in keys if k in summary}
     props["results"] = {r["check"]: r["status"] for r in summary["results"]}
     # Registries are read directly by design (see hogli.hooks). Merge the same
@@ -292,7 +332,11 @@ def _emit_telemetry(summary: dict[str, Any]) -> None:
     help="Catch the deterministic CI failures reachable from your diff before you push.",
 )
 @click.option("--fix", "do_fix", is_flag=True, help="Auto-remediate what's safe instead of only reporting.")
-@click.option("--strict", is_flag=True, help="Exit non-zero on any finding (for hooks/CI).")
+@click.option(
+    "--strict",
+    is_flag=True,
+    help="Exit non-zero on any failed or advisory check (staleness stays advisory) — for hooks/CI.",
+)
 @click.option("--against", default=None, help="Diff against this base ref instead of the branch default.")
 @click.option("--json", "as_json", is_flag=True, help="Emit the result summary as JSON.")
 def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool) -> None:
@@ -305,8 +349,11 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
         _emit_telemetry(disabled_summary)
         return
 
-    files = changed_files(against or "master")
-    base = against or "branch base"
+    # Fetch first so both the diff base and the staleness check see a fresh
+    # origin/master — a stale local ref would inflate the diff with master's own commits.
+    _fetch_master()
+    files = changed_files(against)
+    base = against or "origin/master"
 
     triggered: list[DiffCheck] = []
     for chk in DIFF_CHECKS:
@@ -316,6 +363,7 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
 
     results: list[dict[str, Any]] = []
     failures = 0
+    advisories = 0
     if not as_json:
         click.secho(f"\n  ci:preflight — {len(files)} changed file(s) vs {base}\n", bold=True)
 
@@ -331,6 +379,7 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
     for chk in triggered:
         status, detail = _run_diff_check(chk, do_fix)
         failures += status == "fail"
+        advisories += status == "advisory"
         results.append({"check": chk.key, "status": status, "files": len(chk.matched), "detail": detail})
         if not as_json:
             click.secho(f"   {_ICON[status]} [{chk.key}] {chk.label}", fg=_COLOR[status])
@@ -340,6 +389,7 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
         "changed_files": len(files),
         "triggered": [c.key for c in triggered],
         "failures": failures,
+        "advisories": advisories,
         "mode": "fix" if do_fix else ("strict" if strict else "advisory"),
         "results": results,
         **stale_props,
@@ -357,6 +407,7 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
 
     _emit_telemetry(summary)
 
-    # Advisory by default — only --strict turns findings into a non-zero exit so a
-    # push or CI gate can act on them. SystemExit so the telemetry wrapper records it.
-    raise SystemExit(1 if (strict and failures) else 0)
+    # Advisory by default — only --strict turns findings (fails and diff-check
+    # advisories; never staleness) into a non-zero exit so a push or CI gate can
+    # act on them. SystemExit so the telemetry wrapper records it.
+    raise SystemExit(1 if (strict and (failures or advisories)) else 0)

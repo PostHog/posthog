@@ -538,7 +538,8 @@ def _get_changed_files() -> list[str]:
     ).stdout.strip()
     if branch == "master":
         raise click.UsageError("Cannot use --changed on the master branch.")
-    return changed_files()
+    # Drop deleted/renamed-away paths — pytest errors on files that no longer exist.
+    return [f for f in changed_files() if (REPO_ROOT / f).exists()]
 
 
 def _detect_all(test_files: list[str]) -> list[tuple[str, TestRunConfig]]:

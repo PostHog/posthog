@@ -14,6 +14,7 @@ from hogli_commands.test_runner import (
     _batch_find_rs_cfg_test,
     _detect_all,
     _find_test_files_for_source,
+    _get_changed_files,
     _is_test_file,
     _resolve_to_repo_relative,
     _run_changed,
@@ -332,6 +333,18 @@ class TestIsTestFile:
 
     def test_rs_inline_cfg_test_absent_from_batch(self) -> None:
         assert not _is_test_file("rust/capture/src/api.rs", rs_cfg_test=set())
+
+
+class TestGetChangedFiles:
+    @patch("hogli_commands.test_runner.changed_files")
+    @patch("hogli_commands.test_runner.subprocess.run")
+    def test_drops_paths_missing_from_disk(self, mock_run: MagicMock, mock_changed: MagicMock) -> None:
+        mock_run.return_value = MagicMock(stdout="feature-branch\n")
+        mock_changed.return_value = [
+            "tools/hogli-commands/hogli_commands/test_runner.py",
+            "renamed_away/test_gone.py",
+        ]
+        assert _get_changed_files() == ["tools/hogli-commands/hogli_commands/test_runner.py"]
 
 
 class TestFindTestFilesForSource:

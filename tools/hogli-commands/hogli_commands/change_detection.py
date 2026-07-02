@@ -16,28 +16,33 @@ import click
 from hogli.manifest import REPO_ROOT
 
 
-def changed_files(against: str = "master") -> list[str]:
-    """Files the branch touches vs *against* (merge-base), plus uncommitted/untracked work.
+def _git(*args: str) -> subprocess.CompletedProcess[str]:
+    return subprocess.run(["git", *args], cwd=REPO_ROOT, capture_output=True, text=True)
 
-    *against* may be any ref (e.g. ``origin/master``); a bad ref raises so a typo
-    can't masquerade as a clean diff. On the base branch itself the diff is just empty.
+
+def changed_files(against: str | None = None) -> list[str]:
+    """Files the branch touches vs a base ref (merge-base), plus uncommitted/untracked work.
+
+    An explicit *against* raises on a bad ref so a typo can't masquerade as a clean
+    diff. The default base tries ``origin/master`` then ``master`` (origin/master is
+    what CI diffs against and what the staleness check compares to) and degrades to
+    working-tree-only detection when neither exists (single-branch clones, bare
+    sandboxes). ``-z`` output keeps paths with spaces/non-ASCII unquoted, and
+    ``--untracked-files=all`` lists files inside brand-new directories.
     """
-    diff = subprocess.run(
-        ["git", "diff", "--name-only", f"{against}...HEAD"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-    )
-    if diff.returncode != 0:
-        raise click.UsageError(f"git diff against {against!r} failed: {diff.stderr.strip()}")
-    files = {line for line in diff.stdout.splitlines() if line}
-    status = subprocess.run(
-        ["git", "status", "--porcelain", "--no-renames"],
-        cwd=REPO_ROOT,
-        capture_output=True,
-        text=True,
-    )
-    files.update(line[3:] for line in status.stdout.splitlines() if len(line) > 3)
+    files: set[str] = set()
+    for base in [against] if against is not None else ["origin/master", "master"]:
+        diff = _git("diff", "--name-only", "-z", f"{base}...HEAD")
+        if diff.returncode == 0:
+            files.update(path for path in diff.stdout.split("\0") if path)
+            break
+        if against is not None:
+            raise click.UsageError(f"git diff against {against!r} failed: {diff.stderr.strip()}")
+    status = _git("status", "--porcelain", "-z", "--no-renames", "--untracked-files=all")
+    if status.returncode != 0:
+        # A failed status (e.g. index.lock contention) must not read as "no uncommitted work".
+        raise click.UsageError(f"git status failed: {status.stderr.strip()}")
+    files.update(entry[3:] for entry in status.stdout.split("\0") if len(entry) > 3)
     return sorted(files)
 
 
