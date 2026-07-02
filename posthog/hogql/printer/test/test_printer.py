@@ -1280,6 +1280,30 @@ class TestPrinter(BaseTest):
 
     @parameterized.expand(
         [
+            ("python_thousands_spec", "format('{:,}', toString(1))", "'{:,}'"),
+            ("named_placeholder", "format('{name}', toString(1))", "'{name}'"),
+            ("unclosed_brace", "format('{', toString(1))", "unclosed"),
+        ]
+    )
+    def test_format_rejects_invalid_placeholders(self, _name: str, expr: str, expected_error: str) -> None:
+        # ClickHouse format() only takes positional {} / {0} placeholders. A constant pattern with a
+        # Python-style spec like {:,} otherwise reaches ClickHouse and throws an opaque BAD_ARGUMENTS
+        # ("Not a number in curly braces"); catch it here with a message that names the real problem.
+        self._assert_expr_error(expr, expected_error)
+
+    @parameterized.expand(
+        [
+            ("auto_positional", "format('{} and {}', toString(1), toString(2))"),
+            ("indexed_positional", "format('{0}-{1}', toString(1), toString(2))"),
+            ("escaped_braces", "format('{{literal}} {}', toString(1))"),
+        ]
+    )
+    def test_format_allows_positional_placeholders(self, _name: str, expr: str) -> None:
+        # Valid positional patterns must still render — the validation only rejects unsupported specs.
+        self.assertIn("format(", self._expr(expr))
+
+    @parameterized.expand(
+        [
             ("toBool", "toBool(uuid)", "accurateCastOrNull(events.uuid, %(hogql_val_0)s)"),
             ("every", "every(uuid)", "accurateCastOrNull(min(events.uuid), 'Bool')"),
         ]

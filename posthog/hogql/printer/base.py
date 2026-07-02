@@ -22,7 +22,7 @@ from posthog.hogql.database.models import DatabaseField, FunctionCallTable, Tabl
 from posthog.hogql.errors import ImpossibleASTError, QueryError, ResolutionError
 from posthog.hogql.escape_sql import escape_hogql_identifier, escape_hogql_string
 from posthog.hogql.functions import find_hogql_aggregation, find_hogql_function, find_hogql_posthog_function
-from posthog.hogql.functions.core import validate_function_args
+from posthog.hogql.functions.core import validate_clickhouse_format_string, validate_function_args
 from posthog.hogql.functions.mapping import (
     ALL_EXPOSED_FUNCTION_NAMES,
     HOGQL_COMPARISON_MAPPING,
@@ -987,6 +987,13 @@ class BasePrinter(Visitor[str]):
                     raise QueryError(
                         f"Invalid parametric function in '{node.name}', '{first_arg.value}' is not supported."
                     )
+
+            # Validate a constant format() pattern so a bad placeholder raises a clear HogQL
+            # error instead of an opaque ClickHouse BAD_ARGUMENTS exception.
+            if func_meta.validates_ch_format_string and node.args:
+                first_arg = node.args[0]
+                if isinstance(first_arg, ast.Constant) and isinstance(first_arg.value, str):
+                    validate_clickhouse_format_string(first_arg.value, node.name)
 
             # Handle format strings in function names before checking function type
             # HogQL preserves the macro in its original shape; SQL dialects expand it.

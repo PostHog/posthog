@@ -37,7 +37,7 @@ STRING_FUNCTIONS: dict[str, HogQLFunctionMeta] = {
     "upperUTF8": HogQLFunctionMeta("upperUTF8", 1, 1),
     "isValidUTF8": HogQLFunctionMeta("isValidUTF8", 1, 1),
     "toValidUTF8": HogQLFunctionMeta("toValidUTF8", 1, 1),
-    "format": HogQLFunctionMeta("format", 2, None),
+    "format": HogQLFunctionMeta("format", 2, None, validates_ch_format_string=True),
     "reverseUTF8": HogQLFunctionMeta("reverseUTF8", 1, 1),
     "concat": HogQLFunctionMeta("concat", 2, None, case_sensitive=False),
     "substring": HogQLFunctionMeta("substring", 3, 3, case_sensitive=False),

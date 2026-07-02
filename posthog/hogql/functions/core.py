@@ -45,6 +45,45 @@ def validate_function_args(
         )
 
 
+def validate_clickhouse_format_string(pattern: str, function_name: str) -> None:
+    """Validate a ClickHouse ``format()`` pattern's placeholders.
+
+    ClickHouse ``format()`` only supports positional placeholders — empty ``{}`` or a
+    numeric index ``{0}`` — with ``{{`` / ``}}`` as literal braces. Python-style specs
+    like ``{:,}`` are not supported; passed through, they surface as an opaque
+    ClickHouse BAD_ARGUMENTS exception ("Not a number in curly braces"), so reject them
+    here with a message that points at the actual problem.
+    """
+    i = 0
+    length = len(pattern)
+    while i < length:
+        char = pattern[i]
+        if char == "{":
+            if i + 1 < length and pattern[i + 1] == "{":  # {{ is a literal {
+                i += 2
+                continue
+            end = pattern.find("}", i + 1)
+            if end == -1:
+                raise QueryError(
+                    f"Function '{function_name}' has an unclosed '{{' in its format string. "
+                    "It uses positional placeholders like {} or {0}, not Python-style format specs."
+                )
+            content = pattern[i + 1 : end]
+            if content != "" and not (content.isascii() and content.isdigit()):
+                raise QueryError(
+                    f"Function '{function_name}' does not support the placeholder '{{{content}}}'. "
+                    "It uses positional placeholders like {} or {0}, not Python-style format specs such as {:,}."
+                )
+            i = end + 1
+        elif char == "}":
+            if i + 1 < length and pattern[i + 1] == "}":  # }} is a literal }
+                i += 2
+                continue
+            raise QueryError(f"Function '{function_name}' has an unmatched '}}' in its format string.")
+        else:
+            i += 1
+
+
 Overload = tuple[tuple[type[ConstantType], ...] | type[ConstantType], str]
 AnyConstantType = (
     StringType
@@ -86,6 +125,8 @@ class HogQLFunctionMeta:
     using_positional_arguments: bool = False
     parametric_first_arg: bool = False
     """Some ClickHouse functions take a constant string function name as the first argument. Check that it's one of our allowed function names."""
+    validates_ch_format_string: bool = False
+    """The first argument is a ClickHouse format() pattern. When it's a constant string, validate its placeholders."""
     requires_within_group: bool = False
     """Whether the aggregation requires WITHIN GROUP syntax."""
 
