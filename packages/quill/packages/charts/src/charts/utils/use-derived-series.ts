@@ -1,7 +1,7 @@
 import { useMemo } from 'react'
 
-import type { Series } from '../../../core/types'
-import { applyComparisonDimming } from '../../../utils/comparison-dimming'
+import type { Series } from '../../core/types'
+import { applyComparisonDimming } from '../../utils/comparison-dimming'
 import { buildConfidenceIntervalSeries, buildMovingAverageSeries, buildTrendLineSeries } from './derived-series'
 
 export interface ConfidenceIntervalConfig {
@@ -130,6 +130,42 @@ export function useDerivedSeries<Meta>(source: Series<Meta>[], options: DerivedS
         // raw refs are intentionally absent so inline-config callers don't bust the cache.
         // eslint-disable-next-line react-hooks/exhaustive-deps
     }, [source, ciSignature, maSignature, tlSignature, cmpSignature])
+}
+
+/** Trend-line series for charts that render trends as an SVG overlay ({@link TrendLineOverlay})
+ *  instead of folding them into the drawn series the way {@link useDerivedSeries} does — the
+ *  bar-based time-series charts. Same construction and memo-signature rules as the trend-line
+ *  slice of {@link useDerivedSeries}. */
+export function useTrendLineSeries<Meta>(
+    source: Series<Meta>[],
+    trendLines: TrendLineConfig[] | undefined
+): Series<Meta>[] {
+    const tlSignature = tlSig(trendLines)
+    return useMemo(() => {
+        if (!trendLines?.length) {
+            return []
+        }
+        const sourceByKey = new Map(source.map((s) => [s.key, s]))
+        const tlSeries: Series<Meta>[] = []
+        for (const tl of trendLines) {
+            const found = sourceByKey.get(tl.seriesKey)
+            if (!found) {
+                continue
+            }
+            tlSeries.push(
+                buildTrendLineSeries<Meta>({
+                    sourceSeries: found,
+                    kind: tl.kind,
+                    label: tl.label,
+                    fitUpTo: tl.fitUpTo,
+                    excluded: found.visibility?.excluded,
+                })
+            )
+        }
+        return tlSeries
+        // tlSignature stands in for the reference-typed `trendLines` (see useDerivedSeries).
+        // eslint-disable-next-line react-hooks/exhaustive-deps
+    }, [source, tlSignature])
 }
 
 function ciSig(ci: ConfidenceIntervalConfig[] | undefined): string {
