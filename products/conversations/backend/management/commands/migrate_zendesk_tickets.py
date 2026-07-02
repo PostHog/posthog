@@ -31,6 +31,12 @@ class Command(BaseCommand):
         parser.add_argument("--email", type=str, required=True)
         parser.add_argument("--api-token", type=str, required=True)
         parser.add_argument("--dry-run", action="store_true", default=False)
+        parser.add_argument(
+            "--limit",
+            type=int,
+            default=None,
+            help="Cap total tickets imported (for testing, e.g. 10/100/1000). Omit for a full import.",
+        )
 
     def handle(self, *args, **options) -> None:
         team_id: int = options["team_id"]
@@ -75,6 +81,7 @@ class Command(BaseCommand):
                     job_id=str(job.id),
                     team_id=team_id,
                     dry_run=options["dry_run"],
+                    max_tickets=options["limit"],
                 )
             )
             job.workflow_id = workflow_id
@@ -92,6 +99,7 @@ class Command(BaseCommand):
 
         self.stdout.write(
             self.style.SUCCESS(
-                f"Started Zendesk import job {job.id} (workflow {workflow_id}, dry_run={options['dry_run']})"
+                f"Started Zendesk import job {job.id} (workflow {workflow_id}, "
+                f"dry_run={options['dry_run']}, limit={options['limit']})"
             )
         )

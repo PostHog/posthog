@@ -23,8 +23,8 @@ class _FakeStreamResponse:
     def __enter__(self) -> "_FakeStreamResponse":
         return self
 
-    def __exit__(self, *args: object) -> bool:
-        return False
+    def __exit__(self, *args: object) -> None:
+        return None
 
     def raise_for_status(self) -> None:
         pass

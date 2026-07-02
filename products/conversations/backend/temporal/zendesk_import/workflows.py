@@ -44,6 +44,9 @@ class ZendeskImportCoordinatorInput:
     cursor: str | None = None
     pages_processed: int = 0
     dry_run: bool = False
+    # Cap total tickets enumerated for import (ops/testing). None = no cap. Carried across
+    # continue-as-new as the *remaining* budget so the cap holds over the whole run.
+    max_tickets: int | None = None
 
 
 @dataclass
@@ -103,6 +106,7 @@ class ZendeskImportCoordinatorWorkflow:
         total_failed = 0
         cursor = input.cursor
         pages_processed = input.pages_processed
+        selected = 0  # tickets picked for import this run (against max_tickets budget)
 
         try:
             while True:
@@ -114,6 +118,18 @@ class ZendeskImportCoordinatorWorkflow:
                 )
                 cursor = page.next_cursor
                 pages_processed += 1
+
+                ticket_ids = page.ticket_ids
+                reached_cap = False
+                if input.max_tickets is not None:
+                    remaining = input.max_tickets - selected
+                    if remaining <= 0:
+                        break
+                    if len(ticket_ids) >= remaining:
+                        ticket_ids = ticket_ids[:remaining]
+                        reached_cap = True
+                selected += len(ticket_ids)
+                page.ticket_ids = ticket_ids
 
                 # Publish a running total as tickets are enumerated (cursor export has no
                 # upfront count) so the UI can render "processed / total".
@@ -174,7 +190,7 @@ class ZendeskImportCoordinatorWorkflow:
                         retry_policy=RETRY_POLICY,
                     )
 
-                if page.end_of_stream:
+                if page.end_of_stream or reached_cap:
                     break
 
                 if pages_processed >= CONTINUE_AS_NEW_AFTER_PAGES:
@@ -185,6 +201,7 @@ class ZendeskImportCoordinatorWorkflow:
                             cursor=cursor,
                             pages_processed=0,
                             dry_run=input.dry_run,
+                            max_tickets=None if input.max_tickets is None else input.max_tickets - selected,
                         )
                     )
 
