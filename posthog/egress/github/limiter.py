@@ -60,7 +60,11 @@ _SANE_MIN_OBSERVED_LIMIT = 1_000
 # for a value that changes only when a customer's GitHub plan does.
 _OBSERVED_MEMO_TTL_SECONDS = 60.0
 _observed_memo: dict[str, tuple[int | None, float]] = {}
-_last_written: dict[str, int] = {}
+# Rewrite the shared cache at least hourly even when the value is unchanged: a long-lived process
+# skipping every write would otherwise never repair an evicted/flushed cache entry, silently
+# reverting every other worker to the default budget until a deploy.
+_REWRITE_INTERVAL_SECONDS = 3600.0
+_last_written: dict[str, tuple[int, float]] = {}
 
 
 def observed_core_limit_cache_key(installation_id: str) -> str:
@@ -115,12 +119,14 @@ def remember_observed_core_limit(installation_id: str | None, response: "request
         return
     if limit < _SANE_MIN_OBSERVED_LIMIT:
         return
-    _observed_memo[installation_id] = (limit, time.monotonic())
-    if _last_written.get(installation_id) == limit:
+    now = time.monotonic()
+    _observed_memo[installation_id] = (limit, now)
+    written = _last_written.get(installation_id)
+    if written is not None and written[0] == limit and now - written[1] < _REWRITE_INTERVAL_SECONDS:
         return
     try:
         cache.set(observed_core_limit_cache_key(installation_id), limit, OBSERVED_CORE_LIMIT_TTL_SECONDS)
-        _last_written[installation_id] = limit
+        _last_written[installation_id] = (limit, now)
     except Exception:
         pass
 

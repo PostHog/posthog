@@ -1,3 +1,4 @@
+import random
 from collections.abc import Callable
 from dataclasses import dataclass
 from typing import Optional
@@ -106,6 +107,9 @@ def discover_branch_prs_for_team(
         return DiscoverBranchPrsOutput(prs=[])
 
     candidates = _collect_branch_candidates(team_id)
+    # A shed sweep breaks mid-list; shuffling gives the tail equal coverage across cycles instead
+    # of the same recency-ordered prefix consuming the budget every run.
+    random.shuffle(candidates)
     integrations: dict[str, GitHubIntegrationBase | None] = {}
     found: dict[str, PrRef] = {}
 
