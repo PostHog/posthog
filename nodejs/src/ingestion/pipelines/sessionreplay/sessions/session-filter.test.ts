@@ -128,6 +128,42 @@ describe('SessionFilter', () => {
             ])
         })
 
+        it('mgets only the uncached sessions in a batch and merges them with the local cache', async () => {
+            // Seed the local cache with a blocked session (handleNewSessions caches without any read).
+            mockConsume.mockReturnValue(false)
+            await sessionFilter.handleNewSessions(sessionSet([1, 'cached-blocked']))
+
+            // A later batch mixes the cached session with two it hasn't seen.
+            mockRedis.mget.mockResolvedValue(['1', null])
+            const result = await sessionFilter.isBlocked(
+                sessionSet([1, 'cached-blocked'], [1, 'uncached-blocked'], [1, 'uncached-open'])
+            )
+
+            expect(result.get(1, 'cached-blocked')).toBe(true) // from the local cache
+            expect(result.get(1, 'uncached-blocked')).toBe(true) // from Redis
+            expect(result.get(1, 'uncached-open')).toBe(false) // from Redis
+            // Only the two uncached keys are read; the cached one is not re-fetched.
+            expect(mockRedis.mget).toHaveBeenCalledTimes(1)
+            expect(mockRedis.mget).toHaveBeenCalledWith([
+                '@posthog/replay/session-blocked:1:uncached-blocked',
+                '@posthog/replay/session-blocked:1:uncached-open',
+            ])
+        })
+
+        it('does not touch Redis when every session in the batch is already cached', async () => {
+            mockRedis.mget.mockResolvedValue([null, '1'])
+            await sessionFilter.isBlocked(sessionSet([1, 'a'], [1, 'b'])) // caches both
+            jest.mocked(mockRedisPool.acquire).mockClear()
+            mockRedis.mget.mockClear()
+
+            const result = await sessionFilter.isBlocked(sessionSet([1, 'a'], [1, 'b']))
+
+            expect(result.get(1, 'a')).toBe(false)
+            expect(result.get(1, 'b')).toBe(true)
+            expect(mockRedis.mget).not.toHaveBeenCalled()
+            expect(mockRedisPool.acquire).not.toHaveBeenCalled()
+        })
+
         it('should return false for non-blocked session', async () => {
             mockRedis.mget.mockResolvedValue([null])
 
@@ -268,6 +304,39 @@ describe('SessionFilter', () => {
         })
     })
 
+    describe('team isolation', () => {
+        it('blocks a session for one team without blocking the same session id for another', async () => {
+            // Block (team 1, shared) via the limiter — cached locally for team 1 only, no read.
+            mockConsume.mockReturnValue(false)
+            await sessionFilter.handleNewSessions(sessionSet([1, 'shared']))
+
+            // The identically-named session for team 2 has no block key.
+            mockRedis.mget.mockResolvedValue([null])
+            const result = await sessionFilter.isBlocked(sessionSet([1, 'shared'], [2, 'shared']))
+
+            expect(result.get(1, 'shared')).toBe(true) // blocked for team 1
+            expect(result.get(2, 'shared')).toBe(false) // not blocked for team 2
+            // Team 1 is served from its own cache entry; only team 2's distinct key reaches Redis.
+            expect(mockRedis.mget).toHaveBeenCalledWith(['@posthog/replay/session-blocked:2:shared'])
+        })
+
+        it('rate-limits one team without blocking another sharing the session id', async () => {
+            // team 1 is over budget (denied), team 2 is within budget (allowed) — same session id.
+            mockConsume.mockImplementation((team: string) => team !== '1')
+
+            await sessionFilter.handleNewSessions(sessionSet([1, 'shared'], [2, 'shared']))
+
+            // Only team 1's session is written to the blocklist.
+            expect(mockPipeline.set).toHaveBeenCalledTimes(1)
+            expect(mockPipeline.set).toHaveBeenCalledWith(
+                '@posthog/replay/session-blocked:1:shared',
+                '1',
+                'EX',
+                expect.any(Number)
+            )
+        })
+    })
+
     describe('local cache', () => {
         it('should respect custom cache TTL', async () => {
             // LRU cache uses performance.now() for TTL, which Jest doesn't mock by default
@@ -310,6 +379,8 @@ describe('SessionFilter', () => {
 
             expect(mockConsume).toHaveBeenCalledWith('1', 1)
             expect(mockPipeline.set).not.toHaveBeenCalled()
+            // Nothing to block means no Redis round trip at all.
+            expect(mockRedisPool.acquire).not.toHaveBeenCalled()
         })
 
         it('should block when limiter denies and rate limiting is enabled', async () => {
@@ -320,6 +391,39 @@ describe('SessionFilter', () => {
             expect(mockPipeline.set).toHaveBeenCalled()
             expect(SessionBatchMetrics.incrementNewSessionsRateLimited).toHaveBeenCalledWith(1)
             expect(SessionBatchMetrics.incrementSessionsBlocked).toHaveBeenCalled()
+        })
+
+        it('blocks only the rate-limited sessions in a mixed batch, in one pipeline', async () => {
+            // Two sessions pass the limiter, two are denied, across two teams (iteration is insertion order).
+            mockConsume
+                .mockReturnValueOnce(true) // 1:allowed
+                .mockReturnValueOnce(false) // 1:blocked
+                .mockReturnValueOnce(true) // 2:allowed
+                .mockReturnValueOnce(false) // 2:blocked
+
+            await sessionFilter.handleNewSessions(
+                sessionSet([1, 'allowed'], [1, 'blocked'], [2, 'allowed'], [2, 'blocked'])
+            )
+
+            // Only the two denied sessions are written, and the whole batch is a single pipelined round trip.
+            expect(mockPipeline.set).toHaveBeenCalledTimes(2)
+            expect(mockPipeline.set).toHaveBeenCalledWith(
+                '@posthog/replay/session-blocked:1:blocked',
+                '1',
+                'EX',
+                expect.any(Number)
+            )
+            expect(mockPipeline.set).toHaveBeenCalledWith(
+                '@posthog/replay/session-blocked:2:blocked',
+                '1',
+                'EX',
+                expect.any(Number)
+            )
+            expect(mockPipeline.exec).toHaveBeenCalledTimes(1)
+            expect(mockRedisPool.acquire).toHaveBeenCalledTimes(1)
+            // The limiter is consumed per session against its own team's budget.
+            expect(mockConsume).toHaveBeenCalledWith('1', 1)
+            expect(mockConsume).toHaveBeenCalledWith('2', 1)
         })
 
         it('should only increment metric but not block when blocking is disabled (dry run)', async () => {
