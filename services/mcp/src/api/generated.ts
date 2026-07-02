@@ -43872,6 +43872,38 @@ export namespace Schemas {
     }
 
     /**
+     * One row in `inventory.recent_reviewer_corrections.corrections`.
+     */
+    export interface ReviewerCorrectionEntry {
+      /** UUID of the report whose reviewers a human edited. */
+      report_id: string;
+      /**
+         * Report title at the time of the edit.
+         * @nullable
+         */
+      report_title: string | null;
+      /** GitHub logins on the report before the human edit (lowercased). */
+      before: string[];
+      /** GitHub logins on the report after the human edit (lowercased). */
+      after: string[];
+      /**
+         * ISO-8601 timestamp of the edit.
+         * @nullable
+         */
+      at: string | null;
+    }
+
+    /**
+     * `inventory.recent_reviewer_corrections` — human edits to report reviewer lists.
+     */
+    export interface RecentReviewerCorrections {
+      /** Lookback window in days the corrections cover. */
+      window_days: number;
+      /** Human reviewer edits, newest first. A human swapping a report's suggested reviewers is authoritative ownership precedent — route to who they chose. */
+      corrections: ReviewerCorrectionEntry[];
+    }
+
+    /**
      * One row in `inventory.recent_dashboards`.
      */
     export interface RecentDashboardEntry {
@@ -44233,6 +44265,8 @@ export namespace Schemas {
       existing_inbox_reports: ExistingInboxReports;
       /** Per-scope counts off the activity log over the recent-activity window — cross-cutting orientation across every entity type (surveys, feature flags, experiments, dashboards, insights, cohorts, notebooks, actions, etc.). Each scope reports `edits` (total log entries), `users` (distinct user count), and `last_edit` (ISO-8601). Use to triage which scope a team has been working in lately before drilling down via the per-entity readers or `activity-log-list`. */
       recent_activity: RecentActivity;
+      /** Recent human edits to report reviewer lists (before/after GitHub logins). The strongest ownership precedent available — check it before setting `suggested_reviewers` and fold what it shows into `reviewer:` memory keys. */
+      recent_reviewer_corrections: RecentReviewerCorrections;
       /** Up to 20 dashboards on this team sorted by `last_accessed_at` desc — what the team is currently looking at, not necessarily the most-trafficked. We don't have per-dashboard view counts in Postgres, only the timestamp of the most recent access. */
       recent_dashboards: RecentDashboardEntry[];
       /** Surveys orientation: total + active count, plus the 5 most recently updated surveys with id, name, type, status (draft / running / stopped / archived), and updated_at. */
@@ -60275,6 +60309,7 @@ export namespace Schemas {
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
      * * `InstanceSetting` - InstanceSetting
+     * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
      * @minLength 1
      */
@@ -60356,6 +60391,7 @@ export namespace Schemas {
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
       InstanceSetting: 'InstanceSetting',
+      SignalReport: 'SignalReport',
       SignalScoutConfig: 'SignalScoutConfig',
     } as const;
 
@@ -60423,6 +60459,7 @@ export namespace Schemas {
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
      * * `InstanceSetting` - InstanceSetting
+     * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
      */
     export type ActivityLogListScopesItem = typeof ActivityLogListScopesItem[keyof typeof ActivityLogListScopesItem];
@@ -60492,6 +60529,7 @@ export namespace Schemas {
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
       InstanceSetting: 'InstanceSetting',
+      SignalReport: 'SignalReport',
       SignalScoutConfig: 'SignalScoutConfig',
     } as const;
 
