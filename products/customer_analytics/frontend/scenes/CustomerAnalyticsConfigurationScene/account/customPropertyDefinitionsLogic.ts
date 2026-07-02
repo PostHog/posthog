@@ -201,6 +201,8 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                         )
                         actions.setEditingDefinition(definition)
                         actions.loadDefinitions()
+                        // Announce the side effect: the property now exists even if the modal is cancelled.
+                        lemonToast.success('Custom property created')
                     }
                     return urls.workflowNew()
                 },
@@ -418,10 +420,11 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 actions.setCustomPropertyFormManualErrors({ name: 'Name is required' })
                 return
             }
-            posthog.captureException(errorObject, { scope: 'customPropertyDefinitionsLogic.createWorkflow' })
+            // A name conflict is expected validation feedback, not an exception worth capturing.
             if (handleNameConflict(errorObject, actions.setCustomPropertyFormManualErrors)) {
                 return
             }
+            posthog.captureException(errorObject, { scope: 'customPropertyDefinitionsLogic.createWorkflow' })
             lemonToast.error('Failed to create workflow')
         },
         loadSavedQueriesFailure: ({ error }) => {
