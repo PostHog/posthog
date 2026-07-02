@@ -57,6 +57,10 @@ jobs:
                       http_code=$(curl -o /dev/null -sSL -w '%{http_code}' "https://pypi.org/pypi/hogql-parser-rs/$local/json")
                       if [[ "$http_code" == '404' ]]; then
                           parser_release_needed='true'
+                          # Version was bumped — mark any reminder from an earlier push resolved.
+                          if [ -f .github/scripts/post-reminder-section.mjs ]; then
+                              GITHUB_TOKEN="$GH_TOKEN" node .github/scripts/post-reminder-section.mjs hogql-parser-rs --clear "version bumped to $local"
+                          fi
                       elif [[ "$http_code" == '200' ]]; then
                           message_body="It looks like the code of \`hogql-parser-rs\` changed in this PR, but its version stayed the same at $local. 👀"
                           message_body+=$'\n'"Bump the version in \`rust/hogql/parser/Cargo.toml\` AND \`rust/hogql/parser/pyproject.toml\` (the two must match) before merging."

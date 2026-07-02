@@ -62,6 +62,17 @@ jobs:
                     echo "Skipping hogql-parser-npm section — script not present on this checkout"
                   fi
 
+            # Version was bumped — mark any reminder from an earlier push resolved.
+            - name: Clear version reminder
+              if: steps.changed-files.outputs.parser_any_changed == 'true' && steps.check-package-version.outputs.is-new-version == 'true'
+              env:
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  NEW_VERSION: ${{ steps.check-package-version.outputs.committed-version }}
+              run: |
+                  if [ -f .github/scripts/post-reminder-section.mjs ]; then
+                    node .github/scripts/post-reminder-section.mjs hogql-parser-npm --clear "version bumped to $NEW_VERSION"
+                  fi
+
     build-wasm:
         name: Build WASM
         needs: check-package-version

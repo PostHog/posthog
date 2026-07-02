@@ -106,6 +106,16 @@ jobs:
                       echo "Skipping generated-docs section — script not present on this checkout"
                   fi
 
+            # Docs are current again — mark any reminder from an earlier push resolved.
+            - name: Clear docs reminder
+              if: steps.docs-check.outputs.outdated == 'false'
+              env:
+                  GITHUB_TOKEN: ${{ github.token }}
+              run: |
+                  if [ -f .github/scripts/post-reminder-section.mjs ]; then
+                      node .github/scripts/post-reminder-section.mjs generated-docs --clear "docs regenerated"
+                  fi
+
             - name: Fail if docs outdated
               if: steps.docs-check.outputs.outdated == 'true' && inputs.fail_on_outdated
               env:
