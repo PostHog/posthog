@@ -427,17 +427,19 @@ async def resolve_acting_user_activity(input: ResolveActingUserInput) -> Resolve
 
 
 def _sync_review_skills(team_id: int) -> None:
+    # prune=True: the run path is the only recurring sync moment (scout-style reconciliation), so
+    # disk-removed canonicals tombstone here — otherwise they'd linger live on every team forever.
     team = Team.objects.get(id=team_id)
-    sync_canonical_perspectives(team)
-    sync_canonical_validation(team)
-    sync_canonical_blind_spots(team)
+    sync_canonical_perspectives(team, prune=True)
+    sync_canonical_validation(team, prune=True)
+    sync_canonical_blind_spots(team, prune=True)
 
 
 @activity.defn
 @scoped_temporal()
 @close_db_connections
 async def sync_review_skills_activity(input: SyncReviewSkillsInput) -> None:
-    """Cold-start sync the team's canonical review skills (perspectives + validation criteria).
+    """Reconcile the team's canonical review skills with disk (perspectives + validation + blind spots).
 
     Best-effort: a sync failure shouldn't crash the run — the review proceeds with the team's
     existing skills, and the loaders raise a clear error later if one is genuinely missing.

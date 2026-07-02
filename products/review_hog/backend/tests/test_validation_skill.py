@@ -1,8 +1,6 @@
 import pytest
 from posthog.test.base import BaseTest
 
-from django.core.management import call_command
-
 from posthog.models import User
 
 from products.review_hog.backend.models import ReviewSkillConfig
@@ -19,6 +17,7 @@ from products.review_hog.backend.reviewer.skill_loader import (
     load_validation_skill_for_run,
     register_missing_validation_config,
 )
+from products.review_hog.backend.temporal.activities import _sync_review_skills
 from products.skills.backend.api.skill_services import publish_skill_version
 from products.skills.backend.models.skills import LLMSkill
 
@@ -185,8 +184,8 @@ class TestLoadValidationSkillForRun(BaseTest):
         assert theirs.skill_name == REVIEW_HOG_VALIDATION_SKILL_NAME
 
 
-class TestSyncCommandSeedsValidation(BaseTest):
-    def test_command_seeds_the_validation_skill(self) -> None:
-        # Guards that the generalized command runs the validation syncer, not only perspectives.
-        call_command("sync_review_hog_skills", team_id=self.team.id)
+class TestColdStartSyncSeedsValidation(BaseTest):
+    def test_cold_start_sync_seeds_the_validation_skill(self) -> None:
+        # Guards that the run path's syncer list includes validation, not only perspectives.
+        _sync_review_skills(self.team.id)
         assert LLMSkill.objects.filter(team=self.team, name=REVIEW_HOG_VALIDATION_SKILL_NAME, is_latest=True).exists()

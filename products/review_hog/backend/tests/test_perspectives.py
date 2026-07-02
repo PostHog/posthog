@@ -2,9 +2,6 @@ import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from django.core.management import call_command
-from django.core.management.base import CommandError
-
 from posthog.models import User
 
 from products.review_hog.backend.models import ReviewSkillConfig
@@ -25,6 +22,7 @@ from products.review_hog.backend.reviewer.skill_loader import (
     load_perspectives_for_run,
     register_missing_perspective_configs,
 )
+from products.review_hog.backend.temporal.activities import _sync_review_skills
 from products.skills.backend.models.skills import LLMSkill
 
 _LOGIC = f"{REVIEW_HOG_PERSPECTIVE_PREFIX}logic-correctness"
@@ -248,15 +246,18 @@ class TestLoadPerspectivesForRun(BaseTest):
         assert _LOGIC in {lp.skill_name for lp in theirs}
 
 
-class TestSyncCommand(BaseTest):
-    def test_team_id_seeds_the_team(self) -> None:
-        call_command("sync_review_hog_skills", team_id=self.team.id)
+class TestColdStartSync(BaseTest):
+    def test_seeds_perspectives_and_prunes_disk_removed_canonicals(self) -> None:
+        # The run path is the ONLY sync moment: it must both seed and prune (flipping prune back off
+        # would leave a disk-removed canonical live on every team forever).
+        _sync_review_skills(self.team.id)
         assert LLMSkill.objects.filter(team=self.team, name=_LOGIC, is_latest=True).exists()
 
-    def test_dry_run_writes_nothing(self) -> None:
-        call_command("sync_review_hog_skills", team_id=self.team.id, dry_run=True)
-        assert not LLMSkill.objects.filter(team=self.team, name__startswith=REVIEW_HOG_PERSPECTIVE_PREFIX).exists()
+        with patch(
+            "products.review_hog.backend.reviewer.lazy_seed.discover_canonical_perspectives",
+            return_value=(_changed_canonical(_LOGIC),),
+        ):
+            _sync_review_skills(self.team.id)
 
-    def test_team_id_and_all_teams_are_mutually_exclusive(self) -> None:
-        with pytest.raises(CommandError):
-            call_command("sync_review_hog_skills", team_id=self.team.id, all_teams=True)
+        removed = f"{REVIEW_HOG_PERSPECTIVE_PREFIX}contracts-security"
+        assert not LLMSkill.objects.filter(team=self.team, name=removed, deleted=False, is_latest=True).exists()

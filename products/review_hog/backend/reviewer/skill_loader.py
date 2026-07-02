@@ -110,7 +110,7 @@ def load_perspectives_for_run(team_id: int, acting_user_id: int) -> list[LoadedP
         resolved = latest_by_name.get(skill_name)
         if resolved is None:
             raise PerspectiveSkillNotFoundError(
-                f"No live skill '{skill_name}' on team {team_id} — run sync_review_hog_skills first"
+                f"No live skill '{skill_name}' on team {team_id} — the canonical sync has not seeded it"
             )
         version, description = resolved
         loaded.append(
@@ -176,7 +176,7 @@ def _load_single_active_skill(
         .first()
     )
     if version is None:
-        raise error(f"No live skill '{skill_name}' on team {team_id} — run sync_review_hog_skills first")
+        raise error(f"No live skill '{skill_name}' on team {team_id} — the canonical sync has not seeded it")
     return skill_name, version
 
 

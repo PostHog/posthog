@@ -83,7 +83,10 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
      disk under `skills/`), `load_blind_spots_skill_for_run` mirroring the validator loader (canonical
      fallback, hard-raise on missing selected skill; shared `_load_single_active_skill` /
      `_register_missing_configs` helpers now back both), sibling `ReviewBlindSpotsConfigViewSet` at
-     `/blind_spots`, seeded by `sync_review_hog_skills` + the cold-start sync. Findings run under the
+     `/blind_spots`, seeded by the cold-start sync. (2026-07-02 follow-up, scout-coordinator-style:
+     the cold-start sync now runs `prune=True` — disk-removed canonicals tombstone on the team's next
+     review — and the `sync_review_hog_skills` command was DELETED as redundant with it; the run path
+     is the one sync moment.) Findings run under the
      **reserved `BLIND_SPOT_PASS_NUMBER = 1000`** — NOT max(wave pass)+1 as originally planned: the
      adversarial review showed max+1 collides with the persisted `(pass, chunk)` resume keys when the
      enabled-perspective set changes between executions at the same head (a newly enabled perspective
@@ -1852,11 +1855,12 @@ customization is ever truly needed, promote chunking to a **team-wide** versione
 
 **⏭ DEFERRED — "reset to canonical" (ships with the UI). DON'T FORGET — this is the one missing piece of the
 team-level story.** There is **no revert path today**: `archive_skill` soft-deletes all versions → the next sync
-sees no live row → the **tombstoned** branch, which does **not** recreate; and `sync_review_hog_skills`
-deliberately leaves diverged rows alone. So once a team edits a canonical skill, the only way back is a **force
-re-pull** — overwrite the edited row with disk canonical as a new version, re-stamping `canonical_hash`. Most
-naturally a `sync_review_hog_skills --reset [--skill NAME]` flag backed by a small `lazy_seed` helper. Its main
-consumer is the future UI button, so it's deferred until the ReviewHog skills **UI** lands.
+sees no live row → the **tombstoned** branch, which does **not** recreate; and the sync deliberately leaves
+diverged rows alone. So once a team edits a canonical skill, the only way back is a **force re-pull** —
+overwrite the edited row with disk canonical as a new version, re-stamping `canonical_hash` — via a small
+`lazy_seed` helper (the `sync_review_hog_skills` command this was once sketched as a flag on was deleted
+2026-07-02; the helper's main consumer is the future UI button anyway). Deferred until the ReviewHog skills
+**UI** lands.
 
 **⏭ DEFERRED — a ReviewHog skills UI.** No ReviewHog scene exists yet (scouts surface their logic in the new
 Signals inbox); editing + reset are API/MCP-only for now. Building the "see + edit + reset my review skills"

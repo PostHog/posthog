@@ -1,8 +1,6 @@
 import pytest
 from posthog.test.base import BaseTest
 
-from django.core.management import call_command
-
 from products.review_hog.backend.models import ReviewSkillConfig
 from products.review_hog.backend.reviewer.lazy_seed import (
     discover_canonical_blind_spots,
@@ -17,6 +15,7 @@ from products.review_hog.backend.reviewer.skill_loader import (
     load_blind_spots_skill_for_run,
     register_missing_blind_spots_config,
 )
+from products.review_hog.backend.temporal.activities import _sync_review_skills
 from products.skills.backend.models.skills import LLMSkill
 
 _CUSTOM = f"{REVIEW_HOG_BLIND_SPOTS_PREFIX}security-sweep"
@@ -92,8 +91,8 @@ class TestLoadBlindSpotsSkillForRun(BaseTest):
             load_blind_spots_skill_for_run(self.team.id, self.user.id)
 
 
-class TestSyncCommandSeedsBlindSpots(BaseTest):
-    def test_command_seeds_the_blind_spots_skill(self) -> None:
-        # Guards that the command's syncer list includes blind spots.
-        call_command("sync_review_hog_skills", team_id=self.team.id)
+class TestColdStartSyncSeedsBlindSpots(BaseTest):
+    def test_cold_start_sync_seeds_the_blind_spots_skill(self) -> None:
+        # Guards that the run path's syncer list includes blind spots — the only sync moment there is.
+        _sync_review_skills(self.team.id)
         assert LLMSkill.objects.filter(team=self.team, name=REVIEW_HOG_BLIND_SPOTS_SKILL_NAME, is_latest=True).exists()

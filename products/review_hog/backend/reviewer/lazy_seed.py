@@ -10,10 +10,10 @@ reconciles each against a team's `LLMSkill` rows — creating missing rows, upda
 hasn't edited, leaving diverged / hand-authored rows alone, tombstoning rows whose canonical was
 deleted. Only rows we seeded (`metadata.seeded_by == "review_hog"`) are ever updated.
 
-Called lazily at the start of a review run (cold-start sync, `prune=False`) and explicitly via the
-`sync_review_hog_skills` management command (`prune=True`). Each skill becomes a first-class,
-independently versioned skill the sandbox agent pulls over MCP — the same store the Signals scouts
-ship into.
+Called at the start of every review run (the cold-start sync, `prune=True`) — creation, updates,
+and the pruning of disk-removed canonicals all ride the run path, scout-coordinator-style; there is
+no separate ops command. Each skill becomes a first-class, independently versioned skill the sandbox
+agent pulls over MCP — the same store the Signals scouts ship into.
 """
 
 from __future__ import annotations
@@ -338,10 +338,10 @@ def _sync_canonicals(
     `metadata.seeded_by == "review_hog"` are ever updated.
 
     `prune` (default off) additionally tombstones live `<prefix>*` rows we seeded whose canonical was
-    removed from disk. Reserved for the explicit `sync_review_hog_skills` command; the cold-start sync
-    leaves it off (an ad-hoc run only ensures its own skills exist and are current, not reap the
-    rest). Idempotent — writes only when content changed; IntegrityError on races is
-    logged-and-swallowed.
+    removed from disk — safe on the automatic path because the `not canonicals` early-return and the
+    hash checks keep a broken disk read or an edited fork from being reaped. The cold-start sync
+    passes `prune=True` (the run path is the only recurring reconciliation moment). Idempotent —
+    writes only when content changed; IntegrityError on races is logged-and-swallowed.
     """
     if not canonicals:
         return SyncResult(skipped_reason=f"no canonical {prefix}* skills on disk")
