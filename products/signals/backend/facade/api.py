@@ -173,7 +173,7 @@ def set_sources(team_id: int, user_id: int | None, selected_keys: list[str]) -> 
 
 
 # ---------------------------------------------------------------------------
-# Cross-product reads: recent inbox reports (consumed by Pulse briefs).
+# Cross-product reads: recent scout-derived inbox reports (consumed by Pulse briefs).
 # ---------------------------------------------------------------------------
 
 
@@ -184,24 +184,35 @@ class SignalReportSummary:
     id: str
     title: str
     summary: str
-    status: str
     total_weight: float
     signal_count: int
-    created_at: datetime
 
 
 def get_recent_reports(team_id: int, since: datetime, limit: int = 20) -> list[SignalReportSummary]:
-    """Recent inbox-visible reports with authored content (non-empty title/summary), newest first.
+    """Recent scout-derived, inbox-visible reports with authored content, newest first.
 
-    Mirrors the inbox list surface: deleted reports are terminal and suppressed (archived)
-    reports are hidden. Report content is LLM-authored, so this returns [] when the
+    Scoped to reports backed by signals-scout signals so a consumer that also *emits* signals
+    (Pulse) can never read its own emitted output back as input. Hidden statuses mirror the
+    inbox list surface. Report content is LLM-authored, so this returns [] when the
     organization has not approved AI data processing — mirroring emit_signal's gate.
     """
+    from products.signals.backend.temporal.signal_queries import (
+        fetch_report_ids_for_source_products,  # noqa: PLC0415 — keeps the temporal stack off the facade import path
+    )
+
     if not _ai_data_processing_approved(team_id):
         return []
+    team = Team.objects.filter(id=team_id).first()
+    if team is None:
+        return []
+    scout_report_ids = fetch_report_ids_for_source_products(
+        team, [SignalSourceConfig.SourceProduct.SIGNALS_SCOUT.value]
+    )
+    if not scout_report_ids:
+        return []
     reports = (
-        SignalReport.objects.filter(team_id=team_id, created_at__gte=since)
-        .exclude(status__in=(SignalReport.Status.DELETED, SignalReport.Status.SUPPRESSED))
+        SignalReport.objects.filter(id__in=scout_report_ids, team_id=team_id, created_at__gte=since)
+        .exclude(status__in=SignalReport.INBOX_HIDDEN_STATUSES)
         .exclude(title__isnull=True)
         .exclude(title="")
         .exclude(summary__isnull=True)
@@ -213,10 +224,8 @@ def get_recent_reports(team_id: int, since: datetime, limit: int = 20) -> list[S
             id=str(report.id),
             title=report.title or "",
             summary=report.summary or "",
-            status=report.status,
             total_weight=report.total_weight,
             signal_count=report.signal_count,
-            created_at=report.created_at,
         )
         for report in reports
     ]

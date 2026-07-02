@@ -45448,7 +45448,6 @@ export namespace Schemas {
 
     export interface PulseOpportunitySignalExtra {
       brief_id: string;
-      kind: string;
       evidence: PulseOpportunityEvidenceEntry[];
     }
 

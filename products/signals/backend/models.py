@@ -190,6 +190,11 @@ class SignalReport(UUIDModel):
         DELETED = "deleted"
         SUPPRESSED = "suppressed"
 
+    # Statuses hidden from the default inbox list surface (and from cross-product reads of it):
+    # deleted reports are terminal, suppressed (archived) reports are hidden unless explicitly
+    # requested. Shared so a future terminal status can't diverge the surfaces.
+    INBOX_HIDDEN_STATUSES: tuple[str, ...] = (Status.DELETED, Status.SUPPRESSED)
+
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE)
     status = models.CharField(max_length=20, choices=Status, default=Status.POTENTIAL)
     # The status held immediately before the report was suppressed (archived). Lets "restore"
