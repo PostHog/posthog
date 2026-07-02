@@ -27,7 +27,7 @@ import type { heatmapToolbarMenuLogicType } from './heatmapToolbarMenuLogicType'
 
 export const doesVersionSupportScrollDepth = createVersionChecker('1.99')
 
-const ELEMENT_STATS_PAGE_LIMIT = 2000
+export const ELEMENT_STATS_PAGE_LIMIT = 5000
 
 function yieldToMain(): Promise<void> {
     return new Promise((resolve) => {
@@ -291,11 +291,11 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                     }
 
                     return {
-                        results: [
+                        results: dedupeByChainIdentity([
                             // if url is present we are paginating and merge results, otherwise we only use the new results
                             ...(url ? values.elementStats?.results || [] : []),
                             ...(result.data.results || []),
-                        ],
+                        ]),
                         next: result.data.next,
                         previous: result.data.previous,
                     } as PaginatedResponse<ElementsEventType>
@@ -617,6 +617,20 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         cache.cacheInvalidated = false
     }),
 ])
+
+function dedupeByChainIdentity(events: ElementsEventType[]): ElementsEventType[] {
+    const seen = new Set<string>()
+    const deduped: ElementsEventType[] = []
+    for (const event of events) {
+        const identity = `${event.type}:${event.hash}`
+        if (seen.has(identity)) {
+            continue
+        }
+        seen.add(identity)
+        deduped.push(event)
+    }
+    return deduped
+}
 
 function aggregateAndSortElements(elements: CountedHTMLElement[]): CountedHTMLElement[] {
     const normalisedElements = new Map<HTMLElement, CountedHTMLElement>()
