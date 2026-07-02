@@ -195,12 +195,23 @@ class TestFacadeReadsAndMappers(TestCase):
         task = self._make_task()
         fresh = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
         stale = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.QUEUED)
+        stale_local = TaskRun.objects.create(
+            task=task, team=self.team, status=TaskRun.Status.QUEUED, environment=TaskRun.Environment.LOCAL
+        )
         past = django_timezone.now() - timedelta(hours=48)
-        TaskRun.objects.filter(pk=stale.pk).update(updated_at=past)
+        TaskRun.objects.filter(pk__in=[stale.pk, stale_local.pk]).update(updated_at=past)
 
         stale_ids = facade.get_stale_queued_task_run_ids(older_than=timedelta(hours=24), limit=100)
         self.assertIn(stale.id, stale_ids)
+        # The unrestricted sweep (24h killer) still reaps abandoned local runs.
+        self.assertIn(stale_local.id, stale_ids)
         self.assertNotIn(fresh.id, stale_ids)
+
+        # The dispatch reconciler must never see local (desktop-driven) runs — re-dispatching
+        # one starts a cloud workflow that hijacks and eventually fails the live local session.
+        cloud_ids = facade.get_stale_queued_task_run_ids(older_than=timedelta(hours=24), limit=100, cloud_only=True)
+        self.assertIn(stale.id, cloud_ids)
+        self.assertNotIn(stale_local.id, cloud_ids)
 
         with patch("products.tasks.backend.push_dispatcher.notify_task_run_failed"):
             self.assertTrue(facade.fail_task_run(stale.id, "boom"))

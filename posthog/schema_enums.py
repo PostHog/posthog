@@ -1823,6 +1823,11 @@ class ExternalDataSourceType(StrEnum):
     APP_LOVIN = "AppLovin"
     BASEROW = "Baserow"
     PLUNK = "Plunk"
+    DUB = "Dub"
+    AIR_OPS = "AirOps"
+    PODIUM = "Podium"
+    LOOPS = "Loops"
+    REDIS = "Redis"
 
 
 class ExternalQueryErrorCode(StrEnum):
