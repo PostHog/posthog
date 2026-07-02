@@ -120,11 +120,15 @@ def _get_page_rows(
 
         for item in items:
             batcher.batch(item)
-            if batcher.should_yield():
-                yield batcher.get_table()
-                # Save AFTER yielding so a crash re-yields the last page rather than skipping it.
-                if has_more:
-                    resumable_source_manager.save_state(FloatAppResumeConfig(next_page=page + 1))
+
+        # Yield and save state only after the whole page is batched, so the resume pointer never
+        # advances past a page whose items are still buffered — a mid-page save could skip the
+        # remaining items of the current page on a crash-resume. Save AFTER yielding so a crash
+        # re-yields rather than skips (merge dedupes on the primary key).
+        if batcher.should_yield():
+            yield batcher.get_table()
+            if has_more:
+                resumable_source_manager.save_state(FloatAppResumeConfig(next_page=page + 1))
 
         if not has_more:
             break
@@ -170,10 +174,13 @@ def _get_cursor_rows(
 
         for item in items:
             batcher.batch(item)
-            if batcher.should_yield():
-                yield batcher.get_table()
-                if keep_going:
-                    resumable_source_manager.save_state(FloatAppResumeConfig(next_cursor=next_cursor))
+
+        # Same page-boundary discipline as the page paginator: only advance the saved cursor after
+        # the whole page has been batched, so a crash-resume can't skip the current page's tail.
+        if batcher.should_yield():
+            yield batcher.get_table()
+            if keep_going:
+                resumable_source_manager.save_state(FloatAppResumeConfig(next_cursor=next_cursor))
 
         if not keep_going:
             break
