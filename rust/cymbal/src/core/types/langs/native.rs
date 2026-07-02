@@ -438,6 +438,14 @@ impl RawNativeFrame {
         self.module
             .as_ref()
             .inspect(|m| hasher.update(m.as_bytes()));
+        // Resolution behavior branches on the inline marker (members pass
+        // through, physical frames symbolicate), so it must split the cache
+        // identity too — inlined self-recursion can make a member and its
+        // physical frame otherwise hash identically. Hashed only when set so
+        // every pre-marker frame id is unchanged.
+        if self.inline {
+            hasher.update(b"inline");
+        }
         hasher.update(b"native");
 
         format!("{:x}", hasher.finalize())
@@ -835,83 +843,20 @@ mod test {
         assert_ne!(launch_a.frame_id(&[]), launch_b.frame_id(&[]));
     }
 
-    /// Build a catalog whose native provider serves `data` for `chunk_id`.
-    async fn catalog_for_chunk(
-        db: &sqlx::PgPool,
-        chunk_id: &str,
-        data: Vec<u8>,
-    ) -> crate::symbolication::symbol_store::Catalog {
-        use chrono::Utc;
-        use mockall::predicate;
-        use std::sync::Arc;
-        use uuid::Uuid;
+    /// Resolution behavior branches on the inline marker, so it must split the
+    /// per-frame cache identity: with inlined self-recursion, a group member
+    /// and its physical frame can carry identical address/name/file/line, and
+    /// a shared id would let one's cached result answer for the other.
+    #[test]
+    fn test_native_frame_id_distinguishes_inline_members() {
+        let mut physical = native_frame_at(0x100004000, 0x100000000);
+        physical.function = Some("recurse".to_string());
+        physical.filename = Some("src/lib.rs".to_string());
+        physical.lineno = Some(12);
+        let mut member = physical.clone();
+        member.inline = true;
 
-        use crate::{
-            core::config::ResolverConfig,
-            symbolication::symbol_store::{
-                apple::AppleProvider, chunk_id::ChunkIdFetcher, hermesmap::HermesMapProvider,
-                native::NativeProvider, proguard::ProguardProvider, saving::SymbolSetRecord,
-                sourcemap::SourcemapProvider, Catalog, MockS3Client,
-            },
-        };
-
-        let mut config = ResolverConfig::init_with_defaults().unwrap();
-        config.object_storage_bucket = "test-bucket".to_string();
-
-        let mut record = SymbolSetRecord {
-            id: Uuid::now_v7(),
-            team_id: 1,
-            set_ref: chunk_id.to_string(),
-            storage_ptr: Some(chunk_id.to_string()),
-            failure_reason: None,
-            created_at: Utc::now(),
-            content_hash: Some("fake-hash".to_string()),
-            last_used: Some(Utc::now()),
-        };
-        record.save(db).await.unwrap();
-
-        let mut client = MockS3Client::default();
-        client
-            .expect_get()
-            .with(
-                predicate::eq(config.object_storage_bucket.clone()),
-                predicate::eq(chunk_id.to_string()),
-            )
-            .returning(move |_, _| Ok(Some(bytes::Bytes::from(data.clone()))));
-        let client = Arc::new(client);
-
-        Catalog::new(
-            ChunkIdFetcher::new(
-                SourcemapProvider::new(&config),
-                client.clone(),
-                db.clone(),
-                config.object_storage_bucket.clone(),
-            ),
-            ChunkIdFetcher::new(
-                HermesMapProvider {},
-                client.clone(),
-                db.clone(),
-                config.object_storage_bucket.clone(),
-            ),
-            ChunkIdFetcher::new(
-                ProguardProvider {},
-                client.clone(),
-                db.clone(),
-                config.object_storage_bucket.clone(),
-            ),
-            ChunkIdFetcher::new(
-                AppleProvider {},
-                client.clone(),
-                db.clone(),
-                config.object_storage_bucket.clone(),
-            ),
-            ChunkIdFetcher::new(
-                NativeProvider {},
-                client.clone(),
-                db.clone(),
-                config.object_storage_bucket.clone(),
-            ),
-        )
+        assert_ne!(physical.frame_id(&[]), member.frame_id(&[]));
     }
 
     #[test]
