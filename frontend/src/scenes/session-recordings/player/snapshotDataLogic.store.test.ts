@@ -6,6 +6,7 @@ import { EventType } from 'posthog-js/rrweb-types'
 import { RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
 import { setupSessionRecordingTest } from './__mocks__/test-setup'
+import { allLoadedSnapshots, markLoaded } from './snapshot-store/test-utils'
 import { snapshotDataLogic } from './snapshotDataLogic'
 
 const SOURCE_A: SessionRecordingSnapshotSource = {
@@ -122,7 +123,7 @@ describe('snapshotDataLogic (store-based loading)', () => {
                 .toFinishAllListeners()
 
             const store = logic.values.snapshotStore!
-            const allSnaps = store.getAllLoadedSnapshots()
+            const allSnaps = allLoadedSnapshots(store)
             expect(allSnaps.length).toBeGreaterThan(0)
         })
 
@@ -166,7 +167,7 @@ describe('snapshotDataLogic (store-based loading)', () => {
 
             const store = logic.values.snapshotStore!
             store.setSources([SOURCE_A])
-            store.markLoaded(0, [makeFullSnapshot(tsMs(0, 0)), makeSnapshot(tsMs(0, 30))])
+            markLoaded(store, 0, [makeFullSnapshot(tsMs(0, 0)), makeSnapshot(tsMs(0, 30))])
 
             await expectLogic(logic, () => {
                 logic.actions.setTargetTimestamp(tsMs(0, 15))
@@ -295,7 +296,7 @@ describe('snapshotDataLogic (store-based loading)', () => {
 
             const store = logic.values.snapshotStore!
             store.setSources([SOURCE_A])
-            store.markLoaded(0, [makeFullSnapshot(tsMs(0, 0))])
+            markLoaded(store, 0, [makeFullSnapshot(tsMs(0, 0))])
 
             await expectLogic(logic, () => {
                 logic.actions.loadNextSnapshotSource()
@@ -310,7 +311,7 @@ describe('snapshotDataLogic (store-based loading)', () => {
             // pre-seed the store as fully loaded so no snapshot fetch starts
             const store = logic.values.snapshotStore!
             store.setSources([SOURCE_A])
-            store.markLoaded(0, [makeFullSnapshot(tsMs(0, 0))])
+            markLoaded(store, 0, [makeFullSnapshot(tsMs(0, 0))])
 
             await expectLogic(logic, () => {
                 logic.actions.loadSnapshotSourcesSuccess([SOURCE_A])
@@ -330,7 +331,7 @@ describe('snapshotDataLogic (store-based loading)', () => {
 
                 const store = logic.values.snapshotStore!
                 store.setSources([SOURCE_A])
-                store.markLoaded(0, [makeFullSnapshot(tsMs(0, 0))])
+                markLoaded(store, 0, [makeFullSnapshot(tsMs(0, 0))])
 
                 expect(logic.values.snapshotsLoading).toBe(false)
             })
@@ -415,7 +416,7 @@ describe('snapshotDataLogic (store-based loading)', () => {
 
             const store = logic.values.snapshotStore!
             expect(store.sourceCount).toBe(3)
-            expect(store.getAllLoadedSnapshots().length).toBeGreaterThan(0)
+            expect(allLoadedSnapshots(store).length).toBeGreaterThan(0)
         })
     })
 
@@ -434,7 +435,7 @@ describe('snapshotDataLogic (store-based loading)', () => {
             const store = logic.values.snapshotStore!
             expect(store.sourceCount).toBe(1)
             expect(store.getSourceStates()[0].state).toBe('fetched')
-            expect(store.getAllLoadedSnapshots()).toHaveLength(3)
+            expect(allLoadedSnapshots(store)).toHaveLength(3)
         })
 
         it('makes snapshots available via coordinator selector', async () => {
@@ -449,7 +450,7 @@ describe('snapshotDataLogic (store-based loading)', () => {
                 .toFinishAllListeners()
 
             const store = logic.values.snapshotStore!
-            const loaded = store.getAllLoadedSnapshots()
+            const loaded = allLoadedSnapshots(store)
             expect(loaded).toHaveLength(2)
             expect(loaded[0].type).toBe(EventType.FullSnapshot)
         })

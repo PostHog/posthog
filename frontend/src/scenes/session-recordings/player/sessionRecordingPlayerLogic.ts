@@ -186,7 +186,7 @@ export type SeekRenderability =
     | { kind: 'unplayable' }
 
 // Non-definitive verdicts where more data could still make the position renderable — playback
-// should buffer and keep polling rather than play or error; syncPlayerState is the only consumer.
+// should buffer and keep polling rather than play or error.
 export function isAwaitingMoreData(renderability: SeekRenderability): boolean {
     return renderability.kind === 'waitingForData' || renderability.kind === 'waitingForIngestion'
 }
@@ -1121,28 +1121,38 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                 allSourcesLoaded: boolean,
                 sessionPlayerData: SessionPlayerData
             ) => {
-                return (timestamp: number): SeekRenderability => {
+                // Whether any segment containing the FullSnapshot's timestamp belongs to its window; boundary timestamps are shared with the preceding (micro-)gap, whose inferred windowId must not veto a usable recovery point.
+                const rendersOwnSegment = (fs: { timestamp: number; windowId: number }): boolean => {
+                    for (const seg of sessionPlayerData.segments) {
+                        if (seg.startTimestamp > fs.timestamp) {
+                            break
+                        }
+                        if (seg.windowId === fs.windowId && fs.timestamp <= seg.endTimestamp) {
+                            return true
+                        }
+                    }
+                    return false
+                }
+                const computeRenderability = (timestamp: number): SeekRenderability => {
                     const segment = segmentForTimestamp(timestamp)
                     if (segment?.kind !== 'window' || segment.windowId === undefined) {
                         // Gap and buffer positions render once their underlying source has loaded; until then they are still waiting on data.
-                        const sourceIndex = snapshotStore.getSourceIndexForTimestamp(timestamp)
-                        return sourceIndex !== null &&
-                            snapshotStore.getUnloadedIndicesInRange(sourceIndex, sourceIndex).length > 0
+                        return snapshotStore.isRangeLoaded(timestamp, timestamp) === false
                             ? { kind: 'waitingForData' }
                             : { kind: 'renderable' }
-                    }
-                    // Renderable means a FullSnapshot for this window exists at or before the position AND everything between them is loaded — the same contract the loader satisfies.
-                    if (snapshotStore.canPlayAt(timestamp, segment.windowId)) {
-                        return { kind: 'renderable' }
                     }
                     const targetIndex = snapshotStore.getSourceIndexForTimestamp(timestamp)
                     if (targetIndex === null) {
                         // no sources yet — initial load paths handle this
                         return { kind: 'renderable' }
                     }
-                    if (snapshotStore.findNearestFullSnapshot(timestamp, segment.windowId)) {
-                        // A usable FullSnapshot exists but the span between it and the position hasn't fully loaded yet.
-                        return { kind: 'waitingForData' }
+                    const nearestFull = snapshotStore.findNearestFullSnapshot(timestamp, segment.windowId)
+                    if (nearestFull) {
+                        // Renderable means a FullSnapshot for this window exists at or before the position AND everything between them is loaded — the same contract the loader satisfies.
+                        return snapshotStore.getUnloadedIndicesInRange(nearestFull.sourceIndex, targetIndex).length ===
+                            0
+                            ? { kind: 'renderable' }
+                            : { kind: 'waitingForData' }
                     }
                     // No FullSnapshot at or before this position for its window — only definitive once everything earlier has loaded, since an unloaded source could still contain one.
                     if (snapshotStore.getUnloadedIndicesInRange(0, targetIndex).length > 0) {
@@ -1151,17 +1161,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     // Recover at the first later FullSnapshot that can render the segment
                     // it lands in. A FullSnapshot whose landing segment belongs to another
                     // window is no use — seeking there would be just as unrenderable.
-                    // Checked against every segment containing the FullSnapshot's timestamp: boundary timestamps are shared with the preceding (micro-)gap, whose inferred windowId must not veto a usable recovery point.
-                    const recoveryTarget = snapshotStore
-                        .fullSnapshotsAfter(timestamp)
-                        .find((fs) =>
-                            sessionPlayerData.segments.some(
-                                (seg) =>
-                                    seg.windowId === fs.windowId &&
-                                    seg.startTimestamp <= fs.timestamp &&
-                                    fs.timestamp <= seg.endTimestamp
-                            )
-                        )
+                    const recoveryTarget = snapshotStore.fullSnapshotsAfter(timestamp).find(rendersOwnSegment)
                     if (recoveryTarget) {
                         // An unloaded source between the position and the recovery point could still contain an earlier FullSnapshot, so the clamp target isn't final yet.
                         if (
@@ -1182,6 +1182,20 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     return isWithinIngestionGracePeriod(sessionPlayerData.start)
                         ? { kind: 'waitingForIngestion' }
                         : { kind: 'unplayable' }
+                }
+
+                // The oracle runs per animation frame and several times per data arrival, so memoize the last verdict; the closure (and memo) is rebuilt whenever any input changes.
+                let memoTimestamp: number | null = null
+                let memoVerdict: SeekRenderability | null = null
+                return (timestamp: number): SeekRenderability => {
+                    if (timestamp === memoTimestamp && memoVerdict) {
+                        return memoVerdict
+                    }
+                    const verdict = computeRenderability(timestamp)
+                    // waitingForIngestion reads the wall clock (ingestion grace), so it must be recomputed every call or the lapse to 'unplayable' never happens
+                    memoTimestamp = verdict.kind === 'waitingForIngestion' ? null : timestamp
+                    memoVerdict = verdict
+                    return verdict
                 }
             },
         ],

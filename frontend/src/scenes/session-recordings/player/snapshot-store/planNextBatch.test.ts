@@ -5,6 +5,7 @@ import { SnapshotStore } from '@posthog/replay-shared'
 import { RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
 import { LoadPlanInput, planNextBatch } from './planNextBatch'
+import { markLoaded } from './test-utils'
 
 function makeSources(count: number): SessionRecordingSnapshotSource[] {
     return Array.from({ length: count }, (_, i) => ({
@@ -49,7 +50,7 @@ function createLoadedStore(
         const snaps = fullSnapshotIndices.includes(i)
             ? [makeFullSnapshot(ts), makeSnapshot(ts + 100)]
             : [makeSnapshot(ts)]
-        store.markLoaded(i, snaps)
+        markLoaded(store, i, snaps)
     }
     return store
 }
@@ -119,7 +120,7 @@ describe('planNextBatch', () => {
             store.setSources(makeSources(50))
             for (let i = 0; i < 30; i++) {
                 const ts = tsForMinute(i)
-                store.markLoaded(i, i === 0 ? [makeFullSnapshot(ts, 2), makeSnapshot(ts + 100)] : [makeSnapshot(ts)])
+                markLoaded(store, i, i === 0 ? [makeFullSnapshot(ts, 2), makeSnapshot(ts + 100)] : [makeSnapshot(ts)])
             }
             const batch = plan(store, { playbackPosition: tsForMinute(0), playbackWindowId: 1 })
             expect(batch?.reason).toBe('seek_forward')
@@ -223,7 +224,7 @@ describe('planNextBatch', () => {
             store.setSources(makeSources(20))
             for (let i = 0; i < 19; i++) {
                 const ts = tsForMinute(i)
-                store.markLoaded(i, i === 18 ? [makeFullSnapshot(ts, 2), makeSnapshot(ts + 100)] : [makeSnapshot(ts)])
+                markLoaded(store, i, i === 18 ? [makeFullSnapshot(ts, 2), makeSnapshot(ts + 100)] : [makeSnapshot(ts)])
             }
             const batch = plan(store, { target: { timestamp: tsForMinute(10), windowId: 1 } })
             expect(batch?.reason).toBe('seek_forward')
@@ -237,7 +238,7 @@ describe('planNextBatch', () => {
             store.setSources(makeSources(20))
             for (const i of loaded) {
                 const ts = tsForMinute(i)
-                store.markLoaded(i, i === 5 ? [makeFullSnapshot(ts, 2), makeSnapshot(ts + 100)] : [makeSnapshot(ts)])
+                markLoaded(store, i, i === 5 ? [makeFullSnapshot(ts, 2), makeSnapshot(ts + 100)] : [makeSnapshot(ts)])
             }
 
             // A window-agnostic target is satisfied by window 2's FullSnapshot — nothing to fetch

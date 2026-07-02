@@ -1,4 +1,4 @@
-import { EventType, eventWithTime } from 'posthog-js/rrweb-types'
+import { EventType } from 'posthog-js/rrweb-types'
 
 import { RecordingSnapshot, SessionRecordingSnapshotSource } from '../types'
 import { FullSnapshotRef, SourceEntry, SourceLoadingState } from './types'
@@ -6,8 +6,6 @@ import { FullSnapshotRef, SourceEntry, SourceLoadingState } from './types'
 export class SnapshotStore {
     private entries: SourceEntry[] = []
     private _version = 0
-    private mergedSnapshotsCache: RecordingSnapshot[] | null = null
-    private snapshotsByWindowIdCache: Record<number, eventWithTime[]> | null = null
 
     get version(): number {
         return this._version
@@ -33,7 +31,6 @@ export class SnapshotStore {
                 state: 'unloaded' as const,
                 processedSnapshots: null,
                 fullSnapshots: [],
-                metaTimestamps: [],
                 startMs: source.start_timestamp ? new Date(source.start_timestamp).getTime() : 0,
                 endMs: source.end_timestamp ? new Date(source.end_timestamp).getTime() : 0,
             }
@@ -53,14 +50,26 @@ export class SnapshotStore {
         return this.entries[index]
     }
 
-    // One-shot fetched+processed transition for data seeded outside the fetch/process pipeline (tests).
-    markLoaded(sourceIndex: number, processedSnapshots: RecordingSnapshot[]): void {
-        this.ingest(sourceIndex, processedSnapshots, 'loaded')
-    }
-
     // Raw data has arrived but hasn't been through snapshot processing yet — playable state ('loaded') is granted by markProcessed.
     markFetched(sourceIndex: number, snapshots: RecordingSnapshot[]): void {
-        this.ingest(sourceIndex, snapshots, 'fetched')
+        const entry = this.entries[sourceIndex]
+        if (!entry) {
+            return
+        }
+
+        snapshots.sort((a, b) => a.timestamp - b.timestamp)
+
+        const fullSnapshots: FullSnapshotRef[] = []
+        for (const snap of snapshots) {
+            if (snap.type === EventType.FullSnapshot) {
+                fullSnapshots.push({ timestamp: snap.timestamp, windowId: snap.windowId })
+            }
+        }
+
+        entry.state = 'fetched'
+        entry.processedSnapshots = snapshots
+        entry.fullSnapshots = fullSnapshots
+        this.bump()
     }
 
     // Flips fetched sources to loaded once a processing pass has covered them.
@@ -79,68 +88,6 @@ export class SnapshotStore {
         return changed
     }
 
-    private ingest(sourceIndex: number, snapshots: RecordingSnapshot[], state: 'fetched' | 'loaded'): void {
-        const entry = this.entries[sourceIndex]
-        if (!entry) {
-            return
-        }
-
-        snapshots.sort((a, b) => a.timestamp - b.timestamp)
-
-        const fullSnapshots: FullSnapshotRef[] = []
-        const metaTimestamps: number[] = []
-        for (const snap of snapshots) {
-            if (snap.type === EventType.FullSnapshot) {
-                fullSnapshots.push({ timestamp: snap.timestamp, windowId: snap.windowId })
-            }
-            if (snap.type === EventType.Meta) {
-                metaTimestamps.push(snap.timestamp)
-            }
-        }
-
-        entry.state = state
-        entry.processedSnapshots = snapshots
-        entry.fullSnapshots = fullSnapshots
-        entry.metaTimestamps = metaTimestamps
-        this.bump()
-    }
-
-    getAllLoadedSnapshots(): RecordingSnapshot[] {
-        if (this.mergedSnapshotsCache) {
-            return this.mergedSnapshotsCache
-        }
-
-        const result: RecordingSnapshot[] = []
-        for (const entry of this.entries) {
-            if (entry.state !== 'unloaded' && entry.processedSnapshots) {
-                for (const snap of entry.processedSnapshots) {
-                    result.push(snap)
-                }
-            }
-        }
-        this.mergedSnapshotsCache = result
-        return result
-    }
-
-    getSnapshotsByWindowId(): Record<number, eventWithTime[]> {
-        if (this.snapshotsByWindowIdCache) {
-            return this.snapshotsByWindowIdCache
-        }
-
-        const snapshots = this.getAllLoadedSnapshots()
-
-        const result: Record<number, eventWithTime[]> = {}
-        for (const snapshot of snapshots) {
-            const windowId = (snapshot as RecordingSnapshot).windowId
-            if (!(windowId in result)) {
-                result[windowId] = []
-            }
-            result[windowId].push(snapshot)
-        }
-        this.snapshotsByWindowIdCache = result
-        return result
-    }
-
     /**
      * Returns the index of the source whose timestamp range contains `ts`,
      * or the nearest source if `ts` falls outside any range. Returns `null`
@@ -152,16 +99,20 @@ export class SnapshotStore {
         if (this.entries.length === 0) {
             return null
         }
-        for (let i = 0; i < this.entries.length; i++) {
-            const entry = this.entries[i]
-            if (ts >= entry.startMs && ts <= entry.endMs) {
-                return i
-            }
-            if (ts < entry.startMs) {
-                return Math.max(0, i - 1)
+        // Binary search over startMs (sources arrive time-ordered): positions inside a range resolve to it, positions in inter-source gaps or past the ends resolve to the nearest source.
+        let low = 0
+        let high = this.entries.length - 1
+        let candidate = -1
+        while (low <= high) {
+            const mid = (low + high) >> 1
+            if (this.entries[mid].startMs <= ts) {
+                candidate = mid
+                low = mid + 1
+            } else {
+                high = mid - 1
             }
         }
-        return Math.max(0, this.entries.length - 1)
+        return Math.max(0, candidate)
     }
 
     canPlayAt(ts: number, windowId?: number): boolean {
@@ -199,6 +150,10 @@ export class SnapshotStore {
         let bestSourceIndex = -1
 
         for (const entry of this.entries) {
+            // entries past `ts` can't hold a FullSnapshot at or before it (refs never precede their entry's start, except entry 0's)
+            if (entry.index > 0 && entry.startMs > ts) {
+                break
+            }
             for (const fullSnapshot of entry.fullSnapshots) {
                 if (windowId !== undefined && fullSnapshot.windowId !== windowId) {
                     continue
@@ -214,6 +169,35 @@ export class SnapshotStore {
             return null
         }
         return { sourceIndex: bestSourceIndex, timestamp: bestTs }
+    }
+
+    // Whether every source covering [startTs, endTs] has been processed; null = unknown (no sources yet), callers keep their default.
+    isRangeLoaded(startTs: number, endTs: number): boolean | null {
+        if (this.entries.length === 0) {
+            return null
+        }
+        const startIndex = this.getSourceIndexForTimestamp(startTs)
+        const endIndex = this.getSourceIndexForTimestamp(endTs)
+        if (startIndex === null || endIndex === null) {
+            return null
+        }
+        return this.getUnloadedIndicesInRange(startIndex, endIndex).length === 0
+    }
+
+    // Allocation-free existence check for the load planner's recovery scan.
+    hasFullSnapshotAfter(ts: number, windowId?: number): boolean {
+        for (const entry of this.entries) {
+            for (const fullSnapshot of entry.fullSnapshots) {
+                if (fullSnapshot.timestamp >= ts && (windowId === undefined || fullSnapshot.windowId === windowId)) {
+                    return true
+                }
+            }
+        }
+        return false
+    }
+
+    get hasLoadedAnySource(): boolean {
+        return this.entries.some((entry) => entry.state === 'loaded')
     }
 
     /**
@@ -280,8 +264,6 @@ export class SnapshotStore {
                 entry.processedSnapshots = null
             }
         }
-        this.mergedSnapshotsCache = null
-        this.snapshotsByWindowIdCache = null
     }
 
     // "Not yet playable" — fetched-but-unprocessed sources count; use for renderability, not for planning fetches.
@@ -312,7 +294,5 @@ export class SnapshotStore {
 
     private bump(): void {
         this._version++
-        this.mergedSnapshotsCache = null
-        this.snapshotsByWindowIdCache = null
     }
 }

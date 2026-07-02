@@ -105,7 +105,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                     'loadRecordingNotebookCommentsSuccess',
                 ],
                 snapLogic,
-                ['storeUpdated', 'loadNextSnapshotSource'],
+                ['storeUpdated'],
             ],
             values: [
                 metaLogic,
@@ -250,18 +250,13 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             // Sync them back to the store so canPlayAt() and the load planner work correctly.
             const synced = values.snapshotStore.syncFullSnapshotTimestamps(result)
 
-            // Release raw snapshot arrays from the store — only the metadata
-            // (fullSnapshots, metaTimestamps, state) is still needed.
+            // Release raw snapshot arrays from the store — only the metadata (fullSnapshots, state) is still needed.
             values.snapshotStore.clearSnapshotData()
 
             if (promoted || synced) {
                 actions.storeUpdated()
             }
             actions.setProcessedSnapshots(result)
-            if (promoted) {
-                // allSourcesLoaded flips only now, so polling has to be re-armed from here rather than from the fetch path
-                actions.loadNextSnapshotSource()
-            }
         },
 
         reportUsageIfFullyLoaded: (_, breakpoint) => {
@@ -340,18 +335,9 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 snapshotsByWindowId: Record<number, eventWithTime[]>,
                 snapshotStore: SnapshotStore
             ): RecordingSegment[] => {
-                const isRangeLoaded = (startTs: number, endTs: number): boolean | null => {
-                    if (snapshotStore.sourceCount === 0) {
-                        return null
-                    }
-                    const startIdx = snapshotStore.getSourceIndexForTimestamp(startTs)
-                    const endIdx = snapshotStore.getSourceIndexForTimestamp(endTs)
-                    if (startIdx === null || endIdx === null) {
-                        return null
-                    }
-                    return snapshotStore.getUnloadedIndicesInRange(startIdx, endIdx).length === 0
-                }
-                return createSegments(snapshots || [], start, end, trackedWindow, snapshotsByWindowId, isRangeLoaded)
+                return createSegments(snapshots || [], start, end, trackedWindow, snapshotsByWindowId, (s, e) =>
+                    snapshotStore.isRangeLoaded(s, e)
+                )
             },
         ],
 
@@ -604,7 +590,6 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
         ],
     })),
     beforeUnmount(({ cache, actions, values }) => {
-        cache.windowIdForTimestamp = undefined
         cache.processingCache = undefined
         // Force clear processedSnapshots to release memory immediately
         // This breaks the reference chain in selector memoization cache

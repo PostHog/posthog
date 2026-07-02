@@ -26,6 +26,7 @@ import {
     setupSessionRecordingTest,
 } from './__mocks__/test-setup'
 import { findNewEvents, findSegmentForTimestamp, stripRrwebScriptShims } from './sessionRecordingPlayerLogic'
+import { markLoaded } from './snapshot-store/test-utils'
 import { snapshotDataLogic } from './snapshotDataLogic'
 import { deleteRecording as deleteRecordingMock } from './utils/playerUtils'
 
@@ -433,24 +434,33 @@ describe('sessionRecordingPlayerLogic', () => {
             end_timestamp: new Date(LATE_FS_TS + 60000).toISOString(),
         }
 
-        const makeSnapshot = (timestamp: number, type: EventType): RecordingSnapshot =>
-            ({ timestamp, type, windowId: 1, data: {} }) as unknown as RecordingSnapshot
+        const makeSnapshot = (
+            timestamp: number,
+            type: EventType,
+            windowId: number = 1,
+            data: Record<string, any> = {}
+        ): RecordingSnapshot => ({ timestamp, type, windowId, data }) as unknown as RecordingSnapshot
 
         const inc = (timestamp: number): RecordingSnapshot => makeSnapshot(timestamp, EventType.IncrementalSnapshot)
         const fs = (timestamp: number): RecordingSnapshot => makeSnapshot(timestamp, EventType.FullSnapshot)
-        // second-window incremental for the multi-window case
+        // second-window events for the multi-window cases
         const w2inc = (timestamp: number): RecordingSnapshot =>
-            ({ timestamp, type: EventType.IncrementalSnapshot, windowId: 2, data: {} }) as unknown as RecordingSnapshot
-        const w2fs = (timestamp: number): RecordingSnapshot =>
-            ({ timestamp, type: EventType.FullSnapshot, windowId: 2, data: {} }) as unknown as RecordingSnapshot
+            makeSnapshot(timestamp, EventType.IncrementalSnapshot, 2)
+        const w2fs = (timestamp: number): RecordingSnapshot => makeSnapshot(timestamp, EventType.FullSnapshot, 2)
         // an ACTIVE first-window event, so the segmenter splits a real window-1 segment before it
         const w1move = (timestamp: number): RecordingSnapshot =>
-            ({
-                timestamp,
-                type: EventType.IncrementalSnapshot,
-                windowId: 1,
-                data: { source: IncrementalSource.MouseMove },
-            }) as unknown as RecordingSnapshot
+            makeSnapshot(timestamp, EventType.IncrementalSnapshot, 1, { source: IncrementalSource.MouseMove })
+
+        // one-minute-per-source blob fixtures matching the store test helpers
+        const makeBlobSources = (
+            blobKeys: string[]
+        ): { source: string; blob_key: string; start_timestamp: string; end_timestamp: string }[] =>
+            blobKeys.map((blobKey, index) => ({
+                source: 'blob_v2',
+                blob_key: blobKey,
+                start_timestamp: new Date(START + index * 60000).toISOString(),
+                end_timestamp: new Date(START + (index + 1) * 60000).toISOString(),
+            }))
 
         // Seeds the snapshot store and the coordinator's processed snapshots (which
         // segments derive from) directly, bypassing the network loading machinery.
@@ -464,10 +474,10 @@ describe('sessionRecordingPlayerLogic', () => {
             const store = dataLogic.cache.store
             const processed: RecordingSnapshot[] = []
             if (firstSourceSnapshots) {
-                store.markLoaded(0, firstSourceSnapshots)
+                markLoaded(store, 0, firstSourceSnapshots)
                 processed.push(...firstSourceSnapshots)
             }
-            store.markLoaded(1, secondSourceSnapshots)
+            markLoaded(store, 1, secondSourceSnapshots)
             processed.push(...secondSourceSnapshots)
             dataLogic.actions.storeUpdated()
             sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actions.setProcessedSnapshots(processed)
@@ -565,19 +575,14 @@ describe('sessionRecordingPlayerLogic', () => {
         it("re-targets the loader when a window-blind seek is satisfied by another window's full snapshot", async () => {
             const dataLogic = snapshotDataLogic({ sessionRecordingId: '2' })
             const coordinator = sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' })
-            const sources = ['10', '11', '12', '13', '14', '15'].map((blobKey, index) => ({
-                source: 'blob_v2',
-                blob_key: blobKey,
-                start_timestamp: new Date(START + index * 60000).toISOString(),
-                end_timestamp: new Date(START + (index + 1) * 60000).toISOString(),
-            }))
+            const sources = makeBlobSources(['10', '11', '12', '13', '14', '15'])
             const seekTarget = START + 250000
 
             dataLogic.actions.loadSnapshotSourcesSuccess(sources as any)
             const store = dataLogic.cache.store
             // a loaded tail keeps the recording end past the seek target, which sits in unloaded territory with no known windowId
             const tail = [inc(START + 295000)]
-            store.markLoaded(5, tail)
+            markLoaded(store, 5, tail)
             dataLogic.actions.storeUpdated()
             coordinator.actions.setProcessedSnapshots(tail)
             logic.actions.setPause()
@@ -595,10 +600,10 @@ describe('sessionRecordingPlayerLogic', () => {
                 inc(START + 252000),
             ]
             await expectLogic(dataLogic, () => {
-                store.markLoaded(1, [arrived[0]])
-                store.markLoaded(2, [arrived[1]])
-                store.markLoaded(3, [arrived[2]])
-                store.markLoaded(4, arrived.slice(3))
+                markLoaded(store, 1, [arrived[0]])
+                markLoaded(store, 2, [arrived[1]])
+                markLoaded(store, 3, [arrived[2]])
+                markLoaded(store, 4, arrived.slice(3))
                 dataLogic.actions.storeUpdated()
                 coordinator.actions.setProcessedSnapshots([...arrived, ...tail])
             }).toDispatchActions([
@@ -638,19 +643,14 @@ describe('sessionRecordingPlayerLogic', () => {
 
         it('keeps buffering instead of over-clamping while sources before the recovery point are unloaded', () => {
             const dataLogic = snapshotDataLogic({ sessionRecordingId: '2' })
-            const sources = ['20', '21', '22'].map((blobKey, index) => ({
-                source: 'blob_v2',
-                blob_key: blobKey,
-                start_timestamp: new Date(START + index * 60000).toISOString(),
-                end_timestamp: new Date(START + (index + 1) * 60000).toISOString(),
-            }))
+            const sources = makeBlobSources(['20', '21', '22'])
             dataLogic.actions.loadSnapshotSourcesSuccess(sources as any)
             const store = dataLogic.cache.store
             // window 1 has no FullSnapshot in its loaded head; the unloaded middle source could still contain one earlier than the loaded island's
             const head = [inc(START), inc(START + 1000)]
             const island = [fs(START + 130000), inc(START + 131000)]
-            store.markLoaded(0, head)
-            store.markLoaded(2, island)
+            markLoaded(store, 0, head)
+            markLoaded(store, 2, island)
             dataLogic.actions.storeUpdated()
             sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' }).actions.setProcessedSnapshots([
                 ...head,

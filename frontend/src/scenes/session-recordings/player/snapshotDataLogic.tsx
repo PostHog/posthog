@@ -35,7 +35,7 @@ export interface SnapshotLogicProps {
     accessToken?: string
 }
 
-// Reactivity note (#53893): `cache.store` (SnapshotStore) lives outside Kea, so any listener that mutates it (markLoaded, setSources) MUST dispatch `storeUpdated()` afterwards, and any selector reading it MUST depend on `storeVersion`.
+// Reactivity note (#53893): `cache.store` (SnapshotStore) lives outside Kea, so any listener that mutates it (markFetched, setSources) MUST dispatch `storeUpdated()` afterwards, and any selector reading it MUST depend on `storeVersion`.
 export const snapshotDataLogic = kea<snapshotDataLogicType>([
     path((key) => ['scenes', 'session-recordings', 'snapshotLogic', key]),
     props({} as SnapshotLogicProps),
@@ -228,16 +228,15 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             },
         ],
     })),
-    listeners(({ values, actions, cache, props }) => ({
-        setTargetTimestamp: ({ timestamp, windowId }) => {
+    listeners(({ values, actions, cache, props, selectors }) => ({
+        setTargetTimestamp: ({ timestamp, windowId }, _breakpoint, __, previousState) => {
             if (timestamp === null) {
                 return
             }
             cache.playbackPosition = timestamp
             cache.playbackWindowId = windowId
-            const targetKey = `${timestamp}:${windowId ?? ''}`
-            if (cache.lastTargetKey !== targetKey) {
-                cache.lastTargetKey = targetKey
+            const previousTarget = selectors.seekTarget(previousState)
+            if (previousTarget?.timestamp !== timestamp || previousTarget?.windowId !== windowId) {
                 // A genuinely new target grants fresh retries after the permanent-failure cap.
                 cache.loadFailureCount = 0
             }
@@ -262,12 +261,18 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             actions.loadNextSnapshotSource()
         },
 
+        // Sources can become playable (promotion) without any new fetch completing, and polling only arms once everything is loaded — so the poll gate re-checks on every store mutation; it is fully guarded and inert mid-fetch.
+        storeUpdated: () => {
+            actions.maybeStartPolling()
+        },
+
         setSnapshots: ({ snapshots }: { snapshots: RecordingSnapshot[] }) => {
             if (cache.store) {
                 const fileSource = { source: SnapshotSourceType.file } as SessionRecordingSnapshotSource
                 cache.store.setSources([fileSource])
                 cache.store.markFetched(0, snapshots)
                 cache.pendingBatch = { snapshots, sources: [fileSource] }
+                actions.storeUpdated()
             }
 
             // Set sources first, then trigger the success action
@@ -303,15 +308,12 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             if (sourcesChanged) {
                 actions.resetPollingInterval()
                 cache.lastSourcesChangeTime = Date.now()
+                cache.store?.setSources(snapshotSources)
+                actions.storeUpdated()
             } else {
                 const currentInterval = values.pollingInterval
                 const newInterval = Math.min(currentInterval * 2, MAX_V2_POLLING_INTERVAL_MS)
                 actions.setPollingInterval(newInterval)
-            }
-
-            if (sourcesChanged) {
-                cache.store?.setSources(snapshotSources)
-                actions.storeUpdated()
             }
 
             actions.loadNextSnapshotSource()
@@ -442,8 +444,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             (s) => [s.snapshotSourcesLoading, s.snapshotsForSourceLoading, s.storeVersion],
             (snapshotSourcesLoading: boolean, snapshotsForSourceLoading: boolean): boolean => {
                 // Keyed on loaded-source state (not snapshot arrays, which the coordinator releases after processing), so a fully-watchable recording doesn't flap back to loading during source polls.
-                const hasLoadedAnySource =
-                    cache.store?.getSourceStates().some((s: SourceLoadingState) => s.state === 'loaded') ?? false
+                const hasLoadedAnySource = cache.store?.hasLoadedAnySource ?? false
                 return !hasLoadedAnySource && (snapshotSourcesLoading || snapshotsForSourceLoading)
             },
         ],
@@ -546,7 +547,6 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         cache.lastSourcesChangeTime = undefined
         cache.playbackPosition = undefined
         cache.playbackWindowId = undefined
-        cache.lastTargetKey = undefined
         cache.loadFailureCount = undefined
     }),
 ])

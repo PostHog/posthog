@@ -11,7 +11,6 @@ export interface SourceEntry {
     state: 'unloaded' | 'fetched' | 'loaded'
     processedSnapshots: RecordingSnapshot[] | null
     fullSnapshots: FullSnapshotRef[]
-    metaTimestamps: number[]
     startMs: number
     endMs: number
 }

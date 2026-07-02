@@ -77,10 +77,7 @@ function planSeekBatch(store: SnapshotStore, { timestamp, windowId }: SeekTarget
     }
 
     // Step 4: nothing before the target can help, so recovery must come from a later FullSnapshot in the target's window — keep loading forward until one is known.
-    const hasRecoveryCandidate = store
-        .fullSnapshotsAfter(timestamp)
-        .some((fullSnapshot) => windowId === undefined || fullSnapshot.windowId === windowId)
-    if (!hasRecoveryCandidate) {
+    if (!store.hasFullSnapshotAfter(timestamp, windowId)) {
         const forwardIndices = store.getUnfetchedIndicesInRange(windowEnd + 1, store.sourceCount - 1)
         if (forwardIndices.length > 0) {
             return { sourceIndices: truncateToContiguous(forwardIndices.slice(0, batchSize)), reason: 'seek_forward' }
