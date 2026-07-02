@@ -212,6 +212,7 @@ the row lists both.
 | paystack                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | pendo                   | HTTP                        | requests                                                        | ✅                          |
 | personio                | HTTP                        | requests                                                        | ✅                          |
+| pexels                  | HTTP                        | requests                                                        | ✅                          |
 | pingdom                 | HTTP                        | requests                                                        | ✅                          |
 | pinterest_ads           | HTTP                        | requests                                                        | ✅                          |
 | pipedrive               | HTTP                        | requests                                                        | ✅                          |
@@ -569,7 +570,6 @@ doesn't conflict with concurrent PRs.
 - perk
 - persistiq
 - persona
-- pexels
 - phyllo
 - picqer
 - pipeliner
