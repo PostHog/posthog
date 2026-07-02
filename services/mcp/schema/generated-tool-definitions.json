@@ -6580,6 +6580,34 @@
             "readOnlyHint": true
         }
     },
+    "saved-query-column-annotations-create": {
+        "description": "Add or replace a semantic description for a data-modelling view (saved query) or one of its columns. Use this ONLY for views — rows where table_type = 'view' in system.information_schema.tables. For imported/physical warehouse tables (table_type = 'data_warehouse') use warehouse-column-annotations-create instead. Core PostHog tables (events, persons, groups, sessions; table_type = 'posthog') cannot be described. Provide the saved_query id, the column_name (empty string for a view-level description), and the description. The annotation is recorded as user-edited, which prevents automatic enrichment from overwriting it. Calling this again for the same column replaces the existing description.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Add a view column description",
+        "title": "Add a view column description",
+        "required_scopes": ["warehouse_view:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "saved-query-column-annotations-list": {
+        "description": "List semantic descriptions of data-modelling views (saved queries) and their columns. Use this for views (table_type = 'view' in system.information_schema.tables); for physical warehouse tables use warehouse-column-annotations-list. Pass ?saved_query_id=<uuid> to scope to one view. Each entry has the column_name (empty string = view-level description), the description, and its source (ai_generated or user_edited). Use this to see what a view's columns mean before writing SQL against it.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "List view column descriptions",
+        "title": "List view column descriptions",
+        "required_scopes": ["warehouse_view:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "scheduled-changes-create": {
         "description": "Schedule a future change to a feature flag. Supported operations: 'update_status' (enable/disable), 'add_release_condition', and 'update_variants'. Provide the flag ID as record_id, model_name as \"FeatureFlag\", a payload with the operation and value, and a scheduled_at datetime.",
         "category": "Feature flags",
