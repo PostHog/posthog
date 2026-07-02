@@ -15,9 +15,8 @@ export interface DistributionSegment {
 }
 
 /**
- * One horizontal bar split into colored segments sized by share of the total — a whole distribution
- * (cost by runner tier, jobs by status, …) read at a glance, each segment hover-able for its share.
- * Adapted from LLM analytics' cluster distribution bar. Segments under 0.5% are dropped as visual noise.
+ * One horizontal bar split into colored segments sized by share of the total (cost by runner tier, jobs
+ * by status, …), each hover-able for its share. Segments under 0.5% are dropped as noise.
  */
 export function DistributionBar({
     segments,
