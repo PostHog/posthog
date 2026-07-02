@@ -36,6 +36,96 @@ multi-stage effort to bring this (originally March 2026) branch up to date with 
 This work (now on `signals/reviewhog`, originally `signals/custom-prompt-to-sandbox`) predates several
 months of `master` evolution. The work is staged; keep this section updated as stages land.
 
+### 🎯 NEXT — productionize the 2026-07 reviewer-topology eval (CURRENT start-here; older START-HERE markers below are historical)
+
+**Context:** a 17-run topology experiment (8 configs, frozen PR #62096, LLM-judged vs the old reviewer's
+10-finding yardstick) is archived at `products/review_hog/eval/experiments/2026-07-reviewer-topology/` —
+read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking). Reusable dump harness:
+`eval/scripts/dump_result.py` (OUT_DIR-overridable). The winning shape: semantic chunking for mid-size PRs
+
+- parallel perspectives + one "what did everyone miss?" **blind-spot check** per chunk (C4/C7 — most
+  consistent and highest-output config; the eval and its archive call this unit the "gap pass" — same thing,
+  renamed below). Expected prod delta on a ~500-addition PR: ~5–6 valid findings / ~19M in /
+  ~23 min, vs today's ~3–4 / ~11M / ~14 min. **The experiment code for all topologies sits UNCOMMITTED in
+  the working tree behind default-off `EXPERIMENT_*` constants (297 review_hog tests + ruff green)** — the
+  items below convert the winners into prod code and delete the losers. Decisions locked with the user
+  2026-07-02:
+
+1. **Chunking numbers — split the dual-duty constant.** `CHUNK_TARGET_ADDITIONS=1000` currently serves as
+   BOTH the single-chunk gate and the chunker's size guidance. Replace with
+   `SINGLE_CHUNK_GATE_ADDITIONS = 400` (≤400 reviewable additions → one chunk, no chunking LLM) and
+   `CHUNK_TARGET_ADDITIONS = 300` / `CHUNK_SOFT_MAX_ADDITIONS = 600` (chunker guidance; the prompt already
+   forbids single-file fragments and refuses to split atomic concerns — that's the anti-micro-chunk guard).
+   Then delete `EXPERIMENT_FORCE_CHUNKING`, `EXPERIMENT_CHUNK_TARGET/SOFT_MAX_ADDITIONS`, and the
+   `effective_*()` helpers (obsolete). **Keep `EXPERIMENT_PINNED_CHUNKS`** + `plan_pinned_chunks()` — it's
+   the eval instrument (holds chunk structure constant across runs), default `None`, and its precedence
+   over the persisted-chunk-set resume is deliberate (a stale set must not silently void a pin).
+2. **Blind-spot check → prod, always-on** (every review, incl. single-chunk PRs). Naming: this is the
+   eval's **"gap pass"** — renamed 2026-07-02 because "blind spots" pairs with "perspectives" in the same
+   seeing metaphor (perspectives see; the blind-spot check hunts what every perspective misses). The
+   staged experiment code still says "gap" (`EXPERIMENT_COMPLETENESS_PASS`, `COMPLETENESS_GAP_PERSPECTIVE`,
+   the `gap_pass` activity flag, the `GAP_PASS` template var) — rename those while productionizing.
+   Promote the `EXPERIMENT_COMPLETENESS_PASS` branch in `ReviewPerspectivesWorkflow` to the permanent
+   second round (wave → blind-spot check), dropping the flag. Design decisions:
+   - **Own step, NOT a fourth perspective** — it consumes the wave's findings, so perspective-prefix
+     tricks would still need an ordering layer while contorting the multi-enable semantics.
+   - **Customizable single-active blind-spots skill**, exactly the validator pattern: third prefix
+     `review-hog-blind-spots-*` in `ReviewSkillConfig` (canonical: `review-hog-blind-spots-general`), a
+     `load_blind_spots_skill_for_run` mirroring `load_validation_skill_for_run` (canonical fallback,
+     hard-raise on missing selected skill), sibling single-active viewset. Its findings keep the synthetic
+     pass number (max+1) and get `source_perspective` = the blind-spots skill name; sandbox
+     `step_name="blind-spots-c{chunk}"`. UI label: "Blind spots" (sentence case).
+   - **Canonical blind-spots skill v1 = PURE GENERIC** — exactly the eval-proven C4/C7 shape: wave
+     findings in, "find real issues NONE of the lenses surfaced", empty-list-over-padding. **No category
+     checklist** (locked with the user after iteration: static content here is fourth-perspective drift
+     and breaks under per-user perspective customization — anything static belongs in perspectives; the
+     five never-surfaced finding categories go to the content round, item 5). The skill's unique power is
+     being conditioned on the run's actual output.
+   - **Prompt changes:** replace the hardcoded `GAP_PASS` jinja branch in
+     `prompts/issues_review/prompt.jinja` with a pinned `skill-get` (same as perspectives), and inject the
+     enabled perspectives' names + descriptions ("these lenses already ran") — static plumbing from rows
+     already loaded for the run, per-user correct (locked in v1; note it's a low-risk addition beyond what
+     the eval measured — the C4/C7 prompt worked without it).
+   - **Dedup nudge:** blind-spot-check output overlaps the wave more than perspectives overlap each other
+     — 3 duplicate pairs slipped through dedup in the C7 runs. Tighten the dedup prompt for that round
+     (same-problem anchor already exists; emphasize wave-vs-blind-spot-check comparison).
+3. **Delete the losing experiment paths (no dead code).** Warm-session removal list:
+   `EXPERIMENT_WARM_REVIEW_SESSION` + its workflow branch, `review_perspective_session_activity` +
+   `ReviewPerspectiveSessionInput` + the `temporal/__init__.py` registration, `build_review_followup_prompt`,
+   the three C5 tests, and **revert `start_sandbox_session`'s model-pin kwargs** (the warm session was
+   their only consumer; validate sessions run the default model). Also delete
+   `EXPERIMENT_SEQUENTIAL_PERSPECTIVES` + its workflow branch (2× wall-clock, no coverage gain).
+   **Decision note (keep this):** warm per-perspective review sessions (chunks as turns) were built and
+   evaluated 2026-07-02 — mechanics work (P×C sandboxes → P sessions), but anchoring replicated in both
+   runs (later chunk-turns near-silent: 2–3 valid vs 4–6 for isolated sandboxes at equal tokens).
+   Intentionally not adopted; revisit only with an explicit anti-anchoring device and a re-eval against
+   the archived yardstick.
+4. **Validator round (after the topology ships).** The strict validator killed real findings repeatedly
+   (yardstick #6 in 7 of 8 runs that surfaced it, #2 in 4 of 9) on "speculative/reachability" grounds.
+   Locked plan: (a) first the FREE observational check — valid-rate and argumentation depth **by turn
+   position** across the archived dumps + prod verdicts (data already persisted; no runs) — to see if
+   session mode itself induces dismissal momentum; (b) the experiment: **warm-session turns vs isolated
+   per-issue validation, ×2 runs each, same strict criteria**, on the frozen PR via the archived harness —
+   compare valid-rate, #6/#2 survival, positional effects; (c) only then decide criteria loosening
+   (the strictness may be partly mode-induced).
+5. **Perspective-skill content round (later).** Five yardstick findings — incl. both must_fix security
+   ones — never surfaced in ANY of 17 runs under ANY topology: the lenses simply don't hunt those grounds
+   (agent-tool privilege wiring, write-path authz ordering, output-channel injection, payload limits,
+   attribution). A legitimate outcome is a **fourth canonical perspective** (e.g. agent-safety &
+   privilege) rather than diluting the existing three — NOT content for the blind-spots skill (see item
+   2). Use the eval's coverage matrix as the acceptance test.
+6. **Investigate potential experiments (seed list — investigation task, don't run now):** per-stage
+   model/effort tiers (xhigh only where it pays — review; cheaper for chunking/dedup/body); best-of-N or
+   count-guided chunker (kill the 2-vs-3-chunk coin flip); dedup quality at higher finding volume;
+   **dynamic blind-spots-skill generation** — "look at the PR and the perspectives that ran, generate what
+   would make sense to sweep for", replicating the Signals scout-authoring skill pattern where possible
+   (volatile, +1 LLM step, needs its own eval round — explicitly worth the experiment per the user);
+   per-stage token
+   attribution then context/payload trimming (runs consume 11–21M input tokens — find where); reviewer
+   model retry (gpt-5.5 when its harness stabilizes, Sonnet-tier for cost floors); single-chunk blind-spot-check
+   value (always-on assumed but unmeasured on 1-chunk PRs); warm sessions revisited with an
+   anti-anchoring device.
+
 ### ✅ Stage 1 — mergeability + docs (current)
 
 - **Merged `origin/master`** (6 conflicts, all in shared infra — resolved, staged, **not committed**):
