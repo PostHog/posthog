@@ -10,6 +10,7 @@ from unittest.mock import AsyncMock
 import httpx
 import httpx_sse
 from parameterized import parameterized
+from temporalio.exceptions import ApplicationError
 
 from products.tasks.backend.temporal.process_task import workflow as process_task_workflow_module
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
@@ -603,7 +604,7 @@ class TestRelaySandboxEventsErrorHandling:
             fake_mark_error_unless_run_is_terminal,
         )
 
-        with pytest.raises(RuntimeError, match="relay error"):
+        with pytest.raises(ApplicationError, match="relay error") as exc_info:
             await relay_sandbox_events(
                 RelaySandboxEventsInput(
                     run_id="run-id",
@@ -615,6 +616,10 @@ class TestRelaySandboxEventsErrorHandling:
                 )
             )
 
+        # An error sentinel was written to the stream, so the failure must be
+        # non-retryable — a retried attempt would append events past the
+        # sentinel that disconnected consumers never see.
+        assert exc_info.value.non_retryable is True
         redis_stream.mark_complete.assert_not_awaited()
         redis_stream.mark_error.assert_awaited_once_with("relay error")
 

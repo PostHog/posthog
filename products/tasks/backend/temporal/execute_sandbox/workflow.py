@@ -1144,8 +1144,10 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             # orphaned for good and the run looks dead to the user. Retrying is safe:
             # the agent server buffers events while no relay is attached and replays
             # them on reconnect. Terminal conditions (sandbox gone, reconnect budget
-            # exhausted) return cleanly rather than raise, so retries only cover
-            # attempt-level deaths; schedule_to_close bounds the total.
+            # exhausted) return cleanly, and application-level failures that write an
+            # error sentinel to the stream raise non-retryable ApplicationError, so
+            # retries only cover attempt-level deaths where no sentinel was written;
+            # schedule_to_close bounds the total.
             retry_policy=RetryPolicy(
                 initial_interval=timedelta(seconds=5),
                 maximum_interval=timedelta(minutes=1),
