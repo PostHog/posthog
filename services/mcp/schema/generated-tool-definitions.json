@@ -5869,7 +5869,7 @@
         }
     },
     "project-get": {
-        "description": "Retrieve a project and its settings. Omit the ID to get the caller's active project.",
+        "description": "Retrieve a project and its settings. Omit the ID to get the caller's active project.\nDon't guess the ID — if you only know the project by name, call `projects-get` first to list accessible projects (each with its `id` and `name`) and match by name.",
         "category": "Core",
         "feature": "core",
         "summary": "Get project",

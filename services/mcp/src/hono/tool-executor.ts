@@ -433,6 +433,7 @@ type ToolErrorType =
     | 'timeout'
     | 'rate_limited'
     | 'api_5xx'
+    | 'not_found'
     | 'api_4xx'
     | 'internal'
 
@@ -478,6 +479,12 @@ function resolveToolErrorClassification(error: unknown): ToolErrorClassification
     }
     if (apiError instanceof PostHogApiError && apiError.status >= 500) {
         return { errorType: 'api_5xx', status: apiError.status }
+    }
+    // Split 404 out of the generic 4xx bucket: for read/get tools it's usually a
+    // guessed id that misses, and keeping it distinct lets the dashboard see that
+    // "not found" churn separately from genuine bad-input errors.
+    if (apiError instanceof PostHogApiError && apiError.status === 404) {
+        return { errorType: 'not_found', status: apiError.status }
     }
     if (apiError instanceof PostHogApiError) {
         return { errorType: 'api_4xx', status: apiError.status }

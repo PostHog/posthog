@@ -41,7 +41,7 @@ import { InstructionsBuilder } from '@/hono/instructions'
 import type { ResolvedState } from '@/hono/request-state-resolver'
 import { ToolCatalog } from '@/hono/tool-catalog'
 import { ToolExecutor } from '@/hono/tool-executor'
-import { PostHogRateLimitError, wrapError } from '@/lib/errors'
+import { PostHogApiError, PostHogRateLimitError, wrapError } from '@/lib/errors'
 
 const mockTrackToolCall = vi.mocked(trackToolCall)
 
@@ -222,6 +222,28 @@ describe('ToolExecutor metrics', () => {
             await executor.handleToolCall({ name: 'execute-sql', arguments: {} }, makeState([{ name: 'execute-sql' }]))
 
             expect(mockToolErrorsInc).toHaveBeenCalledWith({ tool: 'execute-sql', error_type: 'rate_limited' })
+        })
+
+        it('classifies a 404 as not_found, split out from the generic api_4xx bucket', async () => {
+            vi.spyOn(catalog, 'getToolByName').mockReturnValue(
+                makeFakeTool('project-get', async () => {
+                    throw new PostHogApiError({
+                        status: 404,
+                        statusText: 'Not Found',
+                        body: '{"detail":"Not found."}',
+                        url: 'https://us.posthog.com/api/organizations/abc/projects/999999/',
+                        method: 'GET',
+                    })
+                }) as any
+            )
+
+            await executor.handleToolCall({ name: 'project-get', arguments: {} }, makeState([{ name: 'project-get' }]))
+
+            expect(mockToolErrorsInc).toHaveBeenCalledWith({ tool: 'project-get', error_type: 'not_found' })
+            expect(trackToolCallExtras('project-get')).toMatchObject({
+                $mcp_error_type: 'not_found',
+                $mcp_error_status: 404,
+            })
         })
 
         it('records validation_error without starting a timer', async () => {

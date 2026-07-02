@@ -439,11 +439,19 @@ export function handleToolError(error: any, tool?: string, distinctId?: string, 
             recoverableApiError instanceof PostHogValidationError ||
             (recoverableApiError.status >= 400 && recoverableApiError.status < 500)
         if (isFourXx) {
+            // Most 4xx already carry an actionable detail, but a few (e.g. a 404
+            // for a guessed project id) leave the agent with no next step, so it
+            // retries the same shape of failing call. Append a targeted hint when
+            // one applies. Only PostHogApiError carries url/status to match on.
+            const recoveryHint =
+                recoverableApiError instanceof PostHogApiError
+                    ? getToolRecoveryHint({ url: recoverableApiError.url, status: recoverableApiError.status })
+                    : undefined
             return {
                 content: [
                     {
                         type: 'text',
-                        text: `Error: [${toolName}]: ${recoverableApiError.message}`,
+                        text: `Error: [${toolName}]: ${recoverableApiError.message}${recoveryHint ? `\n\n${recoveryHint}` : ''}`,
                     },
                 ],
                 isError: true,

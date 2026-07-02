@@ -8,6 +8,7 @@ vi.mock('@/lib/posthog', () => ({
 }))
 
 const LOGS_QUERY_URL = 'https://us.posthog.com/api/projects/2/logs/query/'
+const PROJECT_RETRIEVE_URL = 'https://us.posthog.com/api/organizations/abc-123/projects/999999/'
 
 describe('getToolRecoveryHint', () => {
     it('returns the narrow-and-retry hint for a 5xx on a logs query endpoint', () => {
@@ -41,6 +42,28 @@ describe('getToolRecoveryHint', () => {
 
     it('fires when status is unknown but the URL is a logs query endpoint', () => {
         expect(getToolRecoveryHint({ url: LOGS_QUERY_URL })).not.toBeUndefined()
+    })
+
+    it('returns the name-lookup hint for a 404 on the project retrieve endpoint', () => {
+        const hint = getToolRecoveryHint({ url: PROJECT_RETRIEVE_URL, status: 404 })
+
+        expect(hint).not.toBeUndefined()
+        expect(hint).toContain('projects-get')
+        expect(hint).toContain("Don't guess project ids")
+    })
+
+    it.each([
+        // A project sub-resource 404 means the sub-resource is missing, not the
+        // project — the name-lookup hint would be misleading noise there.
+        'https://us.posthog.com/api/projects/2/insights/999/',
+        // A 5xx on the project endpoint is a server bug, not a missing id.
+    ])('does not fire the name-lookup hint for %s', (url: string) => {
+        expect(getToolRecoveryHint({ url, status: 404 })).toBeUndefined()
+    })
+
+    it('does not fire the name-lookup hint for a 5xx on the project retrieve endpoint', () => {
+        // Falls through to the logs check, which this URL doesn't match either.
+        expect(getToolRecoveryHint({ url: PROJECT_RETRIEVE_URL, status: 500 })).toBeUndefined()
     })
 })
 
@@ -76,6 +99,23 @@ describe('handleToolError recovery hints', () => {
         const [content] = result.content as Array<{ type: string; text: string }>
 
         expect(content?.text).toContain('logs-count-ranges')
+    })
+
+    it('appends the name-lookup hint to a 404 from project-get so the agent stops guessing ids', () => {
+        const error = new PostHogApiError({
+            status: 404,
+            statusText: 'Not Found',
+            body: '{"detail":"Not found."}',
+            url: PROJECT_RETRIEVE_URL,
+            method: 'GET',
+        })
+
+        const result = handleToolError(error, 'project-get')
+        const [content] = result.content as Array<{ type: string; text: string }>
+
+        expect(content?.text).toContain('[project-get]')
+        expect(content?.text).toContain('Status Code: 404')
+        expect(content?.text).toContain('projects-get')
     })
 
     it('does not append a hint for a 4xx (no noise on recoverable input errors)', () => {

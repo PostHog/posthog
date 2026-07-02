@@ -39,6 +39,31 @@ const LOGS_QUERY_URL_FRAGMENTS = [
     '/logs/sparkline/',
 ]
 
+/**
+ * A 404 from `project-get`/`project-settings-update` means the id doesn't exist
+ * in this org (or isn't accessible). Because there's no name-based project
+ * lookup, agents respond by guessing another id — each miss is another hard 404,
+ * which is the bulk of `project-get`'s error rate. Point them at `projects-get`
+ * (which returns every accessible project's `id` and `name`) so they resolve the
+ * project by name in one call instead of brute-forcing numbers.
+ */
+const PROJECT_NOT_FOUND_RECOVERY_HINT = [
+    "No project with that id exists in this organization, or you don't have access to it. Don't guess project ids by trying other numbers.",
+    '',
+    'To find the right project:',
+    '1. Call `projects-get` to list every project you can access — each result carries its `id` and `name`.',
+    '2. Match the one you want by `name`, then retry with that `id` (or call `switch-project { projectId: <id> }` to make it active).',
+].join('\n')
+
+/**
+ * Matches the project retrieve/update endpoint
+ * (`/api/organizations/<org>/projects/<id>/`). Deliberately anchored to the
+ * `organizations/.../projects/<id>` shape so it doesn't fire on the far more
+ * common `/api/projects/<id>/<sub-resource>/` URLs, whose 404s mean the
+ * sub-resource is missing, not the project.
+ */
+const PROJECT_RETRIEVE_URL_PATTERN = /\/organizations\/[^/]+\/projects\/[^/]+\/?$/
+
 interface RecoveryHintInput {
     /** The failed request URL (from `PostHogApiError.url`), if the error was an HTTP failure. */
     url?: string | undefined
@@ -50,12 +75,19 @@ interface RecoveryHintInput {
  * Returns an actionable recovery hint for a failed tool call, or `undefined`
  * when none applies.
  *
- * Only fires for server-side failures (5xx) or non-HTTP errors with no status —
- * 4xx responses already carry an actionable validation detail and must not be
- * buried under a generic hint.
+ * Most 4xx responses already carry an actionable validation detail and must not
+ * be buried under a generic hint, so hints default to server-side failures (5xx)
+ * and non-HTTP errors with no status. The one exception is a 404 on the project
+ * retrieve endpoint: a bare "not found" gives the agent nothing to route on, so
+ * it keeps guessing ids — that case gets a targeted name-lookup hint.
  */
 export function getToolRecoveryHint({ url, status }: RecoveryHintInput): string | undefined {
-    // 4xx is recoverable agent input, already surfaced verbatim upstream.
+    // Targeted 404: a missing project id, where the recovery is a name lookup
+    // rather than the "narrow and retry" shape the generic 4xx guard assumes.
+    if (status === 404 && url && PROJECT_RETRIEVE_URL_PATTERN.test(url)) {
+        return PROJECT_NOT_FOUND_RECOVERY_HINT
+    }
+    // Other 4xx is recoverable agent input, already surfaced verbatim upstream.
     if (status !== undefined && status < 500) {
         return undefined
     }

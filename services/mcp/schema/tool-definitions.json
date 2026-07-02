@@ -367,10 +367,10 @@
         }
     },
     "projects-get": {
-        "description": "Fetches projects that the user has access to in the current organization.",
+        "description": "Fetches projects that the user has access to in the current organization, each with its `id` and `name`. Use this to resolve a project by name — never guess a project id and pass it to `project-get`.",
         "category": "Organization & project management",
         "feature": "workspace",
-        "summary": "Fetches projects that the user has access to in the current organization.",
+        "summary": "Fetches projects that the user has access to in the current organization, each with its id and name.",
         "title": "Get projects",
         "required_scopes": ["organization:read"],
         "annotations": {
