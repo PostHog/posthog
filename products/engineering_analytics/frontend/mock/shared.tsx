@@ -1,15 +1,16 @@
-/** Shared scaffolding for the UX-overhaul preview. One tile, one section rhythm, one lens path —
+/** Shared scaffolding for the UX-overhaul preview. One tile, one section rhythm, one header bar —
  *  the point of the redesign is that every entity page is built from exactly these pieces.
  *  Mock-only: navigation is local state (no routes), data is faked, nothing calls the API. */
 
-import { ReactNode, useContext, useState } from 'react'
+import { Fragment, ReactNode, useContext, useState } from 'react'
 
-import { LemonCard, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonCard, LemonSegmentedButton, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { Sparkline } from 'lib/components/Sparkline'
 import { Lettermark } from 'lib/lemon-ui/Lettermark'
 import { cn } from 'lib/utils/css-classes'
 
-import type { MockJob, MockLogLine } from './mockData'
+import type { MockJob, MockLogLine, MockPr } from './mockData'
 import { DAY_LABELS } from './mockData'
 import { MockNavContext, MockRoute } from './mockNavContext'
 
@@ -70,72 +71,57 @@ export function MockLink({
     )
 }
 
-/* ============ lens path (the signature: one focus stack, every page) ============ */
+/* ============ header bar: repo scope (once) › drill-down crumbs · branch · date ============ */
 
-export interface LensItem {
-    level: string
+export interface CrumbItem {
     label: string
     to?: MockRoute
-    current?: boolean
 }
 
-export function LensPath({ items }: { items: LensItem[] }): JSX.Element {
-    return (
-        <div className="flex flex-wrap items-end gap-0 pt-1">
-            {items.map((it, i) => (
-                <div key={it.level + it.label} className="flex items-end">
-                    {i > 0 && <span className="px-2 pb-1.5 text-xs text-tertiary">›</span>}
-                    <div className="flex flex-col gap-0.5">
-                        <span className="pl-2.5 text-[9px] font-semibold uppercase tracking-widest text-tertiary">
-                            {it.level}
-                        </span>
-                        <span
-                            className={cn(
-                                'inline-flex items-center rounded border px-2.5 py-1 text-xs',
-                                it.current
-                                    ? 'border-accent font-semibold text-primary'
-                                    : 'border-primary bg-surface-primary text-secondary'
-                            )}
-                        >
-                            {it.to && !it.current ? <MockLink to={it.to}>{it.label}</MockLink> : it.label}
-                        </span>
-                    </div>
-                </div>
-            ))}
-        </div>
-    )
-}
-
-/* ============ scope bar — identical on every page, that's the point ============ */
-
-export function MockScopeBar({
+export function MockHeaderBar({
+    crumbs = [],
     branch = 'master',
     range = 'Last 30 days',
 }: {
+    /** hierarchy below the repo (workflow › run, PR, author); empty on the repo page itself */
+    crumbs?: CrumbItem[]
     branch?: string
     range?: string
 }): JSX.Element {
+    const { go } = useMockNav()
     const chip =
         'inline-flex cursor-pointer items-center gap-1.5 rounded border border-primary bg-surface-primary px-2.5 py-1 text-xs text-secondary'
     return (
-        <div className="mt-3 flex flex-wrap items-center gap-2">
-            <span className={chip} title="Mock — picks the GitHub source / repo">
+        <div className="mt-1 flex flex-wrap items-center gap-2">
+            <span
+                className={chip}
+                title="Mock — the repo is scope picker and hierarchy root in one; click to open the repo overview"
+                onClick={() => go({ page: 'repo' })}
+            >
                 <strong className="font-semibold text-primary">PostHog/posthog</strong>
                 <span className="text-[8px] text-tertiary">▼</span>
             </span>
-            <span
-                className={cn(chip, 'border-accent-highlight-secondary bg-fill-highlight-50')}
-                title="Mock — one branch scope for every section below"
-            >
-                branch: <strong className="font-semibold text-primary">{branch}</strong>
-                <span className="text-[8px] text-tertiary">▼</span>
-            </span>
-            <span className={chip} title="Mock — one date range for every section below">
-                <strong className="font-semibold text-primary">{range}</strong>
-                <span className="text-[8px] text-tertiary">▼</span>
-            </span>
-            <span className="ml-auto text-xs text-tertiary">
-                One scope, every section — filters never differ per tab
+            {crumbs.map((c) => (
+                <Fragment key={c.label}>
+                    <span className="text-xs text-tertiary">›</span>
+                    {c.to ? (
+                        <MockLink to={c.to} className="text-[13px] font-medium">
+                            {c.label}
+                        </MockLink>
+                    ) : (
+                        <span className="text-[13px] font-semibold">{c.label}</span>
+                    )}
+                </Fragment>
+            ))}
+            <span className="ml-auto flex items-center gap-2">
+                <span className={chip} title="Mock — one branch scope for every section below">
+                    branch: <strong className="font-semibold text-primary">{branch}</strong>
+                    <span className="text-[8px] text-tertiary">▼</span>
+                </span>
+                <span className={chip} title="Mock — one date range for every section below">
+                    <strong className="font-semibold text-primary">{range}</strong>
+                    <span className="text-[8px] text-tertiary">▼</span>
+                </span>
             </span>
         </div>
     )
@@ -169,23 +155,19 @@ export function Section({
 }
 
 export function SectionNav({ items }: { items: { id: string; label: string }[] }): JSX.Element {
+    const [active, setActive] = useState(items[0]?.id)
     return (
-        <nav className="sticky top-0 z-10 -mx-1 flex gap-0.5 bg-primary px-1 py-2">
-            {items.map((s) => (
-                <button
-                    key={s.id}
-                    type="button"
-                    className="cursor-pointer rounded border-none bg-transparent px-3 py-1 text-xs font-medium text-secondary hover:bg-fill-button-tertiary-hover"
-                    onClick={() =>
-                        document
-                            .getElementById(`mock-sec-${s.id}`)
-                            ?.scrollIntoView({ behavior: 'smooth', block: 'start' })
-                    }
-                >
-                    {s.label}
-                </button>
-            ))}
-        </nav>
+        <div className="sticky top-0 z-10 -mx-1 bg-primary px-1 py-2">
+            <LemonSegmentedButton
+                size="small"
+                value={active}
+                onChange={(value) => {
+                    setActive(value)
+                    document.getElementById(`mock-sec-${value}`)?.scrollIntoView({ behavior: 'smooth', block: 'start' })
+                }}
+                options={items.map((s) => ({ value: s.id, label: s.label }))}
+            />
+        </div>
     )
 }
 
@@ -222,51 +204,6 @@ export function DeltaBadge({
     )
 }
 
-export function TileSparkline({
-    points,
-    accent = 'var(--accent)',
-}: {
-    points: number[]
-    accent?: string
-}): JSX.Element {
-    const w = 64
-    const h = 26
-    const mn = Math.min(...points)
-    const mx = Math.max(...points)
-    const rg = mx - mn || 1
-    const X = (i: number): number => 1 + (i / (points.length - 1)) * (w - 2)
-    const Y = (v: number): number => h - 3 - ((v - mn) / rg) * (h - 6)
-    const d = points.map((v, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ')
-    const li = points.length - 1
-    return (
-        <svg width={w} height={h} aria-hidden="true" className="shrink-0">
-            <path
-                d={d}
-                fill="none"
-                stroke="var(--border-primary)"
-                strokeWidth={1.5}
-                strokeLinecap="round"
-                strokeLinejoin="round"
-            />
-            <path
-                d={`M${X(li - 1).toFixed(1)} ${Y(points[li - 1]).toFixed(1)} L${X(li).toFixed(1)} ${Y(points[li]).toFixed(1)}`}
-                fill="none"
-                stroke={accent}
-                strokeWidth={1.5}
-                strokeLinecap="round"
-            />
-            <circle
-                cx={X(li)}
-                cy={Y(points[li])}
-                r={2.5}
-                fill={accent}
-                stroke="var(--bg-surface-primary)"
-                strokeWidth={1.5}
-            />
-        </svg>
-    )
-}
-
 export function MockStatTile({
     label,
     value,
@@ -285,7 +222,7 @@ export function MockStatTile({
     badge?: ReactNode
 }): JSX.Element {
     return (
-        <LemonCard hoverEffect={false} className="relative flex min-w-44 flex-1 flex-col gap-1 px-5 py-4">
+        <LemonCard hoverEffect={false} className="flex min-w-44 flex-1 flex-col gap-1 px-5 py-4">
             <span className="text-xs text-secondary">{label}</span>
             <span className="flex items-baseline gap-2">
                 <span className="text-2xl font-semibold leading-none">{value}</span>
@@ -294,9 +231,13 @@ export function MockStatTile({
             </span>
             {badge ? <span>{badge}</span> : <span className="min-h-4 text-xs text-tertiary">{sub}</span>}
             {spark && (
-                <span className="absolute bottom-2.5 right-3">
-                    <TileSparkline points={spark} />
-                </span>
+                <Sparkline
+                    type="line"
+                    className="mt-1 h-6 w-full"
+                    data={[{ name: label, values: spark, color: 'muted' }]}
+                    labels={DAY_LABELS}
+                    maximumIndicator={false}
+                />
             )}
         </LemonCard>
     )
@@ -401,265 +342,144 @@ export function LogRows({ lines, header }: { lines: MockLogLine[]; header?: Reac
     )
 }
 
-/* ============ jobs gantt: queue (hollow) then execution (filled), per job ============ */
+/* ============ jobs table: tight rows, subtle timing bar, queue + duration + result ============ */
 
-export function JobsGantt({ jobs }: { jobs: MockJob[] }): JSX.Element {
+export function MockJobsTable({ jobs }: { jobs: MockJob[] }): JSX.Element {
     const tmax = Math.max(...jobs.map((j) => j.startMin + j.queueMin + j.durMin)) * 1.05
-    const color: Record<MockJob['conclusion'], string> = {
+    const barColor: Record<MockJob['conclusion'], string> = {
         success: 'var(--success)',
         failure: 'var(--danger)',
         skipped: 'var(--muted)',
     }
     return (
-        <div className="flex flex-col gap-1">
-            {jobs.map((j) => (
-                <div key={j.name} className="grid grid-cols-[230px_1fr_64px] items-center gap-2.5 text-xs">
-                    <span className="flex items-center gap-1.5 overflow-hidden">
-                        <StatusDot
-                            kind={
-                                j.conclusion === 'success' ? 'success' : j.conclusion === 'failure' ? 'danger' : 'muted'
-                            }
-                        />
-                        <span className="truncate font-mono text-[11px]">{j.name}</span>
-                    </span>
-                    <span className="relative h-3.5">
-                        <span
-                            className="absolute top-[3px] h-2 rounded-sm border border-primary bg-fill-secondary"
-                            style={{ left: `${(j.startMin / tmax) * 100}%`, width: `${(j.queueMin / tmax) * 100}%` }}
-                            title={`queued ${fmtMin(j.queueMin)}`}
-                        />
-                        <span
-                            className="absolute top-px h-3 rounded"
-                            style={{
-                                left: `${((j.startMin + j.queueMin) / tmax) * 100}%`,
-                                width: `${(j.durMin / tmax) * 100}%`,
-                                backgroundColor: color[j.conclusion],
-                            }}
-                            title={`${j.name} — ${fmtMin(j.durMin)} · ${j.conclusion}`}
-                        />
-                    </span>
-                    <span className="text-right text-[11px] tabular-nums text-secondary">{fmtMin(j.durMin)}</span>
-                </div>
-            ))}
-            <div className="mt-2 flex gap-4 text-[11px] text-secondary">
-                <span className="inline-flex items-center gap-1.5">
-                    <span className="inline-block h-2 w-3 rounded-sm border border-primary bg-fill-secondary" /> Queued
-                </span>
-                <span className="inline-flex items-center gap-1.5">
-                    <span className="inline-block size-2.5 rounded-sm" style={{ background: 'var(--success)' }} />{' '}
-                    Succeeded
-                </span>
-                <span className="inline-flex items-center gap-1.5">
-                    <span className="inline-block size-2.5 rounded-sm" style={{ background: 'var(--danger)' }} /> Failed
-                </span>
-                <span className="inline-flex items-center gap-1.5">
-                    <span className="inline-block size-2.5 rounded-sm" style={{ background: 'var(--muted)' }} /> Skipped
-                </span>
-            </div>
-        </div>
-    )
-}
-
-/* ============ small charts (svg, mock-grade) ============ */
-
-export interface LineSeriesSpec {
-    name: string
-    pts: number[]
-    color: string
-    fill?: boolean
-}
-
-export function LineChartSvg({
-    series,
-    yFmt = (v) => `${Math.round(v)}`,
-    yMin = null,
-    yMax = null,
-    height = 180,
-}: {
-    series: LineSeriesSpec[]
-    yFmt?: (v: number) => string
-    yMin?: number | null
-    yMax?: number | null
-    height?: number
-}): JSX.Element {
-    const w = 520
-    const h = height
-    const padL = 40
-    const padR = 12
-    const padT = 10
-    const padB = 22
-    const all = series.flatMap((s) => s.pts)
-    let mn = yMin ?? Math.min(...all)
-    let mx = yMax ?? Math.max(...all)
-    if (mx === mn) {
-        mx = mn + 1
-    }
-    const X = (i: number): number => padL + (i / (DAY_LABELS.length - 1)) * (w - padL - padR)
-    const Y = (v: number): number => padT + (1 - (v - mn) / (mx - mn)) * (h - padT - padB)
-    return (
-        <svg viewBox={`0 0 ${w} ${h}`} width="100%" style={{ maxWidth: 620 }} role="img">
-            {[0, 1, 2, 3, 4].map((t) => {
-                const v = mn + ((mx - mn) * t) / 4
-                return (
-                    <g key={t}>
-                        <line
-                            x1={padL}
-                            x2={w - padR}
-                            y1={Y(v)}
-                            y2={Y(v)}
-                            stroke="var(--border-primary)"
-                            strokeWidth={1}
-                        />
-                        <text x={padL - 6} y={Y(v) + 3} textAnchor="end" fontSize={10} fill="var(--text-tertiary)">
-                            {yFmt(v)}
-                        </text>
-                    </g>
-                )
-            })}
-            {DAY_LABELS.map((l, i) =>
-                i % 3 === 0 || i === DAY_LABELS.length - 1 ? (
-                    <text key={l} x={X(i)} y={h - 6} textAnchor="middle" fontSize={10} fill="var(--text-tertiary)">
-                        {l}
-                    </text>
-                ) : null
-            )}
-            {series.map((s) => {
-                const d = s.pts.map((v, i) => `${i ? 'L' : 'M'}${X(i).toFixed(1)} ${Y(v).toFixed(1)}`).join(' ')
-                const last = s.pts[s.pts.length - 1]
-                return (
-                    <g key={s.name}>
-                        {s.fill && (
-                            <path
-                                d={`${d} L${X(s.pts.length - 1)} ${Y(mn)} L${X(0)} ${Y(mn)} Z`}
-                                fill={s.color}
-                                opacity={0.08}
+        <LemonTable<MockJob>
+            dataSource={jobs}
+            size="small"
+            embedded
+            columns={[
+                {
+                    title: 'Job',
+                    render: (_, j) => (
+                        <span className="flex items-center gap-1.5 overflow-hidden">
+                            <StatusDot
+                                kind={
+                                    j.conclusion === 'success'
+                                        ? 'success'
+                                        : j.conclusion === 'failure'
+                                          ? 'danger'
+                                          : 'muted'
+                                }
                             />
-                        )}
-                        <path
-                            d={d}
-                            fill="none"
-                            stroke={s.color}
-                            strokeWidth={2}
-                            strokeLinecap="round"
-                            strokeLinejoin="round"
-                        >
-                            <title>{s.name}</title>
-                        </path>
-                        <circle
-                            cx={X(s.pts.length - 1)}
-                            cy={Y(last)}
-                            r={3.5}
-                            fill={s.color}
-                            stroke="var(--bg-surface-primary)"
-                            strokeWidth={2}
-                        />
-                    </g>
-                )
-            })}
-        </svg>
+                            <span className="truncate font-mono text-[11px]">{j.name}</span>
+                        </span>
+                    ),
+                },
+                {
+                    title: 'Timing',
+                    width: 260,
+                    render: (_, j) => (
+                        <span className="relative block h-2 w-full min-w-40">
+                            <span
+                                className="absolute top-[3px] h-0.5 rounded-full bg-fill-secondary"
+                                style={{
+                                    left: `${(j.startMin / tmax) * 100}%`,
+                                    width: `${(j.queueMin / tmax) * 100}%`,
+                                }}
+                                title={`queued ${fmtMin(j.queueMin)}`}
+                            />
+                            <span
+                                className="absolute top-0.5 h-1 rounded-full opacity-80"
+                                style={{
+                                    left: `${((j.startMin + j.queueMin) / tmax) * 100}%`,
+                                    width: `${(j.durMin / tmax) * 100}%`,
+                                    backgroundColor: barColor[j.conclusion],
+                                }}
+                                title={`${j.name} — ${fmtMin(j.durMin)} · ${j.conclusion}`}
+                            />
+                        </span>
+                    ),
+                },
+                {
+                    title: 'Queued',
+                    align: 'right',
+                    render: (_, j) => <span className="tabular-nums text-tertiary">{fmtMin(j.queueMin)}</span>,
+                },
+                {
+                    title: 'Duration',
+                    align: 'right',
+                    render: (_, j) => <span className="tabular-nums">{fmtMin(j.durMin)}</span>,
+                },
+                {
+                    title: 'Result',
+                    render: (_, j) =>
+                        j.conclusion === 'skipped' ? (
+                            <LemonTag type="muted">Skipped</LemonTag>
+                        ) : (
+                            <CiTag ci={j.conclusion} />
+                        ),
+                },
+            ]}
+        />
     )
 }
 
-export function StackedColumnsSvg({
-    data,
-    keys,
-    colors,
-    yFmt = fmtK,
-    height = 170,
-}: {
-    data: Record<string, number>[]
-    keys: string[]
-    colors: string[]
-    yFmt?: (v: number) => string
-    height?: number
-}): JSX.Element {
-    const w = 520
-    const h = height
-    const padL = 38
-    const padR = 8
-    const padT = 8
-    const padB = 22
-    const totals = data.map((d) => keys.reduce((a, k) => a + d[k], 0))
-    const mx = Math.max(...totals) || 1
-    const bw = Math.min(24, (w - padL - padR) / data.length - 6)
-    const X = (i: number): number => padL + ((i + 0.5) / data.length) * (w - padL - padR) - bw / 2
-    const H = (v: number): number => (v / mx) * (h - padT - padB)
-    return (
-        <svg viewBox={`0 0 ${w} ${h}`} width="100%" style={{ maxWidth: 620 }} role="img">
-            {[0, 1, 2, 3].map((t) => {
-                const v = (mx * t) / 3
-                const y = h - padB - H(v)
-                return (
-                    <g key={t}>
-                        <line x1={padL} x2={w - padR} y1={y} y2={y} stroke="var(--border-primary)" strokeWidth={1} />
-                        <text x={padL - 6} y={y + 3} textAnchor="end" fontSize={10} fill="var(--text-tertiary)">
-                            {yFmt(v)}
-                        </text>
-                    </g>
-                )
-            })}
-            {DAY_LABELS.map((l, i) =>
-                i % 3 === 0 || i === DAY_LABELS.length - 1 ? (
-                    <text
-                        key={l}
-                        x={X(i) + bw / 2}
-                        y={h - 6}
-                        textAnchor="middle"
-                        fontSize={10}
-                        fill="var(--text-tertiary)"
-                    >
-                        {l}
-                    </text>
-                ) : null
-            )}
-            {data.map((d, i) => {
-                let y = h - padB
-                const segs = keys.map((k, ki) => {
-                    const bh = H(d[k])
-                    y -= bh
-                    return { k, ki, bh, y }
-                })
-                const title = `${DAY_LABELS[i]} — ${keys.map((k) => `${k}: ${yFmt(d[k])}`).join(', ')}`
-                return (
-                    <g key={i}>
-                        {segs.map(
-                            (s) =>
-                                s.bh > 0.5 && (
-                                    <rect
-                                        key={s.k}
-                                        x={X(i)}
-                                        y={s.y}
-                                        width={bw}
-                                        // 2px surface gap between stacked segments
-                                        height={Math.max(1, s.bh - 2)}
-                                        rx={s.ki === segs.filter((g) => g.bh > 0.5).length - 1 ? 3 : 1}
-                                        fill={colors[s.ki]}
-                                    />
-                                )
-                        )}
-                        <rect x={X(i) - 3} y={padT} width={bw + 6} height={h - padT - padB} fill="transparent">
-                            <title>{title}</title>
-                        </rect>
-                    </g>
-                )
-            })}
-        </svg>
-    )
-}
+/* ============ PR table: one component, same columns everywhere it appears ============ */
 
-export function ChartLegend({ items }: { items: { label: string; color: string; line?: boolean }[] }): JSX.Element {
+export function MockPrTable({ prs, showAuthor = true }: { prs: MockPr[]; showAuthor?: boolean }): JSX.Element {
+    const { go } = useMockNav()
     return (
-        <div className="mt-2 flex flex-wrap gap-3.5 text-[11px] text-secondary">
-            {items.map((it) => (
-                <span key={it.label} className="inline-flex items-center gap-1.5">
-                    <span
-                        className={cn('inline-block', it.line ? 'h-0.5 w-3.5 rounded' : 'size-2.5 rounded-sm')}
-                        style={{ backgroundColor: it.color }}
-                    />
-                    {it.label}
-                </span>
-            ))}
-        </div>
+        <LemonTable<MockPr>
+            dataSource={prs}
+            embedded
+            onRow={(p) => ({ onClick: () => go({ page: 'pr', number: p.number }) })}
+            columns={[
+                {
+                    title: 'Pull request',
+                    render: (_, p) => (
+                        <span>
+                            <MockLink to={{ page: 'pr', number: p.number }}>
+                                <span className="font-medium">{p.title}</span>
+                            </MockLink>
+                            <span className="block font-mono text-[11px] text-tertiary">#{p.number}</span>
+                        </span>
+                    ),
+                },
+                ...(showAuthor
+                    ? [
+                          {
+                              title: 'Author',
+                              render: (_: unknown, p: MockPr) => <AuthorChip handle={p.author} />,
+                          },
+                      ]
+                    : []),
+                { title: 'State', render: (_, p) => <CiTag ci={p.state} /> },
+                { title: 'CI', render: (_, p) => <CiTag ci={p.ci} /> },
+                {
+                    title: 'Pushes',
+                    align: 'right',
+                    render: (_, p) => (
+                        <span className="tabular-nums">
+                            {p.pushes}
+                            {p.reruns > 0 && (
+                                <LemonTag type="warning" className="ml-1.5">
+                                    +{p.reruns}
+                                </LemonTag>
+                            )}
+                        </span>
+                    ),
+                },
+                {
+                    title: 'CI cost',
+                    align: 'right',
+                    render: (_, p) => <span className="tabular-nums">{fmtUsd(p.costUsd)}</span>,
+                },
+                {
+                    title: 'Open time',
+                    align: 'right',
+                    render: (_, p) => <span className="tabular-nums">{fmtHours(p.openHours)}</span>,
+                },
+            ]}
+        />
     )
 }
 

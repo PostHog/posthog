@@ -1,6 +1,8 @@
 /** Workflow page — the repo skeleton, one level down. Faked data throughout. */
 
-import { LemonBanner, LemonCard, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonCard, LemonTable, LemonTag } from '@posthog/lemon-ui'
+
+import { Sparkline } from 'lib/components/Sparkline'
 
 import { RunActivityChart } from '../components/RunActivityChart'
 import {
@@ -8,6 +10,7 @@ import {
     MOCK_JOB_AGGREGATES,
     MOCK_LOG_E2E,
     MOCK_RECENT_RUNS,
+    MockJobAggregate,
     MockRun,
     daySeries,
     mockActivityRuns,
@@ -15,45 +18,32 @@ import {
     mockWorkflow,
 } from './mockData'
 import {
-    ChartLegend,
     CiTag,
     DeltaBadge,
-    JobsGantt,
-    LensPath,
-    LineChartSvg,
     LogRows,
     MockEntityHeader,
+    MockHeaderBar,
+    MockJobsTable,
     MockLink,
-    MockScopeBar,
     MockStatTile,
     PercentileBadge,
     Section,
     SectionNav,
     ShareRow,
-    StackedColumnsSvg,
     StatusDot,
     VerdictPill,
     fmtK,
     fmtPct,
     fmtUsd,
-    useMockNav,
 } from './shared'
 
 export function MockWorkflowPage({ slug }: { slug: string }): JSX.Element {
-    const { go } = useMockNav()
     const w = mockWorkflow(slug)
     const failing = w.onMaster === 'failing'
 
     return (
         <div>
-            <LensPath
-                items={[
-                    { level: 'product', label: 'Engineering analytics' },
-                    { level: 'repo', label: 'PostHog/posthog', to: { page: 'repo' } },
-                    { level: 'workflow', label: w.name, current: true },
-                ]}
-            />
-            <MockScopeBar />
+            <MockHeaderBar crumbs={[{ label: w.name }]} />
             <MockEntityHeader
                 icon="⚙️"
                 title={w.name}
@@ -123,101 +113,79 @@ export function MockWorkflowPage({ slug }: { slug: string }): JSX.Element {
             <Section id="now" title="What's failing now">
                 {failing ? (
                     <>
-                        <LemonBanner
-                            type="error"
-                            action={{ children: 'Open latest red run', onClick: () => go({ page: 'run', id: 41397 }) }}
-                        >
-                            <strong>Failing on master for 38 minutes</strong> — 3 consecutive red runs, same spec each
-                            time. First red run <MockLink to={{ page: 'run', id: 41390 }}>#41390</MockLink> after commit{' '}
-                            <span className="font-mono">593064b</span>
-                        </LemonBanner>
-                        <div className="mt-2.5">
-                            <LogRows
-                                lines={MOCK_LOG_E2E}
-                                header={
-                                    <>
-                                        Failure excerpt
-                                        <span className="font-mono font-normal text-tertiary">
-                                            e2e (chromium, shard 3/8) · run #41397
-                                        </span>
-                                        <span className="ml-auto">
-                                            <MockLink to={{ page: 'run', id: 41397 }}>Open run →</MockLink>
-                                        </span>
-                                    </>
-                                }
-                            />
+                        <div className="mb-2 flex items-center gap-2 text-[13px]">
+                            <StatusDot kind="danger" />
+                            <span>
+                                Failing on master for 38 minutes — 3 consecutive red runs, same spec each time. First
+                                red run <MockLink to={{ page: 'run', id: 41390 }}>#41390</MockLink> after commit{' '}
+                                <span className="font-mono text-xs">593064b</span>.
+                            </span>
                         </div>
+                        <LogRows
+                            lines={MOCK_LOG_E2E}
+                            header={
+                                <>
+                                    Failure excerpt
+                                    <span className="font-mono font-normal text-tertiary">
+                                        e2e (chromium, shard 3/8) · run #41397
+                                    </span>
+                                    <span className="ml-auto">
+                                        <MockLink to={{ page: 'run', id: 41397 }}>Open run →</MockLink>
+                                    </span>
+                                </>
+                            }
+                        />
                     </>
                 ) : (
-                    <LemonBanner type="success">
-                        <strong>Passing on master</strong> — last failure {w.lastFailure}. Nothing needs attention in
-                        this workflow right now.
-                    </LemonBanner>
+                    <div className="flex items-center gap-2 text-[13px] text-secondary">
+                        <StatusDot kind="success" />
+                        Passing on master — last failure {w.lastFailure}. Nothing needs attention in this workflow right
+                        now.
+                    </div>
                 )}
             </Section>
 
-            <Section id="health" title="Health" note="success rate and duration, trended over the window">
-                <div className="grid gap-2.5 lg:grid-cols-2">
-                    <LemonCard hoverEffect={false} className="p-4">
-                        <h3 className="mb-2 text-xs font-semibold text-secondary">Success rate · 14d</h3>
-                        <LineChartSvg
-                            series={[
-                                {
-                                    name: 'Success rate',
-                                    pts: w.passSeries.map((v) => v * 100),
-                                    color: 'var(--brand-blue)',
-                                    fill: true,
-                                },
-                            ]}
-                            yFmt={(v) => `${Math.round(v)}%`}
-                            yMin={50}
-                            yMax={100}
-                        />
-                    </LemonCard>
-                    <LemonCard hoverEffect={false} className="p-4">
-                        <h3 className="mb-2 text-xs font-semibold text-secondary">Duration · 14d</h3>
-                        <LineChartSvg
-                            series={[
-                                {
-                                    name: 'p95',
-                                    pts: daySeries(300 + w.runs30d, w.p95Min, w.p95Min * 0.12, w.p95DeltaMin / 14),
-                                    color: 'var(--border-bold)',
-                                },
-                                {
-                                    name: 'p50',
-                                    pts: daySeries(301 + w.runs30d, w.p50Min, w.p50Min * 0.08),
-                                    color: 'var(--brand-blue)',
-                                },
-                            ]}
-                            yFmt={(v) => `${Math.round(v)}m`}
-                        />
-                        <ChartLegend
-                            items={[
-                                { label: 'p50', color: 'var(--brand-blue)', line: true },
-                                { label: 'p95', color: 'var(--border-bold)', line: true },
-                            ]}
-                        />
-                    </LemonCard>
-                </div>
-                <div className="mt-2.5">
-                    <RunActivityChart
-                        runs={mockActivityRuns(80 + w.runs30d, 140, 1 - w.passRate, w.p50Min)}
-                        title={`Run activity · ${w.name}`}
-                    />
-                </div>
+            <Section
+                id="health"
+                title="Health"
+                note="every run in the window — duration, verdict, and in-flight load in one plot"
+            >
+                <RunActivityChart
+                    runs={mockActivityRuns(80 + w.runs30d, 140, 1 - w.passRate, w.p50Min)}
+                    title={`Run activity · ${w.name}`}
+                />
             </Section>
 
             <Section
                 id="jobs"
                 title="Jobs"
-                note="aggregated across every run in the window — jobs always need their run as context, so there's no job page; expand a run below instead"
+                note="matrix jobs roll up into one row; jobs always need their run as context, so there's no job page — expand a run below instead"
             >
                 <LemonCard hoverEffect={false} className="p-0">
-                    <LemonTable
+                    <LemonTable<MockJobAggregate>
                         dataSource={MOCK_JOB_AGGREGATES}
+                        size="small"
                         embedded
                         columns={[
-                            { title: 'Job', render: (_, j) => <span className="font-mono text-xs">{j.name}</span> },
+                            {
+                                title: 'Job',
+                                render: (_, j) => (
+                                    <span className="flex items-center gap-2">
+                                        <span className="font-mono text-xs">{j.name}</span>
+                                        {j.matrixSize && <LemonTag type="muted">×{j.matrixSize} matrix</LemonTag>}
+                                    </span>
+                                ),
+                            },
+                            {
+                                title: 'Runs in',
+                                align: 'right',
+                                tooltip: 'Share of workflow runs this job actually ran in — conditional jobs skip',
+                                render: (_, j) => (
+                                    <span className={j.runShare < 1 ? 'tabular-nums text-secondary' : 'tabular-nums'}>
+                                        {fmtPct(j.runShare)} of runs
+                                    </span>
+                                ),
+                            },
                             {
                                 title: 'p50 duration',
                                 align: 'right',
@@ -241,10 +209,10 @@ export function MockWorkflowPage({ slug }: { slug: string }): JSX.Element {
                             },
                             {
                                 title: 'Cost share',
-                                width: 200,
+                                width: 180,
                                 render: (_, j) => (
                                     <span className="flex items-center gap-2">
-                                        <span className="relative h-1.5 w-28 overflow-hidden rounded-full bg-fill-secondary">
+                                        <span className="relative h-1.5 w-24 overflow-hidden rounded-full bg-fill-secondary">
                                             <span
                                                 className="absolute inset-y-0 left-0 rounded-full"
                                                 style={{
@@ -268,14 +236,20 @@ export function MockWorkflowPage({ slug }: { slug: string }): JSX.Element {
                 <div className="grid gap-2.5 lg:grid-cols-2">
                     <LemonCard hoverEffect={false} className="p-4">
                         <h3 className="mb-2 text-xs font-semibold text-secondary">Cost per day</h3>
-                        <StackedColumnsSvg
-                            data={DAY_LABELS.map((_, i) => ({
-                                usd: w.cost30d / 30 + daySeries(320, 0, w.cost30d / 90)[i],
-                            }))}
-                            keys={['usd']}
-                            colors={['var(--brand-blue)']}
-                            yFmt={(v) => `$${Math.round(v)}`}
-                            height={150}
+                        <Sparkline
+                            type="bar"
+                            className="h-32 w-full"
+                            data={[
+                                {
+                                    name: 'Cost ($)',
+                                    values: DAY_LABELS.map((_, i) =>
+                                        Math.round(w.cost30d / 30 + daySeries(320, 0, w.cost30d / 90)[i])
+                                    ),
+                                    color: 'brand-blue',
+                                },
+                            ]}
+                            labels={DAY_LABELS}
+                            maximumIndicator={false}
                         />
                     </LemonCard>
                     <LemonCard hoverEffect={false} className="p-4">
@@ -313,7 +287,7 @@ export function MockWorkflowPage({ slug }: { slug: string }): JSX.Element {
                         expandable={{
                             expandedRowRender: (r) => (
                                 <div className="p-3">
-                                    <JobsGantt jobs={mockJobs(r.id, r.conclusion === 'failure')} />
+                                    <MockJobsTable jobs={mockJobs(r.id, r.conclusion === 'failure')} />
                                     <div className="mt-2 text-xs">
                                         <MockLink to={{ page: 'run', id: r.id }}>Open run #{r.id} →</MockLink>
                                     </div>

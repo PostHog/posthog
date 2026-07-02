@@ -2,8 +2,9 @@
 
 import { Fragment } from 'react'
 
-import { LemonCard, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonCard, LemonTable } from '@posthog/lemon-ui'
 
+import { Sparkline } from 'lib/components/Sparkline'
 import { cn } from 'lib/utils/css-classes'
 
 import {
@@ -11,7 +12,6 @@ import {
     MOCK_LOG_DJANGO,
     MOCK_LOG_E2E,
     MOCK_PRS,
-    MockPr,
     daySeries,
     mockAuthor,
     mockJobs,
@@ -22,18 +22,17 @@ import {
     AuthorChip,
     CiTag,
     DeltaBadge,
-    JobsGantt,
-    LensPath,
     LogRows,
     MockEntityHeader,
+    MockHeaderBar,
+    MockJobsTable,
     MockLink,
-    MockScopeBar,
+    MockPrTable,
     MockStatTile,
     PercentileBadge,
     Section,
     SectionNav,
     ShareRow,
-    StackedColumnsSvg,
     StatusDot,
     VerdictPill,
     fmtHours,
@@ -53,15 +52,10 @@ export function MockRunPage({ id }: { id: number }): JSX.Element {
 
     return (
         <div>
-            <LensPath
-                items={[
-                    { level: 'product', label: 'Engineering analytics' },
-                    { level: 'repo', label: 'PostHog/posthog', to: { page: 'repo' } },
-                    { level: 'workflow', label: w.name, to: { page: 'workflow', slug: w.slug } },
-                    { level: 'run', label: `#${id}`, current: true },
-                ]}
+            <MockHeaderBar
+                crumbs={[{ label: w.name, to: { page: 'workflow', slug: w.slug } }, { label: `#${id}` }]}
+                branch={isMasterRun ? 'master' : 'feat/retention-export'}
             />
-            <MockScopeBar branch={isMasterRun ? 'master' : 'feat/retention-export'} />
             <MockEntityHeader
                 icon={failing ? '❌' : '✅'}
                 title={w.name}
@@ -106,10 +100,10 @@ export function MockRunPage({ id }: { id: number }): JSX.Element {
             <Section
                 id="run-jobs"
                 title="Jobs"
-                note="queue time (hollow) then execution, per job — this is where a run becomes explainable"
+                note="queue then execution, per job — this is where a run becomes explainable"
             >
-                <LemonCard hoverEffect={false} className="p-4">
-                    <JobsGantt jobs={jobs} />
+                <LemonCard hoverEffect={false} className="p-0">
+                    <MockJobsTable jobs={jobs} />
                 </LemonCard>
             </Section>
 
@@ -179,14 +173,7 @@ export function MockPrPage({ number }: { number: number }): JSX.Element {
 
     return (
         <div>
-            <LensPath
-                items={[
-                    { level: 'product', label: 'Engineering analytics' },
-                    { level: 'repo', label: 'PostHog/posthog', to: { page: 'repo' } },
-                    { level: 'pull request', label: `#${p.number}`, current: true },
-                ]}
-            />
-            <MockScopeBar branch="feat/retention-export" />
+            <MockHeaderBar crumbs={[{ label: `#${p.number}` }]} branch="feat/retention-export" />
             <MockEntityHeader
                 icon={p.state === 'merged' ? '🟣' : '🟢'}
                 title={p.title}
@@ -382,11 +369,7 @@ function LifecycleNode({
             <span
                 className={cn(
                     'z-10 size-3.5 rounded-full border-2',
-                    kind === 'red'
-                        ? 'border-danger bg-fill-error-tertiary'
-                        : kind === 'end'
-                          ? 'border-success bg-success'
-                          : 'border-brand-blue',
+                    kind === 'red' ? 'bg-fill-error-tertiary' : kind === 'end' ? 'bg-success' : '',
                     kind === 'start' && 'bg-brand-blue',
                     (kind === 'ok' || kind === 'open') && 'bg-surface-primary'
                 )}
@@ -414,25 +397,20 @@ function LifecycleGap({ label }: { label: string }): JSX.Element {
 /* ============================================================ author ============================================================ */
 
 export function MockAuthorPage({ handle }: { handle: string }): JSX.Element {
-    const { go } = useMockNav()
     const a = mockAuthor(handle)
     const prs = MOCK_PRS.filter((p) => p.author === a.handle)
     const rows = prs.length ? prs : MOCK_PRS.slice(0, 3)
+    const openCount = rows.filter((p) => p.state === 'open').length
 
     return (
         <div>
-            <LensPath
-                items={[
-                    { level: 'product', label: 'Engineering analytics' },
-                    { level: 'repo', label: 'PostHog/posthog', to: { page: 'repo' } },
-                    { level: 'author', label: a.handle, current: true },
-                ]}
-            />
-            <MockScopeBar branch="all branches" />
+            <MockHeaderBar crumbs={[{ label: a.handle }]} branch="all branches" />
             <MockEntityHeader
                 title={a.handle}
                 slug={<span className="cursor-pointer text-link">github.com/{a.handle} ↗</span>}
-                right={<VerdictPill kind="muted">{rows.filter((p) => p.state === 'open').length} open PRs</VerdictPill>}
+                right={
+                    <VerdictPill kind="muted">{openCount === 1 ? '1 open PR' : `${openCount} open PRs`}</VerdictPill>
+                }
             />
             <div className="mt-4 flex flex-wrap gap-2.5">
                 <MockStatTile
@@ -470,53 +448,10 @@ export function MockAuthorPage({ handle }: { handle: string }): JSX.Element {
             <Section
                 id="author-prs"
                 title="Pull requests"
-                note="same table as the repo's PR list — one component, scoped to one author"
+                note="same table as the repo overview — one component, scoped to one author"
             >
                 <LemonCard hoverEffect={false} className="p-0">
-                    <LemonTable<MockPr>
-                        dataSource={rows}
-                        embedded
-                        onRow={(p) => ({ onClick: () => go({ page: 'pr', number: p.number }) })}
-                        columns={[
-                            {
-                                title: 'Pull request',
-                                render: (_, p) => (
-                                    <span>
-                                        <MockLink to={{ page: 'pr', number: p.number }}>
-                                            <span className="font-medium">{p.title}</span>
-                                        </MockLink>
-                                        <span className="block font-mono text-[11px] text-tertiary">#{p.number}</span>
-                                    </span>
-                                ),
-                            },
-                            { title: 'State', render: (_, p) => <CiTag ci={p.state} /> },
-                            { title: 'CI', render: (_, p) => <CiTag ci={p.ci} /> },
-                            {
-                                title: 'Pushes',
-                                align: 'right',
-                                render: (_, p) => (
-                                    <span className="tabular-nums">
-                                        {p.pushes}
-                                        {p.reruns > 0 && (
-                                            <LemonTag type="warning" className="ml-1.5">
-                                                +{p.reruns}
-                                            </LemonTag>
-                                        )}
-                                    </span>
-                                ),
-                            },
-                            {
-                                title: 'CI cost',
-                                align: 'right',
-                                render: (_, p) => <span className="tabular-nums">{fmtUsd(p.costUsd)}</span>,
-                            },
-                            {
-                                title: 'Open time',
-                                align: 'right',
-                                render: (_, p) => <span className="tabular-nums">{fmtHours(p.openHours)}</span>,
-                            },
-                        ]}
-                    />
+                    <MockPrTable prs={rows} showAuthor={false} />
                 </LemonCard>
             </Section>
 
@@ -549,14 +484,24 @@ export function MockAuthorPage({ handle }: { handle: string }): JSX.Element {
                     </LemonCard>
                     <LemonCard hoverEffect={false} className="p-4">
                         <h3 className="mb-2 text-xs font-semibold text-secondary">Cost per day</h3>
-                        <StackedColumnsSvg
-                            data={DAY_LABELS.map((_, i) => ({
-                                usd: a.ciCost30d / 30 + daySeries(500 + a.prs30d, 0, a.ciCost30d / 40)[i],
-                            }))}
-                            keys={['usd']}
-                            colors={['var(--brand-blue)']}
-                            yFmt={(v) => `$${v.toFixed(1)}`}
-                            height={150}
+                        <Sparkline
+                            type="bar"
+                            className="h-32 w-full"
+                            data={[
+                                {
+                                    name: 'Cost ($)',
+                                    values: DAY_LABELS.map(
+                                        (_, i) =>
+                                            Math.round(
+                                                (a.ciCost30d / 30 + daySeries(500 + a.prs30d, 0, a.ciCost30d / 40)[i]) *
+                                                    10
+                                            ) / 10
+                                    ),
+                                    color: 'brand-blue',
+                                },
+                            ]}
+                            labels={DAY_LABELS}
+                            maximumIndicator={false}
                         />
                     </LemonCard>
                 </div>

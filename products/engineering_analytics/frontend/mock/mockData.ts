@@ -521,6 +521,10 @@ export function mockJobs(seed: number, failing: boolean, shardName: string = 'Dj
 
 export interface MockJobAggregate {
     name: string
+    /** matrix jobs auto-roll up into one row; null = plain job */
+    matrixSize: number | null
+    /** share of workflow runs this job actually ran in (conditional jobs skip) */
+    runShare: number
     p50Min: number
     failureRate: number
     retries30d: number
@@ -528,11 +532,60 @@ export interface MockJobAggregate {
 }
 
 export const MOCK_JOB_AGGREGATES: MockJobAggregate[] = [
-    { name: 'Django tests (shards 1–6)', p50Min: 19, failureRate: 0.09, retries30d: 41, costShare: 0.62 },
-    { name: 'Build frontend assets', p50Min: 10, failureRate: 0.02, retries30d: 6, costShare: 0.14 },
-    { name: 'Migrations check', p50Min: 6, failureRate: 0.01, retries30d: 2, costShare: 0.09 },
-    { name: 'Lint & types', p50Min: 4, failureRate: 0.02, retries30d: 3, costShare: 0.06 },
-    { name: 'Upload coverage', p50Min: 1.5, failureRate: 0.04, retries30d: 9, costShare: 0.03 },
+    {
+        name: 'Django tests',
+        matrixSize: 6,
+        runShare: 1,
+        p50Min: 19,
+        failureRate: 0.09,
+        retries30d: 41,
+        costShare: 0.62,
+    },
+    {
+        name: 'Build frontend assets',
+        matrixSize: null,
+        runShare: 1,
+        p50Min: 10,
+        failureRate: 0.02,
+        retries30d: 6,
+        costShare: 0.14,
+    },
+    {
+        name: 'Migrations check',
+        matrixSize: null,
+        runShare: 0.94,
+        p50Min: 6,
+        failureRate: 0.01,
+        retries30d: 2,
+        costShare: 0.09,
+    },
+    {
+        name: 'Lint & types',
+        matrixSize: null,
+        runShare: 1,
+        p50Min: 4,
+        failureRate: 0.02,
+        retries30d: 3,
+        costShare: 0.06,
+    },
+    {
+        name: 'Visual regression',
+        matrixSize: 4,
+        runShare: 0.31,
+        p50Min: 8,
+        failureRate: 0.06,
+        retries30d: 12,
+        costShare: 0.04,
+    },
+    {
+        name: 'Upload coverage',
+        matrixSize: null,
+        runShare: 0.66,
+        p50Min: 1.5,
+        failureRate: 0.04,
+        retries30d: 9,
+        costShare: 0.03,
+    },
 ]
 
 /** Runs for the real RunActivityChart, spread over the last 3 days relative to now. */

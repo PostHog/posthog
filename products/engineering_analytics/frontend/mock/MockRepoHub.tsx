@@ -1,6 +1,8 @@
 /** Repo hub — the new entry point of the lens stack. Faked data throughout. */
 
-import { LemonBanner, LemonCard, LemonTable, LemonTag } from '@posthog/lemon-ui'
+import { LemonCard, LemonTable, LemonTag } from '@posthog/lemon-ui'
+
+import { Sparkline } from 'lib/components/Sparkline'
 
 import { FailureSparkline } from '../components/FailureSparkline'
 import { RunActivityChart } from '../components/RunActivityChart'
@@ -8,6 +10,7 @@ import {
     DAY_LABELS,
     MOCK_AUTHORS,
     MOCK_FAILURES,
+    MOCK_PRS,
     MOCK_RUNNER_TIERS,
     MOCK_WORKFLOWS,
     MockFailure,
@@ -16,20 +19,17 @@ import {
     mockActivityRuns,
 } from './mockData'
 import {
-    ChartLegend,
     CiTag,
     DeltaBadge,
-    LensPath,
-    LineChartSvg,
     LogRows,
     MockEntityHeader,
+    MockHeaderBar,
     MockLink,
-    MockScopeBar,
+    MockPrTable,
     MockStatTile,
     Section,
     SectionNav,
     ShareRow,
-    StackedColumnsSvg,
     StatusDot,
     VerdictPill,
     fmtK,
@@ -52,25 +52,15 @@ const WORKFLOW_SHARE_COLORS = [
 export function MockRepoHub(): JSX.Element {
     const { go } = useMockNav()
     const masterPass = daySeries(210, 0.93, 0.03, -0.004).map((v, i) => (i > 10 ? v - 0.07 : v)) // dips in the last days
-    const byDay = DAY_LABELS.map((_, i) => ({
-        Succeeded: 410 + daySeries(200, 0, 40)[i],
-        Failed: MOCK_WORKFLOWS.reduce((a, w) => a + w.failures[i] / 2.4, 0),
-        Cancelled: 22 + daySeries(201, 0, 9)[i],
-    }))
     const topByCost = [...MOCK_WORKFLOWS].sort((a, b) => b.cost30d - a.cost30d)
     const totalCost = MOCK_WORKFLOWS.reduce((a, w) => a + w.cost30d, 0)
     const top5 = topByCost.slice(0, 5)
     const otherCost = totalCost - top5.reduce((a, w) => a + w.cost30d, 0)
+    const openPrs = MOCK_PRS.filter((p) => p.state === 'open')
 
     return (
         <div>
-            <LensPath
-                items={[
-                    { level: 'product', label: 'Engineering analytics' },
-                    { level: 'repo', label: 'PostHog/posthog', current: true },
-                ]}
-            />
-            <MockScopeBar />
+            <MockHeaderBar />
             <MockEntityHeader
                 icon="📦"
                 title="posthog"
@@ -121,6 +111,7 @@ export function MockRepoHub(): JSX.Element {
                 items={[
                     { id: 'now', label: 'Now' },
                     { id: 'master', label: 'Master health' },
+                    { id: 'prs', label: 'Pull requests' },
                     { id: 'workflows', label: 'Workflows' },
                     { id: 'cost', label: 'Cost' },
                     { id: 'activity', label: 'Activity' },
@@ -128,19 +119,8 @@ export function MockRepoHub(): JSX.Element {
                 ]}
             />
 
-            <Section id="now" title="What's failing now" note="the triage layer — everything below is trends">
-                <LemonBanner
-                    type="error"
-                    action={{ children: 'Open E2E CI', onClick: () => go({ page: 'workflow', slug: 'e2e-ci' }) }}
-                >
-                    <strong>E2E CI is failing on master</strong> — 3 consecutive red runs over 38 minutes. First red:{' '}
-                    <MockLink to={{ page: 'run', id: 41390 }}>run #41390</MockLink> · commit{' '}
-                    <span className="font-mono">593064b</span> · retention-export.spec.ts
-                </LemonBanner>
-                <LemonCard hoverEffect={false} className="mt-2.5 p-0">
-                    <div className="px-4 pb-1 pt-3 text-xs font-semibold text-secondary">
-                        Latest failures across the repo
-                    </div>
+            <Section id="now" title="Latest failures" note="the triage layer — everything below is trends">
+                <LemonCard hoverEffect={false} className="p-0">
                     <LemonTable<MockFailure>
                         dataSource={MOCK_FAILURES}
                         embedded
@@ -214,35 +194,52 @@ export function MockRepoHub(): JSX.Element {
                 <div className="grid gap-2.5 lg:grid-cols-2">
                     <LemonCard hoverEffect={false} className="p-4">
                         <h3 className="mb-2 text-xs font-semibold text-secondary">Success rate on master · 14d</h3>
-                        <LineChartSvg
-                            series={[
+                        <Sparkline
+                            type="line"
+                            className="h-32 w-full"
+                            data={[
                                 {
-                                    name: 'Success rate',
-                                    pts: masterPass.map((v) => v * 100),
-                                    color: 'var(--brand-blue)',
-                                    fill: true,
+                                    name: 'Success rate (%)',
+                                    values: masterPass.map((v) => Math.round(v * 100)),
+                                    color: 'brand-blue',
                                 },
                             ]}
-                            yFmt={(v) => `${Math.round(v)}%`}
-                            yMin={60}
-                            yMax={100}
+                            labels={DAY_LABELS}
+                            maximumIndicator={false}
                         />
                     </LemonCard>
                     <LemonCard hoverEffect={false} className="p-4">
                         <h3 className="mb-2 text-xs font-semibold text-secondary">Time master spent red · per day</h3>
-                        <StackedColumnsSvg
-                            data={DAY_LABELS.map((_, i) => ({
-                                red: Math.max(0, daySeries(230, 30, 28)[i] - (i < 11 ? 18 : -8)),
-                            }))}
-                            keys={['red']}
-                            colors={['var(--danger)']}
-                            yFmt={(v) => `${Math.round(v)}m`}
+                        <Sparkline
+                            type="bar"
+                            className="h-32 w-full"
+                            data={[
+                                {
+                                    name: 'Minutes red',
+                                    values: DAY_LABELS.map((_, i) =>
+                                        Math.round(Math.max(0, daySeries(230, 30, 28)[i] - (i < 11 ? 18 : -8)))
+                                    ),
+                                    color: 'danger',
+                                },
+                            ]}
+                            labels={DAY_LABELS}
+                            maximumIndicator={false}
                         />
                         <div className="mt-2 border-t border-primary pt-2 text-[11px] text-tertiary">
                             A day counts as red while any required workflow's latest master run is failing.
                         </div>
                     </LemonCard>
                 </div>
+            </Section>
+
+            <Section
+                id="prs"
+                title="Open pull requests"
+                note="same table as the author page — one component, one column set"
+            >
+                <LemonCard hoverEffect={false} className="p-0">
+                    <MockPrTable prs={openPrs} />
+                </LemonCard>
             </Section>
 
             <Section
@@ -265,10 +262,7 @@ export function MockRepoHub(): JSX.Element {
                                     </span>
                                 ),
                             },
-                            {
-                                title: 'On master',
-                                render: (_, w) => <CiTag ci={w.onMaster} />,
-                            },
+                            { title: 'On master', render: (_, w) => <CiTag ci={w.onMaster} /> },
                             {
                                 title: 'Runs',
                                 align: 'right',
@@ -375,12 +369,18 @@ export function MockRepoHub(): JSX.Element {
                             />
                         ))}
                         <h3 className="mb-1 mt-4 text-xs font-semibold text-secondary">Cost per day</h3>
-                        <StackedColumnsSvg
-                            data={DAY_LABELS.map((_, i) => ({ usd: 340 + daySeries(240, 0, 60, 4)[i] }))}
-                            keys={['usd']}
-                            colors={['var(--brand-blue)']}
-                            yFmt={(v) => `$${Math.round(v)}`}
-                            height={110}
+                        <Sparkline
+                            type="bar"
+                            className="h-24 w-full"
+                            data={[
+                                {
+                                    name: 'Cost ($)',
+                                    values: DAY_LABELS.map((_, i) => Math.round(340 + daySeries(240, 0, 60, 4)[i])),
+                                    color: 'brand-blue',
+                                },
+                            ]}
+                            labels={DAY_LABELS}
+                            maximumIndicator={false}
                         />
                     </LemonCard>
                 </div>
@@ -393,19 +393,21 @@ export function MockRepoHub(): JSX.Element {
             >
                 <RunActivityChart runs={mockActivityRuns(77, 260, 0.12, 18)} title="Run activity · all workflows" />
                 <LemonCard hoverEffect={false} className="mt-2.5 p-4">
-                    <h3 className="mb-2 text-xs font-semibold text-secondary">Runs per day · by conclusion</h3>
-                    <StackedColumnsSvg
-                        data={byDay}
-                        keys={['Succeeded', 'Failed', 'Cancelled']}
-                        colors={['var(--success)', 'var(--danger)', 'var(--muted)']}
-                        height={180}
-                    />
-                    <ChartLegend
-                        items={[
-                            { label: 'Succeeded', color: 'var(--success)' },
-                            { label: 'Failed', color: 'var(--danger)' },
-                            { label: 'Cancelled', color: 'var(--muted)' },
+                    <h3 className="mb-2 text-xs font-semibold text-secondary">Failed runs per day</h3>
+                    <Sparkline
+                        type="bar"
+                        className="h-24 w-full"
+                        data={[
+                            {
+                                name: 'Failed runs',
+                                values: DAY_LABELS.map((_, i) =>
+                                    Math.round(MOCK_WORKFLOWS.reduce((a, w) => a + w.failures[i] / 2.4, 0))
+                                ),
+                                color: 'danger',
+                            },
                         ]}
+                        labels={DAY_LABELS}
+                        maximumIndicator={false}
                     />
                 </LemonCard>
             </Section>
