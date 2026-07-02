@@ -13,7 +13,14 @@
  * Images are neutralized synchronously (fail-safe) and the real downsampled/blurred
  * result is swapped in by the deferred blur job on success.
  */
-import { BLANK_IMAGE_DATA_URI, BLANK_PNG_BASE64, blurImageDataUri, isImageDataUri, pixelateRawRgba } from './blur'
+import {
+    BLANK_IMAGE_DATA_URI,
+    BLANK_PNG_BASE64,
+    blurImageDataUri,
+    isImageDataUri,
+    memoizedBlur,
+    pixelateRawRgba,
+} from './blur'
 import { ScrubContext, isObject } from './config'
 import { scrubText } from './text'
 import { scrubUrl } from './url'
@@ -160,7 +167,7 @@ function blurBlobImage(ctx: ScrubContext, blob: Record<string, unknown>): boolea
 
 function queueImageBlur(ctx: ScrubContext, dataUri: string, apply: (blurred: string) => void): void {
     ctx.blurJobs?.push(async () => {
-        const blurred = await blurImageDataUri(dataUri)
+        const blurred = await memoizedBlur(ctx.blurCache, dataUri, () => blurImageDataUri(dataUri))
         if (blurred !== null) {
             apply(blurred)
         }
@@ -212,8 +219,11 @@ function blurImageData(ctx: ScrubContext, imageData: Record<string, unknown>): b
                 const blanked = Buffer.from(full)
                 blanked.fill(0, loc.start, loc.start + loc.length)
                 loc.ab.base64 = blanked.toString('base64')
+                // Key on dims too: pixelateRawRgba's output depends on width/height, and the `raw:`
+                // prefix keeps it from colliding with the `data:`-prefixed data-URI blur keys.
+                const cacheKey = `raw:${width}x${height}:${rgba}`
                 ctx.blurJobs?.push(async () => {
-                    const out = await pixelateRawRgba(rgba, width, height)
+                    const out = await memoizedBlur(ctx.blurCache, cacheKey, () => pixelateRawRgba(rgba, width, height))
                     if (out === null) {
                         return
                     }

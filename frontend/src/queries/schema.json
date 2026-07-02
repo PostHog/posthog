@@ -22291,7 +22291,12 @@
                 "NextdoorAds",
                 "AppLovin",
                 "Baserow",
-                "Plunk"
+                "Plunk",
+                "Dub",
+                "AirOps",
+                "Podium",
+                "Loops",
+                "Redis"
             ],
             "type": "string"
         },
@@ -43275,7 +43280,7 @@
             "type": "string"
         },
         "SlackIntegrationScopeInReview": {
-            "enum": ["assistant:write", "channels:manage", "im:history", "mpim:read"],
+            "enum": ["assistant:write", "channels:manage", "commands", "im:history", "mpim:read"],
             "type": "string"
         },
         "SlashCommandName": {

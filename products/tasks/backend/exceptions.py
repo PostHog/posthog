@@ -77,6 +77,18 @@ class SandboxExecutionError(ProcessTaskTransientError):
     pass
 
 
+class SandboxMissingRepositoryError(ProcessTaskFatalError):
+    """The repository directory the agent-server needs as its cwd is absent from the sandbox.
+
+    Happens when a run reaches agent-server start without a clone — no snapshot restored and no
+    usable GitHub credentials. Retrying cannot make the directory appear, so fail immediately
+    with the real reason instead of burning health-check timeouts on a server that can never
+    open a session.
+    """
+
+    pass
+
+
 class SandboxNotRunningError(SandboxExecutionError):
     """Sandbox is not in a running state."""
 

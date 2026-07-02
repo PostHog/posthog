@@ -1,6 +1,7 @@
+import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 
-import { IconCollapse, IconExpand } from '@posthog/icons'
+import { IconChevronRight, IconCollapse, IconExpand } from '@posthog/icons'
 import { LemonButton, Spinner } from '@posthog/lemon-ui'
 
 import { LemonTree, TreeDataItem } from 'lib/lemon-ui/LemonTree/LemonTree'
@@ -58,8 +59,10 @@ export function DashboardsTree(): JSX.Element {
         folderDashboardCounts,
         dashboardFileSystemEntriesLoading,
         folderEntriesLoading,
+        isTreePanelExpanded,
     } = useValues(dashboardsFileSystemLogic)
-    const { navigateToFolder, toggleFolder, setExpandedFolders } = useActions(dashboardsFileSystemLogic)
+    const { navigateToFolder, toggleFolder, setExpandedFolders, toggleTreePanel } =
+        useActions(dashboardsFileSystemLogic)
     const { reportDashboardsTreeFolderNavigated } = useActions(eventUsageLogic)
     const { dashboardsLoading } = useValues(dashboardsModel)
 
@@ -80,8 +83,23 @@ export function DashboardsTree(): JSX.Element {
 
     return (
         <div className="grid grid-cols-1 gap-4 md:grid-cols-[260px_1fr]" data-attr="dashboards-tree">
+            {/* Hidden on desktop, where the panel is always shown beside the table. */}
+            <LemonButton
+                size="small"
+                type="secondary"
+                icon={<IconChevronRight className={clsx('transition-transform', isTreePanelExpanded && 'rotate-90')} />}
+                onClick={toggleTreePanel}
+                className="md:hidden col-span-full justify-self-start"
+                data-attr="dashboards-tree-panel-toggle"
+            >
+                {isTreePanelExpanded ? 'Hide folders' : 'Browse folders'}
+            </LemonButton>
             <div
-                className="flex flex-col border-b border-border pb-2 md:border-b-0 md:border-r md:pb-0 md:pr-2"
+                // Collapsed hides the panel on mobile; md:flex keeps it visible on desktop regardless.
+                className={clsx(
+                    'flex-col border-b border-border pb-2 md:border-b-0 md:border-r md:pb-0 md:pr-2',
+                    isTreePanelExpanded ? 'flex' : 'hidden md:flex'
+                )}
                 aria-label="Folder tree"
             >
                 {/* LemonTree drops its own className, so the override lives on this wrapper instead. Every

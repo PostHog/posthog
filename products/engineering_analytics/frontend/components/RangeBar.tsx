@@ -5,9 +5,8 @@ import { Tooltip } from '@posthog/lemon-ui'
 import { cn } from 'lib/utils/css-classes'
 
 /**
- * A compact horizontal bar with a fill and an optional tick marker — for showing a value within a range
- * at a glance (e.g. median duration as the fill, p95 as the tick). Adapted from LLM analytics' sentiment
- * bar; the tick triangle and fill width are positioned inline because they're data-driven.
+ * Compact horizontal bar with a fill and an optional tick marker (e.g. median duration as the fill, p95
+ * as the tick). Tick triangle and fill width are inline styles because they're data-driven.
  */
 export function RangeBar({
     fraction,

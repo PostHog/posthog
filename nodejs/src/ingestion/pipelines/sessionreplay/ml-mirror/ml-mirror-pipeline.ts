@@ -3,10 +3,9 @@ import { Message } from 'node-rdkafka'
 
 import { OverflowOutput } from '~/common/outputs'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
-import { BatchPipelineUnwrapper } from '~/ingestion/framework/batch-pipeline-unwrapper'
+import { BatchPipeline } from '~/ingestion/framework/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
 import { createTopHogWrapper, sum, timer } from '~/ingestion/framework/extensions/tophog'
-import { createUnwrapper } from '~/ingestion/framework/helpers'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import {
     SessionReplayPipelineConfig,
@@ -27,9 +26,10 @@ export type MlMirrorReplayPipelineConfig = SessionReplayPipelineConfig & {
 
 export function createMlMirrorReplayPipeline(
     config: MlMirrorReplayPipelineConfig
-): BatchPipelineUnwrapper<
+): BatchPipeline<
     SessionReplayPipelineInput,
     SessionReplayPipelineOutput,
+    { message: Message },
     { message: Message },
     OverflowOutput
 > {
@@ -121,5 +121,5 @@ export function createMlMirrorReplayPipeline(
         .gather()
         .build()
 
-    return createUnwrapper(pipeline)
+    return pipeline
 }
