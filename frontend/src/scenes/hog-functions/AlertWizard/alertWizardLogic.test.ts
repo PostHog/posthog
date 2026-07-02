@@ -1,6 +1,22 @@
-import { CyclotronJobFiltersType, PropertyFilterType, PropertyOperator } from '~/types'
+import api from 'lib/api'
 
-import { applyKindFilter, decorateAlertName } from './alertWizardLogic'
+import { initKeaTests } from '~/test/init'
+import { CyclotronJobFiltersType, HogFunctionSubTemplateIdType, PropertyFilterType, PropertyOperator } from '~/types'
+
+import {
+    ERROR_TRACKING_DESTINATIONS,
+    ERROR_TRACKING_SUB_TEMPLATE_IDS,
+    ERROR_TRACKING_TRIGGERS,
+} from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/alerting/alertWizardConfig'
+
+import { alertWizardLogic, applyKindFilter, decorateAlertName } from './alertWizardLogic'
+
+jest.mock('lib/api', () => ({
+    ...jest.requireActual('lib/api'),
+    hogFunctions: {
+        list: jest.fn().mockResolvedValue({ results: [] }),
+    },
+}))
 
 describe('applyKindFilter', () => {
     const baseFilters: CyclotronJobFiltersType = {
@@ -88,5 +104,46 @@ describe('decorateAlertName', () => {
         expect(decorateAlertName(baseName, ['some_future_kind'])).toBe(
             'Email when a Health check fires (some_future_kind)'
         )
+    })
+})
+
+describe('alertWizardLogic availableDestinations', () => {
+    let logic: ReturnType<typeof alertWizardLogic.build>
+
+    function mountWithPresetTrigger(presetTriggerKey?: HogFunctionSubTemplateIdType): void {
+        logic = alertWizardLogic({
+            logicKey: 'test',
+            subTemplateIds: ERROR_TRACKING_SUB_TEMPLATE_IDS,
+            triggers: ERROR_TRACKING_TRIGGERS,
+            destinations: ERROR_TRACKING_DESTINATIONS,
+            disableUrlSync: true,
+            presetTriggerKey,
+        })
+        logic.mount()
+    }
+
+    beforeEach(() => {
+        jest.clearAllMocks()
+        ;(api.hogFunctions.list as jest.Mock).mockResolvedValue({ results: [] })
+        initKeaTests()
+    })
+
+    afterEach(() => logic?.unmount())
+
+    // Guards the recommendation-modal flow: with a preset trigger, only destinations
+    // that have a sub-template for that trigger may be offered — otherwise picking one
+    // dead-ends at "Template not found for this combination".
+    it.each([
+        ['error-tracking-issue-created', ['slack', 'discord', 'github', 'gitlab', 'microsoft-teams', 'linear']],
+        ['error-tracking-issue-reopened', ['slack', 'discord', 'microsoft-teams']],
+        ['error-tracking-issue-spiking', ['slack', 'discord', 'microsoft-teams']],
+    ])('offers only destinations with a sub-template for preset trigger %s', (triggerKey, expectedKeys) => {
+        mountWithPresetTrigger(triggerKey as HogFunctionSubTemplateIdType)
+        expect(logic.values.availableDestinations.map((d) => d.key).sort()).toEqual([...expectedKeys].sort())
+    })
+
+    it('offers every destination when no trigger is selected yet', () => {
+        mountWithPresetTrigger(undefined)
+        expect(logic.values.availableDestinations).toHaveLength(ERROR_TRACKING_DESTINATIONS.length)
     })
 })

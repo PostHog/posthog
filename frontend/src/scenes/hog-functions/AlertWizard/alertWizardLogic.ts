@@ -279,10 +279,29 @@ export const alertWizardLogic = kea<alertWizardLogicType>([
             },
         ],
 
+        // Destinations valid for the currently selected/preset trigger. Mirrors
+        // `availableTriggers` in reverse: only destinations that have a
+        // sub-template for the trigger can produce a valid alert. Without this,
+        // a preset-trigger entry point (e.g. the recommendation modal, which
+        // hides the trigger step) would still offer destinations like
+        // GitHub/GitLab/Linear that lack a sub-template for reopened/spiking,
+        // and picking one dead-ends at "Template not found for this combination".
+        availableDestinations: [
+            (s) => [s.selectedTriggerKey, s.allDestinations],
+            (selectedTriggerKey, allDestinations): WizardDestination[] => {
+                if (!selectedTriggerKey) {
+                    return allDestinations
+                }
+                return allDestinations.filter((destination) =>
+                    hasSubTemplateForDestination(selectedTriggerKey, destination)
+                )
+            },
+        ],
+
         sortedDestinations: [
-            (s) => [s.usedDestinationKeys, s.allDestinations],
-            (usedDestinationKeys, allDestinations): WizardDestination[] => {
-                return [...allDestinations].sort((a, b) => {
+            (s) => [s.usedDestinationKeys, s.availableDestinations],
+            (usedDestinationKeys, availableDestinations): WizardDestination[] => {
+                return [...availableDestinations].sort((a, b) => {
                     const aUsed = usedDestinationKeys.has(a.key) ? 1 : 0
                     const bUsed = usedDestinationKeys.has(b.key) ? 1 : 0
                     return bUsed - aUsed
