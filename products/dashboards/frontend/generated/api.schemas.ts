@@ -786,11 +786,42 @@ export interface DashboardPatchWidgetOpenApiApi {
     description?: string
 }
 
+export interface _WidgetTileLayoutBoxOpenApiApi {
+    /** Column position in the dashboard grid (0-indexed). */
+    x?: number
+    /** Row position in the dashboard grid (0-indexed). */
+    y?: number
+    /** Width in grid columns. The desktop grid is 12 columns wide. */
+    w?: number
+    /** Height in grid rows. */
+    h?: number
+}
+
+export interface _WidgetTileLayoutsOpenApiApi {
+    /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
+    sm?: _WidgetTileLayoutBoxOpenApiApi
+    /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
+    xs?: _WidgetTileLayoutBoxOpenApiApi
+}
+
 export interface DashboardPatchTileOpenApiApi {
     /** Dashboard tile ID to update. */
     id?: number
     /** Nested widget row updates. */
     widget?: DashboardPatchWidgetOpenApiApi
+    /** React-grid-layout position and size for this tile, keyed by breakpoint (sm, xs). Works for any existing tile type — insight, text, widget, or button — so agents can build KPI rows and grid layouts without manual drag-resizing. Requires the tile id. */
+    layouts?: _WidgetTileLayoutsOpenApiApi
+    /**
+     * Optional accent color for the tile. Requires the tile id.
+     * @maxLength 400
+     * @nullable
+     */
+    color?: string | null
+    /**
+     * Whether to show the tile's description on the dashboard. Requires the tile id.
+     * @nullable
+     */
+    show_description?: boolean | null
 }
 
 /**
@@ -8254,24 +8285,6 @@ export interface UpdateTextTileRequestApi {
      * @nullable
      */
     color?: string | null
-}
-
-export interface _WidgetTileLayoutBoxOpenApiApi {
-    /** Column position in the dashboard grid (0-indexed). */
-    x?: number
-    /** Row position in the dashboard grid (0-indexed). */
-    y?: number
-    /** Width in grid columns. The desktop grid is 12 columns wide. */
-    w?: number
-    /** Height in grid rows. */
-    h?: number
-}
-
-export interface _WidgetTileLayoutsOpenApiApi {
-    /** Layout for the standard (desktop) breakpoint. The grid is 12 columns wide. */
-    sm?: _WidgetTileLayoutBoxOpenApiApi
-    /** Layout for the small (mobile) breakpoint. The grid is 1 column wide. */
-    xs?: _WidgetTileLayoutBoxOpenApiApi
 }
 
 export type ActivityEventsListWidgetAddRequestOpenApiApiWidgetType =

@@ -238,6 +238,25 @@ class DashboardPatchWidgetOpenApiSerializer(serializers.Serializer):
 class DashboardPatchTileOpenApiSerializer(serializers.Serializer):
     id = serializers.IntegerField(required=False, help_text="Dashboard tile ID to update.")
     widget = DashboardPatchWidgetOpenApiSerializer(required=False, help_text="Nested widget row updates.")
+    layouts = _WidgetTileLayoutsOpenApiSerializer(
+        required=False,
+        help_text=(
+            "React-grid-layout position and size for this tile, keyed by breakpoint (sm, xs). "
+            "Works for any existing tile type — insight, text, widget, or button — so agents can build "
+            "KPI rows and grid layouts without manual drag-resizing. Requires the tile id."
+        ),
+    )
+    color = serializers.CharField(
+        max_length=400,
+        required=False,
+        allow_null=True,
+        help_text="Optional accent color for the tile. Requires the tile id.",
+    )
+    show_description = serializers.BooleanField(
+        required=False,
+        allow_null=True,
+        help_text="Whether to show the tile's description on the dashboard. Requires the tile id.",
+    )
 
 
 class DashboardFiltersOpenApiSerializer(serializers.Serializer):

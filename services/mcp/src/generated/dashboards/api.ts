@@ -149,6 +149,8 @@ export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSixWrapLinesD
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneConfigOneSixTimezoneDefault = `UTC`
 export const dashboardsPartialUpdateBodyTilesItemWidgetOneNameMax = 400
 
+export const dashboardsPartialUpdateBodyTilesItemColorMax = 400
+
 export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
     .object({
         name: zod.string().max(dashboardsPartialUpdateBodyNameMax).nullish(),
@@ -676,6 +678,58 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                         })
                         .optional()
                         .describe('Nested widget row updates.'),
+                    layouts: zod
+                        .object({
+                            sm: zod
+                                .object({
+                                    x: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Column position in the dashboard grid (0-indexed).'),
+                                    y: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Row position in the dashboard grid (0-indexed).'),
+                                    w: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                    h: zod.number().optional().describe('Height in grid rows.'),
+                                })
+                                .optional()
+                                .describe('Layout for the standard (desktop) breakpoint. The grid is 12 columns wide.'),
+                            xs: zod
+                                .object({
+                                    x: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Column position in the dashboard grid (0-indexed).'),
+                                    y: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Row position in the dashboard grid (0-indexed).'),
+                                    w: zod
+                                        .number()
+                                        .optional()
+                                        .describe('Width in grid columns. The desktop grid is 12 columns wide.'),
+                                    h: zod.number().optional().describe('Height in grid rows.'),
+                                })
+                                .optional()
+                                .describe('Layout for the small (mobile) breakpoint. The grid is 1 column wide.'),
+                        })
+                        .optional()
+                        .describe(
+                            'React-grid-layout position and size for this tile, keyed by breakpoint (sm, xs). Works for any existing tile type — insight, text, widget, or button — so agents can build KPI rows and grid layouts without manual drag-resizing. Requires the tile id.'
+                        ),
+                    color: zod
+                        .string()
+                        .max(dashboardsPartialUpdateBodyTilesItemColorMax)
+                        .nullish()
+                        .describe('Optional accent color for the tile. Requires the tile id.'),
+                    show_description: zod
+                        .boolean()
+                        .nullish()
+                        .describe("Whether to show the tile's description on the dashboard. Requires the tile id."),
                 })
             )
             .optional()

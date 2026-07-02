@@ -14561,6 +14561,19 @@ export namespace Schemas {
       id?: number;
       /** Nested widget row updates. */
       widget?: DashboardPatchWidgetOpenApi;
+      /** React-grid-layout position and size for this tile, keyed by breakpoint (sm, xs). Works for any existing tile type — insight, text, widget, or button — so agents can build KPI rows and grid layouts without manual drag-resizing. Requires the tile id. */
+      layouts?: _WidgetTileLayoutsOpenApi;
+      /**
+         * Optional accent color for the tile. Requires the tile id.
+         * @maxLength 400
+         * @nullable
+         */
+      color?: string | null;
+      /**
+         * Whether to show the tile's description on the dashboard. Requires the tile id.
+         * @nullable
+         */
+      show_description?: boolean | null;
     }
 
     /**

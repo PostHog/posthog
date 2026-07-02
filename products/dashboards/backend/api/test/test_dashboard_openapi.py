@@ -4,7 +4,10 @@ from rest_framework import serializers
 from products.dashboards.backend.api.test.dashboard_openapi_test_helpers import (
     dashboard_patch_runtime_openapi_field_names,
 )
-from products.dashboards.backend.widget_specs.openapi import PatchedDashboardOpenApiSerializer
+from products.dashboards.backend.widget_specs.openapi import (
+    DashboardPatchTileOpenApiSerializer,
+    PatchedDashboardOpenApiSerializer,
+)
 
 
 def _patched_dashboard_openapi_component_properties(schema: dict) -> frozenset[str]:
@@ -39,6 +42,24 @@ class TestDashboardPatchOpenApiContract:
         assert not missing, (
             "Generated OpenAPI schema for dashboard PATCH must include every agent-facing runtime field. "
             f"Missing: {sorted(missing)}."
+        )
+
+    def test_tile_layouts_documented_as_writable_patch_field(self) -> None:
+        # The dashboard-update MCP tool schema is generated from this serializer, and
+        # extend_schema(request=...) replaces the whole PATCH body. If layouts drops off the
+        # per-tile schema, the tool silently discards tile geometry — the runtime persists it
+        # (test_dashboard.py::test_dashboard_item_layout) but agents can no longer send it.
+        tile_fields = DashboardPatchTileOpenApiSerializer().fields
+        assert "layouts" in tile_fields, (
+            "DashboardPatchTileOpenApiSerializer must document 'layouts' so the dashboard-update MCP tool "
+            "can resize and arrange tiles (including insight tiles) instead of silently dropping the input."
+        )
+        layouts_field = tile_fields["layouts"]
+        assert isinstance(layouts_field, serializers.Serializer)
+        breakpoint_field = layouts_field.fields["sm"]
+        assert isinstance(breakpoint_field, serializers.Serializer)
+        assert {"x", "y", "w", "h"}.issubset(frozenset(breakpoint_field.fields.keys())), (
+            f"Tile layout breakpoint must expose x/y/w/h. Got: {sorted(breakpoint_field.fields.keys())}."
         )
 
     def test_filters_documented_as_writable_patch_field(self) -> None:
