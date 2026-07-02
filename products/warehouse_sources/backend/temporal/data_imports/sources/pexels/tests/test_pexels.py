@@ -172,6 +172,33 @@ class TestPexelsSourceResponse:
         assert response.partition_mode is None
 
 
+class TestApiKeyRedaction:
+    # Pexels sends the key as a raw Authorization value the sampler can't scrub by name, so the
+    # source must register it via redact_values or the plaintext key leaks into captured samples.
+    def test_get_rows_registers_api_key_for_redaction(self) -> None:
+        factory = MagicMock()
+        with (
+            patch.object(pexels, "_fetch_page", lambda *_: {"photos": []}),
+            patch.object(pexels, "make_tracked_session", factory),
+        ):
+            list(
+                get_rows(
+                    api_key="secret-key",
+                    endpoint="curated_photos",
+                    logger=MagicMock(),
+                    resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                )
+            )
+        assert factory.call_args.kwargs["redact_values"] == ("secret-key",)
+
+    def test_validate_credentials_registers_api_key_for_redaction(self) -> None:
+        factory = MagicMock()
+        factory.return_value.get.return_value = MagicMock(status_code=200)
+        with patch.object(pexels, "make_tracked_session", factory):
+            validate_credentials("secret-key")
+        assert factory.call_args.kwargs["redact_values"] == ("secret-key",)
+
+
 class TestFetchPageRetries:
     @parameterized.expand(
         [

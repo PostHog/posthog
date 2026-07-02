@@ -72,7 +72,10 @@ def validate_credentials(api_key: str) -> bool:
     # The curated endpoint needs no query params and a single row is the cheapest authenticated probe.
     url = _build_url(f"{PEXELS_BASE_URL}/v1/curated", {"per_page": 1})
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=REQUEST_TIMEOUT)
+        # Pexels sends the key as a raw Authorization value the sampler's name-based scrubber can't
+        # recognise, so register it for redaction to keep it out of captured HTTP samples.
+        session = make_tracked_session(redact_values=(api_key,))
+        response = session.get(url, headers=_get_headers(api_key), timeout=REQUEST_TIMEOUT)
         return response.status_code == 200
     except Exception:
         return False
@@ -92,8 +95,9 @@ def get_rows(
         raise ValueError(f"Endpoint '{endpoint}' requires a search query but none was provided.")
 
     headers = _get_headers(api_key)
-    # One session reused across every page so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    # One session reused across every page so urllib3 keeps the connection alive. The raw
+    # Authorization key is redacted from captured samples — the sampler can't infer that format.
+    session = make_tracked_session(redact_values=(api_key,))
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     page = resume.page if resume and resume.page else 1
