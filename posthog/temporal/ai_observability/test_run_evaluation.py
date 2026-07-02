@@ -1450,6 +1450,53 @@ class TestExecuteHogEvalActivity:
         assert "Unexpected error during evaluation" not in result["reasoning"]
 
     @pytest.mark.asyncio
+    @pytest.mark.parametrize(
+        ("source", "properties", "expected_reasoning"),
+        [
+            (
+                "return output =~ properties.pattern",
+                {"pattern": "\\u"},
+                "Invalid regex pattern",
+            ),
+            (
+                "return match(properties.tool_calls, 'tool')",
+                {"tool_calls": ["tool_call"]},
+                "Function match requires input",
+            ),
+            (
+                "let calls := []; calls[1] := 'tool_call'; return true",
+                {},
+                "Index 1 out of range",
+            ),
+        ],
+        ids=["invalid-regex", "list-regex-input", "array-assignment-index"],
+    )
+    async def test_hog_eval_vm_user_errors_return_skipped(self, source, properties, expected_reasoning):
+        from posthog.cdp.validation import compile_hog
+
+        bytecode = compile_hog(source, "destination")
+        evaluation = {
+            "id": "eval-id",
+            "name": "Hog Eval",
+            "evaluation_type": "hog",
+            "evaluation_config": {"source": source, "bytecode": bytecode},
+            "output_type": "boolean",
+            "output_config": {},
+            "team_id": 1,
+        }
+        event_properties = {"$ai_input": "test input", "$ai_output": "test output", **properties}
+
+        result = await execute_hog_eval_activity(evaluation, create_mock_event_data(1, properties=event_properties))
+
+        assert result["skipped"] is True
+        assert result["skip_reason"] == "hog_error"
+        assert result["terminal_user_error"] is True
+        assert result["status_reason"] == "hog_error"
+        assert result["verdict"] is False
+        assert expected_reasoning in result["reasoning"]
+        assert "Unexpected error during evaluation" not in result["reasoning"]
+
+    @pytest.mark.asyncio
     async def test_hog_eval_unexpected_error_raises(self):
         from posthog.cdp.validation import compile_hog
 
