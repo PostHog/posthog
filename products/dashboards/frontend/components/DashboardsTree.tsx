@@ -82,140 +82,131 @@ export function DashboardsTree(): JSX.Element {
     const allExpanded = expandablePaths.length > 0 && expandablePaths.every((id) => expandedFolders[id])
 
     return (
-        <div className="flex flex-col gap-2" data-attr="dashboards-tree">
-            {/* Mobile-only toggle: the folder panel is collapsed by default on mobile so it doesn't eat the
-                screen, and this button reveals it on demand. Hidden at md+, where the panel always shows. */}
+        <div className="grid grid-cols-1 gap-4 md:grid-cols-[260px_1fr]" data-attr="dashboards-tree">
+            {/* Hidden on desktop, where the panel is always shown beside the table. */}
             <LemonButton
                 size="small"
                 type="secondary"
                 icon={<IconChevronRight className={clsx('transition-transform', isTreePanelExpanded && 'rotate-90')} />}
                 onClick={toggleTreePanel}
-                className="md:hidden self-start"
+                className="md:hidden col-span-full justify-self-start"
                 data-attr="dashboards-tree-panel-toggle"
-                aria-expanded={isTreePanelExpanded}
             >
                 {isTreePanelExpanded ? 'Hide folders' : 'Browse folders'}
             </LemonButton>
-            <div className="grid grid-cols-1 gap-4 md:grid-cols-[260px_1fr]">
-                <div
-                    className={clsx(
-                        'flex-col border-b border-border pb-2 md:border-b-0 md:border-r md:pb-0 md:pr-2',
-                        // Collapsed on mobile hides the panel entirely; md:flex keeps it visible on desktop
-                        // regardless of the toggle state.
-                        isTreePanelExpanded ? 'flex' : 'hidden md:flex'
-                    )}
-                    aria-label="Folder tree"
-                >
-                    {/* LemonTree drops its own className, so the override lives on this wrapper instead. Every
-                        open/expanded accordion trigger is shaded with the tertiary-active fill, which made all
-                        expanded folders look selected; null that fill out via the CSS variable (cascades to all
-                        rows) and re-apply it only to the actively-selected folder. */}
-                    {/* On mobile the tree stacks above the table, so cap its height and let it scroll — otherwise a
-                        project with many folders pushes the dashboards list far below the fold. Reset at md+ where the
-                        panel sits beside the table. */}
-                    <div className="dashboards-tree-panel flex-1 min-h-0 max-h-[40vh] overflow-y-auto md:max-h-none md:overflow-visible [--color-bg-fill-button-tertiary-active:transparent] [&_.button-primitive--active]:!bg-[var(--color-bg-fill-highlight-50)]">
-                        <LemonTree
-                            data={treeData}
-                            expandedItemIds={expandedItemIds}
-                            // Highlight only the folder you're in; navigating moves it (and clears the rest).
-                            isItemActive={(item) => item.record?.path === currentFolder}
-                            renderItem={(item, children) => {
-                                if (item.record?.type !== 'folder') {
-                                    return children
-                                }
-                                // The root carries the expand/collapse-all toggle as a hover button (frees the
-                                // panel header); every other folder shows a trailing subtree dashboard count.
-                                if (item.id === ROOT_ID && expandablePaths.length > 0) {
-                                    return (
-                                        <span className="flex items-center gap-1 w-full min-w-0">
-                                            <span className="truncate">{children}</span>
-                                            <LemonButton
-                                                size="small"
-                                                icon={allExpanded ? <IconCollapse /> : <IconExpand />}
-                                                tooltip={allExpanded ? 'Collapse all folders' : 'Expand all folders'}
-                                                onClick={(e) => {
-                                                    // The row is a Link (to='#' since folders carry no href); preventDefault
-                                                    // stops the toggle from triggering that nav (which bounces to home),
-                                                    // stopPropagation stops it from also selecting the root folder.
-                                                    e.preventDefault()
-                                                    e.stopPropagation()
-                                                    setExpandedFolders(
-                                                        allExpanded
-                                                            ? {}
-                                                            : Object.fromEntries(
-                                                                  expandablePaths.map((id) => [id, true])
-                                                              )
-                                                    )
-                                                }}
-                                                className="ml-auto shrink-0 opacity-0 group-hover/lemon-tree-button:opacity-100"
-                                                data-attr="dashboards-tree-expand-toggle"
-                                            />
-                                        </span>
-                                    )
-                                }
-                                const count = folderDashboardCounts[(item.record?.path as string) ?? ''] ?? 0
+            <div
+                // Collapsed hides the panel on mobile; md:flex keeps it visible on desktop regardless.
+                className={clsx(
+                    'flex-col border-b border-border pb-2 md:border-b-0 md:border-r md:pb-0 md:pr-2',
+                    isTreePanelExpanded ? 'flex' : 'hidden md:flex'
+                )}
+                aria-label="Folder tree"
+            >
+                {/* LemonTree drops its own className, so the override lives on this wrapper instead. Every
+                    open/expanded accordion trigger is shaded with the tertiary-active fill, which made all
+                    expanded folders look selected; null that fill out via the CSS variable (cascades to all
+                    rows) and re-apply it only to the actively-selected folder. */}
+                {/* On mobile the tree stacks above the table, so cap its height and let it scroll — otherwise a
+                    project with many folders pushes the dashboards list far below the fold. Reset at md+ where the
+                    panel sits beside the table. */}
+                <div className="dashboards-tree-panel flex-1 min-h-0 max-h-[40vh] overflow-y-auto md:max-h-none md:overflow-visible [--color-bg-fill-button-tertiary-active:transparent] [&_.button-primitive--active]:!bg-[var(--color-bg-fill-highlight-50)]">
+                    <LemonTree
+                        data={treeData}
+                        expandedItemIds={expandedItemIds}
+                        // Highlight only the folder you're in; navigating moves it (and clears the rest).
+                        isItemActive={(item) => item.record?.path === currentFolder}
+                        renderItem={(item, children) => {
+                            if (item.record?.type !== 'folder') {
+                                return children
+                            }
+                            // The root carries the expand/collapse-all toggle as a hover button (frees the
+                            // panel header); every other folder shows a trailing subtree dashboard count.
+                            if (item.id === ROOT_ID && expandablePaths.length > 0) {
                                 return (
                                     <span className="flex items-center gap-1 w-full min-w-0">
                                         <span className="truncate">{children}</span>
-                                        {count > 0 && (
-                                            <span className="ml-auto shrink-0 text-xxs text-tertiary tabular-nums">
-                                                {count}
-                                            </span>
-                                        )}
+                                        <LemonButton
+                                            size="small"
+                                            icon={allExpanded ? <IconCollapse /> : <IconExpand />}
+                                            tooltip={allExpanded ? 'Collapse all folders' : 'Expand all folders'}
+                                            onClick={(e) => {
+                                                // The row is a Link (to='#' since folders carry no href); preventDefault
+                                                // stops the toggle from triggering that nav (which bounces to home),
+                                                // stopPropagation stops it from also selecting the root folder.
+                                                e.preventDefault()
+                                                e.stopPropagation()
+                                                setExpandedFolders(
+                                                    allExpanded
+                                                        ? {}
+                                                        : Object.fromEntries(expandablePaths.map((id) => [id, true]))
+                                                )
+                                            }}
+                                            className="ml-auto shrink-0 opacity-0 group-hover/lemon-tree-button:opacity-100"
+                                            data-attr="dashboards-tree-expand-toggle"
+                                        />
                                     </span>
                                 )
-                            }}
-                            onSetExpandedItemIds={(newIds) => {
-                                // Sync the whole expandable set to LemonTree's new state. (Find-first missed batch
-                                // keyboard collapses where a parent and its expanded children change at once;
-                                // rebuilding from the live set also drops stale paths of since-deleted folders.)
-                                const expanded = new Set(newIds)
-                                setExpandedFolders(
-                                    Object.fromEntries(expandablePaths.map((id) => [id, expanded.has(id)]))
-                                )
-                            }}
-                            onFolderClick={(folder) => {
-                                if (!folder) {
-                                    return
-                                }
-                                // A folder click selects it (scopes the table); a folder that has subfolders also
-                                // toggles expansion. The root stays open; childless folders don't expand at all.
-                                const path = (folder.record?.path as string) ?? ''
-                                const hasSubfolders = !!folder.children && folder.children.length > 0
-                                reportDashboardsTreeFolderNavigated(splitPath(path).length, hasSubfolders)
-                                navigateToFolder(path)
-                                if (folder.id !== ROOT_ID && hasSubfolders) {
-                                    toggleFolder(folder.id)
-                                }
-                            }}
-                            itemSideAction={(item) => {
-                                // Hover ellipsis on every folder (root included). Root → New folder; a real folder
-                                // → New subfolder / Rename / Move to / Delete (the last three need its FileSystem row).
-                                if (item.record?.type !== 'folder') {
-                                    return undefined
-                                }
-                                const path = (item.record?.path as string) ?? ''
-                                return (
-                                    <DropdownMenuGroup>
-                                        <DashboardsTreeFolderMenu path={path} entry={folderEntryByPath[path]} />
-                                    </DropdownMenuGroup>
-                                )
-                            }}
-                        />
-                        {(dashboardFileSystemEntriesLoading || folderEntriesLoading) && folderTree.length === 0 && (
-                            <div className="flex items-center justify-center p-3">
-                                <Spinner className="text-lg" />
-                            </div>
-                        )}
-                    </div>
-                </div>
-                <div className="min-w-0" data-attr="dashboards-tree-content">
-                    <DashboardsTable
-                        dashboards={currentSubtreeDashboards}
-                        dashboardsLoading={dashboardsLoading}
-                        dashboardFsEntry={(id) => entryByRef[String(id)]}
+                            }
+                            const count = folderDashboardCounts[(item.record?.path as string) ?? ''] ?? 0
+                            return (
+                                <span className="flex items-center gap-1 w-full min-w-0">
+                                    <span className="truncate">{children}</span>
+                                    {count > 0 && (
+                                        <span className="ml-auto shrink-0 text-xxs text-tertiary tabular-nums">
+                                            {count}
+                                        </span>
+                                    )}
+                                </span>
+                            )
+                        }}
+                        onSetExpandedItemIds={(newIds) => {
+                            // Sync the whole expandable set to LemonTree's new state. (Find-first missed batch
+                            // keyboard collapses where a parent and its expanded children change at once;
+                            // rebuilding from the live set also drops stale paths of since-deleted folders.)
+                            const expanded = new Set(newIds)
+                            setExpandedFolders(Object.fromEntries(expandablePaths.map((id) => [id, expanded.has(id)])))
+                        }}
+                        onFolderClick={(folder) => {
+                            if (!folder) {
+                                return
+                            }
+                            // A folder click selects it (scopes the table); a folder that has subfolders also
+                            // toggles expansion. The root stays open; childless folders don't expand at all.
+                            const path = (folder.record?.path as string) ?? ''
+                            const hasSubfolders = !!folder.children && folder.children.length > 0
+                            reportDashboardsTreeFolderNavigated(splitPath(path).length, hasSubfolders)
+                            navigateToFolder(path)
+                            if (folder.id !== ROOT_ID && hasSubfolders) {
+                                toggleFolder(folder.id)
+                            }
+                        }}
+                        itemSideAction={(item) => {
+                            // Hover ellipsis on every folder (root included). Root → New folder; a real folder
+                            // → New subfolder / Rename / Move to / Delete (the last three need its FileSystem row).
+                            if (item.record?.type !== 'folder') {
+                                return undefined
+                            }
+                            const path = (item.record?.path as string) ?? ''
+                            return (
+                                <DropdownMenuGroup>
+                                    <DashboardsTreeFolderMenu path={path} entry={folderEntryByPath[path]} />
+                                </DropdownMenuGroup>
+                            )
+                        }}
                     />
+                    {(dashboardFileSystemEntriesLoading || folderEntriesLoading) && folderTree.length === 0 && (
+                        <div className="flex items-center justify-center p-3">
+                            <Spinner className="text-lg" />
+                        </div>
+                    )}
                 </div>
+            </div>
+            <div className="min-w-0" data-attr="dashboards-tree-content">
+                <DashboardsTable
+                    dashboards={currentSubtreeDashboards}
+                    dashboardsLoading={dashboardsLoading}
+                    dashboardFsEntry={(id) => entryByRef[String(id)]}
+                />
             </div>
         </div>
     )

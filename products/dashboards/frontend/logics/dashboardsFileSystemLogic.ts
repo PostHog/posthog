@@ -84,8 +84,7 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
         toggleFolder: (folder: string) => ({ folder }),
         // Replace the whole expanded-folders map at once (Expand all / Collapse all).
         setExpandedFolders: (folders: Record<string, boolean>) => ({ folders }),
-        // Show/hide the whole folder panel. Only wired up on mobile, where the panel is collapsed by default
-        // so the dashboards list isn't pushed below the fold; on desktop the panel is always shown via CSS.
+        // Mobile-only panel toggle; desktop shows the panel unconditionally via CSS.
         toggleTreePanel: true,
         // Create a folder inside `parentPath` ('' = root; defaults to the selected folder when omitted).
         createFolder: (name: string, parentPath?: string) => ({ name, parentPath }),
@@ -130,9 +129,7 @@ export const dashboardsFileSystemLogic = kea<dashboardsFileSystemLogicType>([
                 setExpandedFolders: (_, { folders }) => folders,
             },
         ],
-        // Whether the folder panel is shown. Starts collapsed and is only toggleable on mobile (the toggle
-        // button is hidden at md+, where the panel always renders beside the table). Not persisted, so mobile
-        // always opens with the panel collapsed — the point is to keep the dashboards list front and centre.
+        // Not persisted, so mobile always opens with the panel collapsed and the dashboards list front and centre.
         isTreePanelExpanded: [
             false,
             {
