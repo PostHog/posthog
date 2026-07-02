@@ -225,13 +225,13 @@ class GitHubIntegrationBase:
         when GitHub returns 404 (no access).  Raises on network errors or
         unexpected status codes so callers can surface an appropriate error.
         """
-        response = requests.get(  # nosemgrep: python.django.security.injection.ssrf.ssrf-injection-requests.ssrf-injection-requests -- installation_id is validated as digits-only by callers
+        response = github_request(
+            "GET",
             f"https://api.github.com/user/installations/{installation_id}/repositories",
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {user_access_token}",
-                "X-GitHub-Api-Version": GITHUB_API_VERSION,
-            },
+            source=_OBSERVABILITY_SOURCE,
+            headers={"Authorization": f"Bearer {user_access_token}"},
+            installation_id=installation_id,
+            endpoint="/user/installations/{installation_id}/repositories",
             params={"per_page": 1},
             timeout=10,
         )
@@ -1473,6 +1473,7 @@ class GitHubIntegrationBase:
         params: dict[str, str | int] | None = None,
         json_body: Mapping[str, object] | None = None,
         timeout: int = 10,
+        source: str = _OBSERVABILITY_SOURCE,
     ) -> requests.Response:
         """Authenticated request against ``https://api.github.com`` returning the raw response.
 
@@ -1483,7 +1484,8 @@ class GitHubIntegrationBase:
         and non-2xx raising on top for callers that want dict-or-raise semantics.
 
         ``endpoint`` is the normalized label for egress telemetry; leave it ``None`` to let the
-        recorder template the raw URL.
+        recorder template the raw URL. Product callers should pass their own ``source`` (e.g.
+        ``"visual_review"``) so per-subsystem attribution on the shared metrics survives.
         """
         if not path.startswith("/"):
             raise ValueError(f"api_request path must start with '/', got {path!r}")
@@ -1502,7 +1504,7 @@ class GitHubIntegrationBase:
                 response = github_request(
                     method,
                     url,
-                    source=_OBSERVABILITY_SOURCE,
+                    source=source,
                     headers={
                         "Accept": "application/vnd.github+json",
                         "Authorization": f"Bearer {self.get_access_token()}",

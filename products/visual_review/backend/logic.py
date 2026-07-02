@@ -432,6 +432,7 @@ def _get_merge_base_sha(github: GitHubIntegration, repo_full_name: str, base: st
             "GET",
             f"/repos/{repo_full_name}/compare/{quote(base, safe='')}...{quote(head, safe='')}",
             timeout=10,
+            source="visual_review",
         )
     except GitHubIntegrationError:
         logger.warning("visual_review.merge_base_fetch_failed", repo=repo_full_name, base=base, head=head)
@@ -461,7 +462,7 @@ def _get_merge_base_sha(github: GitHubIntegration, repo_full_name: str, base: st
 def _get_default_branch(github: GitHubIntegration, repo_full_name: str) -> str:
     """Get the repo's default branch name via the GitHub API. Falls back to 'master'."""
     try:
-        response = github.api_request("GET", f"/repos/{repo_full_name}", timeout=10)
+        response = github.api_request("GET", f"/repos/{repo_full_name}", timeout=10, source="visual_review")
     except GitHubIntegrationError:
         logger.warning("visual_review.default_branch_fetch_failed", repo=repo_full_name)
         return "master"
@@ -1358,7 +1359,7 @@ def _resolve_repo_by_id(github, repo_external_id: int) -> str | None:
     latest full_name even if the repo was renamed or transferred.
     Returns None if the repo is inaccessible.
     """
-    response = github.api_request("GET", f"/repositories/{repo_external_id}", timeout=10)
+    response = github.api_request("GET", f"/repositories/{repo_external_id}", timeout=10, source="visual_review")
     if response.status_code == 200:
         return response.json().get("full_name")
     return None
@@ -1386,7 +1387,9 @@ def _github_api_request(
 
     github = get_github_integration_for_repo(repo)
 
-    response = github.api_request(method, f"/repos/{repo.repo_full_name}/{safe_path}", json_body=json, timeout=timeout)
+    response = github.api_request(
+        method, f"/repos/{repo.repo_full_name}/{safe_path}", json_body=json, timeout=timeout, source="visual_review"
+    )
 
     if response.status_code == 404 and repo.repo_external_id:
         new_full_name = _resolve_repo_by_id(github, repo.repo_external_id)
@@ -1401,7 +1404,7 @@ def _github_api_request(
             repo.save(update_fields=["repo_full_name"])
 
             response = github.api_request(
-                method, f"/repos/{new_full_name}/{safe_path}", json_body=json, timeout=timeout
+                method, f"/repos/{new_full_name}/{safe_path}", json_body=json, timeout=timeout, source="visual_review"
             )
 
     return response
@@ -1413,7 +1416,9 @@ def _get_pr_info(github, repo_full_name: str, pr_number: int) -> dict:
 
     Returns dict with head_ref (branch) and head_sha.
     """
-    response = github.api_request("GET", f"/repos/{repo_full_name}/pulls/{pr_number}", timeout=10)
+    response = github.api_request(
+        "GET", f"/repos/{repo_full_name}/pulls/{pr_number}", timeout=10, source="visual_review"
+    )
 
     if response.status_code != 200:
         raise GitHubCommitError(f"Failed to fetch PR info: {response.status_code} {response.text}")
@@ -1444,6 +1449,7 @@ def _fetch_baseline_file(
         f"/repos/{repo_full_name}/contents/{file_path}",
         params={"ref": branch},
         timeout=10,
+        source="visual_review",
     )
 
     if response.status_code == 404:
@@ -1567,6 +1573,7 @@ def _post_commit_status(
                 "target_url": target_url,
             },
             timeout=10,
+            source="visual_review",
         )
 
         if response.status_code != 201:

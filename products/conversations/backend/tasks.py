@@ -19,9 +19,10 @@ import requests
 import structlog
 from celery import shared_task
 
-from posthog.egress.github.transport import github_request
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.comment import Comment as CommentModel
+from posthog.models.github_integration_base import GitHubIntegrationError
 from posthog.models.team import Team
 from posthog.models.uploaded_media import UploadedMedia
 from posthog.scoping_audit import skip_team_scope_audit
@@ -1777,18 +1778,13 @@ def post_reply_to_github(
     if author_name:
         reply_text = f"**{author_name}** replied:\n\n{reply_text}"
 
-    access_token = github.get_access_token()
-    url = f"https://api.github.com/repos/{ticket.github_repo}/issues/{ticket.github_issue_number}/comments"
-
     try:
-        resp = github_request(
+        resp = github.api_request(
             "POST",
-            url,
-            source="conversations",
-            headers={"Authorization": f"Bearer {access_token}"},
-            installation_id=github.github_installation_id,
-            json={"body": reply_text},
+            f"/repos/{ticket.github_repo}/issues/{ticket.github_issue_number}/comments",
+            json_body={"body": reply_text},
             timeout=15,
+            source="conversations",
         )
         if resp.status_code not in (200, 201):
             logger.warning(
@@ -1812,7 +1808,10 @@ def post_reply_to_github(
             )
 
         logger.info("github_reply_posted", ticket_id=ticket_id, repo=ticket.github_repo)
-    except requests.RequestException as e:
+    except GitHubRateLimitError as e:
+        logger.warning("github_reply_rate_limited", ticket_id=ticket_id)
+        raise cast(Any, post_reply_to_github).retry(exc=e, countdown=min(e.retry_after or 60, 600))
+    except (GitHubIntegrationError, requests.RequestException) as e:
         logger.exception("github_reply_post_error", ticket_id=ticket_id, error=str(e))
         raise cast(Any, post_reply_to_github).retry(exc=e)
 
@@ -1843,25 +1842,24 @@ def create_github_issue(
         return None
 
     github = GitHubIntegration(integration)
-    access_token = github.get_access_token()
 
     json_body: dict[str, Any] = {"title": title, "body": body}
     if labels:
         json_body["labels"] = labels
 
-    url = f"https://api.github.com/repos/{repo}/issues"
     try:
-        resp = github_request(
+        resp = github.api_request(
             "POST",
-            url,
-            source="conversations",
-            headers={"Authorization": f"Bearer {access_token}"},
-            installation_id=github.github_installation_id,
-            json=json_body,
+            f"/repos/{repo}/issues",
+            json_body=json_body,
             timeout=15,
+            source="conversations",
         )
         resp.raise_for_status()
-    except requests.RequestException as e:
+    except GitHubRateLimitError as e:
+        logger.warning("github_create_issue_rate_limited", repo=repo)
+        raise cast(Any, create_github_issue).retry(exc=e, countdown=min(e.retry_after or 60, 600))
+    except (GitHubIntegrationError, requests.RequestException) as e:
         logger.exception("github_create_issue_failed", repo=repo, error=str(e))
         raise cast(Any, create_github_issue).retry(exc=e)
 
