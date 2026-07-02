@@ -773,6 +773,33 @@ class TestResolver(BaseTest):
         assert len(build_ids) == len(set(build_ids))
         assert len(set(build_ids)) == 4
 
+    def test_star_cte_shared_by_union_branches_projects_all_columns(self):
+        # Regression: pushdown pruned a `SELECT *` CTE to the first UNION branch's column, and
+        # the cached CTE table (built pre-prune) masked the failure into silently broken SQL.
+        from posthog.schema import HogQLQueryModifiers
+
+        query = self._select(
+            "with base as (select * from (select 1 as a, 2 as b, 3 as d)) "
+            "select a as v from base "
+            "union all select b as v from base "
+            "union all select d as v from base"
+        )
+        context = HogQLContext(
+            team_id=self.team.pk,
+            enable_select_queries=True,
+            modifiers=HogQLQueryModifiers(optimizeProjections=True),
+        )
+        _, prepared = prepare_and_print_ast(query, context, "clickhouse")
+
+        # The single shared CTE must project every column referenced across the branches.
+        assert isinstance(prepared, ast.SelectSetQuery)
+        first_branch = prepared.initial_select_query
+        assert isinstance(first_branch, ast.SelectQuery) and first_branch.ctes is not None
+        base_cte = first_branch.ctes["base"].expr
+        assert isinstance(base_cte, ast.SelectQuery)
+        cte_cols = {col.alias if isinstance(col, ast.Alias) else col.chain[-1] for col in base_cte.select}
+        assert cte_cols == {"a", "b", "d"}, f"CTE dropped columns referenced by sibling UNION branches: got {cte_cols}"
+
     def test_ctes_with_aliases_in_joins(self):
         self.assertEqual(
             self._print_hogql(
