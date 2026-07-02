@@ -43,11 +43,19 @@ function RecordingsIncluded({ observations }: { observations: readonly RunObserv
             key: 'person',
             render: (_, obs) => {
                 const label = obs.recording_subject_email || obs.distinct_id
-                if (!obs.distinct_id || !label) {
+                if (!label) {
                     return (
                         <Tooltip title="No person is associated with this recording">
                             <span className="text-muted">No person</span>
                         </Tooltip>
+                    )
+                }
+                // Without a distinct id we can't resolve a person page, so show the identifier as plain text.
+                if (!obs.distinct_id) {
+                    return (
+                        <span className="truncate max-w-xs inline-block align-bottom" title={label}>
+                            {label}
+                        </span>
                     )
                 }
                 return (
