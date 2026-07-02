@@ -15,23 +15,20 @@ import { urls } from 'scenes/urls'
 
 import { SurveyEventName, type SurveyRates, type SurveyStats } from '~/types'
 
+import type { SurveyResponseAnswerApi, SurveyResponseRowApi } from 'products/surveys/frontend/generated/api.schemas'
+
 import { WidgetCardBodyMessage, WidgetCardContent } from '../../components/WidgetCard'
 import type { DashboardWidgetComponentProps } from '../registry'
 import { SurveyPickerSelect } from './SurveyPickerSelect'
 import { patchSurveyResultsWidgetConfig } from './surveysWidgetConfigValidation'
 
-export type SurveyResultsWidgetResponseAnswer = {
-    question_id: string
-    question_text: string
-    question_type: string
-    answer: unknown
-}
+// Reuse the survey responses API types (SurveyResponseRowApi / SurveyResponseAnswerApi) rather than
+// redeclaring them. The widget payload is a strict subset: it drops question_index and the extra
+// metadata block, and adds a resolved person display name.
+export type SurveyResultsWidgetResponseAnswer = Omit<SurveyResponseAnswerApi, 'question_index'>
 
-export type SurveyResultsWidgetResponse = {
-    uuid: string
-    distinct_id: string
+export type SurveyResultsWidgetResponse = Pick<SurveyResponseRowApi, 'uuid' | 'distinct_id' | 'session_id'> & {
     person_display_name: string | null
-    session_id: string | null
     submitted_at: string | null
     answers: SurveyResultsWidgetResponseAnswer[]
 }
