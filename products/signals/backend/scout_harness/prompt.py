@@ -376,6 +376,8 @@ inbox, but it routes to no one, so it tends to sit unactioned.
   `advanced-activity-logs-list` before routing: a human swapping your suggestion for
   someone else is the strongest ownership evidence there is — treat it as authoritative
   precedent over commit history, and fold what you learn into your `reviewer:` memory keys.
+  (On an org without the audit-logs feature this call fails with a payment-required
+  error — skip the check and move on, don't retry.)
 - **No owner in your evidence? List the members.** When the owner isn't already named in
   what you gathered, call `signals-scout-members-list` to get this project's members —
   each row carries the member's `email`, name, and resolved `github_login` (pass `search`
