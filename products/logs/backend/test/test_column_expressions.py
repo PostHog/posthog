@@ -36,6 +36,18 @@ class TestPathToExpr(SimpleTestCase):
             args=[ast.Field(chain=["body"]), ast.Constant(value="message")],
         )
 
+    @parameterized.expand(
+        [
+            ("double_dot", "a..b"),
+            ("leading_dot", ".a"),
+            ("trailing_dot", "a."),
+        ]
+    )
+    def test_body_path_with_empty_segment_is_rejected(self, _name, path):
+        # an empty segment is a user typo, not a valid JSON key -> surface it instead of digging ''
+        with self.assertRaises(ValueError):
+            path_to_expr("body", path)
+
     def test_injection_in_attribute_key_is_kept_as_bound_string(self):
         malicious = "x'] AS y, (SELECT 1) --"
         expr = path_to_expr("attributes", malicious)
@@ -112,12 +124,12 @@ class TestColumnToExpr(SimpleTestCase):
 class TestCanonicalKey(SimpleTestCase):
     @parameterized.expand(
         [
-            ("attributes.http.url", "col_7284f0d699a5"),
-            ("body.user.id", "col_d26ac1a56e8b"),
-            ("upper(level)", "col_ec05982ca9de"),
+            ("attributes_http_url", "attributes.http.url", "col_7284f0d699a5"),
+            ("body_user_id", "body.user.id", "col_d26ac1a56e8b"),
+            ("upper_level", "upper(level)", "col_ec05982ca9de"),
         ]
     )
-    def test_canonical_key_is_stable(self, text, expected):
+    def test_canonical_key_is_stable(self, _name, text, expected):
         assert canonical_key(text) == expected
 
     def test_canonical_key_differs_by_expression(self):

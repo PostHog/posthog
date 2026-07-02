@@ -25,7 +25,10 @@ def path_to_expr(source: str, path: str) -> ast.Expr:
         return ast.Field(chain=[source, path])
 
     if source == JSON_BODY_SOURCE:
-        keys = [ast.Constant(value=segment) for segment in path.split(".")]
+        segments = path.split(".")
+        if any(segment == "" for segment in segments):
+            raise ValueError(f"Body path {path!r} contains an empty segment")
+        keys = [ast.Constant(value=segment) for segment in segments]
         return ast.Call(name="JSONExtractString", args=[ast.Field(chain=[JSON_BODY_SOURCE]), *keys])
 
     raise ValueError(f"Unknown custom-column source: {source!r}")
