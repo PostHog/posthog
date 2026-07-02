@@ -326,6 +326,9 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
                 countIf(
                     isNotNull(properties.$ai_error) OR properties.$ai_is_error = 'true'
                 ) AS error_count,
+                countIf(
+                    event IN ('$ai_generation', '$ai_span', '$ai_embedding')
+                ) AS step_count,
                 any(properties.ai_support_impersonated) AS is_support_trace,
                 arrayFilter(
                     x -> x != '',
@@ -373,7 +376,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
         return {
             **super().get_cache_payload(),
             # When the response schema changes, increment this version to invalidate the cache.
-            "schema_version": 10,
+            "schema_version": 11,
         }
 
     @cached_property
@@ -442,6 +445,7 @@ class TracesQueryRunner(AnalyticsQueryRunner[TracesQueryResponse]):
             "events": "events",
             "trace_name": "traceName",
             "error_count": "errorCount",
+            "step_count": "stepCount",
             "is_support_trace": "isSupportTrace",
             "tools": "tools",
             "sentiment": "sentiment",

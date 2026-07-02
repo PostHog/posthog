@@ -45,6 +45,8 @@ TRACE_FIELDS_MAPPING: dict[str, str] = {
     "total_cost": "totalCost",
     "events": "events",
     "trace_name": "traceName",
+    "error_count": "errorCount",
+    "step_count": "stepCount",
     "sentiment": "sentiment",
 }
 
@@ -162,6 +164,9 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
                           event IN ('$ai_generation', '$ai_embedding')
                     ), 10
                 ), 0) AS total_cost,
+                countIf(
+                    event IN ('$ai_generation', '$ai_span', '$ai_embedding')
+                ) AS step_count,
                 arrayDistinct(
                     arraySort(
                         x -> x.3,
@@ -204,7 +209,7 @@ class TraceQueryRunner(AnalyticsQueryRunner[TraceQueryResponse]):
         return {
             **super().get_cache_payload(),
             # When the response schema changes, increment this version to invalidate the cache.
-            "schema_version": 9,
+            "schema_version": 10,
         }
 
     @cached_property
