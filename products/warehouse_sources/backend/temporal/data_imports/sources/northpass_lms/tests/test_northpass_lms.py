@@ -17,11 +17,14 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.northpass_
 
 
 class TestBuildUrl:
-    def test_no_params(self):
-        assert _build_url("/courses", {}) == "https://api.northpass.com/v2/courses"
-
-    def test_encodes_params(self):
-        assert _build_url("/courses", {"limit": 100}) == "https://api.northpass.com/v2/courses?limit=100"
+    @parameterized.expand(
+        [
+            ("no_params", {}, "https://api.northpass.com/v2/courses"),
+            ("encodes_params", {"limit": 100}, "https://api.northpass.com/v2/courses?limit=100"),
+        ]
+    )
+    def test_build_url(self, _name, params, expected):
+        assert _build_url("/courses", params) == expected
 
 
 class TestFlattenItem:
@@ -87,7 +90,12 @@ def _patch_fetch(monkeypatch: Any, pages: dict[str, Any]) -> list[str]:
 
 def _collect(manager: _FakeResumableManager, endpoint: str) -> list[dict]:
     rows: list[dict] = []
-    for batch in get_rows(api_key="key", endpoint=endpoint, logger=MagicMock(), resumable_source_manager=manager):
+    for batch in get_rows(
+        api_key="key",
+        endpoint=endpoint,
+        logger=MagicMock(),
+        resumable_source_manager=manager,  # type: ignore[arg-type]
+    ):
         rows.extend(batch)
     return rows
 
@@ -191,9 +199,9 @@ class TestFanOut:
 
     def test_skips_parent_that_404s_mid_fanout(self, monkeypatch: Any):
         pages = self._parent_and_children()
-        error = requests.HTTPError()
-        error.response = MagicMock(status_code=404)
-        pages["https://api.northpass.com/v2/courses/c1/enrollments?limit=100"] = error
+        pages["https://api.northpass.com/v2/courses/c1/enrollments?limit=100"] = requests.HTTPError(
+            response=MagicMock(status_code=404)
+        )
         _patch_fetch(monkeypatch, pages)
 
         rows = _collect(_FakeResumableManager(), "course_enrollments")
@@ -203,9 +211,9 @@ class TestFanOut:
 
     def test_reraises_non_404_child_error(self, monkeypatch: Any):
         pages = self._parent_and_children()
-        error = requests.HTTPError()
-        error.response = MagicMock(status_code=500)
-        pages["https://api.northpass.com/v2/courses/c1/enrollments?limit=100"] = error
+        pages["https://api.northpass.com/v2/courses/c1/enrollments?limit=100"] = requests.HTTPError(
+            response=MagicMock(status_code=500)
+        )
         _patch_fetch(monkeypatch, pages)
 
         with pytest.raises(requests.HTTPError):

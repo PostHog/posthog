@@ -128,10 +128,9 @@ def _get_top_level_rows(
     resumable_source_manager: ResumableSourceManager[NorthpassResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    start_url = (
-        resume.next_url if resume is not None and resume.next_url else _build_url(config.path, {"limit": PAGE_SIZE})
-    )
-    if resume is not None and resume.next_url:
+    resume_url = resume.next_url if resume is not None else None
+    start_url = resume_url or _build_url(config.path, {"limit": PAGE_SIZE})
+    if resume_url:
         logger.debug(f"Northpass: resuming {config.name} from {start_url}")
 
     for items, next_url in _iter_pages(session, start_url, headers, logger):
@@ -150,6 +149,7 @@ def _get_fan_out_rows(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[NorthpassResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
+    # Narrows the Optional fan-out fields to str so `parent_id_field` can be used as a dict key below.
     assert config.fan_out_parent is not None and config.parent_id_field is not None
     parent_config = NORTHPASS_ENDPOINTS[config.fan_out_parent]
 
