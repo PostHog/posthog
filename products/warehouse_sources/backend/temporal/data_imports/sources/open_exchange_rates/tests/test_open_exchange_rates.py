@@ -185,8 +185,10 @@ class TestNormalization:
             }
         ]
 
-    def test_iter_usage_without_app_id_yields_nothing(self) -> None:
-        assert _iter_usage({"data": {}}) == []
+    def test_iter_usage_without_app_id_raises(self) -> None:
+        # app_id is the primary key; a response missing it must fail loudly, not write zero rows.
+        with pytest.raises(KeyError):
+            _iter_usage({"data": {}})
 
 
 class TestToDate:
@@ -214,33 +216,39 @@ class TestDateFromTimestamp:
 
 
 class TestDateRange:
-    def test_inclusive_range(self) -> None:
-        assert _date_range(date(2024, 1, 1), date(2024, 1, 3)) == [
-            date(2024, 1, 1),
-            date(2024, 1, 2),
-            date(2024, 1, 3),
+    @parameterized.expand(
+        [
+            (
+                "inclusive_range",
+                date(2024, 1, 1),
+                date(2024, 1, 3),
+                [date(2024, 1, 1), date(2024, 1, 2), date(2024, 1, 3)],
+            ),
+            ("single_day", date(2024, 1, 1), date(2024, 1, 1), [date(2024, 1, 1)]),
+            ("empty_when_start_after_end", date(2024, 2, 1), date(2024, 1, 1), []),
         ]
-
-    def test_single_day(self) -> None:
-        assert _date_range(date(2024, 1, 1), date(2024, 1, 1)) == [date(2024, 1, 1)]
-
-    def test_empty_when_start_after_end(self) -> None:
-        assert _date_range(date(2024, 2, 1), date(2024, 1, 1)) == []
+    )
+    def test_date_range(self, _name: str, start: date, end: date, expected: list[date]) -> None:
+        assert _date_range(start, end) == expected
 
 
 class TestResolveHistoricalStart:
-    def test_uses_watermark_when_incremental(self) -> None:
-        assert _resolve_historical_start(True, "2024-05-05", "2020-01-01", date(2024, 6, 1)) == date(2024, 5, 5)
-
-    def test_uses_configured_start_when_no_watermark(self) -> None:
-        assert _resolve_historical_start(True, None, "2020-01-01", date(2024, 6, 1)) == date(2020, 1, 1)
-
-    def test_uses_configured_start_when_not_incremental(self) -> None:
-        assert _resolve_historical_start(False, "2024-05-05", "2020-01-01", date(2024, 6, 1)) == date(2020, 1, 1)
-
-    def test_defaults_to_lookback_when_nothing_configured(self) -> None:
-        # 30-day default lookback keeps a first backfill small on a quota-limited plan.
-        assert _resolve_historical_start(False, None, None, date(2024, 6, 1)) == date(2024, 5, 2)
+    @parameterized.expand(
+        [
+            # incremental with a watermark → re-pull from the watermark day
+            ("watermark_when_incremental", True, "2024-05-05", "2020-01-01", date(2024, 5, 5)),
+            # incremental but no watermark yet → fall back to the configured start
+            ("configured_start_when_no_watermark", True, None, "2020-01-01", date(2020, 1, 1)),
+            # not incremental → ignore the watermark, use the configured start
+            ("configured_start_when_not_incremental", False, "2024-05-05", "2020-01-01", date(2020, 1, 1)),
+            # nothing configured → 30-day default lookback keeps a first backfill small on a quota-limited plan
+            ("defaults_to_lookback", False, None, None, date(2024, 5, 2)),
+        ]
+    )
+    def test_resolve_start(
+        self, _name: str, incremental: bool, watermark: Any, configured: str | None, expected: date
+    ) -> None:
+        assert _resolve_historical_start(incremental, watermark, configured, date(2024, 6, 1)) == expected
 
 
 class TestGetRows:

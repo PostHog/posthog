@@ -121,12 +121,11 @@ def _iter_usage(data: dict[str, Any]) -> list[dict[str, Any]]:
     payload = data.get("data") or {}
     plan = payload.get("plan") or {}
     usage = payload.get("usage") or {}
-    app_id = payload.get("app_id")
-    if not app_id:
-        return []
+    # app_id is the primary key — index it directly so a response missing it fails loudly rather than
+    # silently writing zero rows (matches `_iter_rates` reading `data["base"]`).
     return [
         {
-            "app_id": app_id,
+            "app_id": payload["app_id"],
             "status": payload.get("status"),
             "plan_name": plan.get("name"),
             "plan_quota": plan.get("quota"),
