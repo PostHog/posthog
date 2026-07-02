@@ -1527,9 +1527,10 @@ export interface EndExperimentApi {
  * * `experiment_stop` - Experiment Stop
  * * `experiment_update` - Experiment Update
  */
-export type TriggerEnumApi = (typeof TriggerEnumApi)[keyof typeof TriggerEnumApi]
+export type ExperimentRecalculationTriggerEnumApi =
+    (typeof ExperimentRecalculationTriggerEnumApi)[keyof typeof ExperimentRecalculationTriggerEnumApi]
 
-export const TriggerEnumApi = {
+export const ExperimentRecalculationTriggerEnumApi = {
     Manual: 'manual',
     ColdRun: 'cold_run',
     StaleRefresh: 'stale_refresh',
@@ -1554,7 +1555,7 @@ export interface RecalculateMetricsRequestApi {
      * * `experiment_launch` - Experiment Launch
      * * `experiment_stop` - Experiment Stop
      * * `experiment_update` - Experiment Update */
-    trigger?: TriggerEnumApi
+    trigger?: ExperimentRecalculationTriggerEnumApi
 }
 
 /**
@@ -1652,7 +1653,7 @@ export interface ExperimentMetricsRecalculationApi {
      * * `experiment_launch` - Experiment Launch
      * * `experiment_stop` - Experiment Stop
      * * `experiment_update` - Experiment Update */
-    readonly trigger: TriggerEnumApi
+    readonly trigger: ExperimentRecalculationTriggerEnumApi
     /** When the job was created */
     readonly created_at: string
     /**

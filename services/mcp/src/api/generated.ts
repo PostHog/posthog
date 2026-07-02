@@ -11628,6 +11628,33 @@ export namespace Schemas {
       has_more: boolean;
     }
 
+    export interface BriefAnchors {
+      /** IDs of the dashboards this brief is anchored on. */
+      dashboards?: number[];
+      /** Short IDs of the insights this brief is anchored on. */
+      insights?: string[];
+    }
+
+    export interface BriefConfig {
+      readonly id: string;
+      /**
+         * Human-readable name for this brief focus.
+         * @maxLength 400
+         */
+      name: string;
+      /** Free-text focus steering gathering and tone, e.g. "we're the feature flags team". */
+      focus_prompt?: string;
+      /** Anchor resources the brief gathers movements from. Empty anchors fall back to the team's most recently accessed dashboards. */
+      anchors?: BriefAnchors;
+      /** Whether this config generates briefs. */
+      enabled?: boolean;
+      readonly created_at: string;
+      /** User who created the config. */
+      readonly created_by: UserBasic | null;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
     /**
      * * `distinct_id` - User ID (default)
      * * `device_id` - Device ID
@@ -22213,10 +22240,10 @@ export namespace Schemas {
      * * `experiment_stop` - Experiment Stop
      * * `experiment_update` - Experiment Update
      */
-    export type TriggerEnum = typeof TriggerEnum[keyof typeof TriggerEnum];
+    export type ExperimentRecalculationTriggerEnum = typeof ExperimentRecalculationTriggerEnum[keyof typeof ExperimentRecalculationTriggerEnum];
 
 
-    export const TriggerEnum = {
+    export const ExperimentRecalculationTriggerEnum = {
       Manual: 'manual',
       ColdRun: 'cold_run',
       StaleRefresh: 'stale_refresh',
@@ -22307,7 +22334,7 @@ export namespace Schemas {
        * * `experiment_launch` - Experiment Launch
        * * `experiment_stop` - Experiment Stop
        * * `experiment_update` - Experiment Update */
-      readonly trigger: TriggerEnum;
+      readonly trigger: ExperimentRecalculationTriggerEnum;
       /** When the job was created */
       readonly created_at: string;
       /**
@@ -24347,6 +24374,20 @@ export namespace Schemas {
       readonly normalized_topic: string;
       /** Number of gap rows whose status changed. */
       readonly updated: number;
+    }
+
+    export interface GenerateBriefRequest {
+      /**
+         * Optional brief config to generate for. Omit for the zero-config default brief.
+         * @nullable
+         */
+      config_id?: string | null;
+      /**
+         * Number of days the brief should cover. Defaults to 7.
+         * @minimum 1
+         * @maximum 90
+         */
+      period_days?: number;
     }
 
     export type GenerateRequestStepsItem = { [key: string]: unknown };
@@ -31670,6 +31711,15 @@ export namespace Schemas {
       results: BatchImport[];
     }
 
+    export interface PaginatedBriefConfigList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: BriefConfig[];
+    }
+
     export interface PaginatedCIMDVerificationTokenList {
       count: number;
       /** @nullable */
@@ -32729,6 +32779,87 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: PluginLogEntry[];
+    }
+
+    /**
+     * * `generating` - Generating
+     * * `ready` - Ready
+     * * `quiet` - Quiet
+     * * `failed` - Failed
+     */
+    export type ProductBriefStatusEnum = typeof ProductBriefStatusEnum[keyof typeof ProductBriefStatusEnum];
+
+
+    export const ProductBriefStatusEnum = {
+      Generating: 'generating',
+      Ready: 'ready',
+      Quiet: 'quiet',
+      Failed: 'failed',
+    } as const;
+
+    /**
+     * * `on_demand` - On Demand
+     * * `scheduled` - Scheduled
+     */
+    export type ProductBriefTriggerEnum = typeof ProductBriefTriggerEnum[keyof typeof ProductBriefTriggerEnum];
+
+
+    export const ProductBriefTriggerEnum = {
+      OnDemand: 'on_demand',
+      Scheduled: 'scheduled',
+    } as const;
+
+    export type ProductBriefSectionsItem = { [key: string]: unknown };
+
+    export interface ProductBrief {
+      readonly id: string;
+      /**
+         * The brief config this brief was generated for, if any.
+         * @nullable
+         */
+      readonly config: string | null;
+      /** Lifecycle status: generating, ready, quiet (nothing confident to say), or failed.
+       *
+       * * `generating` - Generating
+       * * `ready` - Ready
+       * * `quiet` - Quiet
+       * * `failed` - Failed */
+      readonly status: ProductBriefStatusEnum;
+      /** What started the generation: on_demand or scheduled.
+       *
+       * * `on_demand` - On Demand
+       * * `scheduled` - Scheduled */
+      readonly trigger: ProductBriefTriggerEnum;
+      /** Number of days the brief covers. */
+      readonly period_days: number;
+      /** Generated brief sections: kind, title, markdown, citations, confidence. */
+      readonly sections: readonly ProductBriefSectionsItem[];
+      /** Names of the brief sources that contributed items. */
+      readonly sources_used: readonly string[];
+      /**
+         * Error detail when status is failed.
+         * @nullable
+         */
+      readonly error: string | null;
+      /**
+         * LLM tokens spent generating this brief, when recorded.
+         * @nullable
+         */
+      readonly tokens_used: number | null;
+      readonly created_at: string;
+      /** User who requested the brief. */
+      readonly created_by: UserBasic | null;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    export interface PaginatedProductBriefList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ProductBrief[];
     }
 
     /**
@@ -36683,6 +36814,26 @@ export namespace Schemas {
       /** @nullable */
       readonly display_status_message?: string | null;
       readonly import_config?: unknown;
+    }
+
+    export interface PatchedBriefConfig {
+      readonly id?: string;
+      /**
+         * Human-readable name for this brief focus.
+         * @maxLength 400
+         */
+      name?: string;
+      /** Free-text focus steering gathering and tone, e.g. "we're the feature flags team". */
+      focus_prompt?: string;
+      /** Anchor resources the brief gathers movements from. Empty anchors fall back to the team's most recently accessed dashboards. */
+      anchors?: BriefAnchors;
+      /** Whether this config generates briefs. */
+      enabled?: boolean;
+      readonly created_at?: string;
+      /** User who created the config. */
+      readonly created_by?: UserBasic | null;
+      /** @nullable */
+      readonly updated_at?: string | null;
     }
 
     /**
@@ -47814,7 +47965,7 @@ export namespace Schemas {
        * * `experiment_launch` - Experiment Launch
        * * `experiment_stop` - Experiment Stop
        * * `experiment_update` - Experiment Update */
-      trigger?: TriggerEnum;
+      trigger?: ExperimentRecalculationTriggerEnum;
     }
 
     export interface RecapHighlight {
@@ -67453,6 +67604,28 @@ export namespace Schemas {
       Group: 'group',
       Session: 'session',
     } as const;
+
+    export type PulseBriefConfigsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type PulseBriefsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
 
     export type QueryLogRetrieve200 = { [key: string]: unknown };
 

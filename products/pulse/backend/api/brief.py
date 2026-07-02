@@ -1,0 +1,195 @@
+import asyncio
+from typing import cast
+
+from django.conf import settings
+from django.db.models import QuerySet
+
+from drf_spectacular.utils import OpenApiResponse, extend_schema
+from rest_framework import serializers, status, viewsets
+from rest_framework.decorators import action
+from rest_framework.exceptions import ValidationError
+from rest_framework.request import Request
+from rest_framework.response import Response
+from temporalio.exceptions import WorkflowAlreadyStartedError
+
+from posthog.api.routing import TeamAndOrgViewSetMixin
+from posthog.api.shared import UserBasicSerializer
+from posthog.models import User
+from posthog.permissions import PostHogFeatureFlagPermission
+from posthog.temporal.common.client import sync_connect
+
+from products.pulse.backend.models import BriefConfig, ProductBrief
+from products.pulse.backend.temporal.activities import GenerateBriefWorkflowInputs
+
+PULSE_FEATURE_FLAG = "pulse"
+
+
+class BriefAnchorsSerializer(serializers.Serializer):
+    dashboards = serializers.ListField(
+        child=serializers.IntegerField(),
+        required=False,
+        help_text="IDs of the dashboards this brief is anchored on.",
+    )
+    insights = serializers.ListField(
+        child=serializers.CharField(),
+        required=False,
+        help_text="Short IDs of the insights this brief is anchored on.",
+    )
+
+
+class BriefConfigSerializer(serializers.ModelSerializer):
+    created_by = UserBasicSerializer(read_only=True, allow_null=True, help_text="User who created the config.")
+    anchors = BriefAnchorsSerializer(
+        required=False,
+        help_text="Anchor resources the brief gathers movements from. Empty anchors fall back to the team's most recently accessed dashboards.",
+    )
+
+    class Meta:
+        model = BriefConfig
+        fields = ["id", "name", "focus_prompt", "anchors", "enabled", "created_at", "created_by", "updated_at"]
+        read_only_fields = ["id", "created_at", "created_by", "updated_at"]
+        extra_kwargs = {
+            "name": {"help_text": "Human-readable name for this brief focus."},
+            "focus_prompt": {
+                "help_text": 'Free-text focus steering gathering and tone, e.g. "we\'re the feature flags team".'
+            },
+            "enabled": {"help_text": "Whether this config generates briefs."},
+        }
+
+
+class ProductBriefSerializer(serializers.ModelSerializer):
+    created_by = UserBasicSerializer(read_only=True, allow_null=True, help_text="User who requested the brief.")
+    sections = serializers.ListField(
+        child=serializers.DictField(),
+        read_only=True,
+        help_text="Generated brief sections: kind, title, markdown, citations, confidence.",
+    )
+    sources_used = serializers.ListField(
+        child=serializers.CharField(),
+        read_only=True,
+        help_text="Names of the brief sources that contributed items.",
+    )
+
+    class Meta:
+        model = ProductBrief
+        fields = [
+            "id",
+            "config",
+            "status",
+            "trigger",
+            "period_days",
+            "sections",
+            "sources_used",
+            "error",
+            "tokens_used",
+            "created_at",
+            "created_by",
+            "updated_at",
+        ]
+        read_only_fields = fields
+        extra_kwargs = {
+            "config": {"help_text": "The brief config this brief was generated for, if any."},
+            "status": {
+                "help_text": "Lifecycle status: generating, ready, quiet (nothing confident to say), or failed."
+            },
+            "trigger": {"help_text": "What started the generation: on_demand or scheduled."},
+            "period_days": {"help_text": "Number of days the brief covers."},
+            "error": {"help_text": "Error detail when status is failed."},
+            "tokens_used": {"help_text": "LLM tokens spent generating this brief, when recorded."},
+        }
+
+
+class GenerateBriefRequestSerializer(serializers.Serializer):
+    config_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text="Optional brief config to generate for. Omit for the zero-config default brief.",
+    )
+    period_days = serializers.IntegerField(
+        required=False,
+        default=7,
+        min_value=1,
+        max_value=90,
+        help_text="Number of days the brief should cover. Defaults to 7.",
+    )
+
+
+class BriefConfigViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
+    scope_object = "INTERNAL"
+    serializer_class = BriefConfigSerializer
+    posthog_feature_flag = PULSE_FEATURE_FLAG
+    permission_classes = [PostHogFeatureFlagPermission]
+    # Fail-closed manager raises if `.all()` runs at import; the real per-request
+    # scoping happens in safely_get_queryset.
+    queryset = BriefConfig.objects.unscoped()
+
+    def safely_get_queryset(self, queryset: QuerySet[BriefConfig]) -> QuerySet[BriefConfig]:
+        return BriefConfig.objects.for_team(self.team_id).select_related("created_by").order_by("-created_at")
+
+    def perform_create(self, serializer: serializers.BaseSerializer) -> None:
+        serializer.save(team=self.team, created_by=cast(User, self.request.user))
+
+
+class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet):
+    scope_object = "INTERNAL"
+    serializer_class = ProductBriefSerializer
+    posthog_feature_flag = PULSE_FEATURE_FLAG
+    permission_classes = [PostHogFeatureFlagPermission]
+    queryset = ProductBrief.objects.unscoped()
+
+    def safely_get_queryset(self, queryset: QuerySet[ProductBrief]) -> QuerySet[ProductBrief]:
+        return (
+            ProductBrief.objects.for_team(self.team_id).select_related("created_by", "config").order_by("-created_at")
+        )
+
+    @extend_schema(
+        request=GenerateBriefRequestSerializer,
+        responses={
+            201: ProductBriefSerializer,
+            409: OpenApiResponse(description="A generation for this brief is already in progress"),
+        },
+    )
+    @action(methods=["POST"], detail=False, url_path="generate")
+    def generate(self, request: Request, **kwargs) -> Response:
+        if not self.team.organization.is_ai_data_processing_approved:
+            raise ValidationError("AI data processing must be approved for this organization to generate briefs.")
+
+        request_serializer = GenerateBriefRequestSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
+        config_id = request_serializer.validated_data.get("config_id")
+        period_days = request_serializer.validated_data["period_days"]
+
+        config = None
+        if config_id is not None:
+            config = BriefConfig.objects.for_team(self.team_id).filter(id=config_id).first()
+            if config is None:
+                raise ValidationError("Brief config not found.")
+
+        brief = ProductBrief.objects.for_team(self.team_id).create(
+            team_id=self.team_id,
+            config=config,
+            created_by=cast(User, request.user),
+            status=ProductBrief.Status.GENERATING,
+            trigger=ProductBrief.Trigger.ON_DEMAND,
+            period_days=period_days,
+        )
+
+        temporal = sync_connect()
+        try:
+            asyncio.run(
+                temporal.start_workflow(
+                    "pulse-generate-brief",
+                    GenerateBriefWorkflowInputs(
+                        team_id=self.team.id,
+                        brief_id=str(brief.id),
+                        brief_config_id=str(config.id) if config else None,
+                        period_days=period_days,
+                    ),
+                    id=f"pulse-brief-{brief.id}",
+                    task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
+                )
+            )
+        except WorkflowAlreadyStartedError:
+            return Response({"detail": "Brief generation already in progress"}, status=status.HTTP_409_CONFLICT)
+
+        return Response(ProductBriefSerializer(brief).data, status=status.HTTP_201_CREATED)
