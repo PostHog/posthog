@@ -1,8 +1,6 @@
 import json
 from typing import Any
 
-from unittest.mock import patch
-
 from parameterized import parameterized
 from rest_framework import status
 
@@ -28,13 +26,6 @@ def _expected_splits(n: int) -> list[int]:
 class TestExperimentsCreateFromPrompt(APILicensedTest):
     def setUp(self) -> None:
         super().setUp()
-        self.feature_flag_patcher = patch(
-            "products.experiments.backend.presentation.views.feature_enabled_or_false",
-            return_value=True,
-        )
-        self.mock_feature_enabled = self.feature_flag_patcher.start()
-        self.addCleanup(self.feature_flag_patcher.stop)
-
         self.prompt_name = "my-prompt"
         for version in (1, 2, 3, 4, 5):
             LLMPrompt.objects.create(
@@ -68,17 +59,6 @@ class TestExperimentsCreateFromPrompt(APILicensedTest):
         for entry in body:
             self.assertIn("label", entry)
             self.assertIn("description", entry)
-
-    def test_create_from_prompt_404_when_feature_flag_disabled(self) -> None:
-        self.mock_feature_enabled.return_value = False
-        response = self._post()
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
-        self.assertFalse(Experiment.objects.filter(team_id=self.team.id).exists())
-
-    def test_prompt_templates_404_when_feature_flag_disabled(self) -> None:
-        self.mock_feature_enabled.return_value = False
-        response = self.client.get(f"/api/projects/{self.team.id}/experiments/prompt_templates/")
-        self.assertEqual(response.status_code, status.HTTP_404_NOT_FOUND)
 
     @parameterized.expand(
         [(name, n) for name in TEMPLATE_NAMES for n in (2, 3, 5)],
