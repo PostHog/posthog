@@ -25993,6 +25993,8 @@ export namespace Schemas {
       modifiers?: HogQLQueryModifiers | null;
       offset?: number | null;
       orderBy?: LogsOrderBy | null;
+      /** Show logs for a given person */
+      personId?: string | null;
       resourceFingerprint?: string | null;
       response?: LogsQueryResponse | null;
       searchTerm?: string | null;
