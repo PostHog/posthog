@@ -13,6 +13,7 @@
 
 import { Client } from '@modelcontextprotocol/sdk/client/index.js'
 import { StreamableHTTPClientTransport } from '@modelcontextprotocol/sdk/client/streamableHttp.js'
+import { ErrorCode, McpError } from '@modelcontextprotocol/sdk/types.js'
 import { writeFileSync } from 'node:fs'
 import process from 'node:process'
 
@@ -58,8 +59,15 @@ async function runProbe(
     } catch (error) {
         const latency = Date.now() - startedAt
         const message = error instanceof Error ? error.message : String(error)
-        const status = latency >= probe.max_ms ? 'timeout' : 'transport_error'
-        return { ...base, status, latency_ms: latency, error_snippet: message.slice(0, 200) }
+        // The SDK raises a typed timeout when RequestOptions.timeout elapses —
+        // classify on that, not on wall-clock heuristics.
+        const isTimeout = error instanceof McpError && error.code === ErrorCode.RequestTimeout
+        return {
+            ...base,
+            status: isTimeout ? 'timeout' : 'transport_error',
+            latency_ms: latency,
+            error_snippet: message.slice(0, 200),
+        }
     }
 }
 
@@ -71,7 +79,11 @@ async function main(): Promise<void> {
         process.exit(2)
     }
     const outFlagIndex = process.argv.indexOf('--out')
-    const outPath = outFlagIndex === -1 ? null : process.argv[outFlagIndex + 1]
+    const outPath = outFlagIndex === -1 ? null : (process.argv[outFlagIndex + 1] ?? null)
+    if (outFlagIndex !== -1 && outPath === null) {
+        console.error('--out requires a file path')
+        process.exit(2)
+    }
 
     const benchmark = loadBenchmark()
     const transport = new StreamableHTTPClientTransport(new URL('/mcp', url), {
