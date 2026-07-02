@@ -230,16 +230,18 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
             actions.closeModal()
         },
         submitCustomPropertyFormFailure: ({ error }) => {
-            posthog.captureException(error, { scope: 'customPropertyDefinitionsLogic.submit' })
             if ((error as { sourceStep?: boolean })?.sourceStep) {
+                posthog.captureException(error, { scope: 'customPropertyDefinitionsLogic.submit' })
                 // The definition was saved — refresh the table and keep the modal open for a retry.
                 actions.loadDefinitions()
                 lemonToast.error('Property saved, but the sync configuration failed. Fix it and save again.')
                 return
             }
+            // A name conflict is expected validation feedback, not an exception worth capturing.
             if (handleNameConflict(error, actions.setCustomPropertyFormManualErrors)) {
                 return
             }
+            posthog.captureException(error, { scope: 'customPropertyDefinitionsLogic.submit' })
             lemonToast.error('Failed to save custom property')
         },
         deleteDefinitionSuccess: () => {
