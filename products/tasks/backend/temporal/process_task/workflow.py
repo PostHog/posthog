@@ -1123,7 +1123,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     use_directory_snapshot=self.context.use_modal_directory_resume_snapshots,
                 ),
                 start_to_close_timeout=timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=1),
+                retry_policy=RetryPolicy(maximum_attempts=3),
             )
             if result.external_id:
                 workflow.logger.info(f"Resume snapshot created: {result.external_id} for sandbox {sandbox_id}")

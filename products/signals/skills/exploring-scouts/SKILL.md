@@ -25,8 +25,8 @@ A project may also have **custom scouts** beyond the canonical fleet — any `si
 This skill helps you **understand and explore what a project's scouts are doing and how they're performing** — entirely through read-only MCP tools.
 It is the observability counterpart to the `authoring-scouts` skill (which teaches writing and tuning) and to the `inbox-exploration` skill (which covers the inbox reports scouts feed into).
 
-**Scouts come in two output channels — know which one you're looking at.** A signal-channel scout (one with no `allowed_tools` opt-in — today the canonical `signals-scout-skills-store` plus any custom scout) **emits weak findings** (`emit_signal`) that the pipeline groups into reports; its output shows up as `emitted_count` / `emitted_finding_ids` on a run.
-A scout listing `emit_report` / `edit_report` in `allowed_tools` — the rest of the canonical fleet — **authors or edits inbox reports 1:1 directly**, skipping the pipeline; its output shows up as `emitted_report_ids` / `edited_report_ids` instead, and **its `emitted_count` stays 0 even on a productive run**.
+**Scouts come in two output channels — know which one you're looking at.** A signal-channel scout (one with no `allowed_tools` opt-in — today only custom, hand-authored scouts) **emits weak findings** (`emit_signal`) that the pipeline groups into reports; its output shows up as `emitted_count` / `emitted_finding_ids` on a run.
+A scout listing `emit_report` / `edit_report` in `allowed_tools` — the entire canonical fleet — **authors or edits inbox reports 1:1 directly**, skipping the pipeline; its output shows up as `emitted_report_ids` / `edited_report_ids` instead, and **its `emitted_count` stays 0 even on a productive run**.
 Don't read `emitted_count: 0` as "did nothing" without checking the report columns and the run summary first.
 
 There are six things you can observe about the fleet, each with its own tool:

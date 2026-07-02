@@ -12,6 +12,7 @@ from products.tasks.backend.constants import (
     SNAPSHOT_KIND_FILESYSTEM,
     SnapshotKind,
 )
+from products.tasks.backend.exceptions import SandboxNotRunningError, SnapshotTimeoutError
 from products.tasks.backend.logic.services.sandbox import get_sandbox_class
 from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.metrics import increment_snapshot_create, record_snapshot_create_latency_ms
@@ -65,6 +66,7 @@ def create_resume_snapshot(input: CreateResumeSnapshotInput) -> CreateResumeSnap
 
     if not sandbox.is_running():
         outcome = "sandbox_not_running"
+        logger.warning("create_resume_snapshot_sandbox_not_running", sandbox_id=input.sandbox_id, run_id=input.run_id)
         increment_snapshot_create(snapshot_kind, outcome)
         record_snapshot_create_latency_ms(snapshot_kind, outcome, int((time.perf_counter() - started_at) * 1000))
         return CreateResumeSnapshotOutput(external_id=None, snapshot_kind=snapshot_kind, error="Sandbox not running")
@@ -75,6 +77,23 @@ def create_resume_snapshot(input: CreateResumeSnapshotInput) -> CreateResumeSnap
             external_id = sandbox.create_directory_snapshot(snapshot_mount_path)
         else:
             external_id = sandbox.create_snapshot()
+    except SnapshotTimeoutError as e:
+        outcome = "transient_error"
+        logger.warning("create_resume_snapshot_transient_error", sandbox_id=input.sandbox_id, error=str(e))
+        increment_snapshot_create(snapshot_kind, outcome)
+        record_snapshot_create_latency_ms(snapshot_kind, outcome, int((time.perf_counter() - started_at) * 1000))
+        raise
+    except SandboxNotRunningError as e:
+        outcome = "sandbox_not_running"
+        logger.warning(
+            "create_resume_snapshot_sandbox_not_running",
+            sandbox_id=input.sandbox_id,
+            run_id=input.run_id,
+            error=str(e),
+        )
+        increment_snapshot_create(snapshot_kind, outcome)
+        record_snapshot_create_latency_ms(snapshot_kind, outcome, int((time.perf_counter() - started_at) * 1000))
+        return CreateResumeSnapshotOutput(external_id=None, snapshot_kind=snapshot_kind, error=str(e))
     except Exception as e:
         outcome = "failed"
         logger.warning("create_resume_snapshot_snapshot_failed", sandbox_id=input.sandbox_id, error=str(e))
