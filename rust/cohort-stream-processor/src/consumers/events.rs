@@ -36,7 +36,7 @@ use crate::observability::metrics::{
     DURABLE_RESTORE_PARTITIONS_KEPT_TOTAL, DURABLE_RESTORE_PARTITIONS_WIPED_STALE_TOTAL,
     DURABLE_RESTORE_PENDING_TRANSFERS_RECOVERED_PARTITIONS_TOTAL, MERGE_HELD_OFFSET_GAUGE,
     MERGE_PENDING_TRANSFERS_GAUGE, PARTITIONS_ASSIGNED_TOTAL, PARTITIONS_PAUSED,
-    PARTITIONS_REVOKED_TOTAL, PARTITION_STATE_DELETED_TOTAL, PENDING_SUBBATCHES,
+    PARTITIONS_REVOKED_TOTAL, PARTITION_STATE_DELETED_TOTAL, PENDING_HELD_EVENTS,
     REBALANCE_CLEANUP_SKIPPED_TOTAL, REVOKE_DRAIN_DURATION_SECONDS,
 };
 use crate::partitions::backpressure::Backpressure;
@@ -197,7 +197,8 @@ impl EventDispatcher {
         &self.store
     }
 
-    /// Route a consumed batch to per-partition workers, lazily spawning on first delivery.
+    /// Blocking events dispatch, retained for tests; the consume loop uses
+    /// [`dispatch_events_nonblocking`](Self::dispatch_events_nonblocking).
     ///
     /// The dispatch ceiling is raised before routing so a `RouteError` leaves the offset
     /// uncommittable and Kafka replays it. Events for unowned partitions are dropped before any
@@ -1120,7 +1121,7 @@ impl CohortStreamEventsConsumer {
         self.pauser.pause(&deltas.pause);
         self.pauser.resume(&deltas.resume);
         gauge!(PARTITIONS_PAUSED).set(backpressure.paused_count() as f64);
-        gauge!(PENDING_SUBBATCHES).set(backpressure.held_event_count() as f64);
+        gauge!(PENDING_HELD_EVENTS).set(backpressure.held_event_count() as f64);
 
         if outcome.transport_error {
             tokio::time::sleep(RECV_ERROR_BACKOFF).await;

@@ -87,7 +87,7 @@ impl Backpressure {
         self.paused.len()
     }
 
-    /// Total events held across all paused partitions. Feeds the `pending_subbatches` gauge.
+    /// Total events held across all paused partitions. Feeds the `pending_held_events` gauge.
     pub fn held_event_count(&self) -> usize {
         self.pending.values().map(Vec::len).sum()
     }

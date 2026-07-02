@@ -205,7 +205,12 @@ impl PartitionRouter {
             return SendOutcome::NoWorker;
         };
         let count = batch.len();
+        // Events-only path: every message carries an offset, so `max` is `Some` for a non-empty batch.
         let max_offset = batch.iter().filter_map(ShuffleMessage::event_offset).max();
+        debug_assert!(
+            max_offset.is_some(),
+            "try_route_batch routes event messages only",
+        );
         match sender.try_send(batch) {
             Ok(()) => {
                 self.emit_channel_depth(partition, &sender);
