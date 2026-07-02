@@ -741,25 +741,27 @@ export const toolbarLogic = kea<toolbarLogicType>([
                     }
 
                     switch (type) {
-                        case PostHogAppToolbarEvent.PH_APP_INIT:
+                        case PostHogAppToolbarEvent.PH_APP_INIT: {
+                            const payload = e.data.payload
                             actions.setIsEmbeddedInApp(true)
                             actions.toggleClickmapsEnabled(false)
-                            if (e.data.payload?.filters !== undefined) {
-                                actions.patchHeatmapFilters(e.data.payload.filters)
+                            if (payload?.filters !== undefined) {
+                                actions.patchHeatmapFilters(payload.filters)
                             }
-                            if (e.data.payload?.colorPalette !== undefined) {
-                                actions.setHeatmapColorPalette(e.data.payload.colorPalette)
+                            if (payload?.colorPalette !== undefined) {
+                                actions.setHeatmapColorPalette(payload.colorPalette)
                             }
-                            if (e.data.payload?.fixedPositionMode !== undefined) {
-                                actions.setHeatmapFixedPositionMode(e.data.payload.fixedPositionMode)
+                            if (payload?.fixedPositionMode !== undefined) {
+                                actions.setHeatmapFixedPositionMode(payload.fixedPositionMode)
                             }
-                            if (e.data.payload?.commonFilters !== undefined) {
-                                actions.setCommonFilters(e.data.payload.commonFilters)
+                            if (payload?.commonFilters !== undefined) {
+                                actions.setCommonFilters(payload.commonFilters)
                             }
                             // it's ok to use we use a wildcard for the origin bc data isn't sensitive
                             // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
                             window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_READY }, '*')
                             return
+                        }
                         case PostHogAppToolbarEvent.PH_ELEMENT_SELECTOR:
                             if (e.data.payload.enabled) {
                                 actions.enableInspect()
