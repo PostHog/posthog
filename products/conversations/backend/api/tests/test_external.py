@@ -527,7 +527,9 @@ class TestExternalTicketAPI(BaseTest):
 
     # -- Workflow (HogFlow) attribution -----------------------------------
 
-    def _workflow_headers(self, flow_id="0191d3e0-0000-7000-8000-000000000001", name="Escalation%20workflow", token=None):
+    def _workflow_headers(
+        self, flow_id="0191d3e0-0000-7000-8000-000000000001", name="Escalation%20workflow", token=None
+    ):
         return {
             **self._auth_headers(token),
             "HTTP_X_POSTHOG_HOG_FLOW_ID": flow_id,
