@@ -156,7 +156,8 @@ await buildInParallel(
  */
 export function writePreloadManifest(outputs = {}) {
     const distDir = path.resolve(__dirname, 'dist')
-    const toUrl = (outputPath) => `static/${path.relative(distDir, path.resolve(process.cwd(), outputPath))}`
+    // esbuild metafile paths are relative to absWorkingDir (= __dirname), not the invoking cwd
+    const toUrl = (outputPath) => `static/${path.relative(distDir, path.resolve(__dirname, outputPath))}`
 
     const findEntryJs = (entryPoint) =>
         Object.entries(outputs).find(([out, meta]) => meta.entryPoint === entryPoint && out.endsWith('.js'))
@@ -179,12 +180,23 @@ export function writePreloadManifest(outputs = {}) {
     const cssOutput = Object.keys(outputs).find((out) => /\/index(-[^./-]+)?\.css$/.test(out))
     const fontOutput = Object.keys(outputs).find((out) => /\/Inter(-[^./-]+)?\.woff2$/.test(out))
 
+    const dedupe = (urls) => [...new Set(urls)]
     const manifest = {
         css: cssOutput ? toUrl(cssOutput) : '',
         font: fontOutput ? toUrl(fontOutput) : '',
-        js: collectChunkUrls('src/scenes/App.tsx'),
+        // Entry first: its modulepreload starts the fetch at preload-scan time, before the
+        // loader script at the end of <head> gets to import() it.
+        js: dedupe([...collectChunkUrls('src/index.tsx'), ...collectChunkUrls('src/scenes/App.tsx')]),
         // The backend emits these only for authenticated requests
-        authenticatedJs: collectChunkUrls('src/scenes/AuthenticatedShell.tsx'),
+        authenticatedJs: dedupe(collectChunkUrls('src/scenes/AuthenticatedShell.tsx')),
+    }
+    // An empty field means an entry point, chunk, or asset name drifted from the lookups above —
+    // failing the build beats shipping green with the optimization silently off.
+    for (const [key, value] of Object.entries(manifest)) {
+        if (value.length === 0) {
+            console.error(`preload-manifest.json field "${key}" resolved empty.`)
+            throw new Error(`preload-manifest.json field "${key}" resolved empty.`)
+        }
     }
     fs.writeFileSync(path.resolve(distDir, 'preload-manifest.json'), JSON.stringify(manifest, null, 2))
 }

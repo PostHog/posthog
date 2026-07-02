@@ -2,6 +2,7 @@ import { Tooltip as BaseTooltip } from '@base-ui/react/tooltip'
 import { BindLogic, useMountedLogic, useValues } from 'kea'
 import posthog from 'posthog-js'
 import React, { Suspense, useEffect } from 'react'
+import { Slide, ToastContainer } from 'react-toastify'
 
 import { PostHogProvider } from '@posthog/react'
 
@@ -30,29 +31,48 @@ const AuthenticatedShell = React.lazy(() => retryImport(() => import('./Authenti
 
 window.process = MOCK_NODE_PROCESS
 
-// Kea must initialize synchronously before any component mounts
-initKea()
-// Deferred to a microtask so React starts rendering before posthog-js issues network calls
-queueMicrotask(loadPostHogJS)
+let appBooted = false
 
-const idle =
-    typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function'
-        ? window.requestIdleCallback.bind(window)
-        : (cb: () => void) => setTimeout(cb, 200)
+/**
+ * One-time boot side effects for the app chunk, called from the entry's lazy factory
+ * (frontend/src/index.tsx) after the chunk loads and before <App /> first renders.
+ * A function rather than module-scope statements so that merely importing scenes/App
+ * (storybook stories, jest) stays side-effect-free — the test harnesses manage their
+ * own kea context, and an import-time initKea() would wipe it.
+ */
+export function bootApp(): void {
+    if (appBooted) {
+        return
+    }
+    appBooted = true
 
-idle(() => {
-    void import('./session-recordings/player/snapshot-processing/DecompressionWorkerManager')
-        .then(({ preWarmDecompression }) => preWarmDecompression())
-        .catch(() => {})
+    loadPostHogJS()
+    // Kea must initialize before any component mounts
+    initKea()
 
-    // On Chrome + Windows, the country flag emojis don't render correctly. This polyfill fixes that.
-    // NOTE: The first argument sets the polyfill's font family name, which our CSS references —
-    // keep the two in sync. Detection is canvas-based and can throw on some browser states
-    // (e.g. Safari/macOS); it's purely cosmetic, so swallow any failure.
-    void import('country-flag-emoji-polyfill')
-        .then(({ polyfillCountryFlagEmojis }) => polyfillCountryFlagEmojis('Emoji Flags Polyfill'))
-        .catch(() => {})
-})
+    const idle =
+        typeof window.requestIdleCallback === 'function'
+            ? window.requestIdleCallback.bind(window)
+            : (cb: () => void) => setTimeout(cb, 200)
+
+    idle(() => {
+        void import('./session-recordings/player/snapshot-processing/DecompressionWorkerManager')
+            .then(({ preWarmDecompression }) => preWarmDecompression())
+            .catch((error) => {
+                console.warn('[App] Failed to load DecompressionWorkerManager for pre-warm:', error)
+            })
+
+        // On Chrome + Windows, the country flag emojis don't render correctly. This polyfill fixes that.
+        // NOTE: The first argument sets the polyfill's font family name, which our CSS references —
+        // keep the two in sync. Detection is canvas-based and can throw on some browser states
+        // (e.g. Safari/macOS); it's purely cosmetic and best-effort.
+        void import('country-flag-emoji-polyfill')
+            .then(({ polyfillCountryFlagEmojis }) => polyfillCountryFlagEmojis('Emoji Flags Polyfill'))
+            .catch((error) => {
+                console.warn('[App] Country flag emoji polyfill failed:', error)
+            })
+    })
+}
 
 /**
  * Wraps each rendered scene so that when the scene unmounts (on tab change
@@ -165,22 +185,15 @@ function AppScene(): JSX.Element | null {
         })
     }, [user])
 
-    const [ToastLazy, setToastLazy] = React.useState<typeof import('react-toastify') | null>(null)
-    useEffect(() => {
-        if (!user) {
-            import('react-toastify').then((mod) => setToastLazy(mod)).catch(() => {})
-        }
-    }, [user])
-
-    const unauthToastContainer = ToastLazy ? (
-        <ToastLazy.ToastContainer
+    const unauthToastContainer = (
+        <ToastContainer
             autoClose={6000}
-            transition={ToastLazy.Slide}
+            transition={Slide}
             closeButton={<ToastCloseButton />}
             position="bottom-right"
             theme={isDarkModeOn ? 'dark' : 'light'}
         />
-    ) : null
+    )
 
     let sceneElement: JSX.Element
     if (activeExportedScene?.component) {

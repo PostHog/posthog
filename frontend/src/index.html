@@ -1,13 +1,20 @@
 <!doctype html>
 <html lang="en">
     <head>
-        {# Critical CSS for the pre-React shell (background + spinner), so the page doesn't flash white #}
+        {# head.html first: it carries <meta charset>, which must stay within the first 1024 bytes #}
+        {# so the browser's encoding prescan finds it #}
+        {% include "head.html" %}
+        {# Critical CSS for the pre-React shell (background, spinner, boot-failure message), so the #}
+        {# page doesn't flash white. Colors follow the system theme as an approximation — the user's #}
+        {# saved theme preference only applies once React mounts. #}
         <style>
             html,body,#root{height:100%;margin:0;padding:0}
-            body{background:#eeefe9;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica Neue,Arial,sans-serif;color:#2c2c2c;font-size:14px;line-height:1.4}
+            body{background:#f3f4ef;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica Neue,Arial,sans-serif;color:#111;font-size:14px;line-height:1.4}
+            @media (prefers-color-scheme:dark){body{background:#1d1f27;color:#fff}}
             *,:after,:before{box-sizing:border-box}
             .Preloader{display:flex;align-items:center;justify-content:center;height:100%;min-height:200px;width:100%}
             .Preloader__inner{width:25px;height:25px;border:5px solid rgba(245,78,0,.333);border-top-color:#f54e00;border-radius:50%;animation:preloader-spin 1s linear infinite}
+            .Preloader button{border:0;padding:0;background:none;font:inherit;color:inherit;text-decoration:underline;cursor:pointer}
             @keyframes preloader-spin{to{transform:rotate(360deg)}}
         </style>
         {# Resource hints so the boot chain (font, CSS, entry -> App chunks) is fetched in parallel #}
@@ -19,14 +26,15 @@
             <link rel="preload" href="{{ js_url }}/{{ preload_font_url }}" as="font" type="font/woff2" crossorigin>
         {% endif %}
         {% if preload_css_url %}
-            {# crossorigin matches the runtime loader's fetch mode so the browser reuses one response #}
+            {# Preload only — the loader script injected at the end of <head> appends the actual #}
+            {# stylesheet link (with its hashless fallback). Applying the stylesheet there keeps a #}
+            {# slow CSS fetch from blocking the parser-inserted boot scripts, and keeps the CSSOM #}
+            {# to a single copy. crossorigin matches the loader's fetch mode so one response is reused. #}
             <link rel="preload" href="{{ js_url }}/{{ preload_css_url }}" as="style" crossorigin="anonymous">
-            <link rel="stylesheet" href="{{ js_url }}/{{ preload_css_url }}" crossorigin="anonymous">
         {% endif %}
         {% for url in preload_js_urls %}
             <link rel="modulepreload" href="{{ js_url }}/{{ url }}">
         {% endfor %}
-        {% include "head.html" %}
     </head>
     <body>
         {% include "overlays.html" %}

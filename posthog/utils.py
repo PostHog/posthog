@@ -403,99 +403,57 @@ def get_js_url(request: HttpRequest) -> str:
     return settings.JS_URL
 
 
-_VITE_PRELOAD_MIN_CHUNK_BYTES = 50 * 1024
-
-
-def _collect_chunk_preloads(manifest: dict, chunk_src: str, dist_dir: str, js_urls: list[str]) -> None:
-    """Append a chunk's file plus its heavy static imports to js_urls (deduplicated)."""
-    chunk = manifest.get(chunk_src)
-    if not chunk:
-        return
-    if chunk["file"] not in js_urls:
-        js_urls.append(chunk["file"])
-    for imp_src in chunk.get("imports", []):
-        imp_entry = manifest.get(imp_src)
-        if not imp_entry:
-            continue
-        imp_file = imp_entry["file"]
-        imp_path = os.path.join(dist_dir, imp_file)
-        if (
-            imp_file not in js_urls
-            and os.path.isfile(imp_path)
-            and os.path.getsize(imp_path) > _VITE_PRELOAD_MIN_CHUNK_BYTES
-        ):
-            js_urls.append(imp_file)
-
-
 @lru_cache(maxsize=2)
-def _resolve_entry_assets(include_authenticated_shell: bool) -> tuple[str, list[str], str]:
+def _resolve_entry_assets(include_authenticated_shell: bool) -> tuple[str, tuple[str, ...], str]:
     """
-    Return (css_url, [js_preload_urls], font_url) for <head> preload tags, relative to JS_URL.
+    Return (css_url, js_preload_urls, font_url) for <head> preload tags, relative to JS_URL.
     Preloading lets the browser fetch the boot chain (entry -> App -> AuthenticatedShell chunks,
     the CSS bundle, and the Inter font, which is otherwise discovered only once the CSS is parsed)
     in parallel instead of as a waterfall.
 
-    Reads the esbuild preload manifest (production; see writePreloadManifest in frontend/build.mjs),
-    falling back to the Vite manifest for Vite builds. Returns empty values in debug/dev mode or
-    if no manifest exists. Cached per process: manifests are immutable for the lifetime of a deploy.
+    Reads the esbuild preload manifest (see writePreloadManifest in frontend/build.mjs). Returns
+    empty values in debug/test mode and when no manifest exists (e.g. a Vite build, which isn't
+    wired for production serving). Cached per process: manifests are immutable within a deploy.
     """
-    if settings.DEBUG:
-        return ("", [], "")
+    if settings.DEBUG or settings.TEST:
+        return ("", (), "")
+    return _read_preload_manifest(
+        os.path.join(settings.BASE_DIR, "frontend", "dist", "preload-manifest.json"),
+        include_authenticated_shell,
+    )
 
-    dist_dir = os.path.join(settings.BASE_DIR, "frontend", "dist")
 
-    # esbuild path (production): dist/preload-manifest.json
-    preload_manifest_path = os.path.join(dist_dir, "preload-manifest.json")
-    try:
-        if os.path.isfile(preload_manifest_path):
-            with open(preload_manifest_path) as f:
-                preload_manifest = json.load(f)
-            js_urls: list[str] = list(preload_manifest.get("js", []))
-            if include_authenticated_shell:
-                js_urls += [url for url in preload_manifest.get("authenticatedJs", []) if url not in js_urls]
-            return (preload_manifest.get("css", ""), js_urls, preload_manifest.get("font", ""))
-    except Exception:
-        return ("", [], "")
-
-    # Vite fallback: dist/.vite/manifest.json
-    manifest_path = os.path.join(dist_dir, ".vite", "manifest.json")
+def _read_preload_manifest(manifest_path: str, include_authenticated_shell: bool) -> tuple[str, tuple[str, ...], str]:
+    """
+    Parse preload-manifest.json defensively: hints are an optimization, so any failure must
+    degrade to "no hints" rather than break page rendering — but loudly, because the caller
+    caches the result for the process lifetime, so a silent failure would turn the
+    optimization off fleet-wide until the next deploy.
+    """
     try:
         if not os.path.isfile(manifest_path):
-            return ("", [], "")
+            return ("", (), "")
         with open(manifest_path) as f:
             manifest = json.load(f)
-        entry = manifest.get("src/index.tsx")
-        if not entry:
-            return ("", [], "")
-        # CSS: on the entry itself, or failing that among its static imports
-        css_url = ""
-        if entry.get("css"):
-            css_url = entry["css"][0]
-        else:
-            for imp_src in entry.get("imports", []):
-                imp_entry = manifest.get(imp_src)
-                if imp_entry and imp_entry.get("css"):
-                    css_url = imp_entry["css"][0]
-                    break
-        # JS preloads: the App chunk (the entry's dynamic import) + its heavy static imports
-        js_urls = []
-        for dimp_src in entry.get("dynamicImports", []):
-            _collect_chunk_preloads(manifest, dimp_src, dist_dir, js_urls)
-            break
-        if include_authenticated_shell:
-            _collect_chunk_preloads(manifest, "src/scenes/AuthenticatedShell.tsx", dist_dir, js_urls)
-        # Inter woff2 gets a hashed URL via the CSS asset pipeline, so find it in the manifest
-        font_url = ""
-        for manifest_entry in manifest.values():
-            for asset in manifest_entry.get("assets", []):
-                if "Inter" in asset and asset.endswith(".woff2"):
-                    font_url = asset
-                    break
-            if font_url:
-                break
-        return (css_url, js_urls, font_url)
-    except Exception:
-        return ("", [], "")
+        css = manifest.get("css", "")
+        font = manifest.get("font", "")
+        js = manifest.get("js", [])
+        authenticated_js = manifest.get("authenticatedJs", []) if include_authenticated_shell else []
+        if not (
+            isinstance(css, str)
+            and isinstance(font, str)
+            and isinstance(js, list)
+            and isinstance(authenticated_js, list)
+            and all(isinstance(url, str) for url in [*js, *authenticated_js])
+        ):
+            raise ValueError("preload manifest fields have unexpected types")
+        js_urls = list(js)
+        js_urls += [url for url in authenticated_js if url not in js_urls]
+        return (css, tuple(js_urls), font)
+    except Exception as e:
+        logger.warning("preload_manifest_unreadable", manifest_path=manifest_path, error=str(e))
+        capture_exception(e)
+        return ("", (), "")
 
 
 @tracer.start_as_current_span("template.context")
