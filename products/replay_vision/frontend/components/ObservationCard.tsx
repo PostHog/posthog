@@ -374,10 +374,6 @@ export function IneligibleDetail({ errorReason }: { errorReason: string }): JSX.
     )
 }
 
-function ObservationProgress({ observation }: { observation: ReplayObservationApi }): JSX.Element {
-    return <ObservationProgressBar observationId={observation.id} sessionId={observation.session_id} compact />
-}
-
 export function ObservationDockCard({
     observation,
     onSeek,
@@ -415,7 +411,7 @@ export function ObservationDockCard({
             )}
 
             {(observation.status === 'pending' || observation.status === 'running') && (
-                <ObservationProgress observation={observation} />
+                <ObservationProgressBar observationId={observation.id} sessionId={observation.session_id} compact />
             )}
         </div>
     )

@@ -1,9 +1,9 @@
-import equal from 'fast-deep-equal'
 import { actions, afterMount, isBreakpoint, kea, listeners, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
+import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
@@ -469,7 +469,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 page: Number.isFinite(pageRaw) ? Math.max(1, pageRaw) : 1,
                 sort: parseSortParam(searchParams.sort) ?? DEFAULT_SORT,
             }
-            const changed = !equal(parsed, values.filters)
+            const changed = !objectsEqual(parsed, values.filters)
             if (changed) {
                 actions.setScannersFilters(parsed, true)
             } else if (!cache.initialLoad) {

@@ -94,7 +94,6 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
         observationStats,
         scanner,
         triggeringOnDemandObservation,
-        refreshing,
     } = useValues(logic)
     const {
         refreshObservations,
@@ -274,7 +273,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                                 type="secondary"
                                 icon={<IconRefresh />}
                                 onClick={() => refreshObservations()}
-                                loading={refreshing}
+                                loading={observationsLoading}
                                 data-attr="vision-observations-refresh"
                             >
                                 Refresh
@@ -302,7 +301,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
             <LemonTable
                 columns={columns}
                 dataSource={observations}
-                loading={refreshing || triggeringOnDemandObservation || observationsLoading}
+                loading={triggeringOnDemandObservation || observationsLoading}
                 rowKey="id"
                 pagination={{
                     controlled: true,

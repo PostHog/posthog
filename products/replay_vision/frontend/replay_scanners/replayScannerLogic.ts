@@ -1,4 +1,3 @@
-import equal from 'fast-deep-equal'
 import { actions, afterMount, isBreakpoint, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { actionToUrl, beforeUnload, router, urlToAction } from 'kea-router'
@@ -397,14 +396,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 triggerOnDemandObservationSuccess: () => Date.now() + OBSERVE_POLL_GRACE_MS,
             },
         ],
-        refreshing: [
-            false,
-            {
-                refreshObservations: () => true,
-                loadObservationsSuccess: () => false,
-                loadObservationsFailure: () => false,
-            },
-        ],
         scannerLoading: [
             false,
             {
@@ -729,7 +720,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
 
             loadScannerSuccess: ({ scanner }) => {
                 actions.setScannerValues(scanner)
-                actions.requestScannerEstimate()
                 // A deep-link to `?sort=result` can't resolve its order_by until the scanner type is known;
                 // refire once we have it so the initial paint reflects the URL.
                 if (values.observationsSort?.columnKey === 'result' && scanner.scanner_type) {
@@ -1065,10 +1055,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 page === values.observationsPage &&
                 sort.columnKey === values.observationsSort?.columnKey &&
                 sort.order === values.observationsSort?.order &&
-                equal(status, values.observationStatusFilter) &&
-                equal(triggeredBy, values.observationTriggeredByFilter) &&
-                equal(verdict, values.observationVerdictFilter) &&
-                equal(tags, values.observationTagFilter) &&
+                objectsEqual(status, values.observationStatusFilter) &&
+                objectsEqual(triggeredBy, values.observationTriggeredByFilter) &&
+                objectsEqual(verdict, values.observationVerdictFilter) &&
+                objectsEqual(tags, values.observationTagFilter) &&
                 subject === values.observationSubjectFilter
             if (!sameAsCurrent) {
                 actions.restoreObservationsTableState({ page, sort, status, triggeredBy, verdict, tags, subject })

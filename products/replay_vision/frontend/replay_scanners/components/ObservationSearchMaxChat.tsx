@@ -33,7 +33,7 @@ export function ObservationSearchMaxChat({ scannerId }: { scannerId: string }): 
         active: scannerId !== 'new',
         context: { scanner_id: scannerId },
         contextDescription: scanner
-            ? { text: scanner.name || 'Replay Vision scanner', icon: iconForType('session_replay') }
+            ? { text: scanner.name || 'Replay vision scanner', icon: iconForType('session_replay') }
             : undefined,
         initialMaxPrompt: example,
     })
