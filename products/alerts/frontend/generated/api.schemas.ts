@@ -439,6 +439,7 @@ export type DetectorConfigApi =
     | PCADetectorConfigApi
 
 /**
+ * * `real_time` - real_time
  * * `every_15_minutes` - every_15_minutes
  * * `hourly` - hourly
  * * `daily` - daily
@@ -448,6 +449,7 @@ export type DetectorConfigApi =
 export type CalculationIntervalEnumApi = (typeof CalculationIntervalEnumApi)[keyof typeof CalculationIntervalEnumApi]
 
 export const CalculationIntervalEnumApi = {
+    RealTime: 'real_time',
     Every15Minutes: 'every_15_minutes',
     Hourly: 'hourly',
     Daily: 'daily',
@@ -522,6 +524,7 @@ export interface AlertApi {
     detector_config?: DetectorConfigApi | null
     /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
      *
+     * * `real_time` - real_time
      * * `every_15_minutes` - every_15_minutes
      * * `hourly` - hourly
      * * `daily` - daily
@@ -603,6 +606,7 @@ export interface PatchedAlertApi {
     detector_config?: DetectorConfigApi | null
     /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
      *
+     * * `real_time` - real_time
      * * `every_15_minutes` - every_15_minutes
      * * `hourly` - hourly
      * * `daily` - daily

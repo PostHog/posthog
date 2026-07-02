@@ -127,6 +127,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
 
     # how often to recalculate the alert
     CALCULATION_INTERVAL_CHOICES = [
+        (AlertCalculationInterval.REAL_TIME, AlertCalculationInterval.REAL_TIME.value),
         (AlertCalculationInterval.EVERY_15_MINUTES, AlertCalculationInterval.EVERY_15_MINUTES.value),
         (AlertCalculationInterval.HOURLY, AlertCalculationInterval.HOURLY.value),
         (AlertCalculationInterval.DAILY, AlertCalculationInterval.DAILY.value),
