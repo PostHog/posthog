@@ -26,6 +26,7 @@ import modal
 import requests
 from modal.exception import (
     ConnectionError as ModalConnectionError,
+    ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
 )
 
@@ -33,7 +34,7 @@ from posthog.exceptions_capture import capture_exception
 from posthog.settings import CLOUD_DEPLOYMENT
 
 from products.tasks.backend.constants import (
-    DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
+    ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS,
     SANDBOX_AGENT_LAUNCH_UNSET_ENV_VARS,
     SNAPSHOT_KIND_DIRECTORY,
     SNAPSHOT_KIND_FILESYSTEM,
@@ -105,10 +106,13 @@ AGENT_SERVER_HEALTH_MAX_ATTEMPTS = 240
 TRANSIENT_SNAPSHOT_ERRORS: tuple[type[BaseException], ...] = (
     ModalTimeoutError,
     ModalConnectionError,
+    ModalServiceError,
     TimeoutError,
     ConnectionError,
     asyncio.CancelledError,
 )
+
+DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS = 240
 
 SESSION_INIT_PROBE_HOSTS = (
     "gateway.us.posthog.com",
@@ -407,7 +411,10 @@ class ModalSandbox(SandboxBase):
             config.snapshot_restored = False
             snapshot_external_id: str | None = None
             snapshot_kind = _normalize_snapshot_kind(config.snapshot_kind)
-            snapshot_mount_path = config.snapshot_mount_path or DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH
+            # No default-fill: a directory snapshot must arrive with an explicit allowed mount
+            # path, or the mount below is refused. Defaulting here would silently re-target a
+            # snapshot that upstream validation invalidated (mount path stripped).
+            snapshot_mount_path: str | None = config.snapshot_mount_path
             snapshot_image: modal.Image | None = None
             used_snapshot_image = False
 
@@ -483,7 +490,19 @@ class ModalSandbox(SandboxBase):
                     config.snapshot_restored = False
 
             if snapshot_kind == SNAPSHOT_KIND_DIRECTORY and snapshot_image is not None:
-                if not hasattr(sb, "mount_image"):
+                # The mount REPLACES the target directory in the running sandbox — over a live
+                # system path (the legacy "/tmp" default) that kills Modal's in-sandbox helpers,
+                # and a snapshot's content only fits the path it was captured from. Last-line
+                # guard for snapshot rows whose stored mount path bypassed normalization.
+                if snapshot_mount_path not in ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS:
+                    logger.warning(
+                        "Refusing to mount directory snapshot at unsupported path; falling back to base image",
+                        extra={
+                            "snapshot_external_id": snapshot_external_id,
+                            "snapshot_mount_path": snapshot_mount_path,
+                        },
+                    )
+                elif not hasattr(sb, "mount_image"):
                     logger.warning(
                         "Modal sandbox does not support directory snapshot restore; falling back to base image",
                         extra={
@@ -1071,7 +1090,7 @@ class ModalSandbox(SandboxBase):
         try:
             quoted_path = shlex.quote(path)
             self._sandbox.exec("bash", "-c", f"mkdir -p {quoted_path} && test -d {quoted_path}", timeout=30).wait()
-            image = snapshot_directory(path, ttl=None)
+            image = snapshot_directory(path, timeout=DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS, ttl=None)
             snapshot_id = image.object_id
 
             logger.info(f"Created directory snapshot for sandbox {self.id}, path: {path}, snapshot ID: {snapshot_id}")

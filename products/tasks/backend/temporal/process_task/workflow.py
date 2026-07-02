@@ -23,6 +23,10 @@ from .activities.cleanup_sandbox import CleanupSandboxInput, cleanup_sandbox
 from .activities.create_resume_snapshot import CreateResumeSnapshotInput, create_resume_snapshot
 from .activities.emit_progress_activity import EmitProgressInput, emit_progress_activity
 from .activities.execute_task_in_sandbox import ExecuteTaskOutput
+from .activities.feature_flags import (
+    IsSlackAppAgentDesignEnabledForTaskActivityInput,
+    is_slack_app_agent_design_enabled_for_task_activity,
+)
 from .activities.forward_pending_message import forward_pending_user_message
 from .activities.get_sandbox_for_repository import GetSandboxForRepositoryOutput
 from .activities.get_task_processing_context import (
@@ -46,7 +50,11 @@ from .activities.provision_sandbox import (
 from .activities.read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
 from .activities.relay_sandbox_events import RelaySandboxEventsInput, relay_sandbox_events
 from .activities.run_wizard import RunWizardInput, run_wizard
-from .activities.send_followup_to_sandbox import SendFollowupToSandboxInput, send_followup_to_sandbox
+from .activities.send_followup_to_sandbox import (
+    SEND_FOLLOWUP_MAX_ATTEMPTS,
+    SendFollowupToSandboxInput,
+    send_followup_to_sandbox,
+)
 from .activities.start_agent_server import (
     MarkRepoReadyInput,
     StartAgentServerInput,
@@ -59,6 +67,7 @@ from .activities.start_agent_server import (
 from .activities.track_workflow_event import TrackWorkflowEventInput, track_workflow_event
 from .activities.update_task_run_status import UpdateTaskRunStatusInput, update_task_run_status
 from .credential_refresh import SANDBOX_GONE_ERROR_MESSAGE, CredentialRefreshExitReason, run_credential_refresh_loop
+from .slack_agent_design_relay import SlackAgentDesignRelayInput, SlackAgentDesignRelayWorkflow
 
 
 @dataclass
@@ -143,6 +152,15 @@ _PATCH_ID_FOLLOWUP_QUEUE = "tasks-follow-up-message-queue"
 # schedule it. Same two-step cleanup lifecycle as the patches above.
 _PATCH_ID_DROP_SLACK_POST_AFTER_PROVISIONING = "tasks-drop-slack-post-after-provisioning"
 
+# Gates the new agent-design flag-eval execute_activity site.
+# Two-step deprecate-then-delete cleanup lifecycle as above.
+_PATCH_ID_SLACK_AGENT_DESIGN_STATUS = "tasks-slack-agent-design-status"
+
+# Gates the refusal to execute local-environment (desktop-driven) runs. Pre-guard
+# histories of such runs proceeded into provisioning; the marker keeps their replays
+# deterministic. Same two-step cleanup lifecycle as above.
+_PATCH_ID_SKIP_LOCAL_ENVIRONMENT_RUNS = "tasks-skip-local-environment-runs"
+
 
 def _deprecate_ci_follow_up_pr_context_patch() -> None:
     workflow.deprecate_patch(_PATCH_ID_CI_FOLLOW_UP_PR_CONTEXT)
@@ -174,6 +192,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         # Emit the "PR opened / keeping CI green" progress once, the first time we observe a PR — the
         # agent opens it mid-run and then keeps it green, so without this the UI dead-ends at "Started agent".
         self._pr_progress_emitted: bool = False
+        # Decided once at workflow start; gates the placeholder skip + relay spawn.
+        self._is_agent_design_enabled: bool = False
+        self._current_slack_relay_workflow_id: Optional[str] = None
 
     @property
     def context(self) -> TaskProcessingContext:
@@ -195,31 +216,6 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             posthog_mcp_scopes=loaded.get("posthog_mcp_scopes", "read_only"),
             prewarmed=loaded.get("prewarmed", False),
         )
-
-    @staticmethod
-    def _activity_error_properties(error: Exception) -> dict[str, Any]:
-        if not isinstance(error, temporalio.exceptions.ActivityError):
-            return {}
-
-        retry_state = error.retry_state
-        properties: dict[str, Any] = {
-            "temporal_activity_id": error.activity_id,
-            "temporal_activity_type": error.activity_type,
-            "temporal_activity_identity": error.identity,
-            "temporal_activity_retry_state": retry_state.name if retry_state else None,
-            "temporal_activity_scheduled_event_id": error.scheduled_event_id,
-            "temporal_activity_started_event_id": error.started_event_id,
-        }
-
-        if error.cause:
-            properties.update(
-                {
-                    "cause_error_type": type(error.cause).__name__,
-                    "cause_error_message": str(error.cause)[:500],
-                }
-            )
-
-        return properties
 
     async def _wait_for_task_external_event(self):
         await workflow.wait_condition(
@@ -441,6 +437,31 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         try:
             self._context = await self._get_task_processing_context(input)
             self._posthog_mcp_scopes = input.posthog_mcp_scopes
+            # A local-environment run is driven by the user's desktop agent — QUEUED does not
+            # mean "awaiting a cloud workflow". Executing it here would boot a sandbox the repo
+            # was never cloned into and, once the attempts burn out, stomp the live local
+            # session's status. Refuse without touching the run. The environment check comes
+            # first so cloud runs (and unit tests exercising them outside a workflow event
+            # loop) never call ``workflow.patched``.
+            if self.context.environment == "local" and workflow.patched(_PATCH_ID_SKIP_LOCAL_ENVIRONMENT_RUNS):
+                workflow.logger.warning(
+                    "Refusing to process local-environment run in cloud workflow",
+                    extra={"run_id": run_id, "task_id": self.context.task_id},
+                )
+                return ProcessTaskOutput(
+                    success=False,
+                    error="Run environment is 'local' (desktop-driven); refusing to execute it as a cloud workflow",
+                )
+            # See _PATCH_ID_SLACK_AGENT_DESIGN_STATUS. Short-circuit on
+            # ``_slack_thread_context`` so non-Slack runs never call the
+            # workflow-scoped ``workflow.patched`` API (unit tests that
+            # invoke ``run`` outside a Temporal event loop would otherwise
+            # raise "Not in workflow event loop" here). Skipping the marker
+            # is safe: ``_resolve_agent_design_flag`` itself returns False
+            # for these runs, so recording the patch would have no
+            # observable effect on their behavior.
+            if self._slack_thread_context and workflow.patched(_PATCH_ID_SLACK_AGENT_DESIGN_STATUS):
+                self._is_agent_design_enabled = await self._resolve_agent_design_flag()
             await self._update_task_run_status("in_progress")
 
             # Announce the first progress step immediately so the desktop card
@@ -457,7 +478,9 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 },
             )
 
-            await self._post_slack_update()
+            # Agent-design path owns this surface via per-turn relay children.
+            if not self._is_agent_design_enabled:
+                await self._post_slack_update()
 
             sandbox_output = await self._get_sandbox_for_repository()
             sandbox_id = sandbox_output.sandbox_id
@@ -470,7 +493,8 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             # pre-rollout histories still post here; new executions skip the
             # redundant update to keep determinism for in-flight workflows.
             if not workflow.patched(_PATCH_ID_DROP_SLACK_POST_AFTER_PROVISIONING):
-                await self._post_slack_update()
+                if not self._is_agent_design_enabled:
+                    await self._post_slack_update()
 
             # Run the PostHog setup wizard before the agent, when this is a cloud wizard run.
             # The wizard integrates PostHog and dirties the working tree; the agent then commits
@@ -1040,13 +1064,30 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 team_id=self.context.team_id,
                 distinct_id=self.context.distinct_id,
                 sandbox_id=sandbox_id,
+                slack_thread_context=self._slack_thread_context,
+                is_agent_design_enabled=self._is_agent_design_enabled,
             )
             await workflow.execute_activity(
                 relay_sandbox_events,
                 relay_input,
                 start_to_close_timeout=RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
+                schedule_to_close_timeout=RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
                 heartbeat_timeout=timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=1),
+                # A worker restart (deploy, eviction) kills the in-flight attempt while
+                # the sandbox agent keeps working — without retries the event stream is
+                # orphaned for good and the run looks dead to the user. Retrying is safe:
+                # the agent server buffers events while no relay is attached and replays
+                # them on reconnect. Terminal conditions (sandbox gone, reconnect budget
+                # exhausted) return cleanly, and application-level failures that write an
+                # error sentinel to the stream raise non-retryable ApplicationError, so
+                # retries only cover attempt-level deaths where no sentinel was written;
+                # schedule_to_close bounds the total.
+                retry_policy=RetryPolicy(
+                    initial_interval=timedelta(seconds=5),
+                    maximum_interval=timedelta(minutes=1),
+                    maximum_attempts=0,
+                    non_retryable_error_types=["ValueError"],
+                ),
                 cancellation_type=workflow.ActivityCancellationType.TRY_CANCEL,
             )
         except asyncio.CancelledError:
@@ -1082,7 +1123,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     use_directory_snapshot=self.context.use_modal_directory_resume_snapshots,
                 ),
                 start_to_close_timeout=timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=1),
+                retry_policy=RetryPolicy(maximum_attempts=3),
             )
             if result.external_id:
                 workflow.logger.info(f"Resume snapshot created: {result.external_id} for sandbox {sandbox_id}")
@@ -1127,11 +1168,99 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             retry_policy=RetryPolicy(maximum_attempts=2),
         )
 
+    async def _resolve_agent_design_flag(self) -> bool:
+        if not self._slack_thread_context:
+            return False
+        integration_id = self._slack_thread_context.get("integration_id")
+        if not integration_id:
+            return False
+        try:
+            return await workflow.execute_activity(
+                is_slack_app_agent_design_enabled_for_task_activity,
+                IsSlackAppAgentDesignEnabledForTaskActivityInput(
+                    integration_id=int(integration_id),
+                    run_id=self.context.run_id,
+                ),
+                start_to_close_timeout=timedelta(seconds=10),
+                retry_policy=RetryPolicy(maximum_attempts=2),
+            )
+        except Exception:
+            # Fail closed.
+            workflow.logger.warning("slack_app_agent_design_flag_eval_failed", extra={"run_id": self.context.run_id})
+            return False
+
     @temporalio.workflow.signal
     async def complete_task(self, status: str = "completed", error_message: Optional[str] = None) -> None:
         self._completion_status = status
         self._completion_error = error_message
         self._task_completed = True
+
+    # ─── Slack agent-design streaming ─── (per-turn signals from relay_sandbox_events)
+
+    @temporalio.workflow.signal
+    async def turn_started(self, payload: dict[str, Any]) -> None:
+        if not self._is_agent_design_enabled:
+            return
+        # Any orphaned previous-turn child times out on its own.
+        slack_ctx = payload.get("slack_thread_context") or self._slack_thread_context or {}
+        if not slack_ctx:
+            return
+        relay_workflow_id = f"slack-agent-design-relay-{self.context.run_id}-{workflow.uuid4()}"
+        self._current_slack_relay_workflow_id = relay_workflow_id
+        await workflow.start_child_workflow(
+            SlackAgentDesignRelayWorkflow.run,
+            SlackAgentDesignRelayInput(slack_thread_context=slack_ctx),
+            id=relay_workflow_id,
+            task_queue=workflow.info().task_queue,
+            # Cancel on parent close so the relay's finally block runs
+            # stop_slack_agent_design_stream — otherwise the plan-block
+            # stream is orphaned until Slack's own GC.
+            parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
+            execution_timeout=timedelta(hours=1),
+        )
+
+    @temporalio.workflow.signal
+    async def agent_status_update(self, payload: dict[str, Any]) -> None:
+        """Forward {title, details} step update to the current per-turn child."""
+        if not self._is_agent_design_enabled or not self._current_slack_relay_workflow_id:
+            return
+        try:
+            handle = workflow.get_external_workflow_handle(self._current_slack_relay_workflow_id)
+            await handle.signal(SlackAgentDesignRelayWorkflow.agent_status_update, payload)
+        except Exception as e:
+            # Child already gone — drop the update.
+            workflow.logger.debug(
+                "slack_status_forward_failed",
+                extra={"run_id": self.context.run_id, "error": str(e)},
+            )
+
+    @temporalio.workflow.signal
+    async def agent_text_delta(self, text: str) -> None:
+        if not self._is_agent_design_enabled or not self._current_slack_relay_workflow_id:
+            return
+        try:
+            handle = workflow.get_external_workflow_handle(self._current_slack_relay_workflow_id)
+            await handle.signal(SlackAgentDesignRelayWorkflow.agent_text_delta, text)
+        except Exception as e:
+            workflow.logger.debug(
+                "slack_text_forward_failed",
+                extra={"run_id": self.context.run_id, "error": str(e)},
+            )
+
+    @temporalio.workflow.signal
+    async def turn_completed(self) -> None:
+        if not self._is_agent_design_enabled or not self._current_slack_relay_workflow_id:
+            return
+        relay_id = self._current_slack_relay_workflow_id
+        self._current_slack_relay_workflow_id = None
+        try:
+            handle = workflow.get_external_workflow_handle(relay_id)
+            await handle.signal(SlackAgentDesignRelayWorkflow.complete_turn)
+        except Exception as e:
+            workflow.logger.debug(
+                "slack_status_complete_failed",
+                extra={"run_id": self.context.run_id, "error": str(e)},
+            )
 
     @temporalio.workflow.signal
     async def heartbeat(self, agent_active: bool = False) -> None:
@@ -1179,20 +1308,33 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     message=message,
                     posthog_mcp_scopes=self._posthog_mcp_scopes,
                     artifact_ids=artifact_ids,
+                    message_id=str(workflow.uuid4()),
                 ),
                 start_to_close_timeout=timedelta(minutes=35),
-                retry_policy=RetryPolicy(maximum_attempts=1),
+                # The activity heartbeats while blocked on the sync delivery
+                # call, so a worker restart is detected here instead of at
+                # start_to_close. Retries are safe: message_id lets the
+                # agent-server drop a redelivery it already accepted, and
+                # sentinel-writing failures raise non-retryable.
+                heartbeat_timeout=timedelta(minutes=1),
+                retry_policy=RetryPolicy(
+                    initial_interval=timedelta(seconds=5),
+                    maximum_attempts=SEND_FOLLOWUP_MAX_ATTEMPTS,
+                ),
             )
         except Exception as e:
+            error_properties = self._activity_error_properties(e)
+            cause_message = error_properties.get("cause_error_message")
             workflow.logger.warning(
                 "send_followup_to_sandbox_failed",
                 extra={
                     "run_id": self.context.run_id,
                     "error": str(e),
+                    **error_properties,
                 },
             )
             # Mark the run as failed so poll_for_turn sees a terminal status
             # immediately instead of waiting for the inactivity timeout.
             self._completion_status = "failed"
-            self._completion_error = f"Follow-up delivery failed: {e}"
+            self._completion_error = f"Follow-up delivery failed: {cause_message or e}"
             self._task_completed = True

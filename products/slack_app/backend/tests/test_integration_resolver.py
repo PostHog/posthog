@@ -603,7 +603,7 @@ class TestLoadIntegrationsAuthStateFilter:
 
     def test_all_broken_returns_empty(self):
         # When every candidate is cached as broken, return an empty list.
-        # Upstream code (``_resolve_region_or_terminal_route``) treats an empty
+        # Upstream code (``resolve_region_or_terminal_route``) treats an empty
         # candidate set the same way it'd handle a workspace with no rows at
         # all — falls through to ``ROUTE_NO_INTEGRATION``. Recovery paths:
         # the 6h TTL expires, OAuth reconnect invalidates the cache, or a

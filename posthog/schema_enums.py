@@ -1520,6 +1520,7 @@ class ExternalDataSourceType(StrEnum):
     INFOR_NEXUS = "InforNexus"
     INSIGHTFUL = "Insightful"
     INSIGHTLY = "Insightly"
+    INSTANTLY = "Instantly"
     INSTATUS = "Instatus"
     INTRUDER = "Intruder"
     INVOICED = "Invoiced"
@@ -1822,6 +1823,14 @@ class ExternalDataSourceType(StrEnum):
     APP_LOVIN = "AppLovin"
     BASEROW = "Baserow"
     PLUNK = "Plunk"
+    DUB = "Dub"
+    AIR_OPS = "AirOps"
+    PODIUM = "Podium"
+    LOOPS = "Loops"
+    REDIS = "Redis"
+    MERCURY = "Mercury"
+    GOJIBERRY = "Gojiberry"
+    TEACHABLE = "Teachable"
 
 
 class ExternalQueryErrorCode(StrEnum):
@@ -3098,6 +3107,7 @@ class SlackIntegrationScope(StrEnum):
 class SlackIntegrationScopeInReview(StrEnum):
     ASSISTANT_WRITE = "assistant:write"
     CHANNELS_MANAGE = "channels:manage"
+    COMMANDS = "commands"
     IM_HISTORY = "im:history"
     MPIM_READ = "mpim:read"
 

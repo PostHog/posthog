@@ -1,7 +1,7 @@
 import {
     buildFlagCalledPersonlessMatcher,
     isFlagCalledPersonlessCandidate,
-} from '~/ingestion/common/flag-called-personless'
+} from '~/ingestion/common/persons/flag-called-personless'
 import {
     hasInsertedPersonlessDistinctId,
     markPersonlessDistinctIdInserted,

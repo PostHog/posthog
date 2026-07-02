@@ -82,6 +82,7 @@ jobs:
             backend_files: ${{ steps.filter.outputs.backend_files }}
             migrations: ${{ steps.filter.outputs.migrations || 'true' }}
             migrations_files: ${{ steps.filter.outputs.migrations_files }}
+            migrations_any: ${{ steps.filter.outputs.migrations_any || 'true' }}
             persons_sql: ${{ steps.filter.outputs.persons_sql || 'true' }}
             tasks_temporal: ${{ steps.filter.outputs.tasks_temporal || 'true' }}
             openapi_types: ${{ steps.filter.outputs.openapi_types || 'true' }}
@@ -244,6 +245,11 @@ jobs:
                         - 'posthog/migrations/*.py'
                         - 'products/*/backend/migrations/*.py'
                         - 'products/*/migrations/*.py'  # Legacy structure
+                      # Any migration file in any app (broader than `migrations` above,
+                      # which omits ee/ and posthog sub-package dirs). Gates the
+                      # deleted-migration check in repo-checks.
+                      migrations_any:
+                        - '**/migrations/*.py'
                       persons_sql:
                         - 'rust/persons_migrations/*.sql'
                         - 'rust/bin/migrate-persons'
@@ -896,6 +902,7 @@ jobs:
             deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
         permissions:
             contents: read
+            pull-requests: read # list PR files for the deleted-migration check
         name: Repo checks (depot-ubuntu-latest)
         runs-on: depot-ubuntu-latest
         steps:
@@ -925,12 +932,30 @@ jobs:
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
+            # Above the boundary: a gh-api flake here is retryable setup, not a
+            # run-cancelling deterministic failure. The classifier runs below.
+            - name: Fetch deleted migration paths
+              id: fetch-deleted-migrations
+              if: github.event_name == 'pull_request' && needs.changes.outputs.migrations_any == 'true'
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  REPO: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: .github/scripts/list-removed-renamed-paths.sh > "$RUNNER_TEMP/deleted-migration-paths.txt"
+
             # Boundary between network-dependent setup and the deterministic
             # checks below. The "Flag deterministic failure" step keys off this
             # step's outcome so a transient setup failure doesn't cancel the run.
             - name: Mark setup complete
               id: setup-complete
               run: echo "Setup complete — any failure below is a deterministic check failure"
+
+            # Below the boundary so a real deletion trips the early-cancel gate (see
+            # safe-django-migrations.md). Gated on the fetch outcome so a skipped fetch
+            # skips this too, rather than reading a file it never wrote.
+            - name: Check deleted migrations
+              if: steps.fetch-deleted-migrations.outcome == 'success'
+              run: ./bin/hogli lint:migration-deletions < "$RUNNER_TEMP/deleted-migration-paths.txt"
 
             - name: Bootstrap scaffold product
               run: ./bin/hogli product:bootstrap spline_reticulator --non-interactive
@@ -3222,3 +3247,31 @@ jobs:
                   uv run --script .github/scripts/report_test_timings.py \
                       --min-duration-seconds=0.5 \
                       ./junit-artifacts
+
+    trunk-upload:
+        name: Upload test results to Trunk
+        # Core/Temporal/async-migrations already emit and upload junit-results-* artifacts;
+        # this feeds them to Trunk (flaky-test detection) once. Trusted non-pull_request
+        # events only (master push + merge queue), so the secret token never runs in a
+        # PR-controlled context; the uploader is a pinned external action, not a local one.
+        needs: [django_tests]
+        runs-on: ubuntu-latest
+        continue-on-error: true
+        timeout-minutes: 10
+        if: always() && github.repository == 'PostHog/posthog' && github.event_name != 'pull_request'
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 1
+            - name: Download JUnit artifacts
+              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
+              continue-on-error: true
+              with:
+                  path: ./junit-artifacts
+                  pattern: junit-results-*
+            - name: Upload to Trunk
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: junit-artifacts/**/*.xml
+                  org-slug: posthog-inc
+                  token: ${{ secrets.TRUNK_API_TOKEN }}

@@ -42,6 +42,8 @@ export interface FunnelTooltipProps {
     comparePeriodDateRange?: string | null
     /** Baseline conversion rate across all breakdown values; shown only for breakdown variants past the first step. */
     aggregateConversionRate?: number | null
+    /** True when the cursor is over the unfilled track area (drop-off region) rather than the bar. */
+    isDropOffHover?: boolean
 }
 
 export function FunnelTooltip({
@@ -53,9 +55,26 @@ export function FunnelTooltip({
     embedded = false,
     comparePeriodDateRange,
     aggregateConversionRate,
+    isDropOffHover = false,
 }: FunnelTooltipProps): JSX.Element {
     const { allCohorts } = useValues(cohortsModel)
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
+    const headerLabel = funnelTooltipHeaderLabel({
+        // Pure compare bars (no real breakdown) show only the period; breakdown and
+        // breakdown + compare bars show the breakdown value (plus the period if any).
+        breakdownLabel:
+            !series.compare_label || hasBreakdown(series.breakdown_value)
+                ? formatBreakdownLabel(
+                      series.breakdown_value,
+                      breakdownFilter,
+                      allCohorts.results,
+                      formatPropertyValueForDisplay
+                  )
+                : null,
+        compareLabel: series.compare_label,
+        comparePeriodDateRange,
+    })
+    const showDropOff = isDropOffHover && stepIndex > 0
     return (
         <div
             data-attr="funnel-tooltip"
@@ -68,64 +87,73 @@ export function FunnelTooltip({
             <LemonRow icon={<Lettermark name={stepIndex + 1} color={LettermarkColor.Gray} />} fullWidth>
                 <strong>
                     <EntityFilterInfo filter={getActionFilterFromFunnelStep(series)} allowWrap />
-                    <span className="mx-1">•</span>
-                    {funnelTooltipHeaderLabel({
-                        // Pure compare bars (no real breakdown) show only the period; breakdown and
-                        // breakdown + compare bars show the breakdown value (plus the period if any).
-                        breakdownLabel:
-                            !series.compare_label || hasBreakdown(series.breakdown_value)
-                                ? formatBreakdownLabel(
-                                      series.breakdown_value,
-                                      breakdownFilter,
-                                      allCohorts.results,
-                                      formatPropertyValueForDisplay
-                                  )
-                                : null,
-                        compareLabel: series.compare_label,
-                        comparePeriodDateRange,
-                    })}
+                    {headerLabel && (
+                        <>
+                            <span className="mx-1">•</span>
+                            {headerLabel}
+                        </>
+                    )}
                 </strong>
             </LemonRow>
             <LemonDivider className="my-2" />
             <table>
                 <tbody>
-                    <tr>
-                        <td>{stepIndex === 0 ? 'Entered' : 'Converted'}</td>
-                        <td>{humanFriendlyNumber(series.count)}</td>
-                    </tr>
-                    {stepIndex > 0 && (
-                        <tr>
-                            <td>Dropped off</td>
-                            <td>{humanFriendlyNumber(series.droppedOffFromPrevious)}</td>
-                        </tr>
-                    )}
-                    <tr>
-                        <td>Conversion so far</td>
-                        <td>{percentage(series.conversionRates.total, 2, true)}</td>
-                    </tr>
-                    {stepIndex > 0 && aggregateConversionRate != null && (
-                        <tr>
-                            <td>Baseline conversion rate</td>
-                            <td>{percentage(aggregateConversionRate, 2, true)}</td>
-                        </tr>
-                    )}
-                    {stepIndex > 0 && (
-                        <tr>
-                            <td>Conversion from previous</td>
-                            <td>{percentage(series.conversionRates.fromPrevious, 2, true)}</td>
-                        </tr>
-                    )}
-                    {stepIndex > 0 && series.median_conversion_time != null && (
-                        <tr>
-                            <td>Median time from previous</td>
-                            <td>{humanFriendlyDuration(series.median_conversion_time, { maxUnits: 3 })}</td>
-                        </tr>
-                    )}
-                    {stepIndex > 0 && series.average_conversion_time != null && (
-                        <tr>
-                            <td>Average time from previous</td>
-                            <td>{humanFriendlyDuration(series.average_conversion_time, { maxUnits: 3 })}</td>
-                        </tr>
+                    {showDropOff ? (
+                        <>
+                            <tr>
+                                <td>Dropped off</td>
+                                <td>{humanFriendlyNumber(series.droppedOffFromPrevious)}</td>
+                            </tr>
+                            <tr>
+                                <td>Drop-off from previous</td>
+                                <td>{percentage(1 - series.conversionRates.fromPrevious, 2, true)}</td>
+                            </tr>
+                            <tr>
+                                <td>Drop-off from start</td>
+                                <td>{percentage(1 - series.conversionRates.total, 2, true)}</td>
+                            </tr>
+                        </>
+                    ) : (
+                        <>
+                            <tr>
+                                <td>{stepIndex === 0 ? 'Entered' : 'Converted'}</td>
+                                <td>{humanFriendlyNumber(series.count)}</td>
+                            </tr>
+                            {stepIndex > 0 && (
+                                <tr>
+                                    <td>Dropped off</td>
+                                    <td>{humanFriendlyNumber(series.droppedOffFromPrevious)}</td>
+                                </tr>
+                            )}
+                            <tr>
+                                <td>Conversion so far</td>
+                                <td>{percentage(series.conversionRates.total, 2, true)}</td>
+                            </tr>
+                            {stepIndex > 0 && aggregateConversionRate != null && (
+                                <tr>
+                                    <td>Baseline conversion rate</td>
+                                    <td>{percentage(aggregateConversionRate, 2, true)}</td>
+                                </tr>
+                            )}
+                            {stepIndex > 0 && (
+                                <tr>
+                                    <td>Conversion from previous</td>
+                                    <td>{percentage(series.conversionRates.fromPrevious, 2, true)}</td>
+                                </tr>
+                            )}
+                            {stepIndex > 0 && series.median_conversion_time != null && (
+                                <tr>
+                                    <td>Median time from previous</td>
+                                    <td>{humanFriendlyDuration(series.median_conversion_time, { maxUnits: 3 })}</td>
+                                </tr>
+                            )}
+                            {stepIndex > 0 && series.average_conversion_time != null && (
+                                <tr>
+                                    <td>Average time from previous</td>
+                                    <td>{humanFriendlyDuration(series.average_conversion_time, { maxUnits: 3 })}</td>
+                                </tr>
+                            )}
+                        </>
                     )}
                 </tbody>
             </table>

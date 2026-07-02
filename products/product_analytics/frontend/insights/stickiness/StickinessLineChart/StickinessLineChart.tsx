@@ -4,7 +4,7 @@ import { useCallback, useMemo } from 'react'
 import { TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { PointClickData, Series, TimeSeriesLineChartConfig, TooltipContext } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { InsightEmptyState } from 'scenes/insights/EmptyStates'
@@ -49,7 +49,7 @@ interface StickinessLineChartProps {
 const handleChartError = makeChartErrorHandler('stickiness-line-chart')
 
 export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.Element | null {
-    const theme = useMemo(() => buildTheme(), [])
+    const theme = useChartTheme()
     const { insightProps } = useValues(insightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
     const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
@@ -115,7 +115,7 @@ export function StickinessLineChart({ context }: StickinessLineChartProps): JSX.
         [indexedResults, display, getTrendsColor, getTrendsHidden, getLabel, showMultipleYAxes, quillLegendEnabled]
     )
 
-    const chartConfig: TimeSeriesLineChartConfig = useMemo(
+    const chartConfig: TimeSeriesLineChartConfig = useChartConfig(
         () => ({
             ...buildStickinessLineTimeSeriesConfig({
                 yAxisScaleType,
