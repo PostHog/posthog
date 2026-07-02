@@ -1043,8 +1043,10 @@ class DesktopFileSystemViewSet(FileSystemViewSet):
     def _allow_delete_without_ref(self, entry: FileSystem) -> bool:
         # Desktop canvases are `dashboard`-typed rows whose source lives in `meta`,
         # not a backing Dashboard, so they legitimately have no ref. Delete the bare
-        # row (nothing to cascade to) rather than refusing.
-        return True
+        # row (nothing to cascade to) rather than refusing. Scope this to `dashboard`
+        # only — any other registered type with no ref is still a data-integrity
+        # error we refuse to delete, even on the desktop surface.
+        return entry.type == "dashboard"
 
     def perform_create(self, serializer: serializers.BaseSerializer) -> None:
         super().perform_create(serializer)

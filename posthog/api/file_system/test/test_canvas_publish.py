@@ -117,3 +117,20 @@ class TestDesktopCanvasPublishAPI(APIBaseTest):
         self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT, response.content)
         self.assertFalse(FileSystem.objects.filter(id=folder.id).exists())
         self.assertFalse(FileSystem.objects.filter(id=item_id).exists())
+
+    def test_delete_ref_less_non_dashboard_registered_row_still_refused_on_desktop(self):
+        # The desktop ref-less exemption is scoped to `dashboard` canvases. Any other
+        # registered type with no ref is still a data-integrity error we refuse to delete.
+        file_obj = FileSystem.objects.create(
+            team=self.team,
+            path="MyChannel/OrphanInsight",
+            type="insight",
+            surface="desktop",
+            created_by=self.user,
+        )
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/desktop_file_system/{file_obj.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST, response.content)
+        self.assertEqual(response.json()["detail"], "Cannot delete type 'insight' without a reference.")
+        self.assertTrue(FileSystem.objects.filter(id=file_obj.id).exists())
