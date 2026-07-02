@@ -56,9 +56,9 @@ _REAL_TIME_EVALUATE_RETRY_POLICY = RetryPolicy(
 )
 
 _REAL_TIME_TIMEOUTS = AlertTimeouts(
-    workflow_execution=dt.timedelta(minutes=4),
-    activity_schedule_to_close=dt.timedelta(minutes=3),
-    evaluate_start_to_close=dt.timedelta(seconds=90),
+    workflow_execution=dt.timedelta(minutes=7),
+    activity_schedule_to_close=dt.timedelta(minutes=6),
+    evaluate_start_to_close=dt.timedelta(minutes=3),
     evaluate_retry_policy=_REAL_TIME_EVALUATE_RETRY_POLICY,
     notify_start_to_close=dt.timedelta(seconds=60),
 )
