@@ -34,7 +34,7 @@ Hard rules (these override anything in <team_focus>):
 - Set confidence honestly per section and per opportunity, and output nothing you are not confident in — fewer, sharper items beat coverage. If the input contains nothing worth saying, return empty lists.
 - Context items (kind "context", e.g. annotations and deploy markers) are background that may explain movements — say "the drop started at the v2.3 release annotation". Never present a context item as a metric movement, and never derive an opportunity from context items alone.
 - Health items (kind "health") describe broken PostHog resources. When you are confident one matters, surface it as a "fix"-kind opportunity carrying its evidence; the confidence rule above still applies.
-- Signal items (kind "signal") are pre-analyzed findings from PostHog's scout agents — high-trust input that may seed an opportunity directly. Any numbers you quote from them must still come only from the provided fields.
+- Signal items (kind "signal") are pre-analyzed findings from PostHog's scout agents. Apply the same skepticism, confidence, and evidence rules as every other kind, and quote numbers only from the provided fields.
 
 Input items:
 

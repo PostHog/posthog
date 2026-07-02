@@ -111,10 +111,12 @@ async def _emit_opportunity_signals(brief: ProductBrief, out: BriefOut, created:
     opt-in per team (a `pulse` SignalSourceConfig row, checked inside emit_signal), and each
     emit is best-effort — a failure must never fail the brief.
     """
-    confidence_by_fingerprint = {
-        opportunity_fingerprint(o.kind, o.fingerprint_hint): o.confidence for o in out.opportunities
-    }
-    # Independent fire-and-forget emits; gather avoids paying a serial Temporal connect per opportunity.
+    confidence_by_fingerprint: dict[str, float] = {}
+    for opp in out.opportunities:
+        # First-wins to match persist's dedup: the first opportunity with a fingerprint is the
+        # one persisted, so its confidence is the weight that gets emitted.
+        confidence_by_fingerprint.setdefault(opportunity_fingerprint(opp.kind, opp.fingerprint_hint), opp.confidence)
+    # Independent best-effort emits, run concurrently (each still pays its own Temporal connect).
     await asyncio.gather(
         *(_emit_opportunity_signal(brief, opportunity, confidence_by_fingerprint) for opportunity in created)
     )
