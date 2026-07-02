@@ -8,6 +8,7 @@ use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::{mpsc, Mutex};
 use tracing::warn;
+use uuid::Uuid;
 
 /// A forward, on-demand stream of decompressed plaintext blocks for a single part.
 ///
@@ -89,8 +90,39 @@ pub trait StagingBackend: Send + Sync {
 /// Make a key safe to use as a filename / object suffix. Matches the existing sources'
 /// `:`-replacement and additionally neutralizes path separators so nested S3 keys stay
 /// a single flat name.
+///
+/// Invariant: callers stage one source per job, so all keys within a job share a single
+/// style (date-range keys or S3 paths) and stay distinct after sanitization. This does not
+/// guarantee global injectivity — `a:b` and `a/b` both map to `a_b` — so do not mix key
+/// styles under one backend instance.
 pub(crate) fn sanitize_key(key: &str) -> String {
     key.replace([':', '/'], "_")
+}
+
+/// Write a plaintext stream to `path`, fsync, and return the byte count. Used by
+/// `LocalDiskBackend::stage_part` against a temp path so the caller can rename atomically.
+async fn stage_to_file(
+    path: &std::path::Path,
+    plaintext: &mut PlaintextStream,
+    key: &str,
+) -> Result<u64, Error> {
+    let mut file = File::create(path)
+        .await
+        .with_context(|| format!("Failed to create data file for key: {key}"))?;
+
+    let mut total: u64 = 0;
+    while let Some(block) = plaintext.next().await {
+        let block = block.with_context(|| format!("Failed to decompress part for key: {key}"))?;
+        file.write_all(&block)
+            .await
+            .with_context(|| format!("Failed to write staged data for key: {key}"))?;
+        total += block.len() as u64;
+    }
+
+    file.sync_all()
+        .await
+        .with_context(|| format!("Failed to sync staged data for key: {key}"))?;
+    Ok(total)
 }
 
 /// Stages part plaintext as a `.data` file under a per-job directory, reading it back with
@@ -144,24 +176,32 @@ impl StagingBackend for LocalDiskBackend {
             .await
             .with_context(|| format!("Failed to create staging dir: {}", self.job_dir.display()))?;
 
-        let path = self.data_path(key);
-        let mut file = File::create(&path)
-            .await
-            .with_context(|| format!("Failed to create data file for key: {key}"))?;
+        // Stage to a unique temp file, then atomically rename to the key path only after a
+        // successful sync. A failure mid-write leaves the partial at the temp path, never at
+        // the observable key path, so `size`/`read` can't see a truncated part.
+        let final_path = self.data_path(key);
+        let tmp_path =
+            self.job_dir
+                .join(format!("{}.{}.partial", sanitize_key(key), Uuid::now_v7()));
 
-        let mut total: u64 = 0;
-        while let Some(block) = plaintext.next().await {
-            let block =
-                block.with_context(|| format!("Failed to decompress part for key: {key}"))?;
-            file.write_all(&block)
-                .await
-                .with_context(|| format!("Failed to write staged data for key: {key}"))?;
-            total += block.len() as u64;
-        }
+        let total = match stage_to_file(&tmp_path, &mut plaintext, key).await {
+            Ok(total) => total,
+            Err(e) => {
+                if let Err(cleanup_err) = tokio::fs::remove_file(&tmp_path).await {
+                    if cleanup_err.kind() != std::io::ErrorKind::NotFound {
+                        warn!(
+                            "Failed to remove partial staged file {}: {cleanup_err}",
+                            tmp_path.display()
+                        );
+                    }
+                }
+                return Err(e);
+            }
+        };
 
-        file.sync_all()
+        tokio::fs::rename(&tmp_path, &final_path)
             .await
-            .with_context(|| format!("Failed to sync staged data for key: {key}"))?;
+            .with_context(|| format!("Failed to publish staged data for key: {key}"))?;
 
         self.sizes.lock().await.insert(key.to_string(), total);
         Ok(total)
@@ -315,6 +355,43 @@ mod tests {
         let be = LocalDiskBackend::new(job_dir);
         assert_eq!(be.size("k1").await.unwrap(), Some(body.len() as u64));
         assert_eq!(be.read("k1", 0, 1000).await.unwrap(), body);
+    }
+
+    #[tokio::test]
+    async fn failed_stage_leaves_no_observable_key() {
+        // A mid-stream error must not publish a partial file: size() stays None and no
+        // .data appears at the key path (only, transiently, a .partial temp that is removed).
+        let root = TempDir::new().unwrap();
+        let be = backend(root.path());
+        let (tx, rx) = mpsc::channel(4);
+        tx.send(Ok(Bytes::from_static(b"partial data")))
+            .await
+            .unwrap();
+        tx.send(Err(anyhow::anyhow!("decode blew up")))
+            .await
+            .unwrap();
+        drop(tx);
+
+        let result = be.stage_part("k", PlaintextStream::new(rx)).await;
+        assert!(result.is_err());
+        assert_eq!(be.size("k").await.unwrap(), None);
+        assert!(be.read("k", 0, 10).await.is_err());
+
+        // No leftover files under the job dir (partial temp cleaned up, no key file).
+        let mut entries = tokio::fs::read_dir(root.path().join("job-TEST"))
+            .await
+            .unwrap();
+        assert!(entries.next_entry().await.unwrap().is_none());
+    }
+
+    #[tokio::test]
+    async fn restage_overwrites_atomically() {
+        let root = TempDir::new().unwrap();
+        let be = backend(root.path());
+        stage_bytes(&be, "k", b"first version").await.unwrap();
+        let size = stage_bytes(&be, "k", b"second").await.unwrap();
+        assert_eq!(size, 6);
+        assert_eq!(be.read("k", 0, 100).await.unwrap(), b"second");
     }
 
     #[tokio::test]
