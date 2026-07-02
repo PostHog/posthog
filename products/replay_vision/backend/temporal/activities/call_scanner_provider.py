@@ -66,9 +66,11 @@ _OutputT = TypeVar("_OutputT", bound=BaseModel)
 @track_activity()
 async def call_scanner_provider_activity(inputs: CallScannerProviderInputs) -> ScannerCallOutput:
     """Run the scanner conversation against the uploaded video + cached events; validate, finalize, return the output."""
-    snapshot, team_name, llm_inputs = await asyncio.gather(
-        sync_to_async(_load_snapshot)(inputs.observation_id, inputs.team_id),
-        sync_to_async(_load_team_name)(inputs.team_id),
+    # Both ORM reads run in one sync_to_async call so they share a single thread and Postgres connection and
+    # execute sequentially — issuing them as separate gathered coroutines let two queries interleave on one
+    # connection and desynced the wire protocol ("lost synchronization with server").
+    (snapshot, team_name), llm_inputs = await asyncio.gather(
+        sync_to_async(_load_snapshot_and_team_name)(inputs.observation_id, inputs.team_id),
         _load_llm_inputs(inputs.observation_id),
     )
     scanner = scanner_from_snapshot(snapshot)
@@ -130,6 +132,11 @@ def _extract_segments(text: str, duration_ms: int) -> tuple[str, list[Segment]]:
     if trailing:
         segments.append(TextSegment(value=trailing))
     return "".join(plain_parts), segments
+
+
+def _load_snapshot_and_team_name(observation_id: UUID, team_id: int) -> tuple[ScannerSnapshot, str]:
+    """Both point lookups in one sync call so they run sequentially on a single Postgres connection."""
+    return _load_snapshot(observation_id, team_id), _load_team_name(team_id)
 
 
 def _load_snapshot(observation_id: UUID, team_id: int) -> ScannerSnapshot:
