@@ -36,11 +36,11 @@ from products.alerts.backend.models.alert import AlertConfiguration
 from products.product_analytics.backend.models.insight import Insight
 
 
-def extract_detector_series(
+def extract_trends_series(
     insight: Insight,
     team: Any,
     query: TrendsQuery,
-    detector_config: dict[str, Any],
+    min_samples: int,
     execution_mode: ExecutionMode,
     *,
     series_index: int = 0,
@@ -55,7 +55,6 @@ def extract_detector_series(
     ``empty_query_result=True``; rows that exist but are too short to score are dropped, also leaving
     an empty series list, but with the flag False — the two cases evaluate to 0 and None respectively.
     """
-    min_samples = _compute_min_samples_for_detector(detector_config) + 1
     is_non_time_series = _is_non_time_series_trend(query)
     has_breakdown = _has_breakdown(query)
 
@@ -102,6 +101,30 @@ def extract_detector_series(
         series.append(ComparableSeries(label=prepared.label, points=points, current_index=len(points) - 1))
 
     return ExtractionResult(series=series, is_breakdown=has_breakdown, interval_type=query.interval)
+
+
+def extract_detector_series(
+    insight: Insight,
+    team: Any,
+    query: TrendsQuery,
+    detector_config: dict[str, Any],
+    execution_mode: ExecutionMode,
+    *,
+    series_index: int = 0,
+    date_from: str | None = None,
+    user: Optional[User] = None,
+) -> ExtractionResult:
+    """Detector-path wrapper around ``extract_trends_series``, sizing the lookback from the detector config."""
+    return extract_trends_series(
+        insight,
+        team,
+        query,
+        _compute_min_samples_for_detector(detector_config) + 1,
+        execution_mode,
+        series_index=series_index,
+        date_from=date_from,
+        user=user,
+    )
 
 
 def _triggered_dates(series: ComparableSeries, triggered_indices: list[int]) -> list[str]:
