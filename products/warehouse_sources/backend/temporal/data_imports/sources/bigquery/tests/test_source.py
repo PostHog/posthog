@@ -586,11 +586,12 @@ def _run_delete_all_temp_destination_tables(side_effect, logger):
     [
         Forbidden("Access Denied: Permission bigquery.tables.list denied on dataset"),
         NotFound("Dataset not found (or it may not exist)"),
+        RefreshError(("invalid_grant: Invalid JWT Signature.", {"error": "invalid_grant"})),
     ],
 )
 def test_delete_all_temp_destination_tables_swallows_expected_errors_quietly(exception):
-    """Lost permissions or a deleted dataset during best-effort cleanup must NOT be
-    captured to error tracking — it's expected and fires on every sync otherwise."""
+    """Lost permissions, a deleted dataset, or rejected credentials during best-effort cleanup
+    must NOT be captured to error tracking — it's expected and fires on every sync otherwise."""
     logger = mock.MagicMock()
 
     mock_capture = _run_delete_all_temp_destination_tables(exception, logger)

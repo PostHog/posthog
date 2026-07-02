@@ -72,8 +72,9 @@ class TestFormatJqlDatetime:
 
 
 class TestBuildIssuesJql:
-    def test_no_last_value_orders_ascending(self) -> None:
-        assert _build_issues_jql("updated", None) == "ORDER BY updated ASC"
+    def test_no_last_value_bounds_with_epoch_floor(self) -> None:
+        # ``/search/jql`` 400s on unbounded queries, so a full sync must still carry a lower bound.
+        assert _build_issues_jql("updated", None) == 'updated >= "1970-01-01 00:00" ORDER BY updated ASC'
 
     def test_with_last_value_filters_and_orders(self) -> None:
         jql = _build_issues_jql("updated", datetime(2026, 3, 4, 2, 58))
@@ -84,7 +85,7 @@ class TestBuildIssuesJql:
         assert jql == 'created >= "2026-03-03 02:58" ORDER BY created ASC'
 
     def test_none_field_defaults_to_updated(self) -> None:
-        assert _build_issues_jql(None, None) == "ORDER BY updated ASC"
+        assert _build_issues_jql(None, None) == 'updated >= "1970-01-01 00:00" ORDER BY updated ASC'
 
 
 class TestExtractItems:

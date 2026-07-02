@@ -1,6 +1,6 @@
 import { renderHook } from '@testing-library/react'
 
-import type { Series } from '../../../core/types'
+import type { Series } from '../../core/types'
 import { useDerivedSeries } from './use-derived-series'
 
 const SOURCE: Series[] = [

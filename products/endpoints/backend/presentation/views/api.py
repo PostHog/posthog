@@ -1,13 +1,13 @@
 """HTTP layer for the Endpoints product.
 
 The viewset is intentionally thin: authentication/permissions, request parsing,
-and response serialization. Business logic lives in ``backend/services``:
+and response serialization. Business logic lives in ``backend/logic``:
 
-- ``services.crud``: create/update/destroy orchestration + activity logging
-- ``services.execution``: the /run path (materialized / inline / DuckLake)
-- ``services.materialization``: enable/disable/preview materialization
-- ``services.strategies``: HogQL vs insight query behavior
-- ``services.validation``: request payload validation
+- ``logic.crud``: create/update/destroy orchestration + activity logging
+- ``logic.execution``: the /run path (materialized / inline / DuckLake)
+- ``logic.materialization``: enable/disable/preview materialization
+- ``logic.strategies``: HogQL vs insight query behavior
+- ``logic.validation``: request payload validation
 """
 
 import re
@@ -53,33 +53,31 @@ from posthog.rbac.access_control_api_mixin import AccessControlViewSetMixin
 from posthog.rbac.user_access_control import access_level_satisfied_for_resource
 from posthog.schema_migrations.upgrade import upgrade
 
-from products.endpoints.backend.constants import ENDPOINT_NAME_REGEX
-from products.endpoints.backend.logs import ENDPOINTS_LOG_SOURCE
-from products.endpoints.backend.models import Endpoint, EndpointVersion
-from products.endpoints.backend.openapi import generate_openapi_spec
-from products.endpoints.backend.rate_limit import (
-    EndpointBurstThrottle,
-    EndpointProjectSecretApiKeyTeamBurstThrottle,
-    EndpointProjectSecretApiKeyTeamSustainedThrottle,
-    EndpointSustainedThrottle,
+from products.endpoints.backend.facade.api import (
+    EndpointCrudService,
+    EndpointExecutionService,
+    EndpointMaterializationService,
+    build_materialization_info,
+    generate_openapi_spec,
+    get_last_execution_times,
+    validate_bucket_overrides,
+    validate_endpoint_request,
+    validate_update_request,
 )
-from products.endpoints.backend.serializers import (
+from products.endpoints.backend.facade.enums import ENDPOINT_NAME_REGEX, ENDPOINTS_LOG_SOURCE
+from products.endpoints.backend.facade.models import Endpoint, EndpointVersion
+from products.endpoints.backend.presentation.serializers import (
     EndpointMaterializationSerializer,
     EndpointRequestSerializer,
     EndpointResponseSerializer,
     EndpointRunResponseSerializer,
     EndpointVersionResponseSerializer,
 )
-from products.endpoints.backend.services.crud import EndpointCrudService
-from products.endpoints.backend.services.execution import EndpointExecutionService
-from products.endpoints.backend.services.materialization import (
-    EndpointMaterializationService,
-    build_materialization_info,
-)
-from products.endpoints.backend.services.validation import (
-    validate_bucket_overrides,
-    validate_endpoint_request,
-    validate_update_request,
+from products.endpoints.backend.presentation.throttles import (
+    EndpointBurstThrottle,
+    EndpointProjectSecretApiKeyTeamBurstThrottle,
+    EndpointProjectSecretApiKeyTeamSustainedThrottle,
+    EndpointSustainedThrottle,
 )
 
 
@@ -528,12 +526,7 @@ class EndpointViewSet(
                 if not isinstance(name, str) or not re.fullmatch(ENDPOINT_NAME_REGEX, name):
                     raise ValidationError({"names": f"Invalid endpoint name: {name}"})
 
-            endpoint_rows = list(
-                Endpoint.objects.filter(team=self.team, name__in=names, last_executed_at__isnull=False).values_list(
-                    "name", "last_executed_at"
-                )
-            )
-            results = [[name, ts.isoformat()] for name, ts in endpoint_rows if ts is not None]
+            results = [[name, ts.isoformat()] for name, ts in get_last_execution_times(self.team.pk, names)]
 
             query_status = QueryStatus(id="", team_id=self.team.pk, complete=True, results=results)
 
