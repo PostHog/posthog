@@ -891,6 +891,7 @@ class TestLogsAlertAPI(APIBaseTest):
         )
         assert delete_response.status_code == status.HTTP_204_NO_CONTENT
         assert HogFunction.objects.filter(id__in=ids, deleted=False).count() == 0
+        assert HogFunction.objects.filter(id__in=ids, enabled=True).count() == 0
 
     def test_delete_destination_rejects_foreign_hog_function_ids(self):
         self._sync_destination_templates()
