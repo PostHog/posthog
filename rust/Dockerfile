@@ -20,6 +20,15 @@ ARG BUILD_FEATURES=""
 ARG SCCACHE_WEBDAV_KEY_PREFIX
 ENV PROTO_ROOT=../proto SCCACHE_WEBDAV_KEY_PREFIX=${SCCACHE_WEBDAV_KEY_PREFIX}
 
+# Force frame pointers into the shipped binaries so the eBPF profiler can walk
+# native stacks. Without them, aarch64 release builds are effectively
+# un-unwindable at sample time and most user-space frames collapse to [unknown].
+# RUSTFLAGS env fully overrides [build].rustflags from .cargo/config.toml (they
+# don't merge), so --cfg tokio_unstable is repeated here to keep it for the
+# Linux image build. Symbols (function names) are already retained via
+# [profile.release] debug = "line-tables-only" and no strip step runs here.
+ENV RUSTFLAGS="--cfg tokio_unstable -C force-frame-pointers=yes"
+
 # Ensure working C compile setup (not installed by default in arm64 images)
 # libclang-dev is required for bindgen (used by librocksdb-sys)
 # pkg-config is required for openssl-sys to find system OpenSSL
