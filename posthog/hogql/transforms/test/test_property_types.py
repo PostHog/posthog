@@ -477,8 +477,10 @@ class TestPropertyTypes(BaseTest):
         # Array(String) — the same wrapping property_to_expr applies to typed exception filters.
         with materialized("events", "$exception_values"):
             printed = self._print_select(f"select uuid from events where {expr}")
-        assert "'Array(String)'" in printed
-        assert f"{fn_name}(JSONExtract(" in printed
+        # The membership function receives the property extracted to an array, not the bare String column.
+        # (The 'Array(String)' type literal is parameterized out by the printer, so match structure instead.)
+        assert f"{fn_name}(JSONExtract(ifNull(" in printed
+        assert "events.`mat_$exception_values`" in printed
         assert f"{fn_name}(events.`mat_$exception_values`" not in printed
 
     def test_non_exception_array_property_left_untouched(self):
@@ -486,7 +488,7 @@ class TestPropertyTypes(BaseTest):
         # array function must be left untouched so we don't change results elsewhere.
         with materialized("events", "$browser"):
             printed = self._print_select("select uuid from events where hasAny(properties.$browser, ['x'])")
-        assert "'Array(String)'" not in printed
+        assert "hasAny(JSONExtract(" not in printed
 
     def _print_select(self, select: str) -> str:
         expr = parse_select(select)
