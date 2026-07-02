@@ -4,6 +4,7 @@ import { LemonCard, LemonTable, LemonTag } from '@posthog/lemon-ui'
 
 import { Sparkline } from 'lib/components/Sparkline'
 
+import { RangeBar } from '../components/RangeBar'
 import { RunActivityChart } from '../components/RunActivityChart'
 import {
     DAY_LABELS,
@@ -209,12 +210,23 @@ export function MockWorkflowPage({ slug }: { slug: string }): JSX.Element {
                             {
                                 title: 'p50 → p95',
                                 align: 'right',
-                                render: (_, j) => (
-                                    <span className="tabular-nums">
-                                        {j.p50Min}m{' '}
-                                        <span className="text-tertiary">→ {Math.round(j.p50Min * 1.8)}m</span>
-                                    </span>
-                                ),
+                                render: (_, j) => {
+                                    const maxJobP95 = Math.max(...MOCK_JOB_AGGREGATES.map((a) => a.p50Min * 1.8))
+                                    return (
+                                        <span className="inline-block text-right">
+                                            <span className="tabular-nums">
+                                                {j.p50Min}m{' '}
+                                                <span className="text-tertiary">→ {Math.round(j.p50Min * 1.8)}m</span>
+                                            </span>
+                                            <RangeBar
+                                                fraction={j.p50Min / maxJobP95}
+                                                tickFraction={(j.p50Min * 1.8) / maxJobP95}
+                                                className="mt-0.5 block w-16"
+                                                tooltip={`p50 ${j.p50Min}m (fill) → p95 ${Math.round(j.p50Min * 1.8)}m (tick), scaled to the slowest job`}
+                                            />
+                                        </span>
+                                    )
+                                },
                             },
                             {
                                 title: 'Failure rate',

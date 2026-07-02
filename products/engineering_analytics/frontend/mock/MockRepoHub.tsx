@@ -5,6 +5,7 @@ import { LemonCard, LemonTable, LemonTag } from '@posthog/lemon-ui'
 import { Sparkline } from 'lib/components/Sparkline'
 
 import { FailureSparkline } from '../components/FailureSparkline'
+import { RangeBar } from '../components/RangeBar'
 import { RunActivityChart } from '../components/RunActivityChart'
 import {
     DAY_LABELS,
@@ -58,6 +59,7 @@ export function MockRepoHub(): JSX.Element {
     const otherCost = totalCost - top5.reduce((a, w) => a + w.cost30d, 0)
     // the attention slice: failing CI or stuck open — never the full 988-row open list
     const attentionPrs = MOCK_PRS.filter((p) => p.state === 'open' && (p.ci === 'failing' || p.openHours > 96))
+    const maxP95 = Math.max(...MOCK_WORKFLOWS.map((w) => w.p95Min))
 
     return (
         <div>
@@ -330,8 +332,17 @@ export function MockRepoHub(): JSX.Element {
                                 title: 'p50 → p95',
                                 align: 'right',
                                 render: (_, w) => (
-                                    <span className="tabular-nums">
-                                        {w.p50Min}m <span className="text-tertiary">→ {w.p95Min}m</span>
+                                    <span className="inline-block text-right">
+                                        <span className="tabular-nums">
+                                            {w.p50Min}m <span className="text-tertiary">→ {w.p95Min}m</span>
+                                        </span>
+                                        {/* shared scale across rows, so duration compares visually down the column */}
+                                        <RangeBar
+                                            fraction={w.p50Min / maxP95}
+                                            tickFraction={w.p95Min / maxP95}
+                                            className="mt-0.5 block w-20"
+                                            tooltip={`p50 ${w.p50Min}m (fill) → p95 ${w.p95Min}m (tick), scaled to the slowest workflow`}
+                                        />
                                     </span>
                                 ),
                             },
