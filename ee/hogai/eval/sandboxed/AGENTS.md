@@ -4,9 +4,9 @@ Every eval in this tree (and in `ee/hogai/eval/ci`) runs against a **single, det
 
 Source of truth (read these if anything below looks stale):
 
-- Simulation logic: `posthog/demo/products/hedgebox/models.py` (per-person session state machine + events)
-- Project setup (actions/cohorts/dashboards/insights/flags/experiments): `posthog/demo/products/hedgebox/matrix.py` → `HedgeboxMatrix.set_project_up`
-- Taxonomy constants (event/flag/group names): `posthog/demo/products/hedgebox/taxonomy.py`
+- Simulation logic: `products/demo/backend/logic/products/hedgebox/models.py` (per-person session state machine + events)
+- Project setup (actions/cohorts/dashboards/insights/flags/experiments): `products/demo/backend/logic/products/hedgebox/matrix.py` → `HedgeboxMatrix.set_project_up`
+- Taxonomy constants (event/flag/group names): `products/demo/backend/logic/products/hedgebox/taxonomy.py`
 - How evals seed it: `ee/hogai/eval/data_setup.py`
 
 ## How the data is seeded for evals
@@ -104,4 +104,4 @@ After simulation, the team is populated with named artifacts. Agents doing retri
 - Prefer relative date ranges (`-30d`, `-8w`, `-6m`) and shape-based assertions over absolute counts.
 - Set `filterTestAccounts=True` in expected queries when mirroring the seeded insights/dashboards.
 - For group/account-level math use the `account` group type (index 0).
-- The whole dataset is deterministic under `EVAL_SEED`; if you change the simulation in `posthog/demo/products/hedgebox/`, expected fixtures across `ci/` and `sandboxed/` may need re-baselining.
+- The whole dataset is deterministic under `EVAL_SEED`; if you change the simulation in `products/demo/backend/logic/products/hedgebox/`, expected fixtures across `ci/` and `sandboxed/` may need re-baselining.
