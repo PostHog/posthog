@@ -26,6 +26,7 @@ import { ENTITY_MATCH_TYPE } from 'lib/constants'
 import { scrollToFormError } from 'lib/forms/scrollToFormError'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
+import { getCurrentTeamId } from 'lib/utils/getAppContext'
 import { objectsEqual } from 'lib/utils/objects'
 import { isOperatorDate } from 'lib/utils/operators'
 import { NEW_COHORT, NEW_CRITERIA, NEW_CRITERIA_GROUP } from 'scenes/cohorts/CohortFilters/constants'
@@ -275,20 +276,26 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
             },
         ],
         // User's column selection for this cohort's persons table, persisted per-cohort in
-        // localStorage (the logic is keyed by cohort id). Lets a refresh restore the columns
-        // even when the user hasn't saved them as a team-wide default.
+        // localStorage. Lets a refresh restore the columns even when the user hasn't saved them
+        // as a team-wide default. This is a local-only fallback that sits alongside the
+        // server-side column persistence in `columnConfiguratorLogic` (the persons table sets
+        // `showPersistentColumnConfigurator` and `contextKey: cohort:<id>` in the query above) —
+        // if you're extending column persistence, prefer doing it there.
         persistedColumns: [
             null as string[] | null,
-            { persist: true },
+            {
+                persist: true,
+                // Scope by team so columns don't leak across projects (e.g. after impersonation).
+                storageKey: `scenes.cohorts.cohortEditLogic.${getCurrentTeamId()}.${props.id}.persistedColumns`,
+            },
             {
                 setQuery: (state, { query }) => {
-                    if (isDataTableNode(query)) {
-                        const select = (query.source as ActorsQuery).select
-                        if (select) {
-                            return select
-                        }
+                    // Don't capture for unsaved drafts — every new cohort shares the 'new' logic
+                    // key, so persisting here would bleed columns from one draft into the next.
+                    if (!props.id || props.id === 'new' || !isDataTableNode(query)) {
+                        return state
                     }
-                    return state
+                    return (query.source as ActorsQuery).select ?? state
                 },
             },
         ],
@@ -333,6 +340,21 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
     })),
 
     selectors({
+        // The persons table query with the user's persisted column selection applied. Deriving
+        // this in a selector (instead of dispatching a corrective `setQuery` from a listener)
+        // avoids a render with default columns before the persisted ones kick in.
+        effectiveQuery: [
+            (s) => [s.query, s.persistedColumns],
+            (query: DataTableNode, persistedColumns: string[] | null): DataTableNode => {
+                if (persistedColumns && isDataTableNode(query)) {
+                    const source = query.source as ActorsQuery
+                    if (!objectsEqual(source.select, persistedColumns)) {
+                        return { ...query, source: { ...source, select: persistedColumns } }
+                    }
+                }
+                return query
+            },
+        ],
         canRemovePersonFromCohort: [
             (s) => [s.cohort],
             (cohort: CohortType) => {
@@ -642,18 +664,6 @@ export const cohortEditLogic = kea<cohortEditLogicType>([
         ],
     })),
     listeners(({ actions, values }) => ({
-        setCohort: () => {
-            // Restore the user's persisted column selection, overriding the defaults the
-            // setCohort reducer just applied to the persons query.
-            const { persistedColumns, query } = values
-            if (persistedColumns && isDataTableNode(query)) {
-                const source = query.source as ActorsQuery
-                if (!objectsEqual(source.select, persistedColumns)) {
-                    const restoredQuery: DataTableNode = { ...query, source: { ...source, select: persistedColumns } }
-                    actions.setQuery(restoredQuery)
-                }
-            }
-        },
         setCriteria: ({ newCriteria, groupIndex, criteriaIndex }) => {
             // When the person property key changes, auto-reset the operator to match the
             // property type (DateTime → "on the date", non-DateTime → "equals").
