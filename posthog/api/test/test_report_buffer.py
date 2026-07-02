@@ -72,9 +72,20 @@ class TestCspReportBufferedView(BaseTest):
 
 
 class TestCspReportBufferLogic(SimpleTestCase):
-    def _buffer(self, maxsize: int = 10, max_token_share: float = 1.0) -> CspReportBuffer:
+    def _buffer(
+        self,
+        maxsize: int = 10,
+        max_token_share: float = 1.0,
+        max_bytes: int = 1_000_000,
+        max_event_bytes: int = 100_000,
+    ) -> CspReportBuffer:
         return CspReportBuffer(
-            maxsize=maxsize, flush_interval=0.01, flush_max_events=100, max_token_share=max_token_share
+            maxsize=maxsize,
+            flush_interval=0.01,
+            flush_max_events=100,
+            max_token_share=max_token_share,
+            max_bytes=max_bytes,
+            max_event_bytes=max_event_bytes,
         )
 
     # _ensure_sender is patched out so no sender thread runs — collect/flush are driven synchronously.
@@ -99,7 +110,7 @@ class TestCspReportBufferLogic(SimpleTestCase):
         buf.enqueue([{"event": "a"}, {"event": "b"}], token="token-1")
         buf.enqueue([{"event": "c"}], token="token-2")
 
-        remaining = [(t, e["event"]) for t, e in (buf._queue.get_nowait() for _ in range(2))]
+        remaining = [(t, e["event"]) for t, e, _ in (buf._queue.get_nowait() for _ in range(2))]
         assert remaining == [("token-1", "b"), ("token-2", "c")]
         with self.assertRaises(queue.Empty):
             buf._queue.get_nowait()
@@ -111,8 +122,8 @@ class TestCspReportBufferLogic(SimpleTestCase):
         buf.enqueue([{"event": "quiet-1"}, {"event": "quiet-2"}], token="token-quiet")
 
         contents = [buf._queue.get_nowait() for _ in range(4)]
-        assert [e["event"] for t, e in contents if t == "token-noisy"] == ["noisy-0", "noisy-1"]
-        assert [e["event"] for t, e in contents if t == "token-quiet"] == ["quiet-1", "quiet-2"]
+        assert [e["event"] for t, e, _ in contents if t == "token-noisy"] == ["noisy-0", "noisy-1"]
+        assert [e["event"] for t, e, _ in contents if t == "token-quiet"] == ["quiet-1", "quiet-2"]
 
     @patch.object(CspReportBuffer, "_ensure_sender")
     def test_collect_frees_token_share_for_new_events(self, _mock_sender) -> None:
@@ -121,12 +132,31 @@ class TestCspReportBufferLogic(SimpleTestCase):
         assert len(buf._collect()) == 2
 
         buf.enqueue([{"event": "d"}], token="token-1")
-        assert [e["event"] for _, e in buf._collect()] == ["d"]
+        assert [e["event"] for _, e, _s in buf._collect()] == ["d"]
+
+    @patch.object(CspReportBuffer, "_ensure_sender")
+    def test_oversized_event_is_dropped(self, _mock_sender) -> None:
+        buf = self._buffer(max_event_bytes=100)
+        buf.enqueue([{"event": "big", "raw": "x" * 500}, {"event": "small"}], token="token-1")
+
+        contents = [buf._queue.get_nowait() for _ in range(buf._queue.qsize())]
+        assert [e["event"] for _, e, _s in contents] == ["small"]
+
+    @patch.object(CspReportBuffer, "_ensure_sender")
+    def test_byte_budget_evicts_oldest(self, _mock_sender) -> None:
+        buf = self._buffer(max_bytes=250, max_event_bytes=200)
+        # Each event serializes to ~120 bytes, so the third pushes total over 250.
+        events = [{"event": str(i), "raw": "x" * 100} for i in range(3)]
+        buf.enqueue(events, token="token-1")
+
+        contents = [buf._queue.get_nowait() for _ in range(buf._queue.qsize())]
+        assert [e["event"] for _, e, _s in contents] == ["1", "2"]
+        assert buf._total_bytes <= 250
 
     @patch("posthog.api.report_buffer.capture_exception")
     @patch("posthog.api.report_buffer.capture_batch_internal", side_effect=Exception("capture down"))
     def test_flush_failure_does_not_raise(self, mock_capture, mock_capture_exception) -> None:
         buf = self._buffer()
-        buf._flush([("token-1", {"event": "a"})])
+        buf._flush([("token-1", {"event": "a"}, 20)])
         assert mock_capture.call_count == 1
         assert mock_capture_exception.call_count == 1

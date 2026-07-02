@@ -6,16 +6,18 @@ retry budget), which starves bounded worker pools when capture-rs degrades. This
 buffer decouples the two: the view enqueues and returns immediately, a background
 sender thread batches events to ``capture_batch_internal``.
 
-CSP reporting is best-effort by contract: events beyond a token's fair share of
-the buffer are dropped, on overflow the oldest queued events are evicted, and
-buffered events are lost if the process dies before the final drain (all drops
-counted in ``csp_report_buffer_dropped``). Browsers never read report responses,
-so callers get no delivery guarantee either way.
+CSP reporting is best-effort by contract: oversized events and events beyond a
+token's fair share of the buffer are dropped, on count or byte overflow the
+oldest queued events are evicted, and buffered events are lost if the process
+dies before the final drain (all drops counted in ``csp_report_buffer_dropped``).
+Browsers never read report responses, so callers get no delivery guarantee
+either way.
 """
 
 from __future__ import annotations
 
 import os
+import json
 import queue
 import atexit
 import threading
@@ -29,6 +31,8 @@ from posthog.exceptions_capture import capture_exception
 from posthog.settings.ingestion import (
     CSP_REPORT_BUFFER_FLUSH_INTERVAL_SECONDS,
     CSP_REPORT_BUFFER_FLUSH_MAX_EVENTS,
+    CSP_REPORT_BUFFER_MAX_BYTES,
+    CSP_REPORT_BUFFER_MAX_EVENT_BYTES,
     CSP_REPORT_BUFFER_MAX_EVENTS,
 )
 
@@ -64,10 +68,14 @@ class CspReportBuffer:
         flush_interval: float = CSP_REPORT_BUFFER_FLUSH_INTERVAL_SECONDS,
         flush_max_events: int = CSP_REPORT_BUFFER_FLUSH_MAX_EVENTS,
         max_token_share: float = 0.5,
+        max_bytes: int = CSP_REPORT_BUFFER_MAX_BYTES,
+        max_event_bytes: int = CSP_REPORT_BUFFER_MAX_EVENT_BYTES,
     ) -> None:
         self.flush_interval = flush_interval
         self.flush_max_events = flush_max_events
-        self._queue: queue.Queue[tuple[str, dict[str, Any]]] = queue.Queue(maxsize=maxsize)
+        self.max_bytes = max_bytes
+        self.max_event_bytes = max_event_bytes
+        self._queue: queue.Queue[tuple[str, dict[str, Any], int]] = queue.Queue(maxsize=maxsize)
         self._lock = threading.Lock()
         self._sender: threading.Thread | None = None
         # Sender threads don't survive fork, so remember which process started ours.
@@ -81,32 +89,43 @@ class CspReportBuffer:
         # events on overflow.
         self._token_cap = max(1, int(maxsize * max_token_share))
         self._token_counts: dict[str, int] = {}
+        # Byte accounting: the count cap alone doesn't bound memory, events carry
+        # the raw report body. Guarded by _counts_lock like the token counts.
+        self._total_bytes = 0
         self._counts_lock = threading.Lock()
 
     def enqueue(self, events: list[dict[str, Any]], *, token: str) -> None:
         """Add events to the buffer without ever blocking the caller.
 
-        A token over its share drops its own incoming events; on overflow the
-        globally oldest events are evicted so fresh reports win across tokens.
+        Oversized events and a token over its share drop the incoming event; on
+        count or byte overflow the globally oldest events are evicted so fresh
+        reports win across tokens.
         """
         self._ensure_sender()
         accepted = 0
         for event in events:
+            # Serialized length bounds both the single event (request bodies can
+            # be far larger than any legitimate CSP report) and, summed, the
+            # buffer's total memory footprint.
+            size = len(json.dumps(event, default=str))
+            if size > self.max_event_bytes:
+                CSP_BUFFER_DROPPED.labels(reason="oversized").inc()
+                continue
             if not self._reserve_slot(token):
                 CSP_BUFFER_DROPPED.labels(reason="token_share").inc()
                 continue
             while True:
                 try:
-                    self._queue.put_nowait((token, event))
-                    accepted += 1
+                    self._queue.put_nowait((token, event, size))
                     break
                 except queue.Full:
-                    try:
-                        evicted_token, _ = self._queue.get_nowait()
-                        self._release_slot(evicted_token)
-                        CSP_BUFFER_DROPPED.labels(reason="overflow").inc()
-                    except queue.Empty:
-                        continue
+                    self._evict_oldest("overflow")
+            with self._counts_lock:
+                self._total_bytes += size
+            accepted += 1
+            while self._total_bytes > self.max_bytes:
+                if not self._evict_oldest("bytes_overflow"):
+                    break
         CSP_BUFFER_ENQUEUED.inc(accepted)
         CSP_BUFFER_DEPTH.set(self._queue.qsize())
 
@@ -124,6 +143,17 @@ class CspReportBuffer:
                 self._token_counts[token] = remaining
             else:
                 self._token_counts.pop(token, None)
+
+    def _evict_oldest(self, reason: str) -> bool:
+        try:
+            token, _, size = self._queue.get_nowait()
+        except queue.Empty:
+            return False
+        self._release_slot(token)
+        with self._counts_lock:
+            self._total_bytes -= size
+        CSP_BUFFER_DROPPED.labels(reason=reason).inc()
+        return True
 
     def _ensure_sender(self) -> None:
         if self._sender is not None and self._sender.is_alive() and self._sender_pid == os.getpid():
@@ -149,9 +179,9 @@ class CspReportBuffer:
             except Exception:
                 logger.exception("csp_report_buffer_sender_error")
 
-    def _collect(self) -> list[tuple[str, dict[str, Any]]]:
+    def _collect(self) -> list[tuple[str, dict[str, Any], int]]:
         """Wait up to ``flush_interval`` for work, then drain up to ``flush_max_events``."""
-        items: list[tuple[str, dict[str, Any]]] = []
+        items: list[tuple[str, dict[str, Any], int]] = []
         try:
             items.append(self._queue.get(timeout=self.flush_interval))
         except queue.Empty:
@@ -161,22 +191,29 @@ class CspReportBuffer:
                 items.append(self._queue.get_nowait())
             except queue.Empty:
                 break
-        for token, _ in items:
+        for token, _, _ in items:
             self._release_slot(token)
+        with self._counts_lock:
+            self._total_bytes -= sum(size for _, _, size in items)
         return items
 
-    def _flush(self, items: list[tuple[str, dict[str, Any]]]) -> None:
+    def _flush(self, items: list[tuple[str, dict[str, Any], int]]) -> None:
         CSP_BUFFER_DEPTH.set(self._queue.qsize())
         by_token: dict[str, list[dict[str, Any]]] = {}
-        for token, event in items:
+        for token, event, _ in items:
             by_token.setdefault(token, []).append(event)
         for token, events in by_token.items():
             try:
+                # max_attempts=1: token groups are submitted serially, so a
+                # degraded capture-rs must not multiply its timeout by resubmit
+                # rounds across every group in the flush — drop and count
+                # instead of stalling the sender for minutes.
                 result = capture_batch_internal(
                     events=events,
                     token=token,
                     event_source="get_csp_report",
                     process_person_profile=False,
+                    max_attempts=1,
                 )
                 result.raise_for_status()
                 CSP_BUFFER_SUBMITTED.inc(len(events))
@@ -189,14 +226,16 @@ class CspReportBuffer:
         # Best-effort final flush of at most one batch. The capture call itself can
         # still take its full timeout/retry budget — that has to fit inside the
         # pod's termination grace, it is not bounded here.
-        items: list[tuple[str, dict[str, Any]]] = []
+        items: list[tuple[str, dict[str, Any], int]] = []
         while len(items) < self.flush_max_events:
             try:
                 items.append(self._queue.get_nowait())
             except queue.Empty:
                 break
-        for token, _ in items:
+        for token, _, _ in items:
             self._release_slot(token)
+        with self._counts_lock:
+            self._total_bytes -= sum(size for _, _, size in items)
         if items:
             self._flush(items)
 

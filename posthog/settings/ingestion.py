@@ -83,6 +83,11 @@ CSP_REPORT_BUFFER_FLUSH_INTERVAL_SECONDS = get_from_env(
     "CSP_REPORT_BUFFER_FLUSH_INTERVAL_SECONDS", type_cast=float, default=0.5
 )
 CSP_REPORT_BUFFER_FLUSH_MAX_EVENTS = get_from_env("CSP_REPORT_BUFFER_FLUSH_MAX_EVENTS", type_cast=int, default=1000)
+# Memory bounds: the count cap alone doesn't bound memory because events carry the
+# raw report body. Per-event cap rejects pathological payloads (legit CSP reports
+# are a few KB); the total cap evicts oldest when crossed.
+CSP_REPORT_BUFFER_MAX_EVENT_BYTES = get_from_env("CSP_REPORT_BUFFER_MAX_EVENT_BYTES", type_cast=int, default=64 * 1024)
+CSP_REPORT_BUFFER_MAX_BYTES = get_from_env("CSP_REPORT_BUFFER_MAX_BYTES", type_cast=int, default=64 * 1024 * 1024)
 NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS = get_set(os.getenv("NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS", ""))
 
 ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS = get_set(os.getenv("ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS", ""))
