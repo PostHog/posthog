@@ -135,7 +135,7 @@ def _fetch_page(
 
 def validate_credentials(api_key: str) -> bool:
     try:
-        response = make_tracked_session().get(
+        response = make_tracked_session(redact_values=(api_key,)).get(
             f"{LINKRUNNER_BASE_URL}/campaigns", headers=_get_headers(api_key), params={"limit": 1}, timeout=10
         )
         return response.status_code in (200, 204)
@@ -152,7 +152,9 @@ def _flatten_attributed_user(item: dict[str, Any]) -> dict[str, Any]:
     row = dict(item)
     user_data = row.pop("user_data", None)
     if isinstance(user_data, dict):
-        row["user_id"] = user_data.get("id")
+        # `user_id` is part of the primary key, so index directly: a missing id must fail loudly
+        # rather than write None and seed a phantom, non-deduping row.
+        row["user_id"] = user_data["id"]
         row["user_name"] = user_data.get("name")
         row["user_email"] = user_data.get("email")
         row["user_phone"] = user_data.get("phone")
@@ -299,8 +301,9 @@ def get_rows(
     headers = _get_headers(api_key)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
     # One session reused across every page (and every campaign, for the fan-out) so urllib3 keeps the
-    # connection alive instead of re-handshaking per request.
-    session = make_tracked_session()
+    # connection alive instead of re-handshaking per request. Redact the API key from tracked logs /
+    # captured samples — it rides a nonstandard `linkrunner-key` header the denylist can't predict.
+    session = make_tracked_session(redact_values=(api_key,))
 
     start_timestamp = (
         _format_timestamp(db_incremental_field_last_value)

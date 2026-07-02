@@ -2,7 +2,12 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfigType
+from posthog.schema import (
+    DataWarehouseSourceCategory,
+    ReleaseStatus,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+)
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.linkrunner import source as source_module
@@ -25,6 +30,7 @@ class TestSourceConfig:
         assert config.iconPath.endswith(".svg")
         assert [f.name for f in config.fields] == ["api_key"]
         api_key = config.fields[0]
+        assert isinstance(api_key, SourceFieldInputConfig)
         assert api_key.type == SourceFieldInputConfigType.PASSWORD
         assert api_key.required is True
         assert api_key.secret is True

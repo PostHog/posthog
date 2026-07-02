@@ -129,7 +129,11 @@ def _collect(
     monkeypatch.setattr(linkrunner, "_fetch_page", _make_fake_fetch(responses))
     rows: list[dict] = []
     for table in get_rows(
-        api_key="k", endpoint=endpoint, logger=MagicMock(), resumable_source_manager=manager, **kwargs
+        api_key="k",
+        endpoint=endpoint,
+        logger=MagicMock(),
+        resumable_source_manager=manager,  # type: ignore[arg-type]
+        **kwargs,
     ):
         rows.extend(table.to_pylist())
     return rows
@@ -154,7 +158,7 @@ class TestCampaignsPagination:
             api_key="k",
             endpoint="campaigns",
             logger=MagicMock(),
-            resumable_source_manager=_FakeResumableManager(LinkrunnerResumeConfig(page=3)),
+            resumable_source_manager=_FakeResumableManager(LinkrunnerResumeConfig(page=3)),  # type: ignore[arg-type]
         ):
             rows.extend(table.to_pylist())
         assert [r["display_id"] for r in rows] == ["C3"]
@@ -212,7 +216,7 @@ class TestAttributedUsersFanOut:
                 api_key="k",
                 endpoint="attributed_users",
                 logger=MagicMock(),
-                resumable_source_manager=_FakeResumableManager(),
+                resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
                 should_use_incremental_field=True,
                 db_incremental_field_last_value=datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC),
             )
