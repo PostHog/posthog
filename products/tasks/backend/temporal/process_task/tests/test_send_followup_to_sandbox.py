@@ -3,9 +3,12 @@ from unittest.mock import MagicMock, patch
 
 from django.core.cache import cache
 
+from temporalio.exceptions import ApplicationError
+
 from products.tasks.backend.logic.services.agent_command import CommandResult
 from products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox import (
     REFRESH_RETRY_DELAY_SECONDS,
+    SEND_FOLLOWUP_MAX_ATTEMPTS,
     SendFollowupToSandboxInput,
     _refresh_sandbox_mcp,
     send_followup_to_sandbox,
@@ -370,8 +373,9 @@ class TestSendFollowupActivityRefreshOrdering:
 
 
 class TestSendFollowupTurnTimeout:
-    """A 504 means the message was delivered and the turn is still running —
-    the activity must not fail the run or write stream markers. Any other
+    """A read timeout (turn_in_flight) means the message was delivered and the
+    turn is still running — the activity must not fail the run or write stream
+    markers. A 504 *response* leaves delivery unknown and must retry; any other
     delivery failure stays fatal."""
 
     @pytest.fixture
@@ -411,7 +415,7 @@ class TestSendFollowupTurnTimeout:
         # Regression: a turn longer than FOLLOWUP_TIMEOUT_SECONDS used to fail
         # the run and destroy a healthy sandbox mid-work.
         _patches["user_msg"].return_value = CommandResult(
-            success=False, status_code=504, error="Sandbox request timed out", retryable=True
+            success=False, status_code=504, error="Sandbox request timed out", retryable=True, turn_in_flight=True
         )
 
         send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi"))
@@ -420,14 +424,71 @@ class TestSendFollowupTurnTimeout:
         _patches["turn_complete"].assert_not_called()
 
     def test_undelivered_message_stays_fatal(self, _patches):
-        # The non-fatal carve-out must stay scoped to 504 — a connection
-        # failure means the user's message never arrived.
+        # The non-fatal carve-out must stay scoped to delivered-but-running —
+        # a connection failure means the user's message never arrived.
         _patches["user_msg"].return_value = CommandResult(
             success=False, status_code=502, error="Connection to sandbox failed", retryable=True
         )
 
-        with pytest.raises(RuntimeError, match="Connection to sandbox failed"):
+        with pytest.raises(ApplicationError, match="Connection to sandbox failed") as exc_info:
             send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi"))
 
+        assert exc_info.value.non_retryable is True
         _patches["error"].assert_called_once()
         _patches["turn_complete"].assert_not_called()
+
+    def test_response_504_retries_without_sentinel(self, _patches):
+        # Regression: a genuine 504 *response* (tunnel gateway timeout,
+        # delivery unknown) used to be conflated with the read-timeout case
+        # and silently treated as delivered — losing the user's message.
+        _patches["user_msg"].return_value = CommandResult(
+            success=False, status_code=504, error="Sandbox returned 504", retryable=True
+        )
+
+        with pytest.raises(ApplicationError, match="delivery unknown") as exc_info:
+            send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi"))
+
+        assert exc_info.value.non_retryable is False
+        _patches["error"].assert_not_called()
+        _patches["turn_complete"].assert_not_called()
+
+    def test_response_504_final_attempt_writes_sentinel_and_fails(self, _patches):
+        _patches["user_msg"].return_value = CommandResult(
+            success=False, status_code=504, error="Sandbox returned 504", retryable=True
+        )
+
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox._current_attempt",
+                return_value=SEND_FOLLOWUP_MAX_ATTEMPTS,
+            ),
+            pytest.raises(ApplicationError, match="send_followup failed") as exc_info,
+        ):
+            send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi"))
+
+        assert exc_info.value.non_retryable is True
+        _patches["error"].assert_called_once()
+        _patches["turn_complete"].assert_not_called()
+
+    def test_duplicate_delivery_skips_markers(self, _patches):
+        # A retried attempt whose message the agent-server already accepted
+        # must not write a synthetic turn_complete — the turn is still running
+        # and the event stream owns its completion.
+        _patches["user_msg"].return_value = CommandResult(
+            success=True,
+            status_code=200,
+            data={"result": {"duplicate": True, "stopReason": "duplicate_delivery"}},
+        )
+
+        send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi", message_id="m-1"))
+
+        _patches["error"].assert_not_called()
+        _patches["turn_complete"].assert_not_called()
+
+    def test_message_id_forwarded_to_sandbox(self, _patches):
+        _patches["user_msg"].return_value = CommandResult(success=True, status_code=200)
+
+        send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi", message_id="m-1"))
+
+        _, kwargs = _patches["user_msg"].call_args
+        assert kwargs["message_id"] == "m-1"
