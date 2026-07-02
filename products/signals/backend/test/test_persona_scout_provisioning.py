@@ -1,0 +1,95 @@
+import pytest
+from posthog.test.base import BaseTest
+from unittest.mock import patch
+
+from products.signals.backend.facade.api import provision_persona_scouts
+from products.signals.backend.models import SignalScoutConfig
+from products.skills.backend.models.skills import LLMSkill
+
+CSM_SKILLS = [
+    "signals-scout-csm-account-pulse",
+    "signals-scout-csm-support-watch",
+    "signals-scout-csm-revenue-watch",
+]
+FIRE_PATH = "products.signals.backend.facade.api._fire_first_scout_run"
+
+
+class TestProvisionPersonaScouts(BaseTest):
+    def _provision(self, **overrides):
+        kwargs: dict = {
+            "team": self.team,
+            "created_by": self.user,
+            "slack_integration_id": 42,
+            "channel_id": "C_ALERTS",
+            "channel_name": "account-pulse",
+            "skill_names": CSM_SKILLS,
+        }
+        kwargs.update(overrides)
+        return provision_persona_scouts(**kwargs)
+
+    @patch(FIRE_PATH, return_value=True)
+    def test_fresh_team_gets_seeded_enabled_fleet_with_delivery_and_first_runs(self, fire_mock) -> None:
+        results = self._provision()
+        assert [r.skill_name for r in results] == CSM_SKILLS
+        assert all(r.created and r.first_run_started and r.channel_conflict is None for r in results)
+        for skill_name in CSM_SKILLS:
+            assert LLMSkill.objects.filter(team=self.team, name=skill_name, deleted=False).exists()
+            config = SignalScoutConfig.objects.for_team(self.team.id).get(skill_name=skill_name)
+            assert config.enabled is True
+            assert config.emit is True
+            assert config.run_interval_minutes == 1440
+            assert config.delivery_config["slack"]["channel_id"] == "C_ALERTS"
+            assert config.delivery_config["slack"]["integration_id"] == 42
+        assert fire_mock.call_count == len(CSM_SKILLS)
+
+    @patch(FIRE_PATH, return_value=True)
+    def test_existing_config_with_other_channel_is_not_overwritten(self, fire_mock) -> None:
+        skill = CSM_SKILLS[0]
+        SignalScoutConfig.objects.create(
+            team=self.team,
+            skill_name=skill,
+            enabled=False,
+            delivery_config={"slack": {"integration_id": 7, "channel_id": "C_OLD", "channel_name": "cs-alerts"}},
+        )
+        results = self._provision(skill_names=[skill])
+        assert results[0].channel_conflict == "cs-alerts"
+        assert results[0].created is False
+        assert results[0].first_run_started is False
+        config = SignalScoutConfig.objects.for_team(self.team.id).get(skill_name=skill)
+        assert config.delivery_config["slack"]["channel_id"] == "C_OLD"
+        assert config.enabled is True
+        fire_mock.assert_not_called()
+
+    @patch(FIRE_PATH, return_value=True)
+    def test_existing_config_without_delivery_is_adopted(self, fire_mock) -> None:
+        skill = CSM_SKILLS[0]
+        SignalScoutConfig.objects.create(team=self.team, skill_name=skill, enabled=False)
+        results = self._provision(skill_names=[skill])
+        assert results[0].created is False
+        assert results[0].channel_conflict is None
+        config = SignalScoutConfig.objects.for_team(self.team.id).get(skill_name=skill)
+        assert config.enabled is True
+        assert config.delivery_config["slack"]["channel_id"] == "C_ALERTS"
+
+    def test_unknown_skill_raises(self) -> None:
+        with pytest.raises(ValueError, match="Unknown canonical scout skill"):
+            self._provision(skill_names=["signals-scout-does-not-exist"])
+
+    @patch(FIRE_PATH, return_value=False)
+    def test_first_run_dispatch_failure_does_not_fail_provisioning(self, fire_mock) -> None:
+        results = self._provision(skill_names=[CSM_SKILLS[0]])
+        assert results[0].created is True
+        assert results[0].first_run_started is False
+        assert SignalScoutConfig.objects.for_team(self.team.id).filter(skill_name=CSM_SKILLS[0]).exists()
+
+    @patch(FIRE_PATH, return_value=True)
+    def test_tombstoned_skill_is_skipped_not_resurrected(self, fire_mock) -> None:
+        skill = CSM_SKILLS[0]
+        self._provision(skill_names=[skill])
+        LLMSkill.objects.filter(team=self.team, name=skill).update(deleted=True, is_latest=False)
+        SignalScoutConfig.objects.for_team(self.team.id).filter(skill_name=skill).delete()
+        results = self._provision(skill_names=[skill])
+        assert results[0].skipped_reason == "skill_tombstoned"
+        assert results[0].config_id is None
+        assert not LLMSkill.objects.filter(team=self.team, name=skill, deleted=False).exists()
+        assert not SignalScoutConfig.objects.for_team(self.team.id).filter(skill_name=skill).exists()
