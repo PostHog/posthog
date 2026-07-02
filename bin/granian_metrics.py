@@ -43,6 +43,19 @@ def create_granian_metrics(registry: CollectorRegistry) -> None:
     )
     total_workers.set(workers)
 
+    # In WSGI mode Python concurrency is bounded by the blocking thread pool and
+    # backpressure, not the Rust runtime threads above — export them when
+    # configured so dashboards read the right ceiling. When unset, granian
+    # auto-sizes them and the value is unknown to this process.
+    for env_var, metric_name, help_text in (
+        ("GRANIAN_BACKPRESSURE", "granian_backpressure", "Maximum in-flight requests per worker"),
+        ("GRANIAN_BLOCKING_THREADS", "granian_blocking_threads", "Python blocking threads per worker"),
+    ):
+        value = os.environ.get(env_var)
+        if value is not None:
+            gauge = Gauge(metric_name, help_text, registry=registry)
+            gauge.set(int(value))
+
 
 def main():
     """Start HTTP server to expose Prometheus metrics from all workers."""
