@@ -142,6 +142,7 @@ the row lists both.
 | exchange_rates_api      | HTTP                        | requests                                                        | ✅                          |
 | ezofficeinventory       | HTTP                        | requests                                                        | ✅                          |
 | factorial               | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| fastly                  | HTTP                        | requests                                                        | ✅                          |
 | fillout                 | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | finage                  | HTTP                        | requests                                                        | ✅                          |
 | financial_modelling     | HTTP                        | requests                                                        | ✅                          |
@@ -398,7 +399,6 @@ doesn't conflict with concurrent PRs.
 - expensify
 - facebook_pages
 - fastbill
-- fastly
 - fauna
 - feishu
 - firebase

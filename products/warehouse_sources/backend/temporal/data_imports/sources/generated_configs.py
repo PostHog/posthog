@@ -1140,7 +1140,7 @@ class FastbillSourceConfig(config.Config):
 
 @config.config
 class FastlySourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
