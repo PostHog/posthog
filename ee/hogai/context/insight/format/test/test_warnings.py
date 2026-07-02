@@ -23,6 +23,10 @@ def test_warning_blocks_split_the_shared_field_by_shape():
     assert "You don't have access" not in format_warehouse_sync_warnings(response)
     assert "You don't have access to 2 dashboards" in format_access_control_warnings(response)
     assert "sync failed" not in format_access_control_warnings(response)
+    # Concatenated blocks must not run together: each ends with a blank line, so the next
+    # header doesn't read as a bullet of the previous block in LLM-facing plain text.
+    combined = format_warehouse_sync_warnings(response) + format_access_control_warnings(response)
+    assert "\n\n[Access control" in combined
 
 
 def test_no_access_control_warning_block_when_nothing_filtered():

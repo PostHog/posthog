@@ -66,7 +66,8 @@ def _format_warnings(response: dict[str, Any], discriminator: str, header: str) 
     ]
     if not messages:
         return ""
-    return "\n".join([header, *(f"- {m}" for m in messages), ""])
+    # Trailing blank line so consecutive blocks (and the results after them) don't run together.
+    return "\n".join([header, *(f"- {m}" for m in messages), "", ""])
 
 
 def format_warehouse_sync_warnings(response: dict[str, Any]) -> str:
