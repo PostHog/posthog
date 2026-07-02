@@ -23,6 +23,7 @@ async def connect(
     server_root_ca_cert: str | None = None,
     settings: Any | None = django_settings,
     use_pydantic_converter: bool = False,
+    add_otel_tracing_interceptor: bool = True,
 ) -> Client:
     tls: TLSConfig | bool = False
     if client_cert and client_key:
@@ -42,12 +43,22 @@ async def connect(
             payload_codec=EncryptionCodec.from_settings(settings=settings),
         )
 
+    # The classic TracingInterceptor injects trace context into workflow start headers (so a
+    # caller's span becomes the parent of the workflow) AND creates spans for activity/workflow
+    # execution on any worker built from this client. Worker processes disable it via
+    # `add_otel_tracing_interceptor=False` because they trace execution through the worker's
+    # OpenTelemetryPlugin instead; leaving both on double-instruments every activity and workflow.
+    # Non-worker callers (Django, Celery, the CLI, schedules) keep it for start-context propagation.
+    interceptors: list[temporalio.client.Interceptor] = []
+    if add_otel_tracing_interceptor:
+        interceptors.append(temporalio.contrib.opentelemetry.TracingInterceptor())
+
     client = await Client.connect(
         f"{host}:{port}",
         namespace=namespace,
         tls=tls,
         runtime=runtime,
-        interceptors=[temporalio.contrib.opentelemetry.TracingInterceptor()],
+        interceptors=interceptors,
         data_converter=data_converter,
     )
     return client
