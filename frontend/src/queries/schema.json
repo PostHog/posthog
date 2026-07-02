@@ -22296,7 +22296,10 @@
                 "AirOps",
                 "Podium",
                 "Loops",
-                "Redis"
+                "Redis",
+                "Mercury",
+                "Gojiberry",
+                "Teachable"
             ],
             "type": "string"
         },

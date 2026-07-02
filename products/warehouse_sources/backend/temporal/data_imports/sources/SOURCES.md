@@ -419,6 +419,7 @@ doesn't conflict with concurrent PRs.
 - glassfrog
 - gmail
 - gnews
+- gojiberry
 - goldcast
 - gologin
 - google_ad_manager
@@ -505,6 +506,7 @@ doesn't conflict with concurrent PRs.
 - mendeley
 - mention
 - mercado_ads
+- mercury
 - merge
 - metricool
 - metronome
@@ -668,6 +670,7 @@ doesn't conflict with concurrent PRs.
 - systeme
 - tavus
 - tawk_to
+- teachable
 - teamtailor
 - tempo
 - testrail
