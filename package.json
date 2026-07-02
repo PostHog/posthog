@@ -88,6 +88,7 @@
         ".claude/hooks/**": "sh -c 'printf \"\\n\\033[33mWarning: hooks in .claude/ are reserved for env bootstrapping (SessionStart only).\\nPrefer skills, AGENTS.md instructions, or lint-staged rules. See Agent automation in AGENTS.md.\\033[0m\\n\\n\"'",
         "**/{AGENTS,CLAUDE}.md": "sh -c '.github/scripts/check-agents-md-symlinks.sh'",
         "packages/quill/packages/*/src/**/*.{ts,tsx,css}": "sh -c 'git diff --cached --name-only | grep -q \"^packages/quill/.*AGENTS\\\\.md$\" || printf \"\\n\\033[33mWarning: quill component sources changed without an AGENTS.md update.\\nIf variants, composition, or spacing changed, update the consumer guide (packages/quill/packages/<pkg>/AGENTS.md) in the same PR.\\033[0m\\n\\n\"'",
+        "frontend/public/services/*.{png,jpg,jpeg,gif}": "node frontend/bin/check-service-icon-size.mjs",
         "products/**/manifest.tsx": [
             "bin/hogli format:js",
             "sh -c 'pnpm build:products && git add frontend/src/products.tsx frontend/src/products.json'"
@@ -140,7 +141,7 @@
             "react-dom": "18.3.1",
             "sha.js": ">=2.4.12",
             "typescript": "6.0.3",
-            "uWebSockets.js": "https://codeload.github.com/uNetworking/uWebSockets.js/tar.gz/cfc9a40d8132a34881813cec3d5f8e3a185b3ce3",
+            "ultimate-express>uWebSockets.js": "-",
             "fast-xml-parser@^4": ">=4.5.4",
             "fast-xml-parser@^5": ">=5.3.5",
             "jest-playwright-preset>playwright-core": "1.60.0",

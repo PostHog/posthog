@@ -13,20 +13,13 @@ from django.db import close_old_connections, transaction
 from django.utils import timezone
 
 import structlog
-from clickhouse_driver.errors import ServerException
 from temporalio.exceptions import ApplicationError
 
 from posthog.schema import ExperimentQuery
 
 from posthog.clickhouse.client.connection import Workload
 from posthog.clickhouse.query_tagging import Feature, Product, tag_queries
-from posthog.errors import look_up_clickhouse_error_code_meta
 from posthog.event_usage import groups
-from posthog.exceptions import (
-    ClickHouseEstimatedQueryExecutionTimeTooLong,
-    ClickHouseQueryMemoryLimitExceeded,
-    ClickHouseQueryTimeOut,
-)
 from posthog.exceptions_capture import capture_exception
 from posthog.hogql_queries.query_runner import ExecutionMode
 from posthog.models.scoping import team_scope
@@ -34,6 +27,7 @@ from posthog.ph_client import ph_scoped_capture
 from posthog.sync import database_sync_to_async
 
 from products.experiments.backend.hogql_queries.base_query_utils import experiment_window_end
+from products.experiments.backend.hogql_queries.error_handling import classify_experiment_query_error
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.experiment_query_runner import ExperimentQueryRunner
 from products.experiments.backend.hogql_queries.utils import get_experiment_stats_method
@@ -44,6 +38,7 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.temporal.metric_resolution import build_metric, find_metric_dict
 from products.experiments.backend.temporal.models import (
+    METRIC_CALC_MAX_EXECUTION_TIME_SECONDS,
     ExperimentMetricToRecalculate,
     MetricRecalculationResult,
     RecalculationProgressUpdate,
@@ -75,6 +70,7 @@ class _RecalcState:
     experiment_id: int
     metric_uuids: list[str]
     query_to: datetime | None
+    trigger: str | None
 
 
 def _get_recalc_state(recalculation_id: str) -> _RecalcState:
@@ -82,7 +78,7 @@ def _get_recalc_state(recalculation_id: str) -> _RecalcState:
     row = (
         ExperimentMetricsRecalculation.objects.unscoped()
         .filter(id=recalculation_id)
-        .values("team_id", "experiment_id", "metric_uuids", "query_to")
+        .values("team_id", "experiment_id", "metric_uuids", "query_to", "trigger")
         .first()
     )
     if row is None:
@@ -97,6 +93,7 @@ def _get_recalc_state(recalculation_id: str) -> _RecalcState:
         experiment_id=row["experiment_id"],
         metric_uuids=row["metric_uuids"] or [],
         query_to=row["query_to"],
+        trigger=row["trigger"],
     )
 
 
@@ -381,6 +378,7 @@ def _capture_experiment_metric_event(
     metric_dict: dict | None,
     event: str,
     extra_properties: dict[str, Any],
+    trigger: str | None = None,
 ) -> None:
     """Emit a per-metric product analytics event. Telemetry must never fail the activity, so any error
     is swallowed. Attributed to the experiment creator, falling back to a team-scoped distinct_id.
@@ -388,6 +386,9 @@ def _capture_experiment_metric_event(
     `metric_type` is the primary/secondary classification carried from discovery
     (`ExperimentMetricToRecalculate.metric_type`), threaded through the workflow + activity args so the
     capture path doesn't have to re-query the M2M to resolve it.
+
+    Every recalc trigger is user-originated (manual click, page load, stale/auto refresh), so context is
+    "ui" with mechanism "orchestrated"; `trigger` carries the finer-grained origin.
     """
     try:
         team = experiment.team
@@ -407,6 +408,9 @@ def _capture_experiment_metric_event(
                     "metric_kind": (metric_dict or {}).get("metric_type"),
                     "is_primary": metric_type == "primary",
                     "execution_mode": "recalculation",
+                    "context": "ui",
+                    "mechanism": "orchestrated",
+                    "trigger": trigger,
                     **extra_properties,
                 },
                 groups=groups(organization=team.organization, team=team),
@@ -419,22 +423,6 @@ def _capture_experiment_metric_event(
             metric_uuid=metric_uuid,
             exc_info=True,
         )
-
-
-# error_type values mirror the client-side `classifyError` taxonomy (experimentLogic.tsx) so
-# recalculation failures land on the same dashboards as the legacy client events.
-def _classify_query_error_type(e: Exception) -> str:
-    if isinstance(e, (ClickHouseQueryTimeOut, ClickHouseEstimatedQueryExecutionTimeTooLong)):
-        return "timeout"
-    if isinstance(e, ClickHouseQueryMemoryLimitExceeded):
-        return "out_of_memory"
-    if isinstance(e, ServerException):
-        name = look_up_clickhouse_error_code_meta(e).name
-        if name in ("TIMEOUT_EXCEEDED", "SOCKET_TIMEOUT"):
-            return "timeout"
-        if name == "MEMORY_LIMIT_EXCEEDED":
-            return "out_of_memory"
-    return "server_error"
 
 
 # ---------------------------------------------------------------------------
@@ -542,9 +530,16 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 team=experiment.team,
                 as_of=query_to_dt,
                 workload=Workload.OFFLINE,
-                # Scheduled recalc has no request user. Attribute the query to the experiment's creator so
-                # warehouse HogQL access control is enforced against an accountable user instead of bypassed.
-                user=experiment.created_by,
+                # Userless background recompute. Warehouse access is enforced when the metric is authored,
+                # so resolve warehouse tables here instead of failing closed.
+                bypass_warehouse_access_control=True,
+                # Internal caller: keep exceptions raw so the except branches below see the original types
+                # (StatisticError must not arrive pre-converted to ValidationError), and keep the runner's
+                # own error event silent — this activity emits the terminal event itself, on the final attempt.
+                user_facing=False,
+                error_event_context=None,
+                # Must fail typed inside the activity before Temporal's start_to_close kill — see models.py.
+                max_execution_time=METRIC_CALC_MAX_EXECUTION_TIME_SECONDS,
             )
 
             # Attribute CH load back to this team + product so query_log analysis can tell whose recalc is
@@ -577,6 +572,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                 metric_dict,
                 "experiment metric finished",
                 {"duration_ms": round((time.perf_counter() - calc_started_at) * 1000)},
+                trigger=state.trigger,
             )
             return MetricRecalculationResult(metric_uuid=metric_uuid, success=True)
 
@@ -611,6 +607,7 @@ def _calculate_experiment_metric_for_recalculation_sync(
                     "error_type": "insufficient_data",
                     "error_message": message,
                 },
+                trigger=state.trigger,
             )
             return _fail(recalculation_id, metric_uuid, "calculation", message)
 
@@ -653,9 +650,10 @@ def _calculate_experiment_metric_for_recalculation_sync(
                     "experiment metric error",
                     {
                         "duration_ms": round((time.perf_counter() - calc_started_at) * 1000),
-                        "error_type": _classify_query_error_type(e),
+                        "error_type": classify_experiment_query_error(e),
                         "error_message": message,
                     },
+                    trigger=state.trigger,
                 )
             logger.exception(
                 "Experiment metric recalculation failed",

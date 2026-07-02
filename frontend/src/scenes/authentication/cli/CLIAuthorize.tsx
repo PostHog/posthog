@@ -41,7 +41,7 @@ export function CLIAuthorize(): JSX.Element {
         useActions(cliAuthorizeLogic)
 
     return (
-        <BridgePage view="login" hedgehog={false}>
+        <BridgePage view="login">
             {isSuccess ? (
                 <div className="text-center space-y-4">
                     <h2>CLI Authorization Complete</h2>

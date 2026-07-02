@@ -156,12 +156,7 @@ export function buildSamplingConfigPayload(form: LogsSamplingFormType): Record<s
             filter_group: wrapFilterGroup(form.filter_group),
         }
     }
-    // `patterns: []` keeps the existing path_drop config validator happy.
-    // Backend filter_group evaluation is wired in the follow-up PR; today the
-    // worker reads `patterns` only, so rules saved through the new UI are
-    // no-ops on the ingestion path until that lands.
     return {
-        patterns: [],
         filter_group: wrapFilterGroup(form.filter_group),
     }
 }

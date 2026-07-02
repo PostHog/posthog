@@ -41,7 +41,9 @@ use crate::stage1::transition::{LeafTransition, TransitionKind};
 use crate::store::{CohortStore, IndexOp, PersonIndexKey};
 use crate::sweep::EvictionQueue;
 use crate::workers::cascade_path::handle_cascade;
-use crate::workers::event_path::{process_event_with_memo, schedule_deadline, SkipReason};
+use crate::workers::event_path::{
+    process_event_with_memo, schedule_deadline, EventNameGating, SkipReason,
+};
 use crate::workers::merge_gc::{handle_merge_gc, MergeGcCursor};
 use crate::workers::merge_path::{handle_apply, handle_merge, handle_redrive, MergeWorkerDeps};
 use crate::workers::person_memo::{PersonMemo, PersonMemoConfig};
@@ -90,6 +92,7 @@ impl Stage1Worker {
             merge,
             durable_restore,
             PersonMemoConfig::DISABLED,
+            EventNameGating::Disabled,
         )
     }
 
@@ -106,6 +109,7 @@ impl Stage1Worker {
         merge: Arc<MergeWorkerDeps>,
         durable_restore: bool,
         person_memo: PersonMemoConfig,
+        event_name_gating: EventNameGating,
     ) -> Self {
         let handle = tokio::spawn(run_worker(
             partition_id,
@@ -117,6 +121,7 @@ impl Stage1Worker {
             merge,
             durable_restore,
             person_memo,
+            event_name_gating,
         ));
         Self {
             partition_id,
@@ -144,6 +149,7 @@ async fn run_worker(
     merge: Arc<MergeWorkerDeps>,
     durable_restore: bool,
     person_memo: PersonMemoConfig,
+    event_name_gating: EventNameGating,
 ) {
     info!(partition_id, "stage 1 worker started");
 
@@ -181,6 +187,7 @@ async fn run_worker(
                         &last_updated,
                         merge.partition_count,
                         &mut person_memo,
+                        event_name_gating,
                     );
                     buffer.extend(effects.changes);
                     for (key, deadline) in effects.schedules {
@@ -494,6 +501,7 @@ fn handle_event(
     last_updated: &str,
     partition_count: u32,
     person_memo: &mut PersonMemo,
+    event_name_gating: EventNameGating,
 ) -> EventEffects {
     let snapshot = catalog.load();
     let generation = snapshot.generation();
@@ -523,6 +531,7 @@ fn handle_event(
         generation,
         &resolved,
         person_memo,
+        event_name_gating,
     );
     histogram!(STAGE1_EVENT_PROCESS_DURATION).record(started.elapsed().as_secs_f64());
 
@@ -1082,7 +1091,7 @@ mod tombstone_redirect_tests {
             merge,
             1,
             vec![ShuffleMessage::Event {
-                event: person_event(person, "u@p.com", 5, 0),
+                event: Box::new(person_event(person, "u@p.com", 5, 0)),
                 cse_offset: 0,
             }],
         )
@@ -1217,7 +1226,7 @@ mod tombstone_redirect_tests {
             merge,
             1,
             vec![ShuffleMessage::Event {
-                event,
+                event: Box::new(event),
                 cse_offset: 0,
             }],
         )
@@ -1286,6 +1295,7 @@ mod tombstone_redirect_tests {
             "ts",
             COHORT_PARTITION_COUNT,
             &mut PersonMemo::disabled(),
+            EventNameGating::Disabled,
         );
 
         assert_eq!(effects.changes.len(), 1, "the straggler entered P_new");
@@ -1450,11 +1460,11 @@ mod tombstone_redirect_tests {
         let batch = || {
             vec![
                 ShuffleMessage::Event {
-                    event: person_event(alice, "u@p.com", 5, 0),
+                    event: Box::new(person_event(alice, "u@p.com", 5, 0)),
                     cse_offset: 0,
                 },
                 ShuffleMessage::Event {
-                    event: person_event(p_old, "u@p.com", 5, 9),
+                    event: Box::new(person_event(p_old, "u@p.com", 5, 9)),
                     cse_offset: 1,
                 },
             ]
@@ -1538,6 +1548,7 @@ mod tombstone_redirect_tests {
             "ts",
             COHORT_PARTITION_COUNT,
             &mut PersonMemo::disabled(),
+            EventNameGating::Disabled,
         );
         assert!(effects.changes.is_empty());
         assert!(effects.schedules.is_empty());
@@ -1552,6 +1563,7 @@ mod tombstone_redirect_tests {
             "ts",
             COHORT_PARTITION_COUNT,
             &mut PersonMemo::disabled(),
+            EventNameGating::Disabled,
         );
         assert_eq!(effects.changes.len(), 1, "folds into P_new exactly once");
         assert_eq!(effects.changes[0].person_id, p_new.to_string());
@@ -1582,6 +1594,7 @@ mod tombstone_redirect_tests {
             "ts",
             COHORT_PARTITION_COUNT,
             &mut PersonMemo::disabled(),
+            EventNameGating::Disabled,
         );
         assert!(dup.changes.is_empty(), "the duplicate folds zero times");
         assert!(dup.re_keys.is_empty());
@@ -1607,6 +1620,7 @@ mod tombstone_redirect_tests {
             "ts",
             COHORT_PARTITION_COUNT,
             &mut PersonMemo::disabled(),
+            EventNameGating::Disabled,
         );
 
         assert!(effects.re_keys.is_empty(), "no re-produce at the cap");
@@ -1650,6 +1664,7 @@ mod tombstone_redirect_tests {
             "ts",
             COHORT_PARTITION_COUNT,
             &mut PersonMemo::disabled(),
+            EventNameGating::Disabled,
         );
         assert_eq!(effects.changes.len(), 1);
         assert_eq!(effects.changes[0].person_id, alice.to_string());

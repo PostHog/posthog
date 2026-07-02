@@ -45,7 +45,7 @@ use crate::partitions::shuffle_message::ShuffleMessage;
 use crate::producer::MembershipSink;
 use crate::store::durability::OffsetManifest;
 use crate::store::CohortStore;
-use crate::workers::{MergeWorkerDeps, PersonMemoConfig, Stage1Worker};
+use crate::workers::{EventNameGating, MergeWorkerDeps, PersonMemoConfig, Stage1Worker};
 
 /// Back-off after a Kafka transport error so a fast-failing `recv()` can't spin a consume loop.
 pub(crate) const RECV_ERROR_BACKOFF: Duration = Duration::from_millis(500);
@@ -127,6 +127,8 @@ pub struct EventDispatcher {
     boot_assignment: OnceLock<HashSet<i32>>,
     /// Person-memo config for spawned workers, set once at startup. Unset → disabled.
     person_memo: OnceLock<PersonMemoConfig>,
+    /// Event-name fan-out gating for spawned workers, set once at startup. Unset → disabled.
+    event_name_gating: OnceLock<EventNameGating>,
 }
 
 impl EventDispatcher {
@@ -151,6 +153,7 @@ impl EventDispatcher {
             durable_restore: AtomicBool::new(false),
             boot_assignment: OnceLock::new(),
             person_memo: OnceLock::new(),
+            event_name_gating: OnceLock::new(),
         }
     }
 
@@ -175,6 +178,18 @@ impl EventDispatcher {
             .unwrap_or(PersonMemoConfig::DISABLED)
     }
 
+    /// Must be called before any worker spawns; later calls are ignored.
+    pub fn set_event_name_gating(&self, gating: EventNameGating) {
+        let _ = self.event_name_gating.set(gating);
+    }
+
+    fn event_name_gating(&self) -> EventNameGating {
+        self.event_name_gating
+            .get()
+            .copied()
+            .unwrap_or(EventNameGating::Disabled)
+    }
+
     pub(crate) fn store(&self) -> &CohortStore {
         &self.store
     }
@@ -195,7 +210,7 @@ impl EventDispatcher {
                     consumed.partition,
                     consumed.offset,
                     ShuffleMessage::Event {
-                        event: consumed.event,
+                        event: Box::new(consumed.event),
                         cse_offset: consumed.offset,
                     },
                 )
@@ -348,6 +363,7 @@ impl EventDispatcher {
                             self.merge.clone(),
                             self.durable_restore_enabled(),
                             self.person_memo_config(),
+                            self.event_name_gating(),
                         );
                         slot.insert(worker);
                         counter!(COHORT_STREAM_WORKERS_SPAWNED).increment(1);

@@ -30,13 +30,16 @@ Partition Strategy:
 """
 
 import os
+import re
 import math
 import time
+import random
 import calendar
 import dataclasses
 from collections.abc import Callable
+from contextlib import closing
 from datetime import date, datetime, timedelta
-from typing import Any
+from typing import Any, Literal
 
 from django.utils import timezone
 
@@ -601,7 +604,13 @@ BACKFILL_PERSONS_S3_PREFIX = "backfill/persons"
 # [1, MAX_S3_FILE_FANOUT]. Row count (not bytes) is the signal because it's the
 # dominant driver of file size and the only one ClickHouse estimates cheaply from
 # the primary key without scanning the wide columns; wide-row teams can be tuned via
-# the per-run config. At ~4KB/event-row, 1M rows lands a file near ~4GB.
+# the per-run config. At ~4KB/event-row, 5M rows lands a file near ~20GB.
+#
+# Larger files also mean fewer per-file DuckLake catalog commits: each Parquet
+# file registered via `ducklake_add_data_files` is its own autocommit'd
+# transaction, so the fan-out target directly sets the write-side commit rate
+# a downstream reader (e.g. viaduck) has to contend with under DuckLake's
+# per-table OCC.
 #
 # MAX_S3_FILE_FANOUT is bounded by WRITER MEMORY, not file count: ClickHouse's
 # PartitionedSink keeps one Parquet writer open per active bucket for the whole
@@ -612,7 +621,7 @@ BACKFILL_PERSONS_S3_PREFIX = "backfill/persons"
 # 256 × 128 MiB ≈ 32 GiB stays comfortably under the 100 GiB max_memory_usage ceiling.
 # N may exceed ClickHouse's max_partitions_per_insert_block (default 100) safely —
 # that limit gates MergeTree part creation, not the s3() PartitionedSink.
-TARGET_ROWS_PER_FILE = 1_000_000
+TARGET_ROWS_PER_FILE = 5_000_000
 MAX_S3_FILE_FANOUT = 256
 
 # Parquet writer settings shared by every export. The byte cap is the load-bearing one:
@@ -1537,6 +1546,395 @@ def _glob_run_files(conn: psycopg.Connection[Any], s3_glob: str) -> list[str]:
         return [row[0] for row in rows]
 
 
+# ---------------------------------------------------------------------------
+# DuckLake ducklake_file_partition_value post-write fix-up
+# ---------------------------------------------------------------------------
+# Workaround for a DuckLake bug in ducklake_add_data_files(): when a partition
+# spec applies multiple transforms to one source column (events: year/month/day
+# on `timestamp`; persons: year/month on `_timestamp`), every ducklake_file_partition_value row lands at
+# the HIGHEST partition_key_index instead of being spread across the spec's
+# columns. Tier-3 compaction then fails with "Files have different hive
+# partition path", and partition pruning silently misses files.
+#
+# Bug writeup: see PR #67168 (the workaround landing this fix-up).
+# Buggy code:  ducklake src/functions/ducklake_add_data_files.cpp — see the
+#              `field_partition_key_map` map keyed bare `field_id.index` and
+#              the loop in `MapPartitionColumns` (line numbers will rot).
+#
+# Failure semantics: this fix-up raises RuntimeError on any inconsistency
+# (catalog unreachable, spec drift, post-condition fail). _DuckgresSession.run
+# only retries _connection_dropped exceptions, so a ducklake_file_partition_value failure is terminal
+# for the partition — Dagster asset-level retry recovers, not the duckgres
+# replay loop. Failures are convergent if retried because DELETE-then-INSERT
+# of the same paths produces the same end state.
+
+_DUCKLAKE_FILE_PARTITION_VALUE_FIXUP_ENV_VAR = "DUCKLAKE_FILE_PARTITION_VALUE_FIXUP_ENABLED"
+
+# Catalog Postgres connect timeout. NOT shared with DUCKGRES_CONNECT_TIMEOUT —
+# duckgres needs minutes for a cold-start worker; plain Postgres connects in
+# under a second.
+_DUCKLAKE_FILE_PARTITION_VALUE_CATALOG_CONNECT_TIMEOUT = 10
+
+# Bound for the per-batch fix-up: DML + post-condition (the advisory lock
+# acquisition is OUTSIDE the txn — see _acquire_*_session_advisory_lock).
+_DUCKLAKE_FILE_PARTITION_VALUE_STATEMENT_TIMEOUT = "60s"
+# Bound for any single row-lock wait inside the txn (defense in depth — the
+# session advisory lock already serializes us against other maintenance ops).
+_DUCKLAKE_FILE_PARTITION_VALUE_LOCK_TIMEOUT = "5s"
+
+# pg_try_advisory_lock retry (session-scoped): bounded so a hung maintainer
+# can't block a backfill step forever. Sleeps happen OUTSIDE any open txn.
+_DUCKLAKE_FILE_PARTITION_VALUE_LOCK_RETRY_ATTEMPTS = 6
+_DUCKLAKE_FILE_PARTITION_VALUE_LOCK_RETRY_BASE_SECONDS = 1.0
+_DUCKLAKE_FILE_PARTITION_VALUE_LOCK_RETRY_MAX_SECONDS = 8.0
+
+# Per-table partition spec: (partition_key_index, transform name). Transform
+# names mirror the hive segment names in the S3 paths produced by the dagster
+# exports AND the live catalog (ducklake_partition_column.transform). Asserted
+# at runtime against the live catalog before any DML — drift fails loud.
+_DUCKLAKE_FILE_PARTITION_VALUE_SPEC: dict[str, tuple[tuple[int, str], ...]] = {
+    "events": ((0, "year"), (1, "month"), (2, "day")),
+    "persons": ((0, "year"), (1, "month")),
+}
+
+# Pre-flight: every registered path must carry the spec's hive segments. Fail
+# loud before any catalog DML — a NULL partition_value insert would produce a
+# third class of catalog rot worse than the bug itself.
+_DUCKLAKE_FILE_PARTITION_VALUE_PATH_REGEXES: dict[str, re.Pattern[str]] = {
+    # Persons "full" export writes year=0/month=0 (export_persons_full_to_duckling_s3),
+    # so accept any digit width on both tables.
+    "events": re.compile(r"/year=\d+/month=\d+/day=\d+/[^/]+\.parquet$"),
+    "persons": re.compile(r"/year=\d+/month=\d+/[^/]+\.parquet$"),
+}
+
+
+def _ducklake_file_partition_value_fixup_enabled() -> bool:
+    return os.environ.get(_DUCKLAKE_FILE_PARTITION_VALUE_FIXUP_ENV_VAR, "true").lower() in ("1", "true", "yes", "on")
+
+
+def _open_catalog_conn(target: DucklingTarget) -> psycopg.Connection[Any]:
+    server = get_duckgres_server_for_organization(target.organization_id)
+    if server is None or not server.catalog_host:
+        raise RuntimeError(
+            f"DuckgresServer with catalog_* fields not found for organization_id={target.organization_id}; "
+            f"set {_DUCKLAKE_FILE_PARTITION_VALUE_FIXUP_ENV_VAR}=false to skip the "
+            f"ducklake_file_partition_value fix-up (loses bug coverage)."
+        )
+    return psycopg.connect(
+        host=server.catalog_host,
+        port=server.catalog_port,
+        dbname=server.catalog_database,
+        user=server.catalog_username,
+        password=server.catalog_password,
+        autocommit=False,
+        connect_timeout=_DUCKLAKE_FILE_PARTITION_VALUE_CATALOG_CONNECT_TIMEOUT,
+    )
+
+
+def _acquire_ducklake_file_partition_value_session_advisory_lock(conn: Any) -> None:
+    # Bounded retry on the session-scoped pg_try_advisory_lock so a stuck
+    # maintainer can't hang a backfill step indefinitely (pg_advisory_lock would
+    # block forever). Session-scoped — not xact-scoped — so the retry backoffs
+    # happen OUTSIDE any open Postgres transaction; sleeping inside an open txn
+    # would leave the connection idle-in-transaction, which blocks vacuum and
+    # accumulates xid age. Caller must release via the matching `_release_*`
+    # helper, and must have set conn.autocommit=True before calling.
+    for attempt in range(_DUCKLAKE_FILE_PARTITION_VALUE_LOCK_RETRY_ATTEMPTS):
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_try_advisory_lock(hashtext('millpond-ducklake-maintenance')::bigint)")
+            row = cur.fetchone()
+        if row is None:
+            raise RuntimeError("pg_try_advisory_lock returned no row — Postgres protocol invariant violated")
+        if row[0]:
+            return
+        backoff = min(
+            _DUCKLAKE_FILE_PARTITION_VALUE_LOCK_RETRY_MAX_SECONDS,
+            _DUCKLAKE_FILE_PARTITION_VALUE_LOCK_RETRY_BASE_SECONDS * (2**attempt),
+        )
+        time.sleep(backoff * (0.5 + random.random()))
+    raise RuntimeError(
+        f"ducklake_file_partition_value fix-up: could not acquire millpond-ducklake-maintenance advisory lock "
+        f"after {_DUCKLAKE_FILE_PARTITION_VALUE_LOCK_RETRY_ATTEMPTS} attempts"
+    )
+
+
+def _release_ducklake_file_partition_value_session_advisory_lock(conn: Any) -> None:
+    # Best-effort: if the connection is already gone, Postgres releases the
+    # session-scoped lock on disconnect anyway. Caller must have set
+    # conn.autocommit=True before calling so the unlock SELECT doesn't
+    # implicitly start a transaction. We deliberately don't read the unlock
+    # return value — `false` (didn't hold the lock) would mean the connection
+    # is about to drop it anyway via `closing(...)`, so the extra roundtrip
+    # is noise.
+    try:
+        with conn.cursor() as cur:
+            cur.execute("SELECT pg_advisory_unlock(hashtext('millpond-ducklake-maintenance')::bigint)")
+    except (psycopg.Error, OSError) as exc:
+        # Narrowed to the catalog/transport error classes that the unlock SELECT
+        # can actually raise. Anything else (programming bug, etc.) propagates.
+        logger.warning(
+            "duckling_ducklake_file_partition_value_fixup_release_failed",
+            error=str(exc),
+            error_type=type(exc).__name__,
+        )
+
+
+def _assert_live_spec_matches(
+    cur: Any,
+    table_kind: Literal["events", "persons"],
+    table_name: str,
+    table_id: int,
+    partition_id: int,
+) -> None:
+    # The fix-up bakes _DUCKLAKE_FILE_PARTITION_VALUE_SPEC into the SQL it emits. If the live catalog spec
+    # drifts (someone runs ALTER ... SET PARTITIONED BY, or a future writer
+    # version reshapes things), we'd silently mis-index rows. Cheap one-SELECT
+    # defense against that whole class. table_kind ("events"/"persons") keys
+    # the spec; table_name is the actual catalog name and may carry a per-team
+    # suffix (events_<suffix> / persons_<suffix>) — the spec is the same for
+    # every suffix variant since the partition layout doesn't change.
+    cur.execute(
+        """
+        SELECT partition_key_index, transform
+        FROM public.ducklake_partition_column
+        WHERE partition_id = %s AND table_id = %s
+        ORDER BY partition_key_index
+        """,
+        (partition_id, table_id),
+    )
+    actual = tuple((int(idx), str(transform)) for idx, transform in cur.fetchall())
+    expected = _DUCKLAKE_FILE_PARTITION_VALUE_SPEC[table_kind]
+    if actual != expected:
+        raise RuntimeError(
+            f"ducklake_file_partition_value fix-up: live catalog spec for posthog.{table_name} "
+            f"(kind={table_kind}, partition_id={partition_id}) is {actual}; expected {expected}. "
+            f"Update _DUCKLAKE_FILE_PARTITION_VALUE_SPEC and redeploy before re-enabling the fix-up."
+        )
+
+
+def _fixup_partition_values_for_added_files(
+    context: AssetExecutionContext,
+    target: DucklingTarget,
+    table_kind: Literal["events", "persons"],
+    table_name: str,
+    file_paths: list[str],
+) -> None:
+    # Repair ducklake_file_partition_value rows for files just registered via ducklake_add_data_files().
+    # table_kind is the logical kind ("events" or "persons") used to look up the
+    # spec + path regex; table_name is the actual catalog table the files were
+    # registered into and may carry a per-team suffix (events_<suffix> /
+    # persons_<suffix>) per DuckgresServerTeam.table_suffix. The dagster
+    # registration path writes files for the suffixed table while keeping the
+    # S3 prefix (backfill/events/.../) tied to the kind, not the suffix.
+    # Raises RuntimeError on any inconsistency; see module-level block for the
+    # failure-semantics contract. Convergent and idempotent.
+    if not file_paths:
+        return
+
+    spec = _DUCKLAKE_FILE_PARTITION_VALUE_SPEC.get(table_kind)
+    path_regex = _DUCKLAKE_FILE_PARTITION_VALUE_PATH_REGEXES.get(table_kind)
+    if spec is None or path_regex is None:
+        raise ValueError(f"_DUCKLAKE_FILE_PARTITION_VALUE_SPEC has no entry for table_kind={table_kind!r}")
+
+    unparseable = [p for p in file_paths if not path_regex.search(p)]
+    if unparseable:
+        sample = ", ".join(unparseable[:3])
+        raise ValueError(
+            f"ducklake_file_partition_value fix-up: {len(unparseable)} of {len(file_paths)} "
+            f"{table_kind} (in {table_name}) path(s) do not match the expected hive layout (sample: {sample})"
+        )
+
+    expected_index_set = [idx for idx, _ in spec]
+
+    # closing(...) actually closes the connection on exit; psycopg3's Connection
+    # context manager only commits/rolls back the open txn. We acquire the
+    # session advisory lock OUTSIDE the main txn (autocommit=True during
+    # acquisition) so retry backoffs don't sit idle-in-transaction; switch to
+    # autocommit=False to drive the BEGIN→COMMIT (clean) or BEGIN→ROLLBACK
+    # (exception) via the inner `with conn:`; finally, switch back to
+    # autocommit=True to release the session lock (best-effort — PG releases
+    # it on disconnect anyway, so the `closing(...)` exit is the backstop).
+    with closing(_open_catalog_conn(target)) as catalog_conn:
+        catalog_conn.autocommit = True
+        _acquire_ducklake_file_partition_value_session_advisory_lock(catalog_conn)
+        try:
+            catalog_conn.autocommit = False
+            with catalog_conn, catalog_conn.cursor() as cur:
+                # Bound any single statement so a misbehaving server can't hang
+                # the step. SET LOCAL is scoped to this txn — no global side effect.
+                cur.execute(
+                    psql.SQL("SET LOCAL statement_timeout = {}").format(
+                        psql.Literal(_DUCKLAKE_FILE_PARTITION_VALUE_STATEMENT_TIMEOUT)
+                    )
+                )
+                cur.execute(
+                    psql.SQL("SET LOCAL lock_timeout = {}").format(
+                        psql.Literal(_DUCKLAKE_FILE_PARTITION_VALUE_LOCK_TIMEOUT)
+                    )
+                )
+
+                cur.execute(
+                    """
+                    SELECT t.table_id, pi.partition_id
+                    FROM public.ducklake_table t
+                    JOIN public.ducklake_schema s
+                      ON s.schema_id = t.schema_id AND s.end_snapshot IS NULL
+                    JOIN public.ducklake_partition_info pi
+                      ON pi.table_id = t.table_id AND pi.end_snapshot IS NULL
+                    WHERE s.schema_name = 'posthog'
+                      AND t.table_name = %s
+                      AND t.end_snapshot IS NULL
+                    """,
+                    (table_name,),
+                )
+                rows = cur.fetchall()
+                if len(rows) != 1:
+                    raise RuntimeError(
+                        f"ducklake_file_partition_value fix-up: expected exactly one live partition_info "
+                        f"for posthog.{table_name}, got {len(rows)}"
+                    )
+                table_id, partition_id = rows[0]
+
+                _assert_live_spec_matches(cur, table_kind, table_name, table_id, partition_id)
+
+                # Single-statement DELETE + INSERT so no reader sees zero ducklake_file_partition_value rows.
+                # DELETE is scoped by table_id AND data_file_id (defense in depth).
+                # The INSERT runs unconditionally over `to_repair`. Do NOT add a
+                # defensive `WHERE EXISTS (... deleted)` or scalar-subquery
+                # reference — that filters out target files whose DELETE returned
+                # 0 rows (e.g., a file that arrived with no fpv rows at all),
+                # leaving them stuck. `deleted` is intentionally unreferenced:
+                # per PG docs §7.8.2, data-modifying CTEs in WITH execute exactly
+                # once "always to completion, independently of whether the
+                # primary query reads all (or indeed any) of their output."
+                insert_branches = psql.SQL(" UNION ALL ").join(
+                    psql.SQL(
+                        "SELECT t.data_file_id, {tid}, {idx}, "
+                        "(substring(t.path from {hive_re}))::INT::TEXT "
+                        "FROM targets t"
+                    ).format(
+                        tid=psql.Literal(table_id),
+                        idx=psql.Literal(key_index),
+                        hive_re=psql.Literal(f"{col_name}=([0-9]+)"),
+                    )
+                    for key_index, col_name in spec
+                )
+                stmt = psql.SQL(
+                    """
+                    WITH targets AS (
+                        SELECT data_file_id, path
+                        FROM public.ducklake_data_file
+                        WHERE table_id = {tid}
+                          AND end_snapshot IS NULL
+                          AND partition_id = {pid}
+                          AND path = ANY(%s)
+                    ),
+                    deleted AS (
+                        DELETE FROM public.ducklake_file_partition_value
+                        WHERE table_id = {tid}
+                          AND data_file_id IN (SELECT data_file_id FROM targets)
+                        RETURNING data_file_id
+                    )
+                    INSERT INTO public.ducklake_file_partition_value
+                        (data_file_id, table_id, partition_key_index, partition_value)
+                    {inserts}
+                    """
+                ).format(
+                    tid=psql.Literal(table_id),
+                    pid=psql.Literal(partition_id),
+                    inserts=insert_branches,
+                )
+                # file_paths bound via %s (not psql.Literal of a list) so the
+                # statement text stays small and statement-cache-friendly even for
+                # large batches. Keep file_paths a list — psycopg3 maps list[str]
+                # to PG text[]; a tuple would map to a record instead.
+                cur.execute(stmt, (list(file_paths),))
+
+                # Post-condition: every file's actual partition_key_index set equals
+                # the expected set, and no NULL partition_value rows landed. The
+                # set-equality catches the bug pattern (multiple rows at the
+                # highest index) that a naive count check would miss.
+                cur.execute(
+                    psql.SQL(
+                        """
+                        WITH file_partition_value_state AS (
+                            SELECT df.data_file_id,
+                                   COALESCE(
+                                       array_agg(file_partition_value.partition_key_index
+                                                 ORDER BY file_partition_value.partition_key_index)
+                                       FILTER (WHERE file_partition_value.partition_key_index IS NOT NULL),
+                                       '{{}}'::bigint[]
+                                   ) AS indexes,
+                                   COUNT(*) FILTER (WHERE file_partition_value.partition_value IS NULL) AS nulls
+                            FROM public.ducklake_data_file df
+                            LEFT JOIN public.ducklake_file_partition_value file_partition_value
+                              ON file_partition_value.data_file_id = df.data_file_id
+                             AND file_partition_value.table_id = {tid}
+                            WHERE df.table_id = {tid}
+                              AND df.end_snapshot IS NULL
+                              AND df.path = ANY(%s)
+                            GROUP BY df.data_file_id
+                        )
+                        SELECT
+                            COUNT(*) FILTER (WHERE indexes IS DISTINCT FROM %s::bigint[]) AS wrong_indexes,
+                            COUNT(*) FILTER (WHERE nulls > 0)                          AS null_values,
+                            COUNT(*) AS total
+                        FROM file_partition_value_state
+                        """
+                    ).format(tid=psql.Literal(table_id)),
+                    (list(file_paths), expected_index_set),
+                )
+                post_condition_row = cur.fetchone()
+                if post_condition_row is None:
+                    raise RuntimeError(
+                        "post-condition aggregate returned no row — Postgres protocol invariant violated"
+                    )
+                wrong_indexes, null_values, total = post_condition_row
+
+                if wrong_indexes != 0 or null_values != 0 or total != len(file_paths):
+                    # Raise inside the `with catalog_conn` block so the context
+                    # manager rolls back; no explicit rollback needed. logger.error
+                    # (not .exception) since we're not inside an except block — no
+                    # live exception to capture a traceback from.
+                    logger.error(
+                        "duckling_ducklake_file_partition_value_fixup_post_condition_failed",
+                        table_kind=table_kind,
+                        table_name=table_name,
+                        organization_id=target.organization_id,
+                        team_id=target.team_id,
+                        wrong_indexes=wrong_indexes,
+                        null_values=null_values,
+                        actual_total=total,
+                        expected_total=len(file_paths),
+                    )
+                    raise RuntimeError(
+                        f"ducklake_file_partition_value fix-up post-condition failed for {table_name}: "
+                        f"wrong_indexes={wrong_indexes}, null_values={null_values}, "
+                        f"total={total}, expected_total={len(file_paths)}"
+                    )
+        finally:
+            # Release the session-scoped lock. Skip if the conn has been closed
+            # mid-flight (e.g., transport drop during DML) — toggling autocommit
+            # on a closed conn raises InterfaceError, which would mask the
+            # original exception. PG releases session locks on disconnect
+            # anyway, so there's nothing to do.
+            if not catalog_conn.closed:
+                catalog_conn.autocommit = True
+                _release_ducklake_file_partition_value_session_advisory_lock(catalog_conn)
+
+    context.log.info(
+        f"ducklake_file_partition_value fix-up: rebuilt partition values for {len(file_paths)} {table_name} file(s)"
+    )
+    logger.info(
+        "duckling_ducklake_file_partition_value_fixup_succeeded",
+        table_kind=table_kind,
+        table_name=table_name,
+        organization_id=target.organization_id,
+        team_id=target.team_id,
+        files_rewritten=len(file_paths),
+    )
+
+
 def register_files_with_duckling(
     context: AssetExecutionContext,
     target: DucklingTarget,
@@ -1599,6 +1997,9 @@ def register_files_with_duckling(
                     psql.Literal(s3_path),
                 )
             )
+
+        if _ducklake_file_partition_value_fixup_enabled():
+            _fixup_partition_values_for_added_files(context, target, "events", target.events_table, files)
     except Exception as exc:
         # Connection drops are retried by the caller (_DuckgresSession.run); only
         # log loudly for genuine failures so a recovered drop doesn't false-alert.
@@ -1866,6 +2267,9 @@ def register_persons_files_with_duckling(
                     psql.Literal(s3_path),
                 )
             )
+
+        if _ducklake_file_partition_value_fixup_enabled():
+            _fixup_partition_values_for_added_files(context, target, "persons", target.persons_table, files)
     except Exception as exc:
         # Connection drops are retried by the caller (_DuckgresSession.run); only
         # log loudly for genuine failures so a recovered drop doesn't false-alert.

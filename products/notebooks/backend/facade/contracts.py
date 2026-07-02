@@ -82,8 +82,11 @@ class MarkdownNotebookMigrationResult:
 
     dry_run: bool
     team_id: int | None
+    batch_size: int | None
     total: int
     already_converted: int
+    pending_before: int
+    pending_after: int
     converted: int
     skipped: int
     errored: int

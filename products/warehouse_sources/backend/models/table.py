@@ -53,7 +53,7 @@ from products.warehouse_sources.backend.models.util import (
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.consts import PARTITION_KEY
 
 from .credential import DataWarehouseCredential
-from .external_table_definitions import external_tables
+from .external_table_definitions import external_tables, get_hogql_column_name_mapping
 
 if TYPE_CHECKING:
     from posthog.schema import HogQLQueryModifiers
@@ -208,7 +208,14 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
         works for REST sources (Stripe, Hubspot, …) too — unlike the SQL-only
         `ExternalDataSchema.schema_metadata`. Handles both the dict (`{"clickhouse": ...}`) and the
         legacy plain-string column shapes.
+
+        Curated sources (Stripe, etc.) rename or wrap some raw columns when exposing them via HogQL
+        (`created` -> `created_at`, `customer` -> `customer_id`), so `name` is the HogQL-visible name
+        callers surface to users and the AI agent — not the raw synced column. To recover the raw ->
+        visible mapping (e.g. to match canonical descriptions keyed by raw name), call
+        `get_hogql_column_name_mapping(self.table_name_without_prefix())` directly.
         """
+        hogql_by_raw = get_hogql_column_name_mapping(self.table_name_without_prefix())
         result: list[dict[str, Any]] = []
         for name, definition in (self.columns or {}).items():
             if name in HIDDEN_COLUMNS:
@@ -219,7 +226,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 clickhouse_type = definition or ""
             result.append(
                 {
-                    "name": name,
+                    "name": hogql_by_raw.get(name, name),
                     "data_type": clean_type(clickhouse_type) if clickhouse_type else "unknown",
                     "is_nullable": "Nullable(" in clickhouse_type,
                 }

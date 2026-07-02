@@ -1,10 +1,9 @@
 import { useValues } from 'kea'
-import { useMemo } from 'react'
 
 import { LemonTag, Spinner } from '@posthog/lemon-ui'
 import { BarChart } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
 import { replayScannerLogic } from '../replayScannerLogic'
@@ -15,16 +14,18 @@ function OverviewPanel({
     title,
     subtitle,
     disabled,
+    fill,
     children,
 }: {
     title: string
     subtitle?: React.ReactNode
     disabled?: boolean
+    fill?: boolean
     children: React.ReactNode
 }): JSX.Element {
     return (
         <div
-            className={`border rounded p-4 space-y-3 ${
+            className={`border rounded p-4 space-y-3 ${fill ? 'h-full flex flex-col' : ''} ${
                 disabled ? 'bg-surface-secondary opacity-60' : 'bg-surface-primary'
             }`}
         >
@@ -168,7 +169,8 @@ function ScorerOverview({ scannerId }: { scannerId: string }): JSX.Element {
     const { scorerSummary, scorerHistogram, hasActiveObservationFilters, observationStatsApiLoading } = useValues(
         replayScannerLogic({ id: scannerId })
     )
-    const theme = useMemo(() => buildTheme(), [])
+    const theme = useChartTheme()
+    const config = useChartConfig(() => ({ showGrid: false }), [])
     if (!scorerSummary || !scorerHistogram) {
         return (
             <OverviewPanel title="Score distribution">
@@ -184,12 +186,12 @@ function ScorerOverview({ scannerId }: { scannerId: string }): JSX.Element {
         )
     }
     return (
-        <OverviewPanel title="Score distribution" subtitle={`${scorerSummary.count} scored`}>
-            <div className="h-40 flex flex-col">
+        <OverviewPanel title="Score distribution" subtitle={`${scorerSummary.count} scored`} fill>
+            <div className="flex-1 min-h-40 flex flex-col">
                 <BarChart
                     labels={scorerHistogram.labels}
                     series={[{ key: 'count', label: 'Sessions', color: theme.colors[0], data: scorerHistogram.counts }]}
-                    config={{ showGrid: false }}
+                    config={config}
                     theme={theme}
                 />
             </div>
@@ -221,6 +223,19 @@ export function ScannerOverview({ scannerId }: { scannerId: string }): JSX.Eleme
     const showChart = scannerType !== 'summarizer'
     if (!showChart && !typeOverview) {
         return null
+    }
+    // Scorer puts its line chart and score-distribution histogram side by side to reclaim vertical space.
+    if (scannerType === 'scorer') {
+        return (
+            <div className="grid grid-cols-1 lg:grid-cols-2 gap-4">
+                {/* min-w-0 lets the canvas charts shrink inside their grid tracks instead of overflowing */}
+                <div className="min-w-0">
+                    <ScannerInsightsChart scannerId={scannerId} scannerType={scannerType} />
+                </div>
+                {/* The histogram fills to match the taller line chart, so the row has no dead space (stretch is the grid default). */}
+                <div className="min-w-0">{typeOverview}</div>
+            </div>
+        )
     }
     return (
         <div className="space-y-4">
