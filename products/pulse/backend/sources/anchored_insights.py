@@ -11,7 +11,7 @@ from posthog.models.team import Team
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.models.insight import Insight
 from products.pulse.backend.models import BriefConfig
-from products.pulse.backend.sources.base import EvidenceRef, SourceItem
+from products.pulse.backend.sources.base import EvidenceRef, SourceItem, build_fingerprint_hint
 
 logger = structlog.get_logger(__name__)
 
@@ -115,7 +115,7 @@ class AnchoredInsightsSource:
                         "period_days": period_days,
                     },
                     evidence=[EvidenceRef(type="insight", ref=insight.short_id, label=label)],
-                    fingerprint_hint=f"{insight.short_id}:{series_index}",
+                    fingerprint_hint=build_fingerprint_hint(self.name, insight.short_id, str(series_index)),
                 )
             )
         return items

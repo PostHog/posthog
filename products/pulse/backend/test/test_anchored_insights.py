@@ -71,7 +71,7 @@ class TestAnchoredInsightsGather(BaseTest):
         items = AnchoredInsightsSource().gather(self.team, config, period_days=7)
 
         assert len(items) == 1
-        assert items[0].fingerprint_hint == f"{insight.short_id}:0"
+        assert items[0].fingerprint_hint == f"anchored_insights:{insight.short_id}:0"
         assert items[0].numbers["pct_change"] == -30.0
 
     @parameterized.expand(
@@ -114,7 +114,7 @@ class TestAnchoredInsightsGather(BaseTest):
 
         items = AnchoredInsightsSource().gather(self.team, config, period_days=7)
 
-        assert [item.fingerprint_hint for item in items] == [f"{working.short_id}:0"]
+        assert [item.fingerprint_hint for item in items] == [f"anchored_insights:{working.short_id}:0"]
 
     @patch("products.pulse.backend.sources.anchored_insights.calculate_for_query_based_insight")
     def test_zero_config_falls_back_to_recent_dashboards(self, mock_calculate: MagicMock) -> None:
@@ -125,4 +125,4 @@ class TestAnchoredInsightsGather(BaseTest):
 
         items = AnchoredInsightsSource().gather(self.team, None, period_days=7)
 
-        assert [item.fingerprint_hint for item in items] == [f"{insight.short_id}:0"]
+        assert [item.fingerprint_hint for item in items] == [f"anchored_insights:{insight.short_id}:0"]
