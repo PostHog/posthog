@@ -5,6 +5,7 @@ from django.db import models
 from django.db.models.functions.comparison import Coalesce
 
 from posthog.hogql import ast
+from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import BooleanDatabaseField, DateTimeDatabaseField, StringJSONDatabaseField
 from posthog.hogql.database.s3_table import S3Table
@@ -216,6 +217,13 @@ class PropertySwapper(CloningVisitor):
     # to Float — the raw String value has to flow through for the parser to work.
     _STRING_INPUT_CONVERSIONS: set[str] = {"toFloatOrZero", "toIntOrZero", "toFloatOrDefault"}
 
+    # ClickHouse array-membership functions whose first argument must be an array. Users write these
+    # against exception properties (e.g. hasAny(properties.$exception_values, [...])), but those
+    # properties are stored as a raw JSON String once materialized, so the bare column read raises
+    # ILLEGAL_TYPE_OF_ARGUMENT. We extract the array via JSONExtract(..., 'Array(String)') — the same
+    # wrapping property_to_expr applies to typed exception filters.
+    _ARRAY_MEMBERSHIP_FUNCTIONS: set[str] = {"has", "hasAll", "hasAny", "hasSubstr"}
+
     def __init__(
         self,
         timezone: str,
@@ -309,10 +317,57 @@ class PropertySwapper(CloningVisitor):
 
         self._inside_call_depth += 1
         try:
-            return super().visit_call(node)
+            result = super().visit_call(node)
         finally:
             self._inside_call_depth -= 1
             self._suppress_numeric_conversion = saved_suppress
+
+        return self._maybe_extract_exception_string_array(result)
+
+    def _maybe_extract_exception_string_array(self, node: ast.Expr) -> ast.Expr:
+        """Wrap a bare exception-array property passed to an array-membership function in
+        JSONExtract(..., 'Array(String)'), so it type-checks against its materialized String column.
+
+        Only bare property reads are wrapped: property_to_expr already emits its own JSONExtract for
+        typed filters, and a user who wrote the extract by hand passes a Call here — neither is a bare
+        Field, so neither gets double-wrapped.
+        """
+        if not isinstance(node, ast.Call) or node.name not in self._ARRAY_MEMBERSHIP_FUNCTIONS or not node.args:
+            return node
+        if not self._is_exception_string_array_field(node.args[0]):
+            return node
+        node.args[0] = self._extract_string_array(node.args[0])
+        return node
+
+    def _is_exception_string_array_field(self, expr: ast.Expr) -> bool:
+        if isinstance(expr, ast.Alias):
+            expr = expr.expr
+        if not isinstance(expr, ast.Field):
+            return False
+        type = expr.type
+        if not (isinstance(type, ast.PropertyType) and type.field_type.name == "properties" and len(type.chain) == 1):
+            return False
+        if str(type.chain[0]) not in EXCEPTION_STRING_ARRAY_PROPERTIES:
+            return False
+        table_type = type.field_type.table_type
+        if not isinstance(table_type, ast.BaseTableType):
+            return False
+        return isinstance(table_type.resolve_database_table(self.context), EventsTable)
+
+    @staticmethod
+    def _extract_string_array(field: ast.Expr) -> ast.Call:
+        return ast.Call(
+            name="JSONExtract",
+            args=[
+                ast.Call(name="ifNull", args=[field, ast.Constant(value="")]),
+                ast.Constant(value="Array(String)"),
+            ],
+            type=ast.CallType(
+                name="JSONExtract",
+                arg_types=[ast.StringType(nullable=True), ast.StringType()],
+                return_type=ast.ArrayType(item_type=ast.StringType()),
+            ),
+        )
 
     def _try_rewrite_json_extract_to_mat_column(self, node: ast.Call) -> ast.Field | None:
         """Rewrite safe direct JSON property extraction to use a materialized column.

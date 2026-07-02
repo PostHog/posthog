@@ -48,6 +48,19 @@ BREAKDOWN_VALUES_LIMIT = 25
 BREAKDOWN_VALUES_LIMIT_FOR_COUNTRIES = 300
 BREAKDOWN_VALUE_MAX_LENGTH = 400
 
+# Event properties that hold a JSON-encoded array of strings. When materialized they are stored
+# as a raw String column, so any array function (hasAny/hasAll/...) run against them must first
+# extract the array via JSONExtract(..., 'Array(String)'). See posthog/hogql/property.py and the
+# PropertySwapper transform, which both apply that wrapping.
+EXCEPTION_STRING_ARRAY_PROPERTIES = frozenset(
+    {
+        "$exception_types",
+        "$exception_values",
+        "$exception_sources",
+        "$exception_functions",
+    }
+)
+
 type HogQLDialect = Literal["hogql", "clickhouse", "postgres", "duckdb", "mysql", "snowflake"]
 
 # All dialects that compile to an external SQL database queried directly (as opposed to

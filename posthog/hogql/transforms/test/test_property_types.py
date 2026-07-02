@@ -464,6 +464,30 @@ class TestPropertyTypes(BaseTest):
         printed = self._print_select("select toFloatOrZero(toString(properties.$screen_width)) from events")
         assert "toFloat64OrZero(toString(accurateCastOrNull" in printed
 
+    @parameterized.expand(
+        [
+            ("has", "has(properties.$exception_values, 'x')"),
+            ("hasAny", "hasAny(properties.$exception_values, ['x'])"),
+            ("hasAll", "hasAll(properties.$exception_values, ['x'])"),
+        ]
+    )
+    def test_exception_array_property_extracted_for_array_membership_functions(self, fn_name: str, expr: str):
+        # $exception_* array properties are stored as a raw JSON String once materialized, so passing the
+        # bare column to an array function raises ILLEGAL_TYPE_OF_ARGUMENT. It must first be extracted to
+        # Array(String) — the same wrapping property_to_expr applies to typed exception filters.
+        with materialized("events", "$exception_values"):
+            printed = self._print_select(f"select uuid from events where {expr}")
+        assert "'Array(String)'" in printed
+        assert f"{fn_name}(JSONExtract(" in printed
+        assert f"{fn_name}(events.`mat_$exception_values`" not in printed
+
+    def test_non_exception_array_property_left_untouched(self):
+        # Only the known $exception_* array properties get the wrapping; an ordinary property passed to an
+        # array function must be left untouched so we don't change results elsewhere.
+        with materialized("events", "$browser"):
+            printed = self._print_select("select uuid from events where hasAny(properties.$browser, ['x'])")
+        assert "'Array(String)'" not in printed
+
     def _print_select(self, select: str) -> str:
         expr = parse_select(select)
         query, _ = prepare_and_print_ast(

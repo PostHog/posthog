@@ -41,6 +41,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.base import AST
+from posthog.hogql.constants import EXCEPTION_STRING_ARRAY_PROPERTIES
 from posthog.hogql.database.models import BooleanDatabaseField
 from posthog.hogql.database.schema.sessions_v3 import LAZY_SESSIONS_FIELDS
 from posthog.hogql.errors import NotImplementedError, QueryError
@@ -1000,12 +1001,9 @@ def property_to_expr(
             # Use the all_urls array field to filter for pages visited during recording.
             all_urls_field = ast.Call(name="groupUniqArrayArray", args=[ast.Field(chain=["all_urls"])])
 
-        is_exception_string_array_property = property.type == "event" and property.key in [
-            "$exception_types",
-            "$exception_values",
-            "$exception_sources",
-            "$exception_functions",
-        ]
+        is_exception_string_array_property = (
+            property.type == "event" and property.key in EXCEPTION_STRING_ARRAY_PROPERTIES
+        )
 
         if is_exception_string_array_property:
             # if materialized these columns will be strings so we need to extract them
