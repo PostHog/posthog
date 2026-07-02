@@ -39,7 +39,7 @@ use crate::observability::metrics::{
     PARTITIONS_REVOKED_TOTAL, PARTITION_STATE_DELETED_TOTAL, PENDING_HELD_EVENTS,
     REBALANCE_CLEANUP_SKIPPED_TOTAL, REVOKE_DRAIN_DURATION_SECONDS,
 };
-use crate::partitions::backpressure::Backpressure;
+use crate::partitions::backpressure::{Backpressure, PauseDeltas};
 use crate::partitions::offset_tracker::OffsetTracker;
 use crate::partitions::pause::{ConsumerPauser, PartitionPauser};
 use crate::partitions::rebalance::{CohortConsumerContext, ConsumerCommandReceiver};
@@ -947,6 +947,11 @@ impl CohortStreamEventsConsumer {
             self.handle.clone(),
         ));
 
+        // Apply pause/resume off the consume loop: librdkafka `pause`/`resume` are synchronous, un-timed
+        // FFI calls, so a wedged client must never delay the liveness heartbeat.
+        let (pause_tx, pause_rx) = tokio::sync::mpsc::unbounded_channel::<PauseDeltas>();
+        let pauser_task = tokio::spawn(run_pauser_loop(self.pauser.clone(), pause_rx));
+
         // One-shot guards; each pre-marked done when its gate is off, keeping the non-durable path unchanged.
         let mut boot_sweep_done = !self.dispatcher.durable_restore_enabled();
         let mut eager_redrive_done = !self.dispatcher.durable_restore_enabled();
@@ -985,7 +990,7 @@ impl CohortStreamEventsConsumer {
                         restore_seek_done = self.run_restore_seek();
                         continue;
                     }
-                    self.dispatch_with_backpressure(outcome, &mut backpressure).await;
+                    self.dispatch_with_backpressure(outcome, &mut backpressure, &pause_tx).await;
                 }
             }
         }
@@ -993,6 +998,11 @@ impl CohortStreamEventsConsumer {
         // Await the commit task before the final synchronous commit so the two don't race.
         if let Err(err) = commit_task.await {
             warn!(error = %err, "offset-commit task did not exit cleanly");
+        }
+        // Drop the sender so the pauser task drains and exits.
+        drop(pause_tx);
+        if let Err(err) = pauser_task.await {
+            warn!(error = %err, "pauser task did not exit cleanly");
         }
 
         let tracker = self.dispatcher.shutdown().await;
@@ -1089,12 +1099,13 @@ impl CohortStreamEventsConsumer {
     }
 
     /// One steady-state cycle: prune revoked holdover, retry-flush held partitions, dispatch the polled
-    /// batch, reconcile pauses/resumes. Every step is non-blocking, so the heartbeat below fires each
-    /// iteration regardless of downstream drain.
+    /// batch, reconcile the paused set and hand its deltas to the pauser task. Every step is
+    /// non-blocking, so the heartbeat below fires each iteration regardless of downstream drain.
     async fn dispatch_with_backpressure(
         &self,
         outcome: ConsumeOutcome,
         backpressure: &mut Backpressure,
+        pause_tx: &tokio::sync::mpsc::UnboundedSender<PauseDeltas>,
     ) {
         histogram!(COHORT_STREAM_CONSUME_BATCH_SIZE).record(outcome.events.len() as f64);
         if !outcome.events.is_empty() {
@@ -1118,8 +1129,10 @@ impl CohortStreamEventsConsumer {
             .dispatch_events_nonblocking(outcome.events, &backpressure.held_partitions());
         backpressure.absorb(full);
         let deltas = backpressure.reconcile();
-        self.pauser.pause(&deltas.pause);
-        self.pauser.resume(&deltas.resume);
+        if (!deltas.pause.is_empty() || !deltas.resume.is_empty()) && pause_tx.send(deltas).is_err() {
+            // The receiver is gone only at shutdown, where an unapplied delta is moot.
+            debug!("pauser task has exited; skipping a pause/resume delta");
+        }
         gauge!(PARTITIONS_PAUSED).set(backpressure.paused_count() as f64);
         gauge!(PENDING_HELD_EVENTS).set(backpressure.held_event_count() as f64);
 
@@ -1291,6 +1304,19 @@ async fn run_commit_loop(
                 );
             }
         }
+    }
+}
+
+/// Applies pause/resume deltas off the consume loop, so a blocking librdkafka `pause`/`resume` can
+/// never delay the liveness heartbeat. Deltas are applied in the order received, preserving the
+/// paused-set transitions. Exits when the sender is dropped.
+async fn run_pauser_loop(
+    pauser: Arc<dyn PartitionPauser>,
+    mut rx: tokio::sync::mpsc::UnboundedReceiver<PauseDeltas>,
+) {
+    while let Some(deltas) = rx.recv().await {
+        pauser.pause(&deltas.pause);
+        pauser.resume(&deltas.resume);
     }
 }
 
