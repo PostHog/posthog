@@ -9,16 +9,20 @@ from structlog import get_logger
 from posthog.celery_queues import CeleryQueue
 from posthog.scoping_audit import skip_team_scope_audit
 
+from products.endpoints.backend.logic.ducklake_shadow import run_ducklake_shadow_comparison
 from products.endpoints.backend.metrics import ENDPOINT_MATERIALIZATION_EVENT_TOTAL
 from products.endpoints.backend.models import EndpointVersion
-from products.endpoints.backend.services.ducklake_shadow import run_ducklake_shadow_comparison
 
 logger = get_logger(__name__)
 
 STALE_THRESHOLD_DAYS = 30
 
 
-@shared_task(ignore_result=True, queue=CeleryQueue.LONG_RUNNING.value)
+@shared_task(
+    ignore_result=True,
+    queue=CeleryQueue.LONG_RUNNING.value,
+    name="products.endpoints.backend.tasks.shadow_compare_ducklake_execution",
+)
 @skip_team_scope_audit
 def shadow_compare_ducklake_execution(
     team_id: int,
@@ -46,7 +50,7 @@ def shadow_compare_ducklake_execution(
     )
 
 
-@shared_task(ignore_result=True)
+@shared_task(ignore_result=True, name="products.endpoints.backend.tasks.deactivate_stale_materializations")
 @skip_team_scope_audit
 def deactivate_stale_materializations() -> None:
     """

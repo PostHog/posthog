@@ -81,7 +81,7 @@ from products.conversations.backend.tasks import (
 )
 from products.data_modeling.backend.facade.tasks import cleanup_expired_test_saved_queries
 from products.data_warehouse.backend.facade.tasks import send_external_data_failure_digest_catchup
-from products.endpoints.backend.tasks import deactivate_stale_materializations
+from products.endpoints.backend.facade.tasks import deactivate_stale_materializations
 from products.feature_flags.backend.tasks import (
     cleanup_stale_flag_definitions_expiry_tracking_task,
     cleanup_stale_flags_expiry_tracking_task,
