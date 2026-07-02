@@ -54647,10 +54647,16 @@ export namespace Schemas {
       metric_name: string;
       /** OTel metric type: gauge, sum, histogram, summary, or exponential_histogram. */
       metric_type: string;
-      /** The emitted value. */
+      /** The emitted value. For histogram/summary points this is the distribution sum; pair with count. */
       value: number;
+      /** Observations behind this point: 1 for gauges/counters, the distribution count for histograms/summaries. */
+      count: number;
       /** Unit of the value, if any. */
       unit: string;
+      /** For counters: 'delta' or 'cumulative' (decides whether rate() must diff). Empty for gauges. */
+      aggregation_temporality: string;
+      /** True for monotonically increasing counters. */
+      is_monotonic: boolean;
       /** Service that emitted the metric. */
       service_name: string;
       /** Trace this emission belongs to; empty if none. Use it to pivot to the trace. */
