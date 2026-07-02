@@ -11,10 +11,10 @@ from unittest.mock import patch
 from temporalio import activity, workflow
 from temporalio.client import Client, WorkflowFailureError
 from temporalio.common import RetryPolicy
-from temporalio.exceptions import ApplicationError, CancelledError
+from temporalio.exceptions import ApplicationError, CancelledError, ChildWorkflowError, TerminatedError
 from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
-from posthog.temporal.common.posthog_client import PostHogClientInterceptor
+from posthog.temporal.common.posthog_client import PostHogClientInterceptor, _is_terminated_exception
 
 
 @dataclass
@@ -204,6 +204,39 @@ async def test_cancellation_is_not_captured(temporal_client: Client):
                 )
 
         mock_ph_capture.assert_not_called()
+
+
+def _child_workflow_error(cause: BaseException | None) -> ChildWorkflowError:
+    err = ChildWorkflowError(
+        "Child Workflow execution terminated",
+        namespace="default",
+        workflow_id="session-video-summary-rasterize_1_abc",
+        run_id="run-id",
+        workflow_type="rasterize-recording",
+        initiated_event_id=1,
+        started_event_id=2,
+        retry_state=None,
+    )
+    err.__cause__ = cause
+    return err
+
+
+@pytest.mark.parametrize(
+    "exception,expected",
+    [
+        # A workflow terminated directly (TERMINATE_EXISTING on a force-restart retry).
+        (TerminatedError("Workflow execution terminated"), True),
+        # The termination cascading to a shared-id child the parent is awaiting (workflow.py:384).
+        (_child_workflow_error(TerminatedError("Child Workflow execution terminated")), True),
+        # Not a termination: cancellations are handled separately, genuine failures must still report.
+        (_child_workflow_error(CancelledError("cancelled")), False),
+        (_child_workflow_error(ApplicationError("boom")), False),
+        (_child_workflow_error(None), False),
+        (ApplicationError("boom"), False),
+    ],
+)
+def test_is_terminated_exception(exception: BaseException, expected: bool):
+    assert _is_terminated_exception(exception) is expected
 
 
 @pytest.mark.asyncio

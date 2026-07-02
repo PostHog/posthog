@@ -20,6 +20,25 @@ from posthog.temporal.common.logger import get_write_only_logger
 logger = get_write_only_logger()
 
 
+def _is_terminated_exception(exception: BaseException) -> bool:
+    """Check whether the given exception is a workflow termination, either directly or wrapped
+    in a child-workflow/activity/nexus failure — mirroring temporalio's is_cancelled_exception.
+
+    Terminations are expected control flow when a workflow intentionally terminates another run
+    (e.g. TERMINATE_EXISTING on a force-restart retry), which cascades to any shared-id child
+    workflows that in-flight parent runs are still awaiting. Like cancellations, they are not
+    defects and should not be reported to error tracking."""
+    return isinstance(exception, temporalio.exceptions.TerminatedError) or (
+        isinstance(
+            exception,
+            temporalio.exceptions.ActivityError
+            | temporalio.exceptions.ChildWorkflowError
+            | temporalio.exceptions.NexusOperationError,
+        )
+        and isinstance(exception.cause, temporalio.exceptions.TerminatedError)
+    )
+
+
 def _tag_team_id_on_current_span(input: ExecuteActivityInput | ExecuteWorkflowInput) -> None:
     """Tag the active span (the Temporal RunActivity/RunWorkflow span, when OTel tracing is
     enabled on the worker) with team_id read from the activity/workflow input.
@@ -103,6 +122,8 @@ class _PostHogClientWorkflowInterceptor(WorkflowInboundInterceptor):
                 raise  # Already captured at the activity level
             if temporalio.exceptions.is_cancelled_exception(e):
                 raise  # Expected cancellation (worker drain, timeout, cancel), not a defect
+            if _is_terminated_exception(e):
+                raise  # Expected termination (e.g. TERMINATE_EXISTING force-restart cascading to a child), not a defect
             try:
                 workflow_info = workflow.info()
                 capture_kwargs = {
