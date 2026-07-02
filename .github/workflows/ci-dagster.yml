@@ -102,6 +102,7 @@ jobs:
                         # --- posthog submodules that DAGs actually import ---
                         # (verified by tracing imports of all 148 dagster Python files)
                         - 'posthog/clickhouse/**'
+                        - 'posthog/egress/**'
                         - 'posthog/models/**'
                         - 'posthog/hogql/**'
                         - 'posthog/hogql_queries/**'
