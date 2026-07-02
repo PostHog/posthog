@@ -16,7 +16,7 @@ import typing
 import contextlib
 import collections
 import collections.abc
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import date, datetime
 from decimal import Decimal
@@ -778,6 +778,8 @@ def _get_query(
 _JOB_NOT_FOUND_MAX_ATTEMPTS = 4
 _JOB_NOT_FOUND_RETRY_BACKOFF_SECONDS = 0.5
 
+_T = typing.TypeVar("_T")
+
 
 def _is_transient_job_not_found(error: NotFound) -> bool:
     """True for BigQuery's transient "Job ... not found" lookup race.
@@ -789,6 +791,31 @@ def _is_transient_job_not_found(error: NotFound) -> bool:
     """
     message = str(error)
     return "Not found: Job" in message or "Job not found" in message
+
+
+def _with_job_not_found_retry(operation: Callable[[], _T]) -> _T:
+    """Run `operation`, retrying BigQuery's transient job-metadata race.
+
+    `client.query()` inserts a job and reads it straight back (its post-insert `get_job` reload, or
+    the reload `job.result()` does while awaiting completion), and that read can momentarily 404 for
+    the job it just created. The race clears within moments, so retry a few times. A genuine
+    `NotFound` (missing dataset/table) is not the race and surfaces immediately.
+    """
+    attempt = 0
+    while True:
+        try:
+            return operation()
+        except NotFound as e:
+            attempt += 1
+            if not _is_transient_job_not_found(e) or attempt >= _JOB_NOT_FOUND_MAX_ATTEMPTS:
+                raise
+            structlog.get_logger().warning(
+                "Retrying BigQuery query after transient job-not-found (attempt %s/%s): %s",
+                attempt,
+                _JOB_NOT_FOUND_MAX_ATTEMPTS,
+                e,
+            )
+            time.sleep(_JOB_NOT_FOUND_RETRY_BACKOFF_SECONDS * attempt)
 
 
 def _run_destination_query_with_job_retry(
@@ -811,23 +838,12 @@ def _run_destination_query_with_job_retry(
         query_parameters=query_parameters,
         write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
     )
-    attempt = 0
-    while True:
-        try:
-            job = client.query(query, job_config=job_config, project=project)
-            _ = job.result()
-            return
-        except NotFound as e:
-            attempt += 1
-            if not _is_transient_job_not_found(e) or attempt >= _JOB_NOT_FOUND_MAX_ATTEMPTS:
-                raise
-            structlog.get_logger().warning(
-                "Retrying BigQuery copy query after transient job-not-found (attempt %s/%s): %s",
-                attempt,
-                _JOB_NOT_FOUND_MAX_ATTEMPTS,
-                e,
-            )
-            time.sleep(_JOB_NOT_FOUND_RETRY_BACKOFF_SECONDS * attempt)
+
+    def _run() -> None:
+        job = client.query(query, job_config=job_config, project=project)
+        job.result()
+
+    _with_job_not_found_retry(_run)
 
 
 def _query_result_with_job_retry(
@@ -845,22 +861,12 @@ def _query_result_with_job_retry(
     found: Job ...` the same way the copy queries do. Re-running a read-only query just inserts a
     fresh job, so retrying is safe; row fetching on the returned iterator stays lazy.
     """
-    attempt = 0
-    while True:
-        try:
-            job = client.query(query, job_config=job_config, project=project)
-            return job.result(page_size=page_size)
-        except NotFound as e:
-            attempt += 1
-            if not _is_transient_job_not_found(e) or attempt >= _JOB_NOT_FOUND_MAX_ATTEMPTS:
-                raise
-            structlog.get_logger().warning(
-                "Retrying BigQuery query after transient job-not-found (attempt %s/%s): %s",
-                attempt,
-                _JOB_NOT_FOUND_MAX_ATTEMPTS,
-                e,
-            )
-            time.sleep(_JOB_NOT_FOUND_RETRY_BACKOFF_SECONDS * attempt)
+
+    def _run() -> RowIterator:
+        job = client.query(query, job_config=job_config, project=project)
+        return job.result(page_size=page_size)
+
+    return _with_job_not_found_retry(_run)
 
 
 class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigquery.Client, Any]):
