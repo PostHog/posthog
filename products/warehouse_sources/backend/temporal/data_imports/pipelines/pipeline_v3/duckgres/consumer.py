@@ -340,6 +340,15 @@ class DuckgresBatchConsumerAdapter:
     ) -> list[PendingBatch]:
         return await DuckgresBatchQueue.get_stale_executing(conn, grace_seconds=grace_seconds)
 
+    async def requeue_stale_batch(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        batch: PendingBatch,
+        error_response: dict[str, Any],
+    ) -> bool:
+        return await DuckgresBatchQueue.requeue_stale_executing(conn, batch=batch, error_response=error_response)
+
     async def reconcile_failed_runs(
         self,
         conn: psycopg.AsyncConnection[Any],

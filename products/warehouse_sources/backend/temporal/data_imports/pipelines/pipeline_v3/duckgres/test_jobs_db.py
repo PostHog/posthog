@@ -827,6 +827,32 @@ class TestDuckgresGroupLease:
         assert await DuckgresBatchQueue.renew_lease(conn, team_id=1, schema_id="schema-1", owner_token="owner-b")
 
     @pytest.mark.asyncio
+    async def test_requeue_is_fenced_on_live_lease_and_current_status(self, conn):
+        # The recovery sweep's scan-to-write gap: another pod can reclaim the
+        # group (or a rival sweep can requeue first) after the stale scan. The
+        # requeue write must re-check both in its own snapshot or it would
+        # stamp waiting_retry into an actively owned group.
+        batch_id = await _insert_batch(conn)
+        await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
+        claimed = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
+        await DuckgresBatchQueue.update_status(conn, batch_id=batch_id, job_state="executing", attempt=1)
+
+        # Live lease (owner-a) → requeue must refuse.
+        assert not await DuckgresBatchQueue.requeue_stale_executing(
+            conn, batch=claimed[0], error_response={"error": "timed out"}
+        )
+
+        await conn.execute(f"UPDATE {DUCKGRES_LEASE_TABLE} SET expires_at = now() - interval '1 second'")
+        assert await DuckgresBatchQueue.requeue_stale_executing(
+            conn, batch=claimed[0], error_response={"error": "timed out"}
+        )
+
+        # Latest is now waiting_retry: a rival sweep's second requeue is a no-op.
+        assert not await DuckgresBatchQueue.requeue_stale_executing(
+            conn, batch=claimed[0], error_response={"error": "timed out"}
+        )
+
+    @pytest.mark.asyncio
     async def test_stale_executing_visible_only_after_lease_expiry(self, conn):
         batch_id = await _insert_batch(conn)
         await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)

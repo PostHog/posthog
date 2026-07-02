@@ -637,6 +637,51 @@ class DuckgresBatchQueue:
         return bool(cursor.rowcount)
 
     @staticmethod
+    async def requeue_stale_executing(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        batch: PendingBatch,
+        error_response: dict[str, Any],
+    ) -> bool:
+        """Flip a stale 'executing' batch to waiting_retry — fenced at write time.
+
+        The recovery scan observes "stale executing, no live lease", but between
+        that read and this write another pod can reclaim the group (and a rival
+        sweep can requeue the same batch). The insert therefore re-checks both
+        in its own statement snapshot: the batch's latest status must still be
+        'executing' and the group must still carry no live lease. Returns False
+        when skipped — the batch is picked up by a later sweep once the group
+        is free again.
+        """
+        cursor = await conn.execute(
+            f"""
+            INSERT INTO {DUCKGRES_STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
+            SELECT %(batch_id)s, 'waiting_retry', %(attempt)s, now(), %(error_response)s, now()
+            WHERE (
+                SELECT cur.job_state
+                FROM {DUCKGRES_STATUS_TABLE} cur
+                WHERE cur.batch_id = %(batch_id)s
+                ORDER BY cur.created_at DESC, cur.id DESC
+                LIMIT 1
+            ) = 'executing'
+            AND NOT EXISTS (
+                SELECT 1 FROM {DUCKGRES_LEASE_TABLE} l
+                WHERE l.team_id = %(team_id)s
+                    AND l.schema_id = %(schema_id)s
+                    AND l.expires_at > now()
+            )
+            """,
+            {
+                "batch_id": batch.id,
+                "attempt": batch.latest_attempt,
+                "error_response": json.dumps(error_response),
+                "team_id": batch.team_id,
+                "schema_id": batch.schema_id,
+            },
+        )
+        return bool(cursor.rowcount)
+
+    @staticmethod
     async def is_failed(
         conn: psycopg.AsyncConnection[Any],
         *,

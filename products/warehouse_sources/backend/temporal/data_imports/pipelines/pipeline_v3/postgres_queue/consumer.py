@@ -202,6 +202,26 @@ class DeltaBatchConsumerAdapter:
     ) -> list[PendingBatch]:
         return await BatchQueue.get_stale_executing(conn, grace_seconds=grace_seconds)
 
+    async def requeue_stale_batch(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        batch: PendingBatch,
+        error_response: dict[str, Any],
+    ) -> bool:
+        # Unfenced (pre-existing behavior): get_stale_executing already excludes
+        # live-leased groups, and the prod retry backoff makes a select-to-write
+        # reclaim of the same batch unreachable. Lease-conditional fencing (as
+        # the duckgres adapter does) is tracked as a follow-up.
+        await BatchQueue.update_status(
+            conn,
+            batch_id=batch.id,
+            job_state=self.waiting_retry_state,
+            attempt=batch.latest_attempt,
+            error_response=error_response,
+        )
+        return True
+
     async def reconcile_failed_runs(
         self,
         conn: psycopg.AsyncConnection[Any],

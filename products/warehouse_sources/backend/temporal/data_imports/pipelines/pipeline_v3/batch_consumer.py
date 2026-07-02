@@ -169,6 +169,17 @@ class BatchConsumerAdapter(Protocol):
         grace_seconds: int,
     ) -> list[PendingBatch]: ...
 
+    async def requeue_stale_batch(
+        self,
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        batch: PendingBatch,
+        error_response: dict[str, Any],
+    ) -> bool:
+        """Requeue a stale 'executing' batch for retry. Returns False when skipped
+        (e.g. the group was reclaimed between the stale scan and this write)."""
+        ...
+
     async def reconcile_failed_runs(
         self,
         conn: psycopg.AsyncConnection[Any],
@@ -818,14 +829,17 @@ class BatchConsumer:
                     logger.warning(self._event("batch_recovered_max_retries_exceeded"), attempt=batch.latest_attempt)
                     await self._fail_run(batch, reason="max retries exceeded (likely OOM)", conn=conn)
                 else:
-                    logger.warning(self._event("batch_recovered_for_retry"), attempt=batch.latest_attempt)
-                    await self._adapter.update_status(
+                    requeued = await self._adapter.requeue_stale_batch(
                         conn,
-                        batch_id=batch.id,
-                        job_state=self._adapter.waiting_retry_state,
-                        attempt=batch.latest_attempt,
+                        batch=batch,
                         error_response={"error": "executing timed out - pod restart or OOM"},
                     )
+                    if requeued:
+                        logger.warning(self._event("batch_recovered_for_retry"), attempt=batch.latest_attempt)
+                    else:
+                        # Another pod reclaimed the group (or another sweep won)
+                        # between the stale scan and the write; leave it alone.
+                        logger.info(self._event("batch_recovery_skipped_group_reclaimed"), batch_id=batch.id)
             except OwnershipLostError:
                 # The batch was terminally retired (supersede/replan) between the
                 # stale scan and this write — there is nothing left to recover.
