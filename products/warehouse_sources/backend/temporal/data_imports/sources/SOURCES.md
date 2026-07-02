@@ -360,7 +360,6 @@ doesn't conflict with concurrent PRs.
 - cisco_meraki
 - clarifai
 - clazar
-- clockodo
 - cloudbeds
 - coassemble
 - cockroachdb
