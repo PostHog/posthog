@@ -506,8 +506,12 @@ jobs:
 
             - name: Calculate dist folder size
               id: dist-size
+              # After the base build the workspace's dist/ holds the BASE branch's build, so
+              # read back the PR measurement taken before it — the captured metric must be
+              # the PR's size. The du fallback covers runs where that file wasn't written
+              # (dist/ is still the PR's own build then).
               run: |
-                  size_bytes=$(du -sb frontend/dist | cut -f1)
+                  size_bytes=$(cat frontend/dist-size-pr.txt 2>/dev/null || du -sb frontend/dist | cut -f1)
                   echo "size_bytes=${size_bytes}" >> $GITHUB_OUTPUT
                   echo "Frontend dist folder size: ${size_bytes} bytes ($(numfmt --to=iec-i --suffix=B ${size_bytes}))"
 
