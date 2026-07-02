@@ -132,6 +132,7 @@ class TestTableDescriptions(APIBaseTest):
         # Annotations are team-scoped via TeamScopedManager; lock that in so a future switch to
         # `.unscoped()` can't leak another team's descriptions into a resolver loaded for this team.
         other = Team.objects.create(organization=self.organization, name="other")
+        hogql_table: Table
         if kind == "warehouse":
             table = self._warehouse_table(team=other)
             with team_scope(other.id, canonical=True):

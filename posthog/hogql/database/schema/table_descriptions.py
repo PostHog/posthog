@@ -97,8 +97,8 @@ class TableDescriptions:
             return self._warehouse_or_view(str(table_id), "")
         return None
 
-    def for_column(self, table: Table, column_name: str, field: FieldOrTable) -> Optional[str]:
-        if field.description:
+    def for_column(self, table: Table, column_name: str, field: Optional[FieldOrTable]) -> Optional[str]:
+        if field is not None and field.description:
             return field.description
         if isinstance(table, SavedQuery):
             return self._view.get((str(table.id), column_name))
