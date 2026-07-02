@@ -199,6 +199,7 @@ the row lists both.
 | mailersend              | HTTP                        | requests                                                        | ✅                          |
 | mailgun                 | HTTP                        | requests                                                        | ✅                          |
 | mailjet                 | HTTP                        | requests                                                        | ✅                          |
+| mailosaur               | HTTP                        | requests                                                        | ✅                          |
 | marketstack             | HTTP                        | requests                                                        | ✅                          |
 | matomo                  | HTTP                        | requests                                                        | ✅                          |
 | meta_ads                | HTTP                        | requests                                                        | ✅                          |
@@ -505,7 +506,6 @@ doesn't conflict with concurrent PRs.
 - looker
 - loops
 - luma
-- mailosaur
 - mailtrap
 - mantle
 - marketo
