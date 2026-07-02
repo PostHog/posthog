@@ -86,6 +86,12 @@ class IntentRecord:
 # DEFAULT_TOP_N_INTENTS=500 a larger sample only adds long-tail singletons.
 MAX_CORPUS_SESSIONS = 2000
 
+# Event-sourced intents are free text written by the calling agent — clip them
+# so one oversized value can't blow up embedding requests (the worker's model
+# has a token ceiling) or bloat the snapshot blob. Real intents are one or two
+# sentences; anything past this length adds no clustering signal.
+MAX_INTENT_TEXT_LENGTH = 1000
+
 # First (chronological) $mcp_intent per session — the agent's opening task
 # statement, used as the session's representative intent unless an on-demand
 # LLM summary exists in Postgres. Ordering by cityHash64(session_id) is a
@@ -190,7 +196,7 @@ def fetch_intent_corpus(
     intent_by_session: dict[str, str] = {}
     for row in intent_response.results or []:
         session_id = str(row[0] or "")
-        text = str(row[1] or "").strip()
+        text = str(row[1] or "").strip()[:MAX_INTENT_TEXT_LENGTH]
         if not session_id or not text or text == NO_INTENT_RECORDED_FALLBACK:
             continue
         intent_by_session[session_id] = text
@@ -203,7 +209,7 @@ def fetch_intent_corpus(
         "session_id", "intent"
     )
     for session_id, intent_text in session_rows:
-        text = (intent_text or "").strip()
+        text = (intent_text or "").strip()[:MAX_INTENT_TEXT_LENGTH]
         if not session_id or not text or text == NO_INTENT_RECORDED_FALLBACK:
             continue
         intent_by_session[session_id] = text

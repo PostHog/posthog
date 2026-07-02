@@ -24,6 +24,7 @@ from products.mcp_analytics.backend import intent_clustering
 from products.mcp_analytics.backend.intent_clustering import (
     DEFAULT_DISTANCE_THRESHOLD,
     EMBEDDING_MODEL,
+    MAX_INTENT_TEXT_LENGTH,
     NO_INTENT_RECORDED_FALLBACK,
     IntentRecord,
     _content_hash,
@@ -381,6 +382,17 @@ class TestFetchIntentCorpus(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixi
 
         assert intent_by_session == {"session-a": "Condensed LLM summary of the session"}
         assert [r.intent_text for r in records] == ["Condensed LLM summary of the session"]
+
+    def test_oversized_event_intent_is_clipped(self) -> None:
+        # Agents control the intent text — an unbounded value would flow into
+        # embedding requests and the snapshot blob.
+        self._seed_tool_call("session-big", "execute_sql", intent="x" * (MAX_INTENT_TEXT_LENGTH * 5))
+        flush_persons_and_events()
+
+        records, intent_by_session = fetch_intent_corpus(self.team)
+
+        assert intent_by_session == {"session-big": "x" * MAX_INTENT_TEXT_LENGTH}
+        assert [len(r.intent_text) for r in records] == [MAX_INTENT_TEXT_LENGTH]
 
     @parameterized.expand(
         [
