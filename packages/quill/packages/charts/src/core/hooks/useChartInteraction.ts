@@ -38,6 +38,9 @@ interface UseChartInteractionOptions<Meta> {
      *  charts pass the stacked-top resolver so the anchor lands at the visual top of each
      *  segment while each tooltip row still shows its own value via `resolveValue`. */
     resolvePositionValue?: ResolveValueFn
+    /** Resolves the stacked bottom value per series — passed to buildTooltipContext so yPixel
+     *  is set to the segment midpoint, making closest-series detection match the visual boundary. */
+    resolveBottomValue?: ResolveValueFn
     interactionAxis?: 'x' | 'y'
     labelToCoord?: (label: string) => number | undefined
     /** Chart-type seam: rewrite the click payload (e.g. resolve the stacked segment under the
@@ -72,6 +75,7 @@ export function useChartInteraction<Meta = unknown>({
     onDateRangeZoom,
     resolveValue = defaultResolveValue,
     resolvePositionValue,
+    resolveBottomValue,
     interactionAxis = 'x',
     labelToCoord,
     wrapClickData,
@@ -80,11 +84,12 @@ export function useChartInteraction<Meta = unknown>({
     // value (i.e. non-stacked charts, where the two are identical).
     const effectivePositionResolve = resolvePositionValue ?? resolveValue
 
-    // resolveValue / effectivePositionResolve are read live in the pinned-rebuild path so an
-    // unmemoized closure on either doesn't trigger a rebuild every render — see the contract
-    // on `ChartProps.resolveValue`.
+    // resolveValue / effectivePositionResolve / resolveBottomValue are read live in the
+    // pinned-rebuild path so an unmemoized closure on any of them doesn't trigger a rebuild
+    // every render — see the contract on `ChartProps.resolveValue`.
     const resolveValueRef = useLatest(resolveValue)
     const effectivePositionResolveRef = useLatest(effectivePositionResolve)
+    const resolveBottomValueRef = useLatest(resolveBottomValue)
 
     const rebuildPinnedCtx = useCallback(
         (prev: TooltipContext<Meta>): TooltipContext<Meta> | null => {
@@ -107,11 +112,12 @@ export function useChartInteraction<Meta = unknown>({
                 interactionAxis,
                 prev.hoverPosition,
                 effectivePositionResolveRef.current,
+                resolveBottomValueRef.current,
                 scales.extent?.(labels[prev.dataIndex]),
                 prev.hoverPosition ? scales.bandSlotAtCursor?.(labels[prev.dataIndex], prev.hoverPosition) : undefined
             )
         },
-        // resolveValueRef / effectivePositionResolveRef are stable
+        // resolveValueRef / effectivePositionResolveRef / resolveBottomValueRef are stable refs
         [
             scales,
             dimensions,
@@ -122,6 +128,7 @@ export function useChartInteraction<Meta = unknown>({
             interactionAxis,
             resolveValueRef,
             effectivePositionResolveRef,
+            resolveBottomValueRef,
         ]
     )
 
@@ -203,6 +210,7 @@ export function useChartInteraction<Meta = unknown>({
                         interactionAxis,
                         { x: mouseX, y: mouseY },
                         effectivePositionResolve,
+                        resolveBottomValue,
                         scales.extent?.(labels[index]),
                         scales.bandSlotAtCursor?.(labels[index], { x: mouseX, y: mouseY })
                     )
@@ -226,6 +234,7 @@ export function useChartInteraction<Meta = unknown>({
             interactionAxis,
             setHover,
             setTooltipCtx,
+            resolveBottomValue,
         ]
     )
 

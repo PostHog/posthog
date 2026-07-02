@@ -17,8 +17,8 @@ from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
+from posthog.egress.github.limiter import acquire_github_installation
 from posthog.models.integration import GitHubIntegration, Integration
-from posthog.rate_limiting.github import acquire_github_installation
 from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 

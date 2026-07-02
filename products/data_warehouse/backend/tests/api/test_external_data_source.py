@@ -44,6 +44,7 @@ from products.data_warehouse.backend.presentation.views.external_data_source imp
 )
 from products.revenue_analytics.backend.joins import get_customer_revenue_view_name
 from products.warehouse_sources.backend.facade.models import (
+    CustomOAuth2Integration,
     DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSchema,
@@ -5171,6 +5172,146 @@ class TestExternalDataSource(APIBaseTest):
         assert persisted_host in source.job_inputs["manifest_json"]
         # The credential probe only runs once the re-entry gate has passed.
         assert mock_validate_credentials.called == (expected_status == 200)
+
+    def _custom_oauth2_source(self, token_url: str) -> ExternalDataSource:
+        manifest = {
+            "client": {
+                "base_url": "https://api.example.com",
+                "auth": {"type": "oauth2", "client_id": "cid", "token_url": token_url},
+            },
+            "resources": [{"name": "users", "endpoint": {"path": "/users"}}],
+        }
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Custom",
+            created_by=self.user,
+            prefix="custom_oauth2",
+            job_inputs={"manifest_json": json.dumps(manifest), "auth_oauth2_client_secret": "cs_existing"},
+        )
+
+    @parameterized.expand(
+        [("without_credentials", {}, 400), ("with_credentials", {"auth_oauth2_client_secret": "cs_new"}, 200)]
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_custom_source_oauth2_token_url_change_requires_reentry(
+        self, _name, extra_creds, expected_status, mock_validate_credentials
+    ):
+        # The OAuth2 token endpoint receives the stored client_secret. Repointing token_url to a new
+        # host without re-supplying the secret would exfiltrate it to a server the editor chose — so it
+        # is gated exactly like a base_url change. This is the net-new credential-redirect coverage that
+        # the Smokescreen egress proxy structurally cannot provide.
+        source = self._custom_oauth2_source("https://auth.example.com/oauth2/token")
+        new_manifest = {
+            "client": {
+                "base_url": "https://api.example.com",
+                "auth": {"type": "oauth2", "client_id": "cid", "token_url": "https://attacker.example.net/token"},
+            },
+            "resources": [{"name": "users", "endpoint": {"path": "/users"}}],
+        }
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"manifest_json": json.dumps(new_manifest), **extra_creds}},
+        )
+
+        assert response.status_code == expected_status, response.json()
+        assert ("re-entering your credentials" in str(response.json())) == (expected_status == 400)
+        # The credential probe only runs once the re-entry gate has passed.
+        assert mock_validate_credentials.called == (expected_status == 200)
+
+    def _custom_oauth2_integration_source(self) -> ExternalDataSource:
+        manifest = {
+            "client": {
+                "base_url": "https://api.example.com",
+                "auth": {"type": "oauth2", "client_id": "cid", "token_url": "https://auth.example.com/token"},
+            },
+            "resources": [{"name": "users", "endpoint": {"path": "/users"}}],
+        }
+        return ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Custom",
+            created_by=self.user,
+            prefix="custom_oauth2_int",
+            job_inputs={
+                "manifest_json": json.dumps(manifest),
+                "auth_oauth2_integration_id": "11111111-1111-1111-1111-111111111111",
+            },
+        )
+
+    @parameterized.expand(
+        [("preserved_integration", {}, 400), ("cleared_integration", {"auth_oauth2_integration_id": ""}, 200)]
+    )
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_custom_oauth2_integration_source_host_change_requires_reentry(
+        self, _name, extra_inputs, expected_status, mock_validate_credentials
+    ):
+        # An integration-backed OAuth2 source keeps no secret in job_inputs — the token lives in the
+        # CustomOAuth2Integration row and is injected at sync time keyed by the non-secret
+        # auth_oauth2_integration_id. So a manifest host change that preserves that pointer would still
+        # redirect the injected token to the new host; the gate must treat the preserved pointer like a
+        # preserved secret. Clearing the pointer is an explicit re-config and is allowed.
+        source = self._custom_oauth2_integration_source()
+        new_manifest = {
+            "client": {
+                "base_url": "https://attacker.example.net",
+                "auth": {"type": "oauth2", "client_id": "cid", "token_url": "https://auth.example.com/token"},
+            },
+            "resources": [{"name": "users", "endpoint": {"path": "/users"}}],
+        }
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"manifest_json": json.dumps(new_manifest), **extra_inputs}},
+        )
+
+        assert response.status_code == expected_status, response.json()
+        assert ("re-entering your credentials" in str(response.json())) == (expected_status == 400)
+        assert mock_validate_credentials.called == (expected_status == 200)
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_custom_oauth2_source_cannot_clear_pointer_to_move_host_while_bound(self, mock_validate_credentials):
+        # Bypass guard: clearing auth_oauth2_integration_id does not unbind the CustomOAuth2Integration row,
+        # so an editor must not be able to clear the pointer, move the manifest host, then re-add the pointer
+        # to redirect the still-bound token. A row bound to the source makes the host-change gate fire even
+        # when job_inputs currently omits the pointer.
+        source = self._custom_oauth2_integration_source()
+        CustomOAuth2Integration.objects.for_team(self.team.pk).create(
+            team=self.team,
+            external_data_source=source,
+            config={"client_id": "cid", "token_url": "https://auth.example.com/token"},
+            sensitive_config={"client_secret": "s"},
+        )
+        new_manifest = {
+            "client": {
+                "base_url": "https://attacker.example.net",
+                "auth": {"type": "oauth2", "client_id": "cid", "token_url": "https://auth.example.com/token"},
+            },
+            "resources": [{"name": "users", "endpoint": {"path": "/users"}}],
+        }
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={"job_inputs": {"manifest_json": json.dumps(new_manifest), "auth_oauth2_integration_id": ""}},
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "re-entering your credentials" in str(response.json())
+        mock_validate_credentials.assert_not_called()
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",

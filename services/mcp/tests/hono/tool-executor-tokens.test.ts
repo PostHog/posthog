@@ -165,7 +165,10 @@ describe('ToolExecutor token estimates', () => {
             const [toolName, , isError, , extra] = mockTrackToolCall.mock.calls[0]!
             expect(toolName).toBe('fail-tool')
             expect(isError).toBe(true)
-            expect(extra).toBeUndefined()
+            // The error path carries the failure classification ($mcp_error_type) but
+            // never token estimates — those only make sense on a successful call.
+            expect(extra).not.toHaveProperty('input_tokens')
+            expect(extra).not.toHaveProperty('output_tokens')
         })
     })
 

@@ -1,4 +1,10 @@
-import type { Series, TimeInterval, TimeSeriesBarChartConfig, ValueLabelFormatter } from '@posthog/quill-charts'
+import type {
+    Series,
+    TimeInterval,
+    TimeSeriesBarChartConfig,
+    ValueLabelFormatter,
+    YAxisConfig,
+} from '@posthog/quill-charts'
 
 import { buildTrendsYAxisConfig } from '../shared/trendsAxisFormat'
 import type { YFormatterFields } from '../shared/trendsChartDisplayOptions'
@@ -124,7 +130,9 @@ export interface BuildTrendsLifecycleConfigOpts {
     legend?: TimeSeriesBarChartConfig['legend']
 }
 
-export function buildTrendsLifecycleConfig(opts: BuildTrendsLifecycleConfigOpts): TimeSeriesBarChartConfig {
+export function buildTrendsLifecycleConfig(
+    opts: BuildTrendsLifecycleConfigOpts
+): TimeSeriesBarChartConfig & { yAxis?: YAxisConfig } {
     const yAxis = buildTrendsYAxisConfig(opts.trendsFilter, false, opts.baseCurrency, {
         yAxisScaleType: opts.yAxisScaleType,
         showGrid: true,

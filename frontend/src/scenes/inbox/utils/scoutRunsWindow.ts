@@ -49,37 +49,6 @@ export function mostRecentEmittedRuns(runs: SignalScoutRunSummary[]): SignalScou
     )
 }
 
-// ── Origin classification ────────────────────────────────────────────────────
-
-/**
- * Canonical scouts shipped in the PostHog repo (products/signals/skills). The
- * configs endpoint does not yet distinguish canonical from hand-authored skills,
- * so classify by this known-name list (matches desktop `CANONICAL_SCOUT_SKILLS`).
- */
-export const CANONICAL_SCOUT_SKILLS = new Set<string>([
-    'signals-scout-general',
-    'signals-scout-anomaly-detection',
-    'signals-scout-ai-observability',
-    'signals-scout-csp-violations',
-    'signals-scout-data-pipelines',
-    'signals-scout-error-tracking',
-    'signals-scout-experiments',
-    'signals-scout-feature-flags',
-    'signals-scout-health-checks',
-    'signals-scout-logs',
-    'signals-scout-observability-gaps',
-    'signals-scout-revenue-analytics',
-    'signals-scout-session-replay',
-    'signals-scout-surveys',
-    'signals-scout-web-analytics',
-])
-
-export type ScoutOrigin = 'canonical' | 'custom'
-
-export function getScoutOrigin(skillName: string): ScoutOrigin {
-    return CANONICAL_SCOUT_SKILLS.has(skillName) ? 'canonical' : 'custom'
-}
-
 /** "signals-scout-error-tracking" → "Error tracking" */
 export function prettifyScoutSkillName(skillName: string): string {
     const cleaned = skillName

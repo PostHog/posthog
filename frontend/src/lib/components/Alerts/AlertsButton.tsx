@@ -31,7 +31,7 @@ export function AlertsButton({ insight, insightLogicProps, text, ...props }: Ale
     const disabledReason =
         supported || (alerts?.length ?? 0) > 0
             ? undefined
-            : alertsUnsupportedReason({ hogqlAlertsEnabled, funnelAlertsEnabled })
+            : alertsUnsupportedReason({ hogqlAlertsEnabled, funnelAlertsEnabled }, insight.query)
 
     return (
         <LemonButton
