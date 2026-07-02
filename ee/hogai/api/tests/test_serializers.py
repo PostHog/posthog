@@ -343,6 +343,7 @@ class TestConversationSerializerTaskField(APIBaseTest):
             title_manually_set=False,
             description="d",
             origin_product=Task.OriginProduct.POSTHOG_AI,
+            task_kind=Task.TaskKind.CODING,
             repository=None,
             github_integration=None,
             github_user_integration=None,

@@ -1,6 +1,6 @@
 import re
 import textwrap
-from typing import Any
+from typing import TYPE_CHECKING, Any
 
 from django.db import models
 
@@ -10,6 +10,9 @@ from temporalio import activity
 from posthog.temporal.ai.slack_app.helpers import block_if_team_over_quota, safe_react
 from posthog.temporal.ai.slack_app.types import PostHogCodeSlackMentionWorkflowInputs
 from posthog.temporal.common.utils import close_db_connections
+
+if TYPE_CHECKING:
+    from posthog.temporal.oauth import PosthogMcpScopes
 
 logger = structlog.get_logger(__name__)
 
@@ -330,9 +333,11 @@ def create_posthog_code_task_for_repo_activity(
     from products.tasks.backend.facade import api as tasks_facade
     from products.tasks.backend.facade.temporal import execute_task_processing_workflow
 
-    if task_kind not in tasks_facade.TaskKind.values:
+    try:
+        resolved_task_kind = tasks_facade.TaskKind(task_kind)
+    except ValueError:
         logger.warning("posthog_code_unknown_task_kind", task_kind=task_kind)
-        task_kind = tasks_facade.TaskKind.CODING
+        resolved_task_kind = tasks_facade.TaskKind.CODING
 
     integration = Integration.objects.select_related("team", "team__organization").get(
         id=inputs.integration_id,
@@ -413,8 +418,8 @@ def create_posthog_code_task_for_repo_activity(
 
     # Task kind only controls code/PR behavior; Slack bot users always get the
     # full PostHog MCP surface.
-    allow_pr_creation = task_kind == tasks_facade.TaskKind.CODING
-    posthog_mcp_scopes = "full"
+    allow_pr_creation = resolved_task_kind == tasks_facade.TaskKind.CODING
+    posthog_mcp_scopes: PosthogMcpScopes = "full"
 
     from products.slack_app.backend.facade.slack_settings import resolve_ai_preferences
 
@@ -428,7 +433,7 @@ def create_posthog_code_task_for_repo_activity(
             description=description,
             origin_product=tasks_facade.TaskOriginProduct.SLACK,
             user_id=user_id,
-            task_kind=task_kind,
+            task_kind=resolved_task_kind,
             repository=repository,
             create_pr=allow_pr_creation,
             mode="interactive",
@@ -463,7 +468,7 @@ def create_posthog_code_task_for_repo_activity(
         "posthog_code_task_created",
         team_id=integration.team_id,
         repository=repository,
-        task_kind=task_kind,
+        task_kind=resolved_task_kind,
         channel=channel,
         thread_ts=thread_ts,
     )
@@ -805,7 +810,7 @@ def _resume_task_with_new_run(
 
     is_general_task = mapping.task.task_kind == tasks_facade.TaskKind.GENERAL
     create_pr = not is_general_task
-    posthog_mcp_scopes = "full"
+    posthog_mcp_scopes: PosthogMcpScopes = "full"
 
     extra_state: dict[str, Any] = {
         "interaction_origin": "slack",
