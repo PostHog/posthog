@@ -13,6 +13,7 @@ from parameterized import parameterized
 from posthog.schema import ClickhouseQueryProgress, QueryStatus
 
 from posthog.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.client import (
     execute_async as client,
@@ -225,6 +226,30 @@ class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
         self.assertIsNotNone(result.start_time)
         self.assertIsNotNone(result.pickup_time)
         self.assertIsNotNone(result.end_time)
+
+    @parameterized.expand(
+        [
+            # User-facing input errors are already surfaced via error_message — never capture them
+            ("user_facing", ExposedHogQLError("Unknown table 'events.events'"), False),
+            # Genuinely unexpected failures must still reach error tracking
+            ("unexpected", RuntimeError("something actually broke"), True),
+        ]
+    )
+    @patch("posthog.clickhouse.client.execute_async.capture_exception")
+    def test_async_query_only_captures_unexpected_errors(self, _name, exception, should_capture, capture_mock):
+        query = build_query("SELECT 1+1")
+        query_id = uuid.uuid4().hex
+        with patch("posthog.api.services.query.process_query_dict", side_effect=exception):
+            try:
+                client.enqueue_process_query_task(
+                    self.team, self.user.id, query, query_id=query_id, _test_only_bypass_celery=True
+                )
+            except Exception:
+                pass
+
+        result = client.get_query_status(self.team.id, query_id)
+        self.assertTrue(result.error)
+        self.assertEqual(capture_mock.called, should_capture)
 
     def test_async_query_client_uuid(self):
         query = build_query("SELECT toUUID('00000000-0000-0000-0000-000000000000')")
