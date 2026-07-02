@@ -9,6 +9,7 @@
 //   401  missing / invalid JWT
 //   403  JWT claims don't match URL params
 //   405  wrong HTTP method
+//   408  client disconnected mid-body: {error, last_accepted_seq}
 //   409  SequenceGap / AlreadyCompleted / CompletionSequenceMismatch: {error, last_accepted_seq}
 //   413  payload too large: {error, last_accepted_seq}
 
@@ -28,6 +29,7 @@ import { logger } from '../lib/logging.js'
 import { TaskRunRedisStream, getStreamKey } from '../lib/redis-stream.js'
 import { heartbeatWorkflowIfNeeded } from '../lib/side-effects.js'
 import {
+    ClientDisconnected,
     EventIngestBadRequest,
     EventIngestPayloadTooLarge,
     TaskRunStreamSequenceGap,
@@ -116,6 +118,17 @@ export async function handleIngest(
     try {
         result = await ingestEventLines(redisStream, claims, token, config, c.req.raw, bodyTiming)
     } catch (err: unknown) {
+        if (err instanceof ClientDisconnected) {
+            logger.info('ingest:client_disconnect', {
+                run: claims.runId,
+                accepted: err.accepted,
+                duplicate: err.duplicate,
+                lastSeq: err.lastAcceptedSeq,
+                chunks: bodyTiming.chunks,
+                bodyBytes: bodyTiming.bytes,
+            })
+            return c.json({ error: 'Client disconnected', last_accepted_seq: err.lastAcceptedSeq }, 408)
+        }
         if (err instanceof EventIngestBadRequest) {
             return c.json({ error: err.message }, 400)
         }
@@ -231,6 +244,11 @@ async function ingestEventLines(
             )
         }
     } catch (err: unknown) {
+        if (err instanceof ClientDisconnected) {
+            err.accepted = result.accepted
+            err.duplicate = result.duplicate
+            err.lastAcceptedSeq = result.last_accepted_seq
+        }
         // Re-throw EventIngestPayloadTooLarge with the current last_accepted_seq
         // if the error didn't carry one (mirrors Python's except re-raise).
         if (err instanceof EventIngestPayloadTooLarge && result.last_accepted_seq > 0 && err.lastAcceptedSeq === 0) {
@@ -307,7 +325,9 @@ async function* iterRequestLines(request: Request, run: string, timing: IngestBo
 
     try {
         while (true) {
-            const { done, value } = await reader.read()
+            const { done, value } = await reader.read().catch((err: unknown) => {
+                throw isClientAbortError(err) ? new ClientDisconnected() : err
+            })
 
             if (value !== undefined && value.length > 0) {
                 const chunkAt = Date.now()
@@ -381,6 +401,18 @@ async function* iterRequestLines(request: Request, run: string, timing: IngestBo
     } finally {
         reader.releaseLock()
     }
+}
+
+function isClientAbortError(err: unknown): boolean {
+    if (!(err instanceof Error)) {
+        return false
+    }
+    if (err.name === 'AbortError') {
+        return true
+    }
+    const code = (err as NodeJS.ErrnoException).code
+    // 'aborted' is undici's body-read abort message; it carries no error code, unlike the others.
+    return code === 'ECONNRESET' || code === 'ERR_STREAM_PREMATURE_CLOSE' || err.message === 'aborted'
 }
 
 // Decode bytes as UTF-8, mapping decode errors to EventIngestBadRequest.

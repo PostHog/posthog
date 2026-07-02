@@ -431,6 +431,10 @@ class DuckgresBatchConsumer(SharedBatchConsumer):
     async def _fetch_batches(self, conn: psycopg.AsyncConnection[Any], *, available: int) -> list[PendingBatch]:
         return await self._duckgres_adapter.fetch_and_lock(
             conn,
+            # Full poll_limit, NOT the base engine's _fetch_limit batch-count
+            # heuristic: a single backfill run legitimately co-claims many
+            # chunks into one group, and max_groups below already bounds the
+            # over-claim by GROUPS — the precise unit a lease covers.
             limit=self._config.poll_limit,
             retry_backoff_base_seconds=self._config.retry_backoff_base_seconds,
             owner_token=self._owner_token,

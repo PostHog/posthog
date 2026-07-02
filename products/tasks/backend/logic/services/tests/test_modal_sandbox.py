@@ -7,6 +7,7 @@ from unittest.mock import MagicMock, patch
 
 from modal.exception import (
     ConnectionError as ModalConnectionError,
+    ServiceError as ModalServiceError,
     TimeoutError as ModalTimeoutError,
 )
 from requests.exceptions import ConnectionError, Timeout
@@ -25,6 +26,7 @@ from products.tasks.backend.logic.services.modal_sandbox import (
     _GHCR_RESOLVE_MAX_ATTEMPTS,
     AGENT_SERVER_PORT,
     DEFAULT_MODAL_REGION,
+    DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS,
     SANDBOX_IMAGE,
     ModalSandbox,
     _get_modal_region,
@@ -989,6 +991,7 @@ class TestModalSandboxCreateSnapshot:
         [
             ModalTimeoutError("Deadline exceeded"),
             ModalConnectionError("connection reset"),
+            ModalServiceError("Timeout expired"),
             builtins.TimeoutError("timed out"),
             builtins.ConnectionError("connection error"),
             asyncio.CancelledError(),
@@ -1017,3 +1020,12 @@ class TestModalSandboxCreateSnapshot:
             mock_sandbox.create_snapshot()
 
         capture_exception.assert_called_once()
+
+    def test_create_directory_snapshot_overrides_modal_default_timeout(self, mock_sandbox: Any):
+        mock_sandbox._sandbox.snapshot_directory.return_value = MagicMock(object_id="im-dir-123")
+
+        assert mock_sandbox.create_directory_snapshot("/tmp/workspace") == "im-dir-123"
+
+        mock_sandbox._sandbox.snapshot_directory.assert_called_once_with(
+            "/tmp/workspace", timeout=DIRECTORY_SNAPSHOT_TIMEOUT_SECONDS, ttl=None
+        )

@@ -59,9 +59,12 @@ async fn dispatch_to_worker(
     cse_offset: i64,
 ) {
     tracker.mark_dispatched(PARTITION_ID as i32, cse_offset + 1);
-    tx.send(vec![ShuffleMessage::Event { event, cse_offset }])
-        .await
-        .unwrap();
+    tx.send(vec![ShuffleMessage::Event {
+        event: Box::new(event),
+        cse_offset,
+    }])
+    .await
+    .unwrap();
 }
 
 /// `event == "$pageview"` — the matcher every behavioral leaf with `BEHAVIORAL_HASH` shares.
