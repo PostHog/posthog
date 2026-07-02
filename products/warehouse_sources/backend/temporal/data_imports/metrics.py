@@ -20,6 +20,7 @@ DATA_IMPORT_APP_SOURCE = "warehouse_source_sync"
 _TERMINAL_STATUS_TO_METRIC: dict[str, tuple[str, str]] = {
     "Completed": ("success", "succeeded"),
     "Failed": ("failure", "failed"),
+    "Cancelled": ("failure", "cancelled"),
     "BillingLimitReached": ("failure", "billing_limited"),
     "BillingLimitTooLow": ("failure", "billing_limited"),
 }

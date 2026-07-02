@@ -13,6 +13,7 @@ class ExternalDataJob(CreatedMetaFields, UpdatedMetaFields, UUIDTModel):
         RUNNING = "Running", "Running"
         FAILED = "Failed", "Failed"
         COMPLETED = "Completed", "Completed"
+        CANCELLED = "Cancelled", "Cancelled"
         BILLING_LIMIT_REACHED = "BillingLimitReached", "BillingLimitReached"
         BILLING_LIMIT_TOO_LOW = "BillingLimitTooLow", "BillingLimitTooLow"
 

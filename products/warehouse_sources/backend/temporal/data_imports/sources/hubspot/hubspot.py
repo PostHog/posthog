@@ -28,6 +28,7 @@ from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_ex
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.interrupt import raise_if_interrupted
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.auth import (
     HubspotRetryableError,
@@ -48,6 +49,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.hubspot.se
     SEARCH_WINDOW_DAYS,
     STARTDATE,
 )
+
+# (connect, read) timeout in seconds for every HubSpot HTTP call. A bounded read timeout keeps a
+# stalled socket from wedging the sync thread indefinitely — combined with `raise_if_interrupted`
+# between calls, a hung request surfaces as a retryable timeout the run can actually recover from.
+HTTP_TIMEOUT = (10, 60)
 
 PROPERTY_LENGTH_LIMIT = 16_000  # Empirically determined rough limit for the HubSpot API
 # Cap on the number of properties requested via the search path. The search API has no URL-length
@@ -322,7 +328,7 @@ def get_rows(
     def fetch_page(page_url: str) -> dict:
         nonlocal api_key, headers
 
-        response = make_tracked_session().get(page_url, headers=headers, timeout=60)
+        response = make_tracked_session().get(page_url, headers=headers, timeout=HTTP_TIMEOUT)
 
         if response.status_code == 401:
             api_key = hubspot_refresh_access_token(refresh_token, source_id=source_id)
@@ -345,6 +351,9 @@ def get_rows(
             raise HubspotRetryableError(f"Hubspot API malformed JSON response (retryable): url={page_url}") from e
 
     while True:
+        # Bail out promptly between pages on cancel / worker shutdown instead of paging on.
+        raise_if_interrupted()
+
         data = fetch_page(url)
 
         results = data.get("results", [])
@@ -411,7 +420,7 @@ def _batch_read_associations(
             url,
             headers=headers,
             json={"inputs": [{"id": i} for i in chunk_ids]},
-            timeout=60,
+            timeout=HTTP_TIMEOUT,
         )
 
         if response.status_code == 401:
@@ -445,6 +454,11 @@ def _batch_read_associations(
             ) from e
 
     for start in range(0, len(ids), ASSOCIATIONS_BATCH_SIZE):
+        # Association backfill over a large page is the pathological hang: many sequential
+        # POSTs with no yield in between. Check for interruption before each chunk so a cancel
+        # can unwind even mid-backfill.
+        raise_if_interrupted()
+
         chunk = ids[start : start + ASSOCIATIONS_BATCH_SIZE]
         data = _post_chunk(chunk)
         for row in data.get("results", []):
@@ -565,7 +579,7 @@ def get_rows_via_search(
     )
     def fetch_search(body: dict[str, Any]) -> dict:
         nonlocal api_key
-        response = make_tracked_session().post(search_url, headers=headers, json=body, timeout=60)
+        response = make_tracked_session().post(search_url, headers=headers, json=body, timeout=HTTP_TIMEOUT)
 
         if response.status_code == 401:
             # Mutate `headers` in place so the shared dict stays in sync for subsequent calls
@@ -609,6 +623,9 @@ def get_rows_via_search(
         sub_slice_max_cursor = window_lower - 1
 
         while True:
+            # Bail out promptly between search pages on cancel / worker shutdown.
+            raise_if_interrupted()
+
             body: dict[str, Any] = {
                 "limit": SEARCH_PAGE_SIZE,
                 "sorts": [{"propertyName": cursor_prop, "direction": "ASCENDING"}],

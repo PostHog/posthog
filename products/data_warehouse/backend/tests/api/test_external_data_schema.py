@@ -2821,8 +2821,7 @@ class TestUpdateExternalDataSchema:
 
 
 class TestCancelExternalDataSchema(APIBaseTest):
-    @mock.patch("products.data_warehouse.backend.presentation.views.external_data_schema.cancel_external_data_workflow")
-    def test_cancel_running_sync(self, mock_cancel):
+    def _running_schema_and_job(self):
         source = ExternalDataSource.objects.create(
             team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
         )
@@ -2843,16 +2842,59 @@ class TestCancelExternalDataSchema(APIBaseTest):
             status=ExternalDataJob.Status.RUNNING,
             workflow_id="test-workflow-id",
         )
+        return schema, job
+
+    @mock.patch(
+        "products.data_warehouse.backend.presentation.views.external_data_schema.terminate_external_data_workflow"
+    )
+    def test_cancel_running_sync_terminates_and_flips_out_of_running(self, mock_terminate):
+        # A graceful cancel can't interrupt a blocking sync thread, so cancel must terminate the
+        # workflow AND reconcile the job/schema out of RUNNING — otherwise the SKIP-overlap schedule
+        # never enqueues another run and the source queue stays frozen.
+        from products.warehouse_sources.backend.facade.models import ExternalDataJob
+
+        schema, job = self._running_schema_and_job()
 
         response = self.client.post(
             f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/cancel/",
         )
 
         assert response.status_code == 200
-        mock_cancel.assert_called_once_with(job.workflow_id)
+        mock_terminate.assert_called_once_with(job.workflow_id)
 
-    @mock.patch("products.data_warehouse.backend.presentation.views.external_data_schema.cancel_external_data_workflow")
-    def test_cancel_when_no_running_job(self, mock_cancel):
+        job.refresh_from_db()
+        schema.refresh_from_db()
+        assert job.status == ExternalDataJob.Status.CANCELLED
+        assert job.finished_at is not None
+        assert schema.status == ExternalDataSchema.Status.CANCELLED
+
+    @mock.patch(
+        "products.data_warehouse.backend.presentation.views.external_data_schema.terminate_external_data_workflow"
+    )
+    def test_cancel_flips_job_even_when_workflow_already_gone(self, mock_terminate):
+        # If the workflow already died but left the job stuck in RUNNING, cancel must still reconcile
+        # the DB row so the customer has a working self-service recovery path.
+        import temporalio.service
+
+        from products.warehouse_sources.backend.facade.models import ExternalDataJob
+
+        mock_terminate.side_effect = temporalio.service.RPCError(
+            "not found", temporalio.service.RPCStatusCode.NOT_FOUND, b""
+        )
+        schema, job = self._running_schema_and_job()
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_schemas/{schema.id}/cancel/",
+        )
+
+        assert response.status_code == 200
+        job.refresh_from_db()
+        assert job.status == ExternalDataJob.Status.CANCELLED
+
+    @mock.patch(
+        "products.data_warehouse.backend.presentation.views.external_data_schema.terminate_external_data_workflow"
+    )
+    def test_cancel_when_no_running_job(self, mock_terminate):
         source = ExternalDataSource.objects.create(
             team=self.team, source_type=ExternalDataSourceType.STRIPE, job_inputs={"stripe_secret_key": "123"}
         )
@@ -2871,7 +2913,7 @@ class TestCancelExternalDataSchema(APIBaseTest):
 
         assert response.status_code == 400
         assert response.json()["detail"] == "No running sync to cancel."
-        mock_cancel.assert_not_called()
+        mock_terminate.assert_not_called()
 
 
 class TestExternalDataSchemaAPIKeyScopes(APIBaseTest):

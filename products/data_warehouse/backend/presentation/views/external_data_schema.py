@@ -40,6 +40,7 @@ from products.data_warehouse.backend.facade.api import (
     reproject_direct_snowflake_table,
     sync_cdc_extraction_schedule,
     sync_external_data_job_workflow,
+    terminate_external_data_workflow,
     trigger_external_data_workflow,
     unpause_external_data_schedule,
 )
@@ -73,6 +74,28 @@ def source_supports_column_selection(source_type: str) -> bool:
         return False
     # `bool()` guards against test mocks whose attribute access returns a Mock — orjson can't serialize.
     return bool(source.supports_column_selection)
+
+
+def _terminate_and_cancel_job(job: ExternalDataJob, latest_error: str) -> None:
+    """Force-terminate a wedged sync workflow and flip its job row out of RUNNING.
+
+    A graceful cancel can't interrupt a source blocked in a synchronous HTTP call, so the run
+    stays RUNNING and the per-schema schedule (SKIP overlap) never enqueues another — freezing the
+    queue. Terminate kills the workflow outright; because that skips the workflow's status-update
+    finally block, we reconcile the job row here so a fresh run can start. Schema status is left to
+    the caller (a plain cancel marks it CANCELLED; resync/re-snapshot set it RUNNING for the new run).
+    """
+    try:
+        terminate_external_data_workflow(job.workflow_id)
+    except temporalio.service.RPCError as e:
+        # Already terminated / gone — the DB reconcile below is what actually unblocks the queue.
+        logger.warning("Could not terminate external data workflow", workflow_id=job.workflow_id, exc_info=e)
+
+    ExternalDataJob.objects.filter(pk=job.pk, team_id=job.team_id, status=ExternalDataJob.Status.RUNNING).update(
+        status=ExternalDataJob.Status.CANCELLED,
+        finished_at=dt.datetime.now(dt.UTC),
+        latest_error=latest_error,
+    )
 
 
 _CDC_WRITE_TARGETS_BY_TABLE_MODE: dict[str, frozenset[str]] = {
@@ -1271,7 +1294,7 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         )
 
         if latest_running_job and latest_running_job.workflow_id and latest_running_job.status == "Running":
-            cancel_external_data_workflow(latest_running_job.workflow_id)
+            _terminate_and_cancel_job(latest_running_job, "Superseded by resync")
 
         cdc_resync = instance.is_cdc
         updates: dict[str, Any] = {"reset_pipeline": True}
@@ -1320,14 +1343,12 @@ class ExternalDataSchemaViewset(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 data={"detail": "No running sync to cancel."},
             )
 
-        try:
-            cancel_external_data_workflow(latest_running_job.workflow_id)
-        except temporalio.service.RPCError as e:
-            logger.exception(f"Could not cancel external data workflow for schema {instance.id}", exc_info=e)
-            return Response(
-                status=status.HTTP_400_BAD_REQUEST,
-                data={"detail": "Could not find workflow to cancel. The sync may have already finished."},
-            )
+        # Terminate (not graceful cancel) so a sync wedged in a blocking HTTP call is actually killed,
+        # then reconcile the job and schema out of RUNNING so the schedule can enqueue a fresh run.
+        _terminate_and_cancel_job(latest_running_job, "Sync cancelled by user")
+        instance.status = ExternalDataSchema.Status.CANCELLED
+        instance.latest_error = "Sync cancelled by user"
+        instance.save(update_fields=["status", "latest_error", "updated_at"])
 
         return Response(status=status.HTTP_200_OK)
 

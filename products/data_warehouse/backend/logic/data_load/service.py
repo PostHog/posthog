@@ -379,6 +379,21 @@ async def cancel_workflow(temporal: TemporalClient, workflow_id: str):
     await handle.cancel()
 
 
+def terminate_external_data_workflow(workflow_id: str, reason: str = "Terminated by PostHog"):
+    temporal = sync_connect()
+    terminate_workflow(temporal, workflow_id, reason)
+
+
+@async_to_sync
+async def terminate_workflow(temporal: TemporalClient, workflow_id: str, reason: str):
+    # A graceful `cancel()` can't interrupt a source blocked in a synchronous HTTP call, so a wedged
+    # sync stays Running forever. `terminate()` kills the workflow outright — the reliable recovery
+    # primitive for a stuck run. Callers must reconcile the ExternalDataJob row: terminate skips the
+    # workflow's status-update finally block.
+    handle = temporal.get_workflow_handle(workflow_id)
+    await handle.terminate(reason)
+
+
 def is_any_external_data_schema_paused(team_id: int) -> bool:
     from products.warehouse_sources.backend.facade.models import ExternalDataSchema
 
