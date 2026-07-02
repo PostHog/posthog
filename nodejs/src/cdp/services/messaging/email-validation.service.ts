@@ -13,8 +13,14 @@ import { CyclotronJobInvocationHogFunction } from '../../types'
 
 const cdpEmailMxValidationTotal = new Counter({
     name: 'cdp_email_mx_validation_total',
-    help: 'Pre-send email validation outcomes. `invalid_syntax`/`invalid_domain` are predicted hard bounces we skipped before hitting SES; `transient_error` means DNS was unreliable so we allowed the send (fail-open); `hit_*` are cache hits.',
+    help: 'Pre-send email validation outcomes. `invalid_syntax`/`invalid_domain` are predicted hard bounces; `transient_error` means DNS was unreliable so we allowed the send (fail-open); `hit_*` are cache hits.',
     labelNames: ['result'],
+})
+
+const cdpEmailMxWouldSkipTotal = new Counter({
+    name: 'cdp_email_mx_would_skip_total',
+    help: 'Sends that pre-send email validation would skip as predicted hard bounces, per team. Increments in both shadow and enforce mode so the series is continuous across the enforce rollout; whether the send was actually skipped depends on CDP_EMAIL_MX_VALIDATION_ENFORCE_TEAMS.',
+    labelNames: ['team_id', 'reason'],
 })
 
 // Deliberately conservative structural check — NOT full RFC 5322. It rejects
@@ -71,32 +77,39 @@ function classifyDnsError(error: unknown): 'none' | 'transient' {
  *
  * Fail-open by design: only a definitive "this domain has no mail exchange"
  * blocks a send. A DNS hiccup must never nuke a batch of legitimate mail.
+ *
+ * Rollout is shadow-first: when enabled, every team is validated and would-skip
+ * outcomes are recorded per team in Prometheus, but only teams matched by
+ * CDP_EMAIL_MX_VALIDATION_ENFORCE_TEAMS actually get their sends skipped.
  */
 export class EmailValidationService {
-    private readonly teamMatcher: ValueMatcher<number>
+    private readonly enabled: boolean
+    private readonly enforceMatcher: ValueMatcher<number>
     private readonly resolver: Resolver
     private readonly localCache = new Map<string, CacheEntry>()
     private readonly inFlight = new Map<string, Promise<boolean>>()
 
     constructor(
-        config: Pick<CdpConfig, 'CDP_EMAIL_MX_VALIDATION_TEAMS'>,
+        config: Pick<CdpConfig, 'CDP_EMAIL_MX_VALIDATION_ENABLED' | 'CDP_EMAIL_MX_VALIDATION_ENFORCE_TEAMS'>,
         private valkey: RedisV2 | null
     ) {
-        this.teamMatcher = buildIntegerMatcher(config.CDP_EMAIL_MX_VALIDATION_TEAMS, true)
+        this.enabled = config.CDP_EMAIL_MX_VALIDATION_ENABLED
+        this.enforceMatcher = buildIntegerMatcher(config.CDP_EMAIL_MX_VALIDATION_ENFORCE_TEAMS, true)
         this.resolver = new Resolver({ timeout: DNS_TIMEOUT_MS, tries: DNS_TRIES })
     }
 
     /**
      * Returns a human-readable reason to skip the send, or null to proceed.
-     * Only acts on `function_email` actions for gated teams; anything else
-     * (missing recipient, ungated team, non-email action) returns null so the
-     * existing send path is untouched.
+     * Only acts on `function_email` actions; anything else (kill switch off,
+     * missing recipient, non-email action) returns null so the existing send
+     * path is untouched. Teams outside the enforce list are observe-only:
+     * validation runs and metrics are recorded, but null is returned.
      */
     public async getSkipReason(
         invocation: CyclotronJobInvocationHogFunction,
         action: HogFlowAction
     ): Promise<string | null> {
-        if (action.type !== 'function_email' || !this.teamMatcher(invocation.teamId)) {
+        if (!this.enabled || action.type !== 'function_email') {
             return null
         }
 
@@ -109,7 +122,11 @@ export class EmailValidationService {
 
         if (!EMAIL_SYNTAX_RE.test(email)) {
             cdpEmailMxValidationTotal.inc({ result: 'invalid_syntax' })
-            return `Skipping send: "${email}" is not a valid email address, so it would hard bounce.`
+            return this.skipOrObserve(
+                invocation.teamId,
+                'invalid_syntax',
+                `Skipping send: "${email}" is not a valid email address, so it would hard bounce.`
+            )
         }
 
         // domainToASCII lowercases and punycodes IDN domains (`bücher.example` →
@@ -121,9 +138,18 @@ export class EmailValidationService {
         const domain = domainToASCII(rawDomain) || rawDomain.toLowerCase()
         const deliverable = await this.resolveDeliverability(domain)
         if (!deliverable) {
-            return `Skipping send: the domain "${domain}" has no reachable mail servers, so this message would hard bounce.`
+            return this.skipOrObserve(
+                invocation.teamId,
+                'invalid_domain',
+                `Skipping send: the domain "${domain}" has no reachable mail servers, so this message would hard bounce.`
+            )
         }
         return null
+    }
+
+    private skipOrObserve(teamId: number, reason: 'invalid_syntax' | 'invalid_domain', message: string): string | null {
+        cdpEmailMxWouldSkipTotal.inc({ team_id: String(teamId), reason })
+        return this.enforceMatcher(teamId) ? message : null
     }
 
     private async resolveDeliverability(domain: string): Promise<boolean> {

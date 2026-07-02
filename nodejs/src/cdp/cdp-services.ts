@@ -154,7 +154,8 @@ export type CdpCoreServicesConfig = Pick<
         | 'CDP_FETCH_BACKOFF_MAX_MS'
         | 'CDP_SELF_LOOP_GUARD_MODE'
         | 'CDP_EMAIL_TRACKING_URL'
-        | 'CDP_EMAIL_MX_VALIDATION_TEAMS'
+        | 'CDP_EMAIL_MX_VALIDATION_ENABLED'
+        | 'CDP_EMAIL_MX_VALIDATION_ENFORCE_TEAMS'
         | 'HOG_FUNCTION_MONITORING_APP_METRICS_TOPIC'
         | 'HOG_FUNCTION_MONITORING_APP_METRICS_PRODUCER'
         | 'HOG_FUNCTION_MONITORING_LOG_ENTRIES_TOPIC'
@@ -434,9 +435,9 @@ export function createCdpCoreServices(
     const recipientsManager = new RecipientsManagerService(deps.postgres)
     const recipientPreferencesService = new RecipientPreferencesService(recipientsManager)
     // MX verdicts live on the dedicated SES Valkey (same instance as the SES rate
-    // limiter, separate pool). Pool is only opened when the feature is gated on, so
-    // consumers that never validate email don't hold idle Valkey connections.
-    const emailValidationValkey = config.CDP_EMAIL_MX_VALIDATION_TEAMS
+    // limiter, separate pool). Pool is only opened when validation is enabled, so
+    // the kill switch also releases the Valkey connections.
+    const emailValidationValkey = config.CDP_EMAIL_MX_VALIDATION_ENABLED
         ? createSesRateLimiterValkeyPool(config, 'email-mx-validation')
         : null
     const emailValidationService = new EmailValidationService(config, emailValidationValkey)

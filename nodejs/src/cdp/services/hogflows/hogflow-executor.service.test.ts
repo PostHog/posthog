@@ -100,8 +100,11 @@ describe('Hogflow Executor', () => {
         )
         const recipientsManager = new RecipientsManagerService(hub.postgres)
         const recipientPreferencesService = new RecipientPreferencesService(recipientsManager)
-        // Disabled team gate ('') — getSkipReason short-circuits to null, so email validation is a no-op here.
-        const emailValidationService = new EmailValidationService({ CDP_EMAIL_MX_VALIDATION_TEAMS: '' }, null)
+        // Kill switch off — getSkipReason short-circuits to null, so email validation never does real DNS here.
+        const emailValidationService = new EmailValidationService(
+            { CDP_EMAIL_MX_VALIDATION_ENABLED: false, CDP_EMAIL_MX_VALIDATION_ENFORCE_TEAMS: '' },
+            null
+        )
 
         await insertHogFunctionTemplate(hub.postgres, {
             id: 'template-test-hogflow-executor',
