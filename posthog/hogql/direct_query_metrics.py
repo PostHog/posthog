@@ -19,7 +19,7 @@ from prometheus_client import (
     Histogram,
 )
 
-DirectQueryDialect = Literal["postgres", "mysql", "snowflake"]
+DirectQueryDialect = Literal["postgres", "mysql", "snowflake", "redshift"]
 DirectQueryStatus = Literal["success", "error"]
 
 DIRECT_QUERY_TOTAL = PromCounter(

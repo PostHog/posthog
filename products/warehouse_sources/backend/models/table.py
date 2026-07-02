@@ -18,6 +18,7 @@ from posthog.hogql.constants import HogQLQuerySettings
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.direct_mysql_table import DirectMySQLTable
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+from posthog.hogql.database.direct_redshift_table import DirectRedshiftTable
 from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
 from posthog.hogql.database.models import DatabaseField, FieldOrTable, StructDatabaseField
 from posthog.hogql.database.s3_table import (
@@ -542,7 +543,7 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
 
     def hogql_definition(
         self, modifiers: Optional["HogQLQueryModifiers"] = None
-    ) -> HogQLDataWarehouseTable | DirectPostgresTable | DirectMySQLTable | DirectSnowflakeTable:
+    ) -> HogQLDataWarehouseTable | DirectPostgresTable | DirectMySQLTable | DirectSnowflakeTable | DirectRedshiftTable:
         # Deferred: importing data_warehouse's facade at module scope creates an import cycle
         # (data_warehouse models -> this model package -> data_warehouse.facade.sources -> ...).
         # These direct-query option keys are only needed here, at query-build time.
@@ -552,6 +553,9 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
             DIRECT_POSTGRES_CATALOG_OPTION,
             DIRECT_POSTGRES_SCHEMA_OPTION,
             DIRECT_POSTGRES_TABLE_OPTION,
+            DIRECT_REDSHIFT_CATALOG_OPTION,
+            DIRECT_REDSHIFT_SCHEMA_OPTION,
+            DIRECT_REDSHIFT_TABLE_OPTION,
             DIRECT_SNOWFLAKE_CATALOG_OPTION,
             DIRECT_SNOWFLAKE_SCHEMA_OPTION,
             DIRECT_SNOWFLAKE_TABLE_OPTION,
@@ -661,6 +665,35 @@ class DataWarehouseTable(CreatedMetaFields, UpdatedMetaFields, UUIDTModel, Delet
                 snowflake_catalog=snowflake_catalog,
                 snowflake_schema=snowflake_schema,
                 snowflake_table_name=snowflake_table_name,
+                external_data_source_id=str(self.external_data_source_id),
+                connection_metadata=self.external_data_source.connection_metadata,
+            )
+
+        if self.external_data_source and self.external_data_source.is_direct_redshift:
+            # Redshift is a Postgres fork and reuses DirectPostgresTable's schema-qualified,
+            # double-quoted table-reference rendering (see DirectRedshiftTable).
+            job_inputs = self.external_data_source.job_inputs or {}
+            redshift_catalog = (
+                self.options.get(DIRECT_REDSHIFT_CATALOG_OPTION)
+                if isinstance(self.options.get(DIRECT_REDSHIFT_CATALOG_OPTION), str)
+                else job_inputs.get("database")
+            )
+            redshift_schema = (
+                self.options.get(DIRECT_REDSHIFT_SCHEMA_OPTION)
+                if isinstance(self.options.get(DIRECT_REDSHIFT_SCHEMA_OPTION), str)
+                else job_inputs.get("schema", "public")
+            )
+            redshift_table_name = (
+                self.options.get(DIRECT_REDSHIFT_TABLE_OPTION)
+                if isinstance(self.options.get(DIRECT_REDSHIFT_TABLE_OPTION), str)
+                else self.name
+            )
+            return DirectRedshiftTable(
+                name=self.name,
+                fields=fields,
+                postgres_catalog=redshift_catalog,
+                postgres_schema=redshift_schema,
+                postgres_table_name=redshift_table_name,
                 external_data_source_id=str(self.external_data_source_id),
                 connection_metadata=self.external_data_source.connection_metadata,
             )

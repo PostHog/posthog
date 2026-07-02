@@ -1,0 +1,102 @@
+from typing import Any
+from uuid import uuid4
+
+from posthog.test.base import APIBaseTest
+
+from parameterized import parameterized
+
+from posthog.hogql.errors import QueryError
+from posthog.hogql.query import HogQLQueryExecutor
+
+from products.warehouse_sources.backend.facade.models import DataWarehouseTable, ExternalDataSource
+
+
+class TestDirectRedshiftQuery(APIBaseTest):
+    def _create_source(self, prefix: str = "shop", schema: str = "public") -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=str(uuid4()),
+            connection_id=str(uuid4()),
+            status=ExternalDataSource.Status.COMPLETED,
+            source_type="Redshift",
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            prefix=prefix,
+            connection_metadata={"engine": "redshift", "database": "dev"},
+            job_inputs={
+                "host": "localhost",
+                "port": 5439,
+                "database": "dev",
+                "user": "awsuser",
+                "password": "redshift",
+                "schema": schema,
+            },
+        )
+
+    def _create_table(self, source: ExternalDataSource, name: str, columns: dict[str, Any] | None = None):
+        return DataWarehouseTable.objects.create(
+            name=name,
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            url_pattern="",
+            columns=columns
+            or {
+                "id": {"hogql": "IntegerDatabaseField", "clickhouse": "Int64", "valid": True},
+                "email": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
+                "created_at": {"hogql": "DateTimeDatabaseField", "clickhouse": "DateTime", "valid": True},
+            },
+        )
+
+    def test_generate_sql_uses_redshift_dialect_and_schema_qualified_table(self):
+        source = self._create_source()
+        self._create_table(source, "orders")
+
+        executor = HogQLQueryExecutor(
+            query="SELECT * FROM orders",
+            team=self.team,
+            connection_id=str(source.id),
+        )
+        sql, _context = executor.generate_clickhouse_sql()
+
+        self.assertEqual(executor.direct_dialect, "redshift")
+        self.assertIn("public", sql)
+        self.assertIn("orders", sql)
+        self.assertNotIn(".team_id", sql)
+
+    def test_shared_postgres_surface_compiles(self):
+        # Redshift shares Postgres's date_trunc / ILIKE surface; this guards against the
+        # subtractive printer over-blocking the core surface it should keep.
+        source = self._create_source()
+        self._create_table(source, "orders")
+
+        executor = HogQLQueryExecutor(
+            query="SELECT toStartOfDay(created_at) FROM orders WHERE email ILIKE '%test%'",
+            team=self.team,
+            connection_id=str(source.id),
+        )
+        sql, context = executor.generate_clickhouse_sql()
+
+        self.assertIn("date_trunc('day'", sql)
+        self.assertIn("ILIKE", sql)
+        # String constants bind as parameters rather than inlining into the SQL.
+        self.assertNotIn("%test%", sql)
+        self.assertIn("%test%", context.values.values())
+
+    @parameterized.expand(
+        [
+            ("array_literal", "SELECT [1, 2, 3] FROM orders"),
+            ("lambda", "SELECT arrayMap(x -> x + 1, [1, 2]) FROM orders"),
+            ("group_array", "SELECT groupArray(id) FROM orders"),
+            ("to_start_of_isoyear", "SELECT toStartOfISOYear(created_at) FROM orders"),
+            ("uuid_cast", "SELECT toUUID(id) FROM orders"),
+            ("count_if_filter", "SELECT countIf(id > 0) FROM orders"),
+        ]
+    )
+    def test_incompatible_constructs_raise(self, _name: str, query: str):
+        source = self._create_source()
+        self._create_table(source, "orders")
+
+        executor = HogQLQueryExecutor(query=query, team=self.team, connection_id=str(source.id))
+        with self.assertRaises(QueryError) as ctx:
+            executor.generate_clickhouse_sql()
+        self.assertIn("Redshift dialect", str(ctx.exception))
