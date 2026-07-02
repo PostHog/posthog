@@ -1177,6 +1177,7 @@ async def bigquery_write_async_client(credentials) -> collections.abc.AsyncItera
     channel = BigQueryWriteGrpcAsyncIOTransport.create_channel(
         credentials=credentials,
         compression=grpc.Compression.Gzip,
+        options=[("grpc.use_local_subchannel_pool", 1)],
     )
     transport = BigQueryWriteGrpcAsyncIOTransport(channel=channel)
     client = BigQueryWriteAsyncClient(
