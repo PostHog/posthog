@@ -569,6 +569,32 @@ class DuckgresBatchQueue:
         )
 
     @staticmethod
+    async def is_failed(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        batch_id: str,
+    ) -> bool:
+        """Whether the batch's LATEST duckgres status is terminal 'failed'.
+
+        A co-claimed batch can be terminally retired while it waits in a group
+        task's claim (superseded by a replace run, or a backfill replan); the
+        consumer re-checks this before processing each batch.
+        """
+        async with conn.cursor() as cur:
+            await cur.execute(
+                f"""
+                SELECT job_state
+                FROM {DUCKGRES_STATUS_TABLE}
+                WHERE batch_id = %(batch_id)s
+                ORDER BY created_at DESC, id DESC
+                LIMIT 1
+                """,
+                {"batch_id": batch_id},
+            )
+            row = await cur.fetchone()
+            return bool(row and row[0] == "failed")
+
+    @staticmethod
     async def has_applied(
         conn: psycopg.AsyncConnection[Any],
         *,

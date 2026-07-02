@@ -77,6 +77,11 @@ class TestDuckgresProcessSingle:
                 side_effect=track_status,
             ),
             patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.is_failed",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.has_applied",
                 new_callable=AsyncMock,
                 return_value=True,
@@ -99,6 +104,11 @@ class TestDuckgresProcessSingle:
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.update_status",
                 side_effect=track_status,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.is_failed",
+                new_callable=AsyncMock,
+                return_value=False,
             ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.has_applied",
@@ -124,6 +134,11 @@ class TestDuckgresProcessSingle:
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.update_status",
                 new_callable=AsyncMock,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.is_failed",
+                new_callable=AsyncMock,
+                return_value=False,
             ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.has_applied",
@@ -153,6 +168,11 @@ class TestDuckgresProcessSingle:
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.update_status",
                 side_effect=track_status,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.is_failed",
+                new_callable=AsyncMock,
+                return_value=False,
             ),
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.has_applied",
@@ -318,6 +338,28 @@ class TestDuckgresEnablementGating:
 
         assert batches == []
         mock_fetch.assert_not_called()
+
+
+class TestMidClaimRetire:
+    @pytest.mark.asyncio
+    async def test_should_process_batch_aborts_group_on_terminally_retired_batch(self):
+        # A co-claimed chunk retired mid-group (superseded by a replace run)
+        # must abort the whole group with no status write; processing it could
+        # swap stale backfill data over a table the replace has rebuilt.
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
+            OwnershipLostError,
+        )
+
+        adapter = DuckgresBatchConsumerAdapter()
+        conn = _make_healthy_conn()
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.is_failed",
+            new_callable=AsyncMock,
+            return_value=True,
+        ):
+            with pytest.raises(OwnershipLostError):
+                await adapter.should_process_batch(conn, batch=_make_batch())
 
 
 class TestGroupLeaseRenewal:

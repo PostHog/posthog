@@ -17,6 +17,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     RECOVERY_INTERVAL_SECONDS,
     BatchConsumer as SharedBatchConsumer,
     BatchConsumerConfig,
+    OwnershipLostError,
     ProcessBatchFn,
     _group_by_key,
 )
@@ -345,6 +346,15 @@ class DuckgresBatchConsumerAdapter:
         *,
         batch: PendingBatch,
     ) -> bool:
+        # A co-claimed batch can be terminally retired while it waits in this
+        # group's claim (superseded by a newer replace run, or a backfill
+        # replan): applying it anyway could swap stale backfill data over a
+        # table the replace run has since rebuilt. Abort the WHOLE group with
+        # no status write — the 'failed' status must stand, and any successor
+        # in this claim is retired too (skipping just this batch would let the
+        # swap proceed).
+        if await DuckgresBatchQueue.is_failed(conn, batch_id=batch.id):
+            raise OwnershipLostError(f"batch {batch.id} was terminally retired while claimed")
         already_applied = await DuckgresBatchQueue.has_applied(conn, batch=batch)
         if batch.is_final_batch:
             if not already_applied:
