@@ -195,7 +195,7 @@ class _KafkaProducer:
             logger.info(f"KafkaProducer stack: {traceback.format_stack()}")
 
         if settings.TEST:
-            test = True  # Set at runtime so that overriden settings.TEST is supported
+            test = True  # Set at runtime so that overridden settings.TEST is supported
         default_profile = settings.KAFKA_PROFILES["default"]
         if kafka_security_protocol is None:
             kafka_security_protocol = default_profile.security_protocol

@@ -271,7 +271,7 @@ def return_given_error_or_random(error: Optional[Exception] = None):
 def simulate_postgres_error():
     """
     Causes any call to cursor to raise the upper most Error in djangos db
-    Exception hierachy
+    Exception hierarchy
     """
     with patch.object(connections[DEFAULT_DB_ALIAS], "cursor") as cursor_mock:
         cursor_mock.side_effect = return_given_error_or_random(DjangoDatabaseError("failed to connect"))

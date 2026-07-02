@@ -624,7 +624,7 @@ class TestOrganizationFeatureFlagCopy(APIBaseTest, QueryMatchingTest):
             deleted=True,
         )
 
-        # The following instances must be overriden for a soft-deleted flag
+        # The following instances must be overridden for a soft-deleted flag
         Survey.objects.create(team=self.team, created_by=self.user, linked_flag=existing_deleted_flag)
 
         analytics_dashboard = Dashboard.objects.create(

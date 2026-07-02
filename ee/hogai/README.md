@@ -265,7 +265,7 @@ class YourToolkit(TaxonomyAgentToolkit):
         return [final_answer, hello_world]
 
     # Optional: prefer YAML over XML for property lists, but not a must to override
-    # If not overriden XML will be used
+    # If not overridden XML will be used
     def _format_properties(self, props: list[tuple[str, str | None, str | None]]) -> str:
         return self._format_properties_yaml(props)
 ```

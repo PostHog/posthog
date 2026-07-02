@@ -1646,7 +1646,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
 
         for index in range(0, 19):
             created_ids.append(str(index + 100))
-            create_person(  # creating without _create_person to guarentee created_at ordering
+            create_person(  # creating without _create_person to guarantee created_at ordering
                 team=self.team,
                 distinct_ids=[str(index + 100)],
                 properties={"$browser": "whatever", "$os": "Windows"},
@@ -1700,7 +1700,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         self.assertEqual(set(paged), expected)  # union of pages == full set, gapless and dup-free
 
     def test_retrieve_person(self):
-        person = create_person(  # creating without _create_person to guarentee created_at ordering
+        person = create_person(  # creating without _create_person to guarantee created_at ordering
             team=self.team, distinct_ids=["123456789"]
         )
 
@@ -1711,7 +1711,7 @@ class TestPerson(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         assert response["distinct_ids"] == ["123456789"]
 
     def test_retrieve_person_by_uuid(self):
-        person = create_person(  # creating without _create_person to guarentee created_at ordering
+        person = create_person(  # creating without _create_person to guarantee created_at ordering
             team=self.team, distinct_ids=["123456789"]
         )
 
@@ -2078,7 +2078,7 @@ class TestPersonFromClickhouse(TestPerson):
 
         for index in range(0, 19):
             created_ids.append(str(index + 100))
-            create_person(  # creating without _create_person to guarentee created_at ordering
+            create_person(  # creating without _create_person to guarantee created_at ordering
                 team=self.team,
                 distinct_ids=[str(index + 100)],
                 properties={"$browser": "whatever", "$os": "Windows"},
