@@ -1,1 +1,1 @@
-1247_oauthaccesstoken_token_idx
+1248_organizationinvite_is_setup_delegation_db_default

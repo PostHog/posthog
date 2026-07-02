@@ -88,6 +88,7 @@ class OrganizationInvite(ModelActivityMixin, UUIDTModel):
     )
     is_setup_delegation = models.BooleanField(
         default=False,
+        db_default=False,
         help_text=(
             "True when this invite was created via the onboarding delegation flow. "
             "Downstream logic routes the delegate through full onboarding on accept."
