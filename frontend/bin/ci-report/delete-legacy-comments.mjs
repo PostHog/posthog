@@ -4,13 +4,18 @@ import { gh, listPrComments, resolvePrContext } from './update-ci-report.mjs'
 // The CI checks used to each post their own PR comment. They now share one
 // ci-report comment, so delete any leftover standalone comments once, on the first
 // consolidated run, to stop a PR from showing both. Transitional — safe to remove
-// after all open PRs have re-run.
+// after all open PRs have re-run. Matching is bot-author + body prefix, so the
+// unmarked comments are identified by the fixed text they always started with.
 const LEGACY_MARKERS = [
     '<!-- posthog-eager-graph-check -->',
     '<!-- posthog-bundle-size-check -->',
     '<!-- mcp-ui-apps-size-report -->',
     '<!-- playwright-report-comment -->',
     '<!-- ch-migration-sql -->',
+    '## 🧠 AI eval results',
+    'It looks like the code of ',
+    '### 📄 Generated Docs Update Required',
+    '### 📦 Surveys SDK Version Check Reminder',
 ]
 
 const context = resolvePrContext('cleanup')

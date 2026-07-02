@@ -41,14 +41,13 @@ jobs:
                   sparse-checkout: |
                       .github/scripts
                       frontend/bin/ci-report
-                  sparse-checkout-cone-mode: false
 
             - name: Post reminder comment
               if: steps.sdk-check.outputs.found == 'true'
               env:
                   GITHUB_TOKEN: ${{ github.token }}
               run: |
-                  message_body='### Surveys SDK Version Check Reminder
+                  message_body='### Surveys SDK version check reminder
 
                   This PR modifies survey code and may include SDK-dependent features.
 

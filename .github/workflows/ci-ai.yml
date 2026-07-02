@@ -186,6 +186,7 @@ jobs:
               run: |
                   if [ -f .github/scripts/post-eval-section.mjs ]; then
                       node .github/scripts/post-eval-section.mjs
+                      node frontend/bin/ci-report/delete-legacy-comments.mjs
                   else
                       echo "Skipping eval section — script not present on this checkout"
                   fi

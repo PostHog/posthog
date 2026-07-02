@@ -4,17 +4,7 @@
 //   node post-reminder-section.mjs <section-id> --clear [<summary>]
 // The section id must be registered in SECTIONS in update-ci-report.mjs.
 //
-// --clear marks a previously posted reminder as resolved (status ok) — but only when
-// the report already carries the section. Without that guard every PR whose check
-// passes would gain a "nothing to see here" section; with it, a reminder that was
-// real on one push cannot linger as a stale warning after a later push fixes it.
-import {
-    isReportComment,
-    listPrComments,
-    parseSections,
-    postSection,
-    resolvePrContext,
-} from '../../frontend/bin/ci-report/update-ci-report.mjs'
+import { clearSectionIfPresent, postSection } from '../../frontend/bin/ci-report/update-ci-report.mjs'
 
 const [id, status, summary] = process.argv.slice(2)
 if (!id || !status) {
@@ -23,24 +13,8 @@ if (!id || !status) {
 }
 
 if (status === '--clear') {
-    const context = resolvePrContext('reminder clear')
-    if (!context) {
-        process.exit(0)
-    }
-    let reportComment
-    try {
-        reportComment = (await listPrComments(context)).find(isReportComment)
-    } catch (err) {
-        console.warn(`Could not read PR comments: ${err.message}`)
-        process.exit(0)
-    }
-    if (!reportComment || !parseSections(reportComment.body).has(id)) {
-        console.info(`No existing "${id}" section — nothing to clear.`)
-        process.exit(0)
-    }
-    await postSection({
+    await clearSectionIfPresent({
         id,
-        status: 'ok',
         summary: summary ?? 'resolved',
         body: process.env.BODY || 'Resolved in the latest push.',
     })

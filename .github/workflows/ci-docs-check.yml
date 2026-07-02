@@ -89,7 +89,7 @@ jobs:
                   BUILD_COMMAND: ${{ inputs.build_command }}
                   OUTPUT_FILE: ${{ inputs.output_file }}
               run: |
-                  message_body="### Generated Docs Update Required
+                  message_body="### Generated docs update required
 
                   You updated \`${SOURCE_FILE}\` but the generated docs are out of date.
 
@@ -100,6 +100,9 @@ jobs:
 
                   Then commit the updated \`${OUTPUT_FILE}\` file."
 
+                  # All callers of this reusable workflow share the one generated-docs section —
+                  # if a second caller ever runs on the same PR, they will clobber and false-clear
+                  # each other; give the section id an input (registered in SECTIONS) at that point.
                   if [ -f .github/scripts/post-reminder-section.mjs ]; then
                       BODY="$message_body" node .github/scripts/post-reminder-section.mjs generated-docs warn "regeneration needed"
                   else

@@ -46,6 +46,18 @@ const CONFIGS = {
         nextSteps: `- Review the query changes to ensure they're intentional
 - If unexpected, investigate what caused the query to change`,
     },
+    // MCP unit-test snapshots need their own section: ci-mcp and ci-backend can both
+    // update snapshots on one PR, and a shared id would let the later writer clobber
+    // the earlier one's review link.
+    mcp: {
+        id: 'mcp-snapshots',
+        label: 'MCP',
+        type: 'unit test snapshots',
+        headerPrefix: 'Snapshots',
+        whatThisMeans: `- Snapshots have been automatically updated to match current output`,
+        nextSteps: `- Review the changes to ensure they're intentional
+- If unexpected, investigate what caused the output to change`,
+    },
     playwright: {
         id: 'playwright-snapshots',
         label: 'Playwright E2E',
@@ -78,7 +90,7 @@ ${config.nextSteps}
 
 [Review snapshot changes →](https://github.com/${repo}/commit/${snapshotSha || commitSha})`
 
-const summary = `${total} updated (${added} added, ${deleted} deleted)`
+const summary = `${total} updated (${modified} modified, ${added} added, ${deleted} deleted)`
 
 await postSection({
     id: config.id,
