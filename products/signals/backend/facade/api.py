@@ -200,10 +200,8 @@ def get_recent_reports(team_id: int, since: datetime, limit: int = 20) -> list[S
         fetch_report_ids_for_source_products,  # noqa: PLC0415 — keeps the temporal stack off the facade import path
     )
 
-    if not _ai_data_processing_approved(team_id):
-        return []
-    team = Team.objects.filter(id=team_id).first()
-    if team is None:
+    team = Team.objects.filter(id=team_id).select_related("organization").first()
+    if team is None or not team.organization.is_ai_data_processing_approved:
         return []
     scout_report_ids = fetch_report_ids_for_source_products(
         team, [SignalSourceConfig.SourceProduct.SIGNALS_SCOUT.value]

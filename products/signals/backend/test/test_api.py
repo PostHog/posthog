@@ -85,8 +85,18 @@ class TestEmitSignalValidation:
             ("zendesk", "ticket", ZENDESK_TICKET_EXTRA),
             ("github", "issue", GITHUB_ISSUE_EXTRA),
             ("pulse", "opportunity_build", PULSE_OPPORTUNITY_EXTRA),
+            ("pulse", "opportunity_fix", PULSE_OPPORTUNITY_EXTRA),
+            ("pulse", "opportunity_instrument", PULSE_OPPORTUNITY_EXTRA),
         ],
-        ids=["session_problem", "evaluation", "ticket", "issue", "pulse_opportunity"],
+        ids=[
+            "session_problem",
+            "evaluation",
+            "ticket",
+            "issue",
+            "pulse_opportunity_build",
+            "pulse_opportunity_fix",
+            "pulse_opportunity_instrument",
+        ],
     )
     async def test_emit_signal_accepts_valid_input(self, source_product, source_type, extra, team_stub):
         client = AsyncMock()

@@ -68,7 +68,10 @@ def persist_brief_output(*, brief: ProductBrief, out: BriefOut, items: list[Sour
                 continue  # open dupes AND dismissed fingerprints both suppress re-creation
             seen.add(fingerprint)
             new_opportunities.append(_build_opportunity(brief, opp, items_by_hint.get(opp.fingerprint_hint)))
-        if new_opportunities:
-            # ignore_conflicts: the (team, fingerprint) unique constraint absorbs concurrent-persist races.
-            team_opportunities.bulk_create(new_opportunities, ignore_conflicts=True)
-    return new_opportunities
+        if not new_opportunities:
+            return []
+        # ignore_conflicts: the (team, fingerprint) unique constraint absorbs concurrent-persist races.
+        team_opportunities.bulk_create(new_opportunities, ignore_conflicts=True)
+        # Re-read the persisted rows: a row that lost the unique-constraint race to a concurrent
+        # persist must surface with its persisted id, not this call's never-inserted UUID.
+        return list(team_opportunities.filter(fingerprint__in=[o.fingerprint for o in new_opportunities]))
