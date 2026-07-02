@@ -31,7 +31,7 @@ class HuggingFaceResumeConfig:
     # URL of the page to resume from. We checkpoint the *current* page (not the next one) after
     # yielding it, so a crash re-fetches and re-yields that page rather than skipping it — the delta
     # merge dedupes the re-pulled rows on the primary key.
-    next_url: str
+    resume_url: str
 
 
 def _get_headers(api_token: str) -> dict[str, str]:
@@ -119,7 +119,7 @@ def get_rows(
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None:
-        url = resume.next_url
+        url = resume.resume_url
         logger.debug(f"Hugging Face: resuming from URL: {url}")
     else:
         url = _build_initial_url(config, author)
@@ -137,7 +137,7 @@ def get_rows(
         # Checkpoint AFTER yielding, and checkpoint the current page URL so a crash re-fetches this
         # page (merge dedupes on the primary key) rather than skipping it.
         if next_url:
-            resumable_source_manager.save_state(HuggingFaceResumeConfig(next_url=url))
+            resumable_source_manager.save_state(HuggingFaceResumeConfig(resume_url=url))
         else:
             break
 

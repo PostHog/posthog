@@ -129,7 +129,7 @@ class TestFetchPage:
         response = MagicMock()
         response.status_code = 401
         response.ok = False
-        response.raise_for_status.side_effect = requests.HTTPError("401 Client Error: Unauthorized")
+        response.raise_for_status.side_effect = requests.HTTPError("401 Client Error: Unauthorized", response=None)
         session = MagicMock()
         session.get.return_value = response
         with pytest.raises(requests.HTTPError):
@@ -177,7 +177,7 @@ class TestGetRows:
         manager = _FakeResumableManager()
         _collect(manager, monkeypatch, pages, "models")
         # Only the first page has a next page, so exactly one checkpoint — pointing at the first page.
-        assert [s.next_url for s in manager.saved] == [start]
+        assert [s.resume_url for s in manager.saved] == [start]
 
     def test_resumes_from_saved_state(self, monkeypatch: Any) -> None:
         start = _build_initial_url(HUGGING_FACE_ENDPOINTS["models"], author="acme")
@@ -186,7 +186,7 @@ class TestGetRows:
             start: _FakeResponse([{"id": "acme/a"}], next_url=page2),
             page2: _FakeResponse([{"id": "acme/b"}], next_url=None),
         }
-        manager = _FakeResumableManager(state=HuggingFaceResumeConfig(next_url=page2))
+        manager = _FakeResumableManager(state=HuggingFaceResumeConfig(resume_url=page2))
         rows = _collect(manager, monkeypatch, pages, "models")
         # Resuming at page2 skips the already-synced first page.
         assert [r["id"] for r in rows] == ["acme/b"]
