@@ -50,17 +50,17 @@ import {
 } from '~/ingestion/pipelines/analytics'
 import { HealthCheckResult, HealthCheckResultError, HealthCheckResultOk, PluginServerService, RedisPool } from '~/types'
 
-import { AiEventSubpipelineFactory } from './common/ai-subpipeline.contract'
 import { EventFilterManager, EventFilterManagerComponent } from './common/event-filters'
-import { IngestionConsumerConfig } from './config'
 import {
     FeatureFlagCalledDedupService,
     createFeatureFlagCalledDedupService,
-} from './utils/feature-flag-called-dedup/feature-flag-called-dedup-service'
-import { MainLaneOverflowRedirect } from './utils/overflow-redirect/main-lane-overflow-redirect'
-import { OverflowLaneOverflowRedirect } from './utils/overflow-redirect/overflow-lane-overflow-redirect'
-import { OverflowRedirectService } from './utils/overflow-redirect/overflow-redirect-service'
-import { RedisOverflowRepository } from './utils/overflow-redirect/overflow-redis-repository'
+} from './common/feature-flag-called-dedup/feature-flag-called-dedup-service'
+import { MainLaneOverflowRedirect } from './common/overflow-redirect/main-lane-overflow-redirect'
+import { OverflowLaneOverflowRedirect } from './common/overflow-redirect/overflow-lane-overflow-redirect'
+import { OverflowRedirectService } from './common/overflow-redirect/overflow-redirect-service'
+import { RedisOverflowRepository } from './common/overflow-redirect/overflow-redis-repository'
+import { AiEventSubpipelineFactory } from './common/subpipelines/ai-subpipeline.contract'
+import { IngestionConsumerConfig } from './config'
 
 export type IngestionConsumerFullConfig = IngestionConsumerConfig &
     Pick<CommonConfig, 'KAFKA_CLIENT_RACK' | 'CDP_HOG_WATCHER_SAMPLE_RATE'>

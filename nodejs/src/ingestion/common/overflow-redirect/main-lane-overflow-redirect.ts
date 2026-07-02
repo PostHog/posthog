@@ -1,5 +1,5 @@
+import { MemoryRateLimiter } from '~/ingestion/common/overflow-redirect/overflow-detector'
 import { Component } from '~/ingestion/common/scopes'
-import { MemoryRateLimiter } from '~/ingestion/utils/overflow-detector'
 import { HealthCheckResult } from '~/types'
 
 import {
