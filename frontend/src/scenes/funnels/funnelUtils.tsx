@@ -502,10 +502,21 @@ export function stepsWithConversionMetrics(
 ): FunnelStepWithConversionMetrics[] {
     const compareBars = steps[0]?.nested_breakdown
     const isCompare = compareBars?.some((b) => b.compare_label != null) ?? false
-    // Compare bars share one baseline (the larger period's first step) so both periods sit on a
-    // common scale: the previous bar shows its real volume instead of always starting full height,
-    // and the tallest bar never exceeds the column.
-    const compareBasisCount = isCompare ? Math.max(...(compareBars?.map((b) => b.count) ?? [0])) : 0
+    // Each breakdown value's two periods share one baseline — that value's larger period's first
+    // step — so the value's leader period fills the bar and its other period shows real volume below
+    // it. Pure compare has a single value, so both periods group together (one global baseline);
+    // breakdown + compare groups per value, so a small value is never shrunk to a larger value's scale.
+    const compareBasisByIndex: number[] = []
+    if (isCompare && compareBars) {
+        const maxCountByValue = new Map<string, number>()
+        for (const bar of compareBars) {
+            const key = getVisibilityKey(bar.breakdown_value)
+            maxCountByValue.set(key, Math.max(maxCountByValue.get(key) ?? 0, bar.count))
+        }
+        compareBars.forEach((bar, index) => {
+            compareBasisByIndex[index] = maxCountByValue.get(getVisibilityKey(bar.breakdown_value)) ?? 0
+        })
+    }
 
     let lastNonOptionalStep = 0
     const stepsWithConversionMetrics = steps.map((step, i) => {
@@ -531,9 +542,9 @@ export function stepsWithConversionMetrics(
                 conversionRates: {
                     ...conversionRates,
                     fromBasisStep: isCompare
-                        ? compareBasisCount === 0
-                            ? 0
-                            : breakdown.count / compareBasisCount
+                        ? compareBasisByIndex[breakdownIndex]
+                            ? breakdown.count / compareBasisByIndex[breakdownIndex]
+                            : 0
                         : stepReference === FunnelStepReference.total
                           ? conversionRates.total
                           : conversionRates.fromPrevious,

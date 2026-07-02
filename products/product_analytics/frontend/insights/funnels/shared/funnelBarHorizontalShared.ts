@@ -52,6 +52,28 @@ export function buildFunnelBarHorizontalFiller(
     }
 }
 
+/** Compare-mode drop-off band: fills from the converted segments up to a period's own entry level
+ *  (its first-step share of the shared baseline) rather than to 100%. The space above the entry level
+ *  is the volume gap — this period simply had fewer entrants — and is left as blank axis whitespace,
+ *  visually distinct from drop-off and non-interactive. The leader period's entry level is 100, so it
+ *  fills the track exactly like the non-compare filler. */
+export function buildFunnelBarHorizontalDropOff(
+    segments: Series<FunnelBarHorizontalSegmentMeta>[],
+    entryLevelPercent: number,
+    color: string,
+    breakdownIndex: number | null = null
+): Series<FunnelBarHorizontalSegmentMeta> {
+    const covered = segments.reduce((sum, s) => sum + (s.data[0] ?? 0), 0)
+    return {
+        key: FUNNEL_BAR_HORIZONTAL_FILLER_KEY,
+        label: 'Drop-off',
+        data: [Math.max(0, entryLevelPercent - covered)],
+        color,
+        visibility: { tooltip: false },
+        meta: { isDropOff: true, breakdownIndex },
+    }
+}
+
 /** Everything the MCP funnel view needs to render one step — all conversion math precomputed so the
  *  view stays presentational. */
 export interface FunnelBarRow {

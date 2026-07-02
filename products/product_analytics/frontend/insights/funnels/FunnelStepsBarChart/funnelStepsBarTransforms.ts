@@ -1,6 +1,8 @@
 import type { BarChartConfig, PointClickData } from '@posthog/quill-charts'
 
-import type { FunnelStepWithConversionMetrics } from '~/types'
+import { getVisibilityKey } from 'scenes/funnels/funnelUtils'
+
+import type { BreakdownKeyType, FunnelStepWithConversionMetrics } from '~/types'
 
 import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { RATE_TO_PERCENT } from '../shared/funnelBarHorizontalShared'
@@ -13,9 +15,13 @@ import {
 export const FUNNEL_STEPS_SERIES_KEY_PREFIX = 'funnel-step-series-'
 
 /** Identifies which breakdown variant a hog-charts series maps back to, so click and
- *  tooltip handlers can recover the original `FunnelStepWithConversionMetrics`. */
+ *  tooltip handlers can recover the original `FunnelStepWithConversionMetrics`. `breakdownIndex` is
+ *  the original nested-array index even when compare reorders the visual series, so click/tooltip
+ *  routing stays correct; `compareLabel`/`breakdownValue` describe the series for ordering and tests. */
 export interface FunnelStepsBarSeriesMeta {
     breakdownIndex: number
+    compareLabel?: 'current' | 'previous'
+    breakdownValue?: BreakdownKeyType
 }
 
 interface BuildOptions {
@@ -56,21 +62,56 @@ export function buildFunnelStepsBarData(
 
     const isBreakdown = steps[0].nested_breakdown != null
     const breakdownCount = isBreakdown ? steps[0].nested_breakdown!.length : 1
+    const isCompare = steps[0].nested_breakdown?.some((variant) => variant.compare_label != null) ?? false
     const seriesVariants: FunnelStepsBarVariant<FunnelStepsBarSeriesMeta>[] = []
 
     for (let breakdownIndex = 0; breakdownIndex < breakdownCount; breakdownIndex++) {
         const variants = steps.map((step) => variantAtStep(step, breakdownIndex, isBreakdown))
         const representative = variants[0]
+        // A period's entry level (its first-step share of the shared basis) is constant across steps;
+        // it caps the drop-off track so the volume gap above is blank. Only meaningful in compare mode.
+        const entryLevel = (representative?.conversionRates.fromBasisStep ?? 0) * RATE_TO_PERCENT
         seriesVariants.push({
             key: `${FUNNEL_STEPS_SERIES_KEY_PREFIX}${breakdownIndex}`,
             label: representative ? options.getLabel(representative) : '',
             data: variants.map((variant) => variant.conversionRates.fromBasisStep * RATE_TO_PERCENT),
             color: representative ? options.getColor(representative) : undefined,
-            meta: { breakdownIndex },
+            meta: {
+                breakdownIndex,
+                compareLabel: representative?.compare_label,
+                breakdownValue: representative?.breakdown_value,
+            },
+            ...(isCompare ? { trackData: steps.map(() => entryLevel) } : {}),
         })
     }
 
-    return buildFunnelStepsBars(steps, seriesVariants)
+    // Grouped-bar slots render in series-array order, so reorder (not relabel) to put each value's
+    // previous-period bar left of its current one. Each series keeps its original breakdownIndex, so
+    // `resolveFunnelStepClick` and the tooltip still recover the right variant after the swap.
+    return buildFunnelStepsBars(steps, isCompare ? orderCompareSeriesPreviousFirst(seriesVariants) : seriesVariants)
+}
+
+/** Reorders compare series so each breakdown value's previous-period bar precedes its current one,
+ *  preserving the values' incoming order. Pure compare has a single value, so it just swaps the
+ *  current/previous pair. */
+function orderCompareSeriesPreviousFirst(
+    series: FunnelStepsBarVariant<FunnelStepsBarSeriesMeta>[]
+): FunnelStepsBarVariant<FunnelStepsBarSeriesMeta>[] {
+    const valueOrder: string[] = []
+    const byValue = new Map<string, FunnelStepsBarVariant<FunnelStepsBarSeriesMeta>[]>()
+    for (const variant of series) {
+        const key = getVisibilityKey(variant.meta?.breakdownValue)
+        if (!byValue.has(key)) {
+            byValue.set(key, [])
+            valueOrder.push(key)
+        }
+        byValue.get(key)!.push(variant)
+    }
+    return valueOrder.flatMap((key) =>
+        [...byValue.get(key)!].sort(
+            (a, b) => Number(a.meta?.compareLabel === 'current') - Number(b.meta?.compareLabel === 'current')
+        )
+    )
 }
 
 /** Derives the chart config from the base config plus the two things that vary per render:

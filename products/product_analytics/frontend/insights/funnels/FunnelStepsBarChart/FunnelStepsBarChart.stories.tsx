@@ -2,6 +2,7 @@ import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 import { useState } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { insightLogic } from 'scenes/insights/insightLogic'
 
 import funnelTopToBottomFixture from '~/mocks/fixtures/api/projects/team_id/insights/funnelTopToBottom.json'
@@ -70,10 +71,16 @@ export const Breakdown: Story = {
     render: () => <StoryRender insightFixture={funnelTopToBottomBreakdownFixture} />,
 }
 
+// Compare to previous: each step shows the periods as side-by-side columns (previous left of current),
+// each capped at its period's entry level so a shorter period leaves a blank volume gap above its track.
 export const Compare: Story = {
     render: () => <StoryRender insightFixture={funnelTopToBottomCompareFixture} />,
+    parameters: { featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE] },
 }
 
+// Breakdown + compare: each breakdown value's current+previous columns are paired and scaled to that
+// value's own larger period, so every value's leader column fills the chart.
 export const BreakdownAndCompare: Story = {
     render: () => <StoryRender insightFixture={funnelTopToBottomBreakdownCompareFixture} />,
+    parameters: { featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE] },
 }

@@ -1653,6 +1653,20 @@ describe('funnelDataLogic', () => {
             expect(steps[1].count).toBe(70) // 50 Chrome + 20 Safari
         })
 
+        it('scales each breakdown value against its own larger period', async () => {
+            await loadBreakdownCompare(funnelResultStepsBreakdownCompare.result)
+
+            const [chromeCur, chromePrev, safariCur, safariPrev] =
+                logic.values.visibleStepsWithConversionMetrics[0].nested_breakdown!
+
+            // Chrome basis = max(100, 80); Safari basis = max(40, 25). Each value's leader fills its
+            // bar — Safari current is full despite being far smaller than Chrome (not 40/100).
+            expect(chromeCur.conversionRates.fromBasisStep).toBe(1)
+            expect(chromePrev.conversionRates.fromBasisStep).toBe(80 / 100)
+            expect(safariCur.conversionRates.fromBasisStep).toBe(1)
+            expect(safariPrev.conversionRates.fromBasisStep).toBe(25 / 40)
+        })
+
         it('colors each breakdown value distinctly and desaturates its previous-period bar', async () => {
             await loadBreakdownCompare(funnelResultStepsBreakdownCompare.result)
 

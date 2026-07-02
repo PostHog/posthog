@@ -757,6 +757,55 @@ describe('stepsWithConversionMetrics', () => {
         expect(Number.isNaN(result[1].nested_breakdown![1].conversionRates.total)).toBe(false)
     })
 
+    it('breakdown + compare — each value scales against its own larger period, not a global max', () => {
+        // Chrome current 100 / previous 80; Safari current 40 / previous 25. nested_breakdown pairs
+        // current+previous per value: [Chrome-cur, Chrome-prev, Safari-cur, Safari-prev].
+        const steps: FunnelStepWithNestedBreakdown[] = [
+            makeNestedStep({
+                count: 140,
+                order: 0,
+                nested_breakdown: [
+                    makeStep({
+                        count: 100,
+                        order: 0,
+                        breakdown: '$browser',
+                        breakdown_value: 'Chrome',
+                        compare_label: 'current',
+                    }),
+                    makeStep({
+                        count: 80,
+                        order: 0,
+                        breakdown: '$browser',
+                        breakdown_value: 'Chrome',
+                        compare_label: 'previous',
+                    }),
+                    makeStep({
+                        count: 40,
+                        order: 0,
+                        breakdown: '$browser',
+                        breakdown_value: 'Safari',
+                        compare_label: 'current',
+                    }),
+                    makeStep({
+                        count: 25,
+                        order: 0,
+                        breakdown: '$browser',
+                        breakdown_value: 'Safari',
+                        compare_label: 'previous',
+                    }),
+                ],
+            }),
+        ]
+        const result = stepsWithConversionMetrics(steps, FunnelStepReference.total)
+        const nb = result[0].nested_breakdown!
+
+        // Chrome basis = max(100, 80) = 100; Safari basis = max(40, 25) = 40 — its own leader, NOT 100.
+        expect(nb[0].conversionRates.fromBasisStep).toBe(1) // Chrome current 100/100
+        expect(nb[1].conversionRates.fromBasisStep).toBe(80 / 100) // Chrome previous
+        expect(nb[2].conversionRates.fromBasisStep).toBe(1) // Safari current 40/40 — leader fills the bar
+        expect(nb[3].conversionRates.fromBasisStep).toBe(25 / 40) // Safari previous
+    })
+
     it('nested breakdowns with outlier detection — divergent breakdown gets significant: true', () => {
         // Create 5 breakdowns where one is an outlier
         const breakdownCounts = [
