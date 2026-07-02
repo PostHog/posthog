@@ -1,6 +1,6 @@
 import './CommandBlock.scss'
 
-import { useState } from 'react'
+import { useRef, useState } from 'react'
 
 import { IconCopy, IconTerminal } from '@posthog/icons'
 
@@ -15,6 +15,16 @@ const SIZE_STYLES: Record<Size, { padding: string; font: string; icon: string }>
     sm: { padding: 'px-2.5 py-1.5', font: 'text-xs', icon: 'size-3.5' },
     md: { padding: 'px-4 py-3', font: 'text-sm', icon: 'size-4' },
 }
+
+// A gentle squish-and-settle on copy. Played via the Web Animations API rather than by
+// remounting the button (a remount would also restart the rainbow gradient scroll on the
+// command text, making it visibly jump back to the start on every click).
+const BOUNCE_KEYFRAMES: Keyframe[] = [
+    { transform: 'scale(1)' },
+    { transform: 'scale(0.985)', offset: 0.35 },
+    { transform: 'scale(1.008)', offset: 0.7 },
+    { transform: 'scale(1)' },
+]
 
 interface CommandBlockProps {
     command: string
@@ -47,6 +57,7 @@ export function CommandBlock({
     silentCopy = false,
 }: CommandBlockProps): JSX.Element {
     const [copyKey, setCopyKey] = useState(0)
+    const buttonRef = useRef<HTMLButtonElement>(null)
     const sizeStyle = SIZE_STYLES[size]
     const isStorybook = inStorybook() || inStorybookTestRunner()
 
@@ -54,18 +65,23 @@ export function CommandBlock({
         void copyToClipboard(command, copyLabel, { silent: silentCopy })
         const next = copyKey + 1
         setCopyKey(next)
+        // WAAPI (not a CSS-class remount) so the bounce replays without resetting the rainbow scroll.
+        // Guarded for jsdom, which doesn't implement `Element.animate`.
+        const button = buttonRef.current
+        if (button && typeof button.animate === 'function') {
+            button.animate(BOUNCE_KEYFRAMES, { duration: 320, easing: 'ease-out' })
+        }
         onCopy?.(next)
     }
 
     return (
         <button
+            ref={buttonRef}
             onClick={handleCopy}
-            key={`cmd-${copyKey}`}
             className={cn(
                 'group inline-flex items-center gap-2 font-mono rounded-lg cursor-pointer transition-colors w-fit',
                 sizeStyle.font,
                 sizeStyle.padding,
-                copyKey > 0 && 'CommandBlock__bounce',
                 className
             )}
             type="button"

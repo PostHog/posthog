@@ -56,6 +56,64 @@ export interface KnowledgeSearchResultApi {
     readonly content: string
 }
 
+export interface KnowledgeGapSuggestionApi {
+    /** Unique identifier for this gap suggestion. */
+    readonly id: string
+    /** The ticket that surfaced this gap. */
+    readonly ticket_id: string
+    /** Raw topic the AI couldn't answer. */
+    readonly topic: string
+    /** Normalized cluster key for grouping. */
+    readonly normalized_topic: string
+    /** Ticket classification type. */
+    readonly ticket_type: string
+    /** Pipeline outcome that produced this gap. */
+    readonly outcome: string
+    /** Current status: pending, accepted, or dismissed. */
+    readonly status: string
+    /**
+     * Knowledge source created to fill this gap.
+     * @nullable
+     */
+    readonly resolved_source_id: string | null
+    /** When this gap was first recorded. */
+    readonly created_at: string
+}
+
+export interface PaginatedKnowledgeGapSuggestionListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: KnowledgeGapSuggestionApi[]
+}
+
+export interface GapActionApi {
+    /**
+     * Optional knowledge source to link when accepting.
+     * @nullable
+     */
+    resolved_source_id?: string | null
+}
+
+export interface GapTopicActionApi {
+    /** The normalized topic key identifying the gap cluster to act on. */
+    normalized_topic: string
+    /**
+     * Optional knowledge source to link when accepting.
+     * @nullable
+     */
+    resolved_source_id?: string | null
+}
+
+export interface GapTopicActionResultApi {
+    /** The normalized topic cluster that was acted on. */
+    readonly normalized_topic: string
+    /** Number of gap rows whose status changed. */
+    readonly updated: number
+}
+
 /**
  * * `text` - Text
  * * `url` - URL
@@ -174,6 +232,7 @@ export interface KnowledgeSourceApi {
     readonly file_content_type: string
     /** @nullable */
     readonly file_size_bytes: number | null
+    readonly always_include: boolean
 }
 
 export interface PaginatedKnowledgeSourceListApi {
@@ -193,11 +252,13 @@ export interface CreateTextSourceApi {
     name: string
     /** Raw text to index. Capped at 1 MB; larger payloads should be split into multiple sources or wait for URL/file support in Stage 2/3. */
     text: string
+    /** When true, this source's content is injected into every support reply prompt as general context (tone, policies, direction). */
+    always_include?: boolean
 }
 
 /**
- * PATCH payload for text sources. Both fields optional, at least one
- * required. `text` triggers a re-chunk; `name` alone does not.
+ * PATCH payload for text sources. All fields optional, at least one
+ * required. `text` triggers a re-chunk; `name` or `always_include` alone does not.
  */
 export interface PatchedUpdateTextSourceApi {
     /**
@@ -207,6 +268,8 @@ export interface PatchedUpdateTextSourceApi {
     name?: string
     /** Replacement text. Omit to keep the existing content. */
     text?: string
+    /** When true, this source's content is injected into every support reply prompt as general context. */
+    always_include?: boolean
 }
 
 export type BusinessKnowledgeDocumentsWindowListParams = {
@@ -233,6 +296,21 @@ export type BusinessKnowledgeDocumentsSearchListParams = {
      * When true, rerank search results with a listwise LLM pass for better relevance. Defaults to false (RRF order only). Falls back to RRF order on rerank failure.
      */
     rerank?: boolean
+}
+
+export type BusinessKnowledgeGapSuggestionsListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number
+    /**
+     * When provided, returns per-ticket gap rows instead of aggregated view. Requires `ticket:read` scope in addition to `business_knowledge:read`.
+     */
+    ticket_id?: string
 }
 
 export type BusinessKnowledgeSourcesListParams = {

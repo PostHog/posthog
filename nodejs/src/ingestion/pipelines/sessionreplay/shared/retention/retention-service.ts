@@ -1,3 +1,4 @@
+import { SessionBatchMetrics } from '~/ingestion/pipelines/sessionreplay/sessions/metrics'
 import {
     RetentionPeriod,
     RetentionPeriodToDaysMap,
@@ -37,6 +38,7 @@ export class RetentionService {
     public async getSessionRetention(teamId: TeamId, sessionId: string): Promise<RetentionPeriod> {
         let retentionPeriod: string | null = null
 
+        const startTime = performance.now()
         const client = await this.redisPool.acquire()
         const redisKey = this.generateRedisKey(sessionId)
 
@@ -54,6 +56,7 @@ export class RetentionService {
             }
         } finally {
             await this.redisPool.release(client)
+            SessionBatchMetrics.observeRetentionRedisLatency((performance.now() - startTime) / 1000)
         }
 
         if (retentionPeriod !== null && isValidRetentionPeriod(retentionPeriod)) {

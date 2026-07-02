@@ -1,6 +1,5 @@
 import { combineUrl } from 'kea-router'
 
-import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
 import { FileSystemIconType, ProductItemCategory, ProductKey } from '~/queries/schema/schema-general'
@@ -61,7 +60,6 @@ export const manifest: ProductManifest = {
             iconType: 'llm_prompts' as FileSystemIconType,
             iconColor: ['var(--color-product-llm-prompts-light)'] as FileSystemIconColor,
             href: urls.skills(),
-            flag: FEATURE_FLAGS.LLM_ANALYTICS_SKILLS,
             sceneKey: 'Skills',
         },
     ],

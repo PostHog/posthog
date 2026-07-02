@@ -35,9 +35,11 @@ from posthog.hogql.database.database import (
     get_data_warehouse_table_name,
 )
 from posthog.hogql.database.direct_postgres_table import DirectPostgresTable
+from posthog.hogql.database.direct_snowflake_table import DirectSnowflakeTable
 from posthog.hogql.database.lazy_join_tags import FOREIGN_KEY
 from posthog.hogql.database.models import (
     DANGEROUS_NoTeamIdCheckTable,
+    DatabaseField,
     ExpressionField,
     FieldTraverser,
     LazyJoin,
@@ -60,13 +62,15 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
-from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_tools.backend.models.join import DataWarehouseJoin
-from products.data_warehouse.backend.types import ExternalDataSourceType
-from products.warehouse_sources.backend.models.credential import DataWarehouseCredential
-from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.models.table import DataWarehouseTable
+from products.warehouse_sources.backend.facade.models import (
+    DataWarehouseCredential,
+    DataWarehouseTable,
+    ExternalDataSchema,
+    ExternalDataSource,
+)
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 def _collect_mutable_object_ids(obj: Any, ids: set[int]) -> None:
@@ -740,7 +744,12 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         invalidate_group_types_cache(self.team.project_id)
         db = Database.create_for(team=self.team)
 
-        assert db.get_table("events").fields["event"] == StringDatabaseField(name="event", nullable=False)
+        event_field = db.get_table("events").fields["event"]
+        assert isinstance(event_field, StringDatabaseField)
+        assert event_field.name == "event"
+        assert event_field.nullable is False
+        assert not event_field.array
+        assert event_field.hidden is False
 
     def test_database_expression_fields(self):
         db = Database.create_for(team=self.team)
@@ -957,6 +966,74 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert isinstance(direct_table, DirectPostgresTable)
         # The schema came from the source's job_inputs, proving that branch ran during the zero-query build.
         assert direct_table.postgres_schema == "myschema"
+
+    @patch("posthog.hogql.query.sync_execute", return_value=([], []))
+    def test_build_from_sources_resolves_direct_snowflake_case_insensitively(self, patch_execute):
+        # Snowflake stores object names uppercase but resolves unquoted identifiers case-insensitively.
+        # A natural all-lowercase query must resolve to the canonical uppercase table and columns.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="snowflake_source",
+            source_type=ExternalDataSourceType.SNOWFLAKE,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"database": "DB", "schema": ""},
+        )
+        DataWarehouseTable.objects.create(
+            name="TPCH_SF1.NATION",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            external_data_source_id=source.id,
+            url_pattern="s3://test/*",
+            options={
+                "direct_snowflake_catalog": "DB",
+                "direct_snowflake_schema": "TPCH_SF1",
+                "direct_snowflake_table": "NATION",
+            },
+            columns={"N_NAME": {"clickhouse": "String", "hogql": "string"}},
+        )
+
+        sources = Database._fetch_sources(team=self.team, connection_id=str(source.id))
+        db = Database._build_from_sources(sources)
+
+        canonical = db.get_table("TPCH_SF1.NATION")
+        assert isinstance(canonical, DirectSnowflakeTable)
+        # Any-case table name resolves to the same direct table (Snowflake folds unquoted names).
+        for typed_name in ("tpch_sf1.nation", "Tpch_Sf1.Nation", "TPCH_SF1.nation"):
+            resolved = db.get_table(typed_name)
+            assert isinstance(resolved, DirectSnowflakeTable), typed_name
+        # Columns resolve regardless of case and report their canonical stored name.
+        assert canonical.has_field("n_name")
+        resolved_field = canonical.get_field("N_Name")
+        assert isinstance(resolved_field, DatabaseField)
+        assert resolved_field.name == "N_NAME"
+
+    @patch("posthog.hogql.query.sync_execute", return_value=([], []))
+    def test_build_from_sources_keeps_non_snowflake_tables_case_sensitive(self, patch_execute):
+        # The case-insensitive fallback is opt-in per node, so a non-Snowflake direct table must NOT
+        # resolve under a different case.
+        source = ExternalDataSource.objects.create(
+            team=self.team,
+            source_id="pg_source",
+            source_type=ExternalDataSourceType.POSTGRES,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"schema": "public"},
+        )
+        DataWarehouseTable.objects.create(
+            name="accounts",
+            format="Parquet",
+            team=self.team,
+            external_data_source=source,
+            external_data_source_id=source.id,
+            url_pattern="s3://test/*",
+            columns={"id": {"clickhouse": "Int64", "hogql": "integer"}},
+        )
+
+        sources = Database._fetch_sources(team=self.team, connection_id=str(source.id))
+        db = Database._build_from_sources(sources)
+
+        assert db.has_table("accounts")
+        assert not db.has_table("ACCOUNTS")
 
     @patch("posthog.hogql.query.sync_execute", return_value=([], []))
     def test_build_from_sources_raises_when_modifier_table_has_no_backing_row(self, patch_execute):
@@ -1239,7 +1316,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         sql = "select id from persons"
         query, _ = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
-            "equals(tupleElement(argMax(tuple(person.is_deleted), person.version), 1), 0), less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_0)s)), person.version), 1), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))"
+            "equals(argMax(person.is_deleted, person.version), 0), less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1))"
             in query
         ), query
 
@@ -1257,7 +1334,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         sql = "select person.id from events"
         query, _ = prepare_and_print_ast(parse_select(sql), context, dialect="clickhouse")
         assert (
-            "less(tupleElement(argMax(tuple(toTimeZone(person.created_at, %(hogql_val_0)s)), person.version), 1), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))"
+            "less(argMax(toTimeZone(person.created_at, %(hogql_val_0)s), person.version), plus(now64(6, %(hogql_val_1)s), toIntervalDay(1)))"
             in query
         ), query
 

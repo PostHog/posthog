@@ -171,17 +171,6 @@ export const groupsFindRetrieve = async (
     })
 }
 
-export const getGroupsPropertyDefinitionsRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/groups/property_definitions/`
-}
-
-export const groupsPropertyDefinitionsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getGroupsPropertyDefinitionsRetrieveUrl(projectId), {
-        ...options,
-        method: 'GET',
-    })
-}
-
 export const getGroupsPropertyValuesRetrieveUrl = (projectId: string) => {
     return `/api/projects/${projectId}/groups/property_values/`
 }

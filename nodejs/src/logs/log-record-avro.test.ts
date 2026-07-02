@@ -1,6 +1,6 @@
 import avro from 'avsc'
 
-import { parseJSON } from '~/utils/json-parse'
+import { parseJSON } from '~/common/utils/json-parse'
 
 import * as logBodyParse from './log-body-parse'
 import { PII_REDACTED, encodeAttributeCell } from './log-pii-scrub'

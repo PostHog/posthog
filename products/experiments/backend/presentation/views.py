@@ -16,10 +16,9 @@ from django.conf import settings
 from django.db.models import BooleanField, Case, Exists, OuterRef, Prefetch, Q, QuerySet, Value, When
 from django.utils.text import slugify
 
-import posthoganalytics
 from drf_spectacular.utils import OpenApiParameter, OpenApiResponse, extend_schema, extend_schema_view
 from opentelemetry import trace
-from rest_framework import viewsets
+from rest_framework import serializers, viewsets
 from rest_framework.exceptions import ValidationError
 from rest_framework.request import Request
 from rest_framework.response import Response
@@ -29,7 +28,7 @@ from posthog.api.forbid_destroy_model import ForbidDestroyModel
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
-from posthog.approvals.mixins import ApprovalHandlingMixin
+from posthog.auth import IDJagAccessTokenAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
 from posthog.models.filters.filter import Filter
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
@@ -39,6 +38,7 @@ from posthog.temporal.common.client import sync_connect
 from posthog.temporal.experiments.models import ExperimentTimeseriesRecalculationWorkflowInputs
 from posthog.user_permissions import UserPermissions
 
+from products.approvals.backend.mixins import ApprovalHandlingMixin
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.llm_metric_templates import build_template, list_templates
 
@@ -52,6 +52,7 @@ from products.experiments.backend.models.experiment import (
     experiment_has_legacy_metrics,
 )
 from products.experiments.backend.presentation.serializers import (
+    ArchiveExperimentSerializer,
     CopyExperimentToProjectSerializer,
     CreateFromPromptInputSerializer,
     EndExperimentSerializer,
@@ -107,6 +108,11 @@ LIST_DEFERRED_FIELDS = (
     "secondary_metrics_ordered_uuids",
 )
 
+# The viewset's `list` method shadows the builtin `list` in the class namespace, so a
+# `list[str]` annotation there resolves to that method (a runtime crash, and a mypy error).
+# Reference this module-level alias instead.
+RequiredScopes = list[str]
+
 
 def flag_evaluation_contexts_prefetch() -> Prefetch:
     return Prefetch(
@@ -137,23 +143,6 @@ def list_is_legacy_annotation() -> Case:
         When(inline_legacy | saved_legacy, then=Value(True)),
         default=Value(False),
         output_field=BooleanField(),
-    )
-
-
-PROMPT_EXPERIMENTS_FEATURE_FLAG = "experiments-llm-prompts"
-
-
-def _is_prompt_experiments_feature_enabled(user: User, team: Team) -> bool:
-    distinct_id = user.distinct_id or str(user.uuid)
-    organization_id = str(team.organization_id)
-    project_id = str(team.id)
-    return posthoganalytics.feature_enabled(
-        PROMPT_EXPERIMENTS_FEATURE_FLAG,
-        distinct_id,
-        groups={"organization": organization_id, "project": project_id},
-        group_properties={"organization": {"id": organization_id}, "project": {"id": project_id}},
-        only_evaluate_locally=False,
-        send_feature_flag_events=False,
     )
 
 
@@ -360,6 +349,37 @@ class EnterpriseExperimentsViewSet(
             request_data=getattr(request, "data", None),
         )
 
+    def dangerously_get_required_scopes(self, request: Request, view: Any) -> RequiredScopes | None:
+        # Archiving with disable_feature_flag=true also disables and archives the linked flag,
+        # which is a feature_flag write — require feature_flag:write on the token, not just
+        # experiment:write. Other actions fall back to their own scopes.
+        if self.action == "archive":
+            scopes = ["experiment:write"]
+            # Use DRF's own truthy set so this matches how ArchiveExperimentSerializer parses the field.
+            if request.data.get("disable_feature_flag", False) in serializers.BooleanField.TRUE_VALUES:
+                scopes.append("feature_flag:write")
+            return scopes
+        return None
+
+    def _token_can_write_feature_flag(self, request: Request) -> bool:
+        """Whether the request's token carries feature_flag:write.
+
+        Archiving/unarchiving an experiment can touch the linked flag's archived/active
+        state as a side effect; that is a feature_flag write and must not be reachable with
+        only experiment:write. Session and other non-token auth aren't scope-limited (gated by
+        access control instead), mirroring APIScopePermission.
+        """
+        authenticator = request.successful_authenticator
+        if isinstance(authenticator, PersonalAPIKeyAuthentication):
+            scopes = authenticator.personal_api_key.scopes or []
+        elif isinstance(authenticator, OAuthAccessTokenAuthentication):
+            scopes = (authenticator.access_token.scope or "").split()
+        elif isinstance(authenticator, IDJagAccessTokenAuthentication):
+            scopes = list(authenticator.scopes or [])
+        else:
+            return True
+        return "*" in scopes or "feature_flag:write" in scopes
+
     # ******************************************
     # /projects/:id/experiments/requires_flag_implementation
     #
@@ -395,21 +415,32 @@ class EnterpriseExperimentsViewSet(
         return Response(ExperimentSerializer(launched_experiment, context=self.get_serializer_context()).data)
 
     @extend_schema(
-        request=None,
+        request=ArchiveExperimentSerializer,
         responses=ExperimentSerializer,
     )
-    @action(methods=["POST"], detail=True, required_scopes=["experiment:write"])
+    # required_scopes is computed by dangerously_get_required_scopes — disabling the linked
+    # flag additionally requires feature_flag:write.
+    @action(methods=["POST"], detail=True)
     def archive(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """
         Archive an ended experiment.
 
         Hides the experiment from the default list view. The experiment can be
-        restored at any time by updating archived=false. Returns 400 if the
-        experiment is already archived or has not ended yet.
+        restored at any time by updating archived=false. When the linked feature
+        flag is still enabled, pass disable_feature_flag=true to also disable and
+        archive it. Returns 400 if the experiment is already archived or has not
+        ended yet.
         """
         experiment: Experiment = self.get_object()
+        request_serializer = ArchiveExperimentSerializer(data=request.data)
+        request_serializer.is_valid(raise_exception=True)
         service = ExperimentService(team=self.team, user=request.user)
-        archived_experiment = service.archive_experiment(experiment, request=request)
+        archived_experiment = service.archive_experiment(
+            experiment,
+            disable_feature_flag=request_serializer.validated_data["disable_feature_flag"],
+            can_write_feature_flag=self._token_can_write_feature_flag(request),
+            request=request,
+        )
         return Response(ExperimentSerializer(archived_experiment, context=self.get_serializer_context()).data)
 
     @extend_schema(
@@ -426,7 +457,11 @@ class EnterpriseExperimentsViewSet(
         """
         experiment: Experiment = self.get_object()
         service = ExperimentService(team=self.team, user=request.user)
-        unarchived_experiment = service.unarchive_experiment(experiment, request=request)
+        unarchived_experiment = service.unarchive_experiment(
+            experiment,
+            can_write_feature_flag=self._token_can_write_feature_flag(request),
+            request=request,
+        )
         return Response(ExperimentSerializer(unarchived_experiment, context=self.get_serializer_context()).data)
 
     @extend_schema(
@@ -623,9 +658,6 @@ class EnterpriseExperimentsViewSet(
         metric per selected template, each scoped to the prompt's $ai_prompt_name.
         Resulting experiment is in draft state.
         """
-        if not _is_prompt_experiments_feature_enabled(cast(User, request.user), self.team):
-            return Response({"detail": "Not found."}, status=404)
-
         serializer = CreateFromPromptInputSerializer(data=request.data, context={"team": self.team})
         serializer.is_valid(raise_exception=True)
         data = serializer.validated_data
@@ -702,9 +734,6 @@ class EnterpriseExperimentsViewSet(
     )
     def prompt_templates(self, request: Request, *args: Any, **kwargs: Any) -> Response:
         """List the LLM metric templates that can be passed to `create_from_prompt`."""
-        if not _is_prompt_experiments_feature_enabled(cast(User, request.user), self.team):
-            return Response({"detail": "Not found."}, status=404)
-
         return Response(list_templates())
 
     @extend_schema(

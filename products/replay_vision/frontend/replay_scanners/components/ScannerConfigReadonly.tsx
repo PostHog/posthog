@@ -1,17 +1,25 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBolt, IconClock, IconGraph, IconInfo, IconPencil } from '@posthog/icons'
+import { IconBolt, IconClock, IconGraph, IconInfo, IconPencil, IconPeople } from '@posthog/icons'
 import { LemonCard, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { TZLabel } from 'lib/components/TZLabel'
+import { UniversalFilterButton } from 'lib/components/UniversalFilters/UniversalFilterButton'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { humanFriendlyDurationFilter } from 'scenes/session-recordings/filters/DurationFilter'
+import {
+    deriveOperand,
+    recordingsQueryToUniversalFilters,
+} from 'scenes/session-recordings/filters/recordingsQueryConversions'
+import { filtersFromUniversalFilterGroups } from 'scenes/session-recordings/utils'
 
-import { AccessControlLevel, AccessControlResourceType, AnyPropertyFilter } from '~/types'
+import { RecordingsQuery } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType, FilterLogicalOperator } from '~/types'
 
 import { BooleanTag } from '../../components/BooleanTag'
 import { CardHeader } from '../../components/CardHeader'
+import { LabeledRow } from '../../components/LabeledRow'
 import { ScannerTypeBadge } from '../../components/ScannerTypeBadge'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { MODEL_OPTIONS, ReplayScanner, ScannerType } from '../types'
@@ -23,15 +31,6 @@ const SUMMARY_LENGTHS = [
 ] as const
 
 const SCANNER_TYPES: ScannerType[] = ['monitor', 'classifier', 'scorer', 'summarizer']
-
-function Row({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
-    return (
-        <div>
-            <div className="text-xs text-muted mb-0.5">{label}</div>
-            <div className="text-sm">{children}</div>
-        </div>
-    )
-}
 
 function Multiline({ value }: { value: string | null | undefined }): JSX.Element {
     return <div className="whitespace-pre-wrap text-sm">{value || <span className="text-muted">—</span>}</div>
@@ -67,7 +66,7 @@ function OptionTags({
 function BehaviorCardContent({ scanner }: { scanner: ReplayScanner }): JSX.Element {
     return (
         <>
-            <Row label="Prompt">
+            <LabeledRow label="Prompt">
                 {scanner.scanner_config.prompt ? (
                     <div className="whitespace-pre-wrap text-sm bg-surface-secondary border rounded p-2">
                         {scanner.scanner_config.prompt}
@@ -75,20 +74,20 @@ function BehaviorCardContent({ scanner }: { scanner: ReplayScanner }): JSX.Eleme
                 ) : (
                     <span className="text-muted">—</span>
                 )}
-            </Row>
+            </LabeledRow>
             {scanner.scanner_type === 'summarizer' && (
-                <Row label="Summary length">
+                <LabeledRow label="Summary length">
                     <OptionTags options={SUMMARY_LENGTHS} selected={scanner.scanner_config.length} />
-                </Row>
+                </LabeledRow>
             )}
             {scanner.scanner_type === 'monitor' && (
-                <Row label="Allow inconclusive verdicts">
+                <LabeledRow label="Allow inconclusive verdicts">
                     <BooleanTag value={!!scanner.scanner_config.allow_inconclusive} />
-                </Row>
+                </LabeledRow>
             )}
             {scanner.scanner_type === 'classifier' && (
                 <>
-                    <Row label="Tag vocabulary">
+                    <LabeledRow label="Tag vocabulary">
                         {scanner.scanner_config.tags.length ? (
                             <div className="flex flex-wrap gap-1">
                                 {scanner.scanner_config.tags.map((tag) => (
@@ -100,24 +99,24 @@ function BehaviorCardContent({ scanner }: { scanner: ReplayScanner }): JSX.Eleme
                         ) : (
                             <span className="text-muted">—</span>
                         )}
-                    </Row>
-                    <Row label="Multiple tags per session">
+                    </LabeledRow>
+                    <LabeledRow label="Multiple tags per session">
                         <BooleanTag value={!!scanner.scanner_config.multi_label} />
-                    </Row>
-                    <Row label="Freeform tags">
+                    </LabeledRow>
+                    <LabeledRow label="Freeform tags">
                         <BooleanTag value={!!scanner.scanner_config.allow_freeform_tags} />
-                    </Row>
+                    </LabeledRow>
                 </>
             )}
             {scanner.scanner_type === 'scorer' && (
-                <Row label="Scale">
+                <LabeledRow label="Scale">
                     {scanner.scanner_config.scale.min} – {scanner.scanner_config.scale.max}
                     {scanner.scanner_config.scale.label ? ` (${scanner.scanner_config.scale.label})` : ''}
-                </Row>
+                </LabeledRow>
             )}
-            <Row label="Emit signals">
+            <LabeledRow label="Emit signals">
                 <BooleanTag value={scanner.emits_signals} />
-            </Row>
+            </LabeledRow>
         </>
     )
 }
@@ -126,7 +125,11 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
     const { observationStats, togglingEnabled } = useValues(replayScannerLogic({ id: scanner.id }))
     const { toggleEnabled } = useActions(replayScannerLogic({ id: scanner.id }))
     const samplingPercent = Math.round((scanner.sampling_rate ?? 0) * 1000) / 10
-    const filters = (scanner.query?.properties ?? []) as AnyPropertyFilter[]
+    // Read every filter dimension (events, actions, properties, console logs, …), not just top-level properties.
+    const universal = recordingsQueryToUniversalFilters((scanner.query ?? null) as RecordingsQuery | null)
+    const filters = filtersFromUniversalFilterGroups(universal)
+    const hasTriggers = filters.length > 0 || universal.duration.length > 0 || universal.filter_test_accounts
+    const matchWord = deriveOperand(universal.filter_group) === FilterLogicalOperator.Or ? 'any' : 'all'
 
     return (
         <div className="flex flex-col gap-4">
@@ -134,7 +137,7 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                 <LemonCard className="p-4" hoverEffect={false}>
                     <CardHeader icon={<IconInfo />} title="Overview" />
                     <div className="flex flex-col gap-3">
-                        <Row label="Type">
+                        <LabeledRow label="Type">
                             <div className="flex flex-wrap gap-1">
                                 {SCANNER_TYPES.map((scannerType) => (
                                     <ScannerTypeBadge
@@ -144,14 +147,14 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                                     />
                                 ))}
                             </div>
-                        </Row>
-                        <Row label="Description">
+                        </LabeledRow>
+                        <LabeledRow label="Description">
                             <Multiline value={scanner.description} />
-                        </Row>
-                        <Row label="Model">
+                        </LabeledRow>
+                        <LabeledRow label="Model">
                             <OptionTags options={MODEL_OPTIONS} selected={scanner.model} />
-                        </Row>
-                        <Row label="Status">
+                        </LabeledRow>
+                        <LabeledRow label="Status">
                             <div className="flex items-center gap-2">
                                 <AccessControlAction
                                     resourceType={AccessControlResourceType.SessionRecording}
@@ -170,7 +173,7 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                                     {scanner.enabled ? 'Runs automatically on a schedule' : 'Runs on-demand only'}
                                 </span>
                             </div>
-                        </Row>
+                        </LabeledRow>
                     </div>
                 </LemonCard>
 
@@ -186,25 +189,46 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                 <LemonCard className="p-4" hoverEffect={false}>
                     <CardHeader icon={<IconBolt />} title="Triggers" />
                     <div className="flex flex-col gap-3">
-                        <Row label="Sampling">{samplingPercent}%</Row>
-                        <Row label="Recording filters">
-                            {filters.length === 0 ? (
-                                <span>No filters</span>
+                        <LabeledRow label="Sampling">{samplingPercent}%</LabeledRow>
+                        <LabeledRow label="Recording filters">
+                            {!hasTriggers ? (
+                                <span className="text-muted">No filters</span>
                             ) : (
-                                <div className="flex flex-wrap gap-1">
-                                    {filters.map((filter, i) => (
-                                        <PropertyFilterButton key={i} item={filter} />
-                                    ))}
+                                <div className="flex flex-col gap-2">
+                                    {filters.length > 0 && (
+                                        <div className="flex flex-wrap items-center gap-1.5">
+                                            {filters.length > 1 && (
+                                                <span className="text-xs">Match {matchWord} of</span>
+                                            )}
+                                            {filters.map((filter, i) => (
+                                                <UniversalFilterButton key={i} filter={filter} />
+                                            ))}
+                                        </div>
+                                    )}
+                                    {(universal.duration.length > 0 || universal.filter_test_accounts) && (
+                                        <div className="flex flex-wrap items-center gap-1.5">
+                                            {universal.duration.map((duration, i) => (
+                                                <LemonTag key={i} type="default" icon={<IconClock />}>
+                                                    {humanFriendlyDurationFilter(duration, duration.key)}
+                                                </LemonTag>
+                                            ))}
+                                            {universal.filter_test_accounts && (
+                                                <LemonTag type="default" icon={<IconPeople />}>
+                                                    No internal/test users
+                                                </LemonTag>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             )}
-                        </Row>
+                        </LabeledRow>
                     </div>
                 </LemonCard>
 
                 <LemonCard className="p-4" hoverEffect={false}>
                     <CardHeader icon={<IconClock />} title="Lifecycle" />
                     <div className="flex flex-col gap-3">
-                        <Row label="Created by">
+                        <LabeledRow label="Created by">
                             {scanner.created_by ? (
                                 <ProfilePicture
                                     user={{
@@ -218,27 +242,27 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                             ) : (
                                 <span className="text-muted">—</span>
                             )}
-                        </Row>
-                        <Row label="Created">
+                        </LabeledRow>
+                        <LabeledRow label="Created">
                             <TZLabel time={scanner.created_at} />
-                        </Row>
-                        <Row label="Last updated">
+                        </LabeledRow>
+                        <LabeledRow label="Last updated">
                             <TZLabel time={scanner.updated_at} />
-                        </Row>
-                        <Row label="Last scheduled scan">
+                        </LabeledRow>
+                        <LabeledRow label="Last scheduled scan">
                             {scanner.last_swept_at ? (
                                 <TZLabel time={scanner.last_swept_at} />
                             ) : (
                                 <span className="text-muted">Never</span>
                             )}
-                        </Row>
+                        </LabeledRow>
                     </div>
                 </LemonCard>
 
                 <LemonCard className="p-4" hoverEffect={false}>
                     <CardHeader icon={<IconGraph />} title="Usage" />
                     <div className="flex flex-col gap-3">
-                        <Row label="Estimated monthly observations">
+                        <LabeledRow label="Estimated monthly observations">
                             {scanner.estimated_monthly_observations != null ? (
                                 <span className="tabular-nums">
                                     {scanner.estimated_monthly_observations.toLocaleString()}
@@ -246,24 +270,24 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                             ) : (
                                 <span className="text-muted">—</span>
                             )}
-                        </Row>
-                        <Row label="Total observations">
+                        </LabeledRow>
+                        <LabeledRow label="Total observations">
                             <span className="tabular-nums">{observationStats.total.toLocaleString()}</span>
-                        </Row>
-                        <Row label="Success rate">
+                        </LabeledRow>
+                        <LabeledRow label="Success rate">
                             {observationStats.successRate != null ? (
                                 <span className="tabular-nums">{observationStats.successRate}%</span>
                             ) : (
                                 <span className="text-muted">—</span>
                             )}
-                        </Row>
-                        <Row label="Outcomes">
+                        </LabeledRow>
+                        <LabeledRow label="Outcomes">
                             <span className="text-sm">
                                 {observationStats.succeeded.toLocaleString()} succeeded ·{' '}
                                 {observationStats.failed.toLocaleString()} failed ·{' '}
                                 {observationStats.ineligible.toLocaleString()} ineligible
                             </span>
-                        </Row>
+                        </LabeledRow>
                     </div>
                 </LemonCard>
             </div>

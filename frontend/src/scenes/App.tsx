@@ -11,6 +11,7 @@ import { SpinnerOverlay } from 'lib/lemon-ui/Spinner/Spinner'
 import { autofillReleaseLogic } from 'lib/memory/autofillReleaseLogic'
 import { OAuthCallback } from 'lib/oauth/OAuthCallback'
 import { oauthLogic } from 'lib/oauth/oauthLogic'
+import { retryImport } from 'lib/utils/retryImport'
 import { appLogic } from 'scenes/appLogic'
 import { appScenes } from 'scenes/appScenes'
 import { sceneLogic } from 'scenes/sceneLogic'
@@ -21,7 +22,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { ChunkLoadErrorBoundary } from './ChunkLoadErrorBoundary'
 
-const AuthenticatedShell = React.lazy(() => import('./AuthenticatedShell'))
+const AuthenticatedShell = React.lazy(() => retryImport(() => import('./AuthenticatedShell')))
 
 window.process = MOCK_NODE_PROCESS
 
@@ -57,6 +58,17 @@ export function App(): JSX.Element | null {
     // (OAuth UI gated on preflight.is_debug); no timers/listeners, so cheap to always mount.
     useMountedLogic(oauthLogic)
 
+    // Mount the support-hash router (handles #panel=support) on every page, lazily so it stays out
+    // of App's import graph — a static import drags supportLogic/sceneLogic/organizationLogic into
+    // root init and triggers a circular-import TDZ. Its urlToAction fires on the current URL on mount.
+    useEffect(() => {
+        let unmount: (() => void) | undefined
+        void import('lib/components/Support/supportRouterLogic').then(({ supportRouterLogic }) => {
+            unmount = supportRouterLogic.mount()
+        })
+        return () => unmount?.()
+    }, [])
+
     useThemedHtml()
 
     // A cloud OAuth redirect lands at /oauth/callback on the local origin. Render the exchange
@@ -79,13 +91,8 @@ export function App(): JSX.Element | null {
 
 function AppScene(): JSX.Element | null {
     const { user } = useValues(userLogic)
-    const {
-        activeSceneId,
-        activeExportedScene,
-        activeSceneComponentParamsWithTabId,
-        activeSceneLogicPropsWithTabId,
-        sceneConfig,
-    } = useValues(sceneLogic)
+    const { activeSceneId, activeExportedScene, activeSceneComponentParams, activeSceneLogicProps, sceneConfig } =
+        useValues(sceneLogic)
     const { showingDelayedSpinner } = useValues(appLogic)
     const { isDarkModeOn } = useValues(themeLogic)
 
@@ -121,8 +128,8 @@ function AppScene(): JSX.Element | null {
     if (activeExportedScene?.component) {
         const { component: SceneComponent } = activeExportedScene
         sceneElement = (
-            <SceneAnimationRoot key={`scene-${activeSceneId}-${activeSceneLogicPropsWithTabId.tabId}`}>
-                <SceneComponent user={user} {...activeSceneComponentParamsWithTabId} />
+            <SceneAnimationRoot key={`scene-${activeSceneId}`}>
+                <SceneComponent user={user} {...activeSceneComponentParams} />
             </SceneAnimationRoot>
         )
     } else {
@@ -130,11 +137,7 @@ function AppScene(): JSX.Element | null {
     }
 
     const sceneContent = activeExportedScene?.logic ? (
-        <BindLogic
-            key={`bind-${activeSceneLogicPropsWithTabId.tabId}`}
-            logic={activeExportedScene.logic}
-            props={activeSceneLogicPropsWithTabId}
-        >
+        <BindLogic key={`bind-${activeSceneId}`} logic={activeExportedScene.logic} props={activeSceneLogicProps}>
             {sceneElement}
         </BindLogic>
     ) : (
@@ -142,10 +145,7 @@ function AppScene(): JSX.Element | null {
     )
 
     const wrappedSceneElement = (
-        <ErrorBoundary
-            key={`error-${activeSceneLogicPropsWithTabId.tabId}`}
-            exceptionProps={{ feature: activeSceneId }}
-        >
+        <ErrorBoundary key={`error-${activeSceneId}`} exceptionProps={{ feature: activeSceneId }}>
             {/* Keep chunk-load failures out of the scene error reporter so stale assets reload once instead. */}
             <ChunkLoadErrorBoundary>{sceneContent}</ChunkLoadErrorBoundary>
         </ErrorBoundary>

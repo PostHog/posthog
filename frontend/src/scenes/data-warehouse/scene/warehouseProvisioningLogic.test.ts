@@ -71,7 +71,7 @@ describe('warehouseProvisioningLogic', () => {
         logic.mount()
 
         await expectLogic(logic, () => {
-            logic.actions.provisionWarehouse({ databaseName: 'shared-warehouse' })
+            logic.actions.provisionWarehouse({ databaseName: 'shared-warehouse', tableName: 'shared' })
         }).toDispatchActions(['provisionWarehouse', 'loadWarehouseStatus', 'provisionWarehouseComplete'])
 
         expect(infoToast).toHaveBeenCalledTimes(1)

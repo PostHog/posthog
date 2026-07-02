@@ -89,7 +89,23 @@ class TestTraceSpansCount(ClickhouseTestMixin, APIBaseTest):
             date_range=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
             service_names=service_names,
         )
-        self.assertEqual(response.results, {"count": expected_count})
+        self.assertEqual(response.results["count"], expected_count)
+
+    @parameterized.expand(
+        [
+            # count() is per-span; traceCount is distinct traces whose root matches. Unfiltered, every
+            # root matches, so count = 9 spans but traceCount = 3 traces.
+            ("unfiltered", None, NUM_TRACES * 3, NUM_TRACES),
+            ("no_match_returns_zero_for_both", ["does-not-exist"], 0, 0),
+        ]
+    )
+    def test_count_includes_distinct_trace_count(self, _name, service_names, expected_spans, expected_traces):
+        response = run_count_query(
+            team=self.team,
+            date_range=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
+            service_names=service_names,
+        )
+        self.assertEqual(response.results, {"count": expected_spans, "traceCount": expected_traces})
 
     def test_count_via_api_with_name_filter(self):
         body = {
@@ -101,7 +117,21 @@ class TestTraceSpansCount(ClickhouseTestMixin, APIBaseTest):
         res = self.client.post(f"/api/projects/{self.team.id}/tracing/spans/count/", body, format="json")
         self.assertEqual(res.status_code, 200, res.content)
         # One root span named process_query_model per trace.
-        self.assertEqual(res.json(), {"count": NUM_TRACES})
+        self.assertEqual(res.json()["count"], NUM_TRACES)
+
+    def test_count_api_child_only_filter_matches_spans_but_no_trace_roots(self):
+        body = {
+            "query": {
+                "dateRange": {"date_from": DATE_FROM, "date_to": DATE_TO},
+                "filterGroup": [{"key": "is_root_span", "type": "span", "operator": "exact", "value": False}],
+            }
+        }
+        res = self.client.post(f"/api/projects/{self.team.id}/tracing/spans/count/", body, format="json")
+        self.assertEqual(res.status_code, 200, res.content)
+        # 2 child spans per trace = 6 matching spans, but no trace's ROOT matches (the filter excludes
+        # roots), so the Traces view shows 0 traces — traceCount must agree with that, not count traces
+        # by any matching span.
+        self.assertEqual(res.json(), {"count": NUM_TRACES * 2, "traceCount": 0})
 
     @parameterized.expand(
         [
@@ -130,4 +160,4 @@ class TestTraceSpansCount(ClickhouseTestMixin, APIBaseTest):
         }
         res = self.client.post(f"/api/projects/{self.team.id}/tracing/spans/count/", body, format="json")
         self.assertEqual(res.status_code, 200, res.content)
-        self.assertEqual(res.json(), {"count": expected_count})
+        self.assertEqual(res.json()["count"], expected_count)

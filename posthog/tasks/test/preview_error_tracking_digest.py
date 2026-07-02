@@ -3,14 +3,29 @@ Quick preview of the error tracking weekly digest email template.
 
 Usage:
     python manage.py shell -c "exec(open('posthog/tasks/test/preview_error_tracking_digest.py').read())"
+
+    # Preview the EU source maps wizard command (adds --region eu)
+    DIGEST_PREVIEW_REGION=eu python manage.py shell -c "exec(open('posthog/tasks/test/preview_error_tracking_digest.py').read())"
 """
 
+import os
 import sys
 import subprocess
 
+from django.conf import settings
 from django.template.loader import get_template
 
 from posthog.email import inline_css
+
+from products.error_tracking.backend.facade.api import SOURCE_MAPS_DOCS_URL
+
+
+def _wizard_command() -> str:
+    # Mirrors sourceMapsFixWizardLogic / _source_maps_wizard_command: --region eu on EU.
+    region = (os.environ.get("DIGEST_PREVIEW_REGION") or settings.CLOUD_DEPLOYMENT or "us").lower()
+    region_flag = " --region eu" if region == "eu" else ""
+    return f"npx -y @posthog/wizard@latest upload-source-maps{region_flag}"
+
 
 _issue_sparkline_up = [
     {"height_percent": 10},
@@ -51,6 +66,12 @@ project_a = {
         "long_text": "Down 23% from previous week",
     },
     "ingestion_failure_count": 347,
+    "source_maps_recommendation": {
+        "unresolved_percent": 72,
+        "lookback_hours": 24,
+        "wizard_command": _wizard_command(),
+        "docs_url": f"{SOURCE_MAPS_DOCS_URL}?utm_source=error_tracking_weekly_digest",
+    },
     "daily_counts": [
         {"day": "Tue", "count": 1200, "height_percent": 60},
         {"day": "Wed", "count": 800, "height_percent": 40},
@@ -153,6 +174,8 @@ project_b = {
         "long_text": "Up 45% from previous week",
     },
     "ingestion_failure_count": 0,
+    # No source maps problem here — section is omitted for this project.
+    "source_maps_recommendation": None,
     "daily_counts": [
         {"day": "Tue", "count": 80, "height_percent": 40},
         {"day": "Wed", "count": 120, "height_percent": 60},

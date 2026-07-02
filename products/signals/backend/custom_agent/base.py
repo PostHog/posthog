@@ -10,7 +10,8 @@ from pydantic import BaseModel, Field, ValidationError
 from posthog.models import Team
 from posthog.sync import database_sync_to_async
 
-from products.signals.backend.auto_start import ReviewerContent, maybe_autostart_implementation_task
+from products.signals.backend.artefact_schemas import ArtefactContent, artefact_type_for
+from products.signals.backend.auto_start import maybe_autostart_from_report_artefacts
 from products.signals.backend.custom_agent.persistence import (
     PersistedCustomAgentReport,
     create_custom_agent_ready_report,
@@ -115,6 +116,15 @@ class CustomSignalAgent:
     Any non-registered report components (other than title and description)
     will be auto-resolved by default resolvers.
 
+    Artefacts
+    ---------
+    :py:meth:`register_artefact` queues artefacts of any type for the report
+    being built. They are persisted in the same transaction as the report at
+    the next finalization point, attributed like every other component, and
+    cleared along with the report components by :py:meth:`report_and_continue`.
+    Status types (judgments, repo selection, suggested reviewers) are
+    latest-wins — the newest row of each type is the report's current status.
+
     Return falsy from :py:meth:`run` after the last ``report_and_continue`` to
     prevent a final report from being generated.
 
@@ -195,6 +205,7 @@ class CustomSignalAgent:
         self._assignees: list[CustomAgentAssignee] | None = None
         self._actionability: ActionabilityAssessment | None = None
         self._priority: PriorityAssessment | None = None
+        self._registered_artefacts: list[ArtefactContent] = []
         self._persisted_reports: list[PersistedCustomAgentReport] = []
 
     # ------------------------------------------------------------------
@@ -283,6 +294,11 @@ class CustomSignalAgent:
 
     def register_assignees(self, assignees: list[CustomAgentAssignee]) -> None:
         self._assignees = list(assignees)
+
+    def register_artefact(self, content: ArtefactContent) -> None:
+        """Queue an artefact (typed from ``artefact_schemas``) to be written with the report."""
+        artefact_type_for(content)  # fail at the call site for models that aren't artefact content
+        self._registered_artefacts.append(content)
 
     # ------------------------------------------------------------------
     # 4. Likely to be overridden (prompt customization)
@@ -463,45 +479,26 @@ Rules:
             final_report=final,
             repo_selection=self._resolved_repository,
             task_id=task_id,
+            agent_identifier=type(self).identifier(),
+            registered_artefacts=list(self._registered_artefacts),
         )
         self._persisted_reports.append(persisted)
-        await self._maybe_autostart(persisted, final)
+        await self._maybe_autostart(persisted)
         return persisted
 
-    async def _maybe_autostart(
-        self,
-        persisted: PersistedCustomAgentReport,
-        final: CustomAgentFinalReport,
-    ) -> None:
-        """Best-effort autostart hand-off; swallows failures so they don't fail the report."""
-        repository = self.repository
-        if repository is None:
-            return
-        reviewers_content: list[ReviewerContent] = [
-            ReviewerContent(
-                github_login=a.github_login,
-                github_name=a.github_name,
-                relevant_commits=[c.model_dump(mode="json") for c in a.relevant_commits],
-            )
-            for a in final.assignees
-        ]
+    async def _maybe_autostart(self, persisted: PersistedCustomAgentReport) -> None:
+        """Best-effort autostart hand-off; swallows failures so they don't fail the report.
+
+        The report and its artefacts are already persisted, so this reconstructs the auto-start
+        inputs from them — the same shared entry point the in-app reviewer edit uses.
+        """
         try:
-            await maybe_autostart_implementation_task(
-                team_id=self.team_id,
-                report_id=persisted.report_id,
-                repository=repository,
-                title=final.title,
-                summary=final.description,
-                actionability=final.actionability,
-                reviewers_content=reviewers_content,
-                priority=final.priority,
-            )
+            await maybe_autostart_from_report_artefacts(team_id=self.team_id, report_id=persisted.report_id)
         except Exception as error:
             posthoganalytics.capture_exception(error)
             logger.exception(
                 "custom signal agent auto-start task failed",
                 report_id=persisted.report_id,
-                repository=repository,
                 error=str(error),
             )
 
@@ -511,6 +508,7 @@ Rules:
         self._assignees = None
         self._actionability = None
         self._priority = None
+        self._registered_artefacts = []
 
     def _final_report(self) -> CustomAgentFinalReport:
         missing = []

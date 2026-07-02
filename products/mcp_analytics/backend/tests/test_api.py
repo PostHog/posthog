@@ -294,6 +294,150 @@ class TestListMCPSessions(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin,
         paged = [s.session_id for s in first.results] + [s.session_id for s in second.results]
         assert paged == ids
 
+    def test_default_window_includes_sessions_within_seven_days(self) -> None:
+        # Regression: the list previously used a fixed 24h lookback, so a session a few
+        # days old showed on the 7d dashboard but vanished from this list. The default
+        # window now matches the dashboard (DEFAULT_SESSIONS_DATE_FROM = '-7d').
+        session_id = str(uuid7())
+        three_days_ago = datetime.now(tz=UTC) - timedelta(days=3)
+        self._seed_session(
+            session_id,
+            ["query_run"],
+            session_start=three_days_ago,
+            session_end=three_days_ago + timedelta(minutes=1),
+        )
+
+        results = {s.session_id for s in api.list_mcp_sessions(self.team, limit=50, offset=0).results}
+
+        assert session_id in results
+
+    def test_date_from_narrows_the_window(self) -> None:
+        recent = str(uuid7())
+        older = str(uuid7())
+        now = datetime.now(tz=UTC)
+        self._seed_session(
+            recent,
+            ["query_run"],
+            session_start=now - timedelta(minutes=30),
+            session_end=now - timedelta(minutes=29),
+        )
+        self._seed_session(
+            older,
+            ["query_run"],
+            session_start=now - timedelta(hours=5),
+            session_end=now - timedelta(hours=5) + timedelta(minutes=1),
+        )
+
+        within_1h = {
+            s.session_id for s in api.list_mcp_sessions(self.team, limit=50, offset=0, date_from="-1h").results
+        }
+        within_7d = {
+            s.session_id for s in api.list_mcp_sessions(self.team, limit=50, offset=0, date_from="-7d").results
+        }
+
+        assert recent in within_1h
+        assert older not in within_1h
+        assert {recent, older}.issubset(within_7d)
+
+    def test_date_to_bounds_the_upper_end(self) -> None:
+        now = datetime.now(tz=UTC)
+        old = str(uuid7())
+        new = str(uuid7())
+        self._seed_session(
+            old,
+            ["query_run"],
+            session_start=now - timedelta(days=3),
+            session_end=now - timedelta(days=3) + timedelta(minutes=1),
+        )
+        self._seed_session(
+            new,
+            ["query_run"],
+            session_start=now - timedelta(minutes=5),
+            session_end=now - timedelta(minutes=4),
+        )
+
+        # Absolute window [7d ago, 2d ago] so neither bound is ambiguous: it spans the
+        # 3-day-old session but ends before the 5-minute-old one.
+        week_ago = (now - timedelta(days=7)).isoformat()
+        two_days_ago = (now - timedelta(days=2)).isoformat()
+        results = {
+            s.session_id
+            for s in api.list_mcp_sessions(
+                self.team, limit=50, offset=0, date_from=week_ago, date_to=two_days_ago
+            ).results
+        }
+
+        assert old in results
+        assert new not in results
+
+    def test_overlapping_session_reports_full_stats_not_clipped(self) -> None:
+        # A session straddling the window start is included with its FULL stats: the event
+        # before the window counts too, so start/duration/tool count span the whole session
+        # rather than just the in-window slice.
+        session_id = str(uuid7())
+        now = datetime.now(tz=UTC)
+        self._seed_session(
+            session_id,
+            ["query_run", "insight_get"],
+            session_start=now - timedelta(hours=2),  # before the window
+            session_end=now - timedelta(minutes=10),  # inside the window
+        )
+
+        one_hour_ago = (now - timedelta(hours=1)).isoformat()
+        sessions = [
+            s
+            for s in api.list_mcp_sessions(self.team, limit=50, offset=0, date_from=one_hour_ago).results
+            if s.session_id == session_id
+        ]
+
+        assert len(sessions) == 1
+        session = sessions[0]
+        assert session.tool_calls == 2
+        assert sorted(session.tools_used) == ["insight_get", "query_run"]
+        # session_start is the pre-window event, not clipped up to the window start.
+        assert session.session_start < now - timedelta(hours=1)
+
+    def test_session_entirely_outside_window_is_excluded(self) -> None:
+        # The buffered scan reads events just outside the window, but a session with no event
+        # *inside* the window must not leak in via the buffer.
+        session_id = str(uuid7())
+        now = datetime.now(tz=UTC)
+        self._seed_session(
+            session_id,
+            ["query_run"],
+            session_start=now - timedelta(hours=3),
+            session_end=now - timedelta(hours=2, minutes=59),
+        )
+
+        one_hour_ago = (now - timedelta(hours=1)).isoformat()
+        results = {
+            s.session_id for s in api.list_mcp_sessions(self.team, limit=50, offset=0, date_from=one_hour_ago).results
+        }
+
+        assert session_id not in results
+
+    def test_detail_shows_all_events_for_overlapping_session(self) -> None:
+        # Clicking an overlapping session shows every event: the UI passes the full
+        # session_start as the scan bound, so the pre-window event is included too.
+        session_id = str(uuid7())
+        now = datetime.now(tz=UTC)
+        self._seed_session(
+            session_id,
+            ["before_window", "in_window"],
+            session_start=now - timedelta(hours=2),
+            session_end=now - timedelta(minutes=10),
+        )
+
+        one_hour_ago = (now - timedelta(hours=1)).isoformat()
+        session = next(
+            s
+            for s in api.list_mcp_sessions(self.team, limit=50, offset=0, date_from=one_hour_ago).results
+            if s.session_id == session_id
+        )
+        calls = api.list_mcp_tool_calls(self.team, session_id=session_id, date_from=session.session_start)
+
+        assert [c.tool_name for c in calls] == ["before_window", "in_window"]
+
 
 class TestGenerateSessionIntent(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
     def setUp(self) -> None:
@@ -380,8 +524,9 @@ class TestGenerateSessionIntent(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTest
 
 
 class TestSessionEventsLookbackBound(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
-    """Session-detail queries bound the scan to SESSION_EVENTS_LOOKBACK so the
-    events sort key can prune instead of reading the team's full history."""
+    """The session-detail queries (tool calls and intents alike) bound their scan to
+    SESSION_EVENTS_LOOKBACK by default, or to an explicit date_from, so the events sort key can
+    prune instead of reading the team's full history."""
 
     def _seed_tool_call(self, session_id: str, *, timestamp: datetime, tool: str, intent: str) -> None:
         _create_event(
@@ -420,3 +565,28 @@ class TestSessionEventsLookbackBound(_MCPAnalyticsTeamScopedTestMixin, Clickhous
         )
 
         assert fetch(self, session_id) == expected
+
+    @parameterized.expand(
+        [
+            (
+                "tool_calls",
+                lambda self, sid, df: [
+                    c.tool_name for c in api.list_mcp_tool_calls(self.team, session_id=sid, date_from=df)
+                ],
+                ["ancient_tool"],
+            ),
+            (
+                "session_intents",
+                lambda self, sid, df: intent_generation.fetch_session_intents(self.team, sid, date_from=df),
+                ["ancient intent"],
+            ),
+        ]
+    )
+    def test_date_from_override_includes_events_older_than_lookback(self, _name, fetch, expected) -> None:
+        # Passing the session's own start as the bound (what the UI does) resolves events older than
+        # the default fallback window, so any listed session stays openable / summarisable.
+        session_id = str(uuid7())
+        old_start = datetime.now(tz=UTC) - intent_generation.SESSION_EVENTS_LOOKBACK - timedelta(days=3)
+        self._seed_tool_call(session_id, timestamp=old_start, tool="ancient_tool", intent="ancient intent")
+
+        assert fetch(self, session_id, old_start - timedelta(minutes=1)) == expected

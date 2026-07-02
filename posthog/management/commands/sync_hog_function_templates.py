@@ -9,12 +9,14 @@ import structlog
 from posthog.cdp.templates import HOG_FUNCTION_TEMPLATES
 from posthog.cdp.templates.hog_function_template import sync_template_to_db
 from posthog.plugins.plugin_server_api import get_hog_function_templates
-from posthog.temporal.data_imports.sources import SourceRegistry
-from posthog.temporal.data_imports.sources.common.base import WebhookSource
-from posthog.temporal.data_imports.sources.common.default_webhook_template import template as default_webhook_template
 
 from products.cdp.backend.models.hog_function_template import HogFunctionTemplate
 from products.cdp.backend.models.hog_functions.hog_function import HogFunctionType
+from products.warehouse_sources.backend.temporal.data_imports.sources import SourceRegistry
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.base import WebhookSource
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.default_webhook_template import (
+    template as default_webhook_template,
+)
 
 logger = structlog.get_logger(__name__)
 
@@ -26,6 +28,7 @@ TEST_INCLUDE_PYTHON_TEMPLATE_IDS = [
     "template-warehouse-source-stripe",
     "template-warehouse-source-customer-io",
     "template-warehouse-source-slack",
+    "template-warehouse-source-github",
     "template-warehouse-source-default",
 ]
 TEST_INCLUDE_NODEJS_TEMPLATE_IDS = [

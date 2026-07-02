@@ -3,8 +3,9 @@ import { useActions, useValues } from 'kea'
 import { LemonBanner, LemonButton } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { dayjs } from 'lib/dayjs'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonTabs } from 'lib/lemon-ui/LemonTabs'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { useAttachedLogic } from 'lib/logic/scenes/useAttachedLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -16,13 +17,14 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { ReplayVisionFeedbackButton } from '../components/ReplayVisionFeedbackButton'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
-import { QUOTA_WARN_THRESHOLD } from '../utils/quotaProjection'
+import { quotaBannerState } from '../utils/quotaProjection'
 import { ObservationSearchMaxChat } from './components/ObservationSearchMaxChat'
 import { ScannerConfigReadonly } from './components/ScannerConfigReadonly'
 import { ScannerObservationsTable } from './components/ScannerObservationsTable'
 import { ScannerOverview } from './components/ScannerOverview'
 import { ScannerRunTab } from './components/ScannerRunTab'
 import { SummarizerMaxChat } from './components/SummarizerMaxChat'
+import { VisionActionsTab } from './components/VisionActionsTab'
 import { replayScannerLogic } from './replayScannerLogic'
 import { replayScannerSceneLogic } from './replayScannerSceneLogic'
 
@@ -35,6 +37,8 @@ export const scene: SceneExport = {
 export function ReplayScannerSceneComponent(): JSX.Element {
     const { scannerId, activeTab } = useValues(replayScannerSceneLogic)
     const { setActiveTab } = useActions(replayScannerSceneLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const actionsTabEnabled = !!featureFlags[FEATURE_FLAGS.REPLAY_VISION_ACTIONS]
 
     const scannerLogic = replayScannerLogic({ id: scannerId })
     useAttachedLogic(scannerLogic, replayScannerSceneLogic)
@@ -107,6 +111,11 @@ export function ReplayScannerSceneComponent(): JSX.Element {
                         label: 'Configuration',
                         content: <ScannerConfigReadonly scanner={scanner} />,
                     },
+                    actionsTabEnabled && {
+                        key: 'actions',
+                        label: 'Actions',
+                        content: <VisionActionsTab scannerId={scannerId} />,
+                    },
                 ]}
             />
         </SceneContent>
@@ -116,27 +125,17 @@ export function ReplayScannerSceneComponent(): JSX.Element {
 // Assumes block-only overage policy; revisit when `usage_based` ships so we don't scare metered orgs.
 function QuotaBanner(): JSX.Element | null {
     const { quota } = useValues(visionQuotaLogic)
-    if (!quota || quota.monthly_quota <= 0) {
+    const state = quotaBannerState(quota)
+    if (!state.kind) {
         return null
     }
-    const resetsOn = dayjs(quota.period_end).format('MMMM D')
-    if (quota.exhausted) {
-        return (
-            <LemonBanner type="warning">
-                Monthly observation quota reached ({quota.usage_this_month.toLocaleString()} /{' '}
-                {quota.monthly_quota.toLocaleString()}). New observations are paused until {resetsOn}.
-            </LemonBanner>
-        )
-    }
-    if (quota.usage_this_month / quota.monthly_quota >= QUOTA_WARN_THRESHOLD) {
-        return (
-            <LemonBanner type="warning">
-                {quota.usage_this_month.toLocaleString()} of {quota.monthly_quota.toLocaleString()} monthly observations
-                used. New observations will pause once you hit the cap. Resets {resetsOn}.
-            </LemonBanner>
-        )
-    }
-    return null
+    return (
+        <LemonBanner type="warning">
+            {state.kind === 'exhausted'
+                ? `Monthly observation quota reached (${state.quota.usage_this_month.toLocaleString()} / ${state.quota.monthly_quota.toLocaleString()}). New observations are paused until ${state.resetsOn}.`
+                : `${state.quota.usage_this_month.toLocaleString()} of ${state.quota.monthly_quota.toLocaleString()} monthly observations used. New observations will pause once you hit the cap. Resets ${state.resetsOn}.`}
+        </LemonBanner>
+    )
 }
 
 export default ReplayScannerSceneComponent

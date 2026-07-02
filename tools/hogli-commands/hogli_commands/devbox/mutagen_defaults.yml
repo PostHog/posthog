@@ -34,14 +34,6 @@ sync:
                 - 'rust/target'
                 - 'funnel-udf/target'
 
-                # Generated source (don't round-trip).
-                - 'posthog/hogql/grammar/HogQLLexer.py'
-                - 'posthog/hogql/grammar/HogQLLexer.interp'
-                - 'posthog/hogql/grammar/HogQLLexer.tokens'
-                - 'posthog/hogql/grammar/HogQLParser.py'
-                - 'posthog/hogql/grammar/HogQLParser.interp'
-                - 'posthog/hogql/grammar/HogQLParser.tokens'
-                - 'posthog/hogql/grammar/HogQLParserVisitor.py'
                 # NB: don't ignore all of `common/hogql_parser` -- it holds
                 # hand-maintained C++ sources (error.cpp, parser_python.cpp,
                 # CMakeLists.txt...) that must sync. Its build outputs are caught

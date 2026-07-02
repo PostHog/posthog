@@ -8,7 +8,6 @@ from opentelemetry import trace
 from posthog.schema import (
     FilterLogicalOperator,
     HogQLQueryModifiers,
-    PropertyGroupFilterValue,
     PropertyOperator,
     RecordingOrder,
     RecordingPropertyFilter,
@@ -140,9 +139,12 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
         if expanded_query.filter_test_accounts:
             self._test_account_filters = expand_test_account_filters(team)
 
-        # Route recording-type and $lib event filters from properties to having_predicates.
-        # Recording metrics (duration, click_count, etc.) are aggregated columns that
-        # only exist after GROUP BY, so they must go in HAVING rather than WHERE.
+        # Route recording-type and $lib event filters from the user's property group to HAVING.
+        # Recording metrics (duration, click_count, etc.) are aggregated columns that only exist
+        # after GROUP BY. These come from the user's filter group, so they follow the match-any/all
+        # operand — unlike predicates already in `having_predicates` (duration control, caller
+        # eligibility baselines), which are always AND'd.
+        self._operand_having_predicates: list[AnyPropertyFilter] = []
         if expanded_query.properties:
             remaining_properties = []
             for prop in expanded_query.properties:
@@ -153,9 +155,9 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                         value=getattr(prop, "value", None),
                         operator=getattr(prop, "operator", PropertyOperator.EXACT),
                     )
-                    expanded_query.having_predicates = (expanded_query.having_predicates or []) + [recording_filter]
+                    self._operand_having_predicates.append(recording_filter)
                 elif getattr(prop, "type", None) == "recording":
-                    expanded_query.having_predicates = (expanded_query.having_predicates or []) + [prop]
+                    self._operand_having_predicates.append(prop)
                 else:
                     remaining_properties.append(prop)
             expanded_query.properties = remaining_properties if remaining_properties else None
@@ -428,13 +430,7 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
                 select=[ast.Field(chain=["log_source_id"])],
                 select_from=ast.JoinExpr(table=ast.Field(chain=["console_logs_log_entries"])),
                 where=property_to_expr(
-                    # convert to a property group so we can insert the correct operand
-                    PropertyGroupFilterValue(
-                        type=(
-                            FilterLogicalOperator.AND_ if self.property_operand == "AND" else FilterLogicalOperator.OR_
-                        ),
-                        values=self._query.console_log_filters,
-                    ),
+                    self.property_group_with_operand(self._query.console_log_filters),
                     team=self._team,
                 ),
             )
@@ -522,8 +518,20 @@ class SessionRecordingListFromQuery(SessionRecordingsListingBaseQuery):
             ),
         ]
 
+        # `having_predicates` holds always-apply constraints (duration control, caller eligibility
+        # baselines), so they're AND'd regardless of the user's operand.
         if self._query.having_predicates:
             exprs.append(property_to_expr(self._query.having_predicates, team=self._team, scope="replay"))
+
+        # User filter-group recording filters (e.g. visited_page) follow the match-any/all operand.
+        if self._operand_having_predicates:
+            exprs.append(
+                property_to_expr(
+                    self.property_group_with_operand(self._operand_having_predicates),
+                    team=self._team,
+                    scope="replay",
+                )
+            )
 
         exprs.extend(self._extra_having_predicates)
 

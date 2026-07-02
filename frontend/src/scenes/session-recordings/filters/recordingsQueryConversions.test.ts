@@ -5,6 +5,7 @@ import {
     LogEntryPropertyFilter,
     PropertyFilterType,
     PropertyOperator,
+    RecordingUniversalFilters,
 } from '~/types'
 
 import {
@@ -217,5 +218,30 @@ describe('convertUniversalFiltersToRecordingsQuery ∘ recordingsQueryToUniversa
         expect(back.events).toEqual([])
         expect(back.actions).toEqual([])
         expect(back.properties).toEqual([])
+    })
+})
+
+describe('convertUniversalFiltersToRecordingsQuery operand derivation', () => {
+    const VISITED_PAGE: AnyPropertyFilter = {
+        type: PropertyFilterType.Recording,
+        key: 'visited_page',
+        value: '/cart',
+        operator: PropertyOperator.IContains,
+    }
+    const uf = (outer: FilterLogicalOperator, inner: FilterLogicalOperator): RecordingUniversalFilters =>
+        ({
+            date_from: '-3d',
+            date_to: null,
+            duration: [],
+            filter_test_accounts: false,
+            filter_group: { type: outer, values: [{ type: inner, values: [VISITED_PAGE] }] },
+        }) as RecordingUniversalFilters
+
+    it.each([
+        ['inner group only', FilterLogicalOperator.And, FilterLogicalOperator.Or, FilterLogicalOperator.Or],
+        ['no group', FilterLogicalOperator.And, FilterLogicalOperator.And, FilterLogicalOperator.And],
+        ['outer group only', FilterLogicalOperator.Or, FilterLogicalOperator.And, FilterLogicalOperator.Or],
+    ])('match-any on %s yields operand %s/%s -> %s', (_name, outer, inner, expected) => {
+        expect(convertUniversalFiltersToRecordingsQuery(uf(outer, inner)).operand).toBe(expected)
     })
 })

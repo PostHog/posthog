@@ -12,6 +12,7 @@ describe('createTeamFilterStep', () => {
     const defaultTeam: TeamForReplay = {
         teamId: 1,
         consoleLogIngestionEnabled: false,
+        aiTrainingOptedIn: true,
     }
 
     it('should enrich message with team context when team is valid', async () => {

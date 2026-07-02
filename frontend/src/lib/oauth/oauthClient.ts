@@ -2,7 +2,7 @@
 // `api.ts` and other non-React callers can read a valid bearer token directly.
 // `oauthLogic` wraps this for the login UI.
 
-import { Region } from '~/types'
+import { OrganizationType, Region, TeamType, UserType } from '~/types'
 
 import { generateCodeChallenge } from './pkce'
 
@@ -102,6 +102,29 @@ function storeSession(session: OAuthSession): void {
 export function clearSession(): void {
     window.localStorage.removeItem(SESSION_KEY)
     document.cookie = `${OAUTH_MODE_COOKIE}=; path=/; Max-Age=0; SameSite=Lax`
+    // Drop the bootstrap ids with the session so a later login in the same tab can't read the
+    // previous account's ids before its own /api/users/@me/ resolves.
+    oauthContextIds = null
+}
+
+export interface OAuthContextIds {
+    teamId?: TeamType['id']
+    organizationId?: OrganizationType['id']
+    userId?: UserType['uuid']
+}
+
+// In OAuth mode getAppContext() has no server-rendered context, so these bootstrap ids are pushed
+// here from userLogic once the remote user loads, and read back by getAppContext's synchronous
+// getters. Lives alongside the session (not in getAppContext) so clearSession() can reset it, and
+// so getAppContext stays a leaf module — importing the heavy lib/api there caused a module-init cycle.
+let oauthContextIds: OAuthContextIds | null = null
+
+export function setOAuthContextIds(ids: OAuthContextIds | null): void {
+    oauthContextIds = ids
+}
+
+export function getOAuthContextIds(): OAuthContextIds | null {
+    return oauthContextIds
 }
 
 function sessionFromTokenResponse(backendHost: string, clientId: string, data: TokenResponse): OAuthSession {
@@ -131,7 +154,7 @@ export async function buildAuthorizeUrl(pending: PendingAuth): Promise<string> {
 /** Exchange the authorization code for tokens and persist the session. */
 export async function exchangeCodeForToken(pending: PendingAuth, code: string, state: string): Promise<OAuthSession> {
     if (pending.state !== state) {
-        throw new Error('OAuth state mismatch — please start the login again.')
+        throw new Error('OAuth state mismatch. Please start the login again.')
     }
     // Trailing slash is required: CORS_URLS_REGEX only grants CORS headers to `/oauth/token/`.
     const response = await fetch(`${pending.backendHost}/oauth/token/`, {

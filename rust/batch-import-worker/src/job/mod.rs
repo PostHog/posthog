@@ -245,6 +245,9 @@ impl Job {
             // If we fail to commit, we just log and bail out - the job will be paused if it needs to be,
             // but this pod should restart, in case it's sink is in some bad state
             error!("Failed to commit chunk: {:?}", e);
+            if let Err(cleanup_err) = self.source.cleanup_after_job().await {
+                warn!("Failed to cleanup after commit failure: {:?}", cleanup_err);
+            }
             return Err(e);
         }
 
@@ -506,16 +509,25 @@ impl Job {
         info!(job_id = %self.job_id, "Writing {} events", parsed.data.len());
         self.shutdown_guard()?;
         txn.emit(&parsed.data).await?;
-        // Two-stage commit: pause the job in PG before committing to the sink, so that if we
-        // crash between the two, the job is paused and requires manual intervention rather than
-        // silently skipping a chunk. The operator can confirm whether the sink commit succeeded
-        // by looking at the last event written or the logs.
+        // Two-stage commit: advance the offset and pause the job in PG *before* committing to
+        // the sink. If we crash between the two, the job is left paused at the advanced offset
+        // and requires manual intervention rather than silently skipping a chunk — the operator
+        // confirms whether the sink commit landed via the last event written or the logs.
         self.shutdown_guard()?;
         info!(job_id = %self.job_id, "Beginning PG part commit");
         self.begin_part_commit(&key, parsed.consumed).await?;
         info!(job_id = %self.job_id, "Beginning emitter part commit");
 
-        let to_sleep = txn.commit_write().await?;
+        // A *returned* error (as opposed to a crash) means the sink definitively rejected the
+        // chunk, so the speculative offset advance above is wrong: roll it back and record the
+        // real error, so a resume re-processes the chunk instead of skipping it.
+        let to_sleep = match txn.commit_write().await {
+            Ok(to_sleep) => to_sleep,
+            Err(e) => {
+                self.rollback_part_commit(&key, parsed.consumed, &e).await?;
+                return Err(e);
+            }
+        };
         info!(job_id = %self.job_id, "Finishing PG part commit");
         self.complete_commit().await?;
         info!(job_id = %self.job_id, "Committed part {} consumed {} bytes", key, parsed.consumed);
@@ -545,16 +557,12 @@ impl Job {
             return Err(Error::msg("No model state found"));
         };
 
-        // Iterate through the parts list and update the relevant part
-        let Some(part) = model_state.parts.iter_mut().find(|p| p.key == key) else {
+        let Some(new_offset) = model_state.advance_part_offset(key, consumed as u64) else {
             return Err(Error::msg(format!("No part found with key {key}")));
         };
 
-        part.current_offset += consumed as u64;
-
         let status_message = format!(
-            "Starting commit of part {} to offset {}, consumed {} additional bytes",
-            key, part.current_offset, consumed
+            "Starting commit of part {key} to offset {new_offset}, consumed {consumed} additional bytes"
         );
 
         model
@@ -562,6 +570,36 @@ impl Job {
                 self.context.clone(),
                 status_message,
                 Some("Job paused while committing events".to_string()),
+            )
+            .await
+    }
+
+    // Reverts the speculative offset advance from begin_part_commit after a definitive sink
+    // rejection, leaving the job paused with the real error and the original offset, so a resume
+    // re-processes the chunk rather than skipping it.
+    async fn rollback_part_commit(
+        &self,
+        key: &str,
+        consumed: usize,
+        err: &Error,
+    ) -> Result<(), Error> {
+        let mut model = self.model.lock().await;
+        let Some(model_state) = &mut model.state else {
+            return Err(Error::msg("No model state found"));
+        };
+
+        let Some(new_offset) = model_state.revert_part_offset(key, consumed as u64) else {
+            return Err(Error::msg(format!("No part found with key {key}")));
+        };
+
+        let status_message =
+            format!("Commit of part {key} failed, rolled back to offset {new_offset}: {err:#}");
+
+        model
+            .pause(
+                self.context.clone(),
+                status_message,
+                Some("Job paused after a failed commit. Resolve the error and resume.".to_string()),
             )
             .await
     }

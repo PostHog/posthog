@@ -4,7 +4,8 @@ import { loaders } from 'kea-loaders'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 
 import { inferSelector } from '~/toolbar/product-tours/elementInference'
-import { toolbarConfigLogic, toolbarFetch } from '~/toolbar/toolbarConfigLogic'
+import { toolbarApi } from '~/toolbar/toolbarApi'
+import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarLogger } from '~/toolbar/toolbarLogger'
 import { captureToolbarException, toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { ElementRect } from '~/toolbar/types'
@@ -77,12 +78,13 @@ export const fieldNotesLogic = kea<fieldNotesLogicType>([
             [] as FieldNote[],
             {
                 loadFieldNotes: async () => {
-                    const response = await toolbarFetch('/api/projects/@current/field_notes/?field_note_status=pending')
-                    if (!response.ok) {
+                    const result = await toolbarApi.fieldNotes.listPending<{ results?: FieldNote[] } | FieldNote[]>({
+                        context: 'load_field_notes',
+                    })
+                    if (!result.ok) {
                         return values.fieldNotes
                     }
-                    const data = await response.json()
-                    return data.results ?? data
+                    return Array.isArray(result.data) ? result.data : (result.data.results ?? [])
                 },
             },
         ],
@@ -211,30 +213,17 @@ export const fieldNotesLogic = kea<fieldNotesLogicType>([
                         ...(screenshotUrl ? { screenshot_url: screenshotUrl } : {}),
                     }
 
-                    try {
-                        const response = await toolbarFetch('/api/projects/@current/field_notes/', 'POST', payload)
-                        if (!response.ok) {
-                            const error = await response.json().catch(() => ({}))
-                            toolbarLogger.error('field-notes', 'Save failed', {
-                                status: response.status,
-                                detail: error.detail,
-                            })
-                            lemonToast.error(
-                                `Failed to save field note (${response.status})${error.detail ? `: ${error.detail}` : ''}`
-                            )
-                            return null
-                        }
-                        const saved = await response.json()
-                        lemonToast.success('Field note saved')
-                        actions.clearSelection()
-                        actions.loadFieldNotes()
-                        return saved
-                    } catch (e: any) {
-                        toolbarLogger.error('field-notes', 'Failed to save field note')
-                        captureToolbarException(e, 'field_note_save')
-                        lemonToast.error('Failed to save field note')
+                    const result = await toolbarApi.fieldNotes.create<FieldNote>(payload, {
+                        context: 'save_field_note',
+                        toastOnError: 'Failed to save field note',
+                    })
+                    if (!result.ok) {
                         return null
                     }
+                    lemonToast.success('Field note saved')
+                    actions.clearSelection()
+                    actions.loadFieldNotes()
+                    return result.data
                 },
             },
         ],
@@ -259,10 +248,10 @@ export const fieldNotesLogic = kea<fieldNotesLogicType>([
             }
         },
         deleteFieldNote: async ({ id }) => {
-            const response = await toolbarFetch(`/api/projects/@current/field_notes/${id}/`, 'DELETE')
-            if (!response.ok && response.status !== 204) {
-                lemonToast.error(`Failed to delete field note (${response.status})`)
-            }
+            await toolbarApi.fieldNotes.delete(id, {
+                context: 'delete_field_note',
+                toastOnError: 'Failed to delete field note',
+            })
             actions.loadFieldNotes()
         },
     })),

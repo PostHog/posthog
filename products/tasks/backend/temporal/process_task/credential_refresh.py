@@ -1,4 +1,5 @@
 from datetime import timedelta
+from enum import StrEnum
 
 from temporalio import workflow
 from temporalio.common import RetryPolicy
@@ -9,7 +10,14 @@ from .activities.get_task_processing_context import TaskProcessingContext
 from .activities.refresh_sandbox_credentials import RefreshSandboxCredentialsInput, refresh_sandbox_credentials
 
 
-async def run_credential_refresh_loop(context: TaskProcessingContext, sandbox_id: str) -> None:
+class CredentialRefreshExitReason(StrEnum):
+    SANDBOX_GONE = "sandbox_gone"
+
+
+SANDBOX_GONE_ERROR_MESSAGE = "Sandbox stopped; resume to continue"
+
+
+async def run_credential_refresh_loop(context: TaskProcessingContext, sandbox_id: str) -> CredentialRefreshExitReason:
     """Periodically re-inject fresh credentials into the running sandbox.
 
     Sandbox credentials (GitHub token; user *or* installation, per authorship)
@@ -29,6 +37,9 @@ async def run_credential_refresh_loop(context: TaskProcessingContext, sandbox_id
                 start_to_close_timeout=timedelta(minutes=2),
                 retry_policy=RetryPolicy(maximum_attempts=2),
             )
+            if result.sandbox_gone:
+                workflow.logger.info("Stopping credential refresh loop: sandbox is gone")
+                return CredentialRefreshExitReason.SANDBOX_GONE
             next_refresh_seconds = result.next_refresh_seconds
         except Exception as e:
             # Non-fatal: keep the run alive and retry on the default cadence.

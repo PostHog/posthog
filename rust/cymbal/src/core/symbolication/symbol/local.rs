@@ -156,7 +156,7 @@ impl LocalSymbolResolver {
 
         assert!(!resolved.is_empty()); // If this ever happens, we've got a data-dropping bug, and want to crash
 
-        let (set, release) = if let Some(set_ref) = frame.symbol_set_ref() {
+        let (set, release) = if let Some(set_ref) = frame.symbol_set_ref(debug_images) {
             let set_fut = SymbolSetRecord::load(&self.pool, raw_id.team_id, &set_ref);
             let release_fut = async {
                 ReleaseRecord::for_symbol_set_ref(&self.pool, &set_ref, raw_id.team_id)
@@ -266,6 +266,7 @@ mod test {
             apple::AppleProvider,
             chunk_id::ChunkIdFetcher,
             hermesmap::HermesMapProvider,
+            native::NativeProvider,
             proguard::ProguardProvider,
             saving::{Saving, SymbolSetRecord},
             sourcemap::SourcemapProvider,
@@ -346,7 +347,14 @@ mod test {
             config.object_storage_bucket.clone(),
         );
 
-        let catalog = Catalog::new(saving_smp, hmp, pgp, apple);
+        let native = ChunkIdFetcher::new(
+            NativeProvider {},
+            client.clone(),
+            pool.clone(),
+            config.object_storage_bucket.clone(),
+        );
+
+        let catalog = Catalog::new(saving_smp, hmp, pgp, apple, native);
 
         (config, catalog, server)
     }
@@ -448,8 +456,8 @@ mod test {
             .unwrap();
         assert_eq!(count, 1);
 
-        // get the symbol set
-        let set_ref = frame.symbol_set_ref();
+        // get the symbol set (JS frame: debug images are irrelevant)
+        let set_ref = frame.symbol_set_ref(&[]);
         let set = SymbolSetRecord::load(&pool, 0, &set_ref.unwrap())
             .await
             .unwrap()

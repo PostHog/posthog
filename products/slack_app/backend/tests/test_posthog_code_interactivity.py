@@ -768,6 +768,8 @@ class TestSignalsDismissReport(TestCase):
 
         self.organization = Organization.objects.create(name="Dismiss Org")
         self.team = Team.objects.create(organization=self.organization, name="Dismiss Team")
+        self.user = User.objects.create(email="dismisser@example.com", distinct_id="dismiss-user-1")
+        OrganizationMembership.objects.create(user=self.user, organization=self.organization)
         self.integration = Integration.objects.create(
             team=self.team,
             kind="slack",
@@ -826,7 +828,7 @@ class TestSignalsDismissReport(TestCase):
         from products.signals.backend.models import SignalReport, SignalReportArtefact
 
         mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
-        mock_is_org_member.return_value = MagicMock()  # clicker resolves to an org member
+        mock_is_org_member.return_value = self.user  # clicker resolves to this org member
         report = self._make_ready_report()
 
         response = self._post_interactivity(self._dismiss_payload(str(report.id)))
@@ -834,9 +836,9 @@ class TestSignalsDismissReport(TestCase):
         assert response.status_code == 200
         report.refresh_from_db()
         assert report.status == SignalReport.Status.SUPPRESSED
-        assert SignalReportArtefact.objects.filter(
-            report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL
-        ).exists()
+        dismissal = SignalReportArtefact.objects.get(report=report, type=SignalReportArtefact.ArtefactType.DISMISSAL)
+        # Attributed to the resolved PostHog user, not system.
+        assert dismissal.created_by_id == self.user.id
         # The original message is replaced with a dismissed acknowledgement.
         assert mock_requests_post.call_args.kwargs["json"]["replace_original"] is True
 

@@ -2,12 +2,14 @@ import { router } from 'kea-router'
 import { expectLogic, partial } from 'kea-test-utils'
 
 import { databaseTableListLogic } from 'scenes/data-management/database/databaseTableListLogic'
+import { dataWarehouseViewsLogic } from 'scenes/data-warehouse/saved_queries/dataWarehouseViewsLogic'
 import { insightsApi } from 'scenes/insights/utils/api'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { useMocks } from '~/mocks/jest'
+import { dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import * as queryRunner from '~/queries/query'
 import {
@@ -166,9 +168,11 @@ describe('sqlEditorLogic', () => {
     let databaseLogic: ReturnType<typeof databaseTableListLogic.build>
     const TAB_ID = '1'
     let queryEndpointMock: jest.Mock
+    let materializeEndpointMock: jest.Mock
 
     beforeEach(async () => {
         queryEndpointMock = jest.fn(() => [200, { tables: {}, joins: [] }])
+        materializeEndpointMock = jest.fn(() => [200, {}])
         useMocks({
             get: {
                 '/api/environments/:team_id/insights/': ({ request }) => {
@@ -198,6 +202,21 @@ describe('sqlEditorLogic', () => {
             },
             post: {
                 '/api/environments/:team_id/query/': queryEndpointMock,
+                '/api/environments/:team_id/warehouse_saved_queries/': () => [
+                    200,
+                    {
+                        id: 'created-view-id',
+                        name: 'Materialized view',
+                        query: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
+                        is_materialized: false,
+                        latest_history_id: null,
+                        sync_frequency: null,
+                        status: null,
+                        last_run_at: null,
+                        latest_error: null,
+                    },
+                ],
+                '/api/environments/:team_id/warehouse_saved_queries/:id/materialize/': materializeEndpointMock,
             },
             patch: {
                 '/api/user_home_settings/@me/': [200],
@@ -212,9 +231,6 @@ describe('sqlEditorLogic', () => {
         sceneLogic.mount()
         databaseLogic = databaseTableListLogic()
         databaseLogic.mount()
-        sceneLogic.actions.setTabs([
-            { id: TAB_ID, title: 'SQL', pathname: '/sql', search: '', hash: '', active: true, iconType: 'blank' },
-        ])
         await expectLogic(teamLogic).toFinishAllListeners()
     })
 
@@ -1083,6 +1099,48 @@ describe('sqlEditorLogic', () => {
             })
         })
 
+        it('remembers view source when URL sync removes search params', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            router.actions.push(urls.sqlEditor(), { source: 'view' }, { q: 'SELECT 1' })
+
+            await expectLogic(logic).toDispatchActions(['setEditorSource', 'createTab', 'updateTab'])
+
+            logic.actions.setQueryInput('SELECT 2')
+            await new Promise((resolve) => setTimeout(resolve, 600))
+
+            expect(router.values.searchParams.source).toBeUndefined()
+            expect(router.values.hashParams.q).toEqual('SELECT 2')
+            expect(logic.values.editorSource).toEqual('view')
+        })
+
+        it('shows back button to models when view source is active', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            editorRootLogic = editorSceneLogic({ tabId: TAB_ID })
+            editorRootLogic.mount()
+
+            router.actions.push(urls.sqlEditor(), { source: 'view' })
+
+            await expectLogic(logic).toDispatchActions(['setEditorSource', 'createTab', 'updateTab'])
+
+            expect(editorRootLogic.values.titleSectionProps.forceBackTo).toEqual({
+                key: 'models',
+                name: 'Models',
+                path: urls.models(),
+                iconType: 'sql_editor',
+            })
+        })
+
         it('ignores the legacy top-level connectionId when selecting the active connection', () => {
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
@@ -1572,6 +1630,53 @@ describe('sqlEditorLogic', () => {
             const [, updatePayload] = updateSpy.mock.calls[0]
             // Order-independent: only the set of linked dashboards matters.
             expect([...(updatePayload.dashboards ?? [])].sort()).toEqual([...expected].sort())
+        })
+    })
+
+    describe('materialize on save', () => {
+        it.each([
+            { name: 'materializes the created view when materializeAfterSave is true', materialize: true },
+            { name: 'does not materialize when materializeAfterSave is false', materialize: false },
+        ])('$name', async ({ materialize }) => {
+            const viewsLogic = dataWarehouseViewsLogic()
+            viewsLogic.mount()
+
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            logic.actions.createTab('SELECT 1')
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+            logic.actions.setQueryInput('SELECT 1')
+
+            // saveAsViewSubmit reads the editor's dataNodeLogic for inferred column types; in the
+            // app it's mounted by the visualization, so mount a matching one here.
+            const editorDataNodeLogic = dataNodeLogic({
+                key: logic.values.dataLogicKey,
+                query: { kind: NodeKind.HogQLQuery, query: 'SELECT 1' },
+            })
+            editorDataNodeLogic.mount()
+
+            logic.actions.saveAsViewSubmit('Materialized view', materialize)
+
+            await expectLogic(viewsLogic).toDispatchActions(['createDataWarehouseSavedQuerySuccess'])
+            await expectLogic(viewsLogic).toFinishAllListeners()
+
+            if (materialize) {
+                expect(materializeEndpointMock).toHaveBeenCalledTimes(1)
+                // Guard against passing the wrong (or undefined) view id to the materialize call.
+                expect(materializeEndpointMock).toHaveBeenCalledWith(
+                    expect.objectContaining({ params: expect.objectContaining({ id: 'created-view-id' }) })
+                )
+            } else {
+                expect(materializeEndpointMock).toHaveBeenCalledTimes(0)
+            }
+
+            editorDataNodeLogic.unmount()
+            viewsLogic.unmount()
         })
     })
 })

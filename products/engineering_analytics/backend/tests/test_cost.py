@@ -7,6 +7,7 @@ from products.engineering_analytics.backend.logic.cost import (
     RunnerOS,
     RunnerProvider,
     RunnerTier,
+    aggregate_pr_cost,
     billing_multiplier,
     classify_runner,
     estimate_job_cost_usd,
@@ -105,3 +106,34 @@ class TestCostModel:
         # A Depot job that ran for no measurable time (started == completed, or clock skew) is a
         # real, measured 0.0 — distinct from the unknown-elapsed case above.
         assert estimate_job_cost_usd(["depot-ubuntu-latest"], elapsed) == 0.0
+
+
+class TestAggregatePRCost:
+    def test_partitions_jobs_by_billability(self):
+        # One Depot Linux job (costed), one github-hosted (excluded), one non-Linux Depot (excluded),
+        # one Depot Linux still running (unsettled). Only the first contributes minutes and cost.
+        result = aggregate_pr_cost(
+            [
+                (["depot-ubuntu-22.04-4"], 120.0),  # costed: 2 min on a 4-core (2x) tier
+                (["ubuntu-latest"], 300.0),  # github-hosted → excluded
+                (["depot-macos-14"], 600.0),  # non-Linux Depot → excluded
+                (["depot-ubuntu-22.04-4"], None),  # no elapsed → unsettled
+            ]
+        )
+        assert result.costed_jobs == 1
+        assert result.excluded_jobs == 2
+        assert result.unsettled_jobs == 1
+        assert result.billable_seconds == 120.0
+        assert result.estimated_cost_usd == pytest.approx(2 * REFERENCE_RATE_USD_PER_MIN * 2)
+
+    def test_cost_is_none_when_nothing_costable(self):
+        # Only excluded / unsettled jobs → "no figure yet", never a misleading $0.00.
+        result = aggregate_pr_cost([(["ubuntu-latest"], 300.0), (["depot-ubuntu-latest"], None)])
+        assert result.estimated_cost_usd is None
+        assert result.costed_jobs == 0
+
+    def test_empty_input(self):
+        result = aggregate_pr_cost([])
+        assert result == result.__class__(
+            billable_seconds=0.0, estimated_cost_usd=None, costed_jobs=0, unsettled_jobs=0, excluded_jobs=0
+        )

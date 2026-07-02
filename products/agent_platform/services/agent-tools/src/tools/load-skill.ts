@@ -65,7 +65,7 @@ export const loadSkill = defineNativeTool({
         path: Type.String(),
         body: Type.String(),
     }),
-    requires: { integrations: [], scopes: [] },
+    requires: {},
     cost_hint: 'cheap',
     async run(args, ctx) {
         if (!ctx.skillIndex || !ctx.readBundleFile) {

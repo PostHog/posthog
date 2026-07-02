@@ -30,29 +30,15 @@ from posthog.models.oauth import OAuthApplication
 from posthog.rate_limit import IPThrottle
 from posthog.scopes import filter_to_unprivileged_scopes
 
-logger = structlog.get_logger(__name__)
+from .client_name import sanitize_client_name, validate_client_name
 
-# Blocked words in client names to prevent confusion attacks
-# These prevent malicious apps from impersonating official PostHog applications
-BLOCKED_CLIENT_NAME_PREFIXES = ["posthog"]  # Block names starting with these
-BLOCKED_CLIENT_NAME_WORDS = ["official", "verified", "trusted"]  # Block names containing these
+logger = structlog.get_logger(__name__)
 
 
 def filter_dcr_scopes(scope: str) -> list[str]:
     """Parse an RFC 7591 space-delimited `scope` string into the deduped, allow-listed
     scopes a DCR client may register. See `filter_to_unprivileged_scopes` for the rule."""
     return filter_to_unprivileged_scopes(scope.split())
-
-
-def validate_client_name(value: str) -> None:
-    """Validate that client name doesn't impersonate official apps."""
-    lower_value = value.lower()
-    for prefix in BLOCKED_CLIENT_NAME_PREFIXES:
-        if lower_value.startswith(prefix):
-            raise serializers.ValidationError(f"Client name cannot start with '{prefix}'")
-    for word in BLOCKED_CLIENT_NAME_WORDS:
-        if word in lower_value:
-            raise serializers.ValidationError(f"Client name cannot contain '{word}'")
 
 
 class DCRBurstThrottle(IPThrottle):
@@ -143,6 +129,7 @@ class DynamicClientRegistrationView(APIView):
         data = serializer.validated_data
         now = timezone.now()
 
+        client_name = sanitize_client_name(data["client_name"]) if data.get("client_name") else "MCP Client"
         is_confidential = data.get("token_endpoint_auth_method") == "client_secret_post"
         client_type = AbstractApplication.CLIENT_CONFIDENTIAL if is_confidential else AbstractApplication.CLIENT_PUBLIC
 
@@ -173,7 +160,7 @@ class DynamicClientRegistrationView(APIView):
 
         try:
             app = OAuthApplication.objects.create(
-                name=data.get("client_name", "MCP Client"),
+                name=client_name,
                 redirect_uris=" ".join(data["redirect_uris"]),
                 client_type=client_type,
                 client_secret=plaintext_secret,
@@ -223,7 +210,7 @@ class DynamicClientRegistrationView(APIView):
             distinct_id=str(app.client_id),
             event="dcr_application_created",
             properties={
-                "client_name": data.get("client_name", "MCP Client"),
+                "client_name": client_name,
                 "app_id": str(app.pk),
                 "client_type": "confidential" if is_confidential else "public",
                 "redirect_uris_count": len(data["redirect_uris"]),
@@ -247,7 +234,7 @@ class DynamicClientRegistrationView(APIView):
             response_data["client_secret_expires_at"] = 0  # 0 = never expires per RFC 7591
 
         if data.get("client_name"):
-            response_data["client_name"] = data["client_name"]
+            response_data["client_name"] = client_name
 
         # RFC 7591 Section 3.2.1: when the server modifies requested scopes, it
         # returns the registered `scope` so the client sees the privileged-strip.

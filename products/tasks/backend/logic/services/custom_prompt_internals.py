@@ -8,6 +8,9 @@ from collections.abc import Callable
 from dataclasses import dataclass
 from typing import TYPE_CHECKING, Any
 
+from django.conf import settings
+from django.db import InterfaceError, OperationalError, close_old_connections
+
 from asgiref.sync import sync_to_async
 
 from posthog.models.team.team import Team
@@ -92,6 +95,11 @@ class CustomPromptSandboxContext:
     """Override the agent model (e.g. ``"claude-opus-4-8"``). Falls back to the
     agent server's default when ``None``. Used by evals to pin a specific
     model so cross-run comparisons are stable."""
+    runtime_adapter: str | None = None
+    """The agent runtime that serves ``model`` (``"claude"`` → Anthropic, ``"codex"`` → OpenAI).
+    Set it alongside a non-default ``model``: the agent server derives the provider from the runtime,
+    so a model handed over with no runtime can't be routed and falls back to the server default.
+    ``None`` keeps the agent server's default runtime (only valid when ``model`` is also ``None``)."""
     sandbox_resources: SandboxResources | None = None
     """Override the sandbox's compute (CPU / memory). Unset fields keep the
     SandboxConfig defaults (4 cores / 16 GB)."""
@@ -140,6 +148,7 @@ async def create_task_and_trigger(
         posthog_mcp_scopes=posthog_mcp_scopes,
         sandbox_environment_id=context.sandbox_environment_id,
         model=context.model,
+        runtime_adapter=context.runtime_adapter,
         internal=internal,
         sandbox_resources=context.sandbox_resources,
         sandbox_timeout_seconds=context.sandbox_timeout_seconds,
@@ -149,6 +158,36 @@ async def create_task_and_trigger(
     if not task_run:
         raise RuntimeError("Task.create_and_run did not produce a TaskRun")
     return task, task_run
+
+
+async def _refresh_task_run(task_run_id) -> TaskRun:
+    """Re-read a ``TaskRun`` mid-poll, tolerating a dropped pooled DB connection.
+
+    ``poll_for_turn`` runs for many minutes while the activity's threadpool connection
+    sits idle; pgbouncer can drop it underneath us. The activity's ``@close_db_connections``
+    decorator only resets connections at the activity boundaries, not inside this loop, so
+    without this guard the next ORM read raises ``OperationalError``/``InterfaceError`` and
+    aborts the whole report run. ``close_old_connections()`` clears any stale/errored
+    connection before the read, and we retry once so a transparent reconnect recovers the
+    drop instead of failing the run. Mirrors the handling in ``push_dispatcher``.
+    """
+
+    def _read() -> TaskRun:
+        # Guarded like push_dispatcher: close_old_connections() health-checks live connections,
+        # which trips pytest-django's DB-access guard in unit tests that patch the ORM read.
+        if not settings.TEST:
+            close_old_connections()
+        return TaskRun.objects.get(id=task_run_id)
+
+    try:
+        return await sync_to_async(_read)()
+    except (OperationalError, InterfaceError):
+        logger.warning(
+            "custom_prompt - poll_for_turn: DB connection dropped during TaskRun refresh, reconnecting, run=%s",
+            task_run_id,
+            exc_info=True,
+        )
+        return await sync_to_async(_read)()
 
 
 async def poll_for_turn(
@@ -251,7 +290,7 @@ async def poll_for_turn(
         # prior poll; without the clamp we'd re-parse old lines. Doubles as the line-count high-water
         # mark handed to salvage: every line up to here was seen (and watched go quiet) during polling.
         skip_lines = max(skip_lines, total_lines)
-        refreshed = await sync_to_async(TaskRun.objects.get)(id=task_run.id)
+        refreshed = await _refresh_task_run(task_run.id)
         if refreshed.status in {
             TaskRun.Status.COMPLETED,
             TaskRun.Status.FAILED,
@@ -278,7 +317,7 @@ async def poll_for_turn(
             )
     # Poll budget exhausted. A run already terminal here was marked by something else (cancel,
     # relay-detected crash) — drain it; otherwise try to salvage below.
-    refreshed = await sync_to_async(TaskRun.objects.get)(id=task_run.id)
+    refreshed = await _refresh_task_run(task_run.id)
     if refreshed.status in {
         TaskRun.Status.COMPLETED,
         TaskRun.Status.FAILED,

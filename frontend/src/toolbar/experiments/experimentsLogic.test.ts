@@ -66,35 +66,26 @@ describe('experimentsLogic', () => {
     })
 
     it.each([
-        [
-            'a non-2xx response',
-            { ok: false, status: 404, json: () => Promise.resolve({}) },
-            ['HTTP 404', '/api/projects/@current/web_experiments/'],
-        ],
+        ['a non-2xx response', { ok: false, status: 404, json: () => Promise.resolve({}) }],
         [
             'the body is not valid JSON',
             { ok: true, status: 200, json: () => Promise.reject(new Error('Unexpected token')) },
-            ['not valid JSON'],
         ],
         [
             'results is not an array',
             { ok: true, status: 200, json: () => Promise.resolve({ results: { unexpected: true } }) },
-            ['expected an array', 'got object'],
         ],
-    ] as [string, Partial<Response> & { json?: () => Promise<unknown> }, string[]][])(
-        'throws a descriptive error when %s',
-        async (_name, fetchResponse, expectedSubstrings) => {
+    ] as [string, Partial<Response> & { json?: () => Promise<unknown> }][])(
+        'soft-fails to an empty list when %s',
+        async (_name, fetchResponse) => {
             mockFetch(fetchResponse)
             mountLogic()
 
             await expectLogic(logic, () => {
                 logic.actions.getExperiments()
-            }).toDispatchActions([
-                'getExperiments',
-                (action) =>
-                    action.type === logic.actionTypes.getExperimentsFailure &&
-                    expectedSubstrings.every((s) => action.payload.error.includes(s)),
-            ])
+            })
+                .toDispatchActions(['getExperiments', 'getExperimentsSuccess'])
+                .toMatchValues({ allExperiments: [] })
         }
     )
 })

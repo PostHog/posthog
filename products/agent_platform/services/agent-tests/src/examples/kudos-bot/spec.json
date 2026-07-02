@@ -1,5 +1,5 @@
 {
-    "model": "anthropic/claude-sonnet-4-6",
+    "models": { "mode": "manual", "models": [{ "model": "anthropic/claude-sonnet-4-6" }] },
     "reasoning": "medium",
     "triggers": [
         {

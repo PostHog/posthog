@@ -1,10 +1,13 @@
 import json
 import time
+import threading
+import contextvars
 from dataclasses import dataclass
 from typing import Any
 
 import structlog
 from temporalio import activity
+from temporalio.exceptions import ApplicationError
 
 from posthog.temporal.common.utils import close_db_connections
 from posthog.temporal.oauth import PosthogMcpScopes
@@ -35,6 +38,12 @@ logger = structlog.get_logger(__name__)
 
 REFRESH_RETRY_DELAY_SECONDS = 0.5
 
+# Retries exist for attempt-level deaths (worker restart kills the in-flight
+# attempt, detected via heartbeat timeout) and for delivery-unknown failures.
+# Application failures that write an error sentinel raise non-retryable.
+SEND_FOLLOWUP_MAX_ATTEMPTS = 3
+SEND_FOLLOWUP_HEARTBEAT_INTERVAL_SECONDS = 15
+
 
 @dataclass
 class SendFollowupToSandboxInput:
@@ -42,6 +51,9 @@ class SendFollowupToSandboxInput:
     message: str | None = None
     posthog_mcp_scopes: PosthogMcpScopes = "read_only"
     artifact_ids: list[str] | None = None
+    # Workflow-generated idempotency key. Stable across activity retries, so
+    # the agent-server can drop a redelivery of a message it already accepted.
+    message_id: str | None = None
 
 
 @activity.defn
@@ -52,7 +64,46 @@ def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> None:
     Called by the workflow when it receives a send_followup_message signal from the
     web layer. Writes turn_complete on success or an error event on failure so the
     SSE stream terminates cleanly.
+
+    Heartbeats from a side thread while the delivery call blocks (the sync
+    /command response can legitimately take up to FOLLOWUP_TIMEOUT_SECONDS),
+    so a worker restart is detected within the heartbeat timeout instead of
+    the 35-minute start_to_close.
     """
+    stop_heartbeat = threading.Event()
+    heartbeat_ctx = contextvars.copy_context()
+
+    def _heartbeat_loop() -> None:
+        while not stop_heartbeat.wait(SEND_FOLLOWUP_HEARTBEAT_INTERVAL_SECONDS):
+            try:
+                activity.heartbeat()
+            except Exception:
+                return
+
+    heartbeat_thread = threading.Thread(target=lambda: heartbeat_ctx.run(_heartbeat_loop), daemon=True)
+    heartbeat_thread.start()
+    try:
+        _deliver_followup(input)
+    finally:
+        stop_heartbeat.set()
+        heartbeat_thread.join(timeout=2)
+
+
+def _current_attempt() -> int:
+    try:
+        return activity.info().attempt
+    except Exception:
+        return 1
+
+
+def _is_duplicate_delivery(result_data: dict[str, Any] | None) -> bool:
+    if not isinstance(result_data, dict):
+        return False
+    result = result_data.get("result")
+    return isinstance(result, dict) and result.get("duplicate") is True
+
+
+def _deliver_followup(input: SendFollowupToSandboxInput) -> None:
     try:
         task_run = TaskRun.objects.select_related("task__created_by").get(id=input.run_id)
     except TaskRun.DoesNotExist:
@@ -61,7 +112,7 @@ def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> None:
         _write_error_and_complete(input.run_id, error_msg)
         # Raise so the workflow can mark the run as failed. Without this,
         # background-mode runs hang until the inactivity timeout because
-        raise RuntimeError(f"send_followup failed: {error_msg}")
+        raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
 
     auth_token = None
     created_by = task_run.task.created_by
@@ -80,7 +131,7 @@ def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> None:
         if missing_artifact_ids:
             error_msg = f"Artifacts not found on this run: {', '.join(missing_artifact_ids)}"
             _write_error_and_complete(input.run_id, error_msg, run_uses_dedicated_stream(task_run.state))
-            raise RuntimeError(f"send_followup failed: {error_msg}")
+            raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
 
     result = send_user_message(
         task_run,
@@ -88,6 +139,7 @@ def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> None:
         artifacts=artifacts,
         auth_token=auth_token,
         timeout=FOLLOWUP_TIMEOUT_SECONDS,
+        message_id=input.message_id,
     )
     logger.info(
         "send_followup_to_sandbox_attempted",
@@ -97,8 +149,52 @@ def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> None:
     )
 
     if result.success:
+        if _is_duplicate_delivery(result.data):
+            logger.info(
+                "send_followup_duplicate_delivery",
+                run_id=input.run_id,
+                attempt=_current_attempt(),
+            )
+            return
         _write_turn_complete(input.run_id, _get_stop_reason(result.data), run_uses_dedicated_stream(task_run.state))
         logger.info("send_followup_delivered", run_id=input.run_id)
+    elif result.turn_in_flight:
+        # A read timeout means the message reached the sandbox and the turn is
+        # simply still running — FOLLOWUP_TIMEOUT_SECONDS caps how long this
+        # activity waits for the synchronous ack, not how long a turn may
+        # take. Don't fail the run or write a sentinel: the sandbox broadcasts
+        # _posthog/turn_complete through the event stream when the turn
+        # actually ends, and run liveness stays governed by heartbeats plus the
+        # workflow inactivity timeout. Failing here used to destroy healthy
+        # sandboxes mid-work on any turn longer than 30 minutes.
+        logger.info(
+            "send_followup_turn_still_running",
+            run_id=input.run_id,
+            timeout_seconds=FOLLOWUP_TIMEOUT_SECONDS,
+        )
+    elif result.status_code == 504:
+        # A 504 *response* (Modal tunnel gateway timeout) leaves delivery
+        # unknown: the message may or may not have reached the agent-server.
+        # The message_id idempotency key makes redelivery safe, so retry
+        # instead of guessing; only the final attempt writes the sentinel.
+        attempt = _current_attempt()
+        if attempt < SEND_FOLLOWUP_MAX_ATTEMPTS:
+            logger.warning(
+                "send_followup_delivery_unknown_retrying",
+                run_id=input.run_id,
+                attempt=attempt,
+                error=result.error,
+            )
+            raise ApplicationError(f"send_followup delivery unknown: {result.error}")
+        error_msg = result.error or "Failed to send message to sandbox"
+        logger.warning(
+            "send_followup_failed",
+            run_id=input.run_id,
+            error=error_msg,
+            status_code=result.status_code,
+        )
+        _write_error_and_complete(input.run_id, error_msg, run_uses_dedicated_stream(task_run.state))
+        raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
     else:
         logger.warning(
             "send_followup_failed",
@@ -109,7 +205,7 @@ def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> None:
         error_msg = result.error or "Failed to send message to sandbox"
         _write_error_and_complete(input.run_id, error_msg, run_uses_dedicated_stream(task_run.state))
         # Propagate failure to the workflow.
-        raise RuntimeError(f"send_followup failed: {error_msg}")
+        raise ApplicationError(f"send_followup failed: {error_msg}", non_retryable=True)
 
 
 def _refresh_sandbox_mcp(
@@ -142,6 +238,7 @@ def _refresh_sandbox_mcp(
         project_id=task_run.team_id,
         scopes=scopes,
         interaction_origin=(task_run.state or {}).get("interaction_origin"),
+        task_id=str(task_run.task_id),
     )
     if task.created_by_id:
         user_mcp_configs = get_user_mcp_server_configs(

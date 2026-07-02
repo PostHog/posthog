@@ -9,6 +9,27 @@ feature: replay_vision
 url_prefix: /replay-vision
 ui_apps: {}
 tools:
+    vision-actions-create:
+        operation: vision_actions_create
+        enabled: false
+    vision-actions-destroy:
+        operation: vision_actions_destroy
+        enabled: false
+    vision-actions-list:
+        operation: vision_actions_list
+        enabled: false
+    vision-actions-partial-update:
+        operation: vision_actions_partial_update
+        enabled: false
+    vision-actions-retrieve:
+        operation: vision_actions_retrieve
+        enabled: false
+    vision-actions-runs-list:
+        operation: vision_actions_runs_list
+        enabled: false
+    vision-actions-runs-retrieve:
+        operation: vision_actions_runs_retrieve
+        enabled: false
     vision-observations-list:
         operation: vision_observations_list
         enabled: true
@@ -237,6 +258,9 @@ tools:
         feature_flag: replay-vision
     vision-scanners-stats-retrieve:
         operation: vision_scanners_stats_retrieve
+        enabled: false
+    vision-scanners-suggest-tags-create:
+        operation: vision_scanners_suggest_tags_create
         enabled: false
     vision-scanners-update:
         operation: vision_scanners_partial_update

@@ -147,6 +147,7 @@ const meta: Meta = {
         viewMode: 'story',
         mockDate: '2023-02-15', // To stabilize relative dates
         pageUrl: urls.actions(),
+        testOptions: { viewport: { width: 1300, height: 2000 } },
     },
     decorators: [
         mswDecorator({

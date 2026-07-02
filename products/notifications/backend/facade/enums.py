@@ -25,6 +25,12 @@ class Priority(str, Enum):
     CRITICAL = "critical"
 
 
+# Discriminator for transient "resource edited elsewhere" realtime events. These ride the
+# notifications SSE transport but are NOT inbox notifications (no NotificationEvent row, no unread
+# count) — see products.notifications.backend.logic.publish_resource_edited.
+RESOURCE_EDITED_EVENT_TYPE = "resource_edited"
+
+
 class TargetType(str, Enum):
     USER = "user"
     TEAM = "team"

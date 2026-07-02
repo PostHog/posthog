@@ -100,6 +100,9 @@ procs:
         shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-metrics HTTP_SERVER_PORT=6744 ./bin/posthog-node'
         capability: nodejs_metrics
         ready_pattern: 'All systems go'
+        groups:
+            layer: Ingestion pipeline
+            tech: Node
 
     ingestion-traces:
         sandbox: true
@@ -253,6 +256,10 @@ procs:
         groups:
             layer: Product services
             tech: Node
+        # Dev: tee JSON logs to a tmp file a local agent can read. See
+        # products/agent_platform/AGENTS.md.
+        env:
+            AGENT_LOG_FILE: '/tmp/posthog-agent-logs/agent-ingress.log'
 
     agent-runner:
         shell: 'bin/wait-for-docker && pnpm --filter @posthog/agent-runner start:dev'
@@ -261,6 +268,8 @@ procs:
         groups:
             layer: Processing
             tech: Node
+        env:
+            AGENT_LOG_FILE: '/tmp/posthog-agent-logs/agent-runner.log'
 
     agent-janitor:
         shell: 'bin/wait-for-docker && pnpm --filter @posthog/agent-janitor start:dev'
@@ -269,6 +278,8 @@ procs:
         groups:
             layer: Processing
             tech: Node
+        env:
+            AGENT_LOG_FILE: '/tmp/posthog-agent-logs/agent-janitor.log'
 
     ai-gateway:
         shell: 'bin/wait-for-docker && bin/start-ai-gateway'
@@ -294,6 +305,16 @@ procs:
             bin/start-rust-service cymbal-resolution
         capability: error_symbolication
         ready_pattern: 'gRPC server listening on *'
+        groups:
+            layer: Product services
+            tech: Rust
+
+    cymbal-notifications:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service cymbal-notifications
+        capability: error_notifications
+        ready_pattern: 'Starting cymbal-notifications consumer'
         groups:
             layer: Product services
             tech: Rust
@@ -333,7 +354,7 @@ procs:
         shell: |-
             bin/wait-for-docker && \
             bin/start-rust-service hypercache-server
-        capability: hypercache
+        # no capability: always_required via intent-map.yaml
         ready_pattern: 'listening on *'
         groups:
             layer: Product services
@@ -404,6 +425,9 @@ procs:
             bin/wait-for-docker && \
             bin/start-rust-service capture-logs
         capability: logs_ingestion
+        groups:
+            layer: Ingestion pipeline
+            tech: Rust
 
     batch-import-worker:
         shell: |-
@@ -442,6 +466,9 @@ procs:
         capability: personhog
         ready_pattern: 'etcd init complete'
         autostart: true
+        groups:
+            layer: Product services
+            tech: Rust
 
     personhog-router-leader:
         shell: |-
@@ -449,6 +476,9 @@ procs:
             bin/start-rust-service personhog-router-leader
         capability: personhog
         ready_pattern: 'Metrics server listening on *'
+        groups:
+            layer: Product services
+            tech: Rust
 
     personhog-leader:
         shell: |-
@@ -466,6 +496,32 @@ procs:
             bin/start-rust-service personhog-writer
         capability: personhog
         ready_pattern: 'Metrics server listening on *'
+        groups:
+            layer: Product services
+            tech: Rust
+
+    # Behavioral Cohorts stream rebuild (Rust). The shuffler keys clickhouse_events_json into
+    # cohort_stream_events; the processor consumes that and emits membership changes. Opt-in
+    # (autostart: false).
+    cohort-event-shuffler:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service cohort-event-shuffler
+        autostart: false
+        ready_pattern: 'observability server starting'
+        groups:
+            layer: Product services
+            tech: Rust
+
+    cohort-stream-processor:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service cohort-stream-processor
+        autostart: false
+        ready_pattern: 'observability server starting'
+        groups:
+            layer: Product services
+            tech: Rust
 
     llm-gateway:
         sandbox: true
@@ -480,6 +536,14 @@ procs:
             LLM_GATEWAY_TEAM_RATE_LIMIT_MULTIPLIERS: '{"1": 10}'
             LLM_GATEWAY_POSTHOG_PROJECT_TOKEN: 'phc_localposthogprojecttoken'
             LLM_GATEWAY_POSTHOG_HOST: 'http://localhost:8010'
+
+    agent-proxy:
+        shell: 'bin/wait-for-docker --only redis7 && pnpm --filter @posthog/agent-proxy dev'
+        capability: agent_proxy
+        ready_pattern: 'server:started'
+        groups:
+            layer: Product services
+            tech: Node
 
     mcp:
         sandbox: true
@@ -524,6 +588,20 @@ procs:
         groups:
             layer: Infrastructure
             tech: Migrations
+
+    ensure-local-setup:
+        # Idempotent local-dev bootstrap (feature flags, dev API key, wizard OAuth app). phrocs has no
+        # depends_on, so wait for the tables it touches before running (same approach as
+        # migrate-clickhouse waiting on posthog_instancesetting).
+        shell: 'bin/wait-for-docker && bin/wait-for-postgres-tables posthog_featureflag posthog_personalapikey posthog_oauthapplication && bin/ensure-local-setup'
+        capability: core_infra
+        ready_pattern: 'Local setup complete'
+        # Unlike the other Tools-layer entries (manual `autostart: false` utilities), this one
+        # must run automatically every startup to keep local dev bootstrapped.
+        autostart: true
+        groups:
+            layer: Tools
+            tech: Setup
 
     migrate-clickhouse:
         # Wait on posthog_instancesetting because Django queries that table at
@@ -613,7 +691,9 @@ procs:
 
     storybook:
         sandbox: true
-        shell: 'pnpm --filter=@posthog/storybook install && pnpm run storybook'
+        # dev-open-when-ready is peeled out to run unsandboxed (it opens the browser
+        # once :6006 is up — a path the sandbox denies); the rest stays sandboxed.
+        shell: 'bin/dev-open-when-ready http://localhost:6006 && pnpm --filter=@posthog/storybook install && pnpm run storybook'
         autostart: false
         ready_pattern: 'Storybook *'
         groups:
@@ -642,6 +722,20 @@ procs:
             layer: Tools
             tech: Python
         # no capability - manual start
+
+    warehouse-sources-duckgres-load:
+        shell: |-
+            bin/wait-for-docker && \
+            python manage.py run_warehouse_sources_duckgres_load --health-port 8092
+        autostart: false
+        ready_pattern: 'duckgres_batch_consumer_started'
+        groups:
+            layer: Tools
+            tech: Python
+        # no capability - manual start
+
+# Grouping dimension the sidebar starts grouped by (press `g` to cycle/disable).
+default_group: layer
 
 group_order:
     layer: [Application, Processing, Ingestion pipeline, Infrastructure, Product services, Tools]

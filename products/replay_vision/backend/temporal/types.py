@@ -154,7 +154,6 @@ class SessionMetadata(BaseModel, frozen=True):
     mouse_activity_count: int | None = None
     start_url: str | None = None
     console_error_count: int | None = None
-    events_truncated: bool = False
 
     def as_prompt_dict(self) -> dict[str, Any]:
         """Drop unset (None) fields so the prompt isn't padded with `null`s."""
@@ -172,6 +171,8 @@ class ScannerLlmInputs(BaseModel, frozen=True):
     window_mapping: dict[str, str] = Field(default_factory=dict)
     event_timestamps: dict[str, int] = Field(default_factory=dict)
     metadata: SessionMetadata
+    # Carried for signal emission, not the prompt — kept off `SessionMetadata` so it never reaches the LLM.
+    distinct_id: str | None = None
 
 
 class EnsureSessionAssetInputs(BaseModel, frozen=True):
@@ -204,8 +205,8 @@ class ScannerCallOutput(BaseModel, frozen=True):
     """Result of one `call_scanner_provider` invocation."""
 
     model_output: AnyScannerOutput
-    # Extracted from the LLM response before `finalize` so per-type output mapping can't drop it.
-    signal: SignalFinding | None = None
+    # Extracted from the LLM response before `finalize` so per-type output mapping can't drop them.
+    signals: list[SignalFinding] = Field(default_factory=list)
 
 
 class CleanupGeminiFileInputs(BaseModel, frozen=True):
@@ -242,11 +243,12 @@ class EmitClassifierTagsInputs(BaseModel, frozen=True):
 
 
 class EmitObservationSignalInputs(BaseModel, frozen=True):
-    """Input to the side-effect activity that emits a side-mission finding as a PostHog Signal."""
+    """Input to the side-effect activity that emits the side-mission findings as PostHog Signals."""
 
     team_id: int
     observation_id: UUID
-    signal: SignalFinding
+    exported_asset_id: int
+    signals: list[SignalFinding]
 
 
 class MarkObservationSucceededInputs(BaseModel, frozen=True):

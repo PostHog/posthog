@@ -1,5 +1,10 @@
 import { EventSourceMessage, fetchEventSource } from '@microsoft/fetch-event-source'
 import { encodeParams } from 'kea-router'
+
+// Re-exported so code outside frontend/ (e.g. products/*/frontend) can type stream
+// callbacks without importing @microsoft/fetch-event-source directly — that package
+// only resolves from frontend/node_modules, not the repo root.
+export type { EventSourceMessage } from '@microsoft/fetch-event-source'
 import posthog from 'posthog-js'
 
 import { ApiError } from 'lib/api-error'
@@ -19,7 +24,6 @@ import {
     SignalReportArtefact,
     SignalReportArtefactResponse,
     SignalReportStateRequest,
-    SignalReportTask,
     SignalScoutConfig,
     SignalScoutConfigUpdate,
     SignalScoutEmission,
@@ -66,7 +70,6 @@ import {
     MatchingEventsResponse,
     Node,
     NodeKind,
-    PersistedFolder,
     QueryLogTags,
     QuerySchema,
     QueryStatusResponse,
@@ -173,6 +176,7 @@ import {
     MediaUploadResponse,
     NewEarlyAccessFeatureType,
     ObjectMediaPreview,
+    OrganizationFeatureFlagKeysResponse,
     OrganizationFeatureFlags,
     OrganizationFeatureFlagsCopyBody,
     OrganizationMemberScopedApiKeysResponse,
@@ -233,9 +237,13 @@ import type {
 } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/rules/types'
 import type { SymbolSetOrder } from 'products/error_tracking/frontend/scenes/ErrorTrackingConfigurationScene/symbol_sets/symbolSetLogic'
 import type { ErrorTrackingRecommendation } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/recommendations/types'
-import type { GitHubReposResponseApi } from 'products/integrations/frontend/generated/api.schemas'
+import type {
+    GitHubBranchesResponseApi,
+    GitHubReposResponseApi,
+} from 'products/integrations/frontend/generated/api.schemas'
 import type { LogExplanation } from 'products/logs/frontend/components/LogsViewer/LogDetailsModal/Tabs/ExploreWithAI/types'
 import type { NotebookCollabCursorApi } from 'products/notebooks/frontend/generated/api.schemas'
+import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/posthog_ai/frontend/types/taskTypes'
 import type {
     ColumnConfigurationApi,
     PaginatedColumnConfigurationListApi,
@@ -245,7 +253,10 @@ import type {
     SessionGroupSummaryType,
     SessionSummariesConfig,
 } from 'products/session_summaries/frontend/types'
-import type { Task, TaskListParams, TaskRun, TaskUpsertProps } from 'products/tasks/frontend/types'
+import type {
+    ClaudeTaskRunCreateSchemaApi,
+    TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
+} from 'products/tasks/frontend/generated/api.schemas'
 import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { OptOutEntry } from 'products/workflows/frontend/OptOuts/types'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
@@ -259,8 +270,8 @@ import type {
 } from 'products/workflows/frontend/Workflows/hogflows/types'
 
 import { AgentMode } from '../queries/schema'
-import type { MaxUIContext } from '../scenes/max/maxTypes'
-import { AlertSimulationResult, AlertType, AlertTypeWrite } from './components/Alerts/types'
+import type { AttachedContext, MaxUIContext } from '../scenes/max/maxTypes'
+import { AlertConfig, AlertSimulationResult, AlertType, AlertTypeWrite } from './components/Alerts/types'
 import {
     ErrorTrackingFingerprint,
     ErrorTrackingRelease,
@@ -480,6 +491,10 @@ export class ApiRequest {
             .addPathComponent('copy_flags')
     }
 
+    public organizationFeatureFlagKeys(orgId: OrganizationType['id']): ApiRequest {
+        return this.organizations().addPathComponent(orgId).addPathComponent('feature_flags').addPathComponent('keys')
+    }
+
     // # Projects
     public projects(): ApiRequest {
         return this.addPathComponent('projects')
@@ -604,15 +619,6 @@ export class ApiRequest {
 
     public fileSystemShortcutReorder(teamId?: TeamType['id']): ApiRequest {
         return this.fileSystemShortcut(teamId).addPathComponent('reorder')
-    }
-
-    // # Persisted folder
-    public persistedFolder(projectId?: ProjectType['id']): ApiRequest {
-        return this.projectsDetail(projectId).addPathComponent('persisted_folder')
-    }
-
-    public persistedFolderDetail(id: NonNullable<PersistedFolder['id']>, projectId?: ProjectType['id']): ApiRequest {
-        return this.persistedFolder(projectId).addPathComponent(id)
     }
 
     // # User product list
@@ -1191,10 +1197,6 @@ export class ApiRequest {
         return this.signalReports(teamId).addPathComponent(id)
     }
 
-    public signalReportTasks(reportId: SignalReport['id'], teamId?: TeamType['id']): ApiRequest {
-        return this.signalReport(reportId, teamId).addPathComponent('tasks')
-    }
-
     // Per-user signal autonomy config (singleton keyed by user). Not project-scoped.
     public signalUserAutonomy(userId: string | '@me' = '@me'): ApiRequest {
         return this.addPathComponent('users').addPathComponent(userId).addPathComponent('signal_autonomy')
@@ -1575,6 +1577,10 @@ export class ApiRequest {
 
     public integrationGitHubRepositories(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
         return this.integrations(teamId).addPathComponent(id).addPathComponent('github_repos')
+    }
+
+    public integrationGitHubBranches(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
+        return this.integrations(teamId).addPathComponent(id).addPathComponent('github_branches')
     }
 
     public integrationJiraProjects(id: IntegrationType['id'], teamId?: TeamType['id']): ApiRequest {
@@ -2121,13 +2127,15 @@ const prepareUrl = (url: string): string => {
 }
 
 /**
- * Bearer auth header for standalone OAuth mode; empty when served by Django (session auth).
+ * Bearer auth header for standalone OAuth mode, attached only to requests bound for the OAuth
+ * backend host (the remote region). Requests that `prepareUrl` left on the local origin (non-`/api`
+ * paths) must not carry the remote region's token. Empty when served by Django (session auth).
  * Synchronous so requests still dispatch synchronously — an expired token is handled by the
- * 401 → refresh → retry path in handleFetch.
+ * 401 → refresh → retry path in handleFetch. Pass the already-`prepareUrl`'d request URL.
  */
-function oauthAuthHeaders(): Record<string, string> {
+function oauthAuthHeaders(url: string): Record<string, string> {
     const session = getStoredSession()
-    return session ? { Authorization: `Bearer ${session.accessToken}` } : {}
+    return session && url.startsWith(session.backendHost) ? { Authorization: `Bearer ${session.accessToken}` } : {}
 }
 
 /**
@@ -2466,6 +2474,7 @@ const api = {
             createdAtGt,
             createdAtLt,
             searchNameOnly,
+            signal,
         }: {
             parent?: string
             path?: string
@@ -2481,6 +2490,7 @@ const api = {
             createdAtGt?: string
             createdAtLt?: string
             searchNameOnly?: boolean
+            signal?: AbortSignal
         }): Promise<CountedPaginatedResponseWithUsers<FileSystemEntry>> {
             return await new ApiRequest()
                 .fileSystem()
@@ -2500,7 +2510,7 @@ const api = {
                     created_at__lt: createdAtLt,
                     search_name_only: searchNameOnly,
                 })
-                .get()
+                .get({ signal })
         },
         async unfiled(type?: string): Promise<CountResponse | null> {
             return await new ApiRequest().fileSystemUnfiled(type).get()
@@ -2543,12 +2553,17 @@ const api = {
     },
 
     fileSystemLogView: {
-        async list(params?: { type?: string; limit?: number }): Promise<FileSystemViewLogEntry[]> {
+        async list(params?: {
+            type?: string
+            limit?: number
+            signal?: AbortSignal
+        }): Promise<FileSystemViewLogEntry[]> {
+            const { signal, ...query } = params ?? {}
             const request = new ApiRequest().fileSystemLogView()
-            if (params) {
-                request.withQueryString(params)
+            if (Object.keys(query).length) {
+                request.withQueryString(query)
             }
-            return await request.get()
+            return await request.get({ signal })
         },
         async create(data: { ref?: string; type?: string }): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemLogView().create({ data })
@@ -2560,12 +2575,14 @@ const api = {
             limit?: number
             offset?: number
             ordering?: string
+            signal?: AbortSignal
         }): Promise<CountedPaginatedResponse<FileSystemEntry>> {
+            const { signal, ...query } = params ?? {}
             const request = new ApiRequest().fileSystemShortcut()
-            if (params) {
-                request.withQueryString(params)
+            if (Object.keys(query).length) {
+                request.withQueryString(query)
             }
-            return await request.get()
+            return await request.get({ signal })
         },
         async create(data: { path: string; href?: string; ref?: string; type?: string }): Promise<FileSystemEntry> {
             return await new ApiRequest().fileSystemShortcut().create({ data })
@@ -2578,27 +2595,12 @@ const api = {
         },
     },
 
-    persistedFolder: {
-        async list(): Promise<CountedPaginatedResponse<PersistedFolder>> {
-            return await new ApiRequest().persistedFolder().get()
-        },
-        async create(data: { protocol: string; path: string; type?: string }): Promise<PersistedFolder> {
-            return await new ApiRequest().persistedFolder().create({ data })
-        },
-        async delete(id: PersistedFolder['id']): Promise<void> {
-            return await new ApiRequest().persistedFolderDetail(id).delete()
-        },
-    },
-
     userProductList: {
         async list(): Promise<CountedPaginatedResponse<UserProductListItem>> {
             return await new ApiRequest().userProductList().get()
         },
         async seed(): Promise<CountedPaginatedResponse<UserProductListItem>> {
             return await new ApiRequest().userProductList().withAction('seed').create()
-        },
-        async updateByPath(data: { product_path: string; enabled: boolean }): Promise<UserProductListItem> {
-            return await new ApiRequest().userProductList().withAction('update_by_path').update({ data })
         },
         async bulkUpdate(
             items: { product_path: string; enabled: boolean }[]
@@ -2617,8 +2619,20 @@ const api = {
         async copy(
             orgId: OrganizationType['id'] = ApiConfig.getCurrentOrganizationId(),
             data: OrganizationFeatureFlagsCopyBody
-        ): Promise<{ success: FeatureFlagType[]; failed: any }> {
+        ): Promise<{
+            success: (FeatureFlagType & { flag_dependency_warnings?: string[]; schedule_copy_warning?: string })[]
+            failed: any
+        }> {
             return await new ApiRequest().copyOrganizationFeatureFlags(orgId).create({ data })
+        },
+        async keys(
+            orgId: OrganizationType['id'] = ApiConfig.getCurrentOrganizationId(),
+            params: { team_ids: number[]; search?: string; limit?: number; offset?: number }
+        ): Promise<OrganizationFeatureFlagKeysResponse> {
+            return await new ApiRequest()
+                .organizationFeatureFlagKeys(orgId)
+                .withQueryString(toParams(params, true))
+                .get()
         },
     },
 
@@ -2705,6 +2719,7 @@ const api = {
                     ActivityScope.TICKET,
                     ActivityScope.COHORT,
                     ActivityScope.OAUTH_APPLICATION,
+                    ActivityScope.EXTERNAL_DATA_SCHEMA,
                 ].includes(scopes[0]) ||
                 scopes.length > 1
             ) {
@@ -2937,6 +2952,9 @@ const api = {
                 after?: string
                 offset?: number
                 prefetchSpans?: number
+                // false (default) groups by trace_id and returns root spans; true returns every
+                // matching span (root and child) flat. See products/tracing/backend logic.py.
+                flatSpans?: boolean
             },
             signal?: AbortSignal
         ): Promise<{
@@ -2972,12 +2990,25 @@ const api = {
                 serviceNames?: string[]
                 statusCodes?: number[]
                 filterGroup?: PropertyGroupFilter
+                // true counts root spans only (Traces view); false/absent counts every span (Spans view).
+                rootSpans?: boolean
             },
             signal?: AbortSignal
         ): Promise<{
             results: { time: string; service: string; count: number }[]
         }> {
             return new ApiRequest().tracingSpans().withAction('sparkline').create({ signal, data: { query } })
+        },
+        async count(
+            query: {
+                dateRange?: { date_from?: string | null; date_to?: string | null }
+                serviceNames?: string[]
+                statusCodes?: number[]
+                filterGroup?: PropertyGroupFilter
+            },
+            signal?: AbortSignal
+        ): Promise<{ count: number; traceCount: number }> {
+            return new ApiRequest().tracingSpans().withAction('count').create({ signal, data: { query } })
         },
         async durationHistogram(
             query: {
@@ -4134,12 +4165,17 @@ const api = {
         ): Promise<RawAnnotationType> {
             return await new ApiRequest().annotation(annotationId).update({ data })
         },
-        async list(params?: { limit?: number; offset?: number }): Promise<PaginatedResponse<RawAnnotationType>> {
+        async list(params?: {
+            limit?: number
+            offset?: number
+            hidden_in_user_interface?: boolean
+        }): Promise<PaginatedResponse<RawAnnotationType>> {
             return await new ApiRequest()
                 .annotations()
                 .withQueryString({
                     limit: params?.limit,
                     offset: params?.offset,
+                    hidden_in_user_interface: params?.hidden_in_user_interface,
                 })
                 .get()
         },
@@ -5137,10 +5173,6 @@ const api = {
         async reingest(id: SignalReport['id']): Promise<{ status: string; report_id: string }> {
             return await new ApiRequest().signalReport(id).withAction('reingest').create()
         },
-        // SignalReport ↔ Task linkage (read-only list). Backend: SignalReportTaskViewSet.
-        async tasks(reportId: SignalReport['id']): Promise<PaginatedResponse<SignalReportTask>> {
-            return await new ApiRequest().signalReportTasks(reportId).get()
-        },
         // State transitions: suppress (dismiss) or snooze back to potential. Backend: `state` action.
         async setState(id: SignalReport['id'], data: SignalReportStateRequest): Promise<SignalReport> {
             return await new ApiRequest().signalReport(id).withAction('state').create({ data })
@@ -5201,6 +5233,22 @@ const api = {
             async emissionReports(runId: string): Promise<SignalScoutEmissionReportLink[]> {
                 return await new ApiRequest().signalScoutRun(runId).withAction('emissions/reports').get()
             },
+            // Batched form of `emissions`: every run's findings in one request, flat newest-first
+            // (each row carries its `run_id`). POST since the run-id set can be large.
+            async emissionsBatch(runIds: string[]): Promise<SignalScoutEmission[]> {
+                return await new ApiRequest()
+                    .signalScoutRuns()
+                    .withAction('emissions/batch')
+                    .create({ data: { run_ids: runIds } })
+            },
+            // Batched form of `emissionReports`: resolves every run's findings to their inbox report
+            // in a single ClickHouse round-trip, instead of one query per run.
+            async emissionReportsBatch(runIds: string[]): Promise<SignalScoutEmissionReportLink[]> {
+                return await new ApiRequest()
+                    .signalScoutRuns()
+                    .withAction('emissions/reports/batch')
+                    .create({ data: { run_ids: runIds } })
+            },
         },
         configs: {
             // Newest-first raw array, ordered by skill_name.
@@ -5209,6 +5257,9 @@ const api = {
             },
             async update(id: string, data: SignalScoutConfigUpdate): Promise<SignalScoutConfig> {
                 return await new ApiRequest().signalScoutConfig(id).update({ data })
+            },
+            async delete(id: string): Promise<void> {
+                return await new ApiRequest().signalScoutConfig(id).delete()
             },
         },
     },
@@ -5273,8 +5324,11 @@ const api = {
         async bulkReorder(columns: Record<string, string[]>): Promise<{ updated: number; tasks: Task[] }> {
             return await new ApiRequest().tasks().withAction('bulk_reorder').create({ data: { columns } })
         },
-        async run(id: Task['id']): Promise<Task> {
-            return await new ApiRequest().task(id).withAction('run').create()
+        async run(id: Task['id'], data?: ClaudeTaskRunCreateSchemaApi): Promise<Task> {
+            return await new ApiRequest()
+                .task(id)
+                .withAction('run')
+                .create(data ? { data } : undefined)
         },
         runs: {
             async list(taskId: Task['id'], params: Record<string, any> = {}): Promise<PaginatedResponse<TaskRun>> {
@@ -5295,6 +5349,77 @@ const api = {
                     return await response.text()
                 }
                 return ''
+            },
+            /**
+             * Fetch the assembled resume-chain ACP log for a run (the products/tasks `logs/`
+             * endpoint returns JSONL — one `StoredLogEntry` per line, concatenated server-side
+             * across the entire resume chain). Used to bootstrap the sandbox stream before
+             * opening SSE.
+             */
+            async getLogEntries(taskId: Task['id'], runId: TaskRun['id']): Promise<Record<string, any>[]> {
+                const response = await new ApiRequest().taskRun(taskId, runId).withAction('logs').getResponse()
+                const text = await response.text()
+                const entries: Record<string, any>[] = []
+                for (const line of text.split('\n')) {
+                    const trimmed = line.trim()
+                    if (!trimmed) {
+                        continue
+                    }
+                    try {
+                        entries.push(JSON.parse(trimmed))
+                    } catch {
+                        // Skip unparseable lines — the stream is best-effort historical replay.
+                    }
+                }
+                return entries
+            },
+            /**
+             * Open the live SSE stream for a run as a `fetch` response (the caller reads it with
+             * `response.body.getReader()` + an `eventsource-parser`). Unlike a native `EventSource`,
+             * a `fetch` lets us set request headers — so a reconnect resumes exactly after the
+             * last-seen frame via `Last-Event-ID` (the Redis stream id) instead of re-broadcasting
+             * the whole stream. `startLatest` (the first connect after replaying S3 history) streams
+             * only frames newer than the connect cutoff; it is ignored once a `lastEventId` is
+             * present, since the header resume is exact.
+             */
+            async openStream(
+                taskId: Task['id'],
+                runId: TaskRun['id'],
+                options: {
+                    signal: AbortSignal
+                    lastEventId?: string
+                    startLatest?: boolean
+                    /**
+                     * When set, read the stream from the standalone agent-proxy instead of the Django
+                     * endpoint. `baseUrl` is the proxy origin the server resolved via `stream_token`,
+                     * and the run-scoped `token` is sent as a Bearer header. Absent ⇒ the same-origin
+                     * Django stream (session auth) — the pre-proxy behavior.
+                     */
+                    proxyTarget?: { baseUrl: string; token: string }
+                }
+            ): Promise<Response> {
+                const headers: Record<string, string> = {}
+                if (options.lastEventId) {
+                    headers['Last-Event-ID'] = options.lastEventId
+                }
+                if (options.proxyTarget) {
+                    // Absolute proxy URL with a run-scoped Bearer token — `ApiRequest` only builds
+                    // Django-relative paths, so assemble the proxy URL directly. `start=latest` applies
+                    // only on a first connect (no resume cursor); the Last-Event-ID header, when
+                    // present, takes precedence and an exact resume ignores `start`.
+                    const base = options.proxyTarget.baseUrl.replace(/\/+$/, '')
+                    const url =
+                        !options.lastEventId && options.startLatest
+                            ? `${base}/v1/runs/${runId}/stream?start=latest`
+                            : `${base}/v1/runs/${runId}/stream`
+                    headers['Authorization'] = `Bearer ${options.proxyTarget.token}`
+                    return api.getResponse(url, { signal: options.signal, headers })
+                }
+                let request = new ApiRequest().taskRun(taskId, runId).withAction('stream')
+                if (!options.lastEventId && options.startLatest) {
+                    request = request.withQueryString({ start: 'latest' })
+                }
+                return request.getResponse({ signal: options.signal, headers })
             },
         },
     },
@@ -5601,7 +5726,7 @@ const api = {
                 savedQueryId: DataWarehouseSavedQuery['id'],
                 pageSize: number,
                 offset: number
-            ): Promise<PaginatedResponse<DataModelingJob>> {
+            ): Promise<CountedPaginatedResponse<DataModelingJob>> {
                 return await new ApiRequest().dataWarehouseDataModelingJobs(savedQueryId, pageSize, offset).get()
             },
         },
@@ -5773,18 +5898,9 @@ const api = {
         },
         async bulkUpdateSchemas(
             sourceId: ExternalDataSource['id'],
-            schemas: Pick<
-                ExternalDataSourceSchema,
-                | 'id'
-                | 'should_sync'
-                | 'sync_type'
-                | 'incremental_field'
-                | 'incremental_field_type'
-                | 'sync_frequency'
-                | 'sync_time_of_day'
-                | 'cdc_table_mode'
-                | 'enabled_columns'
-            >[]
+            // Callers send a minimal diff — only `id` is required; the backend writes just the fields
+            // present and leaves the rest untouched. (Matches `externalDataSchemas.update`'s shape.)
+            schemas: (Partial<ExternalDataSourceSchema> & Pick<ExternalDataSourceSchema, 'id'>)[]
         ): Promise<ExternalDataSourceSchema[]> {
             return await new ApiRequest().externalDataSource(sourceId).withAction('bulk_update_schemas').update({
                 data: { schemas },
@@ -6069,7 +6185,7 @@ const api = {
         async list(): Promise<PaginatedResponse<IntegrationType>> {
             return await new ApiRequest().integrations().get()
         },
-        authorizeUrl(params: { kind: string; next?: string; is_sandbox?: boolean }): string {
+        authorizeUrl(params: { kind: string; next?: string }): string {
             return new ApiRequest().integrations().withAction('authorize').withQueryString(params).assembleFullUrl(true)
         },
         async slackChannels(
@@ -6099,9 +6215,15 @@ const api = {
         },
         async githubRepositories(
             id: IntegrationType['id'],
-            params?: { limit?: number; offset?: number }
+            params?: { limit?: number; offset?: number; search?: string }
         ): Promise<GitHubReposResponseApi> {
             return await new ApiRequest().integrationGitHubRepositories(id).withQueryString(params).get()
+        },
+        async githubBranches(
+            id: IntegrationType['id'],
+            params: { repo: string; limit?: number; offset?: number; search?: string }
+        ): Promise<GitHubBranchesResponseApi> {
+            return await new ApiRequest().integrationGitHubBranches(id).withQueryString(params).get()
         },
         async githubLinkExisting(
             data: {
@@ -6352,6 +6474,7 @@ const api = {
             detector_config: Record<string, any>
             series_index?: number
             date_from?: string
+            config?: AlertConfig | null
         }): Promise<AlertSimulationResult> {
             return await new ApiRequest().alerts().withAction('simulate').create({ data })
         },
@@ -6476,7 +6599,12 @@ const api = {
         async createHogFlow(data: Partial<HogFlow>): Promise<HogFlow> {
             return await new ApiRequest().hogFlows().create({ data })
         },
-        async updateHogFlow(hogFlowId: HogFlow['id'], data: Partial<HogFlow>): Promise<HogFlow> {
+        async updateHogFlow(
+            hogFlowId: HogFlow['id'],
+            // `base_updated_at` is the updated_at the client loaded; the server rejects the write with a
+            // 409 if the stored copy is newer (optimistic concurrency). Omit it for last-writer-wins.
+            data: Partial<HogFlow> & { base_updated_at?: string | null }
+        ): Promise<HogFlow> {
             return await new ApiRequest().hogFlow(hogFlowId).update({ data })
         },
         async deleteHogFlow(hogFlowId: HogFlow['id']): Promise<void> {
@@ -6711,6 +6839,43 @@ const api = {
             return api.createResponse(new ApiRequest().conversations().assembleFullUrl(), data, options)
         },
 
+        /**
+         * Single sandbox session opener (`agent_runtime === 'sandbox'`). Create-or-resume: the
+         * conversation row is created on first use from the client-minted id. With `content`,
+         * processes the turn (first message, in-progress follow-up, or terminal resume); with
+         * null/omitted `content`, warms a sandbox that idles awaiting the first message. Returns the
+         * `(task, run)` handle to open SSE against, or `null` on a 204 (a warm that provisioned
+         * nothing — the pool was full). Control verbs (cancel, permission reply, warm release) go
+         * through the generic `runs/{run}/command/` relay, not this endpoint.
+         */
+        async open(
+            conversationId: string,
+            data: {
+                content?: string | null
+                trace_id?: string
+                attached_context?: AttachedContext[]
+                initial_permission_mode?: TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi
+                /** Bind a brand-new sandbox conversation to an existing Task, resuming its run on the first message. */
+                task_id?: string
+            }
+        ): Promise<{
+            task_id: string
+            run_id: string
+            trace_id: string | null
+            run_status: 'queued' | 'in_progress'
+            just_created_run: boolean
+        } | null> {
+            const response = await api.createResponse(
+                new ApiRequest().conversation(conversationId).withAction('open').assembleFullUrl(),
+                data
+            )
+            if (response.status === 204) {
+                return null
+            }
+            return response.json()
+        },
+
+        /** Cancel an in-progress LangGraph run. Sandbox runs cancel through the tasks relay. */
         cancel(conversationId: string): Promise<void> {
             return new ApiRequest().conversation(conversationId).withAction('cancel').update()
         },
@@ -6884,10 +7049,6 @@ const api = {
             return await new ApiRequest().conversationsTickets().withAction('unread_count').get()
         },
 
-        async suggestReply(ticketId: string): Promise<{ suggestion: string }> {
-            return await new ApiRequest().conversationsTicket(ticketId).withAction('suggest_reply').create({ data: {} })
-        },
-
         async compose(data: {
             message: string
             recipient_email: string
@@ -6977,7 +7138,7 @@ const api = {
                 headers: {
                     ...objectClean(options?.headers ?? {}),
                     ...tracingHeaders({ includeDistinctId: true }),
-                    ...oauthAuthHeaders(),
+                    ...oauthAuthHeaders(url),
                     ...authHeaders,
                 },
             })
@@ -7003,7 +7164,7 @@ const api = {
                     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                     ...tracingHeaders(),
-                    ...oauthAuthHeaders(),
+                    ...oauthAuthHeaders(url),
                 },
                 body: isFormData ? data : JSON.stringify(data),
                 signal: options?.signal,
@@ -7040,7 +7201,7 @@ const api = {
                     ...(isFormData ? {} : { 'Content-Type': 'application/json' }),
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                     ...tracingHeaders(),
-                    ...oauthAuthHeaders(),
+                    ...oauthAuthHeaders(url),
                 },
                 body: data ? (isFormData ? data : JSON.stringify(data)) : undefined,
                 signal: options?.signal,
@@ -7059,7 +7220,7 @@ const api = {
                     'Content-Type': 'application/x-www-form-urlencoded',
                     'X-CSRFToken': getCookie(CSRF_COOKIE_NAME) || '',
                     ...tracingHeaders(),
-                    ...oauthAuthHeaders(),
+                    ...oauthAuthHeaders(url),
                 },
             })
         )
@@ -7232,6 +7393,7 @@ const api = {
             data_url?: string | null
             width?: number
             type?: HeatmapType
+            block_consent_modals?: boolean
         }): Promise<HeatmapScreenshotType> {
             return await new ApiRequest().heatmapScreenshotsSaved().create({ data })
         },
@@ -7247,6 +7409,7 @@ const api = {
                 data_url: string | null
                 width: number
                 type: HeatmapType
+                block_consent_modals: boolean
             }>
         ): Promise<HeatmapScreenshotType> {
             return await new ApiRequest().heatmapScreenshotSaved(id).update({ data })

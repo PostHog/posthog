@@ -263,8 +263,13 @@ export const recordingDisabledReason = (
 const recordingWarningReason = (
     recordingDuration: number | undefined,
     minimumDuration: number | undefined,
-    recordingStatus: string | undefined
+    recordingStatus: string | undefined,
+    hasRecording: boolean | undefined
 ): string | undefined => {
+    // These warnings only caveat that a recording might not exist. Once we know one does, they're just confusing.
+    if (hasRecording === true) {
+        return undefined
+    }
     if (recordingDuration && minimumDuration && recordingDuration < minimumDuration) {
         const minimumDurationInSeconds = minimumDuration / 1000
         return `There is a chance this recording was not captured because the event happened earlier than the ${minimumDurationInSeconds}s minimum session duration.`
@@ -309,7 +314,7 @@ export function useRecordingButton({
     }
 
     const disabledReason = recordingDisabledReason(sessionId, recordingStatus, hasRecording)
-    const warningReason = recordingWarningReason(recordingDuration, minimumDuration, recordingStatus)
+    const warningReason = recordingWarningReason(recordingDuration, minimumDuration, recordingStatus, hasRecording)
 
     return { onClick, disabledReason, warningReason }
 }

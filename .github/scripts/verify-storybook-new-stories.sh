@@ -73,20 +73,19 @@ fi
 echo "Verifying $file_count file(s) × $REPEAT_COUNT runs:"
 printf "  %s\n" "${stories_to_verify[@]}"
 
-# Build a regex pattern matching any of the changed story files.
-# test-storybook wraps Jest — pass Jest options after -- separator.
-pattern=""
+# Build one escaped path regex per changed story file.
+# These are passed as separate positional Jest patterns (OR-matched) rather than a
+# single `|`-joined regex: a literal `|` survives into a downstream shell layer
+# (pnpm exec / test-storybook re-invoking jest) where it's parsed as a pipe, which
+# breaks the command. Positional patterns also sidestep the jest 30 rename of
+# `--testPathPattern` to `--testPathPatterns`.
+declare -a pattern_args=()
 for story in "${stories_to_verify[@]}"; do
-    escaped=$(echo "$story" | sed 's/\./\\./g')
-    if [ -n "$pattern" ]; then
-        pattern="${pattern}|${escaped}"
-    else
-        pattern="$escaped"
-    fi
+    pattern_args+=("$(echo "$story" | sed 's/\./\\./g')")
 done
 
 echo ""
-echo "testPathPattern: $pattern"
+echo "testPathPatterns: ${pattern_args[*]}"
 echo ""
 
 # Run the stories REPEAT_COUNT times. Each run does a full snapshot comparison.
@@ -106,14 +105,13 @@ for run in $(seq 1 "$REPEAT_COUNT"); do
     set +e
     # Run test-storybook directly (tests a pre-built storybook dist served over http-server).
     # pipefail is set at script level so tee preserves the exit code.
-    # --passWithNoTests: changed stories may live in a separate storybook
-    # (e.g. services/agent-console, packages/agent-chat) that the main runner's
-    # testMatch doesn't cover. Those are verified by their own CI, so finding no
-    # matching tests here is not a failure.
+    # --passWithNoTests: changed stories may live in a separate storybook that
+    # the main runner's testMatch doesn't cover. Those are verified by their own
+    # CI, so finding no matching tests here is not a failure.
     pnpm --filter=@posthog/storybook exec test-storybook \
         $snapshot_flag --no-index-json --maxWorkers=1 \
         --browsers chromium \
-        -- --testPathPattern "$pattern" --passWithNoTests 2>&1 | tee "/tmp/storybook-verify-run${run}.log"
+        -- "${pattern_args[@]}" --passWithNoTests 2>&1 | tee "/tmp/storybook-verify-run${run}.log"
     exit_code=${PIPESTATUS[0]}
     set -e
 

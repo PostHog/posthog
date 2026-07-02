@@ -20,12 +20,13 @@ import {
     Table,
     TableBody,
     TableCell,
+    TableEmpty,
     TableHead,
     TableHeader,
     TableRow,
 } from '@posthog/quill-primitives'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartTheme } from 'lib/charts/hooks'
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
@@ -33,13 +34,14 @@ import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { SceneExport } from '~/scenes/sceneTypes'
 
 import { formatMs, formatMsAsSeconds } from './dashboard/formatters'
 import { HarnessLogo, HarnessPill } from './dashboard/harness'
+import { mcpAnalyticsFeaturePreviewGate } from './featurePreviewGate'
 import {
     type DailyChartData,
     IntentCoverage,
@@ -48,7 +50,6 @@ import {
     ToolSummary,
     mcpAnalyticsToolDetailLogic,
 } from './mcpAnalyticsToolDetailLogic'
-import { categorizeHarness } from './mcpDashboardOverviewLogic'
 
 export const scene: SceneExport<MCPAnalyticsToolDetailLogicProps> = {
     component: MCPAnalyticsToolDetail,
@@ -104,9 +105,9 @@ function StatTile({
     )
 }
 
-// Renderer for the "person" column in the Top users table. The query selects
-// `argMax(tuple(distinct_id, person.created_at, person.properties), timestamp)`,
-// which deserialises as a 3-element array. Wrap it back into the shape PersonDisplay expects.
+// Renderer for the "person" column in the Top users table. The loader maps each row's
+// person into a [distinct_id, _, person_properties] array. Wrap it back into the shape
+// PersonDisplay expects.
 function renderPersonCell(value: unknown): JSX.Element {
     if (!Array.isArray(value) || value.length === 0) {
         return <span className="text-muted">—</span>
@@ -127,22 +128,15 @@ function renderPersonCell(value: unknown): JSX.Element {
     )
 }
 
-// Deduped harness logos so the column stays one line instead of wrapping.
-function HarnessLogos({ value }: { value: string }): JSX.Element {
-    const categories = Array.from(
-        new Set(
-            value
-                .split(',')
-                .map((raw) => categorizeHarness(raw.trim()))
-                .filter(Boolean)
-        )
-    )
-    if (categories.length === 0) {
+// Harness logos for a row. Labels are resolved (deduped + sorted) server-side; the column
+// just maps each label to its logo and stays on one line.
+function HarnessLogos({ labels }: { labels: string[] }): JSX.Element {
+    if (labels.length === 0) {
         return <span className="text-muted">—</span>
     }
     return (
         <div className="flex items-center gap-1">
-            {categories.map((category) => (
+            {labels.map((category) => (
                 <HarnessLogo key={category} category={category} />
             ))}
         </div>
@@ -202,8 +196,8 @@ function ResultTable({
                         ))}
                     </TableRow>
                 </TableHeader>
-                <TableBody>
-                    {loading && rows.length === 0 ? (
+                {loading && rows.length === 0 ? (
+                    <TableBody>
                         <TableRow>
                             <TableCell colSpan={columns.length}>
                                 <div className="space-y-2 py-1">
@@ -213,14 +207,12 @@ function ResultTable({
                                 </div>
                             </TableCell>
                         </TableRow>
-                    ) : rows.length === 0 ? (
-                        <TableRow>
-                            <TableCell colSpan={columns.length} align="center" className="py-6 text-secondary">
-                                {emptyMessage}
-                            </TableCell>
-                        </TableRow>
-                    ) : (
-                        rows.map((row, i) => (
+                    </TableBody>
+                ) : rows.length === 0 ? (
+                    <TableEmpty className="py-6 text-secondary">{emptyMessage}</TableEmpty>
+                ) : (
+                    <TableBody>
+                        {rows.map((row, i) => (
                             <TableRow key={i}>
                                 {columns.map((col, ci) => (
                                     <TableCell key={ci} align={col.align} expand={col.expand}>
@@ -228,9 +220,9 @@ function ResultTable({
                                     </TableCell>
                                 ))}
                             </TableRow>
-                        ))
-                    )}
-                </TableBody>
+                        ))}
+                    </TableBody>
+                )}
             </Table>
         </Card>
     )
@@ -472,6 +464,14 @@ function TrendChart({
 }
 
 export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.Element {
+    return (
+        <FeaturePreviewSceneGate config={mcpAnalyticsFeaturePreviewGate}>
+            <MCPAnalyticsToolDetailContent toolName={toolName} />
+        </FeaturePreviewSceneGate>
+    )
+}
+
+function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.Element {
     const {
         summary,
         summaryLoading,
@@ -494,11 +494,9 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
         topUserRows,
         topUserRowsLoading,
     } = useValues(mcpAnalyticsToolDetailLogic({ toolName }))
-    const { isDarkModeOn } = useValues(themeLogic)
     const { timezone } = useValues(teamLogic)
 
-    // buildTheme() reads CSS vars from the DOM; isDarkModeOn forces a recompute on theme flip.
-    const theme = useMemo<ChartTheme>(() => buildTheme(), [isDarkModeOn])
+    const theme = useChartTheme()
     const callsSeries = useMemo<Series[]>(
         () => seriesFor(dailyChartData, theme, ['calls', 'errors']),
         [dailyChartData, theme]
@@ -615,9 +613,9 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
                                 header: 'Harness',
                                 expand: true,
                                 render: (r) => {
-                                    const raw = String(r[0] ?? '')
-                                    return raw ? (
-                                        <HarnessPill category={categorizeHarness(raw)} title={raw} />
+                                    const label = String(r[0] ?? '')
+                                    return label ? (
+                                        <HarnessPill category={label} title={label} />
                                     ) : (
                                         <span className="text-muted">Unknown</span>
                                     )
@@ -635,7 +633,7 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
                             },
                             { header: 'Error rate', align: 'right', render: (r) => `${Number(r[3] ?? 0)}%` },
                             {
-                                header: 'Users',
+                                header: 'Sessions',
                                 align: 'right',
                                 render: (r) => humanFriendlyNumber(Number(r[4] ?? 0)),
                             },
@@ -660,7 +658,7 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
                             { header: 'Error rate', align: 'right', render: (r) => `${Number(r[3] ?? 0)}%` },
                             {
                                 header: 'Harnesses',
-                                render: (r) => <HarnessLogos value={String(r[4] ?? '')} />,
+                                render: (r) => <HarnessLogos labels={(r[4] as string[]) ?? []} />,
                             },
                             { header: 'Last seen', render: (r) => <TZLabel time={String(r[5])} /> },
                         ]}
@@ -691,7 +689,7 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
                         { header: 'Last seen', render: (r) => <TZLabel time={String(r[2])} /> },
                         {
                             header: 'Harnesses',
-                            render: (r) => <HarnessLogos value={String(r[3] ?? '')} />,
+                            render: (r) => <HarnessLogos labels={(r[3] as string[]) ?? []} />,
                         },
                     ]}
                 />

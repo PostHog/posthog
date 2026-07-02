@@ -1,12 +1,12 @@
 import { Message } from 'node-rdkafka'
 
+import { logger } from '~/common/utils/logger'
 import { PipelineResultType, dlq, ok } from '~/ingestion/framework/results'
-import { logger } from '~/utils/logger'
 
 import { createParseKafkaMessageStep } from './parse-kafka-message'
 
 // Mock dependencies
-jest.mock('~/utils/logger')
+jest.mock('~/common/utils/logger')
 
 const VALID_UUID = '123e4567-e89b-12d3-a456-426614174000'
 

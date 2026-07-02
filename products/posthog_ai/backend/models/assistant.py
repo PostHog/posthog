@@ -1,6 +1,7 @@
 import string
 import secrets
 from datetime import timedelta
+from typing import TYPE_CHECKING, Optional
 
 from django.db import IntegrityError, models
 from django.utils import timezone
@@ -8,6 +9,9 @@ from django.utils import timezone
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.utils import CreatedMetaFields, DeletedMetaFields, UpdatedMetaFields, UUIDModel, UUIDTModel
+
+if TYPE_CHECKING:
+    from products.tasks.backend.models import TaskRun
 
 
 def generate_short_id() -> str:
@@ -34,6 +38,10 @@ class Conversation(UUIDTModel, DeletedMetaFields):
             )
         ]
         db_table = "ee_conversation"
+
+    class AgentRuntime(models.TextChoices):
+        LANGGRAPH = "langgraph", "LangGraph"
+        SANDBOX = "sandbox", "Sandbox"
 
     class Status(models.TextChoices):
         IDLE = "idle", "Idle"
@@ -106,16 +114,42 @@ class Conversation(UUIDTModel, DeletedMetaFields):
         default=None,
         help_text="Stored messages for non-LangGraph modes (e.g., sandbox).",
     )
+    # Deprecated: legacy Redis-flow columns (migration 0039). Nothing reads or writes
+    # them on the sandbox path anymore — the `task` FK supersedes `sandbox_task_id`, and
+    # the current Run is derived (see `current_run`). Retained until a cleanup migration.
     sandbox_task_id = models.UUIDField(
         null=True,
         blank=True,
-        help_text="Permanent link to Task for sandbox conversations.",
+        help_text="Deprecated. Permanent link to Task for sandbox conversations.",
     )
     sandbox_run_id = models.UUIDField(
         null=True,
         blank=True,
-        help_text="Permanent link to current TaskRun for sandbox conversations.",
+        help_text="Deprecated. Permanent link to current TaskRun for sandbox conversations.",
     )
+    agent_runtime = models.CharField(
+        max_length=16,
+        choices=AgentRuntime.choices,
+        default=AgentRuntime.LANGGRAPH,
+        db_index=True,
+        help_text="Runtime that owns this conversation for its whole life. Stamped at create time from the phai-sandbox-mode flag; never re-evaluated.",
+    )
+    task = models.ForeignKey(
+        "tasks.Task",
+        null=True,
+        blank=True,
+        on_delete=models.SET_NULL,
+        related_name="+",
+        db_index=True,
+        help_text="The products/tasks Task backing a sandbox conversation. One Task per conversation for its whole life.",
+    )
+
+    @property
+    def current_run(self) -> Optional["TaskRun"]:
+        task = self.task
+        if task is None:
+            return None
+        return task.latest_run
 
 
 class ConversationCheckpoint(UUIDTModel):

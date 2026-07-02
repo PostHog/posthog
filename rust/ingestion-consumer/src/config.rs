@@ -100,6 +100,17 @@ pub struct Config {
     #[envconfig(from = "HOSTNAME")]
     pub pod_hostname: Option<String>,
 
+    /// Enable Kafka static membership (pins `group.instance.id` to the pod
+    /// hostname). Off by default: this runs as a Deployment, so pod names — and
+    /// thus instance IDs — already change on every rollout, meaning static
+    /// membership never avoids a deploy rebalance, yet it makes an in-place
+    /// container restart fail fatally with `UnreleasedInstanceId` (the broker
+    /// still holds the previous incarnation's slot until its session expires).
+    /// Dynamic membership rejoins cleanly on restart. Only enable for pods with
+    /// stable names (e.g. a StatefulSet).
+    #[envconfig(from = "KAFKA_CONSUMER_STATIC_MEMBERSHIP", default = "false")]
+    pub kafka_consumer_static_membership: bool,
+
     // ---- Batching ----
     /// Maximum number of messages to collect before dispatching a batch.
     /// Matches Node.js CONSUMER_BATCH_SIZE default.
@@ -165,6 +176,14 @@ pub struct Config {
     #[envconfig(from = "WORKER_PORT", default = "9001")]
     pub worker_port: u16,
 
+    /// When a worker leaves the pool (e.g. a draining pod during a deploy), it is
+    /// marked draining rather than removed: no new work is routed to it, but its
+    /// in-flight batches are allowed to finish and ACK. It is fully removed once
+    /// its in-flight count reaches zero, or after this timeout as a safety net
+    /// (milliseconds) — sized above the worst-case batch processing time.
+    #[envconfig(from = "WORKER_DRAIN_TIMEOUT_MS", default = "30000")]
+    pub worker_drain_timeout_ms: u64,
+
     /// How unpinned routing keys are assigned to workers: `binpack` (default,
     /// least-loaded — accurate for the co-located sidecar) or `p2c`
     /// (power-of-two-choices — herd-resistant for a shared worker pool).
@@ -218,6 +237,20 @@ pub struct Config {
 
     #[envconfig(default = "true")]
     pub export_prometheus: bool,
+
+    // ---- Metric labels (match Node.js global default labels) ----
+    /// Ingestion pipeline this consumer serves (e.g. `analytics`). Emitted as a
+    /// global `ingestion_pipeline` label on every metric, mirroring the Node.js
+    /// `initializePrometheusLabels` default labels so dashboards, alerts, and
+    /// KEDA lag triggers select this consumer's series the same way.
+    #[envconfig(from = "INGESTION_PIPELINE")]
+    pub ingestion_pipeline: Option<String>,
+
+    /// Ingestion lane this consumer serves (e.g. `main`, `overflow`). Emitted as
+    /// a global `ingestion_lane` label on every metric, matching the Node.js
+    /// default labels. The lag-based KEDA autoscaler selects on this label.
+    #[envconfig(from = "INGESTION_LANE")]
+    pub ingestion_lane: Option<String>,
 }
 
 /// Parse `KAFKA_CONSUMER_*` env vars into rdkafka config key-value pairs.
@@ -280,7 +313,10 @@ impl Config {
         .with_fetch_wait_max_ms(self.kafka_consumer_fetch_wait_max_ms)
         .with_queued_min_messages(self.kafka_consumer_queued_min_messages)
         .with_queued_max_messages_kbytes(self.kafka_consumer_queued_max_messages_kbytes)
-        .with_sticky_partition_assignment(self.pod_hostname.as_deref())
+        .with_sticky_partition_assignment(
+            self.pod_hostname.as_deref(),
+            self.kafka_consumer_static_membership,
+        )
         .set("security.protocol", &self.kafka_security_protocol)
         .set(
             "socket.timeout.ms",

@@ -7,6 +7,7 @@ import posthog from 'posthog-js'
 import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
+import { tryShowMCPHint } from 'lib/components/MCPHint/mcpHintLogic'
 import { SetupTaskId, globalSetupLogic } from 'lib/components/ProductSetup'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -294,6 +295,8 @@ export interface SourceWizardLogicProps {
     availableSources: Record<string, SourceConfig>
     /** When set, only these tables will be pre-selected and they cannot be deselected */
     requiredTables?: string[]
+    /** Onboarding: pre-select every syncable table with smart defaults for a one-click sync */
+    autoConfigureTables?: boolean
 }
 
 export const sourceWizardLogic = kea<sourceWizardLogicType>([
@@ -1330,6 +1333,19 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 actions.loadSources()
                 actions.markTaskAsCompleted(SetupTaskId.ConnectSource)
 
+                // Fires only after the source is created server-side. Unlike the intent-time
+                // `source created` capture in onSubmit (which fires before this request resolves),
+                // this measures true connect completion — use it for the real onboarding funnel.
+                posthog.capture('warehouse source connect completed', {
+                    sourceType: values.selectedConnector.name,
+                    accessMethod: values.source.access_method,
+                    hasWebhookSchemas: values.hasWebhookSchemas,
+                })
+
+                tryShowMCPHint('data_warehouse_sources.create', {
+                    derivedPrompt: `Connect a ${values.selectedConnector.name} source`,
+                })
+
                 // When requiredTables is set (e.g. signals setup), skip step 4 and complete directly
                 if (values.requiredTables && props.onComplete) {
                     props.onComplete()
@@ -1342,6 +1358,14 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                 }
             } catch (e: any) {
                 lemonToast.error(e.data?.message ?? e.message)
+                // Surface the failure instead of leaving it as a toast-only dead end: a captured
+                // exception keeps the stack triageable, and the event closes the connect funnel.
+                posthog.captureException(e)
+                posthog.capture('warehouse source connect failed', {
+                    sourceType: values.selectedConnector?.name,
+                    errorMessage: e.data?.message ?? e.message,
+                    status: e.status,
+                })
             } finally {
                 actions.setIsLoading(false)
             }
@@ -1360,6 +1384,7 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                     webhook_url: '',
                     error: e.data?.message ?? e.message ?? 'Failed to create webhook',
                 })
+                posthog.captureException(e)
             }
         },
         submitWebhookFields: async () => {
@@ -1452,6 +1477,12 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                             schema.sync_type = 'full_refresh'
                         }
                     }
+
+                    // Onboarding one-click setup: opt every syncable table in (permission errors
+                    // already continued above), so the user can sync the whole source in one click.
+                    if (props.autoConfigureTables) {
+                        schema.should_sync = true
+                    }
                 }
 
                 if (showToast && !values.requiredTables) {
@@ -1511,8 +1542,15 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                         : e.message)
                 lemonToast.error(errorMessage)
 
+                // A 5xx with no body is an unexpected server failure, not a user credential
+                // mistake — capture the stack so these stay diagnosable (the report flagged
+                // swallowed generic `Error`s on this path with no captured stack).
+                if (!apiMessage && e.status >= 500) {
+                    posthog.captureException(e)
+                }
+
                 posthog.capture('warehouse credentials invalid', {
-                    sourceType: values.selectedConnector.name,
+                    sourceType: values.selectedConnector?.name,
                     errorMessage,
                     // Keep the raw error (status code etc.) so server-side failures stay triageable.
                     rawError: e.message,
@@ -1615,6 +1653,19 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
             }
 
             if (values.currentStep <= 1) {
+                // A `kind` that matches no known connector means a source card navigated here but
+                // the wizard can't advance — the "dead click on a source" failure mode. Don't fail
+                // silently: always capture it for diagnosis, and once connectors have loaded (so
+                // we know it's a genuine mismatch, not the load race) tell the user what to do.
+                if (kind) {
+                    const connectorsLoaded = (values.connectors?.length ?? 0) > 0
+                    posthog.capture('warehouse new source kind unresolved', { kind, connectorsLoaded })
+                    if (connectorsLoaded) {
+                        lemonToast.error(
+                            `We couldn't open the "${kind}" connector — please pick a source from the list.`
+                        )
+                    }
+                }
                 actions.selectConnector(null)
                 actions.setStep(1)
             }
@@ -1681,12 +1732,16 @@ export const sourceWizardLogic = kea<sourceWizardLogicType>([
                                     const loadedFile: string = await new Promise((resolve, reject) => {
                                         const fileReader = new FileReader()
                                         fileReader.onload = (e) => resolve(e.target?.result as string)
-                                        fileReader.onerror = (e) => reject(e)
+                                        fileReader.onerror = () =>
+                                            reject(fileReader.error ?? new Error(`Failed to read the "${name}" file`))
                                         fileReader.readAsText(payload['payload'][name][0])
                                     })
                                     fieldPayload[name] = JSON.parse(loadedFile)
-                                } catch {
-                                    return lemonToast.error('File is not valid')
+                                } catch (e: any) {
+                                    posthog.captureException(e)
+                                    return lemonToast.error(
+                                        `The "${name}" file is not valid — it must be a readable JSON file.`
+                                    )
                                 }
                             } else {
                                 fieldPayload[name] = payload['payload'][name]
@@ -1778,8 +1833,17 @@ export const getErrorsForFields = (
         if (!values?.prefix?.trim()) {
             errors['prefix'] = 'Please enter a name for this direct query source.'
         }
-    } else if (!/^[a-zA-Z0-9_-]*$/.test(values?.prefix ?? '')) {
-        errors['prefix'] = "Please enter a valid prefix (only letters, numbers, and '_' or '-')."
+    } else {
+        // Mirror the backend `validate_source_prefix` rules (which strip only underscores, not
+        // whitespace) so an invalid prefix is caught here rather than after the create request.
+        const prefix = values?.prefix ?? ''
+        const cleaned = prefix.replace(/^_+|_+$/g, '')
+        if (prefix && !cleaned) {
+            errors['prefix'] = 'Prefix cannot consist of only underscores'
+        } else if (cleaned && !/^[A-Za-z_][A-Za-z0-9_]*$/.test(cleaned)) {
+            errors['prefix'] =
+                'Prefix must contain only letters, numbers, and underscores, and start with a letter or underscore'
+        }
     }
 
     // Payload errors

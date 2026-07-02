@@ -11,6 +11,7 @@ const PROVIDER_IMAGES: Partial<Record<LLMProvider, string>> = {
     gemini: geminiImage,
     together_ai: 'https://res.cloudinary.com/dmukukwp6/image/upload/together_ai_49ac1a57fb.svg',
     fireworks: 'https://res.cloudinary.com/dmukukwp6/image/upload/fireworks_ai_a3d8a59e96.svg',
+    minimax: 'https://res.cloudinary.com/dmukukwp6/image/upload/minimax_8fc73dbf8b.svg',
     azure_openai: azureImage,
 }
 

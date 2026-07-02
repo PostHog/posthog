@@ -9,9 +9,13 @@ import { apiMutator } from '../../../../frontend/src/lib/api-orval-mutator'
  * OpenAPI spec version: 1.0.0
  */
 import type {
+    PaginatedTracingViewListApi,
+    PatchedTracingViewApi,
     TracingSpansAttributesRetrieveParams,
     TracingSpansServiceNamesRetrieveParams,
     TracingSpansValuesRetrieveParams,
+    TracingViewApi,
+    TracingViewsListParams,
     _HasSpansResponseApi,
     _SymbolStatsRequestApi,
     _SymbolStatsResponseApi,
@@ -21,10 +25,28 @@ import type {
     _TracingCountRequestApi,
     _TracingCountResponseApi,
     _TracingQueryRequestApi,
+    _TracingSparklineRequestApi,
     _TracingTimeseriesRequestApi,
     _TracingTraceRequestApi,
     _TracingTreeRequestApi,
 } from './api.schemas'
+
+// https://stackoverflow.com/questions/49579094/typescript-conditional-types-filter-out-readonly-properties-pick-only-requir/49579497#49579497
+type IfEquals<X, Y, A = X, B = never> = (<T>() => T extends X ? 1 : 2) extends <T>() => T extends Y ? 1 : 2 ? A : B
+
+type WritableKeys<T> = {
+    [P in keyof T]-?: IfEquals<{ [Q in P]: T[P] }, { -readonly [Q in P]: T[P] }, P>
+}[keyof T]
+
+type UnionToIntersection<U> = (U extends any ? (k: U) => void : never) extends (k: infer I) => void ? I : never
+type DistributeReadOnlyOverUnions<T> = T extends any ? NonReadonly<T> : never
+
+type Writable<T> = Pick<T, WritableKeys<T>>
+type NonReadonly<T> = [T] extends [UnionToIntersection<T>]
+    ? {
+          [P in keyof Writable<T>]: T[P] extends object ? NonReadonly<NonNullable<T[P]>> : T[P]
+      }
+    : DistributeReadOnlyOverUnions<T>
 
 export const getTracingSpansAggregateCreateUrl = (projectId: string) => {
     return `/api/projects/${projectId}/tracing/spans/aggregate/`
@@ -191,14 +213,14 @@ export const getTracingSpansSparklineCreateUrl = (projectId: string) => {
 
 export const tracingSpansSparklineCreate = async (
     projectId: string,
-    _tracingTimeseriesRequestApi: _TracingTimeseriesRequestApi,
+    _tracingSparklineRequestApi: _TracingSparklineRequestApi,
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getTracingSpansSparklineCreateUrl(projectId), {
         ...options,
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(_tracingTimeseriesRequestApi),
+        body: JSON.stringify(_tracingSparklineRequestApi),
     })
 }
 
@@ -278,5 +300,111 @@ export const tracingSpansValuesRetrieve = async (
     return apiMutator<void>(getTracingSpansValuesRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
+    })
+}
+
+export const getTracingViewsListUrl = (projectId: string, params?: TracingViewsListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/tracing/views/?${stringifiedParams}`
+        : `/api/projects/${projectId}/tracing/views/`
+}
+
+export const tracingViewsList = async (
+    projectId: string,
+    params?: TracingViewsListParams,
+    options?: RequestInit
+): Promise<PaginatedTracingViewListApi> => {
+    return apiMutator<PaginatedTracingViewListApi>(getTracingViewsListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTracingViewsCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/tracing/views/`
+}
+
+export const tracingViewsCreate = async (
+    projectId: string,
+    tracingViewApi: NonReadonly<TracingViewApi>,
+    options?: RequestInit
+): Promise<TracingViewApi> => {
+    return apiMutator<TracingViewApi>(getTracingViewsCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tracingViewApi),
+    })
+}
+
+export const getTracingViewsRetrieveUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/tracing/views/${shortId}/`
+}
+
+export const tracingViewsRetrieve = async (
+    projectId: string,
+    shortId: string,
+    options?: RequestInit
+): Promise<TracingViewApi> => {
+    return apiMutator<TracingViewApi>(getTracingViewsRetrieveUrl(projectId, shortId), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getTracingViewsUpdateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/tracing/views/${shortId}/`
+}
+
+export const tracingViewsUpdate = async (
+    projectId: string,
+    shortId: string,
+    tracingViewApi: NonReadonly<TracingViewApi>,
+    options?: RequestInit
+): Promise<TracingViewApi> => {
+    return apiMutator<TracingViewApi>(getTracingViewsUpdateUrl(projectId, shortId), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(tracingViewApi),
+    })
+}
+
+export const getTracingViewsPartialUpdateUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/tracing/views/${shortId}/`
+}
+
+export const tracingViewsPartialUpdate = async (
+    projectId: string,
+    shortId: string,
+    patchedTracingViewApi?: NonReadonly<PatchedTracingViewApi>,
+    options?: RequestInit
+): Promise<TracingViewApi> => {
+    return apiMutator<TracingViewApi>(getTracingViewsPartialUpdateUrl(projectId, shortId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedTracingViewApi),
+    })
+}
+
+export const getTracingViewsDestroyUrl = (projectId: string, shortId: string) => {
+    return `/api/projects/${projectId}/tracing/views/${shortId}/`
+}
+
+export const tracingViewsDestroy = async (projectId: string, shortId: string, options?: RequestInit): Promise<void> => {
+    return apiMutator<void>(getTracingViewsDestroyUrl(projectId, shortId), {
+        ...options,
+        method: 'DELETE',
     })
 }

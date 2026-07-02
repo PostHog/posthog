@@ -89,6 +89,8 @@ If you create a new table inside such a guard, you must also add its SQL functio
 
 The only exception is tables whose definition intentionally differs per environment and is not tracked in the repo (e.g. the no-go zone `events_json_ws_mv` table).
 
+**Dictionary credentials:** when a dictionary uses a `SOURCE(CLICKHOUSE(...))`, resolve the source user/password via `get_clickhouse_creds(ClickHouseUser.DICT_READER)` and interpolate them into the `USER`/`PASSWORD` clause — do not hardcode `default`/`CLICKHOUSE_USER` or omit credentials. This keeps dictionary auth on the dedicated low-privilege `dict_reader` user, decoupled from `default`; it falls back to `default` creds when the env vars are unset. See `posthog/models/exchange_rate/sql.py` for the pattern.
+
 ### Testing
 
 Delete entry from `infi_clickhouse_orm_migrations` table to re-run a migration.

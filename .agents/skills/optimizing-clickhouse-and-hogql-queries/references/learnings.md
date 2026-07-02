@@ -119,3 +119,36 @@ B was 46% slower than A and used ~10× the memory. C was 4.6× faster than A and
 **Caveats.** Team 2's snapshot has `count() == countDistinct(id)` (tens of millions of each), meaning background merges had already deduplicated the table before we measured. `FINAL` therefore had no actual merge work to do, only the planner overhead and the no-parallel-reads cost. On a team with active person updates, A's wall-clock and memory would shift up; B would shift even more (argMax over more rows per group). The relative ordering of "materialization dominates" should hold.
 
 **Takeaway.** The blanket "FINAL bad, argMax good" framing is wrong in at least one important case: argMax over a wide column (`properties` blobs) buffers the winning value per group in the GROUP BY hash table, which can blow memory up by 10× while making the query slower than just letting `FINAL` stream. The safe rewrite hierarchy for moving off `FROM ... FINAL` is: (1) use a materialized column if one exists, (2) argMax over a narrow column you actually need, (3) only fall back to argMax over the wide column as a last resort. If none of those apply, `FINAL` may genuinely be the cheapest option.
+
+---
+
+## 2026-06-24: ClickHouse prunes unused `argMax(content)`; the real win is bounding the dedup, not dropping columns
+
+**Context.** `products/signals/backend/temporal/signal_queries.py::fetch_source_products_for_reports` runs on every inbox report-list load (`signals.reports.list.fetch_source_products`, APM 7d p50 ~155ms / p95 ~1.4s). It deduped the team's whole signal history with `_deduped_signals_subquery()` (`argMax(content), argMax(metadata), argMax(timestamp) GROUP BY document_id` over `document_embeddings`) then filtered `report_id IN (<~25 page reports>)` on the OUTER query. `document_embeddings` is model-routed `ReplacingMergeTree`, `ORDER BY (team_id, toDate(timestamp), product, document_type, rendering, cityHash64(document_id))`, 3-month TTL; `report_id` lives in the `metadata` JSON, so nothing prunes — every load scans ~3 months of the team's signals.
+
+**The proposed smell was partly wrong.** The hypothesis was "it `argMax`'s the big `content` string for every document, then throws it away." Measured against local synthetic single-team data (incompressible 3KB `content`), `read_bytes` for the original was **identical** to a variant that never selects content — ClickHouse's analyzer drops the `argMax(content)`/`argMax(timestamp)` because the outer query never references those aliases. Dead-column elimination already handled it; "drop the unused content argMax" buys ~0 at the ClickHouse layer.
+
+**What actually costs.** The `argMax(metadata) GROUP BY document_id` over the _whole history_ — its hash table holds metadata per distinct document, so peak memory scales with the team's total signal count.
+
+**Three shapes, local synthetic data (median of 5 from `system.query_log`), 360k rows / 360k docs, 600 reports, page = 25 reports:**
+
+| Shape                                                                                                       | dur_ms | read_rows | read_bytes | peak_mem     |
+| ----------------------------------------------------------------------------------------------------------- | ------ | --------- | ---------- | ------------ |
+| CURRENT (dedup-all, filter after)                                                                           | 192    | 360k      | 39.5 MiB   | 174 MiB      |
+| CANDIDATE (`document_id IN (SELECT DISTINCT ... WHERE report_id IN page)`, then argMax, filter still after) | 157    | 720k      | 76 MiB     | **14.3 MiB** |
+| LEAN (single scan, `argMax(JSONExtract(...scalars))` instead of full metadata blob)                         | 309    | 360k      | 39.5 MiB   | 171 MiB      |
+
+At 180k docs CURRENT peak*mem was 96 MiB; at 360k it was 174 MiB — memory grows ~linearly with team history. CANDIDATE went 2.6 MiB -> 14.3 MiB over the same doubling: bounded by signals in the \_displayed page's reports*, not the whole history. The wall-clock crossover (CANDIDATE faster) lands exactly on the signal-heavy teams that drive the p95 tail. CANDIDATE's cost is 2x metadata I/O (a second full-history `JSONExtract(report_id)` scan to build the candidate set) — cheap and parallel relative to the memory it saves. LEAN (drop the blob, argMax narrow scalars, single scan) was no better than CURRENT on memory at scale and noisier, so it was rejected.
+
+**Correctness trap (same as the reverse-lookup sibling).** The `report_id IN (...)` filter must stay AFTER the `argMax`: a signal re-grouped from report A to B is matched by the candidate scan (it once carried A) but must be excluded because its _latest_ metadata points to B. Pushing the report_id predicate before the argMax would resurface the stale attribution. Verified identical results between all three shapes including the re-grouped case.
+
+**Takeaway.** Before assuming a wide-column `argMax` is the cost, check whether the analyzer already prunes it (compare `read_bytes` against a content-free variant). When an `argMax ... GROUP BY high_cardinality_id` runs over a whole-history scan just to keep a small slice, bounding the group set with a `key IN (SELECT DISTINCT id WHERE <page predicate>)` prefilter trades a second (cheap, narrow) scan for an aggregation whose memory is bounded by the request page — the right lever for a memory/heavy-tenant-driven p95, even when it reads more bytes.
+
+**Follow-up — the same shape where the wide column _is_ consumed (sibling `_signals_for_report_query`).** The neighbouring query dedups the whole history then filters to a single report, and its outer SELECT _keeps_ `content`, so the analyzer can't prune the `argMax(content)` — the original genuinely reads and buffers content for every document. Same candidate-bound fix, measured at 180k docs / 600 reports / one target report (~300 of its docs):
+
+| Shape                              | dur_ms | read_rows | read_bytes | peak_mem   |
+| ---------------------------------- | ------ | --------- | ---------- | ---------- |
+| Original (dedup-all, filter after) | 583    | 180k      | 536 MiB    | 943 MiB    |
+| Candidate-bounded                  | 88     | 210k      | **30 MiB** | **11 MiB** |
+
+~18x fewer bytes, ~84x less memory, ~6.6x faster — far larger than the pruned-content case above, and on every axis (the extra DISTINCT scan reads only `document_id` + `metadata`, so total bytes still collapses because `content` is now read for one report's docs, not the team's). Lesson: the candidate-bound win scales with how much per-document data the post-filter throws away — biggest when the dedup buffers a wide column (`content`/`embedding`) that downstream actually needs.

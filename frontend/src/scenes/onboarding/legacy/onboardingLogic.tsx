@@ -26,7 +26,7 @@ import { arraysEqual, parseProductsParam, stepKeyToTitle } from './onboardingFlo
 import type { onboardingLogicType } from './onboardingLogicType'
 import { appendSharedTrailingSteps } from './sharedSteps'
 import { onboardingProviderRegistry } from './stepProviderRegistry'
-import { INSTALL_DEDUP_KEYS, type OnboardingFlowContext, type OnboardingStepDescriptor } from './types'
+import { type OnboardingFlowContext, type OnboardingStepDescriptor } from './types'
 
 /** Interface kept for callers that import it (legacy step components). */
 export interface OnboardingStepComponentType<P = object> extends React.FC<P> {
@@ -185,12 +185,17 @@ export const onboardingLogic = kea<onboardingLogicType>([
             (billing, productKey) => billing?.products?.find((p) => p.type === productKey) ?? null,
         ],
         shouldShowBillingStep: [
-            (s) => [s.product, s.subscribedDuringOnboarding, s.isCloudOrDev, s.billing, s.billingProduct],
-            (_product, subscribedDuringOnboarding, isCloudOrDev, billing, billingProduct): boolean => {
+            (s) => [s.subscribedDuringOnboarding, s.isCloudOrDev, s.billing, s.billingProduct, s.stepId],
+            (subscribedDuringOnboarding, isCloudOrDev, billing, billingProduct, stepId): boolean => {
                 if (!isCloudOrDev || !billing?.products || !billingProduct) {
                     return false
                 }
-                return !billingProduct?.subscribed || subscribedDuringOnboarding
+                // Keep the plans step in the flow whenever the URL explicitly targets it — otherwise an
+                // already-subscribed user landing here (e.g. after a trial cancel reloads without
+                // `?success=true`) would drop the step from the flow and get stuck on a spinner.
+                const onPlansStep =
+                    stepId === OnboardingStepKey.PLANS || stepId.startsWith(`${OnboardingStepKey.PLANS}:`)
+                return !billingProduct?.subscribed || subscribedDuringOnboarding || onPlansStep
             },
         ],
         flow: [
@@ -305,19 +310,20 @@ export const onboardingLogic = kea<onboardingLogicType>([
                         })
                     )
                 }
-                // Reorder: all install steps to the front, with the SDK install (the
-                // posthog-js-deduped survivor) first among them. Stable sort preserves
-                // each provider's intra-group order — non-install steps (configure,
+                // Reorder: all install steps to the front, with the primary product's
+                // install first among them — so the "Start with" choice (which product is
+                // primary) decides which SDK instructions the user sees first. Stable sort
+                // preserves each provider's intra-group order — non-install steps (configure,
                 // link_data, plans, invite) keep their relative positions, just appear
                 // after the installs. Buckets:
-                //   0 — Install + posthog-js dedup survivor (the canonical "SDK install")
-                //   1 — Install (any other dedupKey or none — Logs/OTel, Workflows, etc.)
+                //   0 — Install for the primary product (the SDK the user chose to start with)
+                //   1 — Install for any secondary product (Logs/OTel, Workflows, etc.)
                 //   2 — everything else (configure, plans, invite, link_data, …)
                 const sortBucket = (step: OnboardingStepDescriptor): number => {
                     if (step.stepKey !== OnboardingStepKey.INSTALL) {
                         return 2
                     }
-                    return step.dedupKey === INSTALL_DEDUP_KEYS.POSTHOG_JS ? 0 : 1
+                    return step.role === 'primary' ? 0 : 1
                 }
                 return result.slice().sort((a, b) => sortBucket(a) - sortBucket(b))
             },

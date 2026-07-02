@@ -2,56 +2,86 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { type ComponentType, type ReactNode, useEffect } from 'react'
 
-import { IconInfo } from '@posthog/icons'
+import { HedgehogChartHog, HedgehogCoffeeRun, HedgehogMagnifyingGlass } from '@posthog/brand/hoggies'
+import { IconCheck, IconChevronDown, IconCrown, IconInfo, IconLock, IconPeople, IconPerson } from '@posthog/icons'
 import { LemonModal, Tooltip } from '@posthog/lemon-ui'
 
-import {
-    DetectiveHog,
-    ExplorerHog,
-    GraphsHog,
-    HeartHog,
-    RunningHog,
-    StarHog,
-    WavingHog,
-} from 'lib/components/hedgehogs'
+import { ExplorerHog, HeartHog, StarHog, WavingHog } from 'lib/components/hedgehogs'
 import { useHogfetti } from 'lib/components/Hogfetti/Hogfetti'
+import { dayjs } from 'lib/dayjs'
+import { Link } from 'lib/lemon-ui/Link'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
+import { humanFriendlyLargeNumber } from 'lib/utils/numbers'
+import { pluralize } from 'lib/utils/strings'
+import { urls } from 'scenes/urls'
 
 import type {
     AchievementDefinitionApi,
     AchievementProgressApi,
 } from 'products/web_analytics/frontend/generated/api.schemas'
 
+import { deriveTrackProgress } from './achievementProgress'
 import { isWebAnalyticsAchievementsEnabled } from './gating'
 import { webAnalyticsAchievementsLogic } from './webAnalyticsAchievementsLogic'
+import { webAnalyticsAchievementsPreferencesLogic } from './webAnalyticsAchievementsPreferencesLogic'
 
 const RING_TRACK_COLOR = 'var(--border)'
-const RING_ACTIVE_COLOR = 'var(--success)'
-const RING_COMPLETE_COLOR = 'var(--warning)'
+const TIER_COLORS = [
+    'var(--color-slate-400)',
+    'var(--color-cyan-400)',
+    'var(--color-blue-400)',
+    'var(--color-violet-400)',
+    'var(--color-amber-400)',
+]
 
-const TRACK_META: Record<string, { hog: ComponentType<{ className?: string }>; objective: string }> = {
+interface TrackMeta {
+    hog: ComponentType<{ className?: string }>
+    objective: string
+    unit: string
+    effortPhrase: (remaining: number, nextName: string) => string
+}
+
+const TRACK_META: Record<string, TrackMeta> = {
     streak: {
-        hog: RunningHog,
+        hog: HedgehogCoffeeRun,
         objective: 'Open the Web analytics dashboard on consecutive days to build your streak.',
+        unit: 'days',
+        effortPhrase: (n, next) =>
+            `${humanFriendlyLargeNumber(n)} ${pluralize(n, 'day', 'days', false)} until "${next}"`,
     },
-    loyalty: { hog: HeartHog, objective: 'Open Web analytics on many separate days over time.' },
+    loyalty: {
+        hog: HeartHog,
+        objective: 'Open Web analytics on many separate days over time.',
+        unit: 'days',
+        effortPhrase: (n, next) =>
+            `Visit ${humanFriendlyLargeNumber(n)} more ${pluralize(n, 'day', 'days', false)} to reach "${next}"`,
+    },
     explorer: {
         hog: ExplorerHog,
         objective: 'Slice your data by adding a filter or opening a breakdown on the Web analytics dashboard.',
+        unit: 'explorations',
+        effortPhrase: (n, next) =>
+            `Explore ${humanFriendlyLargeNumber(n)} more ${pluralize(n, 'time', 'times', false)} to reach "${next}"`,
     },
-    detective: { hog: DetectiveHog, objective: 'Open a session recording from the Web analytics dashboard.' },
-    conversions: { hog: StarHog, objective: 'Set up conversion goals in Web analytics.' },
+    detective: {
+        hog: HedgehogMagnifyingGlass,
+        objective: 'Open a session recording from the Web analytics dashboard.',
+        unit: 'recordings',
+        effortPhrase: (n, next) =>
+            `Watch ${humanFriendlyLargeNumber(n)} more ${pluralize(n, 'recording', 'recordings', false)} to reach "${next}"`,
+    },
+    conversions: {
+        hog: StarHog,
+        objective: 'Set up conversion goals in Web analytics.',
+        unit: 'conversions',
+        effortPhrase: (n, next) => `${humanFriendlyLargeNumber(n)} more to reach "${next}"`,
+    },
     traffic: {
-        hog: GraphsHog,
+        hog: HedgehogChartHog,
         objective: 'Grow your pageviews. This climbs automatically as your site gets more traffic.',
+        unit: 'pageviews',
+        effortPhrase: (n, next) => `${humanFriendlyLargeNumber(n)} more pageviews until "${next}"`,
     },
-}
-
-function formatCompact(n: number): string {
-    if (n >= 1_000_000) {
-        return `${(n / 1_000_000).toFixed(1).replace(/\.0$/, '')}M`
-    }
-    return n.toLocaleString()
 }
 
 function ProgressRing({
@@ -101,32 +131,25 @@ function ProgressRing({
 
 function TrackMedallion({
     hog: Hog,
-    filled,
-    total,
+    ringColor,
     colorFraction,
     maxed,
 }: {
     hog: ComponentType<{ className?: string }>
-    filled: number
-    total: number
+    ringColor: string
     colorFraction: number
     maxed: boolean
 }): JSX.Element {
-    const levelPercent = total ? (filled / total) * 100 : 0
     return (
         <div className="relative shrink-0">
             {maxed && (
                 <div
                     aria-hidden
-                    className="absolute inset-1 rounded-full bg-warning opacity-30 blur-md animate-pulse"
+                    className="absolute inset-1 rounded-full opacity-30 blur-md animate-pulse"
+                    style={{ backgroundColor: ringColor }}
                 />
             )}
-            <ProgressRing
-                percent={levelPercent}
-                size={84}
-                strokeWidth={6}
-                color={maxed ? RING_COMPLETE_COLOR : RING_ACTIVE_COLOR}
-            >
+            <ProgressRing percent={colorFraction * 100} size={84} strokeWidth={6} color={ringColor}>
                 <div
                     className="transition-all duration-700"
                     style={{
@@ -141,62 +164,111 @@ function TrackMedallion({
     )
 }
 
+function TrackLadder({
+    track,
+    currentStage,
+    unlockedAt,
+}: {
+    track: AchievementDefinitionApi
+    currentStage: number
+    unlockedAt: Record<string, string>
+}): JSX.Element {
+    return (
+        <div className="flex flex-col gap-1 mt-2 border-t pt-2">
+            {track.stages.map((stage) => {
+                const unlocked = stage.stage <= currentStage
+                const isNext = stage.stage === currentStage + 1
+                const unlockedTs = unlockedAt[String(stage.stage)]
+                return (
+                    <div
+                        key={stage.stage}
+                        className={clsx(
+                            'flex items-center gap-2 text-xs',
+                            isNext && 'font-semibold',
+                            !unlocked && !isNext && 'text-muted'
+                        )}
+                    >
+                        <span className="shrink-0 flex items-center justify-center w-4">
+                            {unlocked ? (
+                                <IconCheck className="text-success" />
+                            ) : isNext ? (
+                                <IconChevronDown className="-rotate-90" />
+                            ) : (
+                                <IconLock className="text-muted" />
+                            )}
+                        </span>
+                        <span className="flex-1 truncate">{stage.name}</span>
+                        <span className="text-muted tabular-nums">{humanFriendlyLargeNumber(stage.threshold)}</span>
+                        <span className="text-muted shrink-0 w-16 text-right">
+                            {unlocked && unlockedTs ? dayjs(unlockedTs).format('MMM D') : ''}
+                        </span>
+                    </div>
+                )
+            })}
+        </div>
+    )
+}
+
 function AchievementTrackCard({
     track,
     progress,
+    expanded,
+    onToggle,
+    pulsing,
 }: {
     track: AchievementDefinitionApi
     progress?: AchievementProgressApi
+    expanded: boolean
+    onToggle: () => void
+    pulsing: boolean
 }): JSX.Element {
     const trackMeta = TRACK_META[track.key]
     const TrackHog = trackMeta?.hog ?? WavingHog
-    const total = track.stages.length
-    const currentStage = progress?.current_stage ?? 0
-    const value = progress?.progress_value ?? 0
-    const maxed = currentStage >= total
-    const currentName = currentStage > 0 ? track.stages[currentStage - 1].name : null
-    const nextStage = maxed ? null : track.stages[currentStage]
-    const prevThreshold = currentStage > 0 ? track.stages[currentStage - 1].threshold : 0
-    const percent = nextStage
-        ? Math.max(0, Math.min(100, ((value - prevThreshold) / (nextStage.threshold - prevThreshold)) * 100))
-        : 100
+    const { total, currentStage, value, maxed, currentName, nextStage, percent, remaining } = deriveTrackProgress(
+        track,
+        progress
+    )
     const colorFraction = maxed ? 1 : (currentStage + percent / 100) / total
+    const tierIndex = Math.min(Math.max(0, maxed ? total - 1 : currentStage - 1), TIER_COLORS.length - 1)
+    const tierColor = TIER_COLORS[tierIndex]
+    const unit = trackMeta?.unit ?? ''
+    const unlockedAt = progress?.unlocked_at ?? {}
+    const calculating = track.scope === 'team' && !!progress && progress.last_computed_at === null
+    const completedDate = maxed ? unlockedAt[String(total)] : undefined
 
-    let statusPill: JSX.Element
-    if (maxed) {
-        statusPill = (
-            <span className="shrink-0 text-xs font-semibold rounded-full px-2 py-0.5 bg-warning text-white">
-                Complete
-            </span>
-        )
-    } else if (currentStage > 0) {
-        const goalThreshold = nextStage?.threshold ?? 0
-        const abbreviated = value >= 1_000_000 || goalThreshold >= 1_000_000
-        statusPill = (
-            <Tooltip title={abbreviated ? `${value.toLocaleString()} / ${goalThreshold.toLocaleString()}` : undefined}>
-                <span className="shrink-0 text-xs font-semibold rounded-full px-2 py-0.5 border border-success text-success">
-                    {formatCompact(value)} / {formatCompact(goalThreshold)}
-                </span>
-            </Tooltip>
-        )
-    } else {
-        statusPill = <span className="shrink-0 text-xs text-muted">Not started</span>
-    }
+    const progressTooltip = maxed
+        ? `All ${total} stages complete`
+        : nextStage
+          ? `${value.toLocaleString()} / ${nextStage.threshold.toLocaleString()} ${unit}`.trim()
+          : 'Not started'
 
     return (
         <div
-            className="border rounded-lg p-4 flex flex-col gap-3 bg-surface-primary"
+            className={clsx(
+                'border rounded-lg p-4 flex flex-col gap-3 transition-shadow',
+                maxed ? 'bg-warning-highlight border-warning' : 'bg-surface-primary',
+                pulsing && 'animate-pulse ring-2 ring-warning'
+            )}
             data-attr={`web-analytics-achievement-${track.key}`}
         >
-            <div className="flex items-center gap-3">
-                <TrackMedallion
-                    hog={TrackHog}
-                    filled={currentStage}
-                    total={total}
-                    colorFraction={colorFraction}
-                    maxed={maxed}
-                />
-                <div className="flex flex-col gap-0.5 flex-1 min-w-0">
+            <div
+                className="flex items-center gap-3 cursor-pointer"
+                onClick={onToggle}
+                role="button"
+                aria-expanded={expanded}
+                data-attr={`web-analytics-achievement-${track.key}-toggle`}
+            >
+                <Tooltip title={progressTooltip}>
+                    <span className="inline-flex">
+                        <TrackMedallion
+                            hog={TrackHog}
+                            ringColor={tierColor}
+                            colorFraction={colorFraction}
+                            maxed={maxed}
+                        />
+                    </span>
+                </Tooltip>
+                <div className="flex flex-col gap-1 flex-1 min-w-0">
                     <div className="flex items-center justify-between gap-2">
                         <div className="flex items-center gap-1.5 min-w-0">
                             <span className="font-semibold text-base truncate">{track.display_name}</span>
@@ -206,40 +278,85 @@ function AchievementTrackCard({
                                 </Tooltip>
                             )}
                         </div>
-                        {statusPill}
+                        <IconChevronDown
+                            className={clsx('text-muted shrink-0 transition-transform', expanded && 'rotate-180')}
+                        />
                     </div>
-                    {currentName && (
-                        <div className={clsx('text-xs font-semibold', maxed ? 'text-warning' : 'text-success')}>
-                            {currentName}
+
+                    {maxed ? (
+                        <div className="flex flex-col gap-0.5">
+                            <div className="flex items-center gap-1.5 text-sm font-semibold text-warning">
+                                <IconCrown className="shrink-0" />
+                                <span>Highest tier achieved</span>
+                            </div>
+                            {completedDate && (
+                                <span className="text-xs text-muted">
+                                    Unlocked {dayjs(completedDate).format('MMM D, YYYY')}
+                                </span>
+                            )}
                         </div>
+                    ) : calculating ? (
+                        <div className="text-xs text-muted">Calculating…</div>
+                    ) : (
+                        <>
+                            {currentName && (
+                                <div className="text-xs font-semibold" style={{ color: tierColor }}>
+                                    {currentName}
+                                </div>
+                            )}
+                            {nextStage && trackMeta && (
+                                <div className="text-xs text-secondary">
+                                    {trackMeta.effortPhrase(remaining, nextStage.name)}
+                                </div>
+                            )}
+                        </>
                     )}
-                    <div className="text-xs text-secondary">{track.description}</div>
                 </div>
             </div>
+
+            {expanded && <TrackLadder track={track} currentStage={currentStage} unlockedAt={unlockedAt} />}
         </div>
     )
 }
 
 function AchievementSection({
     title,
+    icon,
     tracks,
     progressByTrack,
+    expandedTracks,
+    pendingTrackKeys,
+    onToggleExpanded,
     headerRight,
 }: {
     title: string
+    icon: ReactNode
     tracks: AchievementDefinitionApi[]
     progressByTrack: Record<string, AchievementProgressApi>
+    expandedTracks: string[]
+    pendingTrackKeys: Set<string>
+    onToggleExpanded: (trackKey: string) => void
     headerRight?: ReactNode
 }): JSX.Element {
     return (
         <div className="flex flex-col gap-2">
-            <div className="flex items-baseline justify-between gap-2">
-                <h4 className="m-0 text-xs font-semibold uppercase tracking-wide text-muted">{title}</h4>
+            <div className="flex items-center justify-between gap-2 border-b pb-1.5">
+                <div className="flex items-center gap-1.5">
+                    <span className="text-base text-secondary">{icon}</span>
+                    <h4 className="m-0 text-xs font-semibold uppercase tracking-wide text-secondary">{title}</h4>
+                </div>
                 {headerRight}
             </div>
             <div className="grid grid-cols-1 md:grid-cols-2 gap-3">
                 {tracks.map((track) => (
-                    <AchievementTrackCard key={track.key} track={track} progress={progressByTrack[track.key]} />
+                    <AchievementTrackCard
+                        key={track.key}
+                        track={track}
+                        progress={progressByTrack[track.key]}
+                        expanded={expandedTracks.includes(track.key)}
+                        onToggle={() => onToggleExpanded(track.key)}
+                        pulsing={pendingTrackKeys.has(track.key)}
+                    />
                 ))}
             </div>
         </div>
@@ -247,64 +364,91 @@ function AchievementSection({
 }
 
 function WebAnalyticsAchievementsModalInner(): JSX.Element {
-    const { modalOpen, definitions, progressByTrack, uncelebratedPending, achievementsLoading } =
-        useValues(webAnalyticsAchievementsLogic)
-    const { closeModal, acknowledgeCelebration } = useActions(webAnalyticsAchievementsLogic)
+    const {
+        modalOpen,
+        definitions,
+        sortedUserTracks,
+        sortedTeamTracks,
+        progressByTrack,
+        expandedTracks,
+        confettiNonce,
+        achievementsLoading,
+        pendingTrackKeys,
+        unlockedStages,
+        totalStages,
+    } = useValues(webAnalyticsAchievementsLogic)
+    const { closeModal, toggleTrackExpanded } = useActions(webAnalyticsAchievementsLogic)
     const { trigger, HogfettiComponent } = useHogfetti({ count: 80, duration: 2500 })
 
     useEffect(() => {
-        if (!modalOpen || uncelebratedPending.length === 0) {
-            return
-        }
-        uncelebratedPending.forEach((entry) => {
+        if (confettiNonce > 0) {
             trigger()
-            acknowledgeCelebration(entry.track_key, entry.stage)
-        })
-    }, [modalOpen, uncelebratedPending, trigger, acknowledgeCelebration])
-
-    const userTracks = definitions.filter((track) => track.scope === 'user')
-    const teamTracks = definitions.filter((track) => track.scope === 'team')
-    const unlockedStages = definitions.reduce((sum, track) => sum + (progressByTrack[track.key]?.current_stage ?? 0), 0)
-    const totalStages = definitions.reduce((sum, track) => sum + track.stages.length, 0)
+        }
+    }, [confettiNonce, trigger])
 
     return (
-        <LemonModal isOpen={modalOpen} onClose={closeModal} title="Web analytics achievements" width={820}>
+        <>
             <HogfettiComponent />
-            {definitions.length === 0 ? (
-                <div className="text-muted text-sm py-6 text-center">
-                    {achievementsLoading ? 'Loading achievements…' : 'No achievements available yet.'}
-                </div>
-            ) : (
-                <div className="flex flex-col gap-4">
-                    {userTracks.length > 0 && (
-                        <AchievementSection
-                            title="Your progress"
-                            tracks={userTracks}
-                            progressByTrack={progressByTrack}
-                            headerRight={
-                                <span className="text-xs text-muted">
-                                    <span className="font-semibold">{unlockedStages}</span> of {totalStages} stages
-                                    unlocked
-                                </span>
-                            }
-                        />
-                    )}
-                    {teamTracks.length > 0 && (
-                        <AchievementSection
-                            title="Team progress"
-                            tracks={teamTracks}
-                            progressByTrack={progressByTrack}
-                        />
-                    )}
-                </div>
-            )}
-        </LemonModal>
+            <LemonModal
+                isOpen={modalOpen}
+                onClose={closeModal}
+                title="Web analytics achievements"
+                width={820}
+                footer={
+                    <Link
+                        to={urls.settings('user-customization', 'web-analytics-achievements')}
+                        onClick={closeModal}
+                        className="text-xs text-muted"
+                    >
+                        Not interested? Manage in settings →
+                    </Link>
+                }
+            >
+                {definitions.length === 0 ? (
+                    <div className="text-muted text-sm py-6 text-center">
+                        {achievementsLoading ? 'Loading achievements…' : 'No achievements available yet.'}
+                    </div>
+                ) : (
+                    <div className="flex flex-col gap-4">
+                        {sortedUserTracks.length > 0 && (
+                            <AchievementSection
+                                title="Your achievements"
+                                icon={<IconPerson />}
+                                tracks={sortedUserTracks}
+                                progressByTrack={progressByTrack}
+                                expandedTracks={expandedTracks}
+                                pendingTrackKeys={pendingTrackKeys}
+                                onToggleExpanded={toggleTrackExpanded}
+                                headerRight={
+                                    <span className="text-xs text-muted">
+                                        <span className="font-semibold">{unlockedStages}</span> of {totalStages} stages
+                                        unlocked
+                                    </span>
+                                }
+                            />
+                        )}
+                        {sortedTeamTracks.length > 0 && (
+                            <AchievementSection
+                                title="Team achievements"
+                                icon={<IconPeople />}
+                                tracks={sortedTeamTracks}
+                                progressByTrack={progressByTrack}
+                                expandedTracks={expandedTracks}
+                                pendingTrackKeys={pendingTrackKeys}
+                                onToggleExpanded={toggleTrackExpanded}
+                            />
+                        )}
+                    </div>
+                )}
+            </LemonModal>
+        </>
     )
 }
 
 export function WebAnalyticsAchievementsModal(): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
-    if (!isWebAnalyticsAchievementsEnabled(featureFlags)) {
+    const { achievementsOptOut } = useValues(webAnalyticsAchievementsPreferencesLogic)
+    if (!isWebAnalyticsAchievementsEnabled(featureFlags, achievementsOptOut)) {
         return null
     }
     return <WebAnalyticsAchievementsModalInner />

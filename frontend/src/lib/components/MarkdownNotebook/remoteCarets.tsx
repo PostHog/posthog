@@ -1,4 +1,4 @@
-import { MutableRefObject, RefObject, useLayoutEffect, useState } from 'react'
+import { MutableRefObject, RefObject, useEffect, useState } from 'react'
 
 import {
     findTextPosition,
@@ -229,7 +229,7 @@ export function RemoteCaretOverlay({
 }): JSX.Element | null {
     const [layouts, setLayouts] = useState<Record<string, RemoteCaretLayout>>({})
 
-    useLayoutEffect(() => {
+    useEffect(() => {
         const container = containerRef.current
         if (!container) {
             return

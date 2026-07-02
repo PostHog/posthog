@@ -1,10 +1,13 @@
 from products.replay_vision.backend.api.observations import ReplayObservationViewSet, SessionReplayObservationViewSet
 from products.replay_vision.backend.api.quota import VisionQuotaViewSet
 from products.replay_vision.backend.api.scanners import ReplayScannerViewSet
+from products.replay_vision.backend.api.vision_actions import VisionActionRunViewSet, VisionActionViewSet
 
 __all__ = [
     "ReplayObservationViewSet",
     "ReplayScannerViewSet",
     "SessionReplayObservationViewSet",
+    "VisionActionRunViewSet",
+    "VisionActionViewSet",
     "VisionQuotaViewSet",
 ]

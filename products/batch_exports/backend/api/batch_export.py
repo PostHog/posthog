@@ -38,11 +38,14 @@ from posthog.api.utils import action
 from posthog.event_usage import groups
 from posthog.models import Team, User
 from posthog.models.integration import (
+    AwsS3Integration,
     AzureBlobIntegration,
     AzureBlobIntegrationError,
     DatabricksIntegration,
     DatabricksIntegrationError,
     Integration,
+    S3CompatibleIntegration,
+    S3CredentialIntegrationError,
 )
 from posthog.temporal.common.client import sync_connect
 from posthog.utils import relative_date_parse, str_to_bool
@@ -347,6 +350,75 @@ class AzureBlobDestinationConfigSerializer(serializers.Serializer):
     )
 
 
+class S3FamilyDestinationConfigSerializer(serializers.Serializer):
+    """Shared non-credential configuration for S3-family batch-export destinations.
+
+    Credentials (and, for S3-compatible providers, the `endpoint_url`) live in the linked
+    Integration, not in this config. Mirrors the non-credential fields of `S3FamilyBaseInputs` in
+    `products/batch_exports/backend/service.py`.
+    """
+
+    bucket_name = serializers.CharField(help_text="Name of the destination bucket.")
+    region = serializers.CharField(help_text="Region the bucket is in (e.g. 'us-east-1').")
+    prefix = serializers.CharField(help_text="Object key prefix applied to every exported file.")
+    compression = serializers.ChoiceField(
+        choices=sorted({codec for codecs in S3_SUPPORTED_COMPRESSIONS.values() for codec in codecs}),
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Optional compression codec applied to exported files. Valid codecs depend on file_format.",
+    )
+    file_format = serializers.ChoiceField(
+        choices=list(S3_SUPPORTED_COMPRESSIONS.keys()),
+        required=False,
+        default="JSONLines",
+        help_text="File format used for exported objects.",
+    )
+    max_file_size_mb = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="If set, rolls to a new file once the current file exceeds this size in MB.",
+    )
+
+
+class AwsS3DestinationConfigSerializer(S3FamilyDestinationConfigSerializer):
+    """Typed configuration for an AWS S3 batch-export destination.
+
+    AWS credentials live in the linked aws-s3 Integration. Mirrors the non-credential fields of
+    `AwsS3BatchExportInputs` in `products/batch_exports/backend/service.py`.
+    """
+
+    encryption = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="Optional S3 server-side encryption algorithm (e.g. 'AES256' or 'aws:kms').",
+    )
+    kms_key_id = serializers.CharField(
+        required=False,
+        allow_null=True,
+        default=None,
+        help_text="KMS key ID to use when encryption is 'aws:kms'.",
+    )
+
+
+class S3CompatibleDestinationConfigSerializer(S3FamilyDestinationConfigSerializer):
+    """Typed configuration for an S3-compatible batch-export destination (Cloudflare R2,
+    DigitalOcean Spaces, etc.).
+
+    Credentials and the provider `endpoint_url` live in the linked s3-compatible Integration.
+    Mirrors the non-credential fields of `S3CompatibleBatchExportInputs` in
+    `products/batch_exports/backend/service.py`.
+    """
+
+    use_virtual_style_addressing = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text="Use virtual-hosted-style addressing rather than path-style.",
+    )
+
+
 @extend_schema_field(
     PolymorphicProxySerializer(
         component_name="BatchExportDestinationConfig",
@@ -355,6 +427,8 @@ class AzureBlobDestinationConfigSerializer(serializers.Serializer):
             "AzureBlob": AzureBlobDestinationConfigSerializer,
             "BigQuery": BigQueryDestinationConfigSerializer,
             "Postgres": PostgresDestinationConfigSerializer,
+            "AwsS3": AwsS3DestinationConfigSerializer,
+            "S3Compatible": S3CompatibleDestinationConfigSerializer,
         },
         resource_type_field_name="type",
     )
@@ -420,6 +494,34 @@ class PostgresDestinationRequestSerializer(serializers.Serializer):
     config = PostgresDestinationConfigSerializer()
 
 
+class AwsS3DestinationRequestSerializer(serializers.Serializer):
+    """Request shape for creating or updating an AWS S3 batch-export destination."""
+
+    type = serializers.ChoiceField(choices=["AwsS3"])
+    integration_id = serializers.IntegerField(
+        required=False,
+        help_text=(
+            "ID of an aws-s3-kind Integration providing AWS credentials. Preferred over inline credentials. "
+            "Use the integrations-list MCP tool to find one."
+        ),
+    )
+    config = AwsS3DestinationConfigSerializer()
+
+
+class S3CompatibleDestinationRequestSerializer(serializers.Serializer):
+    """Request shape for creating or updating an S3-compatible batch-export destination."""
+
+    type = serializers.ChoiceField(choices=["S3Compatible"])
+    integration_id = serializers.IntegerField(
+        required=False,
+        help_text=(
+            "ID of an s3-compatible-kind Integration providing credentials and the provider endpoint URL. "
+            "Preferred over inline credentials. Use the integrations-list MCP tool to find one."
+        ),
+    )
+    config = S3CompatibleDestinationConfigSerializer()
+
+
 BatchExportDestinationRequest = PolymorphicProxySerializer(
     component_name="BatchExportDestinationRequest",
     serializers={
@@ -427,6 +529,8 @@ BatchExportDestinationRequest = PolymorphicProxySerializer(
         "AzureBlob": AzureBlobDestinationRequestSerializer,
         "BigQuery": BigQueryDestinationRequestSerializer,
         "Postgres": PostgresDestinationRequestSerializer,
+        "AwsS3": AwsS3DestinationRequestSerializer,
+        "S3Compatible": S3CompatibleDestinationRequestSerializer,
     },
     resource_type_field_name="type",
 )
@@ -436,10 +540,11 @@ BatchExportDestinationRequest = PolymorphicProxySerializer(
 class BatchExportDestinationRequestField(serializers.JSONField):
     """JSONField annotated with a polymorphic OpenAPI request schema.
 
-    Only integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres) are
-    exposed in the schema. integration_id is required when creating any of these. Existing
-    Postgres exports created before integrations keep their inline credentials. Runtime
-    validation remains `BatchExportDestinationSerializer.validate_destination`.
+    Only integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3,
+    S3Compatible) are exposed in the schema. integration_id is required for Databricks, AzureBlob
+    and BigQuery, and optional for the S3 family (inline credentials remain supported for the time
+    being). Existing Postgres and S3 exports created before integrations keep their inline
+    credentials. Runtime validation remains `BatchExportDestinationSerializer.validate_destination`.
     """
 
     pass
@@ -493,20 +598,29 @@ class BatchExportRequestSerializer(serializers.Serializer):
     )
 
 
+# S3-family destinations that may authenticate via an Integration, mapped to the handler that
+# validates the linked integration's kind and credentials. Adding a future S3-family destination
+# (e.g. a first-class GCS-via-S3 type) is a one-line addition here.
+S3_INTEGRATION_HANDLERS: dict[str, type[AwsS3Integration] | type[S3CompatibleIntegration]] = {
+    BatchExportDestination.Destination.AWS_S3: AwsS3Integration,
+    BatchExportDestination.Destination.S3_COMPATIBLE: S3CompatibleIntegration,
+}
+
+
 class BatchExportDestinationSerializer(serializers.ModelSerializer):
     """Serializer for an BatchExportDestination model.
 
     The `config` field is polymorphic and typed only for destinations that keep
-    credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres).
-    Other destination types accept the same JSON shape but without a typed
+    credentials in the linked Integration (currently Databricks, AzureBlob, BigQuery, Postgres,
+    AwsS3, S3Compatible). Other destination types accept the same JSON shape but without a typed
     OpenAPI schema. Secret fields are stripped from `config` on read.
     """
 
     config = TypedBatchExportDestinationConfigField(
         help_text=(
             "Destination-specific configuration. Fields depend on `type`. Credentials for "
-            "integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres) are NOT stored here — "
-            "they live in the linked Integration. Secret fields are stripped from responses."
+            "integration-backed destinations (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible) "
+            "are NOT stored here — they live in the linked Integration. Secret fields are stripped from responses."
         ),
     )
     integration = TeamScopedPrimaryKeyRelatedField(
@@ -523,7 +637,8 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text=(
             "ID of a team-scoped Integration providing credentials. Required when creating Databricks, "
-            "AzureBlob, BigQuery, and Postgres destinations; unused for other types."
+            "AzureBlob, and BigQuery destinations; optional for AwsS3 and S3Compatible (inline credentials "
+            "remain supported); unused for other types."
         ),
     )
 
@@ -561,11 +676,20 @@ class BatchExportDestinationSerializer(serializers.ModelSerializer):
             str_fields = ", ".join(f"'{extra_field}'" for extra_field in sorted(extra_fields))
             raise serializers.ValidationError(f"Configuration has unknown field/s: {str_fields}")
 
+        # S3-family credential fields are optional on the dataclass (integration-backed exports
+        # resolve them at run time), so they must be required here only when no Integration is linked.
+        # TODO: remove this code once integrations for S3 are enforced
+        conditionally_required: set[str] = set()
+        if export_type in S3_FAMILY_TYPES and attrs.get("integration") is None:
+            conditionally_required = {"aws_access_key_id", "aws_secret_access_key"}
+            if export_type == BatchExportDestination.Destination.S3_COMPATIBLE:
+                conditionally_required.add("endpoint_url")
+
         for destination_field in destination_fields:
             is_required = (
                 destination_field.default == dataclasses.MISSING
                 and destination_field.default_factory == dataclasses.MISSING
-            )
+            ) or destination_field.name in conditionally_required
             if destination_field.name not in config:
                 if is_required and not is_patch:
                     # When patching we expect a partial configuration. So, we don't
@@ -1007,15 +1131,21 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError("Private key is required if authentication type is key pair")
 
         if destination_type in S3_FAMILY_TYPES:
+            integration: Integration | None = destination_attrs.get("integration")
+
+            # TODO: remove this guard once integrations are mandatory for S3 and inline credentials are gone.
+            if instance is not None and instance.destination.integration is not None and integration is None:
+                raise serializers.ValidationError(
+                    "Cannot remove the integration from an S3 batch export that uses one. "
+                    "Re-send its `integration` to keep it (or a different one to swap)."
+                )
+
             # we already validate the required inputs in BatchExportDestinationSerializer::validate
             # so here we just ensure that the inputs are not empty
-            required_non_empty_inputs = (
-                "bucket_name",
-                "region",
-                "prefix",
-                "aws_access_key_id",
-                "aws_secret_access_key",
-            )
+            required_non_empty_inputs = ["bucket_name", "region", "prefix"]
+            # Credentials are only required inline when no Integration provides them.
+            if integration is None:
+                required_non_empty_inputs += ["aws_access_key_id", "aws_secret_access_key"]
             empty_inputs = []
             for required_input in required_non_empty_inputs:
                 value = config.get(required_input)
@@ -1023,6 +1153,22 @@ class BatchExportSerializer(serializers.ModelSerializer):
                     empty_inputs.append(required_input)
             if empty_inputs:
                 raise serializers.ValidationError(f"The following inputs are empty: {empty_inputs}")
+
+            # When an Integration is supplied it must match the destination kind. (Team ownership is
+            # already enforced by the team-scoped `integration` field, which can only resolve
+            # integrations belonging to the request's team.)
+            if integration is not None:
+                # An Integration only makes sense for the integration-backed S3 types. Reject it on the
+                # legacy "S3" type
+                # TODO: remove this branch once the legacy "S3" destination type is fully removed.
+                if destination_type not in S3_INTEGRATION_HANDLERS:
+                    raise serializers.ValidationError(
+                        f"{destination_type} destinations do not support integration-based credentials."
+                    )
+                try:
+                    S3_INTEGRATION_HANDLERS[destination_type](integration)
+                except S3CredentialIntegrationError as e:
+                    raise serializers.ValidationError(str(e))
 
             # JSONLines is the default file format for S3 exports for legacy reasons
             file_format = merged_config.get("file_format", "JSONLines")
@@ -1048,14 +1194,10 @@ class BatchExportSerializer(serializers.ModelSerializer):
                     raise serializers.ValidationError(f"Invalid endpoint_url: '{merged_config['endpoint_url']}'")
 
         if destination_type == BatchExportDestination.Destination.DATABRICKS:
-            team_id = self.context["team_id"]
-
             # validate the Integration is valid (this is mandatory for Databricks batch exports)
-            integration: Integration | None = destination_attrs.get("integration")
+            integration = destination_attrs.get("integration")
             if integration is None:
                 raise serializers.ValidationError("Integration is required for Databricks batch exports")
-            if integration.team_id != team_id:
-                raise serializers.ValidationError("Integration does not belong to this team.")
             if integration.kind != Integration.IntegrationKind.DATABRICKS:
                 raise serializers.ValidationError("Integration is not a Databricks integration.")
             # try instantiate the integration to check if it's valid
@@ -1065,39 +1207,27 @@ class BatchExportSerializer(serializers.ModelSerializer):
                 raise serializers.ValidationError(str(e))
 
         if destination_type == BatchExportDestination.Destination.POSTGRES:
-            team_id = self.context["team_id"]
             integration = destination_attrs.get("integration")
             # New Postgres exports must use an Integration for credentials. Exports created before
             # integrations existed keep their inline credentials, so only require it on create
             # (`instance is None`); existing inline-credential exports stay valid when edited.
             if integration is None and instance is None:
                 raise serializers.ValidationError("Integration is required for Postgres batch exports")
-            if integration is not None:
-                if integration.team_id != team_id:
-                    raise serializers.ValidationError("Integration does not belong to this team.")
-                if integration.kind != Integration.IntegrationKind.POSTGRESQL:
-                    raise serializers.ValidationError("Integration is not a PostgreSQL integration.")
+            if integration is not None and integration.kind != Integration.IntegrationKind.POSTGRESQL:
+                raise serializers.ValidationError("Integration is not a PostgreSQL integration.")
 
         if destination_type == BatchExportDestination.Destination.BIGQUERY:
-            team_id = self.context["team_id"]
-
             integration = destination_attrs.get("integration")
             if integration is None:
                 raise serializers.ValidationError("Integration is required for BigQuery batch exports")
-            if integration.team_id != team_id:
-                raise serializers.ValidationError("Integration does not belong to this team.")
             if integration.kind != Integration.IntegrationKind.GOOGLE_CLOUD_SERVICE_ACCOUNT:
                 raise serializers.ValidationError("Integration is not a Google Cloud service account integration.")
 
         if destination_type == BatchExportDestination.Destination.AZURE_BLOB:
-            team_id = self.context["team_id"]
-
             # validate the Integration is valid (this is mandatory for Azure Blob batch exports)
             integration = destination_attrs.get("integration")
             if integration is None:
                 raise serializers.ValidationError("Integration is required for Azure Blob batch exports")
-            if integration.team_id != team_id:
-                raise serializers.ValidationError("Integration does not belong to this team.")
             if integration.kind != Integration.IntegrationKind.AZURE_BLOB:
                 raise serializers.ValidationError("Integration is not an Azure Blob integration.")
             # try instantiate the integration to check if it's valid
@@ -1365,8 +1495,8 @@ def recursive_dict_merge(
 @extend_schema(tags=["batch_exports"])
 @extend_schema_view(
     # Request bodies use a polymorphic destination schema so that integration-backed types
-    # (Databricks, AzureBlob, BigQuery, Postgres) advertise integration_id up front — required
-    # for all of them except Postgres, where it is optional.
+    # (Databricks, AzureBlob, BigQuery, Postgres, AwsS3, S3Compatible) advertise integration_id up
+    # front — required for Databricks, AzureBlob and BigQuery, optional for Postgres and the S3 family.
     # Responses continue to use BatchExportSerializer.
     create=extend_schema(request=BatchExportRequestSerializer),
     update=extend_schema(request=BatchExportRequestSerializer),

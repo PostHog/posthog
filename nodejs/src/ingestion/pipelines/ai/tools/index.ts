@@ -1,6 +1,6 @@
+import { parseJSON } from '~/common/utils/json-parse'
 import { aiToolCallExtractionCounter } from '~/ingestion/pipelines/ai/metrics'
 import { PluginEvent } from '~/plugin-scaffold'
-import { parseJSON } from '~/utils/json-parse'
 
 import { extractToolCallNames, sanitizeToolName } from './extract-tool-calls'
 

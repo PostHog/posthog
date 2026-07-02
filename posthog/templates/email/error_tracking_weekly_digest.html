@@ -78,6 +78,21 @@
         {% endif %}
     </div>
 
+    <!-- Missing source maps: prompt the source maps wizard -->
+    {% if section.source_maps_recommendation %}
+    <div style="background-color: #fef3cd; border: 1px solid #ffc107; padding: 20px; border-radius: 8px; margin-bottom: 8px;">
+        <p style="margin: 0 0 8px 0; font-weight: 700; color: #856404; font-size: 1em;">
+            &#9888; {{ section.source_maps_recommendation.unresolved_percent }}% of your stack traces aren't readable
+        </p>
+        <p style="margin: 0 0 16px 0; color: #664d03; font-size: 0.9em;">
+            Upload source maps so stack traces show your real source. Run our wizard from your project root, or <a href="{{ section.source_maps_recommendation.docs_url }}" target="_blank" style="color: #856404; text-decoration: underline; font-weight: 500;">read the docs</a>.
+        </p>
+        <div style="background-color: #ffffff; border: 1px solid #f0d98c; border-radius: 6px; padding: 10px 14px;">
+            <code style="font-family: 'SFMono-Regular', Consolas, 'Liberation Mono', Menlo, monospace; color: #5c4a03; font-size: 0.7em;">{{ section.source_maps_recommendation.wizard_command }}</code>
+        </div>
+    </div>
+    {% endif %}
+
     <!-- Top issues -->
     {% if section.top_issues %}
     <div style="background-color: #ffffff; border-radius: 8px; padding: 20px; margin-bottom: 8px;">
@@ -95,7 +110,7 @@
                 {% for issue in section.top_issues %}
                 <tr style="border-bottom: 1px solid #f3f4f6;">
                     <td align="left" style="padding: 10px 8px 10px 0; vertical-align: top; text-align: left;">
-                        <a href="{{ issue.url }}" target="_blank" style="text-decoration: none; color: #111827; font-weight: 600; font-size: 0.9em;">{{ issue.name|truncatechars:40 }}</a>
+                        <a href="{{ issue.url }}" target="_blank" style="text-decoration: underline; color: #111827; font-weight: 600; font-size: 0.9em;">{{ issue.name|truncatechars:40 }}</a>
                         {% if issue.description %}
                         <div style="color: #6b7280; font-size: 0.8em; margin-top: 2px;">{{ issue.description|truncatechars:45 }}</div>
                         {% endif %}
@@ -141,7 +156,7 @@
                 {% for issue in section.new_issues %}
                 <tr style="border-bottom: 1px solid #f3f4f6;">
                     <td align="left" style="padding: 10px 8px 10px 0; vertical-align: top; text-align: left;">
-                        <a href="{{ issue.url }}" target="_blank" style="text-decoration: none; color: #111827; font-weight: 600; font-size: 0.9em;">{{ issue.name|truncatechars:40 }}</a>
+                        <a href="{{ issue.url }}" target="_blank" style="text-decoration: underline; color: #111827; font-weight: 600; font-size: 0.9em;">{{ issue.name|truncatechars:40 }}</a>
                         {% if issue.description %}
                         <div style="color: #6b7280; font-size: 0.8em; margin-top: 2px;">{{ issue.description|truncatechars:45 }}</div>
                         {% endif %}

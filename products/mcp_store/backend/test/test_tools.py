@@ -120,6 +120,37 @@ class TestFetchUpstreamTools(ClickhouseTestMixin, APIBaseTest):
         assert client.delete.called
         assert client.delete.call_args.kwargs["headers"]["Mcp-Session-Id"] == "sess-1"
 
+    @patch("products.mcp_store.backend.proxy.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.tools.is_url_allowed", return_value=(True, None))
+    @patch("products.mcp_store.backend.tools.httpx.Client")
+    def test_fetch_upstream_tools_follows_same_origin_initialize_redirect(
+        self, mock_client_cls, _allow_tools, _allow_proxy
+    ):
+        installation = self._installation(url="https://mcp.example.com/mcp")
+        redirect_resp = _build_response(status=307, body="")
+        redirect_resp.headers["location"] = "/mcp/"
+        initialize_resp = _build_response(
+            body=json.dumps({"jsonrpc": "2.0", "id": 1, "result": {"protocolVersion": "2024-11-05"}}),
+            session_id="sess-1",
+        )
+        notify_resp = _build_response(status=202, body="")
+        tools_body = json.dumps({"jsonrpc": "2.0", "id": 2, "result": {"tools": [{"name": "alpha"}]}})
+        tools_resp = _build_response(body=tools_body)
+
+        client = MagicMock()
+        client.post.side_effect = [redirect_resp, initialize_resp, notify_resp, tools_resp]
+        client.delete.return_value = _build_response(status=200, body="")
+        mock_client_cls.return_value.__enter__.return_value = client
+
+        tools = fetch_upstream_tools(installation)
+
+        assert [tool["name"] for tool in tools] == ["alpha"]
+        assert client.post.call_args_list[0].args[0] == "https://mcp.example.com/mcp"
+        assert client.post.call_args_list[1].args[0] == "https://mcp.example.com/mcp/"
+        assert client.post.call_args_list[2].args[0] == "https://mcp.example.com/mcp/"
+        assert client.post.call_args_list[3].args[0] == "https://mcp.example.com/mcp/"
+        assert client.delete.call_args.args[0] == "https://mcp.example.com/mcp/"
+
     @patch("products.mcp_store.backend.tools.is_url_allowed", return_value=(True, None))
     @patch("products.mcp_store.backend.tools.httpx.Client")
     def test_fetch_upstream_tools_parses_sse_tools_list(self, mock_client_cls, _allow):

@@ -11,6 +11,7 @@ from rest_framework.exceptions import ValidationError as DRFValidationError
 
 from posthog.hogql.hogql import HogQLContext
 
+from posthog.clickhouse.client import sync_execute
 from posthog.exceptions import (
     ClickHouseAtCapacity,
     ClickHouseEstimatedQueryExecutionTimeTooLong,
@@ -18,14 +19,17 @@ from posthog.exceptions import (
     ClickHouseQuerySizeExceeded,
     ClickHouseQueryTimeOut,
 )
+from posthog.models.person.sql import PERSON_STATIC_COHORT_TABLE
 
 from products.cohorts.backend.models.cohort import Cohort, CohortOrEmpty
 from products.cohorts.backend.models.util import (
     CohortErrorCode,
+    _sanitize_query_for_cohort,
     get_all_cohort_dependencies,
     get_friendly_error_message,
     get_nested_cohort_ids,
     get_static_cohort_size,
+    insert_cohort_query_actors_into_ch,
     parse_error_code,
     print_cohort_hogql_query,
     simplified_cohort_filter_properties,
@@ -400,6 +404,59 @@ class TestCohortUtils(BaseTest):
         self.assertIn("allow_experimental_object_type=1", sql)
         self.assertIn("optimize_min_equality_disjunction_chain_length=4294967295", sql)
 
+    @parameterized.expand(
+        [
+            (
+                "persons_list",
+                {"kind": "ActorsQuery", "search": "example.com", "select": ["person"]},
+                "example.com",
+            ),
+            (
+                "insight_modal",
+                {
+                    "kind": "ActorsQuery",
+                    "search": "example.com",
+                    "source": {"kind": "InsightActorsQuery", "source": {"kind": "TrendsQuery", "series": []}},
+                },
+                None,
+            ),
+        ]
+    )
+    def test_sanitize_query_for_cohort_search_handling(self, _name, query_dict, expected_search):
+        sanitized = _sanitize_query_for_cohort(query_dict)
+        if expected_search is None:
+            self.assertNotIn("search", sanitized)
+        else:
+            self.assertEqual(sanitized["search"], expected_search)
+
+    def test_insert_cohort_from_actors_query_preserves_persons_list_search(self):
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["match"],
+            properties={"email": "user@example.com"},
+        )
+        _create_person(
+            team_id=self.team.pk,
+            distinct_ids=["other"],
+            properties={"email": "other@different.org"},
+        )
+        flush_persons_and_events()
+
+        cohort = Cohort.objects.create(
+            team=self.team,
+            is_static=True,
+            name="search cohort",
+            query={"kind": "ActorsQuery", "search": "example.com"},
+        )
+
+        insert_cohort_query_actors_into_ch(cohort, team=self.team)
+
+        rows = sync_execute(
+            f"SELECT count() FROM {PERSON_STATIC_COHORT_TABLE} WHERE team_id = %(team_id)s AND cohort_id = %(cohort_id)s",
+            {"team_id": self.team.id, "cohort_id": cohort.id},
+        )
+        self.assertEqual(rows[0][0], 1)
+
     def test_get_static_cohort_size_with_strong_consistency(self):
         cohort = _create_cohort(team=self.team, name="test_cohort", groups=[], is_static=True)
 
@@ -713,6 +770,22 @@ class TestDependentCohorts(BaseTest):
 
         self.assertEqual(get_all_cohort_dependencies(cohort1), [])
         self.assertEqual(get_all_cohort_dependencies(cohort2), [cohort1])
+
+    def test_dependent_cohorts_stop_traversal_at_static_root_cohort(self) -> None:
+        cohort1 = _create_cohort(
+            team=self.team,
+            name="cohort1",
+            groups=[{"properties": [{"key": "name", "value": "test", "type": "person"}]}],
+        )
+
+        static_cohort = _create_cohort(
+            team=self.team,
+            name="static-cohort",
+            groups=[{"properties": [{"key": "id", "value": cohort1.pk, "type": "cohort"}]}],
+            is_static=True,
+        )
+
+        self.assertEqual(get_all_cohort_dependencies(static_cohort, stop_traversal_at_static=True), [])
 
     def test_dependent_cohorts_for_deeply_nested_cohort(self):
         cohort1 = _create_cohort(

@@ -60,9 +60,30 @@ const withRecordings: InsightActorsData = {
     offset: 0,
 }
 
+// Membership-based sources (stickiness, lifecycle) project only the actor — no event count and no
+// recordings — so the table collapses to just the Actor column with no default sort.
+const membershipOnly: InsightActorsData = {
+    query: { kind: 'ActorsQuery', source: { kind: 'InsightActorsQuery', source: { kind: 'StickinessQuery' } } },
+    results: {
+        columns: ['distinct_id', 'email', 'name'],
+        results: [
+            ['0a1b2c3d', 'alice@example.com', 'Alice Adams'],
+            ['1c2d3e4f', 'ben@example.com', 'Ben Brown'],
+            ['2e3f4a5b', null, null],
+        ],
+    },
+    hasMore: false,
+    offset: 0,
+}
+
 export const EventCounts: Story = {
     render: () => <InsightActorsView data={withEventCounts} openLink={openLink} />,
     name: 'Event counts',
+}
+
+export const MembershipOnly: Story = {
+    render: () => <InsightActorsView data={membershipOnly} openLink={openLink} />,
+    name: 'Membership only (stickiness/lifecycle)',
 }
 
 export const WithRecordings: Story = {

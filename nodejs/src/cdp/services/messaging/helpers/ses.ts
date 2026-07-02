@@ -2,9 +2,9 @@ import crypto from 'node:crypto'
 import { z } from 'zod'
 
 import { MinimalAppMetric } from '~/cdp/types'
-import { parseJSON } from '~/utils/json-parse'
-import { logger } from '~/utils/logger'
-import { fetch } from '~/utils/request'
+import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
+import { fetch } from '~/common/utils/request'
 
 import { EmailTrackingCodeSigner, TRACKING_CODE_HEADER_NAME, trackingCodeFormatCounter } from './tracking-code'
 
@@ -127,7 +127,13 @@ const SesRenderingFailureSchema = SesCommonEventBase.extend({
 })
 
 const SesSendEventSchema = SesCommonEventBase.extend({ eventType: z.literal('Send') })
-const SesRejectEventSchema = SesCommonEventBase.extend({ eventType: z.literal('Reject') })
+const SesRejectEventSchema = SesCommonEventBase.extend({
+    eventType: z.literal('Reject'),
+    reject: z.object({ reason: z.string().optional() }).optional(),
+})
+
+// Acknowledged so SNS doesn't retry forever; details aren't surfaced.
+const SesDeliveryDelayEventSchema = SesCommonEventBase.extend({ eventType: z.literal('DeliveryDelay') })
 
 const SesEventRecordSchema = z.union([
     SesOpenEventSchema,
@@ -138,6 +144,7 @@ const SesEventRecordSchema = z.union([
     SesRenderingFailureSchema,
     SesSendEventSchema,
     SesRejectEventSchema,
+    SesDeliveryDelayEventSchema,
 ])
 
 const SesEventBatchSchema = z.array(SesEventRecordSchema)
@@ -154,6 +161,75 @@ const EVENT_TYPE_TO_METRIC_NAME: Partial<Record<SesEventRecord['eventType'], Min
     Complaint: 'email_blocked',
     RenderingFailure: 'email_failed',
     Reject: 'email_failed',
+}
+
+export type SesEventLogLine = {
+    level: 'warn' | 'error'
+    message: string
+}
+
+const MAX_SES_FIELD_LENGTH = 1024
+
+// Strip control chars, neutralize rich-log bracket tokens, and cap length.
+const sanitizeSesField = (value: string, max = MAX_SES_FIELD_LENGTH): string => {
+    const cleaned = value
+        .replace(/[\u0000-\u001f\u007f]/g, ' ')
+        .replace(/\[/g, '(')
+        .replace(/\]/g, ')')
+    return cleaned.length > max ? cleaned.slice(0, max) + '…' : cleaned
+}
+
+// Only warn/error events become log entries. Info-level events (Send, Delivery, Open, Click)
+// are tracked as metrics only - they're analytics signal, not debugging signal.
+export const formatSesEventLogs = (rec: SesEventRecord): SesEventLogLine[] => {
+    switch (rec.eventType) {
+        case 'Bounce': {
+            const bounceType = rec.bounce.bounceType
+            const level: SesEventLogLine['level'] = bounceType === 'Permanent' ? 'error' : 'warn'
+            return rec.bounce.bouncedRecipients.map((r) => {
+                const diag = r.diagnosticCode ? sanitizeSesField(r.diagnosticCode) : ''
+                // SES typically inlines the SMTP status inside diagnosticCode already
+                // (e.g. "smtp; 550 5.1.1 user unknown"), so skip the suffix when present.
+                const statusSuffix = r.status && !diag.includes(r.status) ? ` (${sanitizeSesField(r.status)})` : ''
+                const diagPart = diag ? `, ${diag}` : ''
+                return {
+                    level,
+                    message: `${bounceType} bounce to ${sanitizeSesField(r.emailAddress)}${diagPart}${statusSuffix}`,
+                }
+            })
+        }
+        case 'Complaint': {
+            const feedback = rec.complaint.complaintFeedbackType
+                ? `, feedback type: ${sanitizeSesField(rec.complaint.complaintFeedbackType)}`
+                : ''
+            return rec.complaint.complainedRecipients.map((r) => ({
+                level: 'warn',
+                message: `Complaint from ${sanitizeSesField(r.emailAddress)}${feedback}`,
+            }))
+        }
+        case 'RenderingFailure': {
+            const tmpl = rec.renderingFailure.templateName
+                ? ` for template ${sanitizeSesField(rec.renderingFailure.templateName)}`
+                : ''
+            return [
+                {
+                    level: 'error',
+                    message: `Rendering failure${tmpl}: ${sanitizeSesField(rec.renderingFailure.errorMessage)}`,
+                },
+            ]
+        }
+        case 'Reject': {
+            const reason = rec.reject?.reason ? `: ${sanitizeSesField(rec.reject.reason)}` : ''
+            return [
+                {
+                    level: 'error',
+                    message: `Message rejected by SES${reason}`,
+                },
+            ]
+        }
+        default:
+            return []
+    }
 }
 
 export class SesWebhookHandler {
@@ -322,6 +398,15 @@ export class SesWebhookHandler {
             properties?: Record<string, any>
             timestamp?: string
         }[]
+        logEntries?: {
+            functionId?: string
+            invocationId?: string
+            actionId?: string
+            parentRunId?: string
+            teamId?: string
+            level: SesEventLogLine['level']
+            message: string
+        }[]
         optOutRecipients?: {
             teamId?: string
             emailAddresses: string[]
@@ -382,6 +467,15 @@ export class SesWebhookHandler {
             metricName: MinimalAppMetric['metric_name']
             properties?: Record<string, any>
             timestamp?: string
+        }[] = []
+        const logEntries: {
+            functionId?: string
+            invocationId?: string
+            actionId?: string
+            parentRunId?: string
+            teamId?: string
+            level: SesEventLogLine['level']
+            message: string
         }[] = []
         const optOutRecipients: {
             teamId?: string
@@ -448,6 +542,24 @@ export class SesWebhookHandler {
                 })
             }
 
+            // Allowlist actionId before interpolating into the [Action:…] rich-log token,
+            // since actionId comes from the attacker-influenceable ph_id tag.
+            const safeActionId = actionId && /^[a-zA-Z0-9_-]+$/.test(actionId) ? actionId : undefined
+            // Skip test sends here too (mirrors the metrics gate above) so a "Run test" bounce
+            // doesn't write a misleading failure into the workflow's invocation logs.
+            for (const line of isTest ? [] : formatSesEventLogs(rec)) {
+                const prefix = safeActionId ? `[Action:${safeActionId}] ` : ''
+                logEntries.push({
+                    functionId,
+                    invocationId,
+                    actionId,
+                    parentRunId,
+                    teamId,
+                    level: line.level,
+                    message: `${prefix}${line.message}`,
+                })
+            }
+
             // Opt out recipients on permanent bounces
             if (teamId && rec.eventType === 'Bounce' && rec.bounce.bounceType === 'Permanent') {
                 const emails = rec.bounce.bouncedRecipients.map((r) => r.emailAddress)
@@ -455,6 +567,6 @@ export class SesWebhookHandler {
             }
         }
 
-        return { status: 200, body: { ok: true }, metrics, optOutRecipients }
+        return { status: 200, body: { ok: true }, metrics, logEntries, optOutRecipients }
     }
 }

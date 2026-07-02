@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
-import { HogFlowAction } from '../../../../schema/hogflow'
+import { HogFlowAction } from '~/cdp/schema/hogflow'
+
 import {
     CyclotronJobInvocationHogFlow,
     CyclotronJobInvocationHogFunction,

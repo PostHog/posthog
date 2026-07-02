@@ -2,11 +2,11 @@ import { randomUUID } from 'crypto'
 import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 
+import { PostgresRouter } from '~/common/utils/db/postgres'
+import { UUIDT } from '~/common/utils/utils'
 import { insertRow } from '~/tests/helpers/sql'
 
 import { ClickHousePerson, ClickHouseTimestamp, ProjectId, RawClickHouseEvent, Team } from '../../types'
-import { PostgresRouter } from '../../utils/db/postgres'
-import { UUIDT } from '../../utils/utils'
 import { CohortMembershipChange } from '../consumers/cdp-cohort-membership.consumer'
 import { CdpInternalEvent } from '../schema'
 import { compileHog } from '../templates/compiler'

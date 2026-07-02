@@ -6,10 +6,15 @@ from collections.abc import AsyncGenerator, Awaitable, Callable
 from dataclasses import dataclass
 from typing import cast
 
+from django.conf import settings
+from django.db import InterfaceError, OperationalError, close_old_connections
+
 import structlog
+import posthoganalytics
 from asgiref.sync import sync_to_async
 from jwt import PyJWTError
 
+from products.tasks.backend.constants import STREAM_VIA_PROXY_FEATURE_FLAG
 from products.tasks.backend.logic.services.connection_token import (
     SandboxEventIngestTokenPayload,
     validate_sandbox_event_ingest_token,
@@ -22,6 +27,7 @@ from products.tasks.backend.logic.stream.redis_stream import (
     get_task_run_stream_key,
 )
 from products.tasks.backend.models import TaskRun
+from products.tasks.backend.push_dispatcher import notify_task_run_awaiting_input
 
 from ee.hogai.sandbox import is_turn_complete
 
@@ -272,6 +278,7 @@ def _parse_ingest_line(line: str) -> EventIngestEventLine | EventIngestCompleteL
 async def _heartbeat_workflow_if_needed(redis_stream: TaskRunRedisStream, run_id: str, event: dict) -> None:
     if is_turn_complete(event):
         await redis_stream.set_agent_active(False)
+        await _dispatch_awaiting_input_if_interactive(run_id)
         return
 
     if _is_session_update(event):
@@ -290,6 +297,14 @@ async def _heartbeat_workflow_if_needed(redis_stream: TaskRunRedisStream, run_id
 
 
 def _heartbeat_workflow(run_id: str, agent_active: bool) -> None:
+    # This runs on a sync_to_async thread that Django never health-checks (the ASGI wrapper
+    # intercepts the request before Django's connection lifecycle runs), so a pooled connection
+    # Postgres has since closed can be reused. Mirror push_dispatcher/custom_prompt_internals and
+    # clear stale connections first. Gated on `not settings.TEST` since it trips pytest-django's
+    # DB-access guard when the ORM read is patched.
+    if not settings.TEST:
+        close_old_connections()
+
     try:
         task_run = TaskRun.objects.get(id=run_id)
     except TaskRun.DoesNotExist:
@@ -297,6 +312,56 @@ def _heartbeat_workflow(run_id: str, agent_active: bool) -> None:
         return
 
     task_run.heartbeat_workflow(agent_active=agent_active)
+
+
+async def _dispatch_awaiting_input_if_interactive(run_id: str) -> None:
+    """Notify when an interactive run finishes a turn and idles for input."""
+    await sync_to_async(_dispatch_awaiting_input_if_interactive_sync, thread_sensitive=True)(run_id)
+
+
+def _dispatch_awaiting_input_if_interactive_sync(run_id: str) -> None:
+    if not settings.TEST:
+        close_old_connections()
+
+    try:
+        task_run = TaskRun.objects.select_related("task__created_by", "team").get(id=run_id)
+    except TaskRun.DoesNotExist:
+        logger.warning("task_run_event_ingest_awaiting_input_run_missing", run_id=run_id)
+        return
+
+    if task_run.mode != "interactive":
+        return
+
+    if not _awaiting_input_push_enabled(task_run):
+        return
+
+    notify_task_run_awaiting_input(task_run)
+
+
+def _awaiting_input_push_enabled(task_run: TaskRun) -> bool:
+    """Awaiting-input pushes ship with the proxy-streaming rollout: gate them on the same flag
+    so deploying this code changes nothing until the rollout starts. Local dev disables the
+    analytics SDK, so the flag never evaluates there; DEBUG is the opt-in, mirroring the
+    stream_token endpoint. Fails closed on flag-evaluation errors."""
+    if settings.DEBUG:
+        return True
+    user = task_run.task.created_by
+    if user is None:
+        return False
+    organization_id = str(task_run.team.organization_id)
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                STREAM_VIA_PROXY_FEATURE_FLAG,
+                user.distinct_id or f"user_{user.id}",
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        return False
 
 
 def _is_session_update(event: dict) -> bool:
@@ -307,11 +372,22 @@ def _is_session_update(event: dict) -> bool:
 
 
 def _task_run_exists_sync(run_id: str, task_id: str, team_id: int) -> bool:
+    if not settings.TEST:
+        close_old_connections()
     return TaskRun.objects.filter(id=run_id, task_id=task_id, team_id=team_id).exists()
 
 
-def _task_run_exists(run_id: str, task_id: str, team_id: int) -> Awaitable[bool]:
-    return sync_to_async(_task_run_exists_sync, thread_sensitive=True)(run_id, task_id, team_id)
+async def _task_run_exists(run_id: str, task_id: str, team_id: int) -> bool:
+    """Existence check on a sync_to_async thread whose pooled connection Django never
+    health-checks. `close_old_connections()` clears a stale connection before the read; a
+    single retry recovers a transparent reconnect since this is a side-effect-free read.
+    An uncaught OperationalError here would otherwise crash the whole ingest request."""
+    run_check = sync_to_async(_task_run_exists_sync, thread_sensitive=True)
+    try:
+        return await run_check(run_id, task_id, team_id)
+    except (OperationalError, InterfaceError):
+        logger.warning("task_run_event_ingest_exists_db_reconnect", run_id=run_id, exc_info=True)
+        return await run_check(run_id, task_id, team_id)
 
 
 def _get_bearer_token(scope: ASGIMessage) -> str | None:

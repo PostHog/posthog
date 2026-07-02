@@ -1,6 +1,8 @@
 import { DEFAULT_Y_AXIS_ID } from '@posthog/quill-charts'
 import type { TooltipConfig, YAxisConfig } from '@posthog/quill-charts'
 
+import { hexToRGBA } from 'lib/utils/colors'
+
 import { ChartDisplayType } from '~/types'
 
 import {
@@ -49,7 +51,7 @@ describe('stickinessChartTransforms', () => {
 
             expect(series).toMatchObject({
                 key: '0',
-                label: '$pageview',
+                label: 'Pageview',
                 data: [50, 30, 15, 5],
                 color: RED,
                 yAxisId: DEFAULT_Y_AXIS_ID,
@@ -58,6 +60,25 @@ describe('stickinessChartTransforms', () => {
             expect(series.fill).toBeUndefined()
             expect(series.visibility).toBeUndefined()
         })
+
+        it('humanizes built-in event labels, leaving custom events untouched', () => {
+            const core = buildStickinessMainSeries(makeResult({ label: '$pageview' }), 0, { getColor: () => RED })
+            const custom = buildStickinessMainSeries(makeResult({ label: 'Napped' }), 0, { getColor: () => RED })
+            expect(core.label).toBe('Pageview')
+            expect(custom.label).toBe('Napped')
+        })
+
+        it.each([
+            { compare_label: undefined, expectedColor: RED },
+            { compare_label: 'current' as const, expectedColor: RED },
+            { compare_label: 'previous' as const, expectedColor: hexToRGBA(RED, 0.5) },
+        ])(
+            'dims the compare-against-previous series to 0.5 alpha, leaving others full color (compare_label=$compare_label)',
+            ({ compare_label, expectedColor }) => {
+                const series = buildStickinessMainSeries(makeResult({ compare_label }), 0, { getColor: () => RED })
+                expect(series.color).toBe(expectedColor)
+            }
+        )
 
         it('never sets a partial-stroke / in-progress tail (stickiness has no incomplete buckets)', () => {
             const series = buildStickinessMainSeries(makeResult({ data: [1, 2, 3, 4, 5] }), 0, { getColor: () => RED })

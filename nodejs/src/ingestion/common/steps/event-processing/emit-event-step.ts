@@ -3,14 +3,14 @@ import { Message } from 'node-rdkafka'
 
 import { IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
-import { eventProcessedAndIngestedCounter } from '~/ingestion/common/event-pipeline/metrics'
+import { MessageSizeTooLarge } from '~/common/utils/db/error'
+import { safeClickhouseString } from '~/common/utils/db/utils'
+import { castTimestampOrNow, castTimestampToClickhouseFormat } from '~/common/utils/utils'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
+import { eventProcessedAndIngestedCounter } from '~/ingestion/common/metrics'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { EventHeaders, ProcessedEvent, RawKafkaEvent, TimestampFormat } from '~/types'
-import { MessageSizeTooLarge } from '~/utils/db/error'
-import { safeClickhouseString } from '~/utils/db/utils'
-import { castTimestampOrNow, castTimestampToClickhouseFormat } from '~/utils/utils'
 
 export interface EventToEmit<O extends string> {
     event: ProcessedEvent

@@ -1,11 +1,10 @@
 from parameterized import parameterized
 
-from posthog.temporal.data_imports.sources.common.sql import (
+from products.data_warehouse.backend.postgres_helpers import get_postgres_source_location
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.sql import (
     filter_columns_by_enabled_columns,
     filter_dwh_columns_by_enabled_columns,
 )
-
-from products.data_warehouse.backend.postgres_helpers import get_postgres_source_location
 
 
 class TestGetPostgresSourceLocation:

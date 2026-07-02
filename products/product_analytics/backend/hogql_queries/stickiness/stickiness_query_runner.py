@@ -12,6 +12,7 @@ from posthog.schema import (
     DataWarehouseNode,
     EventsNode,
     HogQLQueryModifiers,
+    ResolvedDateRangeResponse,
     StickinessComputationMode,
     StickinessQuery,
     StickinessQueryResponse,
@@ -383,7 +384,16 @@ class StickinessQueryRunner(AnalyticsQueryRunner[StickinessQueryResponse]):
 
                 res.append(series_object)
 
-        return StickinessQueryResponse(results=res, timings=timings, modifiers=self.modifiers, hogql=response_hogql)
+        return StickinessQueryResponse(
+            results=res,
+            timings=timings,
+            modifiers=self.modifiers,
+            hogql=response_hogql,
+            resolved_date_range=ResolvedDateRangeResponse(
+                date_from=self.query_date_range.date_from(),
+                date_to=self.query_date_range.date_to(),
+            ),
+        )
 
     def where_clause(self, series_with_extra: SeriesWithExtras) -> ast.Expr:
         date_range = self.date_range(series_with_extra)

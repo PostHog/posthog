@@ -57,8 +57,39 @@ class TestFingerprintEmbeddingResultConsumer:
             fingerprint="fingerprint-1",
             rendering="type_message_and_stack",
             timestamp="2026-06-08T00:00:00Z",
+            model_name="text-embedding-3-large-3072",
+            model_names=["text-embedding-3-large-3072"],
+            embedding=[0.1, 0.2, 0.3],
+        )
+
+    def test_keeps_successful_model_names_without_embedding_for_backwards_compatibility(self) -> None:
+        inputs = fingerprint_embedding_result_inputs_from_message(
+            _embedding_result_message(results=[{"model": "text-embedding-3-large-3072", "outcome": "success"}])
+        )
+
+        assert inputs == FingerprintEmbeddingResultInputs(
+            team_id=1,
+            fingerprint="fingerprint-1",
+            rendering="type_message_and_stack",
+            timestamp="2026-06-08T00:00:00Z",
+            model_name="text-embedding-3-large-3072",
             model_names=["text-embedding-3-large-3072"],
         )
+
+    def test_extracts_only_selected_model_embedding(self) -> None:
+        inputs = fingerprint_embedding_result_inputs_from_message(
+            _embedding_result_message(
+                results=[
+                    {"model": "text-embedding-3-small-1536", "outcome": "success", "embedding": [0.4, 0.5]},
+                    {"model": "text-embedding-3-large-3072", "outcome": "success", "embedding": [0.1, 0.2, 0.3]},
+                ]
+            )
+        )
+
+        assert inputs is not None
+        assert inputs.model_name == "text-embedding-3-large-3072"
+        assert inputs.model_names == ["text-embedding-3-small-1536", "text-embedding-3-large-3072"]
+        assert inputs.embedding == [0.1, 0.2, 0.3]
 
     @pytest.mark.parametrize(
         "overrides",

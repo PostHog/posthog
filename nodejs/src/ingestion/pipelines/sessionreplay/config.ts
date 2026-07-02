@@ -1,5 +1,4 @@
 import { getDefaultClickhouseConfig } from '~/common/clickhouse-config'
-import { INGESTION_DOWNSTREAM_PRODUCER, type IngestionDownstreamProducer } from '~/common/outputs'
 import {
     KAFKA_CLICKHOUSE_SESSION_REPLAY_EVENTS,
     KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
@@ -9,12 +8,14 @@ import {
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_DLQ,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_EVENTS,
     KAFKA_SESSION_RECORDING_SNAPSHOT_ITEM_OVERFLOW,
-} from '~/config/kafka-topics'
+    KAFKA_SESSION_REPLAY_ML_BLOCK_METADATA,
+} from '~/common/config/kafka-topics'
+import { isDevEnv } from '~/common/utils/env-utils'
+import { INGESTION_DOWNSTREAM_PRODUCER, type IngestionDownstreamProducer } from '~/ingestion/common/outputs/producers'
 import {
     INGESTION_SESSIONREPLAY_PRODUCER,
     type IngestionSessionreplayProducer,
 } from '~/ingestion/pipelines/sessionreplay/shared/outputs/producer-config'
-import { isDevEnv } from '~/utils/env-utils'
 
 import { KAFKA_CONSUMER_GROUP_ID as SESSION_RECORDING_DEFAULT_GROUP_ID } from './constants'
 
@@ -173,6 +174,9 @@ export type SessionReplayOutputsConfig = {
 
     INGESTION_SESSIONREPLAY_OUTPUT_SESSION_FEATURES_TOPIC: string
     INGESTION_SESSIONREPLAY_OUTPUT_SESSION_FEATURES_PRODUCER: SessionReplayProducerName
+
+    INGESTION_SESSIONREPLAY_OUTPUT_ML_BLOCK_METADATA_TOPIC: string
+    INGESTION_SESSIONREPLAY_OUTPUT_ML_BLOCK_METADATA_PRODUCER: SessionReplayProducerName
 }
 
 export function getDefaultSessionReplayOutputsConfig(): SessionReplayOutputsConfig {
@@ -192,5 +196,7 @@ export function getDefaultSessionReplayOutputsConfig(): SessionReplayOutputsConf
         INGESTION_SESSIONREPLAY_OUTPUT_REPLAY_EVENTS_PRODUCER: INGESTION_SESSIONREPLAY_PRODUCER,
         INGESTION_SESSIONREPLAY_OUTPUT_SESSION_FEATURES_TOPIC: KAFKA_CLICKHOUSE_SESSION_REPLAY_FEATURES,
         INGESTION_SESSIONREPLAY_OUTPUT_SESSION_FEATURES_PRODUCER: INGESTION_SESSIONREPLAY_PRODUCER,
+        INGESTION_SESSIONREPLAY_OUTPUT_ML_BLOCK_METADATA_TOPIC: KAFKA_SESSION_REPLAY_ML_BLOCK_METADATA,
+        INGESTION_SESSIONREPLAY_OUTPUT_ML_BLOCK_METADATA_PRODUCER: INGESTION_SESSIONREPLAY_PRODUCER,
     }
 }

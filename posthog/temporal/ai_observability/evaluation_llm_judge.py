@@ -3,8 +3,6 @@ from dataclasses import dataclass
 from datetime import timedelta
 from typing import Any
 
-from django.utils import timezone
-
 import structlog
 import temporalio
 import posthoganalytics
@@ -13,6 +11,11 @@ from structlog.contextvars import bind_contextvars
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
+from posthog.temporal.ai_observability.evaluation_errors import (
+    require_user_error_spec,
+    terminal_user_error_result,
+    terminal_user_error_result_from_application_error,
+)
 from posthog.temporal.ai_observability.evaluation_event_io import extract_event_io, extract_event_tools
 from posthog.temporal.ai_observability.evaluation_types import EvaluationActivityResult
 from posthog.temporal.ai_observability.message_utils import extract_text_from_messages, format_tool_definitions
@@ -21,9 +24,12 @@ from posthog.temporal.ai_observability.metrics import (
     increment_key_type,
     increment_provider_model,
     increment_tokens,
+    increment_user_errors,
 )
+from posthog.temporal.ai_observability.model_resolution import model_spec
+from posthog.temporal.common.utils import close_db_connections
 
-from products.ai_observability.backend.llm import TRIAL_MODEL_IDS, Client, CompletionRequest
+from products.ai_observability.backend.llm import DEFAULT_MODEL_BY_PROVIDER, Client, CompletionRequest
 from products.ai_observability.backend.llm.config import get_eval_config
 from products.ai_observability.backend.llm.errors import (
     AuthenticationError,
@@ -33,12 +39,10 @@ from products.ai_observability.backend.llm.errors import (
     RateLimitError,
     StructuredOutputParseError,
 )
-from products.ai_observability.backend.models.evaluation_config import EvaluationConfig
-from products.ai_observability.backend.models.provider_keys import LLMProviderKey
 
 logger = structlog.get_logger(__name__)
 
-DEFAULT_JUDGE_MODEL = "gpt-5-mini"
+DEFAULT_JUDGE_MODEL = DEFAULT_MODEL_BY_PROVIDER["openai"]
 
 LLM_JUDGE_RETRY_POLICY = RetryPolicy(
     maximum_attempts=3,
@@ -169,6 +173,7 @@ def _build_errored_trace_result(allows_na: bool) -> EvaluationActivityResult:
 
 
 @temporalio.activity.defn
+@close_db_connections
 @posthoganalytics.scoped()
 def execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActivityResult:
     """Execute LLM judge to evaluate the target event.
@@ -211,85 +216,6 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
     if _is_errored_trace(properties):
         return _build_errored_trace_result(allows_na)
 
-    team_id = evaluation["team_id"]
-    model_configuration = evaluation.get("model_configuration")
-
-    def _get_legacy_provider_key() -> LLMProviderKey | None:
-        config, _ = EvaluationConfig.objects.get_or_create(team_id=team_id)
-
-        if config.active_provider_key:
-            key = config.active_provider_key
-            if key.state == LLMProviderKey.State.OK:
-                key.last_used_at = timezone.now()
-                key.save(update_fields=["last_used_at"])
-                return key
-            raise ApplicationError(
-                f"This API key has been disabled (status: {key.state}). Re-validate to recover, or replace it.",
-                {"error_type": "key_invalid", "key_id": str(key.id), "key_state": key.state},
-                non_retryable=True,
-            )
-
-        if config.trial_evals_used >= config.trial_eval_limit:
-            raise ApplicationError(
-                f"Trial evaluation limit ({config.trial_eval_limit}) reached. Add your own API key to continue.",
-                {"error_type": "trial_limit_reached", "trial_eval_limit": config.trial_eval_limit},
-                non_retryable=True,
-            )
-
-        return None
-
-    def _get_provider_key_by_id(key_id: str) -> LLMProviderKey:
-        try:
-            key = LLMProviderKey.objects.get(id=key_id, team_id=team_id)
-            if key.state != LLMProviderKey.State.OK:
-                raise ApplicationError(
-                    f"This API key has been disabled (status: {key.state}). Re-validate to recover, or replace it.",
-                    {"error_type": "key_invalid", "key_id": str(key.id), "key_state": key.state},
-                    non_retryable=True,
-                )
-            key.last_used_at = timezone.now()
-            key.save(update_fields=["last_used_at"])
-            return key
-        except LLMProviderKey.DoesNotExist:
-            raise ApplicationError(
-                "Provider key not found.",
-                {"error_type": "key_not_found", "key_id": key_id},
-                non_retryable=True,
-            )
-
-    def _check_trial_quota() -> None:
-        config, _ = EvaluationConfig.objects.get_or_create(team_id=team_id)
-        if config.trial_evals_used >= config.trial_eval_limit:
-            raise ApplicationError(
-                f"Trial evaluation limit ({config.trial_eval_limit}) reached. Add your own API key to continue.",
-                {"error_type": "trial_limit_reached", "trial_eval_limit": config.trial_eval_limit},
-                non_retryable=True,
-            )
-
-    if model_configuration:
-        provider = model_configuration["provider"]
-        model = model_configuration["model"]
-        provider_key_id = model_configuration.get("provider_key_id")
-
-        if provider_key_id:
-            provider_key = _get_provider_key_by_id(provider_key_id)
-        else:
-            if model not in TRIAL_MODEL_IDS:
-                raise ApplicationError(
-                    f"Model '{model}' is not available on the trial plan. Please add your own API key to use this model.",
-                    {"error_type": "model_not_allowed", "model": model},
-                    non_retryable=True,
-                )
-            _check_trial_quota()
-            provider_key = None
-    else:
-        provider = "openai"
-        model = DEFAULT_JUDGE_MODEL
-        provider_key = _get_legacy_provider_key()
-
-    is_byok = provider_key is not None
-    key_id = str(provider_key.id) if provider_key else None
-
     input_raw, output_raw = extract_event_io(event_type, properties)
     tools_raw = extract_event_tools(properties)
 
@@ -297,15 +223,53 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
     output_data = extract_text_from_messages(output_raw)
     tools_data = format_tool_definitions(tools_raw)
 
-    type_config = get_output_type_config(allows_na)
     system_prompt = build_system_prompt(prompt, allows_na)
-    response_format = type_config.response_format
 
     sections = [f"Input: {input_data}"]
     if tools_data:
         sections.append(f"Tools available:\n{tools_data}")
     sections.append(f"Output: {output_data}")
     user_prompt = "\n\n".join(sections)
+
+    return call_llm_judge(
+        evaluation=evaluation,
+        system_prompt=system_prompt,
+        user_prompt=user_prompt,
+        allows_na=allows_na,
+    )
+
+
+def call_llm_judge(
+    *,
+    evaluation: dict[str, Any],
+    system_prompt: str,
+    user_prompt: str,
+    allows_na: bool,
+) -> EvaluationActivityResult:
+    """Resolve the judge model/key for `evaluation` and run a single judge completion.
+
+    Shared by the single-event and trace-level judge activities — everything from provider
+    resolution through error mapping and result shaping is identical between them; only how the
+    user prompt is assembled differs.
+    """
+    team_id = evaluation["team_id"]
+    try:
+        resolved = model_spec(evaluation.get("model_configuration")).resolve(team_id)
+    except ApplicationError as e:
+        terminal_result = terminal_user_error_result_from_application_error(e, allows_na=allows_na)
+        if terminal_result is not None:
+            increment_user_errors(terminal_result["skip_reason"], provider=terminal_result.get("provider"))
+            return terminal_result
+        raise
+
+    provider = resolved.provider
+    model = resolved.model
+    provider_key = resolved.provider_key
+    is_byok = resolved.is_byok
+    key_id = str(provider_key.id) if provider_key else None
+
+    type_config = get_output_type_config(allows_na)
+    response_format = type_config.response_format
 
     config = get_eval_config(provider) if provider_key is None else None
 
@@ -326,45 +290,77 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
             )
         )
     except AuthenticationError:
-        increment_errors("auth_error", provider=provider)
         if is_byok:
-            raise ApplicationError(
-                "API key is invalid or has been deleted.",
-                {"error_type": "auth_error", "key_id": key_id, "provider": provider},
-                non_retryable=True,
+            increment_user_errors("auth_error", provider=provider)
+            return terminal_user_error_result(
+                spec=require_user_error_spec("auth_error", is_byok=True),
+                message="API key is invalid or has been deleted.",
+                allows_na=allows_na,
+                provider=provider,
+                model=model,
+                key_id=key_id,
+                is_byok=True,
             )
+        increment_errors("auth_error", provider=provider)
         raise
     except ModelPermissionError:
-        increment_errors("permission_error", provider=provider)
         if is_byok:
-            raise ApplicationError(
-                "API key doesn't have access to this model.",
-                {"error_type": "permission_error", "key_id": key_id, "provider": provider},
-                non_retryable=True,
+            increment_user_errors("permission_error", provider=provider)
+            return terminal_user_error_result(
+                spec=require_user_error_spec("permission_error", is_byok=True),
+                message="API key doesn't have access to this model.",
+                allows_na=allows_na,
+                provider=provider,
+                model=model,
+                key_id=key_id,
+                is_byok=True,
             )
+        increment_errors("permission_error", provider=provider)
         raise
     except QuotaExceededError:
-        increment_errors("quota_error", provider=provider)
         if is_byok:
-            raise ApplicationError(
-                "API key has exceeded its quota.",
-                {"error_type": "quota_error", "key_id": key_id, "provider": provider},
-                non_retryable=True,
+            increment_user_errors("quota_error", provider=provider)
+            return terminal_user_error_result(
+                spec=require_user_error_spec("quota_error", is_byok=True),
+                message="API key has exceeded its quota.",
+                allows_na=allows_na,
+                provider=provider,
+                model=model,
+                key_id=key_id,
+                is_byok=True,
             )
+        increment_errors("quota_error", provider=provider)
         raise
     except RateLimitError:
-        increment_errors("rate_limit", provider=provider)
         if is_byok:
-            raise ApplicationError(
-                "API key is being rate limited.",
-                {"error_type": "rate_limit", "key_id": key_id, "provider": provider},
-                non_retryable=True,
+            increment_user_errors("rate_limit", provider=provider)
+            return terminal_user_error_result(
+                spec=require_user_error_spec("rate_limit", is_byok=True),
+                message="API key is being rate limited.",
+                allows_na=allows_na,
+                provider=provider,
+                model=model,
+                key_id=key_id,
+                is_byok=True,
             )
+        increment_errors("rate_limit", provider=provider)
         raise
     except ModelNotFoundError:
+        if is_byok:
+            increment_user_errors("model_not_found", provider=provider)
+            return terminal_user_error_result(
+                spec=require_user_error_spec("model_not_found", is_byok=True),
+                message=f"Model '{model}' not found.",
+                allows_na=allows_na,
+                provider=provider,
+                model=model,
+                key_id=key_id,
+                is_byok=True,
+            )
         increment_errors("model_not_found", provider=provider)
         raise ApplicationError(
             f"Model '{model}' not found.",
+            {"error_type": "model_not_found", "provider": provider, "model": model},
             non_retryable=True,
         )
     except StructuredOutputParseError as e:
@@ -386,12 +382,12 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
         increment_errors(type(e).__name__, provider=provider)
         raise
 
-    result = response.parsed
-    if result is None:
+    parsed_result = response.parsed
+    if parsed_result is None:
         logger.exception("LLM judge returned empty structured response", evaluation_id=evaluation["id"])
         raise ValueError(f"LLM judge returned empty structured response for evaluation {evaluation['id']}")
 
-    assert isinstance(result, BooleanEvalResult | BooleanWithNAEvalResult)
+    assert isinstance(parsed_result, BooleanEvalResult | BooleanWithNAEvalResult)
 
     usage = response.usage
 
@@ -406,8 +402,8 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
 
     result_dict: EvaluationActivityResult = {
         "result_type": "boolean",
-        "verdict": result.verdict,
-        "reasoning": result.reasoning,
+        "verdict": parsed_result.verdict,
+        "reasoning": parsed_result.reasoning,
         "input_tokens": usage.input_tokens if usage else 0,
         "output_tokens": usage.output_tokens if usage else 0,
         "total_tokens": usage.total_tokens if usage else 0,
@@ -418,11 +414,11 @@ def _execute_llm_judge_activity(inputs: ExecuteLLMJudgeInputs) -> EvaluationActi
         "provider": provider,
     }
 
-    if allows_na and isinstance(result, BooleanWithNAEvalResult):
-        result_dict["applicable"] = result.applicable
-    elif isinstance(result, BooleanEvalResult):
+    if allows_na and isinstance(parsed_result, BooleanWithNAEvalResult):
+        result_dict["applicable"] = parsed_result.applicable
+    elif isinstance(parsed_result, BooleanEvalResult):
         pass
     else:
-        raise ValueError(f"Unexpected result type: {type(result)}")
+        raise ValueError(f"Unexpected result type: {type(parsed_result)}")
 
     return result_dict

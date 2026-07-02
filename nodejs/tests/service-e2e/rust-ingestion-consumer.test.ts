@@ -10,18 +10,18 @@ import {
 } from 'node-rdkafka'
 import path from 'path'
 
-import { waitForExpect } from '~/tests/helpers/expectations'
-import { TEST_KAFKA_TOPICS, createKafkaTestTopicName, ensureKafkaTopics } from '~/tests/helpers/kafka'
-import { ServiceProcess, getFreePort } from '~/tests/helpers/service-process'
-import { parseJSON } from '~/utils/json-parse'
-
 import {
     KAFKA_EVENTS_JSON,
     KAFKA_EVENTS_PLUGIN_INGESTION,
     KAFKA_EVENTS_PLUGIN_INGESTION_DLQ,
-} from '../../src/config/kafka-topics'
-import { KafkaProducerWrapper, MessageWithoutTopic } from '../../src/kafka/producer'
-import { UUIDT } from '../../src/utils/utils'
+} from '~/common/config/kafka-topics'
+import { KafkaProducerWrapper, MessageWithoutTopic } from '~/common/kafka/producer'
+import { parseJSON } from '~/common/utils/json-parse'
+import { UUIDT } from '~/common/utils/utils'
+import { waitForExpect } from '~/tests/helpers/expectations'
+import { TEST_KAFKA_TOPICS, createKafkaTestTopicName, ensureKafkaTopics } from '~/tests/helpers/kafka'
+import { ServiceProcess, getFreePort } from '~/tests/helpers/service-process'
+
 import { Clickhouse } from '../helpers/clickhouse'
 import {
     DEFAULT_TEAM,

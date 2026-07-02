@@ -2,10 +2,16 @@ import { useRef } from 'react'
 
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 
+import { EventName } from 'products/actions/frontend/components/EventName'
+
 import { WIDGET_DATE_RANGE_SELECT_OPTIONS, type WidgetDateFromValue } from '../../widget_types/widgetConfigShared'
 import type { DashboardWidgetTileFiltersProps } from '../registry'
 import { useWidgetTileConfigPersist } from '../widgetTileFiltersHooks'
-import { WidgetDateRangeReadOnlyValue, WidgetTileFiltersBar } from '../widgetTileFiltersReadOnly'
+import {
+    WidgetDateRangeReadOnlyValue,
+    WidgetTileFilterReadOnlyLabel,
+    WidgetTileFiltersBar,
+} from '../widgetTileFiltersReadOnly'
 import {
     parseActivityEventsWidgetConfig,
     patchActivityEventsWidgetFilterFields,
@@ -20,6 +26,7 @@ export function ActivityEventsWidgetTileFilters({
 }: ActivityEventsWidgetTileFiltersProps): JSX.Element {
     const parsed = parseActivityEventsWidgetConfig(config)
     const dateFrom = (parsed.dateRange?.date_from ?? '-24h') as WidgetDateFromValue
+    const eventName = parsed.eventName ?? null
 
     const configRef = useRef(config)
     configRef.current = config
@@ -34,10 +41,17 @@ export function ActivityEventsWidgetTileFilters({
         await persistConfigNow(nextConfig)
     }
 
+    const applyEventName = async (value: string | null): Promise<void> => {
+        const nextConfig = patchActivityEventsWidgetFilterFields(configRef.current, { eventName: value })
+        configRef.current = nextConfig
+        await persistConfigNow(nextConfig)
+    }
+
     if (!onUpdateConfig) {
         return (
             <WidgetTileFiltersBar dataAttr="activity-events-widget-tile-filters-readonly">
                 <WidgetDateRangeReadOnlyValue dateFrom={dateFrom} />
+                {eventName ? <WidgetTileFilterReadOnlyLabel name="Event" value={eventName} /> : null}
             </WidgetTileFiltersBar>
         )
     }
@@ -54,6 +68,15 @@ export function ActivityEventsWidgetTileFilters({
                     if (value) {
                         void applyDateFrom(value)
                     }
+                }}
+            />
+            <EventName
+                value={eventName}
+                allEventsOption="clear"
+                disabled={!canUpdate}
+                placeholder="All events"
+                onChange={(value) => {
+                    void applyEventName(value)
                 }}
             />
         </WidgetTileFiltersBar>

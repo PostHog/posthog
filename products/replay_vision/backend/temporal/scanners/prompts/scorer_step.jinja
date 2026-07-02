@@ -1,0 +1,5 @@
+{% from "_macros.jinja" import cite_in %}Rate this session against the following criterion: {{ user_prompt }}
+
+In `reasoning`, work through what you observed in the session that bears on this criterion; then set `score` on {% if scale_label %}the '{{ scale_label }}' scale{% else %}the scale{% endif %} from {{ scale_min }} to {{ scale_max }}.
+
+{{ cite_in('reasoning') }}

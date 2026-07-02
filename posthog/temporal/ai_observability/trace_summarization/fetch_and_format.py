@@ -9,7 +9,7 @@ from posthog.hogql import ast
 from posthog.hogql.parser import parse_select
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
-from posthog.hogql_queries.ai.ai_table_resolver import execute_with_ai_events_fallback
+from posthog.hogql_queries.ai.ai_table_resolver import query_ai_events
 from posthog.models.team import Team
 from posthog.redis import get_async_client
 from posthog.sync import database_sync_to_async
@@ -102,9 +102,9 @@ def _fetch_and_format_generation(
     end_dt_str = format_datetime_for_clickhouse(window_end)
 
     # Query the dedicated table first; the resolver rewrites + re-runs against the
-    # shared `events` table when ai_events returns zero rows. Heavy columns (`input`,
-    # `output`) live as native columns on ai_events and as stripped JSON on events
-    # post-cutover — only the migrated path can recover them for recent rows.
+    # shared `events` table when ai_events returns zero rows (data beyond the
+    # retention window). Heavy columns (`input`, `output`) live only as native
+    # columns on ai_events, so only this path can recover them for recent rows.
     query = parse_select(
         """
         SELECT
@@ -126,7 +126,7 @@ def _fetch_and_format_generation(
     )
 
     with tags_context(product=Product.LLM_ANALYTICS, feature=Feature.QUERY, team_id=team.id):
-        result = execute_with_ai_events_fallback(
+        result = query_ai_events(
             query=query,
             placeholders={
                 "start_dt": ast.Constant(value=start_dt_str),
@@ -136,6 +136,7 @@ def _fetch_and_format_generation(
             },
             team=team,
             query_type="GenerationForSummarization",
+            fall_back_to_events=True,
         )
 
     if not result.results:

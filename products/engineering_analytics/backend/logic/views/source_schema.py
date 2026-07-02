@@ -40,6 +40,7 @@ WORKFLOW_RUNS_COLUMNS: dict[str, dict[str, str]] = {
     "id": {"clickhouse": "Nullable(Int64)", "hogql": "IntegerDatabaseField"},
     "name": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "head_sha": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
+    "head_branch": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "status": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "conclusion": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},
     "created_at": {"clickhouse": "Nullable(String)", "hogql": "StringDatabaseField"},

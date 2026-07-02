@@ -1,7 +1,7 @@
 """Experiment service — single source of truth for experiment business logic."""
 
 from collections import defaultdict
-from collections.abc import Mapping
+from collections.abc import Iterable, Mapping
 from copy import deepcopy
 from datetime import date, datetime, timedelta
 from enum import Enum
@@ -10,13 +10,13 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import Case, Count, F, Prefetch, Q, QuerySet, Value, When
+from django.db.models import Case, CharField, Count, F, Prefetch, Q, QuerySet, Value, When
 from django.db.models.functions import Coalesce, Now, NullIf
 from django.utils import timezone
 
 import pydantic
 import structlog
-from rest_framework.exceptions import ValidationError
+from rest_framework.exceptions import PermissionDenied, ValidationError
 
 from posthog.schema import (
     ActionsNode,
@@ -28,18 +28,22 @@ from posthog.schema import (
 
 from posthog.api.cohort import CohortSerializer
 from posthog.event_usage import EventSource, report_user_action
+from posthog.models.activity_logging.utils import get_changed_fields_local
 from posthog.models.filters.filter import Filter
 from posthog.models.signals import mute_selected_signals
 from posthog.models.team.extensions import get_or_create_team_extension
 from posthog.models.team.team import Team
+from posthog.models.user import User
+from posthog.rbac.user_access_control import UserAccessControl
 from posthog.utils import str_to_bool
 
 from products.actions.backend.models.action import Action
+from products.approvals.backend.policies import PolicyEngine
 from products.cohorts.backend.models.cohort import Cohort
 from products.experiments.backend.hogql_queries.base_query_utils import is_threshold_supported_math
 from products.experiments.backend.hogql_queries.experiment_metric_fingerprint import compute_metric_fingerprint
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
-from products.experiments.backend.metric_utils import collect_metric_events_and_action_ids, resolve_action_events
+from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
 from products.experiments.backend.models.experiment import (
     LEGACY_METRIC_KINDS,
     Experiment,
@@ -53,7 +57,12 @@ from products.experiments.backend.models.experiment import (
 )
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.result_serialization import strip_step_sessions
-from products.feature_flags.backend.api.feature_flag import FeatureFlagSerializer, parse_created_by_ids
+from products.experiments.backend.warehouse_access_control import enforce_warehouse_metric_access
+from products.feature_flags.backend.api.feature_flag import (
+    FeatureFlagSerializer,
+    parse_created_by_ids,
+    raise_if_flag_has_dependents,
+)
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.notifications.backend.facade.api import (
@@ -178,29 +187,19 @@ class ExperimentService:
                     "'key' to 'control'."
                 )
 
-        excluded_variants = parameters.get("excluded_variants")
-        if excluded_variants is None:
-            return
+    @staticmethod
+    def _validate_excluded_variant_keys(
+        excluded_variants: list[str], variant_keys: Iterable[str], baseline_key: str
+    ) -> None:
+        """Semantic checks for excluded variants against an already-resolved variant set.
 
-        if not isinstance(excluded_variants, list) or not all(isinstance(v, str) for v in excluded_variants):
-            raise ValidationError("excluded_variants must be a list of strings")
-
+        Variant keys come from the linked feature flag (the source of truth), so the canonical
+        `excluded_variants` path validates without re-sending `feature_flag_variants`.
+        """
         if not excluded_variants:
             return
 
-        # `parameters` is replaced wholesale on update (see update_experiment:
-        # `update_data.get("parameters", experiment.parameters)`), not merged — so a
-        # PATCH that sets `excluded_variants` must also resend `feature_flag_variants`,
-        # otherwise the stored object would have no variants at all. Surface that
-        # explicitly rather than letting every key fall through to "unknown variants".
-        if not variants:
-            raise ValidationError(
-                "excluded_variants requires feature_flag_variants in the same request — "
-                "parameters are replaced as a whole on update, so send the full parameters object"
-            )
-
-        variant_keys = {v["key"] for v in variants}
-        baseline_key = (parameters.get("stats_config") or {}).get("baseline_variant_key", "control")
+        variant_key_set = set(variant_keys)
 
         holdout_excluded = {k for k in excluded_variants if k.startswith("holdout-")}
         if holdout_excluded:
@@ -209,12 +208,25 @@ class ExperimentService:
         if baseline_key in excluded_variants:
             raise ValidationError(f"baseline variant cannot be excluded ('{baseline_key}')")
 
-        unknown = set(excluded_variants) - variant_keys
+        unknown = set(excluded_variants) - variant_key_set
         if unknown:
             raise ValidationError(f"unknown variants for this experiment: {sorted(unknown)}")
 
-        if not variant_keys - set(excluded_variants) - {baseline_key}:
+        if not variant_key_set - set(excluded_variants) - {baseline_key}:
             raise ValidationError("at least one test variant must remain in analysis")
+
+    @staticmethod
+    def validate_excluded_variants(value: list[str] | None) -> None:
+        """Shape check for the canonical excluded_variants list (the serializer also enforces
+        this via ListField, but direct service callers don't go through it).
+
+        Semantic checks (holdout/baseline/unknown/at-least-one-remains) run in create/update
+        against the resolved feature-flag variants — see ``_validate_excluded_variant_keys``.
+        """
+        if value is None:
+            return
+        if not isinstance(value, list) or not all(isinstance(v, str) for v in value):
+            raise ValidationError("excluded_variants must be a list of strings")
 
     RUNNING_TIME_CALCULATION_KEYS = (
         "minimum_detectable_effect",
@@ -243,25 +255,6 @@ class ExperimentService:
         exposure_estimate_config = value.get("exposure_estimate_config")
         if exposure_estimate_config is not None and not isinstance(exposure_estimate_config, dict):
             raise ValidationError("exposure_estimate_config must be an object")
-
-    @staticmethod
-    def _running_time_calculation_from_parameters(parameters: dict | None) -> dict:
-        return {
-            key: (parameters or {})[key]
-            for key in ExperimentService.RUNNING_TIME_CALCULATION_KEYS
-            if key in (parameters or {})
-        }
-
-    @staticmethod
-    def _merge_running_time_calculation_into_parameters(parameters: dict | None, calculation: dict | None) -> dict:
-        """Replace the legacy calculator keys in `parameters` with the canonical calculation values."""
-        merged = {
-            key: value
-            for key, value in (parameters or {}).items()
-            if key not in ExperimentService.RUNNING_TIME_CALCULATION_KEYS
-        }
-        merged.update(calculation or {})
-        return merged
 
     EXPOSURE_CONFIG_KINDS = ("ExperimentEventExposureConfig", "ActionsNode")
 
@@ -522,6 +515,21 @@ class ExperimentService:
                 f"Must be one of: {', '.join(sorted(variant_keys))}"
             )
 
+    # Feature-flag config keys that belong on the linked FeatureFlag (the source of truth). They are
+    # accepted as create/update input to build/sync the flag, projected back into the deprecated
+    # `parameters` API field at read time (see ExperimentBaseSerializer), but never persisted into
+    # the `parameters` column.
+    FEATURE_FLAG_CONFIG_KEYS = ("feature_flag_variants", "rollout_percentage", "aggregation_group_type_index")
+
+    @classmethod
+    def _strip_feature_flag_config(cls, parameters: dict | None) -> dict | None:
+        """Return ``parameters`` without the feature-flag config keys, so they are not stored in the
+        deprecated column. Callers consume those keys earlier to build/sync the flag; reads
+        re-derive them from it. Returns a new dict, leaving the caller's input untouched."""
+        if not parameters:
+            return parameters
+        return {k: v for k, v in parameters.items() if k not in cls.FEATURE_FLAG_CONFIG_KEYS}
+
     @staticmethod
     def _variant_keys(variants: list | None) -> list[str]:
         """Extract variant keys from a feature_flag_variants list, skipping malformed entries."""
@@ -723,6 +731,7 @@ class ExperimentService:
         type: str = "product",
         parameters: dict | None = None,
         running_time_calculation: dict | None = None,
+        excluded_variants: list[str] | None = None,
         metrics: list[dict] | None = None,
         metrics_secondary: list[dict] | None = None,
         secondary_metrics: list[dict] | None = None,
@@ -762,12 +771,8 @@ class ExperimentService:
         self.validate_variant_shapes(parameters)
         self.validate_variant_percentages(parameters)
         self.validate_running_time_calculation(running_time_calculation)
-        # Dual-write during the parameters deprecation window: running_time_calculation is
-        # canonical, but the legacy calculator keys in `parameters` stay in sync for old readers.
-        if running_time_calculation is not None:
-            parameters = self._merge_running_time_calculation_into_parameters(parameters, running_time_calculation)
-        else:
-            running_time_calculation = self._running_time_calculation_from_parameters(parameters)
+        self.validate_excluded_variants(excluded_variants)
+        running_time_calculation = running_time_calculation or {}
         self.validate_experiment_metrics(metrics)
         self.validate_experiment_metrics(metrics_secondary)
         self.validate_metric_action_ids(metrics, self.team.id)
@@ -775,6 +780,15 @@ class ExperimentService:
         if not allow_unknown_events:
             self.validate_metric_event_names(metrics)
             self.validate_metric_event_names(metrics_secondary)
+        enforce_warehouse_metric_access(
+            [
+                *(metrics or []),
+                *(metrics_secondary or []),
+                *self._collect_saved_metric_queries(saved_metrics_ids),
+            ],
+            team=self.team,
+            user=self.user,
+        )
         self.validate_saved_metrics_ids(saved_metrics_ids, self.team.id)
         is_draft = start_date is None
 
@@ -795,6 +809,13 @@ class ExperimentService:
         used_variant_keys = self._variant_keys(used_variants)
         self.validate_stats_config(stats_config, used_variant_keys)
 
+        # Validate excluded_variants against the variants the flag actually ends up with,
+        # mirroring the baseline check above. Resolving against the flag (not the request
+        # payload) is what lets the excluded_variants path skip re-sending feature_flag_variants.
+        if excluded_variants:
+            baseline_key = (stats_config or {}).get("baseline_variant_key", "control")
+            self._validate_excluded_variant_keys(excluded_variants, used_variant_keys, baseline_key)
+
         team_config = self._get_team_experiments_config()
         stats_config = self._apply_stats_config_defaults(stats_config, team_config)
         exposure_criteria = self._apply_exposure_criteria_defaults(exposure_criteria)
@@ -811,7 +832,7 @@ class ExperimentService:
                     stats_method,
                     exposure_criteria,
                     only_count_matured_users=only_count_matured_users,
-                    excluded_variants=(parameters or {}).get("excluded_variants"),
+                    excluded_variants=excluded_variants,
                 )
         if metrics_secondary is not None:
             for metric in metrics_secondary:
@@ -821,7 +842,7 @@ class ExperimentService:
                     stats_method,
                     exposure_criteria,
                     only_count_matured_users=only_count_matured_users,
-                    excluded_variants=(parameters or {}).get("excluded_variants"),
+                    excluded_variants=excluded_variants,
                 )
 
         self.validate_no_duplicate_metric_uuids(metrics, metrics_secondary)
@@ -849,8 +870,11 @@ class ExperimentService:
             "name": name,
             "description": description,
             "type": type,
-            "parameters": parameters,
+            # Feature-flag config was already consumed by _ensure_feature_flag above; strip it so it
+            # lives only on the flag, not mirrored into the deprecated `parameters` column.
+            "parameters": self._strip_feature_flag_config(parameters),
             "running_time_calculation": running_time_calculation,
+            "excluded_variants": excluded_variants,
             "metrics": metrics if metrics is not None else [],
             "metrics_secondary": metrics_secondary if metrics_secondary is not None else [],
             "secondary_metrics": secondary_metrics if secondary_metrics is not None else [],
@@ -881,15 +905,40 @@ class ExperimentService:
             self._sync_saved_metrics(experiment, saved_metrics_ids, serializer_context)
 
         self._validate_metric_ordering_on_create(experiment)
-        self._report_experiment_created(
-            experiment,
-            serializer_context=serializer_context,
-            event_source=event_source,
-            allow_unknown_events=allow_unknown_events,
-            creation_mode=creation_mode,
+        # Defer the analytics capture until after commit so create_experiment's @transaction.atomic
+        # doesn't hold posthog_experiment / posthog_filesystem locks open across an external SDK call.
+        transaction.on_commit(
+            lambda: self._report_experiment_created_safe(
+                experiment,
+                serializer_context=serializer_context,
+                event_source=event_source,
+                allow_unknown_events=allow_unknown_events,
+                creation_mode=creation_mode,
+            )
         )
 
         return experiment
+
+    def _report_experiment_created_safe(
+        self,
+        experiment: Experiment,
+        *,
+        serializer_context: dict | None,
+        event_source: EventSource | None,
+        allow_unknown_events: bool,
+        creation_mode: ExperimentCreationMode,
+    ) -> None:
+        # Post-commit: the experiment is already persisted, so analytics failures must not break the request.
+        try:
+            self._report_experiment_created(
+                experiment,
+                serializer_context=serializer_context,
+                event_source=event_source,
+                allow_unknown_events=allow_unknown_events,
+                creation_mode=creation_mode,
+            )
+        except Exception:
+            logger.exception("experiment_created_analytics_failed", experiment_id=experiment.id)
 
     # ------------------------------------------------------------------
     # Private helpers
@@ -1083,6 +1132,20 @@ class ExperimentService:
             if sm.query and (uuid := sm.query.get("uuid")):
                 seen.add(uuid)
         return seen
+
+    def _collect_saved_metric_queries(self, saved_metrics_ids: list | None) -> list[dict]:
+        """Query definitions of the attached saved metrics, so their tables get the same warehouse
+        access check as inline metrics."""
+        if not saved_metrics_ids:
+            return []
+        ids = [sm["id"] for sm in saved_metrics_ids if isinstance(sm, dict) and "id" in sm]
+        if not ids:
+            return []
+        return [
+            sm.query
+            for sm in ExperimentSavedMetric.objects.filter(id__in=ids, team_id=self.team.id).only("query")
+            if sm.query
+        ]
 
     @staticmethod
     def _regenerate_all_metric_uuids(metrics: list[dict] | None) -> tuple[list[dict] | None, dict[str, str]]:
@@ -1307,7 +1370,7 @@ class ExperimentService:
                         experiment.start_date,
                         experiment.stats_config,
                         experiment.exposure_criteria,
-                        excluded_variants=(experiment.parameters or {}).get("excluded_variants"),
+                        excluded_variants=experiment.excluded_variants or [],
                     ),
                 )
 
@@ -1326,8 +1389,24 @@ class ExperimentService:
     # ------------------------------------------------------------------
 
     @transaction.atomic
-    def archive_experiment(self, experiment: Experiment, *, request: Any | None = None) -> Experiment:
-        """Archive an ended experiment: validate it has ended, set archived=True."""
+    def archive_experiment(
+        self,
+        experiment: Experiment,
+        *,
+        disable_feature_flag: bool = False,
+        can_write_feature_flag: bool = True,
+        request: Any | None = None,
+    ) -> Experiment:
+        """Archive an ended experiment: validate it has ended, set archived=True.
+
+        When the linked flag is still enabled, it is only disabled and archived if
+        ``disable_feature_flag`` is set — an enabled flag may still be serving traffic
+        (e.g. rolling out the winning variant), so archiving it is an explicit choice.
+        An already-disabled flag is archived regardless.
+
+        ``can_write_feature_flag`` reflects whether the caller's token carries
+        ``feature_flag:write`` — touching the linked flag is skipped when it doesn't.
+        """
         if experiment.archived:
             raise ValidationError("Experiment is already archived.")
         if not experiment.is_stopped:
@@ -1336,9 +1415,92 @@ class ExperimentService:
         experiment.archived = True
         experiment.save()
 
+        self._archive_linked_feature_flag(
+            experiment, disable_if_active=disable_feature_flag, can_write_feature_flag=can_write_feature_flag
+        )
+
         self._report_experiment_archived(experiment, request=request)
 
         return experiment
+
+    def _user_can_edit_flag(self, feature_flag: FeatureFlag) -> bool:
+        """Whether self.user has editor access to this flag — the same check the feature flag API enforces."""
+        user = self.user
+        if not isinstance(user, User) or user.is_anonymous:
+            return False
+        return UserAccessControl(user=user, team=self.team).check_access_level_for_object(feature_flag, "editor")
+
+    def _flag_disable_requires_approval(self) -> bool:
+        """Whether an enabled approval policy gates disabling a flag for this team/org."""
+        policy = PolicyEngine().get_policy(
+            action_key="feature_flag.disable", team=self.team, organization=self.team.organization
+        )
+        return policy is not None
+
+    def _archive_linked_feature_flag(
+        self, experiment: Experiment, *, disable_if_active: bool = False, can_write_feature_flag: bool = True
+    ) -> None:
+        """Archive the experiment's flag along with it, so it stops cluttering the flag list.
+
+        An already-disabled flag is archived. An enabled flag is left untouched unless
+        ``disable_if_active`` is set, in which case it is disabled and archived together —
+        an enabled flag may still be serving traffic (e.g. rolling out the winning variant).
+        Never touches a flag still used by another live experiment.
+
+        Mutating the linked flag is gated by the same authorization the flag API enforces:
+        the caller's token must carry ``feature_flag:write`` (``can_write_feature_flag``)
+        and the user must have editor access to the flag, and disabling an active flag is
+        refused when an approval policy would gate it (a side-effect mutation can't be
+        routed through the change-request flow). The implicit archive-only cleanup is
+        skipped silently when the caller lacks access — the experiment still archives.
+        """
+        # Lock the row so a concurrent enable can't slip in between the check and the save,
+        # which would produce an archived flag that is still active.
+        feature_flag = (
+            FeatureFlag.objects.select_for_update()
+            .filter(pk=experiment.feature_flag_id, team_id=experiment.team_id)
+            .first()
+        )
+        if feature_flag is None or feature_flag.deleted or feature_flag.archived:
+            return
+        if feature_flag.experiment_set.filter(deleted=False, archived=False).exclude(id=experiment.id).exists():
+            return
+
+        can_edit = self._user_can_edit_flag(feature_flag)
+
+        if feature_flag.active:
+            if not disable_if_active:
+                return
+            # Explicit, user-requested flag change: enforce the same gates the flag API does.
+            if not can_write_feature_flag:
+                raise PermissionDenied(
+                    "You don't have feature flag write access, so this experiment's feature flag can't be disabled."
+                )
+            if not can_edit:
+                raise PermissionDenied(
+                    "You don't have editor access to this experiment's feature flag, so it can't be disabled. "
+                    "Archive the experiment without disabling the flag, or ask someone with flag access."
+                )
+            if self._flag_disable_requires_approval():
+                raise PermissionDenied(
+                    "Disabling this feature flag requires approval. Disable it from the feature flag page "
+                    "to go through the approval flow, then archive the experiment."
+                )
+            # Mirror the feature flag API's check: don't disable a flag other active flags depend on.
+            raise_if_flag_has_dependents(feature_flag)
+            feature_flag.active = False
+        elif not can_edit or not can_write_feature_flag:
+            # Implicit cleanup of an already-disabled flag — skip silently when the caller
+            # lacks flag editor access or feature_flag:write scope; the experiment still archives.
+            return
+
+        feature_flag.archived = True
+        feature_flag.save(update_fields=["archived", "active"])
+
+        # Remember that this experiment archived the flag, so unarchiving the experiment
+        # only undoes its own archive — never one the user performed manually.
+        experiment.feature_flag_auto_archived = True
+        experiment.save(update_fields=["feature_flag_auto_archived"])
 
     def _report_experiment_archived(
         self,
@@ -1361,17 +1523,58 @@ class ExperimentService:
     # Unarchive
     # ------------------------------------------------------------------
 
-    def unarchive_experiment(self, experiment: Experiment, *, request: Any | None = None) -> Experiment:
-        """Unarchive an archived experiment: validate it is archived, set archived=False."""
+    @transaction.atomic
+    def unarchive_experiment(
+        self, experiment: Experiment, *, can_write_feature_flag: bool = True, request: Any | None = None
+    ) -> Experiment:
+        """Unarchive an archived experiment: validate it is archived, set archived=False.
+
+        ``can_write_feature_flag`` reflects whether the caller's token carries
+        ``feature_flag:write`` — un-archiving the linked flag is skipped when it doesn't.
+        """
         if not experiment.archived:
             raise ValidationError("Experiment is not archived.")
 
         experiment.archived = False
         experiment.save()
 
+        self._unarchive_linked_feature_flag(experiment, can_write_feature_flag=can_write_feature_flag)
+
         self._report_experiment_unarchived(experiment, request=request)
 
         return experiment
+
+    def _unarchive_linked_feature_flag(self, experiment: Experiment, *, can_write_feature_flag: bool = True) -> None:
+        """Mirror of _archive_linked_feature_flag: bring the flag back with the experiment.
+
+        Only undoes an archive this experiment performed — a flag the user archived
+        manually stays archived. The flag stays disabled either way; re-enabling it is
+        an explicit user decision. Un-archiving the flag is a feature_flag write, so it's
+        skipped (leaving the flag archived and the bookkeeping intact, recoverable later)
+        when the caller lacks feature_flag:write scope or editor access to the flag.
+        """
+        if not experiment.feature_flag_auto_archived:
+            return
+
+        feature_flag = (
+            FeatureFlag.objects.select_for_update()
+            .filter(pk=experiment.feature_flag_id, team_id=experiment.team_id)
+            .first()
+        )
+        if feature_flag is None or feature_flag.deleted or not feature_flag.archived:
+            # Flag is gone or already un-archived — clear the now-stale bookkeeping.
+            experiment.feature_flag_auto_archived = False
+            experiment.save(update_fields=["feature_flag_auto_archived"])
+            return
+
+        if not can_write_feature_flag or not self._user_can_edit_flag(feature_flag):
+            return
+
+        feature_flag.archived = False
+        feature_flag.save(update_fields=["archived"])
+
+        experiment.feature_flag_auto_archived = False
+        experiment.save(update_fields=["feature_flag_auto_archived"])
 
     def _report_experiment_unarchived(
         self,
@@ -1521,7 +1724,6 @@ class ExperimentService:
         completed_metadata = experiment.get_analytics_metadata()
         completed_metadata["end_date"] = experiment.end_date.isoformat() if experiment.end_date else None
         completed_metadata["parameters"] = experiment.parameters
-        completed_metadata["saved_metrics_count"] = experiment.saved_metrics.count()
         completed_metadata["stats_method"] = (experiment.stats_config or {}).get("method", "bayesian")
         if experiment.start_date and experiment.end_date:
             completed_metadata["duration"] = int((experiment.end_date - experiment.start_date).total_seconds())
@@ -1825,14 +2027,26 @@ class ExperimentService:
         *,
         serializer_context: dict | None = None,
         allow_unknown_events: bool = False,
+        event_source: EventSource | None = None,
     ) -> Experiment:
         """Update an experiment with full business-logic validation.
 
         ``update_data`` mirrors the DRF ``validated_data`` dict produced by
         ``ExperimentSerializer``.  The caller is responsible for DRF-level input
         validation (field types, metric schema, etc.) before calling this method.
+
+        ``event_source`` attributes the "experiment updated" event for non-HTTP callers,
+        mirroring ``create_experiment``.
         """
         update_feature_flag_params = update_data.pop("update_feature_flag_params", False)
+
+        # Snapshot before the update to diff what actually changed. The activity-log diff
+        # misses the saved-metric M2M, so capture its signature separately, before the sync
+        # below mutates it. Skip the reads when neither channel will report.
+        report_request = serializer_context.get("request") if serializer_context else None
+        should_report_update = report_request is not None or event_source is not None
+        before_update = experiment._get_before_update() if should_report_update else None
+        before_saved_metrics = self._saved_metric_signature(experiment) if should_report_update else frozenset()
 
         if "saved_metrics_ids" in update_data:
             self.validate_saved_metrics_ids(update_data["saved_metrics_ids"], self.team.id)
@@ -1881,6 +2095,16 @@ class ExperimentService:
             self.validate_metric_action_ids(update_data["metrics_secondary"], self.team.id)
             if not allow_unknown_events:
                 self.validate_metric_event_names(update_data["metrics_secondary"])
+
+        enforce_warehouse_metric_access(
+            [
+                *(update_data.get("metrics") or []),
+                *(update_data.get("metrics_secondary") or []),
+                *self._collect_saved_metric_queries(update_data.get("saved_metrics_ids")),
+            ],
+            team=self.team,
+            user=self.user,
+        )
 
         context = serializer_context or self._build_serializer_context()
         feature_flag = experiment.feature_flag
@@ -2008,6 +2232,16 @@ class ExperimentService:
             effective_stats_config = update_data.get("stats_config", experiment.stats_config)
             self.validate_stats_config(effective_stats_config, variant_keys)
 
+        # Validate excluded_variants against the resolved flag variants — no
+        # feature_flag_variants resend required.
+        if "excluded_variants" in update_data:
+            new_excluded = update_data["excluded_variants"]
+            if new_excluded:
+                variant_keys = self._resolved_variant_keys(experiment, update_data)
+                effective_stats_config = update_data.get("stats_config", experiment.stats_config)
+                baseline_key = (effective_stats_config or {}).get("baseline_variant_key", "control")
+                self._validate_excluded_variant_keys(new_excluded, variant_keys, baseline_key)
+
         # Defense-in-depth: only validate the inline metric lists this update
         # is actually touching. Dedup-on-input has already made these lists
         # unique; validating the stored arrays would block a soft-delete (or any
@@ -2020,8 +2254,13 @@ class ExperimentService:
         stats_config = update_data.get("stats_config", experiment.stats_config)
         exposure_criteria = update_data.get("exposure_criteria", experiment.exposure_criteria)
         only_count_matured_users = update_data.get("only_count_matured_users", experiment.only_count_matured_users)
-        new_parameters = update_data.get("parameters", experiment.parameters)
-        excluded_variants = (new_parameters or {}).get("excluded_variants")
+        # Canonical excluded_variants for fingerprints: prefer an explicit column update,
+        # otherwise the stored canonical value. So a client PATCHing only excluded_variants
+        # still fingerprints with the new exclusions.
+        if "excluded_variants" in update_data:
+            excluded_variants = update_data["excluded_variants"]
+        else:
+            excluded_variants = experiment.excluded_variants or []
 
         for metric_field in ["metrics", "metrics_secondary"]:
             metrics = update_data.get(metric_field, getattr(experiment, metric_field, None))
@@ -2051,27 +2290,77 @@ class ExperimentService:
             feature_flag.active = True
             feature_flag.save()
 
-        # --- running-time calculation dual-write ----------------------------
-        # During the parameters deprecation window, keep running_time_calculation and
-        # the legacy calculator keys in `parameters` in sync. `parameters` is replaced
-        # wholesale on update, so derive the counterpart from whichever side this
-        # update carries (running_time_calculation wins when both are sent).
-        if "running_time_calculation" in update_data:
-            update_data["parameters"] = self._merge_running_time_calculation_into_parameters(
-                update_data.get("parameters", experiment.parameters),
-                update_data["running_time_calculation"],
-            )
-        elif "parameters" in update_data:
-            update_data["running_time_calculation"] = self._running_time_calculation_from_parameters(
-                update_data["parameters"]
-            )
-
         # --- apply changes and save ----------------------------------------
+        # Feature-flag config was already synced to the flag above; strip it so it is not mirrored
+        # into the deprecated `parameters` column. Reads re-derive it from the flag.
+        if update_data.get("parameters") is not None:
+            update_data["parameters"] = self._strip_feature_flag_config(update_data["parameters"])
         for attr, value in update_data.items():
             setattr(experiment, attr, value)
         experiment.save()
 
+        if should_report_update:
+            changed_fields = self._compute_changed_fields(
+                experiment, before_update=before_update, before_saved_metrics=before_saved_metrics
+            )
+            if changed_fields:
+                self._report_experiment_updated(
+                    experiment, changed_fields=changed_fields, request=report_request, event_source=event_source
+                )
+
         return experiment
+
+    def _compute_changed_fields(
+        self,
+        experiment: Experiment,
+        *,
+        before_update: "Experiment | None",
+        before_saved_metrics: frozenset[tuple[int, str]],
+    ) -> list[str]:
+        """The experiment fields that actually changed, sorted and deduped.
+
+        Scalar/JSON fields come from the activity-log diff; the saved-metric M2M is diffed
+        separately because that relation is excluded from it.
+        """
+        changed_fields = get_changed_fields_local(before_update, experiment) if before_update is not None else []
+        # Check if saved_metric assignment has changed
+        if before_saved_metrics != self._saved_metric_signature(experiment):
+            changed_fields = [*changed_fields, "saved_metrics"]
+        return sorted(set(changed_fields))
+
+    @staticmethod
+    def _saved_metric_signature(experiment: Experiment) -> frozenset[tuple[int, str]]:
+        """Identity of an experiment's shared-metric links: (saved_metric_id, type)."""
+        return frozenset(
+            (saved_metric_id, (metadata or {}).get("type", "primary"))
+            for saved_metric_id, metadata in experiment.experimenttosavedmetric_set.values_list(
+                "saved_metric_id", "metadata"
+            )
+        )
+
+    def _report_experiment_updated(
+        self,
+        experiment: Experiment,
+        *,
+        changed_fields: list[str],
+        request: Any | None = None,
+        event_source: EventSource | None = None,
+    ) -> None:
+        if request is None and event_source is None:
+            return
+
+        metadata = experiment.get_analytics_metadata()
+        metadata["changed_fields"] = changed_fields
+        if event_source is not None:
+            metadata["source"] = event_source
+
+        report_user_action(
+            self.user,
+            "experiment updated",
+            metadata,
+            team=experiment.team,
+            request=request,
+        )
 
     def _validate_update_payload(self, experiment: Experiment, update_data: dict, feature_flag: FeatureFlag) -> None:
         """Validate update payload before any database mutations occur."""
@@ -2119,6 +2408,7 @@ class ExperimentService:
             "filters",
             "parameters",
             "running_time_calculation",
+            "excluded_variants",
             "archived",
             "deleted",
             "secondary_metrics",
@@ -2144,6 +2434,7 @@ class ExperimentService:
             raise ValidationError(f"Can't update keys: {', '.join(sorted(extra_keys))} on Experiment")
 
         self.validate_running_time_calculation(update_data.get("running_time_calculation"))
+        self.validate_excluded_variants(update_data.get("excluded_variants"))
 
         if not experiment.is_draft:
             if "feature_flag_variants" in update_data.get("parameters", {}):
@@ -2247,6 +2538,7 @@ class ExperimentService:
             description=source_experiment.description or "",
             type=source_experiment.type or "product",
             parameters=parameters,
+            running_time_calculation=deepcopy(source_experiment.running_time_calculation),
             filters=source_experiment.filters,
             metrics=cloned_metrics,
             metrics_secondary=cloned_metrics_secondary,
@@ -2412,28 +2704,14 @@ class ExperimentService:
             if query:
                 saved_queries_by_experiment[experiment_id].append(query)
 
-        per_experiment: list[tuple[int, set[str], set[int]]] = []
-        all_action_ids: set[int] = set()
-        for pk, metrics, metrics_secondary in inline_metrics:
-            combined: list[dict[str, Any]] = [
-                *(metrics or []),
-                *(metrics_secondary or []),
-                *saved_queries_by_experiment.get(pk, []),
-            ]
-            events, action_ids = collect_metric_events_and_action_ids(combined)
-            per_experiment.append((pk, events, action_ids))
-            all_action_ids |= action_ids
-
-        action_events = resolve_action_events(all_action_ids, self.team)
-
-        matching_ids: list[int] = []
-        for pk, events, action_ids in per_experiment:
-            resolved = set(events)
-            for action_id in action_ids:
-                resolved |= action_events.get(action_id, set())
-            if event in resolved:
-                matching_ids.append(pk)
-        return matching_ids
+        metric_groups: list[tuple[int, list[dict[str, Any]]]] = [
+            (
+                pk,
+                [*(metrics or []), *(metrics_secondary or []), *saved_queries_by_experiment.get(pk, [])],
+            )
+            for pk, metrics, metrics_secondary in inline_metrics
+        ]
+        return filter_metric_group_ids_by_event(metric_groups, event, self.team)
 
     def filter_experiments_queryset(
         self,
@@ -2563,6 +2841,9 @@ class ExperimentService:
                     created_by_display=Coalesce(
                         NullIf(F("created_by__first_name"), Value("")),
                         F("created_by__email"),
+                        # first_name is a CharField and email an EmailField; Django refuses to
+                        # infer a type across the two, so set it explicitly.
+                        output_field=CharField(),
                     )
                 ).order_by(f"{prefix}created_by_display")
             else:

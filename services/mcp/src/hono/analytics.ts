@@ -83,27 +83,6 @@ export async function trackInitEvent(state: ResolvedState): Promise<void> {
                 via_sse_redirect: !!requestContext.viaSseRedirect,
             },
         })
-
-        // TRANSITION SHIM — DELETE once the MCP insights + taxonomy are migrated to
-        // the `$mcp_*` event names. `$mcp_initialize` (above) is the canonical event
-        // going forward, but the existing dashboards/insights still key on the legacy
-        // `mcp_initialize`, so we dual-emit it through the cutover to keep them working.
-        getPostHogClient().capture({
-            distinctId: state.distinctId,
-            event: 'mcp_initialize',
-            ...(Object.keys(groups).length > 0 ? { groups } : {}),
-            properties: {
-                ...properties,
-                $mcp_duration_ms: initDurationMs ?? 0,
-                $mcp_is_error: false,
-                tool_count: state.allTools.length,
-                has_organization_id: !!requestContext.organizationId,
-                has_project_id: !!requestContext.projectId,
-                read_only: !!requestContext.readOnly,
-                via_sse_redirect: !!requestContext.viaSseRedirect,
-                ...(sessionUuid ? { $session_id: sessionUuid } : {}),
-            },
-        })
     } catch {
         // never break the request for analytics
     }
@@ -131,22 +110,16 @@ export async function trackToolCall(
 
         const { properties, groups } = buildBaseProperties(state, analyticsContext)
 
-        // `$mcp_tool_category` is the dashboard's grouping dimension (e.g. "Logs",
-        // "Tracing"). The contract is: the producer stamps the category onto every
-        // tool-call event; the MCP analytics dashboard reads it back verbatim and
-        // never maps tool names to categories itself. PostHog's server derives it
-        // from its own catalog here; external servers using the SDK declare it per
-        // tool. Omitted when unknown (e.g. the `exec` wrapper) so the dashboard
-        // buckets those as "Uncategorized".
+        // The producer stamps the tool's category so the dashboard groups by it verbatim
+        // (it never maps tool→category itself). Omitted when unknown (e.g. the `exec`
+        // wrapper), which the dashboard buckets as "Uncategorized".
         const toolCategory = getToolCategory(toolName)
 
         // Emits `$mcp_tool_call` (+ `$mcp_is_error`). The SDK maps `toolName` →
         // `$mcp_tool_name`, `durationMs` → `$mcp_duration_ms`, `isError` →
         // `$mcp_is_error`, `intent` → `$mcp_intent`, and `sessionId` →
         // `$session_id`. `$exception` fan-out is disabled on the client, so an
-        // errored call stays a single event. The intent pipeline reads
-        // `$mcp_intent` off this canonical event, so it only needs to land here
-        // (not on the legacy dual-emit below).
+        // errored call stays a single event.
         getPostHogClient().captureToolCall({
             toolName,
             durationMs,
@@ -163,26 +136,6 @@ export async function trackToolCall(
                 ...extraProperties,
             },
         })
-
-        // TRANSITION SHIM — DELETE once the MCP insights + taxonomy are migrated to
-        // the `$mcp_*` event names. `$mcp_tool_call` (above) is the canonical event
-        // going forward, but the existing dashboards/insights still key on the legacy
-        // `mcp_tool_call`, so we dual-emit it through the cutover to keep them working.
-        getPostHogClient().capture({
-            distinctId: state.distinctId,
-            event: 'mcp_tool_call',
-            ...(Object.keys(groups).length > 0 ? { groups } : {}),
-            properties: {
-                ...properties,
-                $mcp_tool_name: toolName,
-                $mcp_duration_ms: durationMs,
-                $mcp_is_error: isError,
-                tool_name: toolName,
-                ...(toolCategory ? { $mcp_tool_category: toolCategory } : {}),
-                ...(sessionUuid ? { $session_id: sessionUuid } : {}),
-                ...extraProperties,
-            },
-        })
     } catch {
         // never break the request for analytics
     }
@@ -196,9 +149,8 @@ export async function trackToolsList(toolNames: string[], state: ResolvedState):
 
         const { properties, groups } = buildBaseProperties(state, analyticsContext)
 
-        // Emits `$mcp_tools_list`. The SDK maps `toolNames` → `$mcp_listed_tool_names`,
-        // which powers "advertised but never called" analysis. No legacy dual-emit:
-        // `mcp_tools_list` has had no consumers since the cutover.
+        // The SDK maps `toolNames` → `$mcp_listed_tool_names`, which powers
+        // "advertised but never called" analysis.
         getPostHogClient().captureToolsList({
             toolNames,
             distinctId: state.distinctId,

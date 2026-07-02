@@ -1,4 +1,5 @@
 import math
+import time
 import uuid
 import typing
 import asyncio
@@ -9,6 +10,7 @@ import collections.abc
 from django.conf import settings
 
 import pyarrow as pa
+from temporalio.common import MetricHistogram
 
 from posthog.schema import EventPropertyFilter, HogQLPropertyFilter, HogQLQueryModifiers, MaterializationMode
 
@@ -27,6 +29,7 @@ from posthog.temporal.common.clickhouse import get_client
 from posthog.temporal.common.logger import get_write_only_logger
 
 from products.batch_exports.backend.service import BackfillDetails
+from products.batch_exports.backend.temporal.metrics import get_metric_meter
 from products.batch_exports.backend.temporal.record_batch_model import RecordBatchModel
 from products.batch_exports.backend.temporal.sql import (
     SELECT_FROM_DISTRIBUTED_EVENTS_RECENT,
@@ -42,6 +45,13 @@ from products.batch_exports.backend.temporal.sql import (
 LOGGER = get_write_only_logger(__name__)
 
 
+class QueuedRecordBatch(typing.NamedTuple):
+    """A record batch in queue, tracking the time it entered."""
+
+    record_batch: pa.RecordBatch
+    enqueued_at: int
+
+
 class RecordBatchQueue(asyncio.Queue):
     """A queue of pyarrow RecordBatch instances limited by bytes."""
 
@@ -50,14 +60,28 @@ class RecordBatchQueue(asyncio.Queue):
         self._bytes_size = 0
         self._schema_set = asyncio.Event()
         self.record_batch_schema: pa.Schema | None = None
+        self._histogram: MetricHistogram | None = None
         # This is set by `asyncio.Queue.__init__` calling `_init`
-        self._queue: collections.deque
+        self._queue: collections.deque[QueuedRecordBatch]
+
+    @property
+    def histogram(self) -> MetricHistogram:
+        if self._histogram is None:
+            meter = get_metric_meter()
+            self._histogram = meter.create_histogram(
+                "batch_exports_queue_wait_time", description="Time spent by record batches waiting in queue"
+            )
+        return self._histogram
 
     def _get(self) -> pa.RecordBatch:
         """Override parent `_get` to keep track of bytes."""
-        item = self._queue.popleft()
-        self._bytes_size -= item.get_total_buffer_size()
-        return item
+        record_batch, enqueued_at = self._queue.popleft()
+        self._bytes_size -= record_batch.get_total_buffer_size()
+
+        queued_time = time.perf_counter_ns() - enqueued_at
+        self.histogram.record(queued_time)
+
+        return record_batch
 
     def _put(self, item: pa.RecordBatch) -> None:
         """Override parent `_put` to keep track of bytes."""
@@ -66,7 +90,7 @@ class RecordBatchQueue(asyncio.Queue):
         if not self._schema_set.is_set():
             self.set_schema(item)
 
-        self._queue.append(item)
+        self._queue.append(QueuedRecordBatch(item, time.perf_counter_ns()))
 
     def set_schema(self, record_batch: pa.RecordBatch) -> None:
         """Used to keep track of schema of events in queue."""

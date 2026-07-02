@@ -31,8 +31,6 @@ permissions:
     contents: read
 
 env:
-    DOCKERHUB_USERNAME: ${{ secrets.DOCKERHUB_USERNAME }}
-    DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     REDIS_URL: redis://localhost
     DATABASE_URL: postgres://posthog:posthog@localhost:5432/posthog_e2e_test
@@ -66,13 +64,10 @@ env:
     PGPORT: 5432
     # this is a fake key so this workflow can run for external contributors as they do not have access to secrets (that we don't need here)
     OIDC_RSA_PRIVATE_KEY: ${{ vars.OIDC_RSA_FAKE_PRIVATE_KEY }}
-    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-    GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-    INKEEP_API_KEY: ${{ secrets.INKEEP_API_KEY }}
-    AZURE_INFERENCE_CREDENTIAL: ${{ secrets.AZURE_INFERENCE_CREDENTIAL }}
-    AZURE_INFERENCE_ENDPOINT: ${{ secrets.AZURE_INFERENCE_ENDPOINT }}
     PERSONHOG_ADDR: 'localhost:50052'
+    # Internal API auth needs a non-empty INTERNAL_API_SECRET when DEBUG/TEST are off. The dev value
+    # matches the Node plugins container's non-prod default, so Django<->Node internal calls authenticate.
+    INTERNAL_API_SECRET: posthog123
 
 concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
@@ -144,14 +139,51 @@ jobs:
                         - docker-compose.dev.yml
                         - Dockerfile
 
+            # Visual Review auto-commits a snapshot baseline after human review and CI
+            # approval. Re-running the ~25-min E2E stack for that bot push is pure waste;
+            # the `playwright_tests` aggregator treats the resulting skip as success. Key
+            # off the push delta (this push's commits), not the whole-PR diff dorny reports,
+            # so it fires even when the PR also carries real code changes.
+            - name: Detect Visual Review baseline-only push
+              id: baseline_push
+              if: github.event_name == 'pull_request' && github.event.action == 'synchronize'
+              env:
+                  GH_TOKEN: ${{ github.token }}
+                  REPO: ${{ github.repository }}
+                  ACTOR: ${{ github.actor }}
+                  BEFORE: ${{ github.event.before }}
+                  AFTER: ${{ github.event.after }}
+              run: |
+                  set -euo pipefail
+                  result=false
+                  # Visual Review commits the approved baseline as a bot (a [bot] app or posthog-bot).
+                  case "$ACTOR" in
+                      *'[bot]' | posthog-bot) is_bot=true ;;
+                      *) is_bot=false ;;
+                  esac
+                  zero=0000000000000000000000000000000000000000
+                  if [ "$is_bot" = true ] && [ -n "$BEFORE" ] && [ "$BEFORE" != "$zero" ] && [ -n "$AFTER" ]; then
+                      # compare uses merge-base(before, after), which for an appended commit is
+                      # exactly the push delta; a force-push/rebase widens it and won't match.
+                      files=$(gh api "repos/${REPO}/compare/${BEFORE}...${AFTER}" --jq '.files[].filename' || true)
+                      if [ -n "$files" ] && ! grep -qvE '^(frontend|playwright)/snapshots\.yml$' <<<"$files"; then
+                          result=true
+                      fi
+                  fi
+                  echo "result=$result" >>"$GITHUB_OUTPUT"
+                  echo "Visual Review baseline-only push: $result"
+
             - name: Decide whether to run Playwright
               id: decide
               env:
                   IS_PUSH: ${{ github.event_name == 'push' }}
                   IS_DISPATCH: ${{ github.event_name == 'workflow_dispatch' }}
                   SHOULD_RUN: ${{ steps.changes.outputs.shouldRun }}
+                  IS_BASELINE_ONLY: ${{ steps.baseline_push.outputs.result }}
               run: |
-                  if [[ "$IS_PUSH" == "true" || "$IS_DISPATCH" == "true" || "$SHOULD_RUN" == "true" ]]; then
+                  if [[ "$IS_BASELINE_ONLY" == "true" ]]; then
+                      echo "shouldRun=false" >> "$GITHUB_OUTPUT"
+                  elif [[ "$IS_PUSH" == "true" || "$IS_DISPATCH" == "true" || "$SHOULD_RUN" == "true" ]]; then
                       echo "shouldRun=true" >> "$GITHUB_OUTPUT"
                   else
                       echo "shouldRun=false" >> "$GITHUB_OUTPUT"
@@ -206,6 +238,15 @@ jobs:
             pull-requests: write
         outputs:
             vr_run_id: ${{ steps.vr-create.outputs.run_id }}
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+            OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+            ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+            GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+            INKEEP_API_KEY: ${{ secrets.INKEEP_API_KEY }}
+            AZURE_INFERENCE_CREDENTIAL: ${{ secrets.AZURE_INFERENCE_CREDENTIAL }}
+            AZURE_INFERENCE_ENDPOINT: ${{ secrets.AZURE_INFERENCE_ENDPOINT }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -222,40 +263,12 @@ jobs:
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
 
-            - name: Stop/Start stack with Docker Compose
+            - name: Pull Docker images
               shell: bash
               run: |
                   export CLICKHOUSE_SERVER_IMAGE=${{ needs.changes.outputs.oldest_supported }}
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
-
-                  (
-                    max_attempts=3
-                    attempt=1
-                    delay=5
-
-                    while [ $attempt -le $max_attempts ]; do
-                        echo "Attempt $attempt of $max_attempts to start stack..."
-
-                        if docker compose -f docker-compose.dev.yml down && \
-                          docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d; then
-                            echo "Stack started successfully"
-                            exit 0
-                        fi
-
-                        echo "Failed to start stack on attempt $attempt"
-
-                        if [ $attempt -lt $max_attempts ]; then
-                            sleep_time=$((delay * 2 ** (attempt - 1)))
-                            echo "Waiting ${sleep_time} seconds before retry..."
-                            sleep $sleep_time
-                        fi
-
-                        attempt=$((attempt + 1))
-                    done
-
-                    echo "Failed to start stack after $max_attempts attempts"
-                    exit 1
-                  ) &
+                  docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml pull --quiet &
 
             - name: Add service hostnames to /etc/hosts
               shell: bash
@@ -292,6 +305,9 @@ jobs:
 
             - name: Install pnpm
               uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
+
+            - name: Fix node-gyp permissions
+              run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
 
             - name: Set up Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0
@@ -381,7 +397,7 @@ jobs:
               if: ${{ env.DOCKERHUB_USERNAME != '' && env.DOCKERHUB_TOKEN != '' }}
               uses: docker/login-action@4907a6ddec9925e35a0a9e82d7399ccc52663121 # v4.1.0
               with:
-                  username: ${{ secrets.DOCKERHUB_USERNAME }}
+                  username: ${{ vars.DOCKERHUB_USER }}
                   password: ${{ secrets.DOCKERHUB_TOKEN }}
 
             - name: Start Docker services
@@ -436,13 +452,6 @@ jobs:
                   run_clickhouse_query 'DROP DATABASE IF EXISTS posthog_test SYNC'
                   run_clickhouse_query 'CREATE DATABASE posthog_test'
 
-            - name: Cache Rust dependencies
-              uses: Swatinem/rust-cache@c19371144df3bb44fab255c43d04cbc2ab54d1c4 # v2.9.1
-              with:
-                  shared-key: 'v2-rust-backend'
-                  workspaces: rust
-                  save-if: ${{ github.ref == 'refs/heads/master' }}
-
             - name: Install sqlx-cli
               uses: ./.github/actions/setup-sqlx-cli
 
@@ -492,6 +501,11 @@ jobs:
                   sqlx migrate run -D "$CYCLOTRON_NODE_DATABASE_URL" --source rust/cyclotron-node-migrations/
 
                   python manage.py migrate_clickhouse 2>&1
+
+                  # Person/group reads go through personhog (no ORM fallback), so the replica
+                  # and router must be running before setup_dev creates demo persons.
+                  COMPOSE_FILE=docker-compose.dev.yml COMPOSE_PROFILES=ingestion bin/ci-wait-for-docker launch personhog-replica personhog-router
+
                   python manage.py setup_dev
 
             - name: Source celery queues
@@ -665,6 +679,18 @@ jobs:
                   name: junit-results-playwright
                   path: playwright/junit-results.xml
                   if-no-files-found: ignore
+
+            - name: Upload test results to Trunk
+              # Flaky-test detection. Trusted non-pull_request events only, so the secret token
+              # never runs in a PR-controlled context; continue-on-error so an upload hiccup
+              # never fails the job.
+              if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+              continue-on-error: true
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: playwright/junit-results.xml
+                  org-slug: posthog-inc
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
 
             - name: Publish report to Cloudflare Pages
               if: always() && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository)

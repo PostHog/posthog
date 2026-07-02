@@ -1,3 +1,5 @@
+import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
+
 import { Meta, StoryObj } from '@storybook/react'
 import { BindLogic } from 'kea'
 import { useMemo } from 'react'
@@ -157,6 +159,22 @@ const meta: Meta = {
             },
         }),
     ],
+    // The support node renders its tickets table only when the team has support enabled; otherwise
+    // it shows the "set up support" banner (no .LemonTable to snapshot). teamLogic seeds currentTeam
+    // from getAppContext().current_team (not an API call), so enable it in the app context here.
+    // beforeEach runs before Kea mounts teamLogic; the cleanup restores it for other stories.
+    beforeEach: () => {
+        const appContext = window.POSTHOG_APP_CONTEXT
+        const originalTeam = appContext?.current_team
+        if (appContext) {
+            appContext.current_team = { ...MOCK_DEFAULT_TEAM, conversations_enabled: true }
+        }
+        return () => {
+            if (appContext) {
+                appContext.current_team = originalTeam ?? null
+            }
+        }
+    },
 }
 export default meta
 

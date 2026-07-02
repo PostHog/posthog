@@ -33,7 +33,7 @@ _SKILLS_DIR = Path(__file__).resolve().parent.parent.parent / "skills"
 # fleet is. Same divergence-aware sync; one caveat: removing a name from this tuple strands its
 # existing per-team rows (prune only reaps `signals-scout-*` rows), so retiring a companion
 # means cleaning up its rows out-of-band.
-_COMPANION_SKILL_DIRS = ("authoring-signals-scouts",)
+_COMPANION_SKILL_DIRS = ("authoring-scouts",)
 
 # Mirrors the regex in `products/posthog_ai/scripts/build_skills.py` so frontmatter parsing
 # stays consistent across the two consumers. Keep these in sync if the skill spec evolves.
@@ -425,7 +425,9 @@ def _update_skill_from_canonical(
             )
 
 
-def sync_canonical_skills(team: Team, *, prune: bool = False) -> SyncResult:
+def sync_canonical_skills(
+    team: Team, *, prune: bool = False, withheld_skill_names: frozenset[str] | set[str] | None = None
+) -> SyncResult:
     """Reconcile a team's rows with the canonical skills on disk — the `signals-scout-*`
     fleet plus the `_COMPANION_SKILL_DIRS` companions.
 
@@ -441,6 +443,14 @@ def sync_canonical_skills(team: Team, *, prune: bool = False) -> SyncResult:
     cold-start sync leaves it off: a single ad-hoc run should only ensure its own skill exists
     and is current, not reap the rest of the team's fleet.
 
+    `withheld_skill_names` is the per-team holdback denylist (resolved by the coordinator from
+    the `signals-scout` flag's `withheld_skills` key). A canonical skill named here is skipped
+    entirely for this team — not created, not updated — so an unreleased scout stays invisible
+    to every team not on its allowlist. Existing rows (a team previously allowed) are left
+    untouched rather than tombstoned: the coordinator's dispatch gate stops them running, and we
+    don't rewrite skill history on a flag flip. Withheld skills are still on disk, so the `prune`
+    pass never reaps them as orphans.
+
     Idempotent and safe to call on every coordinator tick — the only DB writes happen when
     something actually needs to change, and IntegrityError on races is logged-and-swallowed.
     """
@@ -448,6 +458,7 @@ def sync_canonical_skills(team: Team, *, prune: bool = False) -> SyncResult:
     if not canonicals:
         return SyncResult(skipped_reason="no canonical signals-scout-* skills on disk")
 
+    withheld = withheld_skill_names or frozenset()
     created: list[str] = []
     updated: list[str] = []
     diverged: list[str] = []
@@ -455,6 +466,8 @@ def sync_canonical_skills(team: Team, *, prune: bool = False) -> SyncResult:
     pruned: list[str] = []
 
     for canonical in canonicals:
+        if canonical.name in withheld:
+            continue
         canonical_hash = _compute_canonical_hash(canonical)
 
         # Pull every row for this (team, name), live or tombstoned. Existence of any row —

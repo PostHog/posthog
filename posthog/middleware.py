@@ -1,3 +1,4 @@
+import os
 import re
 import json
 import time
@@ -14,7 +15,10 @@ from django.conf import settings
 from django.contrib.auth import BACKEND_SESSION_KEY, logout
 from django.core.cache import cache
 from django.core.exceptions import MiddlewareNotUsed
-from django.db import connection
+from django.db import (
+    connection,
+    connections as db_connections,
+)
 from django.db.models import QuerySet
 from django.http import HttpRequest, HttpResponse, JsonResponse
 from django.http.response import HttpResponseRedirectBase
@@ -63,6 +67,40 @@ from products.notebooks.backend.models import Notebook
 from products.product_analytics.backend.models.insight import Insight
 
 from .auth import PersonalAPIKeyAuthentication
+
+logger = structlog.get_logger(__name__)
+
+# A finished request that grew the worker's RSS by at least this many MiB is logged as
+# `request_memory_growth`. Tunable via env so the threshold can be tightened/relaxed in
+# prod without a worker restart / code change. Set to 0 to log every request's growth
+# (noisy — debugging only). Parsed defensively: a malformed value must never crash the
+# module at import (which would take the worker down before it serves a request) — fall
+# back to the default instead.
+try:
+    REQUEST_RSS_GROWTH_LOG_MB = float(os.getenv("WEB_REQUEST_RSS_GROWTH_LOG_MB", "100"))
+except ValueError:
+    REQUEST_RSS_GROWTH_LOG_MB = 100.0
+
+# Page size is invariant for the lifetime of the process — hoist it so current_rss_mb()
+# doesn't pay the sysconf syscall on every call. Fall back to 4096 (the common default)
+# if sysconf is unavailable on the host (e.g. an exotic OS).
+try:
+    _PAGE_SIZE_BYTES: int = os.sysconf("SC_PAGE_SIZE")
+except (OSError, ValueError):
+    _PAGE_SIZE_BYTES = 4096
+
+
+def current_rss_mb() -> float | None:
+    """Resident set size of the current worker process in MiB, read from
+    /proc/self/statm (field 2 = resident pages). Returns None when unavailable,
+    e.g. on non-Linux dev machines where /proc is absent."""
+    try:
+        with open("/proc/self/statm") as statm:
+            resident_pages = int(statm.read().split()[1])
+    except (OSError, ValueError, IndexError):
+        return None
+    return resident_pages * _PAGE_SIZE_BYTES / (1024 * 1024)
+
 
 ALWAYS_ALLOWED_ENDPOINTS = [
     "static",
@@ -668,10 +706,19 @@ def per_request_logging_context_middleware(
         # roll out CloudFront in front of app.posthog.com. We can get the host
         # header from NGINX, but we really want to have a way to get to the
         # team_id given a host header, and we can't do that with NGINX.
+        # Capture the worker's RSS at the start of the request and bind it to the
+        # logging context, so it rides along on `request_started`/`request_finished`.
+        # A worker OOM-killed mid-request (SIGKILL, uncatchable) never logs
+        # `request_finished` — but its `request_started` line carries `rss_mb` and the
+        # `worker_pid`, so the request in flight when a worker died is identifiable
+        # after the fact. See `request_memory_growth` below for the finished-request view.
+        rss_mb_start = current_rss_mb()
         structlog.contextvars.bind_contextvars(
             host=request.headers.get("host", ""),
             container_hostname=settings.CONTAINER_HOSTNAME,
             x_forwarded_for=request.headers.get("x-forwarded-for", ""),
+            worker_pid=os.getpid(),
+            rss_mb=round(rss_mb_start, 1) if rss_mb_start is not None else None,
         )
 
         # Forwarded by the PostHog MCP server (services/mcp) on every API call.
@@ -706,7 +753,58 @@ def per_request_logging_context_middleware(
             if mcp_conversation_id:
                 span.set_attribute("mcp.conversation_id", mcp_conversation_id)
 
-        return get_response(request)
+        response: HttpResponse | None = None
+        try:
+            response = get_response(request)
+        finally:
+            # Flag requests that materially grew this worker's footprint. Steady
+            # accumulation of these on a pod is the in-app fingerprint of the request
+            # mix that walks RSS up to the cgroup limit and triggers the OOM kill.
+            # This runs even when get_response raises — exception paths (large error
+            # payloads, failed serialisation) are exactly the requests most likely to
+            # spike RSS. worker_pid is added explicitly because django_structlog's
+            # RequestMiddleware clears contextvars before this finally block fires.
+            rss_mb_end = current_rss_mb()
+            if (
+                rss_mb_start is not None
+                and rss_mb_end is not None
+                and rss_mb_end - rss_mb_start >= REQUEST_RSS_GROWTH_LOG_MB
+            ):
+                logger.warning(
+                    "request_memory_growth",
+                    rss_mb_start=round(rss_mb_start, 1),
+                    rss_mb_end=round(rss_mb_end, 1),
+                    rss_mb_delta=round(rss_mb_end - rss_mb_start, 1),
+                    request_path=request.path,
+                    method=request.method,
+                    worker_pid=os.getpid(),
+                )
+            # Detect streaming responses that are holding DB connections open.
+            # Under ASGI, a StreamingHttpResponse keeps the request alive until
+            # the stream ends — any connection still open at this point stays
+            # pinned to a pgbouncer slot for the entire stream duration, which
+            # can be minutes for SSE endpoints (AI chat, dashboard tiles, etc.).
+            # Endpoints that use sse_streaming_response() release connections
+            # before returning, so this only fires for ones that don't.
+            if response is not None and getattr(response, "streaming", False):
+                held = [
+                    conn.alias
+                    for conn in db_connections.all(initialized_only=True)
+                    if conn.connection is not None and not conn.in_atomic_block
+                ]
+                if held:
+                    _user = getattr(request, "user", None)
+                    logger.warning(
+                        "stream_with_held_connections",
+                        held_connections=len(held),
+                        aliases=held,
+                        request_path=request.path,
+                        method=request.method,
+                        worker_pid=os.getpid(),
+                        team_id=_user.current_team_id if _user is not None and _user.is_authenticated else None,
+                    )
+
+        return response
 
     return middleware
 

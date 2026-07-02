@@ -49,7 +49,7 @@ export const posthogListProjectsV1 = defineNativeTool({
             })
         ),
     }),
-    requires: { integrations: [], scopes: [] },
+    requires: { provider: { id: 'posthog', scopes: [] } },
     cost_hint: 'cheap',
     async run(_args, ctx) {
         const me = await callPosthogApi<MeResponse>(ctx, { method: 'GET', path: '/api/users/@me/' })

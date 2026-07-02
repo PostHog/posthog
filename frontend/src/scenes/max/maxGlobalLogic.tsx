@@ -104,6 +104,7 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
     })),
     actions({
         openSidePanelMax: (conversationId?: string) => ({ conversationId }),
+        openSidePanelMaxWithTaskBind: (taskId: string) => ({ taskId }),
         askSidePanelMax: (prompt: string) => ({ prompt }),
         acceptDataProcessing: (testOnlyOverride?: boolean) => ({ testOnlyOverride }),
         registerTool: (tool: ToolRegistration) => ({ tool }),
@@ -242,6 +243,22 @@ export const maxGlobalLogic = kea<maxGlobalLogicType>([
                 }
                 logic.actions.openConversation(conversationId)
             }
+        },
+        // Open the side panel on a fresh chat bound to a sandbox Task (inbox "Open task" — in-place,
+        // not a new tab). The side panel doesn't sync the URL, so the binding is seeded directly here
+        // rather than via the `bind_task` param the scene route reads. `setPendingBindTaskId` runs
+        // after `startNewConversation`, which clears it.
+        openSidePanelMaxWithTaskBind: ({ taskId }) => {
+            if (!values.sidePanelOpen || values.selectedTab !== SidePanelTab.Max) {
+                actions.openSidePanel(SidePanelTab.Max)
+            }
+            let logic = maxLogic.findMounted({ panelId: SIDE_PANEL_PANEL_ID })
+            if (!logic) {
+                logic = maxLogic({ panelId: SIDE_PANEL_PANEL_ID })
+                logic.mount() // we're never unmounting this
+            }
+            logic.actions.startNewConversation()
+            logic.actions.setPendingBindTaskId(taskId)
         },
         loadConversationHistoryFailure: ({ errorObject }) => {
             lemonToast.error(errorObject?.data?.detail || 'Failed to load conversation history.')

@@ -42,6 +42,7 @@ describe('VariantsPanelLinkFeatureFlag', () => {
         created_by: null,
         is_remote_configuration: false,
         deleted: false,
+        archived: false,
         active: true,
         experiment_set: null,
         experiment_set_metadata: null,

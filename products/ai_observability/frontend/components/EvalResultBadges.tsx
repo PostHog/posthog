@@ -53,7 +53,7 @@ function EvalTooltipContent({ latestRun, runCount }: EvalSummary): JSX.Element {
 
 export function EvalResultBadges({ generationEventId }: { generationEventId: string }): JSX.Element | null {
     const { generationEvaluationRuns, generationEvaluationRunsLoading } = useValues(
-        generationEvaluationRunsLogic({ generationEventId })
+        generationEvaluationRunsLogic({ lookupBy: 'generation', generationEventId })
     )
     const traceLogic = useMountedLogic(aiObservabilityTraceLogic)
     const { setViewMode } = useActions(traceLogic)

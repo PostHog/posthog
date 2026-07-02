@@ -20,7 +20,7 @@ import { groupsModel } from '~/models/groupsModel'
 import { CORE_FILTER_DEFINITIONS_BY_GROUP } from '~/taxonomy/taxonomy'
 import { initKeaTests } from '~/test/init'
 import { mockEventDefinitions, mockSessionPropertyDefinitions } from '~/test/mocks'
-import { AppContext, EventDefinition, PropertyDefinition } from '~/types'
+import { AppContext, EventDefinition, PropertyDefinition, PropertyFilterType } from '~/types'
 
 import { infiniteListLogic } from './infiniteListLogic'
 import { recentTaxonomicFiltersLogic } from './recentTaxonomicFiltersLogic'
@@ -1060,6 +1060,35 @@ describe('taxonomicFilterLogic', () => {
         })
     })
 
+    describe('Replay group activity-count options', () => {
+        let replayLogic: ReturnType<typeof taxonomicFilterLogic.build>
+
+        beforeEach(() => {
+            replayLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: 'testReplayActivityCounts',
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.Replay],
+            })
+            replayLogic.mount()
+        })
+
+        afterEach(() => {
+            replayLogic.unmount()
+        })
+
+        it('surfaces click/keypress/mouse activity counts as recording filters', () => {
+            const replayGroup = replayLogic.values.taxonomicGroups.find(
+                (g) => g.type === TaxonomicFilterGroupType.Replay
+            )
+            const recordingFilterKeys = (replayGroup?.options ?? [])
+                .filter((o: any) => o.propertyFilterType === PropertyFilterType.Recording)
+                .map((o: any) => o.key)
+
+            expect(recordingFilterKeys).toEqual(
+                expect.arrayContaining(['click_count', 'keypress_count', 'mouse_activity_count'])
+            )
+        })
+    })
+
     describe('keywordShortcuts on Events and EventProperties groups', () => {
         let testLogic: ReturnType<typeof taxonomicFilterLogic.build>
 
@@ -1171,6 +1200,54 @@ describe('taxonomicFilterLogic', () => {
             expect(personsGroup?.getValue).toBeDefined() // oxlint-disable-line jest/no-restricted-matchers
             expect(() => personsGroup?.getValue?.(person as any)).not.toThrow()
             expect(personsGroup?.getValue?.(person as any)).toBe(expected)
+        })
+    })
+
+    describe('Feature Flags group keeps recently-used flags selectable', () => {
+        let flagLogic: ReturnType<typeof taxonomicFilterLogic.build>
+
+        beforeEach(() => {
+            flagLogic = taxonomicFilterLogic({
+                taxonomicFilterLogicKey: 'featureFlagDependencyTest',
+                taxonomicGroupTypes: [TaxonomicFilterGroupType.FeatureFlags],
+            })
+            flagLogic.mount()
+        })
+
+        afterEach(() => {
+            flagLogic.unmount()
+        })
+
+        it.each([
+            {
+                description: 'an active flag is selectable',
+                flag: { id: 1, key: 'my-flag', name: 'My flag', active: true },
+                expectedDisabled: false,
+                expectedName: 'my-flag',
+            },
+            {
+                description: 'an explicitly inactive flag is disabled',
+                flag: { id: 1, key: 'my-flag', name: 'My flag', active: false },
+                expectedDisabled: true,
+                expectedName: 'my-flag (disabled)',
+            },
+            {
+                // Recents/pinned entries are persisted stripped to { name, id }, so they carry no
+                // `active` field; a missing `active` must not read as disabled or recently-used
+                // flags can no longer be picked as flag-dependency match criteria. The same guard
+                // applies to getName, which would otherwise render "732889 (disabled)".
+                description: 'a recently-used flag missing the active field stays selectable',
+                flag: { name: '732889', id: 732889 },
+                expectedDisabled: false,
+                expectedName: '732889',
+            },
+        ])('getIsDisabled/getName: $description', ({ flag, expectedDisabled, expectedName }) => {
+            const flagGroup = flagLogic.values.taxonomicGroups.find(
+                (g) => g.type === TaxonomicFilterGroupType.FeatureFlags
+            )
+            expect(flagGroup?.getIsDisabled).toBeDefined() // oxlint-disable-line jest/no-restricted-matchers
+            expect(flagGroup?.getIsDisabled?.(flag as any)).toBe(expectedDisabled)
+            expect(flagGroup?.getName?.(flag as any)).toBe(expectedName)
         })
     })
 

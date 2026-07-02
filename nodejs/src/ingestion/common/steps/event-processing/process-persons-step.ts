@@ -58,7 +58,11 @@ export function createProcessPersonsStep<TInput extends ProcessPersonsInput>(
             options.PERSON_JSONB_SIZE_ESTIMATE_ENABLE,
             mergeMode,
             options.PERSON_PROPERTIES_UPDATE_ALL,
-            shouldUpdateLastSeenAt
+            shouldUpdateLastSeenAt,
+            {
+                enabled: options.PERSON_MERGE_EVENTS_ENABLED,
+                partitionCount: options.PERSON_MERGE_EVENTS_PARTITION_COUNT,
+            }
         )
 
         const processor = new PersonEventProcessor(

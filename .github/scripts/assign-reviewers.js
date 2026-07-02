@@ -22,8 +22,8 @@ const CONFIG = {
         '**/*.snap',
         '**/*.ambr',
         // Regenerated wholesale by `pnpm update-ai-costs` from the OpenRouter API.
-        'nodejs/src/ingestion/ai/costs/providers/canonical-providers.ts',
-        'nodejs/src/ingestion/ai/costs/providers/llm-costs.json',
+        'nodejs/src/ingestion/pipelines/ai/costs/providers/canonical-providers.ts',
+        'nodejs/src/ingestion/pipelines/ai/costs/providers/llm-costs.json',
     ],
     // An owner is formally requested for review only if their footprint clears
     // one of these bars; otherwise they are demoted to the explanation comment

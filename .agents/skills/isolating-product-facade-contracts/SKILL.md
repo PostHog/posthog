@@ -17,23 +17,23 @@ exists only as the merge base for team-sliced sweeps — per the PR strategy bel
 
 Read these before changing code:
 
-1. [products/architecture.md](products/architecture.md)
-2. [products/README.md](products/README.md)
-3. [docs/internal/monorepo-layout.md](docs/internal/monorepo-layout.md)
-4. [posthog/models/team/README.md](posthog/models/team/README.md) (team extension model rule)
-5. [docs/published/handbook/engineering/type-system.md](docs/published/handbook/engineering/type-system.md) (serializer/OpenAPI type flow)
-6. [docs/published/handbook/engineering/ai/implementing-mcp-tools.md](docs/published/handbook/engineering/ai/implementing-mcp-tools.md) (schema quality and team isolation expectations)
-7. [.agents/security.md](.agents/security.md) (SQL/HogQL security guidelines)
+1. [products/architecture.md](../../../products/architecture.md)
+2. [products/README.md](../../../products/README.md)
+3. [docs/internal/monorepo-layout.md](../../../docs/internal/monorepo-layout.md)
+4. [posthog/models/team/README.md](../../../posthog/models/team/README.md) (team extension model rule)
+5. [docs/published/handbook/engineering/type-system.md](../../../docs/published/handbook/engineering/type-system.md) (serializer/OpenAPI type flow)
+6. [docs/published/handbook/engineering/ai/implementing-mcp-tools.md](../../../docs/published/handbook/engineering/ai/implementing-mcp-tools.md) (schema quality and team isolation expectations)
+7. [.agents/security.md](../../../.agents/security.md) (SQL/HogQL security guidelines)
 
 Use Visual review as the concrete reference implementation:
 
-- [products/visual_review/backend/facade/contracts.py](products/visual_review/backend/facade/contracts.py)
-- [products/visual_review/backend/facade/api.py](products/visual_review/backend/facade/api.py)
-- [products/visual_review/backend/presentation/views.py](products/visual_review/backend/presentation/views.py)
-- [products/visual_review/backend/presentation/serializers.py](products/visual_review/backend/presentation/serializers.py)
-- [products/visual_review/backend/logic.py](products/visual_review/backend/logic.py)
-- [products/visual_review/backend/tests/test_api.py](products/visual_review/backend/tests/test_api.py)
-- [products/visual_review/backend/tests/test_presentation.py](products/visual_review/backend/tests/test_presentation.py)
+- [products/visual_review/backend/facade/contracts.py](../../../products/visual_review/backend/facade/contracts.py)
+- [products/visual_review/backend/facade/api.py](../../../products/visual_review/backend/facade/api.py)
+- [products/visual_review/backend/presentation/views.py](../../../products/visual_review/backend/presentation/views.py)
+- [products/visual_review/backend/presentation/serializers.py](../../../products/visual_review/backend/presentation/serializers.py)
+- [products/visual_review/backend/logic.py](../../../products/visual_review/backend/logic.py)
+- [products/visual_review/backend/tests/test_api.py](../../../products/visual_review/backend/tests/test_api.py)
+- [products/visual_review/backend/tests/test_presentation.py](../../../products/visual_review/backend/tests/test_presentation.py)
 
 Before changing code, get the baseline:
 

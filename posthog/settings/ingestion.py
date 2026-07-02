@@ -53,7 +53,14 @@ REPLAY_CAPTURE_ENDPOINT = os.getenv("REPLAY_CAPTURE_ENDPOINT", "/s/")
 
 CAPTURE_INTERNAL_URL = os.getenv("CAPTURE_INTERNAL_URL", "http://localhost:8010")
 CAPTURE_REPLAY_INTERNAL_URL = os.getenv("CAPTURE_REPLAY_INTERNAL_URL", "http://localhost:8010")
-CAPTURE_INTERNAL_MAX_WORKERS = get_from_env("CAPTURE_INTERNAL_MAX_WORKERS", type_cast=int, default=16)
+
+# Internal OTLP/HTTP endpoint for first-party log emission into Logs (the `capture-logs` service,
+# path `/i/v1/logs`). The OTLP Bearer (a project token) routes records to a team's Logs. Defaults to
+# empty = emission disabled (the activity skips/raises rather than shipping to the wrong place); set
+# per-region via charts in prod, and to the local capture proxy when testing locally.
+OTLP_LOGS_INGEST_ENDPOINT = os.getenv("OTLP_LOGS_INGEST_ENDPOINT", "")
+# Thread-pool size for capture_internal batch chunk fan-out (default 8, was per-event fan-out pre-v1).
+CAPTURE_INTERNAL_MAX_WORKERS = get_from_env("CAPTURE_INTERNAL_MAX_WORKERS", type_cast=int, default=8)
 
 NEW_ANALYTICS_CAPTURE_ENDPOINT = os.getenv("NEW_CAPTURE_ENDPOINT", "/i/v0/e/")
 
@@ -62,6 +69,8 @@ CAPTURE_V1_INTERNAL_MAX_ATTEMPTS = get_from_env("CAPTURE_V1_INTERNAL_MAX_ATTEMPT
 CAPTURE_V1_INTERNAL_RETRY_AFTER_CAP_SECONDS = get_from_env(
     "CAPTURE_V1_INTERNAL_RETRY_AFTER_CAP_SECONDS", type_cast=float, default=5.0
 )
+# Chunk fan-out reuses CAPTURE_INTERNAL_MAX_WORKERS (above) for its thread pool.
+CAPTURE_INTERNAL_BATCH_CHUNK_SIZE = get_from_env("CAPTURE_INTERNAL_BATCH_CHUNK_SIZE", type_cast=int, default=200)
 NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS = get_set(os.getenv("NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS", ""))
 
 ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS = get_set(os.getenv("ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS", ""))

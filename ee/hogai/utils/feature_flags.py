@@ -3,6 +3,7 @@ from typing import Literal, cast
 import posthoganalytics
 
 from posthog.models import Team, User
+from posthog.ph_client import feature_enabled_or_false
 
 from products.business_knowledge.backend.logic import has_feature_flag as bk_has_feature_flag
 
@@ -14,7 +15,7 @@ def is_privacy_mode_enabled(team: Team) -> bool:
     """
     Check if privacy mode is enabled for a team's organization.
     """
-    return posthoganalytics.feature_enabled(
+    return feature_enabled_or_false(
         "phai-privacy-mode",
         str(team.organization_id),
         groups={"organization": str(team.organization_id)},
@@ -24,7 +25,7 @@ def is_privacy_mode_enabled(team: Team) -> bool:
 
 
 def has_phai_tasks_feature_flag(team: Team, user: User) -> bool:
-    return posthoganalytics.feature_enabled(
+    return feature_enabled_or_false(
         "phai-tasks",
         str(user.distinct_id),
         groups={"organization": str(team.organization_id)},
@@ -34,7 +35,7 @@ def has_phai_tasks_feature_flag(team: Team, user: User) -> bool:
 
 
 def has_task_tool_feature_flag(team: Team, user: User) -> bool:
-    return posthoganalytics.feature_enabled(
+    return feature_enabled_or_false(
         "phai-task-tool",
         str(user.distinct_id),
         groups={"organization": str(team.organization_id)},
@@ -44,7 +45,7 @@ def has_task_tool_feature_flag(team: Team, user: User) -> bool:
 
 
 def has_conversation_topic_feature_flag(team: Team, user: User) -> bool:
-    return posthoganalytics.feature_enabled(
+    return feature_enabled_or_false(
         "posthog-ai-web-analytics-nudge",
         str(user.distinct_id),
         groups={"organization": str(team.organization_id)},
@@ -54,7 +55,7 @@ def has_conversation_topic_feature_flag(team: Team, user: User) -> bool:
 
 
 def has_memory_tool_feature_flag(team: Team, user: User) -> bool:
-    return posthoganalytics.feature_enabled(
+    return feature_enabled_or_false(
         "phai-memory-tool",
         str(user.distinct_id),
         groups={"organization": str(team.organization_id)},
@@ -64,7 +65,7 @@ def has_memory_tool_feature_flag(team: Team, user: User) -> bool:
 
 
 def has_plan_mode_feature_flag(team: Team, user: User) -> bool:
-    return posthoganalytics.feature_enabled(
+    return feature_enabled_or_false(
         "phai-plan-mode",
         str(user.distinct_id),
         groups={"organization": str(team.organization_id)},
@@ -74,7 +75,7 @@ def has_plan_mode_feature_flag(team: Team, user: User) -> bool:
 
 
 def has_experiment_summary_tool_feature_flag(team: Team, user: User) -> bool:
-    return posthoganalytics.feature_enabled(
+    return feature_enabled_or_false(
         "experiment-ai-summary",
         str(user.distinct_id),
         groups={"organization": str(team.organization_id)},
@@ -84,7 +85,7 @@ def has_experiment_summary_tool_feature_flag(team: Team, user: User) -> bool:
 
 
 def is_core_memory_disabled(team: Team, user: User) -> bool:
-    return posthoganalytics.feature_enabled(
+    return feature_enabled_or_false(
         "phai-core-mem-disabled",
         str(user.distinct_id),
         groups={"organization": str(team.organization_id)},
@@ -94,7 +95,7 @@ def is_core_memory_disabled(team: Team, user: User) -> bool:
 
 
 def has_mcp_servers_feature_flag(team: Team, user: User) -> bool:
-    return posthoganalytics.feature_enabled(
+    return feature_enabled_or_false(
         "mcp-servers",
         str(user.distinct_id),
         groups={"organization": str(team.organization_id)},
@@ -104,7 +105,7 @@ def has_mcp_servers_feature_flag(team: Team, user: User) -> bool:
 
 
 def has_sandbox_mode_feature_flag(team: Team, user: User) -> bool:
-    return posthoganalytics.feature_enabled(
+    return feature_enabled_or_false(
         "phai-sandbox-mode",
         str(user.distinct_id),
         groups={"organization": str(team.organization_id)},
@@ -114,7 +115,7 @@ def has_sandbox_mode_feature_flag(team: Team, user: User) -> bool:
 
 
 def has_user_interview_mode_feature_flag(team: Team, user: User) -> bool:
-    return posthoganalytics.feature_enabled(
+    return feature_enabled_or_false(
         "user-interviews",
         str(user.distinct_id),
         groups={"organization": str(team.organization_id)},
@@ -124,7 +125,7 @@ def has_user_interview_mode_feature_flag(team: Team, user: User) -> bool:
 
 
 def has_customer_analytics_mode_feature_flag(team: Team, user: User) -> bool:
-    return posthoganalytics.feature_enabled(
+    return feature_enabled_or_false(
         "customer-analytics-csp",
         str(user.distinct_id),
         groups={"organization": str(team.organization_id)},

@@ -9,3 +9,12 @@ export const NotebookNodeContext = createContext<BuiltLogic<notebookNodeLogicTyp
 export const useNotebookNode = (): BuiltLogic<notebookNodeLogicType> | undefined => {
     return useContext(NotebookNodeContext)
 }
+
+export const useRequiredNotebookNode = (): BuiltLogic<notebookNodeLogicType> => {
+    const nodeLogic = useNotebookNode()
+    if (!nodeLogic) {
+        throw new Error('Notebook node context is required')
+    }
+
+    return nodeLogic
+}

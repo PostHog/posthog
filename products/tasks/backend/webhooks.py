@@ -181,6 +181,10 @@ def _pr_payload_properties(payload: dict) -> dict:
         "pr_author": (pull_request.get("user") or {}).get("login"),
         "pr_base_ref": (pull_request.get("base") or {}).get("ref"),
         "pr_head_ref": (pull_request.get("head") or {}).get("ref"),
+        "pr_additions": pull_request.get("additions"),
+        "pr_deletions": pull_request.get("deletions"),
+        "pr_changed_files": pull_request.get("changed_files"),
+        "pr_commits": pull_request.get("commits"),
     }
 
 
@@ -239,7 +243,7 @@ def _resolve_signal_reports_for_task(task_id: uuid.UUID, pr_url: str) -> None:
     since GitHub retries 5xx responses and we've already acknowledged the PR event.
     """
     reports = (
-        SignalReport.objects.filter(report_tasks__task_id=task_id)
+        SignalReport.objects.filter(SignalReport.reports_for_task_filter(task_id))
         .exclude(
             status__in=[
                 SignalReport.Status.RESOLVED,

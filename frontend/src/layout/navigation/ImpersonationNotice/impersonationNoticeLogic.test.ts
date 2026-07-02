@@ -8,7 +8,7 @@ import { userLogic } from 'scenes/userLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
-import { UserType } from '~/types'
+import { Region, UserType } from '~/types'
 
 import { impersonationNoticeLogic } from './impersonationNoticeLogic'
 
@@ -130,6 +130,48 @@ describe('impersonationNoticeLogic', () => {
                 isReadOnly: true,
             })
         })
+
+        describe('adminLoginUrls', () => {
+            it('returns no urls when there is no ticket context', async () => {
+                await expectLogic(logic).toMatchValues({ adminLoginUrls: [] })
+            })
+
+            it('returns no urls when the ticket has no email', async () => {
+                logic.actions.setTicketContext({ ticketId: '1', email: '', region: Region.US })
+
+                await expectLogic(logic).toMatchValues({ adminLoginUrls: [] })
+            })
+
+            it('returns a single region url when the region is known', async () => {
+                logic.actions.setTicketContext({ ticketId: '1', email: 'a+b@example.com', region: Region.EU })
+
+                await expectLogic(logic).toMatchValues({
+                    adminLoginUrls: [
+                        {
+                            region: Region.EU,
+                            url: 'https://eu.posthog.com/admin/posthog/user/?q=a%2Bb%40example.com',
+                        },
+                    ],
+                })
+            })
+
+            it('falls back to both production regions when the region is unknown', async () => {
+                logic.actions.setTicketContext({ ticketId: '1', email: 'slack@example.com' })
+
+                await expectLogic(logic).toMatchValues({
+                    adminLoginUrls: [
+                        {
+                            region: Region.US,
+                            url: 'https://us.posthog.com/admin/posthog/user/?q=slack%40example.com',
+                        },
+                        {
+                            region: Region.EU,
+                            url: 'https://eu.posthog.com/admin/posthog/user/?q=slack%40example.com',
+                        },
+                    ],
+                })
+            })
+        })
     })
 
     describe('reImpersonate listener', () => {
@@ -210,20 +252,12 @@ describe('impersonationNoticeLogic', () => {
             openSpy.mockRestore()
         })
 
-        it('opens OAuth2 popup when auth check fails and proceeds after window closes', async () => {
+        it('opens OAuth2 popup when auth check fails and proceeds once the popup confirms success', async () => {
             logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123, isImpersonatedUntil: null })
 
-            let authCheckCallCount = 0
             useMocks({
                 get: {
-                    '/admin/auth_check': () => {
-                        authCheckCallCount++
-                        // First call fails (triggers popup), but the login will succeed after
-                        if (authCheckCallCount === 1) {
-                            return [401, {}]
-                        }
-                        return [200, {}]
-                    },
+                    '/admin/auth_check': () => [401, {}],
                     '/api/users/@me/': () => [200, MOCK_IMPERSONATED_USER],
                 },
                 post: {
@@ -231,7 +265,6 @@ describe('impersonationNoticeLogic', () => {
                 },
             })
 
-            // Mock window.open to return a window that closes immediately
             const mockWindow = { closed: false } as Window
             const openSpy = jest.spyOn(window, 'open').mockReturnValue(mockWindow)
 
@@ -239,9 +272,14 @@ describe('impersonationNoticeLogic', () => {
                 logic.actions.reImpersonate('reason', true)
             })
 
-            // Simulate the popup window closing (which resolves the promise)
+            // The popup signals a successful admin OAuth2 grant — only then may the flow proceed
             await new Promise((resolve) => setTimeout(resolve, 100))
-            ;(mockWindow as any).closed = true
+            window.dispatchEvent(
+                new MessageEvent('message', {
+                    origin: window.location.origin,
+                    data: { type: 'oauth2_complete' },
+                })
+            )
 
             await reImpersonatePromise.toDispatchActions(['reImpersonate', 'loadUser']).toFinishAllListeners()
 
@@ -250,6 +288,40 @@ describe('impersonationNoticeLogic', () => {
                 'admin_oauth2',
                 expect.stringContaining('width=600')
             )
+            openSpy.mockRestore()
+        })
+
+        it('fails without impersonating when the OAuth2 popup closes before confirming', async () => {
+            logic.actions.setSessionExpired({ email: 'test@example.com', userId: 123, isImpersonatedUntil: null })
+
+            useMocks({
+                get: {
+                    '/admin/auth_check': () => [401, {}],
+                    '/api/users/@me/': () => [200, MOCK_IMPERSONATED_USER],
+                },
+                post: {
+                    '/admin/login/user/:id/': () => [200, {}],
+                },
+            })
+
+            const mockWindow = { closed: false } as Window
+            const openSpy = jest.spyOn(window, 'open').mockReturnValue(mockWindow)
+
+            const reImpersonatePromise = expectLogic(logic, () => {
+                logic.actions.reImpersonate('reason', true)
+            })
+
+            // Popup closes without ever posting `oauth2_complete` — the admin session was never
+            // established, so the flow must surface a failure rather than fire the login-as POST.
+            await new Promise((resolve) => setTimeout(resolve, 100))
+            ;(mockWindow as any).closed = true
+
+            await reImpersonatePromise
+                .toDispatchActions(['reImpersonate', 'reImpersonateFailure'])
+                .toNotHaveDispatchedActions(['loadUser'])
+                .toFinishAllListeners()
+
+            expect(lemonToast.error).toHaveBeenCalled()
             openSpy.mockRestore()
         })
     })
@@ -495,10 +567,14 @@ describe('impersonationNoticeLogic', () => {
             // Give the listener time to (incorrectly) process the message
             await new Promise((resolve) => setTimeout(resolve, 100))
 
-            // The login-as POST should NOT have been sent yet because the
-            // cross-origin message was correctly ignored. Closing the popup
-            // is what actually unblocks the flow.
-            ;(mockWindow as any).closed = true
+            // The cross-origin message was correctly ignored, so the flow is still blocked.
+            // Only a legitimate same-origin `oauth2_complete` unblocks it.
+            window.dispatchEvent(
+                new MessageEvent('message', {
+                    origin: window.location.origin,
+                    data: { type: 'oauth2_complete' },
+                })
+            )
 
             await promise.toDispatchActions(['loadUser']).toFinishAllListeners()
 

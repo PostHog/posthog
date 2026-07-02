@@ -62,6 +62,7 @@ from posthog.storage.hypercache_manager import (
 
 from products.cohorts.backend.models.cohort import Cohort
 from products.cohorts.backend.models.dependencies import extract_cohort_dependencies
+from products.experiments.backend.models.experiment import Experiment, live_experiment_exists
 from products.feature_flags.backend.flags_cache_messages import FlagsCacheInvalidation
 from products.feature_flags.backend.models.evaluation_context import FeatureFlagEvaluationContext
 from products.feature_flags.backend.models.feature_flag import FeatureFlag, get_feature_flags, serialize_feature_flags
@@ -391,13 +392,15 @@ def _get_feature_flags_for_teams_batch(teams: list[Team]) -> dict[int, dict[str,
                 "flag_evaluation_contexts__evaluation_context__name",
                 filter=Q(flag_evaluation_contexts__isnull=False),
                 distinct=True,
-            )
+            ),
+            has_experiment_agg=live_experiment_exists(),
         )
     )
 
     # Transfer aggregated tag names to model instances
     for flag in all_flags:
         flag._evaluation_tag_names = flag.evaluation_tag_names_agg or []
+        flag._has_experiment = flag.has_experiment_agg
 
     # Group flags by team_id
     flags_by_team_id: dict[int, list[FeatureFlag]] = defaultdict(list)
@@ -1033,6 +1036,28 @@ def feature_flag_changed_flags_cache(sender, instance: "FeatureFlag", **kwargs):
 
     This ensures the feature-flags service always has fresh flag data after any flag changes.
     Only operates when FLAGS_REDIS_URL is configured.
+    """
+    if not settings.FLAGS_REDIS_URL:
+        return
+
+    team_id = instance.team_id
+    transaction.on_commit(lambda: _enqueue_invalidation(team_id))
+
+
+@receiver(post_save, sender=Experiment)
+@receiver(post_delete, sender=Experiment)
+def experiment_changed_flags_cache(sender, instance: "Experiment", **kwargs):
+    """
+    Invalidate flags cache when an experiment is created, soft-deleted, or removed.
+
+    A flag's cached `has_experiment` depends on whether it has any non-deleted linked
+    experiment, so experiment changes must refresh the linked flag's team cache.
+    Keyed on the experiment's own team_id, which also covers experiment reassignment
+    between flags within the team. Only operates when FLAGS_REDIS_URL is configured.
+
+    Fires on every save by design, mirroring feature_flag_changed_flags_cache: Experiment
+    rows are only written on user-driven lifecycle/edit operations (no high-churn periodic
+    path touches them, unlike cohort recalculation), so an update_fields gate isn't warranted.
     """
     if not settings.FLAGS_REDIS_URL:
         return

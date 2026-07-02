@@ -14,6 +14,8 @@
     },
     "scripts": {
         "lint": "oxlint --quiet .",
+        "format": "oxfmt .",
+        "format:check": "oxfmt --check .",
         "typescript:check": "tsc --noEmit -p .",
         "test": "vitest run"
     },
@@ -39,7 +41,7 @@
         "@types/pg": "^8.6.0",
         "@types/uuid": "^10.0.0",
         "typescript": "catalog:",
-        "vitest": "^2.1.9"
+        "vitest": "^4.1.0"
     },
     "optionalDependencies": {
         "ioredis": "^5.4.1",

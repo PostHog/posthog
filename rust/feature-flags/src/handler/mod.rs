@@ -240,6 +240,9 @@ async fn process_request_inner(
                     flags::evaluate_for_request(
                         &context.state,
                         team.id,
+                        // Interpret naive datetime filter values in the team timezone so flag
+                        // evaluation matches HogQL/ClickHouse cohort membership.
+                        team.parsed_timezone(),
                         distinct_id.clone(),
                         device_id.clone(),
                         filtered_flags.clone(),

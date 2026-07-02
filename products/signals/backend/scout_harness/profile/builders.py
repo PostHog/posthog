@@ -56,11 +56,11 @@ from products.dashboards.backend.models.dashboard import Dashboard
 # enforced, migrate this to a facade `list_recent_experiments(team, limit)` helper.
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
-from products.notebooks.backend.models import Notebook
+from products.notebooks.backend.facade import api as notebooks
 from products.signals.backend.models import SignalReport, SignalSourceConfig
 from products.signals.backend.scout_harness.profile.schema import Inventory
 from products.surveys.backend.models import Survey
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 logger = logging.getLogger(__name__)
@@ -69,7 +69,7 @@ logger = logging.getLogger(__name__)
 # rows whose `source_version` doesn't match the current build, so adding a new key here
 # (or restructuring an existing one) without bumping the version would silently mix old
 # and new shapes in the cache.
-INVENTORY_SOURCE_VERSION = "v6"
+INVENTORY_SOURCE_VERSION = "v7"
 
 # Top-events ClickHouse query bounds. 7d is short enough to spot recent bursts and long
 # enough to stabilize counts on low-traffic teams; 50 covers the long tail without
@@ -99,6 +99,13 @@ RECENT_ENTITY_LIMIT = 5
 RECENT_ACTIVITY_WINDOW_DAYS = 14
 RECENT_ACTIVITY_LIMIT = 20
 
+# Human reviewer corrections are rare and precious routing precedent, so the window is
+# much longer than the general activity aggregate — 90d keeps a quarter of corrections
+# in the scout's orientation without an activity-log drill-down (which is premium-gated
+# on cloud, unlike this ORM read).
+REVIEWER_CORRECTIONS_WINDOW_DAYS = 90
+REVIEWER_CORRECTIONS_LIMIT = 20
+
 
 def build_inventory(team: Team) -> Inventory:
     """Aggregate the deterministic inventory layer for a team.
@@ -122,6 +129,7 @@ def build_inventory(team: Team) -> Inventory:
             "signal_source_configs": _signal_source_configs(team),
             "existing_inbox_reports": _existing_inbox_reports(team),
             "recent_activity": _recent_activity(team),
+            "recent_reviewer_corrections": _recent_reviewer_corrections(team),
             "recent_dashboards": _recent_dashboards(team),
             "recent_surveys": _recent_surveys(team),
             "recent_feature_flags": _recent_feature_flags(team),
@@ -501,18 +509,16 @@ def _recent_notebooks(team: Team) -> dict[str, Any]:
     scope (405 edits in 14d), so this section is high-signal even at small recent-
     list size.
     """
-    qs = Notebook.objects.filter(team=team, deleted=False)
-    total = qs.count()
-    recent = qs.order_by("-last_modified_at")[:RECENT_ENTITY_LIMIT].values("short_id", "title", "last_modified_at")
+    summary = notebooks.get_notebook_activity_summary(team.id, RECENT_ENTITY_LIMIT)
     return {
-        "total_count": total,
+        "total_count": summary.total_count,
         "recent": [
             {
-                "short_id": row["short_id"],
-                "title": (row["title"] or "").strip(),
-                "last_modified_at": row["last_modified_at"].isoformat() if row["last_modified_at"] else None,
+                "short_id": entry.short_id,
+                "title": (entry.title or "").strip(),
+                "last_modified_at": entry.last_modified_at.isoformat() if entry.last_modified_at else None,
             }
-            for row in recent
+            for entry in summary.recent
         ],
     }
 
@@ -658,6 +664,44 @@ def _recent_activity(team: Team) -> dict[str, Any]:
             for row in rows
         ],
     }
+
+
+def _recent_reviewer_corrections(team: Team) -> dict[str, Any]:
+    """Human edits to report reviewer lists, from the activity log.
+
+    A human swapping a report's suggested reviewers is the strongest ownership
+    precedent a scout can route by, so it's surfaced directly in the profile —
+    an ORM read, deliberately not the activity-log API (premium-gated on cloud),
+    so every scout sees it regardless of the org's plan. The impersonation/system
+    filter matches the partial index `idx_alog_team_scp_act_crtd` (both flags
+    required False) and keeps support-staff edits out of the team's routing
+    precedent — the write path records `was_impersonated`, so such rows do exist.
+    """
+    cutoff = timezone.now() - timedelta(days=REVIEWER_CORRECTIONS_WINDOW_DAYS)
+    rows = ActivityLog.objects.filter(
+        team_id=team.id,
+        scope="SignalReport",
+        activity="suggested_reviewers_changed",
+        created_at__gte=cutoff,
+        was_impersonated=False,
+        is_system=False,
+    ).order_by("-created_at")[:REVIEWER_CORRECTIONS_LIMIT]
+
+    corrections: list[dict[str, Any]] = []
+    for row in rows:
+        detail = row.detail or {}
+        changes = detail.get("changes") or []
+        change = changes[0] if changes and isinstance(changes[0], dict) else {}
+        corrections.append(
+            {
+                "report_id": str(row.item_id),
+                "report_title": detail.get("name"),
+                "before": change.get("before") or [],
+                "after": change.get("after") or [],
+                "at": row.created_at.isoformat() if row.created_at else None,
+            }
+        )
+    return {"window_days": REVIEWER_CORRECTIONS_WINDOW_DAYS, "corrections": corrections}
 
 
 def _top_events(team: Team) -> list[dict[str, Any]] | None:

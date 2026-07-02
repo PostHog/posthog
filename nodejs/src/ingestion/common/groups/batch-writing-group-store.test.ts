@@ -2,8 +2,8 @@
 import { DateTime } from 'luxon'
 
 import { Group, ProjectId, TeamId } from '~/types'
-import { MessageSizeTooLarge } from '~/utils/db/error'
-import { RaceConditionError } from '~/utils/utils'
+import { MessageSizeTooLarge } from '~/common/utils/db/error'
+import { RaceConditionError } from '~/common/utils/utils'
 
 import { BatchWritingGroupStore } from './batch-writing-group-store'
 import { groupCacheOperationsCounter } from './metrics'

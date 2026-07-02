@@ -1,7 +1,8 @@
-import os
 import socket
 import ipaddress
 import urllib.parse as urlparse
+
+from django.conf import settings
 
 import structlog
 
@@ -109,14 +110,15 @@ def has_authority_bypass_chars(url: str) -> bool:
 
 
 def _dev_bypass_enabled() -> bool:
-    """
-    Dev mode short-circuits is_url_allowed unless POSTHOG_FORCE_URL_VALIDATION is set.
-    Developers can set the env var to exercise the production code path locally
-    (e.g. to reproduce or verify SSRF-related fixes) without flipping global DEBUG.
+    """Dev mode short-circuits is_url_allowed.
+
+    Set the FORCE_URL_VALIDATION setting (POSTHOG_FORCE_URL_VALIDATION env var) to
+    exercise the production code path locally (e.g. to reproduce or verify SSRF-related
+    fixes) without flipping global DEBUG.
     """
     if not is_dev_mode():
         return False
-    return os.environ.get("POSTHOG_FORCE_URL_VALIDATION", "").lower() not in {"1", "true"}
+    return not settings.FORCE_URL_VALIDATION
 
 
 def is_url_allowed(raw_url: str) -> tuple[bool, str | None]:

@@ -1,9 +1,9 @@
 import { DateTime } from 'luxon'
 
 import { PersonMessage } from '~/common/persons/person-message'
+import { CreatePersonResult, MoveDistinctIdsResult } from '~/common/utils/db/db'
 import { Properties } from '~/plugin-scaffold'
 import { InternalPerson, PersonUpdateFields, PropertiesLastOperation, PropertiesLastUpdatedAt, Team } from '~/types'
-import { CreatePersonResult, MoveDistinctIdsResult } from '~/utils/db/db'
 
 export interface PersonRepositoryTransaction {
     createPerson(

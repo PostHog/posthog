@@ -1,6 +1,7 @@
 import { OnboardingComponentsContext, createInstallation } from 'scenes/onboarding/shared/OnboardingDocsContentWrapper'
 
 import { StepDefinition } from '../steps'
+import { SDK_DEFAULTS_DATE } from './_snippets/sdkDefaults'
 
 export const getRemixSteps = (ctx: OnboardingComponentsContext): StepDefinition[] => {
     const { CodeBlock, Markdown, CalloutBox, dedent, snippets } = ctx
@@ -114,7 +115,7 @@ export const getRemixSteps = (ctx: OnboardingComponentsContext): StepDefinition[
                                       useEffect(() => {
                                         posthog.init("<ph_project_token>", {
                                           api_host: "<ph_client_api_host>",
-                                          defaults: "2026-01-30"
+                                          defaults: "${SDK_DEFAULTS_DATE}"
                                         });
 
                                         setHydrated(true);

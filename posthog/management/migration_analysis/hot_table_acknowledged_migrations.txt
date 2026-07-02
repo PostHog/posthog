@@ -16,3 +16,4 @@
 #
 # Format: one "<app_label>.<migration_name>" per line, e.g.
 # posthog.1234_team_some_genuinely_core_field
+posthog.1244_team_event_retention_months

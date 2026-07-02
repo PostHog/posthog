@@ -2,6 +2,7 @@ import sodium from 'libsodium-wrappers'
 import { DateTime } from 'luxon'
 import snappy from 'snappy'
 
+import { parseJSON } from '~/common/utils/json-parse'
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import {
     SessionBatchFileStorage,
@@ -19,7 +20,6 @@ import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared
 import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
 import { SessionKeyDeletedError } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { MessageWithTeam } from '~/ingestion/pipelines/sessionreplay/teams/types'
-import { parseJSON } from '~/utils/json-parse'
 
 jest.mock('~/ingestion/pipelines/sessionreplay/sessions/session-feature-recorder', () => ({
     SessionFeatureRecorder: jest.fn().mockImplementation(() => ({
@@ -179,6 +179,7 @@ describe('session recording encryption integration', () => {
         team: {
             teamId,
             consoleLogIngestionEnabled: false,
+            aiTrainingOptedIn: true,
         },
         message: {
             distinct_id: 'distinct_id',

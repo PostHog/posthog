@@ -4,6 +4,7 @@ import { router } from 'kea-router'
 import { expectLogic, partial, truth } from 'kea-test-utils'
 
 import api from 'lib/api'
+import { objectsEqual } from 'lib/utils/objects'
 import 'lib/constants'
 import { dashboardLogic } from 'scenes/dashboard/dashboardLogic'
 import { savedInsightsLogic } from 'scenes/saved-insights/savedInsightsLogic'
@@ -274,9 +275,6 @@ describe('insightLogic', () => {
         initKeaTests(true, { ...MOCK_DEFAULT_TEAM, test_account_filters_default_checked: true })
         teamLogic.mount()
         sceneLogic.mount()
-        sceneLogic.actions.setTabs([
-            { id: '1', title: '...', pathname: '/', search: '', hash: '', active: true, iconType: 'blank' },
-        ])
         await expectLogic(teamLogic)
             .toFinishAllListeners()
             .toMatchValues({ currentTeam: partial({ test_account_filters_default_checked: true }) })
@@ -696,6 +694,32 @@ describe('insightLogic', () => {
                         return name === 'new name' && description === 'new description'
                     }),
                 })
+        })
+
+        it('updates query and savedInsight.query on renameInsightSuccess (display-option save)', async () => {
+            const updatedQuery: InsightVizNode = {
+                kind: NodeKind.InsightVizNode,
+                source: {
+                    kind: NodeKind.TrendsQuery,
+                    series: [],
+                    trendsFilter: { showLegend: true },
+                },
+            }
+            const originalResult = logic.values.insight.result
+
+            insightsModel.actions.renameInsightSuccess(
+                insightModelWith({
+                    id: 42,
+                    short_id: Insight42,
+                    query: updatedQuery,
+                    result: null, // display-option PATCHes don't recompute — server returns null
+                })
+            )
+
+            // query updated, existing result preserved (not blanked by the null in the response)
+            expect(objectsEqual(logic.values.insight.query, updatedQuery)).toBe(true)
+            expect(logic.values.insight.result).toEqual(originalResult)
+            expect(objectsEqual(logic.values.savedInsight.query, updatedQuery)).toBe(true)
         })
 
         it('does not react to rename of a different insight', async () => {

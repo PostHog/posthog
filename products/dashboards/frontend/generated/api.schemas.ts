@@ -390,10 +390,33 @@ export interface DashboardCollaboratorApi {
 }
 
 /**
+ * OpenAPI-only shape for a dashboard's filters object (agents/MCP).
+ *
+ * Documents the dashboard-level filters that act as the single source of truth for the
+ * dashboard's tiles. Runtime persistence reads the raw ``filters`` dict from the request body, so
+ * extra keys are accepted, but these are the ones agents should set.
+ */
+export interface DashboardFiltersOpenApiApi {
+    /**
+     * Dashboard-level start of the date range, e.g. '-30d', '-7d', or an ISO date. Applies to all tiles.
+     * @nullable
+     */
+    date_from?: string | null
+    /**
+     * Dashboard-level end of the date range, e.g. '-1d' or an ISO date. Null/omitted means up to now.
+     * @nullable
+     */
+    date_to?: string | null
+    /** Dashboard-level property filters applied to every tile (PostHog property filter group). */
+    properties?: unknown
+}
+
+/**
  * * `activity_events_list` - activity_events_list
  * * `error_tracking_list` - error_tracking_list
  * * `experiment_results` - experiment_results
  * * `experiments_list` - experiments_list
+ * * `logs_list` - logs_list
  * * `session_replay_list` - session_replay_list
  */
 export type DashboardPatchWidgetOpenApiWidgetTypeEnumApi =
@@ -404,6 +427,7 @@ export const DashboardPatchWidgetOpenApiWidgetTypeEnumApi = {
     ErrorTrackingList: 'error_tracking_list',
     ExperimentResults: 'experiment_results',
     ExperimentsList: 'experiments_list',
+    LogsList: 'logs_list',
     SessionReplayList: 'session_replay_list',
 } as const
 
@@ -489,6 +513,8 @@ export interface ActivityEventsListWidgetConfigApi {
      * @maximum 50
      */
     limit?: number
+    /** Limit the feed to a single event name. Omit or null for all events. */
+    eventName?: string | null
 }
 
 /**
@@ -607,8 +633,10 @@ export interface SessionReplayListWidgetConfigApi {
     orderBy?: SessionReplayListWidgetConfigApiOrderBy
     /** Sort direction for orderBy. */
     orderDirection?: SessionReplayListWidgetConfigApiOrderDirection
-    /** short_id of a saved session replay filter to use as the recordings source. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. */
+    /** short_id of a saved session replay filter to refine the recordings shown. When set, the saved filter owns the date range and property filters; only orderBy, orderDirection, and limit still apply. Combine with collectionId to filter within a collection. */
     savedFilterId?: string | null
+    /** short_id of a session replay collection to scope the widget to its pinned recordings. Combine with savedFilterId or property filters to narrow within the collection; orderBy, orderDirection, and limit still apply. */
+    collectionId?: string | null
 }
 
 /**
@@ -670,12 +698,69 @@ export interface ExperimentResultsWidgetConfigApi {
     experimentId?: number | null
 }
 
+/**
+ * Sort by newest (latest) or oldest (earliest) first.
+ */
+export type LogsListWidgetConfigApiOrderBy =
+    (typeof LogsListWidgetConfigApiOrderBy)[keyof typeof LogsListWidgetConfigApiOrderBy]
+
+export const LogsListWidgetConfigApiOrderBy = {
+    Latest: 'latest',
+    Earliest: 'earliest',
+} as const
+
+export type LogsListWidgetConfigApiSeverityLevelsItem =
+    (typeof LogsListWidgetConfigApiSeverityLevelsItem)[keyof typeof LogsListWidgetConfigApiSeverityLevelsItem]
+
+export const LogsListWidgetConfigApiSeverityLevelsItem = {
+    Trace: 'trace',
+    Debug: 'debug',
+    Info: 'info',
+    Warn: 'warn',
+    Error: 'error',
+    Fatal: 'fatal',
+} as const
+
+/**
+ * Render log timestamps in UTC or in each viewer's local timezone.
+ */
+export type LogsListWidgetConfigApiTimezone =
+    (typeof LogsListWidgetConfigApiTimezone)[keyof typeof LogsListWidgetConfigApiTimezone]
+
+export const LogsListWidgetConfigApiTimezone = {
+    Utc: 'UTC',
+    Local: 'local',
+} as const
+
+export interface LogsListWidgetConfigApi {
+    dateRange?: WidgetDateRangeApi | null
+    /**
+     * Maximum number of log lines to return.
+     * @minimum 1
+     * @maximum 100
+     */
+    limit?: number
+    /** Sort by newest (latest) or oldest (earliest) first. */
+    orderBy?: LogsListWidgetConfigApiOrderBy
+    /** Only show logs at these severity levels. Empty shows all levels. */
+    severityLevels?: LogsListWidgetConfigApiSeverityLevelsItem[]
+    /** Only show logs from these services. Empty shows all services. */
+    serviceNames?: string[]
+    /** Wrap long log lines instead of truncating them to a single row. */
+    wrapLines?: boolean
+    /** Render log timestamps in UTC or in each viewer's local timezone. */
+    timezone?: LogsListWidgetConfigApiTimezone
+    /** short_id of a saved logs view to use as the source. When set, the saved view owns the date range, severity, service, and property filters; only orderBy and limit still apply. */
+    savedViewId?: string | null
+}
+
 export type DashboardWidgetConfigApi =
     | ActivityEventsListWidgetConfigApi
     | ErrorTrackingListWidgetConfigApi
     | SessionReplayListWidgetConfigApi
     | ExperimentsListWidgetConfigApi
     | ExperimentResultsWidgetConfigApi
+    | LogsListWidgetConfigApi
 
 export interface DashboardPatchWidgetOpenApiApi {
     /** Existing widget row ID when updating a widget tile via dashboard PATCH. */
@@ -686,6 +771,7 @@ export interface DashboardPatchWidgetOpenApiApi {
      * * `error_tracking_list` - error_tracking_list
      * * `experiment_results` - experiment_results
      * * `experiments_list` - experiments_list
+     * * `logs_list` - logs_list
      * * `session_replay_list` - session_replay_list */
     widget_type?: DashboardPatchWidgetOpenApiWidgetTypeEnumApi
     /** Widget-specific configuration. Shape depends on the tile's widget_type. */
@@ -721,6 +807,8 @@ export interface PatchedPatchedDashboardOpenApiApi {
     name?: string | null
     description?: string
     pinned?: boolean
+    /** Dashboard-level filters (date range and properties) applied across all tiles as the source of truth. */
+    filters?: DashboardFiltersOpenApiApi
     /** Custom color mapping for breakdown values. */
     breakdown_colors?: unknown
     /**
@@ -1098,6 +1186,15 @@ export interface PersonPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export interface PersonMetadataPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Top-level columns on the persons table (e.g. created_at), not properties JSON */
+    type?: 'person_metadata'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export type Key10Api = (typeof Key10Api)[keyof typeof Key10Api]
 
 export const Key10Api = {
@@ -1287,6 +1384,7 @@ export interface PropertyGroupFilterValueApi {
         | PropertyGroupFilterValueApi
         | EventPropertyFilterApi
         | PersonPropertyFilterApi
+        | PersonMetadataPropertyFilterApi
         | ElementPropertyFilterApi
         | EventMetadataPropertyFilterApi
         | SessionPropertyFilterApi
@@ -1662,6 +1760,7 @@ export interface EventsNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -1709,6 +1808,7 @@ export interface EventsNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -1743,6 +1843,7 @@ export interface ActionsNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -1788,6 +1889,7 @@ export interface ActionsNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -1824,6 +1926,7 @@ export interface DataWarehouseNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -1870,6 +1973,7 @@ export interface DataWarehouseNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -1906,6 +2010,7 @@ export interface GroupNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -1957,6 +2062,7 @@ export interface GroupNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -2227,6 +2333,7 @@ export interface TrendsQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -2281,6 +2388,7 @@ export interface FunnelExclusionEventsNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -2330,6 +2438,7 @@ export interface FunnelExclusionEventsNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -2364,6 +2473,7 @@ export interface FunnelExclusionActionsNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -2411,6 +2521,7 @@ export interface FunnelExclusionActionsNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -2508,6 +2619,8 @@ export interface FunnelsFilterApi {
     /** Trends only: hide periods whose conversion window has not fully elapsed yet, so the recent tail of the trend isn't dragged down by entrants who still have time to convert. */
     hideIncompleteConversionWindowPeriods?: boolean | null
     layout?: FunnelLayoutApi | null
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend. */
+    legendPosition?: LegendPositionApi | null
     /** Customizations for the appearance of result datasets. */
     resultCustomizations?: FunnelsFilterApiResultCustomizations
     /** Whether to render annotations on the chart. Only applies to historical-trends funnels. */
@@ -2536,6 +2649,8 @@ export interface FunnelsQueryResponseApi {
     results: unknown
     /** Measured timings for different parts of the query generation process */
     timings?: QueryTimingApi[] | null
+    /** Median total conversion time across all completers, computed breakdown-agnostically for the Steps viz header. */
+    total_median_conversion_time?: number | null
     /** Warnings about data warehouse sources referenced by the query whose latest sync failed, is paused, hit a billing limit, or is otherwise stale. Results may not reflect current source data. Accumulated across every HogQL execution that contributes to this response — so insights backed by warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw HogQL queries. */
     warnings?: DataWarehouseSyncWarningApi[] | null
 }
@@ -2551,6 +2666,7 @@ export interface FunnelsDataWarehouseNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -2597,6 +2713,7 @@ export interface FunnelsDataWarehouseNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -2649,6 +2766,7 @@ export interface FunnelsQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -2802,6 +2920,7 @@ export interface RetentionEntityApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -2890,6 +3009,7 @@ export interface RetentionQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -3021,6 +3141,7 @@ export interface PathsQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -3107,6 +3228,8 @@ export interface StickinessFilterApi {
     computedAs?: StickinessComputationModeApi | null
     display?: ChartDisplayTypeApi | null
     hiddenLegendIndexes?: number[] | null
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend. */
+    legendPosition?: LegendPositionApi | null
     /** Whether result datasets are associated by their values or by their order. */
     resultCustomizationBy?: ResultCustomizationByApi | null
     /** Customizations for the appearance of result datasets. */
@@ -3138,6 +3261,7 @@ export interface StickinessQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -3182,6 +3306,8 @@ export const LifecycleToggleApi = {
 } as const
 
 export interface LifecycleFilterApi {
+    /** Where the in-chart legend sits relative to the plot. Only applies to the in-chart legend. */
+    legendPosition?: LegendPositionApi | null
     showLegend?: boolean | null
     /** Append per-band percentage to each value label (e.g. `580 (42%)`). Requires `showValuesOnSeries` — on its own it has no visible effect. */
     showPercentagesOnSeries?: boolean | null
@@ -3223,6 +3349,7 @@ export interface LifecycleDataWarehouseNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -3268,6 +3395,7 @@ export interface LifecycleDataWarehouseNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -3318,6 +3446,7 @@ export interface LifecycleQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -4273,6 +4402,8 @@ export const IntegrationKindApi = {
     CustomerioWebhook: 'customerio-webhook',
     CustomerioTrack: 'customerio-track',
     Postgresql: 'postgresql',
+    AwsS3: 'aws-s3',
+    S3Compatible: 's3-compatible',
 } as const
 
 export interface ErrorTrackingExternalReferenceIntegrationApi {
@@ -4484,6 +4615,26 @@ export const AIEventTypeApi = {
     AiGenerationClusters: '$ai_generation_clusters',
 } as const
 
+export type LLMSentimentMessageApiScores = { [key: string]: number } | null
+
+export interface LLMSentimentMessageApi {
+    label: string
+    score: number
+    scores?: LLMSentimentMessageApiScores
+}
+
+export type LLMSentimentResultApiMessages = { [key: string]: LLMSentimentMessageApi } | null
+
+export type LLMSentimentResultApiScores = { [key: string]: number } | null
+
+export interface LLMSentimentResultApi {
+    label: string
+    message_count?: number | null
+    messages?: LLMSentimentResultApiMessages
+    score: number
+    scores?: LLMSentimentResultApiScores
+}
+
 export type LLMTraceEventApiProperties = { [key: string]: unknown }
 
 export interface LLMTraceEventApi {
@@ -4491,6 +4642,7 @@ export interface LLMTraceEventApi {
     event: AIEventTypeApi | string
     id: string
     properties: LLMTraceEventApiProperties
+    sentiment?: LLMSentimentResultApi | null
 }
 
 export type LLMTracePersonApiProperties = { [key: string]: unknown }
@@ -4518,6 +4670,7 @@ export interface LLMTraceApi {
     outputTokens?: number | null
     person?: LLMTracePersonApi | null
     requestCost?: number | null
+    sentiment?: LLMSentimentResultApi | null
     tools?: string[] | null
     totalCost?: number | null
     totalLatency?: number | null
@@ -4610,6 +4763,7 @@ export const TaxonomicFilterGroupTypeApi = {
     Cohorts: 'cohorts',
     CohortsWithAll: 'cohorts_with_all',
     DataWarehouse: 'data_warehouse',
+    DataWarehouseSourceTables: 'data_warehouse_source_tables',
     DataWarehouseProperties: 'data_warehouse_properties',
     DataWarehousePersonProperties: 'data_warehouse_person_properties',
     Elements: 'elements',
@@ -4621,6 +4775,7 @@ export const TaxonomicFilterGroupTypeApi = {
     EventMetadata: 'event_metadata',
     NumericalEventProperties: 'numerical_event_properties',
     PersonProperties: 'person_properties',
+    PersonMetadata: 'person_metadata',
     PageviewUrls: 'pageview_urls',
     PageviewEvents: 'pageview_events',
     Screens: 'screens',
@@ -4694,6 +4849,7 @@ export interface EventsQueryActionStepApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -4831,6 +4987,7 @@ export interface EventsQueryApi {
               | PropertyGroupFilterValueApi
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -4867,6 +5024,7 @@ export interface EventsQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -4909,6 +5067,7 @@ export interface PersonsNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -4939,6 +5098,7 @@ export interface PersonsNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -4967,6 +5127,8 @@ export interface PersonsNodeApi {
 }
 
 export interface FunnelsActorsQueryApi {
+    /** When the source funnel has compare-to-previous enabled, scopes the actors to a single period. The runner resolves `'previous'` to the shifted date range; `'current'` (or unset) uses the source's own date range. */
+    compare?: CompareApi | null
     /** Index of the step for which we want to get the timestamp for, per person. Positive for converted persons, negative for dropped of persons. */
     funnelStep?: number | null
     /** The breakdown value for which to get persons for. This is an array for person and event properties, a string for groups and an integer for cohorts. */
@@ -5068,6 +5230,7 @@ export interface FunnelCorrelationActorsQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -5107,6 +5270,7 @@ export interface ExperimentEventExposureConfigApi {
     properties: (
         | EventPropertyFilterApi
         | PersonPropertyFilterApi
+        | PersonMetadataPropertyFilterApi
         | ElementPropertyFilterApi
         | EventMetadataPropertyFilterApi
         | SessionPropertyFilterApi
@@ -5156,6 +5320,7 @@ export interface ExperimentDataWarehouseNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -5200,6 +5365,7 @@ export interface ExperimentDataWarehouseNodeApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -5523,6 +5689,7 @@ export interface HogQLFiltersApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -5623,7 +5790,13 @@ export interface HogQLQueryApi {
 export interface ActorsQueryApi {
     /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
     fixedProperties?:
-        | (PersonPropertyFilterApi | CohortPropertyFilterApi | HogQLPropertyFilterApi | EmptyPropertyFilterApi)[]
+        | (
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | CohortPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+          )[]
         | null
     kind?: 'ActorsQuery'
     limit?: number | null
@@ -5633,7 +5806,13 @@ export interface ActorsQueryApi {
     orderBy?: string[] | null
     /** Currently only person filters supported. No filters for querying groups. See `filter_conditions()` in actor_strategies.py. */
     properties?:
-        | (PersonPropertyFilterApi | CohortPropertyFilterApi | HogQLPropertyFilterApi | EmptyPropertyFilterApi)[]
+        | (
+              | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
+              | CohortPropertyFilterApi
+              | HogQLPropertyFilterApi
+              | EmptyPropertyFilterApi
+          )[]
         | PropertyGroupFilterValueApi
         | null
     response?: ActorsQueryResponseApi | null
@@ -6041,6 +6220,7 @@ export interface SessionsQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -6070,6 +6250,7 @@ export interface SessionsQueryApi {
               | PropertyGroupFilterValueApi
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -6106,6 +6287,7 @@ export interface SessionsQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -6416,6 +6598,7 @@ export interface ConversionGoalFilter1Api {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -6463,6 +6646,7 @@ export interface ConversionGoalFilter1Api {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -6502,6 +6686,7 @@ export interface ConversionGoalFilter2Api {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -6547,6 +6732,7 @@ export interface ConversionGoalFilter2Api {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -6588,6 +6774,7 @@ export interface ConversionGoalFilter3Api {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -6634,6 +6821,7 @@ export interface ConversionGoalFilter3Api {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -7130,6 +7318,8 @@ export interface TracesQueryApi {
     filterTestAccounts?: boolean | null
     groupKey?: string | null
     groupTypeIndex?: number | null
+    /** Include stored sentiment evaluation results for returned traces and direct generation events. */
+    includeSentiment?: boolean | null
     kind?: 'TracesQuery'
     limit?: number | null
     /** Modifiers used when performing the query */
@@ -7142,6 +7332,7 @@ export interface TracesQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -7197,6 +7388,8 @@ export interface TraceQueryResponseApi {
 
 export interface TraceQueryApi {
     dateRange?: DateRangeApi | null
+    /** Include stored sentiment evaluation results for the trace and its generations. */
+    includeSentiment?: boolean | null
     kind?: 'TraceQuery'
     /** Modifiers used when performing the query */
     modifiers?: HogQLQueryModifiersApi | null
@@ -7205,6 +7398,7 @@ export interface TraceQueryApi {
         | (
               | EventPropertyFilterApi
               | PersonPropertyFilterApi
+              | PersonMetadataPropertyFilterApi
               | ElementPropertyFilterApi
               | EventMetadataPropertyFilterApi
               | SessionPropertyFilterApi
@@ -7553,6 +7747,30 @@ export interface YAxisSettingsApi {
     startAtZero?: boolean | null
 }
 
+export type SliceContentApi = (typeof SliceContentApi)[keyof typeof SliceContentApi]
+
+export const SliceContentApi = {
+    Labels: 'labels',
+    Values: 'values',
+    None: 'none',
+} as const
+
+export type ValueDisplayApi = (typeof ValueDisplayApi)[keyof typeof ValueDisplayApi]
+
+export const ValueDisplayApi = {
+    Absolute: 'absolute',
+    Percentage: 'percentage',
+} as const
+
+export interface PieChartSettingsApi {
+    /** Whether to show the aggregation total below the chart. Defaults to on. */
+    showTotal?: boolean | null
+    /** What to render on each slice. Defaults to labels. */
+    sliceContent?: SliceContentApi | null
+    /** Whether slice values show as absolute amounts or shares of the total. Only applies when `sliceContent` is `values`. */
+    valueDisplay?: ValueDisplayApi | null
+}
+
 export type DisplayTypeApi = (typeof DisplayTypeApi)[keyof typeof DisplayTypeApi]
 
 export const DisplayTypeApi = {
@@ -7612,6 +7830,7 @@ export interface ChartSettingsApi {
     goalLines?: GoalLineApi[] | null
     heatmap?: HeatmapSettingsApi | null
     leftYAxisSettings?: YAxisSettingsApi | null
+    pie?: PieChartSettingsApi | null
     /** Per-breakdown-value color customizations. Keyed by the raw breakdown column value. */
     resultCustomizations?: ChartSettingsApiResultCustomizations
     rightYAxisSettings?: YAxisSettingsApi | null
@@ -8180,19 +8399,45 @@ export interface ExperimentResultsWidgetAddRequestOpenApiApi {
     config: ExperimentResultsWidgetConfigApi
 }
 
+export type LogsListWidgetAddRequestOpenApiApiWidgetType =
+    (typeof LogsListWidgetAddRequestOpenApiApiWidgetType)[keyof typeof LogsListWidgetAddRequestOpenApiApiWidgetType]
+
+export const LogsListWidgetAddRequestOpenApiApiWidgetType = {
+    LogsList: 'logs_list',
+} as const
+
+export interface LogsListWidgetAddRequestOpenApiApi {
+    /**
+     * Optional custom display name for the widget tile.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** Optional markdown description shown when show_description is enabled. */
+    description?: string
+    /** Optional react-grid-layout positions keyed by breakpoint (sm, xs). */
+    layouts?: _WidgetTileLayoutsOpenApiApi
+    /** Whether to show the description on the dashboard tile. */
+    show_description?: boolean
+    widget_type: LogsListWidgetAddRequestOpenApiApiWidgetType
+    /** Configuration for the recent logs widget. */
+    config: LogsListWidgetConfigApi
+}
+
 export type AddDashboardWidgetRequestApi =
     | ActivityEventsListWidgetAddRequestOpenApiApi
     | ErrorTrackingListWidgetAddRequestOpenApiApi
     | SessionReplayListWidgetAddRequestOpenApiApi
     | ExperimentsListWidgetAddRequestOpenApiApi
     | ExperimentResultsWidgetAddRequestOpenApiApi
+    | LogsListWidgetAddRequestOpenApiApi
 
 /**
  * OpenAPI-only batch-add schema with widget_type-discriminated config shapes for agents.
  */
 export interface AddDashboardWidgetsBatchRequestOpenApiApi {
     /**
-     * Widget tiles to add atomically. Supported widget_type values: activity_events_list, error_tracking_list, experiment_results, experiments_list, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
+     * Widget tiles to add atomically. Supported widget_type values: activity_events_list, error_tracking_list, experiment_results, experiments_list, logs_list, session_replay_list. Use dashboard-widget-catalog-list for per-type config_schema documentation. (1–10 per request).
      * @minItems 1
      * @maxItems 10
      */
@@ -8201,6 +8446,169 @@ export interface AddDashboardWidgetsBatchRequestOpenApiApi {
 
 export interface AddDashboardWidgetsBatchResponseApi {
     /** Created dashboard widget tiles in request order. */
+    tiles: DashboardTileApi[]
+}
+
+export type ActivityEventsListWidgetUpdateRequestOpenApiApiWidgetType =
+    (typeof ActivityEventsListWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof ActivityEventsListWidgetUpdateRequestOpenApiApiWidgetType]
+
+export const ActivityEventsListWidgetUpdateRequestOpenApiApiWidgetType = {
+    ActivityEventsList: 'activity_events_list',
+} as const
+
+export interface ActivityEventsListWidgetUpdateRequestOpenApiApi {
+    /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+    tile_id: number
+    /**
+     * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** New markdown description for the widget. Omit to leave unchanged. */
+    description?: string
+    widget_type: ActivityEventsListWidgetUpdateRequestOpenApiApiWidgetType
+    /** New configuration for the recent events widget. Omit to leave unchanged. */
+    config?: ActivityEventsListWidgetConfigApi
+}
+
+export type ErrorTrackingListWidgetUpdateRequestOpenApiApiWidgetType =
+    (typeof ErrorTrackingListWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof ErrorTrackingListWidgetUpdateRequestOpenApiApiWidgetType]
+
+export const ErrorTrackingListWidgetUpdateRequestOpenApiApiWidgetType = {
+    ErrorTrackingList: 'error_tracking_list',
+} as const
+
+export interface ErrorTrackingListWidgetUpdateRequestOpenApiApi {
+    /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+    tile_id: number
+    /**
+     * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** New markdown description for the widget. Omit to leave unchanged. */
+    description?: string
+    widget_type: ErrorTrackingListWidgetUpdateRequestOpenApiApiWidgetType
+    /** New configuration for the top issues widget. Omit to leave unchanged. */
+    config?: ErrorTrackingListWidgetConfigApi
+}
+
+export type SessionReplayListWidgetUpdateRequestOpenApiApiWidgetType =
+    (typeof SessionReplayListWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof SessionReplayListWidgetUpdateRequestOpenApiApiWidgetType]
+
+export const SessionReplayListWidgetUpdateRequestOpenApiApiWidgetType = {
+    SessionReplayList: 'session_replay_list',
+} as const
+
+export interface SessionReplayListWidgetUpdateRequestOpenApiApi {
+    /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+    tile_id: number
+    /**
+     * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** New markdown description for the widget. Omit to leave unchanged. */
+    description?: string
+    widget_type: SessionReplayListWidgetUpdateRequestOpenApiApiWidgetType
+    /** New configuration for the recent recordings widget. Omit to leave unchanged. */
+    config?: SessionReplayListWidgetConfigApi
+}
+
+export type ExperimentsListWidgetUpdateRequestOpenApiApiWidgetType =
+    (typeof ExperimentsListWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof ExperimentsListWidgetUpdateRequestOpenApiApiWidgetType]
+
+export const ExperimentsListWidgetUpdateRequestOpenApiApiWidgetType = {
+    ExperimentsList: 'experiments_list',
+} as const
+
+export interface ExperimentsListWidgetUpdateRequestOpenApiApi {
+    /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+    tile_id: number
+    /**
+     * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** New markdown description for the widget. Omit to leave unchanged. */
+    description?: string
+    widget_type: ExperimentsListWidgetUpdateRequestOpenApiApiWidgetType
+    /** New configuration for the experiments list widget. Omit to leave unchanged. */
+    config?: ExperimentsListWidgetConfigApi
+}
+
+export type ExperimentResultsWidgetUpdateRequestOpenApiApiWidgetType =
+    (typeof ExperimentResultsWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof ExperimentResultsWidgetUpdateRequestOpenApiApiWidgetType]
+
+export const ExperimentResultsWidgetUpdateRequestOpenApiApiWidgetType = {
+    ExperimentResults: 'experiment_results',
+} as const
+
+export interface ExperimentResultsWidgetUpdateRequestOpenApiApi {
+    /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+    tile_id: number
+    /**
+     * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** New markdown description for the widget. Omit to leave unchanged. */
+    description?: string
+    widget_type: ExperimentResultsWidgetUpdateRequestOpenApiApiWidgetType
+    /** New configuration for the experiment results widget. Omit to leave unchanged. */
+    config?: ExperimentResultsWidgetConfigApi
+}
+
+export type LogsListWidgetUpdateRequestOpenApiApiWidgetType =
+    (typeof LogsListWidgetUpdateRequestOpenApiApiWidgetType)[keyof typeof LogsListWidgetUpdateRequestOpenApiApiWidgetType]
+
+export const LogsListWidgetUpdateRequestOpenApiApiWidgetType = {
+    LogsList: 'logs_list',
+} as const
+
+export interface LogsListWidgetUpdateRequestOpenApiApi {
+    /** ID of the widget tile to update. Use dashboard-get to look up widget tile IDs. */
+    tile_id: number
+    /**
+     * New display name for the widget. Empty string or null clears it; omit to leave unchanged.
+     * @maxLength 400
+     * @nullable
+     */
+    name?: string | null
+    /** New markdown description for the widget. Omit to leave unchanged. */
+    description?: string
+    widget_type: LogsListWidgetUpdateRequestOpenApiApiWidgetType
+    /** New configuration for the recent logs widget. Omit to leave unchanged. */
+    config?: LogsListWidgetConfigApi
+}
+
+export type UpdateDashboardWidgetRequestApi =
+    | ActivityEventsListWidgetUpdateRequestOpenApiApi
+    | ErrorTrackingListWidgetUpdateRequestOpenApiApi
+    | SessionReplayListWidgetUpdateRequestOpenApiApi
+    | ExperimentsListWidgetUpdateRequestOpenApiApi
+    | ExperimentResultsWidgetUpdateRequestOpenApiApi
+    | LogsListWidgetUpdateRequestOpenApiApi
+
+/**
+ * OpenAPI-only batch-update schema with widget_type-discriminated config shapes for agents.
+ */
+export interface PatchedUpdateDashboardWidgetsBatchRequestOpenApiApi {
+    /**
+     * Widget tiles to update atomically, each identified by its tile_id. config shape is per widget_type; see dashboard-widget-catalog-list for per-type config_schema (1–10 per request).
+     * @minItems 1
+     * @maxItems 10
+     */
+    widgets?: UpdateDashboardWidgetRequestApi[]
+}
+
+export interface UpdateDashboardWidgetsBatchResponseApi {
+    /** Updated dashboard widget tiles in request order. */
     tiles: DashboardTileApi[]
 }
 
@@ -8343,12 +8751,32 @@ export interface ExperimentResultsWidgetCatalogEntryOpenApiApi {
     required_product_access?: string | null
 }
 
+export type LogsListWidgetCatalogEntryOpenApiApiWidgetType =
+    (typeof LogsListWidgetCatalogEntryOpenApiApiWidgetType)[keyof typeof LogsListWidgetCatalogEntryOpenApiApiWidgetType]
+
+export const LogsListWidgetCatalogEntryOpenApiApiWidgetType = {
+    LogsList: 'logs_list',
+} as const
+
+export interface LogsListWidgetCatalogEntryOpenApiApi {
+    widget_type: LogsListWidgetCatalogEntryOpenApiApiWidgetType
+    group_id: string
+    group_label: string
+    label: string
+    description: string
+    /** OpenAPI config shape for this widget type (documentation; matches batch-add/PATCH schemas). */
+    readonly config_schema: LogsListWidgetConfigApi
+    /** @nullable */
+    required_product_access?: string | null
+}
+
 export type WidgetCatalogEntryApi =
     | ActivityEventsListWidgetCatalogEntryOpenApiApi
     | ErrorTrackingListWidgetCatalogEntryOpenApiApi
     | SessionReplayListWidgetCatalogEntryOpenApiApi
     | ExperimentsListWidgetCatalogEntryOpenApiApi
     | ExperimentResultsWidgetCatalogEntryOpenApiApi
+    | LogsListWidgetCatalogEntryOpenApiApi
 
 export interface WidgetCatalogResponseApi {
     /** Registered dashboard widget types available when dashboard-widgets is enabled. */
@@ -8434,6 +8862,15 @@ export type ExperimentResultsWidgetTypeEnumApi =
 
 export const ExperimentResultsWidgetTypeEnumApi = {
     ExperimentResults: 'experiment_results',
+} as const
+
+/**
+ * * `logs_list` - logs_list
+ */
+export type LogsListWidgetTypeEnumApi = (typeof LogsListWidgetTypeEnumApi)[keyof typeof LogsListWidgetTypeEnumApi]
+
+export const LogsListWidgetTypeEnumApi = {
+    LogsList: 'logs_list',
 } as const
 
 export type DashboardTemplatesListParams = {
@@ -8743,6 +9180,18 @@ export type DashboardsWidgetsBatchCreateFormat =
     (typeof DashboardsWidgetsBatchCreateFormat)[keyof typeof DashboardsWidgetsBatchCreateFormat]
 
 export const DashboardsWidgetsBatchCreateFormat = {
+    Json: 'json',
+    Txt: 'txt',
+} as const
+
+export type DashboardsUpdateWidgetsBatchParams = {
+    format?: DashboardsUpdateWidgetsBatchFormat
+}
+
+export type DashboardsUpdateWidgetsBatchFormat =
+    (typeof DashboardsUpdateWidgetsBatchFormat)[keyof typeof DashboardsUpdateWidgetsBatchFormat]
+
+export const DashboardsUpdateWidgetsBatchFormat = {
     Json: 'json',
     Txt: 'txt',
 } as const

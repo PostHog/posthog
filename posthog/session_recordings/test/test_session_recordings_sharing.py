@@ -11,7 +11,7 @@ from rest_framework import status
 from posthog.api.test.test_team import create_team
 from posthog.clickhouse.client import sync_execute
 from posthog.constants import AvailableFeature
-from posthog.models import Person, SessionRecording
+from posthog.models import SessionRecording
 from posthog.models.organization import OrganizationMembership
 from posthog.models.user import User
 from posthog.models.utils import uuid7
@@ -33,7 +33,6 @@ class TestSessionRecordingsSharing(APIBaseTest, ClickhouseTestMixin, QueryMatchi
         sync_execute("TRUNCATE TABLE sharded_session_replay_events")
         SessionRecordingViewed.objects.all().delete()
         SessionRecording.objects.all().delete()
-        Person.objects.filter(team_id__isnull=False).delete()
 
         with freeze_time("2023-01-01T12:00:00Z"):
             self.session_id = str(uuid7())

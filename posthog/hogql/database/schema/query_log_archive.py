@@ -15,38 +15,104 @@ from posthog.hogql.database.models import (
 )
 
 QUERY_LOG_ARCHIVE_FIELDS: dict[str, FieldOrTable] = {
-    "event_date": DateDatabaseField(name="event_date", nullable=False),
-    "event_time": DateTimeDatabaseField(name="event_time", nullable=False),
-    "query_id": StringDatabaseField(name="lc_client_query_id", nullable=False),
-    "endpoint": StringDatabaseField(name="lc_id", nullable=False),
-    "query": StringDatabaseField(name="lc_query__query", nullable=False),
-    "query_start_time": DateTimeDatabaseField(name="query_start_time", nullable=False),
-    "query_duration_ms": IntegerDatabaseField(name="query_duration_ms", nullable=False),
-    "name": StringDatabaseField(name="lc_request_name", nullable=False),
-    "created_by": IntegerDatabaseField(name="lc_user_id", nullable=False),
-    "read_rows": IntegerDatabaseField(name="read_rows", nullable=False),
-    "read_bytes": IntegerDatabaseField(name="read_bytes", nullable=False),
-    "result_rows": IntegerDatabaseField(name="result_rows", nullable=False),
-    "result_bytes": IntegerDatabaseField(name="result_bytes", nullable=False),
-    "memory_usage": IntegerDatabaseField(name="memory_usage", nullable=False),
-    "status": StringDatabaseField(name="type", nullable=False),
-    "exception_code": IntegerDatabaseField(name="exception_code", nullable=False),
-    "exception_name": StringDatabaseField(name="exception_name", nullable=False),
-    "is_personal_api_key_request": BooleanDatabaseField(name="is_personal_api_key_request", nullable=False),
-    "api_key_label": StringDatabaseField(name="lc_api_key_label", nullable=False),
-    "api_key_mask": StringDatabaseField(name="lc_api_key_mask", nullable=False),
-    "cpu_microseconds": IntegerDatabaseField(name="ProfileEvents_OSCPUVirtualTimeMicroseconds", nullable=False),
-    "RealTimeMicroseconds": IntegerDatabaseField(name="ProfileEvents_RealTimeMicroseconds", nullable=False),
-    "S3ListObjects": IntegerDatabaseField(name="ProfileEvents_S3ListObjects", nullable=False),
-    "S3HeadObject": IntegerDatabaseField(name="ProfileEvents_S3HeadObject", nullable=False),
-    "S3GetObjectAttributes": IntegerDatabaseField(name="ProfileEvents_S3GetObjectAttributes", nullable=False),
-    "S3GetObject": IntegerDatabaseField(name="ProfileEvents_S3GetObject", nullable=False),
-    "ReadBufferFromS3Bytes": IntegerDatabaseField(name="ProfileEvents_ReadBufferFromS3Bytes", nullable=False),
+    "event_date": DateDatabaseField(
+        name="event_date", nullable=False, description="Date partition the query was logged under."
+    ),
+    "event_time": DateTimeDatabaseField(
+        name="event_time", nullable=False, description="When the query log entry was written."
+    ),
+    "query_id": StringDatabaseField(
+        name="lc_client_query_id", nullable=False, description="Client-supplied query identifier."
+    ),
+    "endpoint": StringDatabaseField(
+        name="lc_id", nullable=False, description="Identifier of the endpoint/insight that issued the query."
+    ),
+    "query": StringDatabaseField(name="lc_query__query", nullable=False, description="The executed SQL query text."),
+    "query_start_time": DateTimeDatabaseField(
+        name="query_start_time", nullable=False, description="When ClickHouse started executing the query."
+    ),
+    "query_duration_ms": IntegerDatabaseField(
+        name="query_duration_ms", nullable=False, description="Total query execution time in milliseconds."
+    ),
+    "name": StringDatabaseField(
+        name="lc_request_name", nullable=False, description="Human-readable name of the originating request."
+    ),
+    "created_by": IntegerDatabaseField(
+        name="lc_user_id", nullable=False, description="ID of the PostHog user who triggered the query."
+    ),
+    "read_rows": IntegerDatabaseField(
+        name="read_rows", nullable=False, description="Number of rows ClickHouse read while executing the query."
+    ),
+    "read_bytes": IntegerDatabaseField(
+        name="read_bytes", nullable=False, description="Number of bytes ClickHouse read while executing the query."
+    ),
+    "result_rows": IntegerDatabaseField(
+        name="result_rows", nullable=False, description="Number of rows returned to the client."
+    ),
+    "result_bytes": IntegerDatabaseField(
+        name="result_bytes", nullable=False, description="Number of bytes returned to the client."
+    ),
+    "memory_usage": IntegerDatabaseField(
+        name="memory_usage", nullable=False, description="Peak memory used by the query in bytes."
+    ),
+    "status": StringDatabaseField(
+        name="type",
+        nullable=False,
+        description="Query outcome type, e.g. 'QueryFinish' or 'ExceptionWhileProcessing'.",
+    ),
+    "exception_code": IntegerDatabaseField(
+        name="exception_code", nullable=False, description="ClickHouse exception code if the query failed, else 0."
+    ),
+    "exception_name": StringDatabaseField(
+        name="exception_name", nullable=False, description="ClickHouse exception name if the query failed."
+    ),
+    "is_personal_api_key_request": BooleanDatabaseField(
+        name="is_personal_api_key_request",
+        nullable=False,
+        description="True if the query was issued via a personal API key.",
+    ),
+    "api_key_label": StringDatabaseField(
+        name="lc_api_key_label", nullable=False, description="Label of the API key used, if any."
+    ),
+    "api_key_mask": StringDatabaseField(
+        name="lc_api_key_mask", nullable=False, description="Masked value of the API key used, if any."
+    ),
+    "cpu_microseconds": IntegerDatabaseField(
+        name="ProfileEvents_OSCPUVirtualTimeMicroseconds",
+        nullable=False,
+        description="CPU time consumed by the query in microseconds.",
+    ),
+    "RealTimeMicroseconds": IntegerDatabaseField(
+        name="ProfileEvents_RealTimeMicroseconds",
+        nullable=False,
+        description="Wall-clock time consumed by the query in microseconds.",
+    ),
+    "S3ListObjects": IntegerDatabaseField(
+        name="ProfileEvents_S3ListObjects", nullable=False, description="Count of S3 ListObjects calls made."
+    ),
+    "S3HeadObject": IntegerDatabaseField(
+        name="ProfileEvents_S3HeadObject", nullable=False, description="Count of S3 HeadObject calls made."
+    ),
+    "S3GetObjectAttributes": IntegerDatabaseField(
+        name="ProfileEvents_S3GetObjectAttributes",
+        nullable=False,
+        description="Count of S3 GetObjectAttributes calls made.",
+    ),
+    "S3GetObject": IntegerDatabaseField(
+        name="ProfileEvents_S3GetObject", nullable=False, description="Count of S3 GetObject calls made."
+    ),
+    "ReadBufferFromS3Bytes": IntegerDatabaseField(
+        name="ProfileEvents_ReadBufferFromS3Bytes", nullable=False, description="Bytes read from S3 by the query."
+    ),
     # "cost_usd": FloatDatabaseField(name="cost_usd", nullable=False),
 }
 
 
 class QueryLogArchiveTable(LazyTable):
+    description: str = (
+        "Archived ClickHouse query log for analyzing query performance and cost. One row per executed query, "
+        "with friendly column aliases over the raw log; impersonated requests are excluded."
+    )
     fields: dict[str, FieldOrTable] = QUERY_LOG_ARCHIVE_FIELDS
 
     def to_printed_clickhouse(self, context) -> str:
@@ -111,29 +177,55 @@ class QueryLogArchiveTable(LazyTable):
 
 
 class RawQueryLogArchiveTable(Table):
+    description: str = (
+        "Raw archived ClickHouse query log, exposing the underlying `lc_*` columns directly. "
+        "Prefer the `query_log` table, which provides friendly aliases and filters out impersonated requests."
+    )
     fields: dict[str, FieldOrTable] = {
         "event_date": DateDatabaseField(name="event_date", nullable=False),
         "event_time": DateTimeDatabaseField(name="event_time", nullable=False),
         "team_id": IntegerDatabaseField(name="team_id", nullable=False),
-        "query_id": StringDatabaseField(name="query_id", nullable=False),
-        "lc_client_query_id": StringDatabaseField(name="lc_client_query_id", nullable=False),
-        "lc_id": StringDatabaseField(name="lc_id", nullable=False),
-        "lc_query__query": StringDatabaseField(name="lc_query__query", nullable=False),
+        "query_id": StringDatabaseField(
+            name="query_id", nullable=False, description="ClickHouse-assigned query identifier."
+        ),
+        "lc_client_query_id": StringDatabaseField(
+            name="lc_client_query_id", nullable=False, description="Client-supplied query identifier."
+        ),
+        "lc_id": StringDatabaseField(
+            name="lc_id", nullable=False, description="Identifier of the endpoint/insight that issued the query."
+        ),
+        "lc_query__query": StringDatabaseField(
+            name="lc_query__query", nullable=False, description="The executed SQL query text."
+        ),
         "query_start_time": DateTimeDatabaseField(name="query_start_time", nullable=False),
         "query_duration_ms": IntegerDatabaseField(name="query_duration_ms", nullable=False),
         "lc_name": StringDatabaseField(name="lc_name", nullable=False),
         "lc_request_name": StringDatabaseField(name="lc_request_name", nullable=False),
-        "lc_user_id": IntegerDatabaseField(name="lc_user_id", nullable=False),
+        "lc_user_id": IntegerDatabaseField(
+            name="lc_user_id", nullable=False, description="ID of the PostHog user who triggered the query."
+        ),
         "read_rows": IntegerDatabaseField(name="read_rows", nullable=False),
         "read_bytes": IntegerDatabaseField(name="read_bytes", nullable=False),
         "result_rows": IntegerDatabaseField(name="result_rows", nullable=False),
         "result_bytes": IntegerDatabaseField(name="result_bytes", nullable=False),
         "memory_usage": IntegerDatabaseField(name="memory_usage", nullable=False),
-        "type": StringDatabaseField(name="type", nullable=False),
+        "type": StringDatabaseField(
+            name="type",
+            nullable=False,
+            description="Query outcome type, e.g. 'QueryFinish' or 'ExceptionWhileProcessing'.",
+        ),
         "exception_code": IntegerDatabaseField(name="exception_code", nullable=False),
         "exception_name": StringDatabaseField(name="exception_name", nullable=False),
-        "lc_access_method": StringDatabaseField(name="lc_access_method", nullable=False),
-        "lc_is_impersonated": BooleanDatabaseField(name="lc_is_impersonated", nullable=False),
+        "lc_access_method": StringDatabaseField(
+            name="lc_access_method",
+            nullable=False,
+            description="How the query was authenticated, e.g. 'personal_api_key'.",
+        ),
+        "lc_is_impersonated": BooleanDatabaseField(
+            name="lc_is_impersonated",
+            nullable=False,
+            description="True if the request was made via staff impersonation.",
+        ),
         "lc_api_key_label": StringDatabaseField(name="lc_api_key_label", nullable=False),
         "lc_api_key_mask": StringDatabaseField(name="lc_api_key_mask", nullable=False),
         "lc_query__kind": StringDatabaseField(name="lc_query__kind", nullable=False),

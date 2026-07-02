@@ -1,6 +1,10 @@
 from posthog.api.routing import RouterRegistry
 
-from products.business_knowledge.backend.api import KnowledgeDocumentViewSet, KnowledgeSourceViewSet
+from products.business_knowledge.backend.api import (
+    KnowledgeDocumentViewSet,
+    KnowledgeGapSuggestionViewSet,
+    KnowledgeSourceViewSet,
+)
 
 
 def register_routes(routers: RouterRegistry) -> None:
@@ -14,5 +18,11 @@ def register_routes(routers: RouterRegistry) -> None:
         r"business_knowledge/documents",
         KnowledgeDocumentViewSet,
         "environment_business_knowledge_documents",
+        ["team_id"],
+    )
+    routers.projects.register(
+        r"business_knowledge/gap_suggestions",
+        KnowledgeGapSuggestionViewSet,
+        "environment_business_knowledge_gap_suggestions",
         ["team_id"],
     )
