@@ -45,7 +45,7 @@ import { UnsubscribeSurveyModal } from './UnsubscribeSurveyModal'
  * settings that actually influence their spend (e.g. pausing self-driving agents) without
  * hunting through the app. Keyed by billing product `type`.
  */
-const PRODUCT_MANAGEMENT_LINKS: Record<string, { to: string; label: string; tooltip: string }> = {
+const PRODUCT_MANAGEMENT_LINKS: Partial<Record<string, { to: string; label: string; tooltip: string }>> = {
     [CODE_PRODUCT_KEY]: {
         to: urls.inbox('config'),
         label: 'Manage agents',
