@@ -3,6 +3,7 @@ import { OTLPMetricExporter } from '@opentelemetry/exporter-metrics-otlp-http'
 import { resourceFromAttributes } from '@opentelemetry/resources'
 import { MeterProvider, PeriodicExportingMetricReader } from '@opentelemetry/sdk-metrics'
 import { ATTR_SERVICE_NAME, ATTR_SERVICE_VERSION } from '@opentelemetry/semantic-conventions'
+import { hostname } from 'os'
 
 import { defaultConfig } from '~/common/config/config'
 import { logger } from '~/common/utils/logger'
@@ -35,6 +36,10 @@ export const initMetrics = (): void => {
             [ATTR_SERVICE_NAME]:
                 defaultConfig.OTEL_SERVICE_NAME ?? `node-${defaultConfig.PLUGIN_SERVER_MODE ?? 'nodejs'}`,
             [ATTR_SERVICE_VERSION]: process.env.COMMIT_SHA ?? 'dev',
+            // Per-replica identity. Without it every pod shares one series, and
+            // their interleaved cumulative counters read as constant resets —
+            // rate()/increase() overcount by roughly the replica count.
+            'service.instance.id': hostname(),
         }),
         readers: [
             new PeriodicExportingMetricReader({
