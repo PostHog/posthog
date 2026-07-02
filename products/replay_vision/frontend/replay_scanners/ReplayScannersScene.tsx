@@ -105,15 +105,6 @@ export function ReplayScannersScene(): JSX.Element {
             sorter: true,
         },
         {
-            title: 'Description',
-            key: 'description',
-            render: (_, scanner) => (
-                <div className="text-sm text-muted truncate max-w-md">
-                    {scanner.description || <span className="italic">No description</span>}
-                </div>
-            ),
-        },
-        {
             title: 'Sampling',
             key: 'sampling_rate',
             render: (_, scanner) => (

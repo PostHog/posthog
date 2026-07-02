@@ -2,7 +2,7 @@ import { BindLogic, useActions, useValues } from 'kea'
 import { useEffect, useRef, useState } from 'react'
 
 import { IconEye, IconPlay } from '@posthog/icons'
-import { LemonButton, LemonInput, LemonTable, LemonTag, Link, Spinner } from '@posthog/lemon-ui'
+import { LemonButton, LemonInput, LemonTable, Link } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -128,11 +128,7 @@ function RecordingsList({ scannerId }: { scannerId: string }): JSX.Element {
                     return <ObservationStatusTag status={observation.status} />
                 }
                 if (pendingId === recording.id) {
-                    return (
-                        <LemonTag type="warning">
-                            <Spinner className="mr-1" /> Scanning
-                        </LemonTag>
-                    )
+                    return <ObservationStatusTag status="running" />
                 }
                 return <span className="text-muted italic">Not scanned</span>
             },

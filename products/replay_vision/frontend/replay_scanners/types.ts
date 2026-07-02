@@ -221,6 +221,12 @@ export interface ScorerScanner extends BaseReplayScanner {
 
 export type ReplayScanner = MonitorScanner | SummarizerScanner | ClassifierScanner | ScorerScanner
 
+/** Narrow a snapshot's untyped scanner_config at one boundary; pair with the snapshot's scanner_type to pick the variant. */
+export function configFromSnapshot(snapshot: { scanner_config?: unknown } | null | undefined): ScannerConfig | null {
+    const config = snapshot?.scanner_config
+    return config && typeof config === 'object' ? (config as ScannerConfig) : null
+}
+
 // The API exposes scanner_config and query as `unknown`. The client narrows them via
 // the scanner_type discriminator, so conversion is contained to this single boundary.
 export function scannerFromApi(api: ReplayScannerApi): ReplayScanner {
