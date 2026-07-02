@@ -154,7 +154,8 @@ export function newScanner(templateKey?: string | null): ReplayScanner {
             name: template.scanner_name,
             description: template.scanner_description,
             scanner_type: template.scanner_type,
-            scanner_config: template.scanner_config,
+            // Cloned so an in-place form mutation can never corrupt the module-level template.
+            scanner_config: structuredClone(template.scanner_config),
         } as ReplayScanner
     }
     return {

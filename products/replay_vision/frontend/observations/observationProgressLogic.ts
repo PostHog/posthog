@@ -19,7 +19,8 @@ export interface ObservationProgress {
     phase: string
     step: number
     total_steps: number
-    rasterizer: ObservationRasterizerProgress | null
+    // Optional: the backend's fallback tick omits the key entirely.
+    rasterizer?: ObservationRasterizerProgress | null
 }
 
 export interface ObservationProgressLogicProps {

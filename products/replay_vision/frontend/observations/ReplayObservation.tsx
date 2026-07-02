@@ -516,6 +516,7 @@ export function ReplayObservationSceneComponent(): JSX.Element {
                     <LemonButton
                         icon={recordingExpanded ? <IconCollapse /> : <IconExpand />}
                         size="small"
+                        tooltip={recordingExpanded ? 'Collapse recording' : 'Expand recording'}
                         onClick={(e) => {
                             e.stopPropagation()
                             toggleRecordingExpanded()

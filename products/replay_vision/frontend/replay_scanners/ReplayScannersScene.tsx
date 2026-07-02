@@ -84,7 +84,7 @@ export function ReplayScannersScene(): JSX.Element {
                         <LemonSwitch
                             checked={scanner.enabled}
                             onChange={() => toggleScannerEnabled(scanner.id)}
-                            disabled={togglingIds.includes(scanner.id)}
+                            disabledReason={togglingIds.includes(scanner.id) ? 'Updating…' : undefined}
                             size="small"
                             data-attr="vision-scanner-toggle-enabled"
                             data-ph-capture-attribute-scanner-type={scanner.scanner_type}
@@ -147,7 +147,7 @@ export function ReplayScannersScene(): JSX.Element {
                             size="small"
                             type="secondary"
                             icon={<IconPencil />}
-                            onClick={() => push(urls.replayVision(scanner.id))}
+                            to={urls.replayVision(scanner.id)}
                             tooltip="Edit"
                             data-attr="vision-scanner-edit-row"
                             data-ph-capture-attribute-scanner-type={scanner.scanner_type}

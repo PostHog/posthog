@@ -202,11 +202,11 @@ export function ObservationPrimaryOutput({
         const chosen = new Set(fixedTags)
         const empty = fixedTags.length === 0 && freeformTags.length === 0
         const renderVocab = (): JSX.Element[] =>
-            configuredTags.map((tag) => {
+            configuredTags.map((tag, index) => {
                 const isChosen = chosen.has(tag)
                 return (
                     <LemonTag
-                        key={`fixed-${tag}`}
+                        key={`fixed-${index}-${tag}`}
                         size="medium"
                         type={isChosen ? 'option' : 'default'}
                         className={isChosen ? undefined : 'opacity-50 line-through'}
@@ -216,8 +216,8 @@ export function ObservationPrimaryOutput({
                 )
             })
         const renderFreeform = (): JSX.Element[] =>
-            freeformTags.map((tag) => (
-                <LemonTag key={`freeform-${tag}`} size="medium" type="default" icon={<IconSparkles />}>
+            freeformTags.map((tag, index) => (
+                <LemonTag key={`freeform-${index}-${tag}`} size="medium" type="default" icon={<IconSparkles />}>
                     {tag}
                 </LemonTag>
             ))
@@ -229,8 +229,8 @@ export function ObservationPrimaryOutput({
                             <span className="text-muted text-sm">No tags</span>
                         ) : (
                             <>
-                                {fixedTags.map((tag) => (
-                                    <LemonTag key={`fixed-${tag}`} size="medium" type="option">
+                                {fixedTags.map((tag, index) => (
+                                    <LemonTag key={`fixed-${index}-${tag}`} size="medium" type="option">
                                         {tag}
                                     </LemonTag>
                                 ))}

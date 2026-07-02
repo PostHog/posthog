@@ -128,12 +128,12 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                     <LemonInput
                                         type="number"
                                         value={samplingPercent}
-                                        onChange={(v) => onChange((Number(v) || 0) / 100)}
+                                        onChange={(v) => onChange(Math.min(100, Number(v) || 0) / 100)}
                                         min={0.1}
                                         max={100}
                                         step={0.1}
                                         suffix={<span>%</span>}
-                                        status={samplingPercent === 0 ? 'danger' : undefined}
+                                        status={samplingPercent < 0.1 ? 'danger' : undefined}
                                     />
                                 </div>
                             </div>

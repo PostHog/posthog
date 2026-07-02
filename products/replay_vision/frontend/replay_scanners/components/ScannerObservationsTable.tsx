@@ -295,9 +295,7 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                             valueClass={observationStats.failed > 0 ? 'text-danger' : undefined}
                         />
                         <Metric label="Ineligible" value={observationStats.ineligible} />
-                        {observationStats.inFlight > 0 && (
-                            <Metric label="In flight" value={observationStats.inFlight} />
-                        )}
+                        <Metric label="In flight" value={observationStats.inFlight} />
                     </div>
                 </div>
             </div>
