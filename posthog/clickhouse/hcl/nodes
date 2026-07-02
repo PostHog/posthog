@@ -58,9 +58,20 @@ prod-us  aux        roles/aux/shared roles/aux/prod roles/aux/prod-us roles/shar
 prod-eu  aux        roles/aux/shared roles/aux/prod roles/aux/prod-eu roles/shared
 
 # SESSIONS satellite: the local node runs only the shared query_log_archive path
-# (session tables are prod-only), so it composes roles/shared alone. prod session /
-# sessionsv3 tables are a dump-only follow-up.
+# (session tables are prod-only), so it composes roles/shared alone. prod nodes host
+# the session tables (sessions, raw_sessions, raw_sessions_v3), the events replica,
+# channel_definition + web_pre_aggregated_teams (+ their dictionaries), and person
+# join tables. roles/sessions/shared holds the env-uniform objects; prod-us/prod-eu
+# carry the env-specific channel_definition / events / raw_sessions_v3 (prod-us also
+# has writable_events_recent). roles/sessions/shared leads to satisfy chschema#80.
+# prod goldens are dump-baselined (not live-verifiable here).
 local    sessions   roles/shared
+prod-us  sessions   roles/sessions/shared roles/sessions/prod-us roles/shared
+prod-eu  sessions   roles/sessions/shared roles/sessions/prod-eu roles/shared
+
+# SESSIONSV3 satellite: US-only node hosting the v3 session tables (events replica,
+# raw_sessions_v3) plus the query_log_archive path. Dump-baselined.
+prod-us  sessionsv3 roles/sessionsv3/prod-us roles/shared
 
 # prod-us  data       roles/shared roles/data/shared roles/data/prod-us
 # prod-us  endpoints  roles/shared
