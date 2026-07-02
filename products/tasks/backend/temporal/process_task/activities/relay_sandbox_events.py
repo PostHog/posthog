@@ -17,6 +17,10 @@ from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.logic.services.agent_command import validate_sandbox_url
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
+from products.tasks.backend.logic.services.permission_broker import (
+    parse_permission_request,
+    try_auto_respond_permission_request,
+)
 from products.tasks.backend.logic.stream.redis_stream import TaskRunRedisStream, get_task_run_stream_key
 from products.tasks.backend.models import (
     Task as TaskModel,
@@ -336,8 +340,10 @@ async def _relay_loop(
                                 continue
 
                             await redis_stream.write_event(event_data)
-                            if task_run is not None and _is_permission_request_event(event_data):
-                                await asyncio.to_thread(_safe_dispatch_slack_permission_request, task_run, event_data)
+                            if task_run is not None:
+                                permission_request = parse_permission_request(event_data)
+                                if permission_request is not None:
+                                    await asyncio.to_thread(_broker_permission_request, task_run, permission_request)
                             reconnect_count = 0
                             last_event_time[0] = time.monotonic()
 
@@ -657,15 +663,6 @@ def _is_terminal_event(event_data: dict) -> bool:
     return method in TERMINAL_NOTIFICATION_METHODS
 
 
-def _is_permission_request_event(event_data: dict) -> bool:
-    if event_data.get("type") == "permission_request":
-        return True
-    if event_data.get("type") != "notification":
-        return False
-    notification = event_data.get("notification")
-    return isinstance(notification, dict) and notification.get("method") == "_posthog/permission_request"
-
-
 def _safe_dispatch_awaiting_input(task_run: TaskRunModel) -> None:
     """Schedule a push when an interactive run idles waiting on the user.
 
@@ -686,12 +683,26 @@ def _safe_dispatch_awaiting_input(task_run: TaskRunModel) -> None:
         )
 
 
-def _safe_dispatch_slack_permission_request(task_run: TaskRunModel, event_data: dict) -> None:
-    """Post Slack approval controls for sandbox permission requests when this is a Slack run."""
-    try:
-        from products.slack_app.backend.services.agent_permissions import handle_slack_permission_request_for_task_run
+def _broker_permission_request(task_run: TaskRunModel, permission_request: dict) -> None:
+    """Answer a sandbox permission request from the run's permission mode, or escalate to a human.
 
-        handle_slack_permission_request_for_task_run(task_run, event_data)
+    A broker failure falls through to the prompt path so a broker bug degrades to
+    human approval instead of a stalled agent.
+    """
+    try:
+        if try_auto_respond_permission_request(task_run, permission_request):
+            return
+    except Exception:
+        logger.warning(
+            "relay_sandbox_events_permission_broker_failed",
+            run_id=str(task_run.id),
+            exc_info=True,
+        )
+
+    try:
+        from products.slack_app.backend.services.agent_permissions import post_slack_permission_request_for_task_run
+
+        post_slack_permission_request_for_task_run(task_run, permission_request)
     except Exception:
         logger.warning(
             "relay_sandbox_events_slack_permission_prompt_failed",

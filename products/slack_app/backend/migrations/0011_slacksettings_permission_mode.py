@@ -11,7 +11,7 @@ class Migration(migrations.Migration):
     operations = [
         migrations.AddField(
             model_name="slacksettings",
-            name="autonomy_tier",
+            name="permission_mode",
             field=models.CharField(
                 choices=[
                     ("read_only", "Read-only"),
