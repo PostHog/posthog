@@ -170,8 +170,8 @@ describe('snapshotDataLogic (store-based loading)', () => {
                 logic.actions.setTargetTimestamp(tsMs(0, 15))
             }).toDispatchActions(['loadNextSnapshotSource'])
 
-            // Should NOT be in seek mode — data is already available
-            expect(logic.cache.scheduler.currentMode.kind).toBe('buffer_ahead')
+            // The satisfied target is recorded but must not trigger any fetch
+            expect(logic.values.seekTarget).toEqual({ timestamp: tsMs(0, 15), windowId: undefined })
         })
 
         it('does not override load_all mode', async () => {
@@ -190,22 +190,7 @@ describe('snapshotDataLogic (store-based loading)', () => {
             logic.actions.setTargetTimestamp(tsMs(2))
             await expectLogic(logic).toDispatchActions(['loadNextSnapshotSource'])
 
-            expect(logic.cache.scheduler.currentMode.kind).toBe('load_all')
-        })
-
-        it('does not enter seek for source 0 when already in buffer_ahead', async () => {
-            mountLogic()
-
-            logic.actions.loadSnapshotSourcesSuccess([SOURCE_A, SOURCE_B])
-            await expectLogic(logic).toFinishAllListeners()
-
-            logic.values.snapshotStore!.setSources([SOURCE_A, SOURCE_B])
-
-            await expectLogic(logic, () => {
-                logic.actions.setTargetTimestamp(tsMs(0, 0))
-            }).toDispatchActions(['loadNextSnapshotSource'])
-
-            expect(logic.cache.scheduler.currentMode.kind).toBe('buffer_ahead')
+            expect(logic.values.loadAllMode).toBe(true)
         })
 
         it('enters seek mode when called before sources load (past-end URL regression #53893)', async () => {
@@ -230,10 +215,8 @@ describe('snapshotDataLogic (store-based loading)', () => {
             logic.actions.setTargetTimestamp(tsMs(5, 0))
             await expectLogic(logic).toFinishAllListeners()
 
-            // With the fix: getSourceIndexForTimestamp returns null for
-            // the empty store, so targetIndex === 0 is false and the
-            // optimization doesn't fire, and scheduler.seekTo runs.
-            expect(logic.cache.scheduler.currentMode).toMatchObject({ kind: 'seek', targetTimestamp: tsMs(5, 0) })
+            // The target must survive until sources arrive so the planner can seek to it
+            expect(logic.values.seekTarget).toEqual({ timestamp: tsMs(5, 0), windowId: undefined })
         })
     })
 

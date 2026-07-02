@@ -26,8 +26,3 @@ export interface SourceLoadingState {
     endMs: number
     state: 'unloaded' | 'loaded'
 }
-
-export type Mode =
-    | { kind: 'buffer_ahead' }
-    | { kind: 'seek'; targetTimestamp: number; targetWindowId?: number }
-    | { kind: 'load_all' }

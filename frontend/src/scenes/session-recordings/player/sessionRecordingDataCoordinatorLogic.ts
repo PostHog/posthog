@@ -241,7 +241,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             breakpoint()
 
             // processAllSnapshots may synthesize full snapshots (e.g. for mobile recordings).
-            // Sync them back to the store so canPlayAt() and LoadingScheduler work correctly.
+            // Sync them back to the store so canPlayAt() and the load planner work correctly.
             if (values.snapshotStore.syncFullSnapshotTimestamps(result)) {
                 actions.storeUpdated()
             }

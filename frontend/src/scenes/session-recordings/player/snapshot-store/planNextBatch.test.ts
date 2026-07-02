@@ -4,7 +4,7 @@ import { SnapshotStore } from '@posthog/replay-shared'
 
 import { RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
-import { LoadingScheduler } from './LoadingScheduler'
+import { LoadPlanInput, planNextBatch } from './planNextBatch'
 
 function makeSources(count: number): SessionRecordingSnapshotSource[] {
     return Array.from({ length: count }, (_, i) => ({
@@ -54,68 +54,46 @@ function createLoadedStore(
     return store
 }
 
-describe('LoadingScheduler', () => {
+function plan(
+    store: SnapshotStore,
+    input: Partial<LoadPlanInput> = {},
+    batchSize?: number
+): ReturnType<typeof planNextBatch> {
+    return planNextBatch(store, { target: null, loadAll: false, ...input }, batchSize)
+}
+
+describe('planNextBatch', () => {
     describe('buffer ahead', () => {
-        it('starts in buffer_ahead mode', () => {
-            const scheduler = new LoadingScheduler()
-            expect(scheduler.currentMode).toEqual({ kind: 'buffer_ahead' })
-        })
-
-        it('loads ahead from anchor position', () => {
+        it('loads ahead from the start without a position', () => {
             const store = createLoadedStore(10, [])
-            const scheduler = new LoadingScheduler()
-
-            const batch = scheduler.getNextBatch(store, 3)
-            expect(batch).toEqual({
-                sourceIndices: [0, 1, 2],
-                reason: 'buffer_ahead',
-            })
+            expect(plan(store, {}, 3)).toEqual({ sourceIndices: [0, 1, 2], reason: 'buffer_ahead' })
         })
 
         it('loads ahead from playback position', () => {
             const store = createLoadedStore(50, [])
-            const scheduler = new LoadingScheduler()
-
-            const batch = scheduler.getNextBatch(store, 5, tsForMinute(20))
+            const batch = plan(store, { playbackPosition: tsForMinute(20) }, 5)
             expect(batch?.reason).toBe('buffer_ahead')
             expect(batch?.sourceIndices[0]).toBe(20)
         })
 
         it('skips already loaded sources', () => {
             const store = createLoadedStore(10, [0, 1, 2])
-            const scheduler = new LoadingScheduler()
-
-            const batch = scheduler.getNextBatch(store, 3)
-            expect(batch).toEqual({
-                sourceIndices: [3, 4, 5],
-                reason: 'buffer_ahead',
-            })
+            expect(plan(store, {}, 3)).toEqual({ sourceIndices: [3, 4, 5], reason: 'buffer_ahead' })
         })
 
         it('returns null when all sources ahead are loaded', () => {
             const store = createLoadedStore(3, [0, 1, 2])
-            const scheduler = new LoadingScheduler()
-
-            expect(scheduler.getNextBatch(store)).toBeNull()
+            expect(plan(store)).toBeNull()
         })
 
         it('returns null when store is empty', () => {
-            const store = new SnapshotStore()
-            const scheduler = new LoadingScheduler()
-
-            expect(scheduler.getNextBatch(store)).toBeNull()
+            expect(plan(new SnapshotStore())).toBeNull()
         })
 
         it('respects buffer limit', () => {
             const store = createLoadedStore(100, [])
-            const scheduler = new LoadingScheduler()
-
-            // With playback at 0, should buffer ahead up to BUFFER_AHEAD_SOURCES (30)
-            // i.e. indices 0-29 inclusive
-            const batch = scheduler.getNextBatch(store, 100, tsForMinute(0))
-            expect(batch?.sourceIndices.length).toBeLessThanOrEqual(100)
-            const maxIdx = Math.max(...batch!.sourceIndices)
-            expect(maxIdx).toBe(29)
+            const batch = plan(store, { playbackPosition: tsForMinute(0) }, 100)
+            expect(Math.max(...batch!.sourceIndices)).toBe(29)
         })
 
         it('scans forward beyond the buffer window when nothing renderable is known', () => {
@@ -123,9 +101,7 @@ describe('LoadingScheduler', () => {
             // anywhere — e.g. the initial full snapshot was lost at capture time
             const loaded = Array.from({ length: 30 }, (_, i) => i)
             const store = createLoadedStore(50, loaded, [])
-            const scheduler = new LoadingScheduler()
-
-            const batch = scheduler.getNextBatch(store, 10, tsForMinute(0))
+            const batch = plan(store, { playbackPosition: tsForMinute(0) })
             expect(batch?.reason).toBe('seek_forward')
             expect(batch?.sourceIndices).toEqual([30, 31, 32, 33, 34, 35, 36, 37, 38, 39])
         })
@@ -133,9 +109,7 @@ describe('LoadingScheduler', () => {
         it('does not scan beyond the buffer window when the playhead is renderable', () => {
             const loaded = Array.from({ length: 30 }, (_, i) => i)
             const store = createLoadedStore(50, loaded, [0])
-            const scheduler = new LoadingScheduler()
-
-            expect(scheduler.getNextBatch(store, 10, tsForMinute(0))).toBeNull()
+            expect(plan(store, { playbackPosition: tsForMinute(0) })).toBeNull()
         })
 
         it('scans forward when the playhead window has no FullSnapshot even though another window does', () => {
@@ -147,9 +121,7 @@ describe('LoadingScheduler', () => {
                 const ts = tsForMinute(i)
                 store.markLoaded(i, i === 0 ? [makeFullSnapshot(ts, 2), makeSnapshot(ts + 100)] : [makeSnapshot(ts)])
             }
-            const scheduler = new LoadingScheduler()
-
-            const batch = scheduler.getNextBatch(store, 10, tsForMinute(0), 1)
+            const batch = plan(store, { playbackPosition: tsForMinute(0), playbackWindowId: 1 })
             expect(batch?.reason).toBe('seek_forward')
             expect(batch?.sourceIndices).toEqual([30, 31, 32, 33, 34, 35, 36, 37, 38, 39])
         })
@@ -160,27 +132,14 @@ describe('LoadingScheduler', () => {
                 20,
                 Array.from({ length: 10 }, (_, i) => i + 10)
             )
-            const scheduler = new LoadingScheduler()
-
-            // Playback at minute 15 — should not try to load 0-9
-            const batch = scheduler.getNextBatch(store, 10, tsForMinute(15))
-            expect(batch).toBeNull()
+            expect(plan(store, { playbackPosition: tsForMinute(15) })).toBeNull()
         })
     })
 
-    describe('seek mode', () => {
-        it('enters seek mode on seekTo', () => {
-            const scheduler = new LoadingScheduler()
-            scheduler.seekTo(tsForMinute(5))
-            expect(scheduler.currentMode).toEqual({ kind: 'seek', targetTimestamp: tsForMinute(5) })
-        })
-
-        it('loads window around target on first batch', () => {
+    describe('seek target', () => {
+        it('loads the window around the target first', () => {
             const store = createLoadedStore(20, [])
-            const scheduler = new LoadingScheduler()
-            scheduler.seekTo(tsForMinute(10))
-
-            const batch = scheduler.getNextBatch(store, 11)
+            const batch = plan(store, { target: { timestamp: tsForMinute(10) } }, 11)
             expect(batch?.reason).toBe('seek_target')
             // Window: [target-3, target+7] = [7, 17]
             expect(batch?.sourceIndices[0]).toBe(7)
@@ -192,10 +151,7 @@ describe('LoadingScheduler', () => {
             { targetMinute: 19, expectedEnd: 19, description: 'clamped at recording end' },
         ])('window is $description', ({ targetMinute, expectedStart, expectedEnd }) => {
             const store = createLoadedStore(20, [])
-            const scheduler = new LoadingScheduler()
-            scheduler.seekTo(tsForMinute(targetMinute))
-
-            const batch = scheduler.getNextBatch(store, 20)!
+            const batch = plan(store, { target: { timestamp: tsForMinute(targetMinute) } }, 20)!
             if (expectedStart !== undefined) {
                 expect(batch.sourceIndices[0]).toBe(expectedStart)
             }
@@ -204,24 +160,17 @@ describe('LoadingScheduler', () => {
             }
         })
 
-        it('clears seek and buffers ahead when canPlayAt is true', () => {
+        it('ignores a satisfied target and buffers ahead instead', () => {
             const loaded = Array.from({ length: 13 }, (_, i) => i)
             const store = createLoadedStore(20, loaded, [0])
-            const scheduler = new LoadingScheduler()
-            scheduler.seekTo(tsForMinute(5))
-
-            const batch = scheduler.getNextBatch(store, 10)
-            expect(scheduler.currentMode).toEqual({ kind: 'buffer_ahead' })
+            const batch = plan(store, { target: { timestamp: tsForMinute(5) } })
             expect(batch?.reason).toBe('buffer_ahead')
         })
 
         it('fills gap between FullSnapshot and target', () => {
             const loaded = [0, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
             const store = createLoadedStore(20, loaded, [0])
-            const scheduler = new LoadingScheduler()
-            scheduler.seekTo(tsForMinute(10))
-
-            const batch = scheduler.getNextBatch(store, 10)
+            const batch = plan(store, { target: { timestamp: tsForMinute(10) } })
             expect(batch?.reason).toBe('seek_gap_fill')
             expect(batch?.sourceIndices).toContain(1)
             expect(batch?.sourceIndices).toContain(4)
@@ -230,10 +179,7 @@ describe('LoadingScheduler', () => {
         it('searches backward when no FullSnapshot found', () => {
             const loaded = [7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
             const store = createLoadedStore(20, loaded, [])
-            const scheduler = new LoadingScheduler()
-            scheduler.seekTo(tsForMinute(10))
-
-            const batch = scheduler.getNextBatch(store, 10)
+            const batch = plan(store, { target: { timestamp: tsForMinute(10) } })
             expect(batch?.reason).toBe('seek_backward')
             expect(batch?.sourceIndices.every((i) => i < 8)).toBe(true)
         })
@@ -242,51 +188,32 @@ describe('LoadingScheduler', () => {
             // Sources 3-7 loaded (no FullSnapshot), 0-2 unloaded, target window 8-17 loaded
             const loaded = [3, 4, 5, 6, 7, 8, 9, 10, 11, 12, 13, 14, 15, 16, 17]
             const store = createLoadedStore(20, loaded, [])
-            const scheduler = new LoadingScheduler()
-            scheduler.seekTo(tsForMinute(10))
-
-            // Should skip over 3-7 (loaded) and find 0-2 (unloaded)
-            const batch = scheduler.getNextBatch(store, 10)
+            const batch = plan(store, { target: { timestamp: tsForMinute(10) } })
             expect(batch?.reason).toBe('seek_backward')
             expect(batch?.sourceIndices).toEqual([0, 1, 2])
         })
 
-        it('gives up and falls to buffer_ahead when backward search exhausted', () => {
+        it('returns null when everything is loaded and nothing can satisfy the target', () => {
             const allIndices = Array.from({ length: 20 }, (_, i) => i)
             const store = createLoadedStore(20, allIndices, [])
-            const scheduler = new LoadingScheduler()
-            scheduler.seekTo(tsForMinute(10))
-
-            const batch = scheduler.getNextBatch(store, 10)
-            expect(scheduler.currentMode).toEqual({ kind: 'buffer_ahead' })
-            expect(batch).toBeNull()
+            expect(plan(store, { target: { timestamp: tsForMinute(10) } })).toBeNull()
         })
 
         it('searches forward when no FullSnapshot exists at or before the target', () => {
             // Everything up to source 17 loaded without any FullSnapshot, 18-19 unloaded
             const loaded = Array.from({ length: 18 }, (_, i) => i)
             const store = createLoadedStore(20, loaded, [])
-            const scheduler = new LoadingScheduler()
-            scheduler.seekTo(tsForMinute(10))
-
-            const batch = scheduler.getNextBatch(store, 10)
+            const batch = plan(store, { target: { timestamp: tsForMinute(10) } })
             expect(batch?.reason).toBe('seek_forward')
             expect(batch?.sourceIndices).toEqual([18, 19])
-            expect(scheduler.isSeeking).toBe(true)
         })
 
         it('stops searching forward once a later FullSnapshot is known', () => {
-            // No FullSnapshot before the target, but one is loaded at source 18
+            // No FullSnapshot before the target, but one is loaded at source 18 —
+            // the player recovers by clamping the seek to it, so nothing more is needed
             const allIndices = Array.from({ length: 20 }, (_, i) => i)
             const store = createLoadedStore(20, allIndices, [18])
-            const scheduler = new LoadingScheduler()
-            scheduler.seekTo(tsForMinute(10))
-
-            // The player recovers by clamping the seek to the later FullSnapshot,
-            // so the scheduler gives up this seek instead of loading more
-            const batch = scheduler.getNextBatch(store, 10)
-            expect(scheduler.currentMode).toEqual({ kind: 'buffer_ahead' })
-            expect(batch).toBeNull()
+            expect(plan(store, { target: { timestamp: tsForMinute(10) } })).toBeNull()
         })
 
         it('keeps searching forward when the only later FullSnapshot belongs to another window', () => {
@@ -298,15 +225,12 @@ describe('LoadingScheduler', () => {
                 const ts = tsForMinute(i)
                 store.markLoaded(i, i === 18 ? [makeFullSnapshot(ts, 2), makeSnapshot(ts + 100)] : [makeSnapshot(ts)])
             }
-            const scheduler = new LoadingScheduler()
-            scheduler.seekTo(tsForMinute(10), 1)
-
-            const batch = scheduler.getNextBatch(store, 10)
+            const batch = plan(store, { target: { timestamp: tsForMinute(10), windowId: 1 } })
             expect(batch?.reason).toBe('seek_forward')
             expect(batch?.sourceIndices).toEqual([19])
         })
 
-        it('only counts FullSnapshots of the target window when targetWindowId is passed', () => {
+        it('only counts FullSnapshots of the target window when a windowId is given', () => {
             // FullSnapshot at source 5 belongs to window 2; sources 0-2 unloaded
             const loaded = Array.from({ length: 17 }, (_, i) => i + 3)
             const store = new SnapshotStore()
@@ -316,58 +240,32 @@ describe('LoadingScheduler', () => {
                 store.markLoaded(i, i === 5 ? [makeFullSnapshot(ts, 2), makeSnapshot(ts + 100)] : [makeSnapshot(ts)])
             }
 
-            // Window-agnostic seek is satisfied by window 2's FullSnapshot
-            const agnosticScheduler = new LoadingScheduler()
-            agnosticScheduler.seekTo(tsForMinute(10))
-            expect(agnosticScheduler.getNextBatch(store, 10)?.reason).not.toBe('seek_backward')
-            expect(agnosticScheduler.isSeeking).toBe(false)
+            // A window-agnostic target is satisfied by window 2's FullSnapshot — nothing to fetch
+            expect(plan(store, { target: { timestamp: tsForMinute(10) } })).toBeNull()
 
-            // A seek targeting window 1 must keep searching backward for window 1's FullSnapshot
-            const windowAwareScheduler = new LoadingScheduler()
-            windowAwareScheduler.seekTo(tsForMinute(10), 1)
-            const batch = windowAwareScheduler.getNextBatch(store, 10)
+            // A window-1 target must keep searching backward for window 1's FullSnapshot
+            const batch = plan(store, { target: { timestamp: tsForMinute(10), windowId: 1 } })
             expect(batch?.reason).toBe('seek_backward')
             expect(batch?.sourceIndices).toEqual([0, 1, 2])
         })
-    })
 
-    describe('buffer ahead after seek', () => {
-        it('buffers ahead from seek range end', () => {
+        it('buffers ahead from the target once the seek is satisfied', () => {
             const loaded = Array.from({ length: 16 }, (_, i) => i)
             const store = createLoadedStore(20, loaded, [0])
-            const scheduler = new LoadingScheduler()
-            scheduler.seekTo(tsForMinute(8))
-
-            // Seek resolves → buffers ahead from seekRangeEnd
-            const batch = scheduler.getNextBatch(store, 5)
-            expect(scheduler.currentMode).toEqual({ kind: 'buffer_ahead' })
+            const batch = plan(store, { target: { timestamp: tsForMinute(8) } }, 5)
             expect(batch?.reason).toBe('buffer_ahead')
             expect(batch?.sourceIndices).toEqual([16, 17, 18, 19])
         })
 
-        it('does not load backward after seek', () => {
+        it('does not load backward once the seek is satisfied', () => {
             // Sources 3-19 loaded with FullSnapshot at 3, sources 0-2 unloaded
             const loaded = Array.from({ length: 17 }, (_, i) => i + 3)
             const store = createLoadedStore(20, loaded, [3])
-            const scheduler = new LoadingScheduler()
-            scheduler.seekTo(tsForMinute(8))
-
-            // Seek resolves. No forward to load, no backward loading → null
-            const batch = scheduler.getNextBatch(store, 10)
-            expect(batch).toBeNull()
+            expect(plan(store, { target: { timestamp: tsForMinute(8) } })).toBeNull()
         })
     })
 
-    describe('clearSeek', () => {
-        it('switches back to buffer_ahead mode', () => {
-            const scheduler = new LoadingScheduler()
-            scheduler.seekTo(tsForMinute(5))
-            scheduler.clearSeek()
-            expect(scheduler.currentMode).toEqual({ kind: 'buffer_ahead' })
-        })
-    })
-
-    describe('truncateToContiguous', () => {
+    describe('truncation to contiguous ranges', () => {
         it.each([
             { description: 'stops at loaded source in the middle', loaded: [5], expected: [3, 4] },
             { description: 'stops at two loaded sources', loaded: [5, 6], expected: [3, 4] },
@@ -375,9 +273,7 @@ describe('LoadingScheduler', () => {
         ])('$description', ({ loaded, expected }) => {
             // Sources 0-9, pre-load 0-2 so buffer_ahead starts at 3
             const store = createLoadedStore(10, [0, 1, 2, ...loaded])
-            const scheduler = new LoadingScheduler()
-
-            const batch = scheduler.getNextBatch(store, 10, tsForMinute(0))
+            const batch = plan(store, { playbackPosition: tsForMinute(0) })
             expect(batch?.sourceIndices).toEqual(expected)
         })
     })
@@ -385,63 +281,28 @@ describe('LoadingScheduler', () => {
     describe('load all', () => {
         it('loads all unloaded sources from the beginning', () => {
             const store = createLoadedStore(10, [3, 4, 5])
-            const scheduler = new LoadingScheduler()
-            scheduler.loadAll()
-
-            expect(scheduler.currentMode).toEqual({ kind: 'load_all' })
-            const batch = scheduler.getNextBatch(store, 5)
-            expect(batch).toEqual({
-                sourceIndices: [0, 1, 2],
-                reason: 'load_all',
-            })
+            expect(plan(store, { loadAll: true }, 5)).toEqual({ sourceIndices: [0, 1, 2], reason: 'load_all' })
         })
 
         it('skips loaded sources and finds next contiguous unloaded batch', () => {
             const store = createLoadedStore(10, [0, 1, 2, 5, 6])
-            const scheduler = new LoadingScheduler()
-            scheduler.loadAll()
-
-            const batch = scheduler.getNextBatch(store, 5)
-            expect(batch?.sourceIndices).toEqual([3, 4])
+            expect(plan(store, { loadAll: true }, 5)?.sourceIndices).toEqual([3, 4])
         })
 
         it('returns null when all sources are loaded', () => {
             const allLoaded = Array.from({ length: 10 }, (_, i) => i)
             const store = createLoadedStore(10, allLoaded)
-            const scheduler = new LoadingScheduler()
-            scheduler.loadAll()
-
-            expect(scheduler.getNextBatch(store, 10)).toBeNull()
+            expect(plan(store, { loadAll: true })).toBeNull()
         })
 
-        it('ignores playback position', () => {
+        it('overrides seek targets and playback position', () => {
             const store = createLoadedStore(50, [])
-            const scheduler = new LoadingScheduler()
-            scheduler.loadAll()
-
-            // Even with playback at source 40, load_all starts from the beginning
-            const batch = scheduler.getNextBatch(store, 5, tsForMinute(40))
+            const batch = plan(
+                store,
+                { loadAll: true, target: { timestamp: tsForMinute(30) }, playbackPosition: tsForMinute(40) },
+                5
+            )
             expect(batch?.sourceIndices).toEqual([0, 1, 2, 3, 4])
-        })
-    })
-
-    describe('isSeeking', () => {
-        it('is false in buffer_ahead mode', () => {
-            const scheduler = new LoadingScheduler()
-            expect(scheduler.isSeeking).toBe(false)
-        })
-
-        it('is true after seekTo', () => {
-            const scheduler = new LoadingScheduler()
-            scheduler.seekTo(tsForMinute(5))
-            expect(scheduler.isSeeking).toBe(true)
-        })
-
-        it('is false after clearSeek', () => {
-            const scheduler = new LoadingScheduler()
-            scheduler.seekTo(tsForMinute(5))
-            scheduler.clearSeek()
-            expect(scheduler.isSeeking).toBe(false)
         })
     })
 })

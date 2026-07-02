@@ -6,7 +6,7 @@ import { RecordingSegment, RecordingSnapshot, SessionRecordingSnapshotSource } f
 
 import { convertSegmentKinds } from '../utils/segment-kind-conversion'
 import { createSegments, mapSnapshotsToWindowId } from '../utils/segmenter'
-import { LoadingScheduler } from './LoadingScheduler'
+import { SeekTarget, planNextBatch } from './planNextBatch'
 
 // Each source represents 1 minute of recording
 function makeSources(count: number): SessionRecordingSnapshotSource[] {
@@ -37,16 +37,16 @@ function makeFullSnapshot(timestamp: number, windowId: number = 1): RecordingSna
 
 /**
  * Simulates what snapshotDataLogic does in a loop:
- * get next batch → "load" each source → repeat.
+ * plan next batch → "load" each source → repeat.
  *
  * The snapshotFactory controls what snapshots each source produces.
  * Returns the sequence of batches that were loaded.
  */
 function runLoadingLoop(
     store: SnapshotStore,
-    scheduler: LoadingScheduler,
     opts: {
         snapshotFactory: (sourceIndex: number) => RecordingSnapshot[]
+        target?: SeekTarget
         batchSize?: number
         playbackPosition?: number
         maxIterations?: number
@@ -57,7 +57,11 @@ function runLoadingLoop(
     let iterations = 0
 
     while (iterations++ < maxIterations) {
-        const batch = scheduler.getNextBatch(store, opts.batchSize ?? 5, opts.playbackPosition)
+        const batch = planNextBatch(
+            store,
+            { target: opts.target ?? null, loadAll: false, playbackPosition: opts.playbackPosition },
+            opts.batchSize ?? 5
+        )
         if (!batch) {
             break
         }
@@ -73,13 +77,12 @@ function runLoadingLoop(
     return batches
 }
 
-describe('SnapshotStore + LoadingScheduler integration', () => {
+describe('SnapshotStore + planNextBatch integration', () => {
     it('loads a short recording from start to buffer limit', () => {
         const store = new SnapshotStore()
-        const scheduler = new LoadingScheduler()
         store.setSources(makeSources(10))
 
-        const batches = runLoadingLoop(store, scheduler, {
+        const batches = runLoadingLoop(store, {
             snapshotFactory: (i) =>
                 i === 0
                     ? [makeFullSnapshot(tsForMinute(i)), makeSnapshot(tsForMinute(i) + 100)]
@@ -98,17 +101,14 @@ describe('SnapshotStore + LoadingScheduler integration', () => {
 
     it('seek loads window and buffers ahead, does not load backward', () => {
         const store = new SnapshotStore()
-        const scheduler = new LoadingScheduler()
         store.setSources(makeSources(50))
 
-        // Seek to minute 30
-        scheduler.seekTo(tsForMinute(30))
-
-        const batches = runLoadingLoop(store, scheduler, {
+        const batches = runLoadingLoop(store, {
             snapshotFactory: (i) =>
                 i === 28
                     ? [makeFullSnapshot(tsForMinute(i)), makeSnapshot(tsForMinute(i) + 100)]
                     : [makeSnapshot(tsForMinute(i))],
+            target: { timestamp: tsForMinute(30) },
             batchSize: 10,
         })
 
@@ -131,35 +131,31 @@ describe('SnapshotStore + LoadingScheduler integration', () => {
 
     it('seek resolves quickly when a FullSnapshot exists near the target', () => {
         const store = new SnapshotStore()
-        const scheduler = new LoadingScheduler()
         store.setSources(makeSources(30))
 
-        // Seek to minute 15
-        scheduler.seekTo(tsForMinute(15))
-
         // FullSnapshot at source 12 (near the seek window)
-        const batches = runLoadingLoop(store, scheduler, {
+        const target = { timestamp: tsForMinute(15) }
+        const batches = runLoadingLoop(store, {
             snapshotFactory: (i) =>
                 i === 12
                     ? [makeFullSnapshot(tsForMinute(i)), makeSnapshot(tsForMinute(i) + 100)]
                     : [makeSnapshot(tsForMinute(i))],
+            target,
             batchSize: 10,
         })
 
-        const reasons = batches.map((b) => b.reason)
-
-        expect(reasons[0]).toBe('seek_target')
+        expect(batches[0].reason).toBe('seek_target')
         expect(store.canPlayAt(tsForMinute(15))).toBe(true)
-        expect(scheduler.currentMode).toEqual({ kind: 'buffer_ahead' })
+        // A satisfied target no longer produces seek batches
+        expect(planNextBatch(store, { target, loadAll: false })?.reason ?? null).not.toBe('seek_target')
     })
 
     it('buffer ahead stops at BUFFER_AHEAD_SOURCES limit', () => {
         const store = new SnapshotStore()
-        const scheduler = new LoadingScheduler()
         store.setSources(makeSources(100))
 
         // Start from beginning, no seek
-        const batches = runLoadingLoop(store, scheduler, {
+        const batches = runLoadingLoop(store, {
             snapshotFactory: (i) =>
                 i === 0
                     ? [makeFullSnapshot(tsForMinute(i)), makeSnapshot(tsForMinute(i) + 100)]
@@ -184,11 +180,10 @@ describe('SnapshotStore + LoadingScheduler integration', () => {
 
     it('sliding window: advancing playback position loads more ahead', () => {
         const store = new SnapshotStore()
-        const scheduler = new LoadingScheduler()
         store.setSources(makeSources(100))
 
         // Load initial buffer at position 0
-        runLoadingLoop(store, scheduler, {
+        runLoadingLoop(store, {
             snapshotFactory: (i) =>
                 i === 0
                     ? [makeFullSnapshot(tsForMinute(i)), makeSnapshot(tsForMinute(i) + 100)]
@@ -202,7 +197,7 @@ describe('SnapshotStore + LoadingScheduler integration', () => {
         ).length
 
         // Advance playback to minute 20 — should load more ahead
-        const newBatches = runLoadingLoop(store, scheduler, {
+        const newBatches = runLoadingLoop(store, {
             snapshotFactory: (i) => [makeSnapshot(tsForMinute(i))],
             batchSize: 10,
             playbackPosition: tsForMinute(20),
@@ -218,12 +213,10 @@ describe('SnapshotStore + LoadingScheduler integration', () => {
 
     it('second seek after first seek was partially resolved', () => {
         const store = new SnapshotStore()
-        const scheduler = new LoadingScheduler()
         store.setSources(makeSources(30))
 
         // Start seeking to minute 10
-        scheduler.seekTo(tsForMinute(10))
-        const firstBatch = scheduler.getNextBatch(store, 10)!
+        const firstBatch = planNextBatch(store, { target: { timestamp: tsForMinute(10) }, loadAll: false }, 10)!
         expect(firstBatch.reason).toBe('seek_target')
 
         // Load the first seek batch
@@ -231,30 +224,25 @@ describe('SnapshotStore + LoadingScheduler integration', () => {
             store.markLoaded(idx, [makeSnapshot(tsForMinute(idx))])
         }
 
-        // Before seek resolves, user seeks to minute 25 instead
-        scheduler.seekTo(tsForMinute(25))
-        expect(scheduler.currentMode).toEqual({ kind: 'seek', targetTimestamp: tsForMinute(25) })
-
-        // New seek should load around minute 25
-        const secondBatch = scheduler.getNextBatch(store, 10)!
+        // Before the first seek resolves, user seeks to minute 25 instead
+        const secondBatch = planNextBatch(store, { target: { timestamp: tsForMinute(25) }, loadAll: false }, 10)!
         expect(secondBatch.reason).toBe('seek_target')
         expect(secondBatch.sourceIndices.some((i) => i >= 23)).toBe(true)
     })
 
     it('getAllLoadedSnapshots returns sorted data across multiple load rounds', () => {
         const store = new SnapshotStore()
-        const scheduler = new LoadingScheduler()
         store.setSources(makeSources(10))
 
-        // Seek to minute 8 — loads sources 6-9 first
-        scheduler.seekTo(tsForMinute(8))
-        const seekBatch = scheduler.getNextBatch(store, 10)!
+        // Seek to minute 8 — loads the window around it first
+        const target = { timestamp: tsForMinute(8) }
+        const seekBatch = planNextBatch(store, { target, loadAll: false }, 10)!
         for (const idx of seekBatch.sourceIndices) {
             store.markLoaded(idx, [makeSnapshot(tsForMinute(idx))])
         }
 
-        // Then load sources 0-5 via backward search
-        const nextBatch = scheduler.getNextBatch(store, 10)!
+        // Then load the earlier sources via backward search
+        const nextBatch = planNextBatch(store, { target, loadAll: false }, 10)!
         for (const idx of nextBatch.sourceIndices) {
             store.markLoaded(idx, [idx === 0 ? makeFullSnapshot(tsForMinute(idx)) : makeSnapshot(tsForMinute(idx))])
         }
@@ -266,18 +254,17 @@ describe('SnapshotStore + LoadingScheduler integration', () => {
         }
     })
 
-    it('scheduler returns contiguous batches, skipping loaded gaps', () => {
+    it('returns contiguous batches, skipping loaded gaps', () => {
         const store = new SnapshotStore()
-        const scheduler = new LoadingScheduler()
         store.setSources(makeSources(20))
 
-        // Pre-load sources 3-6 so the scheduler skips them
+        // Pre-load sources 3-6 so the planner skips them
         for (let i = 3; i <= 6; i++) {
             store.markLoaded(i, [makeSnapshot(tsForMinute(i))])
         }
 
         // First batch: contiguous [0,1,2] — stops at the loaded gap
-        const batch = scheduler.getNextBatch(store, 10, tsForMinute(0))!
+        const batch = planNextBatch(store, { target: null, loadAll: false, playbackPosition: tsForMinute(0) }, 10)!
         expect(batch.reason).toBe('buffer_ahead')
         expect(batch.sourceIndices).toEqual([0, 1, 2])
 
@@ -287,23 +274,21 @@ describe('SnapshotStore + LoadingScheduler integration', () => {
         }
 
         // Next batch picks up from source 7 (first unloaded after the gap)
-        const nextBatch = scheduler.getNextBatch(store, 10, tsForMinute(0))!
+        const nextBatch = planNextBatch(store, { target: null, loadAll: false, playbackPosition: tsForMinute(0) }, 10)!
         expect(nextBatch.sourceIndices[0]).toBe(7)
     })
 
     it('seek with backward search converges', () => {
         const store = new SnapshotStore()
-        const scheduler = new LoadingScheduler()
         store.setSources(makeSources(55))
 
         // Seek to middle with FullSnapshot at source 25
-        scheduler.seekTo(tsForMinute(30))
-
-        const batches = runLoadingLoop(store, scheduler, {
+        const batches = runLoadingLoop(store, {
             snapshotFactory: (i) =>
                 i === 25
                     ? [makeFullSnapshot(tsForMinute(i)), makeSnapshot(tsForMinute(i) + 100)]
                     : [makeSnapshot(tsForMinute(i))],
+            target: { timestamp: tsForMinute(30) },
             batchSize: 10,
             playbackPosition: tsForMinute(30),
             maxIterations: 20,
@@ -315,11 +300,10 @@ describe('SnapshotStore + LoadingScheduler integration', () => {
 
     it('live source growth mid-loading preserves progress and continues', () => {
         const store = new SnapshotStore()
-        const scheduler = new LoadingScheduler()
         store.setSources(makeSources(5))
 
         // Load the first 5 sources
-        runLoadingLoop(store, scheduler, {
+        runLoadingLoop(store, {
             snapshotFactory: (i) =>
                 i === 0
                     ? [makeFullSnapshot(tsForMinute(i)), makeSnapshot(tsForMinute(i) + 100)]
@@ -342,8 +326,8 @@ describe('SnapshotStore + LoadingScheduler integration', () => {
         // Previously loaded snapshots still present
         expect(store.getAllLoadedSnapshots().length).toBe(snapshotCountBefore)
 
-        // Scheduler picks up the new unloaded sources
-        const newBatches = runLoadingLoop(store, scheduler, {
+        // The planner picks up the new unloaded sources
+        const newBatches = runLoadingLoop(store, {
             snapshotFactory: (i) => [makeSnapshot(tsForMinute(i))],
             batchSize: 5,
         })
@@ -351,19 +335,6 @@ describe('SnapshotStore + LoadingScheduler integration', () => {
         expect(newBatches.length).toBeGreaterThan(0)
         expect(newBatches[0].sourceIndices[0]).toBe(5)
         expect(store.allLoaded).toBe(true)
-    })
-
-    it('seek to position 0 in buffer_ahead mode does not enter seek mode', () => {
-        const store = new SnapshotStore()
-        const scheduler = new LoadingScheduler()
-        store.setSources(makeSources(10))
-
-        // Scheduler starts in buffer_ahead — requesting batches at position 0
-        // should stay in buffer_ahead, not switch to seek
-        const batch = scheduler.getNextBatch(store, 5, tsForMinute(0))
-        expect(batch?.reason).toBe('buffer_ahead')
-        expect(batch?.sourceIndices[0]).toBe(0)
-        expect(scheduler.currentMode).toEqual({ kind: 'buffer_ahead' })
     })
 
     describe('SnapshotStore + segment conversion', () => {
@@ -386,16 +357,15 @@ describe('SnapshotStore + LoadingScheduler integration', () => {
 
         it('forward seek leaves unloaded region — gaps convert to buffer', () => {
             const store = new SnapshotStore()
-            const scheduler = new LoadingScheduler()
             store.setSources(makeSources(50))
 
             // Seek to minute 30, loading sources around it
-            scheduler.seekTo(tsForMinute(30))
-            runLoadingLoop(store, scheduler, {
+            runLoadingLoop(store, {
                 snapshotFactory: (i) =>
                     i === 28
                         ? [makeFullSnapshot(tsForMinute(i)), makeActiveSnapshot(tsForMinute(i) + 100)]
                         : [makeActiveSnapshot(tsForMinute(i))],
+                target: { timestamp: tsForMinute(30) },
                 batchSize: 10,
             })
 
@@ -455,16 +425,15 @@ describe('SnapshotStore + LoadingScheduler integration', () => {
     describe('getUnloadedIndicesInRange detects gaps for segment conversion', () => {
         it('reports unloaded sources in a region skipped by forward seek', () => {
             const store = new SnapshotStore()
-            const scheduler = new LoadingScheduler()
             store.setSources(makeSources(50))
 
             // Seek forward to minute 30, loading sources 27-49
-            scheduler.seekTo(tsForMinute(30))
-            runLoadingLoop(store, scheduler, {
+            runLoadingLoop(store, {
                 snapshotFactory: (i) =>
                     i === 28
                         ? [makeFullSnapshot(tsForMinute(i)), makeSnapshot(tsForMinute(i) + 100)]
                         : [makeSnapshot(tsForMinute(i))],
+                target: { timestamp: tsForMinute(30) },
                 batchSize: 10,
             })
 
