@@ -769,6 +769,11 @@ class TestDuckgresGroupLease:
         await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
         await conn.execute(f"UPDATE {DUCKGRES_LEASE_TABLE} SET expires_at = now() - interval '1 second'")
 
+        # An expired lease is dead even for its original owner: renewal must not
+        # resurrect it (recovery may have re-queued the group's batches) — the
+        # only way back in is the fetch's claim CTE.
+        assert not await DuckgresBatchQueue.renew_lease(conn, team_id=1, schema_id="schema-1", owner_token="owner-a")
+
         assert len(await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-b")) == 1
         assert not await DuckgresBatchQueue.renew_lease(conn, team_id=1, schema_id="schema-1", owner_token="owner-a")
         assert await DuckgresBatchQueue.renew_lease(conn, team_id=1, schema_id="schema-1", owner_token="owner-b")

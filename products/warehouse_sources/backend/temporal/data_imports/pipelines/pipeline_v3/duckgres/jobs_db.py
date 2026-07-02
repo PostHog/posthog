@@ -654,13 +654,23 @@ class DuckgresBatchQueue:
         owner_token: str,
         lease_ttl_seconds: int = LEASE_TTL_SECONDS,
     ) -> bool:
-        """Extend this owner's group lease. Returns False if the lease was lost (row gone or reclaimed)."""
+        """Extend this owner's group lease. Returns False if the lease was lost
+        (row gone, reclaimed, or expired).
+
+        The ``expires_at > now()`` predicate is the fencing rule: once a lease
+        expires, recovery may have re-queued the group's batches, so the stale
+        owner must not resurrect it here — re-claiming goes through the fetch's
+        claim CTE, never through renewal.
+        """
         async with conn.cursor() as cur:
             await cur.execute(
                 f"""
                 UPDATE {DUCKGRES_LEASE_TABLE}
                 SET expires_at = now() + make_interval(secs => %(ttl)s), updated_at = now()
-                WHERE team_id = %(team_id)s AND schema_id = %(schema_id)s AND owner_token = %(owner)s
+                WHERE team_id = %(team_id)s
+                    AND schema_id = %(schema_id)s
+                    AND owner_token = %(owner)s
+                    AND expires_at > now()
                 RETURNING 1
                 """,
                 {"team_id": team_id, "schema_id": schema_id, "owner": owner_token, "ttl": lease_ttl_seconds},
