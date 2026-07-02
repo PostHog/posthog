@@ -128,9 +128,9 @@ class TestGetRows:
                     api_key="k",
                     endpoint=kwargs.pop("endpoint", "projects"),
                     logger=MagicMock(),
-                    resumable_source_manager=manager,
+                    resumable_source_manager=manager,  # type: ignore[arg-type]
                     **kwargs,
-                )  # type: ignore[arg-type]
+                )
             )
         return batches, calls
 

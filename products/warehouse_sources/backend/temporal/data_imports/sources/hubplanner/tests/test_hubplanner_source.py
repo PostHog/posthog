@@ -4,7 +4,12 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfigType
+from posthog.schema import (
+    DataWarehouseSourceCategory,
+    ReleaseStatus,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+)
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import HubplannerSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.hubplanner import source as source_module
@@ -36,6 +41,7 @@ class TestHubplannerSource:
         fields = self.source.get_source_config.fields
         assert len(fields) == 1
         api_key = fields[0]
+        assert isinstance(api_key, SourceFieldInputConfig)
         assert api_key.name == "api_key"
         assert api_key.type == SourceFieldInputConfigType.PASSWORD
         assert api_key.required is True
