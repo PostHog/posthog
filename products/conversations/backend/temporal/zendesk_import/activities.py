@@ -259,17 +259,15 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
 
     # Phase 1: Fetch all comments + attachments OUTSIDE the transaction (network I/O).
     ticket_data: list[tuple[dict[str, Any], list[dict[str, Any]]]] = []
+    comment_author_ids: set[int] = set()
     for zendesk_ticket in zendesk_tickets:
         zendesk_id = int(zendesk_ticket["id"])
         try:
             comments = client.fetch_comments(zendesk_id)
-            # Resolve any unknown comment authors
             for zd_comment in comments:
                 author_id = zd_comment.get("author_id")
-                if author_id is not None and int(author_id) not in users_by_id:
-                    author = client.fetch_users([int(author_id)]).get(int(author_id), {})
-                    if author:
-                        users_by_id[int(author_id)] = author
+                if author_id is not None:
+                    comment_author_ids.add(int(author_id))
             ticket_data.append((zendesk_ticket, comments))
         except Exception as exc:
             failed += 1
@@ -283,6 +281,13 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
     if not ticket_data:
         return ImportBatchOutput(imported=0, skipped=skipped, failed=failed)
 
+    # Batch-resolve every comment author's role in one shot (so classification uses the real
+    # role for each participant, not a per-thread heuristic). Deactivated agents still resolve;
+    # only hard-deleted users won't, and those fall back to the customer-side id check below.
+    missing_author_ids = [aid for aid in comment_author_ids if aid not in users_by_id]
+    if missing_author_ids:
+        users_by_id.update(client.fetch_users(missing_author_ids))
+
     # Phase 2: Process each ticket (attachments involve network I/O, so outside atomic).
     tickets_to_create: list[Ticket] = []
     ticket_comments_map: list[tuple[int, list[Comment], int, int]] = []
@@ -294,7 +299,18 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
         try:
             requester = users_by_id.get(int(zendesk_ticket.get("requester_id") or 0), {})
             requester_email = (requester.get("email") or f"zendesk-user-{zendesk_ticket.get('requester_id')}").strip()
+            requester_name = (requester.get("name") or "").strip()
             distinct_id = cache.get(requester_email.lower(), requester_email)
+
+            # Populate anonymous_traits so the customer renders as their name/email instead of
+            # "Anonymous user" when no PostHog person matched — same shape as the other import
+            # paths (Slack/email/GitHub). The email is from the authenticated Zendesk API, not
+            # public widget input, so it's trustworthy for restore-by-email.
+            anonymous_traits: dict[str, str] = {}
+            if requester_name:
+                anonymous_traits["name"] = requester_name
+            if "@" in requester_email:
+                anonymous_traits["email"] = requester_email
 
             ticket = Ticket(
                 team=team,
@@ -305,6 +321,7 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
                 priority=map_zendesk_priority(zendesk_ticket.get("priority")),
                 email_subject=(zendesk_ticket.get("subject") or "")[:500] or None,
                 email_from=requester_email if "@" in requester_email else None,
+                anonymous_traits=anonymous_traits,
                 zendesk_ticket_id=zendesk_id,
             )
             create_idx = len(tickets_to_create)
@@ -315,12 +332,25 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
             customer_message_count = 0
             team_message_count = 0
 
+            # Customer-side participants: the requester plus any CCs/collaborators. Used only as a
+            # fallback when an author's role can't be resolved (hard-deleted users) so a deleted
+            # end-user still counts as a customer and a deleted agent counts as staff.
+            customer_side_ids: set[int] = set()
+            if zendesk_ticket.get("requester_id") is not None:
+                customer_side_ids.add(int(zendesk_ticket["requester_id"]))
+            for cc_id in (zendesk_ticket.get("collaborator_ids") or []) + (zendesk_ticket.get("email_cc_ids") or []):
+                if cc_id is not None:
+                    customer_side_ids.add(int(cc_id))
+
             for zd_comment in comments:
                 author_id = zd_comment.get("author_id")
                 author = users_by_id.get(int(author_id), {}) if author_id is not None else {}
 
                 is_public = bool(zd_comment.get("public", True))
-                author_type, is_private = map_zendesk_author_type(role=author.get("role"), is_public=is_public)
+                is_customer_side = author_id is not None and int(author_id) in customer_side_ids
+                author_type, is_private = map_zendesk_author_type(
+                    role=author.get("role"), is_public=is_public, is_customer_side=is_customer_side
+                )
                 body = _comment_body(zd_comment)
                 rich_content: dict[str, Any] | None = None
                 body, rich_content = _process_attachments(client, team, zd_comment, body, rich_content)
@@ -334,6 +364,22 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
                 else:
                     team_message_count += 1
 
+                # Persist each comment's own author identity so the thread shows the actual
+                # commenter (a second requester, an agent, etc.) instead of every message
+                # inheriting the ticket-level requester from anonymous_traits.
+                author_name = (author.get("name") or "").strip()
+                author_email = (author.get("email") or "").strip()
+                item_context: dict[str, Any] = {
+                    "author_type": author_type,
+                    "is_private": is_private,
+                    "from_zendesk": True,
+                    "zendesk_comment_id": zd_comment.get("id"),
+                }
+                if author_name:
+                    item_context["author_name"] = author_name
+                if author_email:
+                    item_context["author_email"] = author_email
+
                 comment_created_at = _parse_zendesk_datetime(zd_comment.get("created_at"))
                 comment_obj = Comment(
                     team=team,
@@ -341,12 +387,7 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
                     item_id="",  # placeholder — set after ticket gets an ID
                     content=body,
                     rich_content=rich_content,
-                    item_context={
-                        "author_type": author_type,
-                        "is_private": is_private,
-                        "from_zendesk": True,
-                        "zendesk_comment_id": zd_comment.get("id"),
-                    },
+                    item_context=item_context,
                 )
                 # auto_now_add clobbers created_at during bulk_create, so stash the
                 # historical value on a shadow attr and re-apply it via bulk_update.

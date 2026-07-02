@@ -38,13 +38,30 @@ class TestZendeskMappers:
 
     @parameterized.expand(
         [
-            ("end-user", True, "customer", False),
-            ("agent", True, "support", False),
-            ("admin", True, "support", False),
-            ("agent", False, "support", True),
+            # role, is_public, is_customer_side, expected_author_type, expected_is_private
+            # Role is authoritative when resolved, regardless of customer-side membership.
+            ("end_user", "end-user", True, True, "customer", False),
+            ("end_user_non_customer_side", "end-user", True, False, "customer", False),
+            ("agent", "agent", True, False, "support", False),
+            ("admin", "admin", True, False, "support", False),
+            # A second end-user (person2) in a thread resolves by role → customer, not staff.
+            ("second_end_user", "end-user", True, False, "customer", False),
+            ("agent_private_note", "agent", False, False, "support", True),
+            # Role unresolved (hard-deleted): customer-side → customer, otherwise staff.
+            ("deleted_customer_side", None, True, True, "customer", False),
+            ("deleted_agent_not_customer_side", None, True, False, "support", False),
         ]
     )
     def test_map_zendesk_author_type(
-        self, role: str | None, is_public: bool, author_type: str, is_private: bool
+        self,
+        _name: str,
+        role: str | None,
+        is_public: bool,
+        is_customer_side: bool,
+        author_type: str,
+        is_private: bool,
     ) -> None:
-        assert map_zendesk_author_type(role=role, is_public=is_public) == (author_type, is_private)
+        assert map_zendesk_author_type(role=role, is_public=is_public, is_customer_side=is_customer_side) == (
+            author_type,
+            is_private,
+        )

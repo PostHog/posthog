@@ -392,14 +392,18 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                             'Support'
                     } else if (authorType === 'AI') {
                         displayName = 'PostHog Assistant'
-                    } else if (authorType === 'customer') {
-                        const slackAuthorName = message.item_context?.slack_author_name
-                        const emailAuthorName = message.item_context?.email_from_name
-                        if (slackAuthorName) {
-                            displayName = slackAuthorName
-                        } else if (emailAuthorName) {
-                            displayName = emailAuthorName
-                        } else {
+                    } else {
+                        // Per-message author identity (e.g. Zendesk import stores each comment's own
+                        // author) takes precedence over the ticket-level requester, so a reply from a
+                        // second requester or an agent shows the real name instead of the ticket owner.
+                        const messageAuthorName =
+                            message.item_context?.author_name ||
+                            message.item_context?.author_email ||
+                            message.item_context?.slack_author_name ||
+                            message.item_context?.email_from_name
+                        if (messageAuthorName) {
+                            displayName = messageAuthorName
+                        } else if (authorType === 'customer') {
                             displayName =
                                 ticket?.person?.properties?.name ||
                                 ticket?.person?.properties?.email ||

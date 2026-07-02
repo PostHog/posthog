@@ -45,8 +45,8 @@ def _zd_ticket(
     }
 
 
-def _zd_user(uid: int, email: str, role: str = "end-user") -> dict[str, Any]:
-    return {"id": uid, "email": email, "role": role}
+def _zd_user(uid: int, email: str, role: str = "end-user", name: str | None = None) -> dict[str, Any]:
+    return {"id": uid, "email": email, "role": role, "name": name}
 
 
 def _zd_comment(
@@ -165,6 +165,74 @@ class TestZendeskImportBatchActivity(BaseTest):
         stored = Comment.objects.filter(team=self.team, scope="conversations_ticket", item_id=str(ticket.id))
         self.assertEqual(stored.count(), 3)
         self.assertEqual(stored.order_by("created_at").first().created_at.year, 2020)
+
+    def test_unmatched_requester_sets_anonymous_traits_for_display(self) -> None:
+        # With no PostHog person match, the customer must still render as their Zendesk name/email
+        # (via anonymous_traits) instead of "Anonymous user".
+        self._run_batch(
+            [205],
+            tickets=[_zd_ticket(205, 10)],
+            users={10: _zd_user(10, "requester@x.com", name="Ada Lovelace")},
+            comments_by_ticket={205: []},
+            persons={},
+        )
+
+        ticket = Ticket.objects.get(team=self.team, zendesk_ticket_id=205)
+        self.assertEqual(ticket.anonymous_traits, {"name": "Ada Lovelace", "email": "requester@x.com"})
+
+    def test_staff_reply_with_unresolved_role_is_not_attributed_to_customer(self) -> None:
+        # Reported bug: a public agent reply whose author role can't be resolved (role=None) was
+        # typed "customer" and rendered as the ticket's customer identity. It must map to support.
+        comments = [
+            _zd_comment(1, 10, public=True, body="customer question"),
+            _zd_comment(2, 99, public=True, body="staff answer"),
+        ]
+        self._run_batch(
+            [206],
+            tickets=[_zd_ticket(206, 10)],
+            users={
+                10: _zd_user(10, "person@example.com", name="Person"),
+                99: _zd_user(99, "staff@posthog.com", role=None),  # role unresolved
+            },
+            comments_by_ticket={206: comments},
+        )
+
+        ticket = Ticket.objects.get(team=self.team, zendesk_ticket_id=206)
+        by_body = {c.content: c for c in Comment.objects.filter(team=self.team, item_id=str(ticket.id))}
+        self.assertEqual(by_body["customer question"].item_context["author_type"], "customer")
+        self.assertEqual(by_body["staff answer"].item_context["author_type"], "support")
+        # One customer message, one team message.
+        self.assertEqual(ticket.unread_team_count, 1)
+        self.assertEqual(ticket.unread_customer_count, 1)
+
+    def test_second_end_user_reply_is_customer_not_staff(self) -> None:
+        # person@example.com (requester) + person2@example.com (another end-user, not a CC) + staff.
+        # person2 must classify as customer by role, not fall to the staff fallback.
+        comments = [
+            _zd_comment(1, 10, public=True, body="from requester"),
+            _zd_comment(2, 11, public=True, body="from second end user"),
+            _zd_comment(3, 20, public=True, body="from staff"),
+        ]
+        self._run_batch(
+            [207],
+            tickets=[_zd_ticket(207, 10)],
+            users={
+                10: _zd_user(10, "person@example.com", name="Person"),
+                11: _zd_user(11, "person2@example.com", role="end-user"),
+                20: _zd_user(20, "staff@posthog.com", role="agent"),
+            },
+            comments_by_ticket={207: comments},
+        )
+
+        ticket = Ticket.objects.get(team=self.team, zendesk_ticket_id=207)
+        by_body = {c.content: c for c in Comment.objects.filter(team=self.team, item_id=str(ticket.id))}
+        self.assertEqual(by_body["from requester"].item_context["author_type"], "customer")
+        self.assertEqual(by_body["from second end user"].item_context["author_type"], "customer")
+        self.assertEqual(by_body["from staff"].item_context["author_type"], "support")
+        # Each comment carries its own author identity so the thread doesn't show the ticket
+        # requester on every message.
+        self.assertEqual(by_body["from second end user"].item_context["author_email"], "person2@example.com")
+        self.assertEqual(by_body["from staff"].item_context["author_email"], "staff@posthog.com")
 
     @parameterized.expand(
         [
