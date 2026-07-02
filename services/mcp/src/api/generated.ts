@@ -55865,6 +55865,14 @@ export namespace Schemas {
      */
     data_attributes?: string;
     /**
+     * Start of the date range (e.g. -7d, 2024-01-01). Defaults to last 7 days.
+     */
+    date_from?: string;
+    /**
+     * End of the date range (e.g. 2024-01-31). Defaults to now.
+     */
+    date_to?: string;
+    /**
      * Event types to include: $autocapture, $rageclick, $dead_click. Defaults to all three.
      */
     include?: string[];
@@ -61849,6 +61857,14 @@ export namespace Schemas {
      * Comma-separated data attribute names (wildcards allowed, e.g. data-*). When provided, each element's attributes map is filtered to matching attr__* keys, shrinking the response.
      */
     data_attributes?: string;
+    /**
+     * Start of the date range (e.g. -7d, 2024-01-01). Defaults to last 7 days.
+     */
+    date_from?: string;
+    /**
+     * End of the date range (e.g. 2024-01-31). Defaults to now.
+     */
+    date_to?: string;
     /**
      * Event types to include: $autocapture, $rageclick, $dead_click. Defaults to all three.
      */
