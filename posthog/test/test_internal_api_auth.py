@@ -1,3 +1,4 @@
+import os
 from types import SimpleNamespace
 
 from posthog.test.base import APIBaseTest
@@ -10,6 +11,7 @@ from rest_framework.exceptions import AuthenticationFailed
 from rest_framework.request import Request
 
 from posthog.auth import InternalAPIAuthentication
+from posthog.internal_api_secret import OPENAPI_MOCK_INTERNAL_API_SECRET_PLACEHOLDER
 from posthog.settings import LOCAL_DEV_INTERNAL_API_SECRET
 
 
@@ -42,6 +44,29 @@ class TestInternalAPIAuth(APIBaseTest):
     @override_settings(INTERNAL_API_SECRET="")
     def test_no_configured_secret_denies_access(self):
         request = Request(self.factory.get("/internal/endpoint", HTTP_X_INTERNAL_API_SECRET="any-secret"))
+        with self.assertRaises(AuthenticationFailed):
+            self.authentication.authenticate(request)
+
+    @override_settings(INTERNAL_API_SECRET="")
+    def test_openapi_schema_generation_mock_secret_accepted_when_no_real_secret(self):
+        # Schema-gen tooling (find_enum_collisions) runs with no configured secret in prod-like
+        # environments; the mock injects a placeholder so internal-API auth doesn't crash it.
+        request = Request(
+            self.factory.get(
+                "/internal/endpoint", HTTP_X_INTERNAL_API_SECRET=OPENAPI_MOCK_INTERNAL_API_SECRET_PLACEHOLDER
+            )
+        )
+        with patch.dict(os.environ, {"OPENAPI_MOCK_INTERNAL_API_SECRET": "1"}):
+            user, _ = self.authentication.authenticate(request)
+        self.assertTrue(user.is_authenticated)
+
+    @override_settings(INTERNAL_API_SECRET="")
+    def test_openapi_schema_generation_mock_secret_rejected_without_env_flag(self):
+        request = Request(
+            self.factory.get(
+                "/internal/endpoint", HTTP_X_INTERNAL_API_SECRET=OPENAPI_MOCK_INTERNAL_API_SECRET_PLACEHOLDER
+            )
+        )
         with self.assertRaises(AuthenticationFailed):
             self.authentication.authenticate(request)
 

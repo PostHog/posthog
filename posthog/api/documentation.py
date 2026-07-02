@@ -19,6 +19,7 @@ from drf_spectacular.utils import (
 from rest_framework import fields, serializers
 from rest_framework.exceptions import PermissionDenied
 
+from posthog.internal_api_secret import OPENAPI_MOCK_INTERNAL_API_SECRET_PLACEHOLDER
 from posthog.models.entity import MathType
 from posthog.models.property import OperatorType, PropertyType
 from posthog.permissions import APIScopePermission
@@ -134,7 +135,13 @@ def build_openapi_mock_request(method, path, view, original_request, **kwargs):
     if os.getenv("OPENAPI_MOCK_INTERNAL_API_SECRET") == "1":
         from django.conf import settings
 
-        request.META["HTTP_X_INTERNAL_API_SECRET"] = settings.INTERNAL_API_SECRET
+        # Fall back to the placeholder when no real secret is configured (INTERNAL_API_SECRET
+        # defaults to empty outside DEBUG/TEST). A blank header would fail internal-API auth and
+        # crash schema generation; usable_internal_api_secrets() accepts the placeholder under this
+        # same env flag so the mock is self-sufficient.
+        request.META["HTTP_X_INTERNAL_API_SECRET"] = (
+            settings.INTERNAL_API_SECRET or OPENAPI_MOCK_INTERNAL_API_SECRET_PLACEHOLDER
+        )
 
     return request
 
