@@ -13,7 +13,6 @@ import structlog
 from requests import Response
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
-from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.zendesk import normalize_subdomain
 
 logger = structlog.get_logger(__name__)
 
@@ -34,6 +33,24 @@ MAX_RATE_LIMIT_SLEEP_SECONDS = 30
 # hyphen, <= 63 chars. Pinning to this stops a crafted subdomain (e.g. "attacker.example#")
 # from resolving the base host to something other than "<label>.zendesk.com" (SSRF).
 _SUBDOMAIN_LABEL_RE = re.compile(r"^[a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?$", re.IGNORECASE)
+
+
+def normalize_subdomain(subdomain: str) -> str:
+    """Reduce whatever the user entered to the bare Zendesk subdomain label.
+
+    Users frequently paste the full host ("nibbles.zendesk.com") or a URL
+    ("https://nibbles.zendesk.com/"). Collapse those to the bare label so the base
+    URL doesn't become "https://nibbles.zendesk.com.zendesk.com/". Callers still
+    validate the result against ``_SUBDOMAIN_LABEL_RE`` before issuing any request.
+
+    Owned here (copied from the warehouse Zendesk source rather than imported) so the
+    import's SSRF-sensitive host handling doesn't depend on another product's internals.
+    """
+    subdomain = subdomain.strip()
+    if "://" in subdomain:
+        subdomain = subdomain.split("://", 1)[1]
+    subdomain = subdomain.split("/", 1)[0]
+    return re.sub(r"\.zendesk\.com$", "", subdomain, flags=re.IGNORECASE)
 
 
 class ZendeskRateLimitError(Exception):
