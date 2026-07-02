@@ -274,12 +274,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         configErrors.scale = 'Scale max must be greater than min'
                     }
                 }
-                // A duration filter that can't overlap Vision's scannable window would scan nothing (e.g.
-                // active time > 1h, which the ceiling always skips) — block it rather than save a dead scanner.
-                const durationFilter = scanner.query
-                    ? recordingsQueryToUniversalFilters(scanner.query).duration?.[0]
-                    : undefined
-
                 return {
                     name: !scanner.name?.trim() ? 'Name is required' : undefined,
                     sampling_rate:
@@ -287,9 +281,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                             ? undefined
                             : 'Sampling rate must be between 0% and 100%',
                     scanner_config: Object.keys(configErrors).length > 0 ? configErrors : undefined,
-                    query: durationFilter
-                        ? (durationFilterError(clampDurationFilter(durationFilter)) ?? undefined)
-                        : undefined,
                 }
             },
             submit: async (scanner: ReplayScanner) => {
@@ -575,6 +566,18 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
 
     selectors({
         isNew: [(_, p) => [p.id], (id: string) => id === 'new'],
+        // A duration filter that can't overlap Vision's scannable window would scan nothing (e.g. active time
+        // > 1h, which the ceiling always skips). Surfaced as a save-blocking reason rather than a form error,
+        // since kea-forms can't attach a scalar error to the object-typed `query` field.
+        durationValidationError: [
+            (s) => [s.scanner],
+            (scanner: ReplayScanner | null): string | null => {
+                const durationFilter = scanner?.query
+                    ? recordingsQueryToUniversalFilters(scanner.query).duration?.[0]
+                    : undefined
+                return durationFilter ? durationFilterError(clampDurationFilter(durationFilter)) : null
+            },
+        ],
         hasUnsavedChanges: [
             (s) => [s.scanner, s.originalScanner],
             (scanner: ReplayScanner | null, original: ReplayScanner | null): boolean => {
