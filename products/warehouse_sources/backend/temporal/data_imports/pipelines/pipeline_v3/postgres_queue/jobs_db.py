@@ -625,22 +625,32 @@ class BatchQueue:
         """Check the queue DB for batch activity belonging to a holder's run.
 
         Returns a summary indicating whether any non-terminal batches exist and
-        the age of the most recent status update. Used by the lock takeover
+        how recently the run showed signs of life. Used by the lock takeover
         decision matrix to distinguish genuinely stale RUNNING jobs from ones
         with active consumer processing.
+
+        Batches the consumer hasn't picked up yet have no status row at all, so
+        the status view must be LEFT JOINed and a missing status counts as
+        non-terminal. Status recency can't judge those batches either — a deep
+        queue backlog holds them unstarted for hours while the run is perfectly
+        healthy — so queued batches get a much longer grace period before the
+        run is considered stale.
         """
         STALE_THRESHOLD_SECONDS = 30 * 60  # 30 minutes
+        QUEUED_GRACE_SECONDS = 24 * 60 * 60  # 24 hours
 
         with conn.cursor(row_factory=dict_row) as cur:
             cur.execute(
                 f"""
                 SELECT
+                    COUNT(*) AS batch_count,
                     COUNT(*) FILTER (
-                        WHERE s.job_state NOT IN ('succeeded', 'failed')
+                        WHERE s.batch_id IS NULL OR s.job_state NOT IN ('succeeded', 'failed')
                     ) AS non_terminal_count,
-                    MAX(s.created_at) AS latest_status_at
+                    MAX(s.created_at) AS latest_status_at,
+                    MAX(b.created_at) FILTER (WHERE s.batch_id IS NULL) AS latest_queued_at
                 FROM {BATCH_TABLE} b
-                JOIN {STATUS_VIEW} s ON b.id = s.batch_id
+                LEFT JOIN {STATUS_VIEW} s ON b.id = s.batch_id
                 WHERE
                     b.created_at > now() - interval '{PARTITION_PRUNING_INTERVAL}'
                     AND b.job_id = %(job_id)s
@@ -650,15 +660,20 @@ class BatchQueue:
             )
             row = cur.fetchone()
 
-        if row is None or row["latest_status_at"] is None:
+        if row is None or row["batch_count"] == 0:
             return RunActivitySummary(has_batches=False, has_non_terminal=False, is_stale=True)
 
-        non_terminal_count: int = row["non_terminal_count"]
-        latest_status_at: datetime = row["latest_status_at"]
-        age_seconds = (datetime.now(latest_status_at.tzinfo) - latest_status_at).total_seconds()
+        def _age_seconds(ts: datetime) -> float:
+            return (datetime.now(ts.tzinfo) - ts).total_seconds()
+
+        latest_status_at: datetime | None = row["latest_status_at"]
+        latest_queued_at: datetime | None = row["latest_queued_at"]
+
+        consumer_active = latest_status_at is not None and _age_seconds(latest_status_at) <= STALE_THRESHOLD_SECONDS
+        queued_waiting = latest_queued_at is not None and _age_seconds(latest_queued_at) <= QUEUED_GRACE_SECONDS
 
         return RunActivitySummary(
             has_batches=True,
-            has_non_terminal=non_terminal_count > 0,
-            is_stale=age_seconds > STALE_THRESHOLD_SECONDS,
+            has_non_terminal=row["non_terminal_count"] > 0,
+            is_stale=not (consumer_active or queued_waiting),
         )

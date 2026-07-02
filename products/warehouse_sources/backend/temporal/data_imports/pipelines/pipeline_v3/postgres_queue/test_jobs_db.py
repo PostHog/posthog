@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     STATUS_VIEW,
     BatchQueue,
     PendingBatch,
+    RunActivitySummary,
 )
 
 # Distinct per-pod identities for the group-lease tests.
@@ -627,3 +628,71 @@ class TestPendingBatchToExportSignal:
         assert signal["data_folder"] == "/tmp/data"
         assert signal["primary_keys"] == ["id"]
         assert signal["cdc_write_mode"] == "upsert"
+
+
+def _summary(db_url: str, *, job_id: str = "job-1", workflow_run_id: str = "wf-1") -> RunActivitySummary:
+    with psycopg.Connection.connect(db_url, autocommit=True) as sync_conn:
+        return BatchQueue.get_run_activity_summary(sync_conn, job_id=job_id, workflow_run_id=workflow_run_id)
+
+
+@pytest.mark.django_db(transaction=True)
+class TestGetRunActivitySummary:
+    @pytest.mark.asyncio
+    async def test_no_batches_reports_stale(self, conn, _db_url):
+        assert _summary(_db_url) == RunActivitySummary(has_batches=False, has_non_terminal=False, is_stale=True)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("batch_age,expected_stale", [("1 hour", False), ("25 hours", True)])
+    async def test_queued_batch_without_status_rows(self, conn, _db_url, batch_age, expected_stale):
+        # A batch the consumer hasn't picked up has no status row at all. It must
+        # still count as non-terminal activity, or the lock takeover falsely fails
+        # healthy jobs whenever the consumer backlog exceeds the sync interval.
+        bid = await _insert_batch(conn, metadata={"workflow_run_id": "wf-1"})
+        await conn.execute(
+            f"UPDATE {BATCH_TABLE} SET created_at = now() - interval '{batch_age}' WHERE id = %s",
+            [bid],
+        )
+
+        summary = _summary(_db_url)
+
+        assert summary == RunActivitySummary(has_batches=True, has_non_terminal=True, is_stale=expected_stale)
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("status_age,expected_stale", [("5 minutes", False), ("2 hours", True)])
+    async def test_started_batch_staleness_follows_latest_status(self, conn, _db_url, status_age, expected_stale):
+        bid = await _insert_batch(conn, metadata={"workflow_run_id": "wf-1"})
+        await conn.execute(
+            f"INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, created_at) "
+            f"VALUES (%s, 'executing', 1, now() - interval '{status_age}')",
+            [bid],
+        )
+
+        summary = _summary(_db_url)
+
+        assert summary == RunActivitySummary(has_batches=True, has_non_terminal=True, is_stale=expected_stale)
+
+    @pytest.mark.asyncio
+    async def test_mixed_processed_and_queued_batches_still_waiting(self, conn, _db_url):
+        # Batch 0 finished over the stale threshold ago, batch 1 is still queued:
+        # the run is waiting on the consumer, not abandoned.
+        done = await _insert_batch(conn, batch_index=0, metadata={"workflow_run_id": "wf-1"})
+        await conn.execute(
+            f"INSERT INTO {STATUS_TABLE} (batch_id, job_state, attempt, created_at) "
+            f"VALUES (%s, 'succeeded', 1, now() - interval '2 hours')",
+            [done],
+        )
+        await _insert_batch(conn, batch_index=1, metadata={"workflow_run_id": "wf-1"})
+
+        summary = _summary(_db_url)
+
+        assert summary == RunActivitySummary(has_batches=True, has_non_terminal=True, is_stale=False)
+
+    @pytest.mark.asyncio
+    async def test_all_terminal_batches_report_no_non_terminal(self, conn, _db_url):
+        bid = await _insert_batch(conn, metadata={"workflow_run_id": "wf-1"})
+        await BatchQueue.update_status(conn, batch_id=bid, job_state="succeeded", attempt=1)
+
+        summary = _summary(_db_url)
+
+        assert summary.has_batches is True
+        assert summary.has_non_terminal is False
