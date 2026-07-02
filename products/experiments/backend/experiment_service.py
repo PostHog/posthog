@@ -1669,9 +1669,12 @@ class ExperimentService:
         if experiment.is_exposure_closed:
             raise ValidationError("Experiment exposure is already closed.")
 
-        flag = experiment.feature_flag
-        if flag is None:
+        # Guard on the id, not the relation: feature_flag is a non-nullable FK, so accessing
+        # experiment.feature_flag when it's unset raises RelatedObjectDoesNotExist rather than
+        # returning None.
+        if experiment.feature_flag_id is None:
             raise ValidationError("Experiment does not have a feature flag linked.")
+        flag = experiment.feature_flag
         if flag.aggregation_group_type_index is not None:
             raise ValidationError("Group-aggregated experiments cannot have their exposure closed.")
 
