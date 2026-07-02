@@ -31,7 +31,7 @@ const NEGATIVE_TTL_MS = 6 * 60 * 60 * 1000
 // Local-only backoff after a transient DNS failure. Short enough that a real
 // verdict is retried quickly, long enough that a resolver outage during a big
 // batch doesn't repeat a 3s-timeout lookup for every send to the same domain.
-// Never written to Redis, so a blip on one worker isn't frozen fleet-wide.
+// Never written to Valkey, so a blip on one worker isn't frozen fleet-wide.
 const TRANSIENT_BACKOFF_MS = 60 * 1000
 
 // Bound per-lookup latency: the email worker must not stall on a slow resolver.
@@ -39,10 +39,11 @@ const DNS_TIMEOUT_MS = 3000
 const DNS_TRIES = 1
 
 // Bounds worker memory against lists full of unique garbage domains; evicted
-// domains just fall back to Redis/DNS on their next send.
+// domains just fall back to Valkey/DNS on their next send.
 export const MAX_LOCAL_CACHE_DOMAINS = 10_000
 
-const REDIS_KEY_PREFIX = '@posthog/cdp/email-mx/'
+// Same key style as the SES rate limiter's '@posthog/ses/global' on the shared Valkey.
+const VALKEY_KEY_PREFIX = '@posthog/ses/email-mx/'
 
 type CacheEntry = { deliverable: boolean; transient?: boolean; expiresAt: number }
 
@@ -65,8 +66,8 @@ function classifyDnsError(error: unknown): 'none' | 'transient' {
  * Predicts hard bounces before a send reaches SES: an address with broken
  * syntax or a domain with no mail servers can never deliver, so attempting the
  * send only burns our bounce rate. Verdicts are cached per domain (in-process +
- * Redis) so a large batch to the same domains pays the DNS cost once, protecting
- * the *current* batch rather than only the next one.
+ * the dedicated SES Valkey) so a large batch to the same domains pays the DNS
+ * cost once, protecting the *current* batch rather than only the next one.
  *
  * Fail-open by design: only a definitive "this domain has no mail exchange"
  * blocks a send. A DNS hiccup must never nuke a batch of legitimate mail.
@@ -79,7 +80,7 @@ export class EmailValidationService {
 
     constructor(
         config: Pick<CdpConfig, 'CDP_EMAIL_MX_VALIDATION_TEAMS'>,
-        private redis: RedisV2 | null
+        private valkey: RedisV2 | null
     ) {
         this.teamMatcher = buildIntegerMatcher(config.CDP_EMAIL_MX_VALIDATION_TEAMS, true)
         this.resolver = new Resolver({ timeout: DNS_TIMEOUT_MS, tries: DNS_TRIES })
@@ -144,9 +145,9 @@ export class EmailValidationService {
     }
 
     private async resolveUncached(domain: string): Promise<boolean> {
-        const cached = await this.readRedis(domain)
+        const cached = await this.readValkey(domain)
         if (cached !== null) {
-            cdpEmailMxValidationTotal.inc({ result: 'hit_redis' })
+            cdpEmailMxValidationTotal.inc({ result: 'hit_valkey' })
             this.setLocal(domain, {
                 deliverable: cached,
                 expiresAt: Date.now() + (cached ? POSITIVE_TTL_MS : NEGATIVE_TTL_MS),
@@ -170,7 +171,7 @@ export class EmailValidationService {
             deliverable,
             expiresAt: Date.now() + (deliverable ? POSITIVE_TTL_MS : NEGATIVE_TTL_MS),
         })
-        await this.writeRedis(domain, deliverable)
+        await this.writeValkey(domain, deliverable)
         return deliverable
     }
 
@@ -220,7 +221,7 @@ export class EmailValidationService {
 
     private setLocal(domain: string, entry: CacheEntry): void {
         // FIFO eviction via Map insertion order — cheap, and precision doesn't
-        // matter here: an evicted hot domain just costs one Redis/DNS round trip.
+        // matter here: an evicted hot domain just costs one Valkey/DNS round trip.
         if (!this.localCache.has(domain) && this.localCache.size >= MAX_LOCAL_CACHE_DOMAINS) {
             const oldest = this.localCache.keys().next().value
             if (oldest !== undefined) {
@@ -230,13 +231,13 @@ export class EmailValidationService {
         this.localCache.set(domain, entry)
     }
 
-    private async readRedis(domain: string): Promise<boolean | null> {
-        if (!this.redis) {
+    private async readValkey(domain: string): Promise<boolean | null> {
+        if (!this.valkey) {
             return null
         }
-        // failOpen: a Redis outage returns null (treated as a cache miss), never throws.
-        const value = await this.redis.useClient({ name: 'email-mx-read', failOpen: true }, (client) =>
-            client.get(REDIS_KEY_PREFIX + domain)
+        // failOpen: a Valkey outage returns null (treated as a cache miss), never throws.
+        const value = await this.valkey.useClient({ name: 'email-mx-read', failOpen: true }, (client) =>
+            client.get(VALKEY_KEY_PREFIX + domain)
         )
         if (value === '1') {
             return true
@@ -247,13 +248,13 @@ export class EmailValidationService {
         return null
     }
 
-    private async writeRedis(domain: string, deliverable: boolean): Promise<void> {
-        if (!this.redis) {
+    private async writeValkey(domain: string, deliverable: boolean): Promise<void> {
+        if (!this.valkey) {
             return
         }
         const ttlSeconds = Math.floor((deliverable ? POSITIVE_TTL_MS : NEGATIVE_TTL_MS) / 1000)
-        await this.redis.useClient({ name: 'email-mx-write', failOpen: true }, (client) =>
-            client.set(REDIS_KEY_PREFIX + domain, deliverable ? '1' : '0', 'EX', ttlSeconds)
+        await this.valkey.useClient({ name: 'email-mx-write', failOpen: true }, (client) =>
+            client.set(VALKEY_KEY_PREFIX + domain, deliverable ? '1' : '0', 'EX', ttlSeconds)
         )
     }
 }

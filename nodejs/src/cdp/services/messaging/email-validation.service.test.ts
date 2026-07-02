@@ -237,14 +237,14 @@ describe('EmailValidationService', () => {
             expect(mockResolveMx).toHaveBeenCalledTimes(MAX_LOCAL_CACHE_DOMAINS + 2)
         })
 
-        it('honors a Redis-cached verdict without hitting DNS', async () => {
-            const redis: RedisV2 = {
+        it('honors a Valkey-cached verdict without hitting DNS', async () => {
+            const valkey: RedisV2 = {
                 useClient: jest.fn().mockResolvedValue('0'), // '0' = domain previously found undeliverable
                 usePipeline: jest.fn(),
             }
-            const withRedis = new EmailValidationService({ CDP_EMAIL_MX_VALIDATION_TEAMS: '2' }, redis)
+            const withValkey = new EmailValidationService({ CDP_EMAIL_MX_VALIDATION_TEAMS: '2' }, valkey)
 
-            const reason = await withRedis.getSkipReason(emailInvocation('user@known-dead.example'), emailAction)
+            const reason = await withValkey.getSkipReason(emailInvocation('user@known-dead.example'), emailAction)
             expect(reason).toContain('no reachable mail servers')
             expect(mockResolveMx).not.toHaveBeenCalled()
         })

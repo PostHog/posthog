@@ -41,6 +41,7 @@ import { HogFunctionMonitoringService } from './services/monitoring/hog-function
 import { HogInvocationResultsService } from './services/monitoring/hog-invocation-results.service'
 import { HogWatcherService } from './services/monitoring/hog-watcher.service'
 import { NativeDestinationExecutorService } from './services/native-destination-executor.service'
+import { createSesRateLimiterValkeyPool } from './services/rate-limiter/rate-limiter-valkey-pool'
 import { SegmentDestinationExecutorService } from './services/segment-destination-executor.service'
 import { WarehouseWebhooksService } from './services/warehouse/warehouse-webhooks.service'
 import { EncryptedFields } from './utils/encryption-utils'
@@ -143,6 +144,10 @@ export type CdpCoreServicesConfig = Pick<
         | 'SES_SECRET_ACCESS_KEY'
         | 'SES_REGION'
         | 'SES_ENDPOINT'
+        | 'SES_RATE_LIMITER_VALKEY_HOST'
+        | 'SES_RATE_LIMITER_VALKEY_PORT'
+        | 'SES_RATE_LIMITER_VALKEY_PASSWORD'
+        | 'SES_RATE_LIMITER_VALKEY_TLS'
         | 'CDP_GOOGLE_ADWORDS_DEVELOPER_TOKEN'
         | 'CDP_FETCH_RETRIES'
         | 'CDP_FETCH_BACKOFF_BASE_MS'
@@ -428,7 +433,13 @@ export function createCdpCoreServices(
 
     const recipientsManager = new RecipientsManagerService(deps.postgres)
     const recipientPreferencesService = new RecipientPreferencesService(recipientsManager)
-    const emailValidationService = new EmailValidationService(config, redis)
+    // MX verdicts live on the dedicated SES Valkey (same instance as the SES rate
+    // limiter, separate pool). Pool is only opened when the feature is gated on, so
+    // consumers that never validate email don't hold idle Valkey connections.
+    const emailValidationValkey = config.CDP_EMAIL_MX_VALIDATION_TEAMS
+        ? createSesRateLimiterValkeyPool(config, 'email-mx-validation')
+        : null
+    const emailValidationService = new EmailValidationService(config, emailValidationValkey)
     // Observer mirrors writes to Valkey (load-only); only the primary path drives metrics.
     const hogFlowDuplicateObserver = new HogFlowDuplicateObserverService(redis, valkeyShadow?.writer ?? null)
     const hogFlowExecutor = new HogFlowExecutorService(
