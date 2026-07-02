@@ -93,6 +93,12 @@ class TestElement(ClickhouseTestMixin, BaseTest):
             ("exact name", ["data-attr"], {"attr__data-attr": "x"}),
             ("wildcard", ["data-*"], {"attr__data-attr": "x", "attr__data-tracking-id": "y"}),
             ("no match keeps other fields", ["data-nope"], {}),
+            ("multi-wildcard entry ignored", ["data-*-*-*"], {}),
+            (
+                "multi-wildcard entry ignored but valid entry still matches",
+                ["data-*-*", "data-attr"],
+                {"attr__data-attr": "x"},
+            ),
         ]
     )
     def test_chain_to_element_dicts_filters_attributes(
@@ -103,6 +109,16 @@ class TestElement(ClickhouseTestMixin, BaseTest):
         assert element_dicts[0]["attributes"] == expected_attributes
         assert element_dicts[0]["href"] == "/a-url"
         assert element_dicts[0]["attr_class"] == ["small"]
+
+    def test_attributes_filter_regex_caps_entry_count(self) -> None:
+        many_attrs = [f"data-attr-{i}" for i in range(100)]
+        matcher = attributes_filter_regex(many_attrs)
+        assert matcher("attr__data-attr-0")
+        assert not matcher("attr__data-attr-99")
+
+    def test_attributes_filter_regex_empty_returns_no_match(self) -> None:
+        matcher = attributes_filter_regex([])
+        assert not matcher("attr__data-attr")
 
     def test_broken_class_names(self):
         elements = chain_to_elements("a........small")

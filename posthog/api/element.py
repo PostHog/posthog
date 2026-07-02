@@ -93,6 +93,16 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     "each element's attributes map is filtered to matching attr__* keys, shrinking the response."
                 ),
             ),
+            OpenApiParameter(
+                "date_from",
+                type=str,
+                description="Start of the date range (e.g. -7d, 2024-01-01). Defaults to last 7 days.",
+            ),
+            OpenApiParameter(
+                "date_to",
+                type=str,
+                description="End of the date range (e.g. 2024-01-31). Defaults to now.",
+            ),
         ],
         responses=ElementStatsResponseSerializer,
     )
@@ -181,11 +191,10 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
             with timer("serialize_elements"), tracer.start_as_current_span("elements_api_stats.serialize_elements"):
                 # parses chains straight to response dicts (shaped exactly like
-                # ElementStatsSerializer output, which stays as the declared schema) —
-                # per-row model instantiation plus DRF serialization measured 3x slower
+                # ElementStatsSerializer output, which stays as the declared schema)
                 serialized_elements = [
                     {
-                        "count": row[1],
+                        "count": int(row[1]),
                         "hash": None,
                         "type": row[2],
                         "elements": chain_to_element_dicts(row[0], attributes_filter),

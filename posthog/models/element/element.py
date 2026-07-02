@@ -1,4 +1,5 @@
 import re
+from collections.abc import Callable
 
 from django.contrib.postgres.fields import ArrayField
 from django.db import models
@@ -60,10 +61,6 @@ def elements_to_string(elements: list[Element]) -> str:
 def chain_to_elements(chain: str) -> list[Element]:
     """
     Converts an elements chain string into a list of Element objects.
-    Since for example in the elements API this could be called on a large list
-    which has a limited number of unique elements_chains,
-    we have a limited LRU in-memory cache
-    conversion is completely deterministic, so can be cached indefinitely
     """
     elements = []
     for idx, el_string in enumerate(re.findall(split_chain_regex, chain)):
@@ -97,19 +94,36 @@ def chain_to_elements(chain: str) -> list[Element]:
     return elements
 
 
-def attributes_filter_regex(wanted_data_attributes: list[str]) -> re.Pattern:
-    """
-    Matches attribute keys for the configured data attributes, mirroring the toolbar's
-    matchesDataAttribute: keys are stored with an attr__ prefix and configured names may
-    contain * wildcards (e.g. data-*).
-    """
-    alternatives = "|".join(
-        ".*".join(re.escape(part) for part in attribute.split("*")) for attribute in wanted_data_attributes
-    )
-    return re.compile(f"^attr__(?:{alternatives})$")
+_MAX_DATA_ATTRIBUTES = 50
+_MAX_WILDCARDS_PER_ENTRY = 1
 
 
-def chain_to_element_dicts(chain: str, attributes_filter: re.Pattern | None = None) -> list[dict]:
+def _glob_matcher(pattern: str) -> Callable[[str], bool]:
+    """Returns a linear-time matcher for a single glob pattern (supports at most one *)."""
+    if "*" not in pattern:
+        return lambda key: key == pattern
+    prefix, _, suffix = pattern.partition("*")
+    min_len = len(prefix) + len(suffix)
+    return lambda key, p=prefix, s=suffix, m=min_len: len(key) >= m and key.startswith(p) and key.endswith(s)
+
+
+def attributes_filter_regex(wanted_data_attributes: list[str]) -> Callable[[str], bool]:
+    """
+    Returns a matcher for attr__ keys matching the configured data attributes, mirroring
+    the toolbar's matchesDataAttribute. Keys are stored with an attr__ prefix; configured
+    names may contain a single * wildcard (e.g. data-*). Entries with more than one *,
+    and entries beyond the first 50, are silently ignored to prevent ReDoS.
+    """
+    if not wanted_data_attributes:
+        return lambda _: False
+    safe_entries = [
+        a for a in wanted_data_attributes[:_MAX_DATA_ATTRIBUTES] if a.count("*") <= _MAX_WILDCARDS_PER_ENTRY
+    ]
+    matchers = [_glob_matcher(f"attr__{entry}") for entry in safe_entries]
+    return lambda key: any(m(key) for m in matchers)
+
+
+def chain_to_element_dicts(chain: str, attributes_filter: Callable[[str], bool] | None = None) -> list[dict]:
     """
     Converts an elements chain string into serialized element dicts, shaped exactly like
     ElementSerializer output but without instantiating Element models, so the elements API
@@ -155,7 +169,7 @@ def chain_to_element_dicts(chain: str, attributes_filter: re.Pattern | None = No
                 elif key == "attr_id":
                     element["attr_id"] = value
                 elif key:
-                    if attributes_filter is None or attributes_filter.match(key):
+                    if attributes_filter is None or attributes_filter(key):
                         element["attributes"][key] = value
 
         element_dicts.append(element)
