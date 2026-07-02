@@ -105,6 +105,30 @@ class TestValidateCredentials:
             assert validate_credentials("token") is False
 
 
+class TestTokenRedaction:
+    # The token rides in the custom `Fastly-Key` header, which the transport's name-based scrubber
+    # doesn't know about — both entry points must pass it as a redact value or it leaks into samples.
+    def test_validate_credentials_redacts_token(self) -> None:
+        make_session = MagicMock(return_value=MagicMock())
+        with patch.object(fastly, "make_tracked_session", make_session):
+            validate_credentials("secret-token")
+        assert make_session.call_args.kwargs["redact_values"] == ("secret-token",)
+
+    def test_get_rows_redacts_token(self) -> None:
+        make_session = MagicMock(return_value=MagicMock())
+        pages = {f"{FASTLY_BASE_URL}/current_user": {"id": "U1"}}
+
+        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> Any:
+            return _fake_response(pages[url])
+
+        with (
+            patch.object(fastly, "_fetch", side_effect=fake_fetch),
+            patch.object(fastly, "make_tracked_session", make_session),
+        ):
+            list(get_rows("secret-token", "current_user", MagicMock(), _FakeResumableManager()))  # type: ignore[arg-type]
+        assert make_session.call_args.kwargs["redact_values"] == ("secret-token",)
+
+
 class TestFetchRetries:
     @parameterized.expand([("rate_limited", 429), ("server_error", 500), ("bad_gateway", 502)])
     def test_retryable_status_retries_then_succeeds(self, _name: str, status_code: int) -> None:

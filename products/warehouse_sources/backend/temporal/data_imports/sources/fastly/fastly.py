@@ -81,7 +81,7 @@ def _next_page_url(response: requests.Response) -> str | None:
 
 def validate_credentials(api_key: str) -> bool:
     try:
-        response = make_tracked_session().get(
+        response = make_tracked_session(redact_values=(api_key,)).get(
             f"{FASTLY_BASE_URL}/current_user", headers=_get_headers(api_key), timeout=10
         )
         return response.status_code == 200
@@ -222,7 +222,9 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = FASTLY_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
-    session = make_tracked_session()
+    # Redact the token so it never lands in captured HTTP samples — Fastly's custom `Fastly-Key`
+    # header isn't covered by the transport's known-auth-header scrubbing.
+    session = make_tracked_session(redact_values=(api_key,))
 
     if config.kind == "object":
         yield from _get_object_rows(session, config, headers, logger)
