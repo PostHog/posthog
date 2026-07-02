@@ -1,11 +1,11 @@
 #!/usr/bin/env node
 import { postSection } from '../../frontend/bin/ci-report/update-ci-report.mjs'
 
-const [workflowType, mode, changesJson, prNumber, repo, commitSha, snapshotSha] = process.argv.slice(2)
+const [workflowType, mode, changesJson, repo, commitSha, snapshotSha] = process.argv.slice(2)
 
-if (process.argv.length !== 8 && process.argv.length !== 9) {
+if (process.argv.length !== 7 && process.argv.length !== 8) {
     console.error(
-        'Usage: post-snapshot-section.mjs <workflow_type> <mode> <changes_json> <pr_number> <repo> <commit_sha> [snapshot_sha]'
+        'Usage: post-snapshot-section.mjs <workflow_type> <mode> <changes_json> <repo> <commit_sha> [snapshot_sha]'
     )
     process.exit(0)
 }

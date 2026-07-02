@@ -163,7 +163,6 @@ runs:
           env:
               GITHUB_TOKEN: ${{ inputs.github-token }}
               SNAPSHOT_SHA: ${{ steps.ghcommit.outputs.commit-hash }}
-              PR_NUMBER: ${{ inputs.pr-number }}
               COMMIT_SHA: ${{ inputs.commit-sha }}
               WORKFLOW_TYPE: ${{ inputs.workflow-type }}
               CHANGES: ${{ steps.commit.outputs.changes }}
@@ -174,7 +173,6 @@ runs:
                     "$WORKFLOW_TYPE" \
                     "update" \
                     "$CHANGES" \
-                    "$PR_NUMBER" \
                     "$REPOSITORY" \
                     "$COMMIT_SHA" \
                     "$SNAPSHOT_SHA"
