@@ -1147,9 +1147,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         // A usable FullSnapshot exists but the span between it and the position hasn't fully loaded yet.
                         return { kind: 'waitingForData' }
                     }
-                    // The window has no FullSnapshot at or before this position. That is
-                    // only definitive once everything before the position has loaded — an
-                    // earlier unloaded source could still contain one.
+                    // No FullSnapshot at or before this position for its window — only definitive once everything earlier has loaded, since an unloaded source could still contain one.
                     if (snapshotStore.getUnloadedIndicesInRange(0, targetIndex).length > 0) {
                         return { kind: 'waitingForData' }
                     }
