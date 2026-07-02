@@ -396,6 +396,31 @@ class TestMidClaimRetire:
         mock_status.assert_not_called()
         mock_status_unless_failed.assert_not_called()
 
+    @pytest.mark.asyncio
+    async def test_status_write_blocked_by_terminal_failed_aborts_group(self):
+        # Applies to every state (executing, succeeded, waiting_retry): a write
+        # blocked by a terminal 'failed' means the batch was retired while
+        # claimed, and stamping any later status would un-retire it.
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
+            OwnershipLostError,
+        )
+
+        adapter = DuckgresBatchConsumerAdapter()
+        conn = _make_healthy_conn()
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.update_status_unless_failed",
+            new_callable=AsyncMock,
+            return_value=False,
+        ):
+            with pytest.raises(OwnershipLostError):
+                await adapter.update_status(
+                    conn,
+                    batch_id="00000000-0000-0000-0000-000000000001",
+                    job_state=SourceBatchDuckgresStatus.State.SUCCEEDED.value,
+                    attempt=1,
+                )
+
 
 class TestGroupLeaseRenewal:
     @pytest.mark.asyncio

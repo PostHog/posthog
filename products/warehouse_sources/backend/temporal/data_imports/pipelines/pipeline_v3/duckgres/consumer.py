@@ -253,29 +253,24 @@ class DuckgresBatchConsumerAdapter:
         attempt: int,
         error_response: dict[str, Any] | None = None,
     ) -> None:
-        if job_state == self.executing_state:
-            # Conditional insert: a supersede/replan can terminally fail the
-            # batch between the retire check and this write, and stamping
-            # 'executing' over 'failed' would mask the terminal state (see
-            # update_status_unless_failed). Blocked insert = the batch was
-            # retired mid-claim; abort the group with no status write.
-            inserted = await DuckgresBatchQueue.update_status_unless_failed(
-                conn,
-                batch_id=batch_id,
-                job_state=job_state,
-                attempt=attempt,
-                error_response=error_response,
-            )
-            if not inserted:
-                raise OwnershipLostError(f"batch {batch_id} was terminally retired while claimed")
-            return
-        await DuckgresBatchQueue.update_status(
+        # Invariant: the sink never writes ANY status over a terminal 'failed'.
+        # A supersede/replan/fail_run can retire the batch at any point in its
+        # lifecycle — before the executing write, or mid-processing (replan and
+        # fail_run target executing batches too) — and statuses are latest-row-
+        # wins, so an unconditional executing/succeeded/waiting_retry write
+        # would mask the terminal state and un-retire the run. A blocked insert
+        # means the batch was retired out from under this claim: abort the
+        # group without writing (see update_status_unless_failed for the
+        # accepted residual race).
+        inserted = await DuckgresBatchQueue.update_status_unless_failed(
             conn,
             batch_id=batch_id,
             job_state=job_state,
             attempt=attempt,
             error_response=error_response,
         )
+        if not inserted:
+            raise OwnershipLostError(f"batch {batch_id} was terminally retired while claimed")
 
     async def fail_run(
         self,

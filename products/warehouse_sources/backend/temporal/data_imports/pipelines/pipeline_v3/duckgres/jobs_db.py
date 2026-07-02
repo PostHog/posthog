@@ -579,12 +579,22 @@ class DuckgresBatchQueue:
     ) -> bool:
         """Append a status row only if the batch's latest status is not terminal 'failed'.
 
-        Closes the TOCTOU between the consumer's mid-claim retire check and its
-        'executing' write: a supersede/replan can land 'failed' between the two,
-        and an unconditional 'executing' insert would become the latest row and
-        mask the terminal state from every latest-status consumer. The guard is
-        evaluated in the same statement snapshot as the insert. Returns False
-        (and inserts nothing) when the batch is retired.
+        The consumer routes every status write through this so a terminal
+        'failed' (supersede, replan, fail_run — which can land at any point in
+        a claimed batch's lifecycle, including mid-processing) is never masked
+        by a later executing/succeeded/waiting_retry row in the latest-status
+        views. The guard is evaluated in the same statement snapshot as the
+        insert, so any failure committed before this statement is respected.
+        Returns False (and inserts nothing) when the batch is retired.
+
+        Accepted residual race: a failure writer whose statement OVERLAPS this
+        one can be mutually invisible (both snapshots predate the other's
+        commit), leaving this row as latest. That window is one statement wide,
+        the same class the supersede design already accepts by skipping
+        'executing' victims (in-flight attempts may complete), and it converges
+        via the periodic supersede/reconcile passes. Closing it would require a
+        per-batch lock shared by every failure writer — deliberately not worth
+        that machinery.
         """
         cursor = await conn.execute(
             f"""
