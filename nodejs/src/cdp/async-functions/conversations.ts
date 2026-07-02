@@ -1,6 +1,7 @@
 import { DateTime } from 'luxon'
 
 import { CyclotronInvocationQueueParametersFetchSchema } from '~/cdp/schema/cyclotron'
+import { HogFlow } from '~/cdp/schema/hogflow'
 
 import { registerAsyncFunction } from '../async-function-registry'
 
@@ -98,7 +99,8 @@ registerAsyncFunction('postHogUpdateTicket', {
 
         // Present only when running inside a HogFlow (spread onto the synthesized invocation);
         // forward the workflow identity so the ticket activity log can attribute and link to it.
-        const hogFlow = (context.invocation as { hogFlow?: { id?: string; name?: string } }).hogFlow
+        // Typed as an optional HogFlow so a rename of its id/name shape breaks compilation here.
+        const hogFlow = (context.invocation as { hogFlow?: HogFlow }).hogFlow
         if (hogFlow?.id) {
             headers['X-PostHog-Hog-Flow-Id'] = hogFlow.id
             if (hogFlow.name) {

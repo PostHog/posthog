@@ -11,6 +11,7 @@ from posthog.models.utils import generate_random_token_secret
 
 from products.conversations.backend.models import Ticket
 from products.conversations.backend.models.constants import Priority, Status
+from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 
 class TestExternalTicketAPI(BaseTest):
@@ -527,10 +528,16 @@ class TestExternalTicketAPI(BaseTest):
 
     # -- Workflow (HogFlow) attribution -----------------------------------
 
-    def _workflow_headers(self, flow_id="0191d3e0-0000-7000-8000-000000000001", name="Escalation%20workflow", token=None):
+    def _hog_flow(self):
+        # Attribution is only trusted for a workflow that actually belongs to the team.
+        if not hasattr(self, "_cached_hog_flow"):
+            self._cached_hog_flow = HogFlow.objects.create(team=self.team, name="Escalation workflow")
+        return self._cached_hog_flow
+
+    def _workflow_headers(self, flow_id=None, name="Escalation%20workflow", token=None):
         return {
             **self._auth_headers(token),
-            "HTTP_X_POSTHOG_HOG_FLOW_ID": flow_id,
+            "HTTP_X_POSTHOG_HOG_FLOW_ID": flow_id or str(self._hog_flow().id),
             "HTTP_X_POSTHOG_HOG_FLOW_NAME": name,
         }
 
@@ -550,7 +557,7 @@ class TestExternalTicketAPI(BaseTest):
         ]
     )
     def test_patch_records_workflow_trigger(self, _name, payload):
-        flow_id = str(uuid.uuid4())
+        flow_id = str(self._hog_flow().id)
         response = self.client.patch(
             self.url,
             payload,
@@ -568,12 +575,50 @@ class TestExternalTicketAPI(BaseTest):
         # Name arrives URL-encoded in the header and is decoded before storage.
         self.assertEqual(trigger["payload"]["name"], "Escalation workflow")
 
+    @parameterized.expand(
+        [
+            ("unknown_id", str(uuid.uuid4())),
+            ("not_a_uuid", "not-a-uuid"),
+        ]
+    )
+    def test_patch_ignores_workflow_header_for_untrusted_flow_id(self, _name, flow_id):
+        # A header id that isn't a real workflow for this team must not be attributed —
+        # otherwise a token holder could fabricate attribution to an arbitrary/foreign workflow.
+        response = self.client.patch(
+            self.url,
+            {"status": Status.RESOLVED},
+            content_type="application/json",
+            **self._workflow_headers(flow_id=flow_id),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        activity = self._latest_ticket_activity()
+        assert activity is not None
+        self.assertIsNone(activity.detail.get("trigger"))
+
     def test_patch_without_workflow_header_has_no_trigger(self):
         response = self.client.patch(
             self.url,
             {"status": Status.RESOLVED},
             content_type="application/json",
             **self._auth_headers(),
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        activity = self._latest_ticket_activity()
+        assert activity is not None
+        self.assertIsNone(activity.detail.get("trigger"))
+
+    def test_patch_ignores_workflow_header_for_other_teams_flow(self):
+        # A workflow id that belongs to a different team must not be attributed here.
+        other_team = Team.objects.create(organization=self.organization, name="Other team")
+        foreign_flow = HogFlow.objects.create(team=other_team, name="Foreign workflow")
+
+        response = self.client.patch(
+            self.url,
+            {"status": Status.RESOLVED},
+            content_type="application/json",
+            **self._workflow_headers(flow_id=str(foreign_flow.id)),
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
