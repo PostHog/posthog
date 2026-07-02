@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconCheckCircle, IconNotification } from '@posthog/icons'
+import { IconNotification } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
@@ -18,8 +18,14 @@ import { notificationsMenuLogic } from './notificationsMenuLogic'
 export function NotificationsPanel(): JSX.Element {
     const { activeTab } = useValues(notificationsMenuLogic)
     const { setActiveTab } = useActions(notificationsMenuLogic)
-    const { groups, loadedUnreadCount, importantChangesLoading, hasMoreNotifications, isLoadingMore } =
-        useValues(sidePanelNotificationsLogic)
+    const {
+        groups,
+        loadedUnreadCount,
+        inAppUnreadCount,
+        importantChangesLoading,
+        hasMoreNotifications,
+        isLoadingMore,
+    } = useValues(sidePanelNotificationsLogic)
     const { markAllAsRead, loadMoreNotifications } = useActions(sidePanelNotificationsLogic)
     const { closePanel } = useActions(panelLayoutLogic)
 
@@ -51,29 +57,24 @@ export function NotificationsPanel(): JSX.Element {
                     )}
                 </button>
             </div>
+            {/* Only surface "Mark all read" when unread items sit on not-yet-loaded pages — the ones
+                already loaded get cleared by the 3s auto-mark-on-view as the user scrolls. */}
+            {hasMoreNotifications && inAppUnreadCount > loadedUnreadCount && (
+                <LemonButton
+                    size="xsmall"
+                    type="secondary"
+                    onClick={() => markAllAsRead()}
+                    className="ml-auto"
+                    data-attr="notifications-mark-all-read"
+                >
+                    Mark all read
+                </LemonButton>
+            )}
         </div>
     )
 
-    // "Mark all as read" is a rare action, so tuck it into the panel's overflow (⋯) menu
-    // rather than pinning a button in the header. Only surfaced when there's something to clear.
-    const panelActions =
-        loadedUnreadCount > 0
-            ? [
-                  {
-                      'data-attr': 'notifications-mark-all-read',
-                      onClick: () => markAllAsRead(),
-                      children: (
-                          <>
-                              <IconCheckCircle />
-                              Mark all as read
-                          </>
-                      ),
-                  },
-              ]
-            : undefined
-
     return (
-        <PanelLayoutPanel searchField={header} panelActionsNewSceneLayout={panelActions}>
+        <PanelLayoutPanel searchField={header}>
             <ScrollableShadows
                 direction="vertical"
                 styledScrollbars
