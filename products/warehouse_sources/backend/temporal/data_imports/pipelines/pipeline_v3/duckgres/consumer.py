@@ -32,6 +32,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     DuckgresBatchQueue,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
+    LEASE_TTL_SECONDS,
     PendingBatch,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.metrics import (
@@ -86,7 +87,10 @@ class DuckgresBatchConsumerAdapter:
     # in flight instead of barriering on the slowest batch of each poll cycle.
     per_group_connections: bool = True
 
-    def __init__(self) -> None:
+    def __init__(self, lease_ttl_seconds: int = LEASE_TTL_SECONDS) -> None:
+        # TTL used when verify_advisory_lock extends the lease at batch
+        # boundaries; the consumer passes its configured group-lease TTL.
+        self._lease_ttl_seconds = lease_ttl_seconds
         self._team_ids: list[int] | None = None
         self._team_ids_fetched_at: float | None = None
         self._last_maintenance_at = 0.0
@@ -282,8 +286,19 @@ class DuckgresBatchConsumerAdapter:
         schema_id: str,
         owner_token: str,
     ) -> bool:
-        return await DuckgresBatchQueue.verify_lease(
-            conn, team_id=team_id, schema_id=schema_id, owner_token=owner_token
+        # Verify-and-extend: the engine checks ownership at every batch boundary,
+        # and a group can hold a whole backfill run of quick chunks whose in-batch
+        # heartbeats never fire (each chunk finishes before the heartbeat's first
+        # sleep elapses). Without renewing here, a group running longer than the
+        # lease TTL would lose ownership mid-run and be reclaimed while actively
+        # processing. Renewal returns False exactly when the lease was lost, so
+        # it is a strict superset of a read-only verify.
+        return await DuckgresBatchQueue.renew_lease(
+            conn,
+            team_id=team_id,
+            schema_id=schema_id,
+            owner_token=owner_token,
+            lease_ttl_seconds=self._lease_ttl_seconds,
         )
 
     async def renew_lease(
@@ -357,7 +372,9 @@ class DuckgresBatchConsumer(SharedBatchConsumer):
         super().__init__(
             config=config,
             process_batch=process_batch,
-            adapter=DuckgresBatchConsumerAdapter(),
+            # __post_init__ resolves lease_ttl_seconds (defaults to recovery grace),
+            # so the adapter's boundary renewals use the same TTL as the claim.
+            adapter=DuckgresBatchConsumerAdapter(lease_ttl_seconds=config.lease_ttl_seconds or LEASE_TTL_SECONDS),
             health_reporter=health_reporter,
             metrics=make_consumer_metrics("duckgres"),
         )

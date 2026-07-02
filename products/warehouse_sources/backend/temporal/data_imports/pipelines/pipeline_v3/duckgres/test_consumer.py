@@ -320,6 +320,27 @@ class TestDuckgresEnablementGating:
         mock_fetch.assert_not_called()
 
 
+class TestGroupLeaseRenewal:
+    @pytest.mark.asyncio
+    async def test_boundary_ownership_check_extends_the_lease(self):
+        # A group can hold a whole backfill run of quick chunks whose in-batch
+        # heartbeats never fire; the per-batch ownership check must renew the
+        # lease (with the configured TTL) or a long group loses ownership
+        # mid-run and gets reclaimed while actively processing.
+        adapter = DuckgresBatchConsumerAdapter(lease_ttl_seconds=900)
+        conn = _make_healthy_conn()
+
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.renew_lease",
+            new_callable=AsyncMock,
+            return_value=True,
+        ) as mock_renew:
+            owns = await adapter.verify_advisory_lock(conn, team_id=1, schema_id="schema-1", owner_token="owner-a")
+
+        assert owns is True
+        assert mock_renew.call_args[1]["lease_ttl_seconds"] == 900
+
+
 class TestStuckBatchWatchdog:
     @pytest.mark.asyncio
     async def test_health_withheld_while_a_batch_is_stuck(self):
