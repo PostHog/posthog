@@ -35,6 +35,8 @@ export type ReviewSkillKind = 'perspective' | 'blind_spots' | 'validator'
 export interface ViewedSkill {
     title: string
     body: string
+    /** The `review-hog-*` skill name, for the drawer's link to the skill's editor page. */
+    skillName: string
 }
 
 const SKILL_AUTHOR_TASKS: Record<ReviewSkillKind, { title: string; prompt: string }> = {

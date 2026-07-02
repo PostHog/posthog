@@ -3,15 +3,15 @@ import { useActions, useValues } from 'kea'
 import { IconExternal, IconGithub, IconPlus } from '@posthog/icons'
 import { LemonBanner, LemonButton, LemonSkeleton, LemonSlider, LemonSwitch, LemonTag, Link } from '@posthog/lemon-ui'
 
+import { Logomark } from 'lib/brand/Logomark'
 import { CopyToClipboardInline } from 'lib/components/CopyToClipboard'
 import { LemonCard } from 'lib/lemon-ui/LemonCard'
 import { LemonDrawer } from 'lib/lemon-ui/LemonDrawer'
+import { urls } from 'scenes/urls'
 
 import type { UrgencyThresholdEnumApi } from 'products/review_hog/frontend/generated/api.schemas'
 
 import { ReviewSkillKind, reviewHogSettingsLogic } from '../../logics/reviewHogSettingsLogic'
-
-const SKILLS_EDITOR_URL = '/skills/review-hog'
 
 /** "review-hog-perspective-logic-correctness" → "Logic correctness" */
 function prettifySkillName(skillName: string): string {
@@ -127,17 +127,6 @@ function PipelineSection(): JSX.Element {
     )
 }
 
-function ReviewHogMark({ className }: { className?: string }): JSX.Element {
-    // The three-bar PostHog slash mark, matching the Inbox onboarding hero.
-    return (
-        <div className={`flex gap-1 ${className ?? ''}`} aria-hidden>
-            {[0, 1, 2].map((i) => (
-                <div key={i} className="h-5 w-1.5 bg-default" style={{ transform: 'skewX(-16deg)' }} />
-            ))}
-        </div>
-    )
-}
-
 function TriggersSection(): JSX.Element {
     const { settings, settingsLoading } = useValues(reviewHogSettingsLogic)
     const { updateSettings } = useActions(reviewHogSettingsLogic)
@@ -151,8 +140,8 @@ function TriggersSection(): JSX.Element {
             </SectionHeader>
             <LemonCard hoverEffect={false} className="divide-y divide-primary p-0">
                 <div className="flex items-center gap-4 p-4">
-                    <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary">
-                        <ReviewHogMark />
+                    <div className="flex size-9 shrink-0 items-center justify-center rounded border border-primary bg-primary *:h-auto *:w-5">
+                        <Logomark />
                     </div>
                     <div className="min-w-0 flex-1">
                         <div className="text-sm font-semibold">Review all your Inbox PRs</div>
@@ -274,14 +263,11 @@ function SkillCard({
     skill,
     onLabel,
     offLabel,
-    highlightActive,
     onToggle,
 }: {
     skill: SkillCardData
     onLabel: string
     offLabel: string
-    /** Single-active lists mark the active card with an accent border. */
-    highlightActive?: boolean
     onToggle: (checked: boolean) => void
 }): JSX.Element {
     const { savingSkillNames } = useValues(reviewHogSettingsLogic)
@@ -289,7 +275,7 @@ function SkillCard({
     const title = prettifySkillName(skill.skill_name)
 
     return (
-        <LemonCard hoverEffect={false} className={`p-4 ${highlightActive && skill.on ? 'border-warning' : ''}`}>
+        <LemonCard hoverEffect={false} className="p-4">
             <div className="flex items-start justify-between gap-4">
                 <div className="flex min-w-0 flex-col gap-1.5">
                     <div className="flex items-center gap-2">
@@ -300,9 +286,15 @@ function SkillCard({
                     </div>
                     <p className="m-0 max-w-130 text-xs text-secondary">{skill.description}</p>
                     <div className="flex items-center gap-2 text-xs">
-                        <Link onClick={() => viewSkill({ title, body: skill.body })}>View skill</Link>
+                        <Link onClick={() => viewSkill({ title, body: skill.body, skillName: skill.skill_name })}>
+                            View skill
+                        </Link>
                         <span className="text-tertiary">·</span>
-                        <Link to={SKILLS_EDITOR_URL} target="_blank" className="inline-flex items-center gap-0.5">
+                        <Link
+                            to={urls.skill(skill.skill_name)}
+                            target="_blank"
+                            className="inline-flex items-center gap-0.5"
+                        >
                             Edit skill <IconExternal className="size-3" />
                         </Link>
                     </div>
@@ -425,7 +417,6 @@ function SingleActiveSection({
                             skill={skill}
                             onLabel="Active"
                             offLabel="Off"
-                            highlightActive
                             onToggle={(checked) =>
                                 checked ? onSelect(skill.skill_name) : blockSingleActiveDeactivation(kindLabel)
                             }
@@ -450,7 +441,12 @@ function SkillDrawer(): JSX.Element {
             description="Skill · read-only"
             width={440}
             footer={
-                <LemonButton type="secondary" to={SKILLS_EDITOR_URL} targetBlank icon={<IconExternal />}>
+                <LemonButton
+                    type="secondary"
+                    to={viewedSkill ? urls.skill(viewedSkill.skillName) : urls.skills()}
+                    targetBlank
+                    icon={<IconExternal />}
+                >
                     Open in Skills editor
                 </LemonButton>
             }
@@ -474,7 +470,6 @@ export function CodeReviewTab(): JSX.Element {
     return (
         <div className="mx-auto flex w-full max-w-3xl flex-col gap-12 px-6 pb-30 pt-11">
             <section className="flex flex-col gap-3">
-                <ReviewHogMark className="mb-1" />
                 <h2 className="m-0 text-2xl font-bold" style={{ textWrap: 'balance' }}>
                     ReviewHog reviews pull requests before humans do
                 </h2>
