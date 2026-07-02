@@ -45,6 +45,17 @@ def _get_headers(api_key: str, api_secret: str) -> dict[str, str]:
     }
 
 
+def _make_session(api_key: str, api_secret: str) -> requests.Session:
+    # Register the raw credential values (and the combined Authorization header value) for
+    # value-based redaction, since the auth scheme puts the secret in a nonstandard raw header
+    # value that name-based scrubbers can't recognise. This keeps the credentials masked in
+    # request logs and captured HTTP samples on a failed sync.
+    return make_tracked_session(
+        headers=_get_headers(api_key, api_secret),
+        redact_values=(api_key, api_secret, f"{api_key}:{api_secret}"),
+    )
+
+
 def _format_cursor(value: Any) -> Optional[str]:
     """Coerce an incremental cursor value to the `yyyy-mm-dd` form JustCall's `from_datetime` takes.
 
@@ -90,9 +101,8 @@ def validate_credentials(api_key: str, api_secret: str) -> bool:
     good token check without pulling call/message history.
     """
     try:
-        response = make_tracked_session().get(
+        response = _make_session(api_key, api_secret).get(
             _build_url("/phone-numbers", {"page": FIRST_PAGE, "per_page": 1}),
-            headers=_get_headers(api_key, api_secret),
             timeout=10,
         )
         return response.status_code == 200
@@ -110,7 +120,7 @@ def get_rows(
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = JUSTCALL_ENDPOINTS[endpoint]
-    headers = _get_headers(api_key, api_secret)
+    session = _make_session(api_key, api_secret)
 
     # Only endpoints with a server-side `from_datetime` filter honor the incremental cursor; the
     # rest are full refresh regardless of what the pipeline passes.
@@ -132,7 +142,7 @@ def get_rows(
         reraise=True,
     )
     def fetch_page(page_url: str) -> dict[str, Any]:
-        response = make_tracked_session().get(page_url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+        response = session.get(page_url, timeout=REQUEST_TIMEOUT_SECONDS)
 
         # JustCall rate-limits per API key on both a minutely burst window and an hourly window,
         # returning 429 on breach. Exponential backoff with jitter is sufficient here.
@@ -142,7 +152,10 @@ def get_rows(
             )
 
         if not response.ok:
-            logger.error(f"JustCall API error: status={response.status_code}, body={response.text}, url={page_url}")
+            # Deliberately not logging the response body: these endpoints return calls, texts, and
+            # contacts, so a raw error payload could copy customer PII (or echoed credentials) into
+            # logs. Status and endpoint are enough to debug an auth/permission failure.
+            logger.error(f"JustCall API error: status={response.status_code}, url={page_url}")
             response.raise_for_status()
 
         return response.json()
