@@ -68,11 +68,19 @@ class ZendeskImportErrorSerializer(serializers.Serializer):
 
 
 class ZendeskImportJobSerializer(serializers.ModelSerializer):
+    # Non-sensitive connection details, surfaced so the settings form can show/prefill which
+    # Zendesk account the last job used. The API token lives in the same encrypted blob but is
+    # never serialized.
+    subdomain = serializers.SerializerMethodField(help_text="Zendesk subdomain used for this import job.")
+    email_address = serializers.SerializerMethodField(help_text="Zendesk agent email used for this import job.")
+
     class Meta:
         model = ZendeskImportJob
         fields = [
             "id",
             "status",
+            "subdomain",
+            "email_address",
             "total_tickets",
             "processed_tickets",
             "imported_tickets",
@@ -99,6 +107,12 @@ class ZendeskImportJobSerializer(serializers.ModelSerializer):
             "created_at": {"help_text": "When the import job was created."},
             "updated_at": {"help_text": "When the import job was last updated."},
         }
+
+    def get_subdomain(self, obj: ZendeskImportJob) -> str | None:
+        return (obj.job_inputs or {}).get("subdomain")
+
+    def get_email_address(self, obj: ZendeskImportJob) -> str | None:
+        return (obj.job_inputs or {}).get("email_address")
 
 
 class ZendeskImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

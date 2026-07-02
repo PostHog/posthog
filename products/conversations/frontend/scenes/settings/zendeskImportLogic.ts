@@ -88,7 +88,7 @@ export const zendeskImportLogic = kea<zendeskImportLogicType>([
             },
         ],
     }),
-    listeners(({ actions, cache }) => ({
+    listeners(({ actions, values, cache }) => ({
         submitImportSuccess: () => {
             lemonToast.success('Zendesk import started')
             actions.setApiToken('')
@@ -105,6 +105,16 @@ export const zendeskImportLogic = kea<zendeskImportLogicType>([
             }, POLL_INTERVAL_MS)
         },
         loadImportJobSuccess: ({ importJob }) => {
+            // Prefill the connection fields from the last job so an admin can see what's configured.
+            // Only fill empty inputs — never clobber what the user is currently typing (poll refreshes
+            // re-fire this). The API token is never returned, so it always stays blank and must be
+            // re-entered to start a new import.
+            if (importJob?.subdomain && !values.subdomain) {
+                actions.setSubdomain(importJob.subdomain)
+            }
+            if (importJob?.email_address && !values.emailAddress) {
+                actions.setEmailAddress(importJob.email_address)
+            }
             if (importJob && TERMINAL_STATUSES.includes(importJob.status)) {
                 actions.stopPolling()
             } else if (importJob && (importJob.status === 'running' || importJob.status === 'pending')) {

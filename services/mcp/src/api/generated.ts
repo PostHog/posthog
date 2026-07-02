@@ -53900,6 +53900,16 @@ export namespace Schemas {
        * * `completed` - Completed
        * * `failed` - Failed */
       readonly status: ZendeskImportJobStatusEnum;
+      /**
+         * Zendesk subdomain used for this import job.
+         * @nullable
+         */
+      readonly subdomain: string | null;
+      /**
+         * Zendesk agent email used for this import job.
+         * @nullable
+         */
+      readonly email_address: string | null;
       /** Total number of tickets discovered for import. */
       readonly total_tickets: number;
       /** Number of tickets processed so far. */

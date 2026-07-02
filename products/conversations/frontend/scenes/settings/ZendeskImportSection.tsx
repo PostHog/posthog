@@ -106,7 +106,9 @@ function ZendeskImportForm(): JSX.Element {
             />
             <LemonInput
                 type="password"
-                placeholder="Zendesk API token"
+                placeholder={
+                    importJob?.subdomain ? 'Zendesk API token (re-enter to start a new import)' : 'Zendesk API token'
+                }
                 value={apiToken}
                 onChange={setApiToken}
                 disabled={isImportRunning}
