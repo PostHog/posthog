@@ -1974,13 +1974,20 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 // Refresh the tab's baseline so `changesToSave` compares against the just-saved query,
                 // not the pre-edit one — otherwise reverting to the original wrongly disables "Update view".
                 if (values.activeTab?.view && values.activeTab.view.id === view.id && view.query) {
+                    // The save advanced the server's activity-log head. Adopt the new latest_history_id so
+                    // the optimistic-concurrency check re-bases on the just-saved state, instead of flagging
+                    // a false "edited by another user" conflict when the user reverts and saves again.
+                    const savedView = values.dataWarehouseSavedQueryMapById[view.id]
                     actions.updateTab({
                         ...values.activeTab,
                         view: {
                             ...values.activeTab.view,
                             query: view.query,
+                            latest_history_id: savedView?.latest_history_id ?? values.activeTab.view.latest_history_id,
                         },
                     })
+                    // Drop the stale in-progress edit marker so the next divergence re-bases on the new head.
+                    actions.deleteInProgressViewEdit(view.id)
                 }
             },
             deleteDraftSuccess: ({ draftId, viewName }) => {

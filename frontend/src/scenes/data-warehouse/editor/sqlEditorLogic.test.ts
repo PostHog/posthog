@@ -220,6 +220,10 @@ describe('sqlEditorLogic', () => {
             },
             patch: {
                 '/api/user_home_settings/@me/': [200],
+                '/api/environments/:team_id/warehouse_saved_queries/:id/': ({ params }) => [
+                    200,
+                    { ...MOCK_VIEW, id: params.id, latest_history_id: 'updated-history-id' },
+                ],
             },
             delete: {
                 '/api/environments/:team_id/query/:id/': [204],
@@ -791,6 +795,36 @@ describe('sqlEditorLogic', () => {
             // Reverting to the original query is a real change again — the button stays enabled.
             logic.actions.setQueryInput(MOCK_VIEW.query.query)
             expect(logic.values.changesToSave).toBe(true)
+        })
+
+        it('advances the saved view history id after an update so a re-save is not a false conflict', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+            // Ensure the view is in the loaded list so the update loader refreshes its map entry.
+            await expectLogic(dataWarehouseViewsLogic).toDispatchActions(['loadDataWarehouseSavedQueriesSuccess'])
+
+            // Open the view with an existing activity-log head.
+            logic.actions.createTab(MOCK_VIEW.query.query, { ...MOCK_VIEW, latest_history_id: 'h1' })
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+            expect(logic.values.editingView?.latest_history_id).toBe('h1')
+
+            logic.actions.setQueryInput('SELECT 2')
+            logic.actions.updateView({
+                id: MOCK_VIEW.id,
+                query: { kind: NodeKind.HogQLQuery, query: 'SELECT 2' },
+                edited_history_id: 'h1',
+                types: [],
+            })
+            await expectLogic(logic).toDispatchActions(['updateView', 'updateViewSuccess', 'updateTab'])
+
+            // The baseline history advances to the server's new head, so the stale 'h1' no longer
+            // trips the "edited by another user" conflict on the next save.
+            expect(logic.values.editingView?.latest_history_id).toBe('updated-history-id')
+            expect(logic.values.suggestionPayload).toBe(null)
         })
     })
 
