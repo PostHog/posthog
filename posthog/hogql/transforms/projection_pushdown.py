@@ -42,18 +42,22 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         self.saw_asterisk: bool = False
 
     def optimize(self, node: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery | ast.SelectSetQuery:
+        # Reset so a reused instance can't prune with stale demands, recycled id() keys, or
+        # collecting still False from a previous run.
         self.demands.clear()
         self.subquery_map.clear()
         self.saw_asterisk = False
         self.collecting = True
+        demand_count = -1
         while True:
-            demand_count = sum(len(names) for names in self.demands.values())
             self.visit(node)
             if not self.saw_asterisk:
                 # Nothing to prune, so demand completeness doesn't matter — skip further walks.
                 return node
-            if sum(len(names) for names in self.demands.values()) == demand_count:
+            new_demand_count = sum(len(names) for names in self.demands.values())
+            if new_demand_count == demand_count:
                 break
+            demand_count = new_demand_count
         self.collecting = False
         return cast(ast.SelectQuery | ast.SelectSetQuery, self.visit(node))
 
@@ -125,7 +129,7 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         return node
 
     def _is_from_asterisk(self, expr: ast.Expr) -> bool:
-        """Check if an expression was expanded from asterisk"""
+        """Check if an expression was expanded from asterisk. Also records self.saw_asterisk."""
         if isinstance(expr, ast.Alias):
             expr = expr.expr  # whoops - we want to take the Field from the Alias
         if isinstance(expr, ast.Field) and expr.from_asterisk:
