@@ -81,16 +81,25 @@ class _FakeResumableManager:
 
 
 class _FakeBatcher:
-    """Yields one batch per item so save-after-yield behavior is observable without thousands of rows."""
+    """Accumulates rows and only yields once a full chunk is buffered, like the real Batcher.
 
-    def __init__(self, *args: Any, **kwargs: Any) -> None:
+    ``chunk_size`` defaults to 1 (yield per item) so most tests observe save-after-yield behavior
+    without thousands of rows. A larger ``chunk_size`` lets a chunk fill partway through a page, which
+    exercises the mid-page-save scenario: the yield/save happens after the page is fully batched, so the
+    resume pointer must still advance exactly once per page boundary — never mid-page.
+    """
+
+    def __init__(self, *args: Any, chunk_size: int = 1, **kwargs: Any) -> None:
         self._rows: list[dict] = []
+        self._chunk_size = chunk_size
 
     def batch(self, row: dict) -> None:
         self._rows.append(row)
 
     def should_yield(self, include_incomplete_chunk: bool = False) -> bool:
-        return len(self._rows) > 0
+        if include_incomplete_chunk:
+            return len(self._rows) > 0
+        return len(self._rows) >= self._chunk_size
 
     def get_table(self) -> list[dict]:
         rows = self._rows
@@ -109,8 +118,9 @@ def _patch_fetch(monkeypatch: Any, pages: dict[str, _FakeResponse]) -> list[str]
     return fetched
 
 
-def _collect(monkeypatch: Any, manager: _FakeResumableManager, endpoint: str) -> list[dict]:
-    monkeypatch.setattr(float_app, "Batcher", _FakeBatcher)
+def _collect(monkeypatch: Any, manager: _FakeResumableManager, endpoint: str, chunk_size: int = 1) -> list[dict]:
+    # Ignore the real chunk_size get_rows passes; drive it from the test so a chunk can span a page.
+    monkeypatch.setattr(float_app, "Batcher", lambda *a, **k: _FakeBatcher(chunk_size=chunk_size))
     rows: list[dict] = []
     for batch in get_rows(api_key="tok", endpoint=endpoint, logger=MagicMock(), resumable_source_manager=manager):  # type: ignore[arg-type]
         rows.extend(batch)
@@ -160,6 +170,25 @@ class TestGetRowsPagePagination:
         _patch_fetch(monkeypatch, pages)
         manager = _FakeResumableManager()
         _collect(monkeypatch, manager, "people")
+
+        assert manager.saved == [FloatAppResumeConfig(next_page=2)]
+
+    def test_saves_state_once_per_page_when_chunk_spans_page(self, monkeypatch: Any) -> None:
+        # The resume pointer must advance exactly once per page boundary. Page 1 has four items against
+        # chunk_size=2, so the buffer crosses a chunk boundary twice within the page. If the save were
+        # mid-page (inside the item loop) it would fire on each crossing, writing next_page=2 twice;
+        # done once after the page is fully batched, it writes next_page=2 exactly once.
+        pages = {
+            "https://api.float.com/v3/people?per-page=200&page=1": _FakeResponse(
+                [{"people_id": str(i)} for i in range(4)], {"X-Pagination-Pages": "2"}
+            ),
+            "https://api.float.com/v3/people?per-page=200&page=2": _FakeResponse(
+                [{"people_id": "4"}], {"X-Pagination-Pages": "2"}
+            ),
+        }
+        _patch_fetch(monkeypatch, pages)
+        manager = _FakeResumableManager()
+        _collect(monkeypatch, manager, "people", chunk_size=2)
 
         assert manager.saved == [FloatAppResumeConfig(next_page=2)]
 
