@@ -194,6 +194,17 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # the Read API and spams error tracking until a later sync finds the table caught up.
             # Matched on the stable freshness phrasing rather than the volatile table id.
             "un-applied upsert data that is not fresh enough": "BigQuery couldn't read this table through the Storage Read API because it uses change data capture and has pending upserts that haven't been applied within the table's max_staleness window. This usually clears once BigQuery applies the pending changes, so a later sync should recover. If it persists, lower the table's max_staleness or run a query against the table in BigQuery to apply the changes.",
+            # BigQuery aborts a query job with "Resources exceeded during query execution" (reason
+            # `resourcesExceeded`) when the query can't run within a worker's memory — heavy sorts or
+            # analytic OVER() clauses over a large table or view. We copy incremental / view /
+            # row-filtered reads into a temp table before reading them (`_run_destination_query_with_job_retry`
+            # in `bigquery.py`), and that copy carries the offending shape, so it fails here. It's a
+            # deterministic property of the customer's data volume and query shape — retrying the same
+            # query always fails identically (Google's own default job-retry doesn't retry this reason),
+            # so it just spams error tracking. The user must reduce the data synced or simplify the
+            # source view. Matched on BigQuery's stable wording, not the volatile peak-usage percentage
+            # or job id.
+            "Resources exceeded during query execution": "BigQuery couldn't run a query for this source because it exceeded the memory allowed for a single query. This is usually caused by heavy sorts or analytic (window) functions over a large table or view. Retrying won't help — please reduce how much data you're syncing (for example add row filters or an incremental field), or simplify the source view, then re-enable the source.",
         }
 
     def validate_credentials(
