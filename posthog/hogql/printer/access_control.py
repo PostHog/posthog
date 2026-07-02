@@ -34,14 +34,15 @@ def build_access_control_guard(
     if not blocked_ids:
         return None
 
-    # Surface that filtering happened so callers don't mistake a partial result for the full set.
+    # Surface that filtering happened so callers don't mistake a partial result for the full set. The
+    # header carries the "excluded because no access" framing; the message just enumerates per resource.
     # The number reflects inaccessible objects excluded by the predicate, not rows dropped from this
     # result — filtering is pushed into SQL, so the DB never returns the filtered rows.
+    count = len(blocked_ids)
+    # resource_to_display_name is always plural; drop the trailing "s" for a single object.
     display_name = resource_to_display_name(resource)
-    context.add_access_control_warning(
-        resource=resource,
-        message=f"You don't have access to {len(blocked_ids)} {display_name}, which were excluded from these results.",
-    )
+    label = display_name[:-1] if count == 1 and display_name.endswith("s") else display_name
+    context.add_access_control_warning(resource=resource, message=f"{count} {label}")
 
     return ast.CompareOperation(
         op=ast.CompareOperationOp.NotIn,

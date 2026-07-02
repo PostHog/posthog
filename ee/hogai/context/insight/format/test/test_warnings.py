@@ -1,6 +1,6 @@
 from .. import format_access_control_warnings, format_warehouse_sync_warnings
 
-_AC = {"resource": "dashboard", "message": "You don't have access to 2 dashboards"}
+_AC = {"resource": "dashboard", "message": "2 dashboards"}
 _SYNC = {
     "table_name": "stripe_charges",
     "schema_name": "charges",
@@ -13,15 +13,15 @@ _SYNC = {
 def test_access_control_warning_block_surfaces_message_from_shared_field():
     block = format_access_control_warnings({"warnings": [_AC]})
     assert "partial result set" in block
-    assert "You don't have access to 2 dashboards" in block
+    assert "- 2 dashboards" in block
 
 
 def test_warning_blocks_split_the_shared_field_by_shape():
     # Both kinds share the `warnings` list; each formatter must pick out only its own.
     response = {"warnings": [_SYNC, _AC]}
     assert "sync failed" in format_warehouse_sync_warnings(response)
-    assert "You don't have access" not in format_warehouse_sync_warnings(response)
-    assert "You don't have access to 2 dashboards" in format_access_control_warnings(response)
+    assert "2 dashboards" not in format_warehouse_sync_warnings(response)
+    assert "2 dashboards" in format_access_control_warnings(response)
     assert "sync failed" not in format_access_control_warnings(response)
     # Concatenated blocks must not run together: each ends with a blank line, so the next
     # header doesn't read as a bullet of the previous block in LLM-facing plain text.

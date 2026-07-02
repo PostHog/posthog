@@ -1035,7 +1035,7 @@ const AccessControlFilterBanner = ({ warnings }: { warnings?: HogQLQueryResponse
     return (
         <LemonBanner type="warning" className="m-2" data-attr="sql-editor-output-pane-access-control-warnings">
             <div className="font-semibold mb-1">
-                Some results were excluded because you don't have access to them — this is a partial result set
+                This is a partial result set — rows you don't have access to were excluded
             </div>
             <ul className="list-disc pl-5 space-y-1">
                 {acWarnings.map((warning, index) => (

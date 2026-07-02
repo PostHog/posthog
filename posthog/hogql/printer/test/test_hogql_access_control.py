@@ -1,6 +1,8 @@
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
+from parameterized import parameterized
+
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.database import Database
@@ -195,9 +197,11 @@ class TestAccessControlGuard(BaseTest):
             assert raw not in rendered
         assert "[HIDDEN]" in rendered
 
-    def test_filtering_records_access_control_warning(self):
+    @parameterized.expand([(("dash-1",), "1 dashboard"), (("dash-1", "dash-2"), "2 dashboards")])
+    def test_filtering_records_access_control_warning(self, resource_ids, expected_message):
         # The guard silently drops rows in SQL, so without this warning a filtered user can't tell a
-        # partial result from the full one. Regression guard for the add_access_control_warning emission.
+        # partial result from the full one. Regression guard for the add_access_control_warning emission,
+        # including the singular/plural message boundary.
         from posthog.hogql.parser import parse_select
 
         from posthog.constants import AvailableFeature
@@ -213,7 +217,7 @@ class TestAccessControlGuard(BaseTest):
         membership.level = OrganizationMembership.Level.MEMBER
         membership.save()
 
-        for resource_id in ("dash-1", "dash-2"):
+        for resource_id in resource_ids:
             AccessControl.objects.create(
                 team=self.team, resource="dashboard", resource_id=resource_id, access_level="none"
             )
@@ -228,7 +232,7 @@ class TestAccessControlGuard(BaseTest):
         warning = context.access_control_warnings.get("dashboard")
         assert warning is not None
         assert warning.resource == "dashboard"
-        assert "2 dashboards" in warning.message
+        assert warning.message == expected_message
 
     def test_no_warning_when_nothing_filtered(self):
         # Admins have no deny set, so no guard and no warning - otherwise every query would nag.

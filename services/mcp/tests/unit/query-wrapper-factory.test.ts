@@ -350,7 +350,7 @@ describe('createQueryWrapper warnings', () => {
     }
 
     it('forwards warnings so an access-filtered result is not mistaken for the full set', async () => {
-        const warnings = [{ resource: 'dashboard', message: "You don't have access to 2 dashboards" }]
+        const warnings = [{ resource: 'dashboard', message: '2 dashboards' }]
         const tool = createQueryWrapper({ name: 'test', schema, kind: 'HogQLQuery' })()
 
         const result = (await tool.handler(contextWithRunQuery({ results: [], warnings }), {
