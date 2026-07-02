@@ -4,6 +4,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 from django.conf import settings
 
 from rest_framework import status
+from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.models.scoping import team_scope
 from posthog.models.team import Team
@@ -49,6 +50,16 @@ class TestPulseAPI(APIBaseTest):
         assert brief.period_days == 14
         client.start_workflow.assert_called_once()
         assert client.start_workflow.call_args.kwargs["task_queue"] == settings.ANALYTICS_PLATFORM_TASK_QUEUE
+
+    def test_generate_while_running_returns_409_without_orphan_brief(
+        self, mock_connect: MagicMock, _mock_flag: MagicMock
+    ) -> None:
+        client = _temporal_client()
+        client.start_workflow.side_effect = WorkflowAlreadyStartedError("pulse-brief-x", "pulse-generate-brief")
+        mock_connect.return_value = client
+        response = self.client.post(f"/api/projects/{self.team.id}/pulse/briefs/generate/")
+        assert response.status_code == status.HTTP_409_CONFLICT
+        assert not ProductBrief.objects.for_team(self.team.pk).exists()
 
     def test_briefs_are_team_scoped(self, _mock_connect: MagicMock, _mock_flag: MagicMock) -> None:
         other_team = Team.objects.create(organization=self.organization, name="other")

@@ -4,30 +4,36 @@ from posthog.models.scoping.root_mixin import TeamScopedRootMixin
 from posthog.models.utils import CreatedMetaFields, UpdatedMetaFields, UUIDModel
 
 
-class BriefConfig(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+class PulseModel(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+    """Abstract base for pulse models: fail-closed team scoping + lock-free hot-table FKs."""
+
     # `objects` (TeamScopedManager) inherited from TeamScopedRootMixin stays fail-closed for
     # explicit user code. `all_teams` is the unscoped sibling for Django framework internals
     # (admin querysets, related-object access, prefetch_related) that must not filter by team;
     # `default_manager_name` routes `_default_manager` / `_base_manager` there.
     all_teams = models.Manager()  # noqa: DJ012
 
-    # FKs to the hot posthog_team / posthog_user tables use db_constraint=False so creating this
-    # table takes no lock on those parents. created_by overrides CreatedMetaFields for the same reason.
+    # FKs to the hot posthog_team / posthog_user tables use db_constraint=False so creating the
+    # tables takes no lock on those parents. created_by overrides CreatedMetaFields for the same reason.
     team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
     created_by = models.ForeignKey(
         "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
     )
+
+    class Meta:
+        abstract = True
+        default_manager_name = "all_teams"
+
+
+class BriefConfig(PulseModel):
     name = models.CharField(max_length=400)
     focus_prompt = models.TextField(blank=True, default="")
     # {"dashboards": [int], "insights": [short_id str]}
     anchors = models.JSONField(default=dict)
     enabled = models.BooleanField(default=True)
 
-    class Meta:
-        default_manager_name = "all_teams"
 
-
-class ProductBrief(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+class ProductBrief(PulseModel):
     class Status(models.TextChoices):
         GENERATING = "generating"
         READY = "ready"
@@ -38,12 +44,6 @@ class ProductBrief(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UU
         ON_DEMAND = "on_demand"
         SCHEDULED = "scheduled"
 
-    all_teams = models.Manager()  # noqa: DJ012
-
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
-    )
     config = models.ForeignKey(BriefConfig, on_delete=models.CASCADE, null=True, blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.GENERATING)
     trigger = models.CharField(max_length=20, choices=Trigger.choices)
@@ -52,14 +52,10 @@ class ProductBrief(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UU
     sections = models.JSONField(default=list)
     sources_used = models.JSONField(default=list)
     error = models.TextField(null=True, blank=True)
-    tokens_used = models.IntegerField(null=True, blank=True)
     feedback = models.JSONField(default=dict)
 
-    class Meta:
-        default_manager_name = "all_teams"
 
-
-class Opportunity(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUIDModel):
+class Opportunity(PulseModel):
     class Kind(models.TextChoices):
         BUILD = "build"
         FIX = "fix"
@@ -71,12 +67,6 @@ class Opportunity(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUI
         ACTED = "acted"
         RESOLVED = "resolved"
 
-    all_teams = models.Manager()  # noqa: DJ012
-
-    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, db_constraint=False)
-    created_by = models.ForeignKey(
-        "posthog.User", on_delete=models.SET_NULL, null=True, blank=True, db_constraint=False
-    )
     first_seen_brief = models.ForeignKey(ProductBrief, on_delete=models.SET_NULL, null=True, blank=True)
     kind = models.CharField(max_length=20, choices=Kind.choices)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.OPEN)
@@ -92,6 +82,5 @@ class Opportunity(TeamScopedRootMixin, CreatedMetaFields, UpdatedMetaFields, UUI
     fingerprint = models.CharField(max_length=512)
     feedback = models.JSONField(default=dict)
 
-    class Meta:
-        default_manager_name = "all_teams"
+    class Meta(PulseModel.Meta):
         indexes = [models.Index(fields=["team", "fingerprint"], name="pulse_opp_team_fp_idx")]

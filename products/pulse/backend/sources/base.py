@@ -20,6 +20,4 @@ class SourceItem:
 class BriefSource(Protocol):
     name: str
 
-    def has_data(self, team: Team, config: BriefConfig | None) -> bool: ...
-
     def gather(self, team: Team, config: BriefConfig | None, period_days: int) -> list[SourceItem]: ...

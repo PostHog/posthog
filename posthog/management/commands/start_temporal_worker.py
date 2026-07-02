@@ -196,7 +196,7 @@ from products.logs.backend.facade.temporal import (
     ACTIVITIES as LOGS_ALERTING_ACTIVITIES,
     WORKFLOWS as LOGS_ALERTING_WORKFLOWS,
 )
-from products.pulse.backend.temporal import (
+from products.pulse.backend.temporal.registry import (
     ACTIVITIES as PULSE_ACTIVITIES,
     WORKFLOWS as PULSE_WORKFLOWS,
 )

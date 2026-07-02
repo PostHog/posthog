@@ -5,7 +5,7 @@ from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
 from products.pulse.backend.generation.prompts import SYNTHESIZE_PROMPT
-from products.pulse.backend.generation.schemas import BriefOut
+from products.pulse.backend.generation.schemas import KIND_DESCRIPTIONS, BriefOut
 from products.pulse.backend.models import BriefConfig
 from products.pulse.backend.sources.base import SourceItem
 
@@ -14,14 +14,17 @@ from ee.hogai.llm import MaxChatOpenAI
 logger = structlog.get_logger(__name__)
 
 CONFIDENCE_THRESHOLD = 0.6
+MAX_OPPORTUNITIES = 3
 SYNTHESIS_MODEL = "gpt-4.1"
 _LLM_TIMEOUT_SECONDS = 120
 
 
 def apply_say_less_gate(out: BriefOut) -> BriefOut:
+    confident_opportunities = [o for o in out.opportunities if o.confidence >= CONFIDENCE_THRESHOLD]
     return BriefOut(
         sections=[s for s in out.sections if s.confidence >= CONFIDENCE_THRESHOLD],
-        opportunities=[o for o in out.opportunities if o.confidence >= CONFIDENCE_THRESHOLD],
+        # Deterministic cap: the prompt asks for at most MAX_OPPORTUNITIES, but the model may not comply.
+        opportunities=sorted(confident_opportunities, key=lambda o: o.confidence, reverse=True)[:MAX_OPPORTUNITIES],
     )
 
 
@@ -47,6 +50,8 @@ async def synthesize_brief(
     rendered = SYNTHESIZE_PROMPT.format(
         focus_prompt=(config.focus_prompt if config else "") or "the whole product",
         period_days=period_days,
+        max_opportunities=MAX_OPPORTUNITIES,
+        kind_descriptions=", ".join(f'"{kind}" = {description}' for kind, description in KIND_DESCRIPTIONS.items()),
         items_block=_render_items(items),
     )
     llm = MaxChatOpenAI(

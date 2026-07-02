@@ -19,7 +19,7 @@ from posthog.permissions import PostHogFeatureFlagPermission
 from posthog.temporal.common.client import sync_connect
 
 from products.pulse.backend.models import BriefConfig, ProductBrief
-from products.pulse.backend.temporal.activities import GenerateBriefWorkflowInputs
+from products.pulse.backend.temporal.inputs import GENERATE_BRIEF_WORKFLOW_NAME, GenerateBriefWorkflowInputs
 
 PULSE_FEATURE_FLAG = "pulse"
 
@@ -81,7 +81,6 @@ class ProductBriefSerializer(serializers.ModelSerializer):
             "sections",
             "sources_used",
             "error",
-            "tokens_used",
             "created_at",
             "created_by",
             "updated_at",
@@ -95,8 +94,16 @@ class ProductBriefSerializer(serializers.ModelSerializer):
             "trigger": {"help_text": "What started the generation: on_demand or scheduled."},
             "period_days": {"help_text": "Number of days the brief covers."},
             "error": {"help_text": "Error detail when status is failed."},
-            "tokens_used": {"help_text": "LLM tokens spent generating this brief, when recorded."},
         }
+
+
+class ProductBriefListSerializer(ProductBriefSerializer):
+    # The list view stays light: full section markdown is only shipped on retrieve.
+    sections = None
+
+    class Meta(ProductBriefSerializer.Meta):
+        fields = [f for f in ProductBriefSerializer.Meta.fields if f != "sections"]
+        read_only_fields = fields
 
 
 class GenerateBriefRequestSerializer(serializers.Serializer):
@@ -142,6 +149,11 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
             ProductBrief.objects.for_team(self.team_id).select_related("created_by", "config").order_by("-created_at")
         )
 
+    def get_serializer_class(self) -> type[serializers.BaseSerializer]:
+        if self.action == "list":
+            return ProductBriefListSerializer
+        return ProductBriefSerializer
+
     @extend_schema(
         request=GenerateBriefRequestSerializer,
         responses={
@@ -178,18 +190,21 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
         try:
             asyncio.run(
                 temporal.start_workflow(
-                    "pulse-generate-brief",
+                    GENERATE_BRIEF_WORKFLOW_NAME,
                     GenerateBriefWorkflowInputs(
                         team_id=self.team.id,
                         brief_id=str(brief.id),
                         brief_config_id=str(config.id) if config else None,
                         period_days=period_days,
                     ),
-                    id=f"pulse-brief-{brief.id}",
+                    # Keyed on team+config (not brief id) so a second generate while one is
+                    # running for the same focus hits WorkflowAlreadyStartedError.
+                    id=f"pulse-brief-{self.team_id}-{config.id if config else 'default'}",
                     task_queue=settings.ANALYTICS_PLATFORM_TASK_QUEUE,
                 )
             )
         except WorkflowAlreadyStartedError:
+            brief.delete()
             return Response({"detail": "Brief generation already in progress"}, status=status.HTTP_409_CONFLICT)
 
         return Response(ProductBriefSerializer(brief).data, status=status.HTTP_201_CREATED)

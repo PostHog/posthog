@@ -46,9 +46,6 @@ def score_movement(*, baseline: list[float], current: list[float]) -> Movement:
 class AnchoredInsightsSource:
     name = "anchored_insights"
 
-    def has_data(self, team: Team, config: BriefConfig | None) -> bool:
-        return self._anchor_insights(team, config).exists()
-
     def gather(self, team: Team, config: BriefConfig | None, period_days: int) -> list[SourceItem]:
         items: list[SourceItem] = []
         for insight in self._anchor_insights(team, config)[:MAX_ANCHOR_INSIGHTS]:
@@ -99,14 +96,14 @@ class AnchoredInsightsSource:
             if not movement.significant:
                 continue
             direction = "rose" if movement.pct_change > 0 else "dropped"
-            series_label = series_result.get("label") or label
+            display = series_result.get("label") or label or insight.short_id
             items.append(
                 SourceItem(
                     source=self.name,
                     kind="movement",
-                    title=f"{series_label or insight.short_id} {direction} {abs(round(movement.pct_change, 1))}%",
+                    title=f"{display} {direction} {abs(round(movement.pct_change, 1))}%",
                     description=(
-                        f"'{series_label or insight.short_id}' {direction} from {movement.baseline_total:g} "
+                        f"'{display}' {direction} from {movement.baseline_total:g} "
                         f"to {movement.current_total:g} over the last {period_days} days vs the prior {period_days}."
                     ),
                     numbers={

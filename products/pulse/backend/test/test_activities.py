@@ -1,30 +1,31 @@
+import uuid
+
 import pytest
 from unittest.mock import patch
 
+from django.conf import settings
+
 from asgiref.sync import sync_to_async
+from temporalio.client import WorkflowFailureError
 from temporalio.exceptions import ApplicationError
-from temporalio.testing import ActivityEnvironment
+from temporalio.testing import ActivityEnvironment, WorkflowEnvironment
+from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models.scoping import team_scope
 
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
 from products.pulse.backend.models import Opportunity, ProductBrief
 from products.pulse.backend.sources.base import SourceItem
-from products.pulse.backend.temporal.activities import (
-    GenerateBriefWorkflowInputs,
-    SynthesizeActivityInputs,
-    gather_brief_inputs_activity,
-    synthesize_brief_activity,
-)
+from products.pulse.backend.temporal.activities import gather_brief_inputs_activity, synthesize_brief_activity
+from products.pulse.backend.temporal.inputs import GenerateBriefWorkflowInputs, SynthesizeActivityInputs
+from products.pulse.backend.temporal.registry import ACTIVITIES
+from products.pulse.backend.temporal.workflow import GenerateProductBriefWorkflow
 
 pytestmark = [pytest.mark.asyncio, pytest.mark.django_db(transaction=True)]
 
 
 class _StubSource:
     name = "stub"
-
-    def has_data(self, team, config) -> bool:
-        return True
 
     def gather(self, team, config, period_days) -> list[SourceItem]:
         return [
@@ -112,9 +113,7 @@ async def test_synthesize_activity_marks_ready(team, user) -> None:
     with patch("products.pulse.backend.temporal.activities.synthesize_brief", return_value=_confident_out()):
         status = await env.run(
             synthesize_brief_activity,
-            SynthesizeActivityInputs(
-                team_id=team.pk, brief_id=str(brief.id), brief_config_id=None, period_days=7, items=[]
-            ),
+            SynthesizeActivityInputs(team_id=team.pk, brief_id=str(brief.id), items=[]),
         )
     assert status == ProductBrief.Status.READY
     reloaded = await _reload_brief(brief.id)
@@ -122,17 +121,24 @@ async def test_synthesize_activity_marks_ready(team, user) -> None:
     assert await _opportunity_count(team) == 1
 
 
-async def test_synthesize_activity_marks_failed_on_error(team, user) -> None:
+async def test_workflow_marks_brief_failed_when_gather_fails(team, user) -> None:
+    await _set_ai_consent(team, False)  # gather refuses (non-retryable) — the failure path under test
     brief = await _create_brief(team, user)
-    env = ActivityEnvironment()
-    with patch("products.pulse.backend.temporal.activities.synthesize_brief", side_effect=RuntimeError("llm exploded")):
-        with pytest.raises(RuntimeError):
-            await env.run(
-                synthesize_brief_activity,
-                SynthesizeActivityInputs(
-                    team_id=team.pk, brief_id=str(brief.id), brief_config_id=None, period_days=7, items=[]
-                ),
-            )
+    async with await WorkflowEnvironment.start_time_skipping() as env:
+        async with Worker(
+            env.client,
+            task_queue=settings.TEMPORAL_TASK_QUEUE,
+            workflows=[GenerateProductBriefWorkflow],
+            activities=ACTIVITIES,
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with pytest.raises(WorkflowFailureError):
+                await env.client.execute_workflow(
+                    GenerateProductBriefWorkflow.run,
+                    GenerateBriefWorkflowInputs(team_id=team.pk, brief_id=str(brief.id)),
+                    id=f"pulse-brief-test-{uuid.uuid4()}",
+                    task_queue=settings.TEMPORAL_TASK_QUEUE,
+                )
     reloaded = await _reload_brief(brief.id)
     assert reloaded.status == ProductBrief.Status.FAILED
-    assert "llm exploded" in (reloaded.error or "")
+    assert "AI data processing not approved" in (reloaded.error or "")

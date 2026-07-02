@@ -144,6 +144,50 @@ export const ProductBriefTriggerEnumApi = {
     Scheduled: 'scheduled',
 } as const
 
+export interface ProductBriefListApi {
+    readonly id: string
+    /**
+     * The brief config this brief was generated for, if any.
+     * @nullable
+     */
+    readonly config: string | null
+    /** Lifecycle status: generating, ready, quiet (nothing confident to say), or failed.
+     *
+     * * `generating` - Generating
+     * * `ready` - Ready
+     * * `quiet` - Quiet
+     * * `failed` - Failed */
+    readonly status: ProductBriefStatusEnumApi
+    /** What started the generation: on_demand or scheduled.
+     *
+     * * `on_demand` - On Demand
+     * * `scheduled` - Scheduled */
+    readonly trigger: ProductBriefTriggerEnumApi
+    /** Number of days the brief covers. */
+    readonly period_days: number
+    /** Names of the brief sources that contributed items. */
+    readonly sources_used: readonly string[]
+    /**
+     * Error detail when status is failed.
+     * @nullable
+     */
+    readonly error: string | null
+    readonly created_at: string
+    /** User who requested the brief. */
+    readonly created_by: UserBasicApi | null
+    /** @nullable */
+    readonly updated_at: string | null
+}
+
+export interface PaginatedProductBriefListListApi {
+    count: number
+    /** @nullable */
+    next?: string | null
+    /** @nullable */
+    previous?: string | null
+    results: ProductBriefListApi[]
+}
+
 export type ProductBriefApiSectionsItem = { [key: string]: unknown }
 
 export interface ProductBriefApi {
@@ -176,25 +220,11 @@ export interface ProductBriefApi {
      * @nullable
      */
     readonly error: string | null
-    /**
-     * LLM tokens spent generating this brief, when recorded.
-     * @nullable
-     */
-    readonly tokens_used: number | null
     readonly created_at: string
     /** User who requested the brief. */
     readonly created_by: UserBasicApi | null
     /** @nullable */
     readonly updated_at: string | null
-}
-
-export interface PaginatedProductBriefListApi {
-    count: number
-    /** @nullable */
-    next?: string | null
-    /** @nullable */
-    previous?: string | null
-    results: ProductBriefApi[]
 }
 
 export interface GenerateBriefRequestApi {

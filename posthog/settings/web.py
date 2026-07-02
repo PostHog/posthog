@@ -516,6 +516,7 @@ SPECTACULAR_SETTINGS = {
         # and pulse product briefs) — both need explicit names to avoid suffixed auto-names.
         "ExperimentRecalculationTriggerEnum": "products.experiments.backend.models.experiment.ExperimentMetricsRecalculation.Trigger",
         "ProductBriefTriggerEnum": "products.pulse.backend.models.ProductBrief.Trigger",
+        "ProductBriefStatusEnum": "products.pulse.backend.models.ProductBrief.Status",
         "UserInterviewSearchDocumentTypeEnum": "products.user_interviews.backend.facade.enums.SEARCH_DOCUMENT_TYPES",
         "BatchExportRunStatusEnum": "products.batch_exports.backend.models.batch_export.BatchExportRun.Status",
         "HeatmapType": "products.web_analytics.backend.models.heatmap_saved.SavedHeatmap.Type",

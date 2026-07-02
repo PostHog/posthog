@@ -12,7 +12,7 @@ import type {
     BriefConfigApi,
     GenerateBriefRequestApi,
     PaginatedBriefConfigListApi,
-    PaginatedProductBriefListApi,
+    PaginatedProductBriefListListApi,
     PatchedBriefConfigApi,
     ProductBriefApi,
     PulseBriefConfigsListParams,
@@ -162,8 +162,8 @@ export const pulseBriefsList = async (
     projectId: string,
     params?: PulseBriefsListParams,
     options?: RequestInit
-): Promise<PaginatedProductBriefListApi> => {
-    return apiMutator<PaginatedProductBriefListApi>(getPulseBriefsListUrl(projectId, params), {
+): Promise<PaginatedProductBriefListListApi> => {
+    return apiMutator<PaginatedProductBriefListListApi>(getPulseBriefsListUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

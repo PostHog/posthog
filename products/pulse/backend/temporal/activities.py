@@ -10,29 +10,17 @@ from posthog.sync import database_sync_to_async
 from products.pulse.backend.generation.persist import persist_brief_output
 from products.pulse.backend.generation.synthesize import synthesize_brief
 from products.pulse.backend.models import BriefConfig, ProductBrief
-from products.pulse.backend.sources.base import BriefSource, SourceItem
+from products.pulse.backend.sources.base import SourceItem
 from products.pulse.backend.sources.registry import get_sources
+from products.pulse.backend.temporal.inputs import (
+    GenerateBriefWorkflowInputs,
+    MarkBriefFailedInputs,
+    SynthesizeActivityInputs,
+)
 
 logger = structlog.get_logger(__name__)
 
 MAX_ITEMS = 50
-
-
-@dataclasses.dataclass
-class GenerateBriefWorkflowInputs:
-    team_id: int
-    brief_id: str
-    brief_config_id: str | None = None
-    period_days: int = 7
-
-
-@dataclasses.dataclass
-class SynthesizeActivityInputs:
-    team_id: int
-    brief_id: str
-    brief_config_id: str | None
-    period_days: int
-    items: list[dict]
 
 
 def _get_team(team_id: int) -> Team:
@@ -53,16 +41,8 @@ def _get_brief(team_id: int, brief_id: str) -> ProductBrief:
     )
 
 
-def _gather_from_source(
-    source: BriefSource, team: Team, config: BriefConfig | None, period_days: int
-) -> list[SourceItem]:
-    return source.gather(team, config, period_days)
-
-
-def _mark_brief_failed(brief: ProductBrief, error: str) -> None:
-    brief.status = ProductBrief.Status.FAILED
-    brief.error = error
-    brief.save(update_fields=["status", "error", "updated_at"])
+def _mark_brief_failed(team_id: int, brief_id: str, error: str) -> None:
+    ProductBrief.objects.for_team(team_id).filter(id=brief_id).update(status=ProductBrief.Status.FAILED, error=error)
 
 
 @temporalio.activity.defn
@@ -73,9 +53,7 @@ async def gather_brief_inputs_activity(inputs: GenerateBriefWorkflowInputs) -> l
     config = await database_sync_to_async(_get_config, thread_sensitive=False)(team, inputs.brief_config_id)
     items: list[SourceItem] = []
     for source in get_sources():
-        gathered = await database_sync_to_async(_gather_from_source, thread_sensitive=False)(
-            source, team, config, inputs.period_days
-        )
+        gathered = await database_sync_to_async(source.gather, thread_sensitive=False)(team, config, inputs.period_days)
         items.extend(gathered)
     # Keep the activity payload small — well under Temporal's ~2 MiB cap.
     return [dataclasses.asdict(item) for item in items[:MAX_ITEMS]]
@@ -84,20 +62,23 @@ async def gather_brief_inputs_activity(inputs: GenerateBriefWorkflowInputs) -> l
 @temporalio.activity.defn
 async def synthesize_brief_activity(inputs: SynthesizeActivityInputs) -> str:
     brief = await database_sync_to_async(_get_brief, thread_sensitive=False)(inputs.team_id, inputs.brief_id)
-    try:
-        if brief.created_by is None:
-            raise ApplicationError("brief has no creating user for LLM attribution", non_retryable=True)
-        items = [SourceItem(**item) for item in inputs.items]
-        out = await synthesize_brief(
-            team=brief.team,
-            user=brief.created_by,
-            config=brief.config,
-            items=items,
-            period_days=inputs.period_days,
-        )
-        await database_sync_to_async(persist_brief_output, thread_sensitive=False)(brief=brief, out=out)
-        return brief.status
-    except Exception as exc:
-        logger.exception("pulse_synthesize_brief_failed", team_id=inputs.team_id, brief_id=inputs.brief_id)
-        await database_sync_to_async(_mark_brief_failed, thread_sensitive=False)(brief, str(exc))
-        raise
+    if brief.created_by is None:
+        raise ApplicationError("brief has no creating user for LLM attribution", non_retryable=True)
+    items = [SourceItem(**item) for item in inputs.items]
+    out = await synthesize_brief(
+        team=brief.team,
+        user=brief.created_by,
+        config=brief.config,
+        items=items,
+        period_days=brief.period_days,
+    )
+    await database_sync_to_async(persist_brief_output, thread_sensitive=False)(brief=brief, out=out, items=items)
+    return brief.status
+
+
+@temporalio.activity.defn
+async def mark_brief_failed_activity(inputs: MarkBriefFailedInputs) -> None:
+    logger.error("pulse_brief_generation_failed", team_id=inputs.team_id, brief_id=inputs.brief_id)
+    await database_sync_to_async(_mark_brief_failed, thread_sensitive=False)(
+        inputs.team_id, inputs.brief_id, inputs.error
+    )

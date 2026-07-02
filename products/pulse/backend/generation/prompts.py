@@ -5,7 +5,7 @@ You are given a list of pre-computed observations from the team's product analyt
 Compose the brief as structured output:
 
 - Sections: 1-4 sections telling the team what happened and what matters, most important first. Write skimmable markdown prose, not bullet dumps.
-- Opportunities: at most 3 ranked, evidence-backed recommendations. Kinds: "build" = a product opportunity, "fix" = a broken PostHog resource, "instrument" = missing tracking the team should add.
+- Opportunities: at most {max_opportunities} ranked, evidence-backed recommendations. Kinds: {kind_descriptions}.
 
 Hard rules:
 

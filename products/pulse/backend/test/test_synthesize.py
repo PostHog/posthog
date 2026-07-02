@@ -3,7 +3,12 @@ from unittest.mock import MagicMock, patch
 from parameterized import parameterized
 
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
-from products.pulse.backend.generation.synthesize import CONFIDENCE_THRESHOLD, apply_say_less_gate, synthesize_brief
+from products.pulse.backend.generation.synthesize import (
+    CONFIDENCE_THRESHOLD,
+    MAX_OPPORTUNITIES,
+    apply_say_less_gate,
+    synthesize_brief,
+)
 
 
 def _section(confidence: float) -> BriefSectionOut:
@@ -49,6 +54,12 @@ class TestSayLessGate:
     def test_threshold_is_inclusive(self) -> None:
         gated = apply_say_less_gate(BriefOut(sections=[_section(CONFIDENCE_THRESHOLD)], opportunities=[]))
         assert len(gated.sections) == 1
+
+    def test_opportunities_capped_at_max_by_confidence(self) -> None:
+        gated = apply_say_less_gate(
+            BriefOut(sections=[], opportunities=[_opportunity(c) for c in [0.7, 0.95, 0.8, 0.9, 0.85]])
+        )
+        assert [o.confidence for o in gated.opportunities] == [0.95, 0.9, 0.85][:MAX_OPPORTUNITIES]
 
     @patch("products.pulse.backend.generation.synthesize.MaxChatOpenAI")
     async def test_empty_items_short_circuits_without_llm(self, mock_llm: MagicMock) -> None:
