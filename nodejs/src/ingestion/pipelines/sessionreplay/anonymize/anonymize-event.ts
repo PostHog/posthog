@@ -2,6 +2,7 @@
 import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
 import { ParsedMessageData, SnapshotEvent } from '~/ingestion/pipelines/sessionreplay/kafka/types'
+import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionreplay/metrics'
 import { RRWebEventSource, RRWebEventType } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
 
 import { runBlurJobs } from './blur'
@@ -39,20 +40,33 @@ function getRustAnonymizer(): RustAnonymizer {
  */
 async function anonymizeWithRust(parsedMessage: ParsedMessageData): Promise<{ failed: boolean }> {
     try {
+        // `stringify` and `parse` run on the event loop (the FFI round-trip tax); `scrub` is the addon
+        // call, which does the walk/gzip/blur off-thread. Splitting them lets us see if the round-trip
+        // outweighs the scrub win — compare stringify+parse against scrub on the metric.
+        const t0 = performance.now()
         const eventsJson = JSON.stringify(parsedMessage.eventsByWindowId)
+        const t1 = performance.now()
         const result = await getRustAnonymizer().anonymize(eventsJson)
+        const t2 = performance.now()
         if (result.failed) {
             logger.warn('🙈', 'anonymize_event_failed', { error: result.error ?? 'rust anonymizer failed' })
+            SessionRecordingIngesterMetrics.incrementMlAnonymizeFailed('rust')
             return { failed: true }
         }
         if (result.data !== null) {
             parsedMessage.eventsByWindowId = parseJSON(result.data) as Record<string, SnapshotEvent[]>
         }
+        const t3 = performance.now()
+        SessionRecordingIngesterMetrics.observeMlAnonymizeDuration('rust', 'stringify', t1 - t0)
+        SessionRecordingIngesterMetrics.observeMlAnonymizeDuration('rust', 'scrub', t2 - t1)
+        SessionRecordingIngesterMetrics.observeMlAnonymizeDuration('rust', 'parse', t3 - t2)
+        SessionRecordingIngesterMetrics.observeMlAnonymizeDuration('rust', 'total', t3 - t0)
         return { failed: false }
     } catch (error) {
         // A rejected promise (native panic, addon load failure, re-parse error) must fail closed —
         // never let un-anonymized data reach the unencrypted bucket.
         logger.warn('🙈', 'anonymize_event_failed', { error: String(error) })
+        SessionRecordingIngesterMetrics.incrementMlAnonymizeFailed('rust')
         return { failed: true }
     }
 }
@@ -87,6 +101,7 @@ export async function anonymizeParsedMessage(
                     error: String(error),
                     type: isObject(event) ? event.type : undefined,
                 })
+                SessionRecordingIngesterMetrics.incrementMlAnonymizeFailed('ts')
                 return { failed: true }
             }
             eventCount++
@@ -98,6 +113,9 @@ export async function anonymizeParsedMessage(
     const blurStart = performance.now()
     await runBlurJobs(blurJobs)
     const blurMs = performance.now() - blurStart
+
+    // Comparable to the Rust path's `total` (there's no stringify/parse round-trip on this path).
+    SessionRecordingIngesterMetrics.observeMlAnonymizeDuration('ts', 'total', scrubMs + blurMs)
 
     if (scrubMs + blurMs > ANON_SLOW_LOG_THRESHOLD_MS) {
         logger.warn('🕒', 'anonymize_slow_breakdown', {

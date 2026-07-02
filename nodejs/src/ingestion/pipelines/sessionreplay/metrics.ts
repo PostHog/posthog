@@ -53,6 +53,21 @@ export class SessionRecordingIngesterMetrics {
         labelNames: ['content_encoding'],
     })
 
+    // ML-mirror anonymize timing. `impl` is rust|ts so the flag rollout is a direct A/B, and `phase`
+    // separates the FFI round-trip cost (stringify+parse, on the event loop) from the scrub itself.
+    private static readonly mlAnonymizeDuration = new Histogram({
+        name: 'recording_blob_ingestion_v2_ml_anonymize_duration_ms',
+        help: 'Per-message ML-mirror anonymize time in ms, by implementation and phase',
+        labelNames: ['impl', 'phase'],
+        buckets: [0, 1, 2, 5, 10, 25, 50, 100, 250, 500, 1000, 2500, 5000, 10000, Infinity],
+    })
+
+    private static readonly mlAnonymizeFailed = new Counter({
+        name: 'recording_blob_ingestion_v2_ml_anonymize_failed',
+        help: 'Messages dropped because ML-mirror anonymization failed (fail-closed), by implementation',
+        labelNames: ['impl'],
+    })
+
     public static incrementMessageReceived(partition: number): void {
         this.messageReceived.labels(partition.toString()).inc()
     }
@@ -87,5 +102,17 @@ export class SessionRecordingIngesterMetrics {
 
     public static observeKafkaBatchSizeKb(sizeKb: number): void {
         this.kafkaBatchSizeKb.observe(sizeKb)
+    }
+
+    public static observeMlAnonymizeDuration(
+        impl: 'rust' | 'ts',
+        phase: 'stringify' | 'scrub' | 'parse' | 'total',
+        ms: number
+    ): void {
+        this.mlAnonymizeDuration.labels(impl, phase).observe(ms)
+    }
+
+    public static incrementMlAnonymizeFailed(impl: 'rust' | 'ts'): void {
+        this.mlAnonymizeFailed.labels(impl).inc()
     }
 }
