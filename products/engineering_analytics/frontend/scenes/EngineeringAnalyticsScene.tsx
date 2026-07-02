@@ -9,7 +9,6 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { MockUxPreview } from '../mock/MockUxPreview'
 import { EngineeringAnalyticsAuthors } from './EngineeringAnalyticsAuthors'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 import { EngineeringAnalyticsPullRequests } from './EngineeringAnalyticsPullRequests'
@@ -26,22 +25,16 @@ export const scene: SceneExport = {
     logic: engineeringAnalyticsSceneLogic,
 }
 
-// Mock-only: the UX-overhaul preview rides a search param instead of a scene key so the throwaway
-// reference needs no manifest/route changes. Remove together with ../mock/.
-type PreviewableTab = EngineeringAnalyticsView | 'ux-preview'
-
 export function EngineeringAnalyticsScene(): JSX.Element {
-    const { searchParams } = useValues(router)
+    const { searchParams: linkParams } = useValues(router)
     const { activeView } = useValues(engineeringAnalyticsSceneLogic)
     const logic = engineeringAnalyticsLogic()
     const { anyLoading } = useValues(logic)
     const { refresh } = useActions(logic)
-    const { tab: _previewParam, ...linkParams } = searchParams
-    const previewActive = _previewParam === 'ux-preview'
 
     // The general areas of the product. Drill-down pages (workflow, run, PR, author) live below the
     // Overview; the two lens list pages are reachable both here and via the unvalued lens chips.
-    const tabs: LemonTab<PreviewableTab>[] = [
+    const tabs: LemonTab<EngineeringAnalyticsView>[] = [
         {
             key: 'hub',
             label: 'Overview',
@@ -70,13 +63,6 @@ export function EngineeringAnalyticsScene(): JSX.Element {
             link: combineUrl(urls.engineeringAnalyticsTestHealth(), linkParams).url,
             'data-attr': 'engineering-analytics-test-health-tab',
         },
-        {
-            key: 'ux-preview',
-            label: 'UX preview',
-            content: <MockUxPreview />,
-            link: combineUrl(urls.engineeringAnalytics(), { ...linkParams, tab: 'ux-preview' }).url,
-            'data-attr': 'engineering-analytics-ux-preview-tab',
-        },
     ]
 
     return (
@@ -84,11 +70,7 @@ export function EngineeringAnalyticsScene(): JSX.Element {
             <SceneContent>
                 <SceneTitleSection
                     name="Engineering analytics"
-                    description={
-                        previewActive
-                            ? 'UX overhaul preview — faked data, one lens stack from repo to author.'
-                            : VIEW_DESCRIPTIONS[activeView]
-                    }
+                    description={VIEW_DESCRIPTIONS[activeView]}
                     resourceType={{ type: 'health' }}
                     actions={
                         <LemonButton
@@ -105,12 +87,7 @@ export function EngineeringAnalyticsScene(): JSX.Element {
                 <LemonBanner type="info" dismissKey="engineering-analytics-alpha">
                     Engineering analytics is in alpha. Metrics are limited to CI events, and details may change.
                 </LemonBanner>
-                <LemonTabs
-                    activeKey={previewActive ? 'ux-preview' : activeView}
-                    data-attr="engineering-analytics-tabs"
-                    tabs={tabs}
-                    sceneInset
-                />
+                <LemonTabs activeKey={activeView} data-attr="engineering-analytics-tabs" tabs={tabs} sceneInset />
             </SceneContent>
         </BindLogic>
     )
