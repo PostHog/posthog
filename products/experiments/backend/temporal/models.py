@@ -18,6 +18,19 @@ MAX_CANARY_DETAIL_LENGTH = 1000
 # each extra attempt adds backoff (5s, 10s, 20s, ...) to the tail of a fully-failing run.
 MAX_METRIC_ATTEMPTS = 3
 
+# Per-attempt ceiling for the calc activity (its start_to_close_timeout). The activity has no heartbeat, so
+# this is the real per-attempt limit — when it fires, Temporal kills the attempt from the outside and nothing
+# inside the activity (result persistence, the terminal error event) runs.
+METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS = 300
+
+# ClickHouse max_execution_time for the recalc metric query. Deliberately below
+# METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS (minus headroom for metric build, stats, and persistence) so a slow
+# query fails INSIDE the activity with a typed ClickHouse error (159 TIMEOUT_EXCEEDED) instead of the activity
+# being killed by Temporal — which would lose the error type, the FAILED result row, and the terminal event.
+# A query needing more than this was already doomed to lose its attempt at the 5-minute kill; failing fast
+# also stops the orphaned query from burning ClickHouse for the full default 600s.
+METRIC_CALC_MAX_EXECUTION_TIME_SECONDS = 270
+
 
 @dataclasses.dataclass
 class ExperimentMetricsRecalculationWorkflowInputs:

@@ -31,8 +31,6 @@ permissions:
     contents: read
 
 env:
-    DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
-    DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     REDIS_URL: redis://localhost
     DATABASE_URL: postgres://posthog:posthog@localhost:5432/posthog_e2e_test
@@ -66,12 +64,6 @@ env:
     PGPORT: 5432
     # this is a fake key so this workflow can run for external contributors as they do not have access to secrets (that we don't need here)
     OIDC_RSA_PRIVATE_KEY: ${{ vars.OIDC_RSA_FAKE_PRIVATE_KEY }}
-    OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
-    ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
-    GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
-    INKEEP_API_KEY: ${{ secrets.INKEEP_API_KEY }}
-    AZURE_INFERENCE_CREDENTIAL: ${{ secrets.AZURE_INFERENCE_CREDENTIAL }}
-    AZURE_INFERENCE_ENDPOINT: ${{ secrets.AZURE_INFERENCE_ENDPOINT }}
     PERSONHOG_ADDR: 'localhost:50052'
     # Internal API auth needs a non-empty INTERNAL_API_SECRET when DEBUG/TEST are off. The dev value
     # matches the Node plugins container's non-prod default, so Django<->Node internal calls authenticate.
@@ -246,6 +238,15 @@ jobs:
             pull-requests: write
         outputs:
             vr_run_id: ${{ steps.vr-create.outputs.run_id }}
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
+            OPENAI_API_KEY: ${{ secrets.OPENAI_API_KEY }}
+            ANTHROPIC_API_KEY: ${{ secrets.ANTHROPIC_API_KEY }}
+            GEMINI_API_KEY: ${{ secrets.GEMINI_API_KEY }}
+            INKEEP_API_KEY: ${{ secrets.INKEEP_API_KEY }}
+            AZURE_INFERENCE_CREDENTIAL: ${{ secrets.AZURE_INFERENCE_CREDENTIAL }}
+            AZURE_INFERENCE_ENDPOINT: ${{ secrets.AZURE_INFERENCE_ENDPOINT }}
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
@@ -678,6 +679,18 @@ jobs:
                   name: junit-results-playwright
                   path: playwright/junit-results.xml
                   if-no-files-found: ignore
+
+            - name: Upload test results to Trunk
+              # Flaky-test detection. Trusted non-pull_request events only, so the secret token
+              # never runs in a PR-controlled context; continue-on-error so an upload hiccup
+              # never fails the job.
+              if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+              continue-on-error: true
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: playwright/junit-results.xml
+                  org-slug: posthog-inc
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
 
             - name: Publish report to Cloudflare Pages
               if: always() && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository)

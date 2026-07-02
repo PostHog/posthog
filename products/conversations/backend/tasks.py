@@ -19,6 +19,7 @@ import requests
 import structlog
 from celery import shared_task
 
+from posthog.egress.github.transport import github_request
 from posthog.models.activity_logging.activity_log import Change, Detail, log_activity
 from posthog.models.comment import Comment as CommentModel
 from posthog.models.team import Team
@@ -91,7 +92,6 @@ SUPPORTHOG_EVENT_IDEMPOTENCY_TTL_SECONDS = 6 * 60
 SUPPORTHOG_EVENT_IDEMPOTENCY_KEY_PREFIX = "supporthog:slack:event:"
 SUPPORTHOG_TEAMS_EVENT_IDEMPOTENCY_KEY_PREFIX = "supporthog:teams:event:"
 SUPPORTHOG_GITHUB_EVENT_IDEMPOTENCY_KEY_PREFIX = "supporthog:github:event:"
-GITHUB_API_VERSION = "2022-11-28"
 
 
 def _is_duplicate_supporthog_event(event_id: str) -> bool:
@@ -1781,14 +1781,13 @@ def post_reply_to_github(
     url = f"https://api.github.com/repos/{ticket.github_repo}/issues/{ticket.github_issue_number}/comments"
 
     try:
-        resp = requests.post(
+        resp = github_request(
+            "POST",
             url,
+            source="conversations",
+            headers={"Authorization": f"Bearer {access_token}"},
+            installation_id=github.github_installation_id,
             json={"body": reply_text},
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": GITHUB_API_VERSION,
-            },
             timeout=15,
         )
         if resp.status_code not in (200, 201):
@@ -1852,14 +1851,13 @@ def create_github_issue(
 
     url = f"https://api.github.com/repos/{repo}/issues"
     try:
-        resp = requests.post(
+        resp = github_request(
+            "POST",
             url,
+            source="conversations",
+            headers={"Authorization": f"Bearer {access_token}"},
+            installation_id=github.github_installation_id,
             json=json_body,
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": GITHUB_API_VERSION,
-            },
             timeout=15,
         )
         resp.raise_for_status()

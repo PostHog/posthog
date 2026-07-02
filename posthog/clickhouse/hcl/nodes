@@ -29,12 +29,24 @@ dev      ops        roles/shared roles/ops/shared roles/ops/dev
 prod-us  ops        roles/shared roles/ops/shared roles/ops/prod roles/ops/prod-us
 prod-eu  ops        roles/shared roles/ops/shared roles/ops/prod roles/ops/prod-eu
 
+local    logs       roles/logs/local
 dev      logs       roles/shared roles/logs/shared roles/logs/dev
 prod-us  logs       roles/shared roles/logs/shared roles/logs/prod-us
 prod-eu  logs       roles/shared roles/logs/shared roles/logs/prod-eu
 
+# AI_EVENTS satellite (LLM analytics). local/hobby run the MSK variant
+# (kafka_ai_events_json + ai_events_json_mv) with a sharded_ai_events data table
+# + distributed ai_events reader; US/EU run the WarpStream variant
+# (kafka_ai_events_json_ws + ai_events_json_ws_mv, MSK dropped by migration 0248)
+# writing into a single ai_events data table. roles/ai_events/shared holds the
+# env-uniform person / person_distinct_id2 Distributed shims (0240). dev currently
+# has only the top-level shared objects (per the latest dump).
+local    ai_events  roles/shared roles/ai_events/shared roles/ai_events/local
+dev      ai_events  roles/shared
+prod-us  ai_events  roles/shared roles/ai_events/shared roles/ai_events/prod
+prod-eu  ai_events  roles/shared roles/ai_events/shared roles/ai_events/prod
+
 # prod-us  data       roles/shared roles/data/shared roles/data/prod-us
 # prod-us  endpoints  roles/shared
 # prod-us  aux        roles/shared
-# prod-us  ai_events  roles/shared
 # prod-us  sessions   roles/shared

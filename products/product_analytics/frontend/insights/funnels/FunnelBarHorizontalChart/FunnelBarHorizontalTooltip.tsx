@@ -1,12 +1,17 @@
+import { useValues } from 'kea'
+
 import type { TooltipContext } from '@posthog/quill-charts'
 
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { FunnelTooltip } from 'scenes/funnels/FunnelTooltip'
 import { funnelComparePeriodDateRange, getFunnelAggregateConversionRate } from 'scenes/funnels/funnelUtils'
 
 import type { BreakdownFilter } from '~/queries/schema/schema-general'
 import type { FunnelStepWithConversionMetrics } from '~/types'
 
-import type { FunnelBarHorizontalSegmentMeta } from './funnelBarHorizontalTransforms'
+import { FunnelStepTooltip } from '../shared/FunnelStepTooltip'
+import { type FunnelBarHorizontalSegmentMeta, resolveFunnelBarHorizontalHover } from './funnelBarHorizontalTransforms'
 
 interface FunnelBarHorizontalTooltipProps {
     context: TooltipContext<FunnelBarHorizontalSegmentMeta>
@@ -29,29 +34,33 @@ export function FunnelBarHorizontalTooltip({
     resolvedDateRange,
     compareTo,
 }: FunnelBarHorizontalTooltipProps): JSX.Element | null {
-    const entry = context.seriesData[0]
-    if (!entry) {
+    const { featureFlags } = useValues(featureFlagLogic)
+    const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
+
+    const target = resolveFunnelBarHorizontalHover(context, step, stepIndex)
+    if (!target) {
         return null
     }
 
-    const breakdownIndex = entry.series.meta?.breakdownIndex
-    const series =
-        breakdownIndex != null && step.nested_breakdown?.[breakdownIndex] ? step.nested_breakdown[breakdownIndex] : step
+    const { series, isDropOffHover, color } = target
     const aggregateConversionRate = getFunnelAggregateConversionRate(series, step)
+    const comparePeriodDateRange = series.compare_label
+        ? funnelComparePeriodDateRange(series.compare_label, resolvedDateRange, compareTo)
+        : null
 
-    return (
-        <FunnelTooltip
-            showPersonsModal={showPersonsModal}
-            stepIndex={stepIndex}
-            series={series}
-            groupTypeLabel={groupTypeLabel}
-            breakdownFilter={breakdownFilter}
-            aggregateConversionRate={aggregateConversionRate}
-            comparePeriodDateRange={
-                series.compare_label
-                    ? funnelComparePeriodDateRange(series.compare_label, resolvedDateRange, compareTo)
-                    : null
-            }
-        />
+    const sharedProps = {
+        showPersonsModal,
+        stepIndex,
+        series,
+        groupTypeLabel,
+        breakdownFilter,
+        aggregateConversionRate,
+        comparePeriodDateRange,
+    }
+
+    return quillTooltipEnabled ? (
+        <FunnelStepTooltip {...sharedProps} isDropOffHover={isDropOffHover} color={color} />
+    ) : (
+        <FunnelTooltip {...sharedProps} isDropOffHover={isDropOffHover} />
     )
 }

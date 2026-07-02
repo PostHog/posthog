@@ -45,10 +45,18 @@ export const manifest: ProductManifest = {
             iconType: 'replay_vision',
             layout: 'app-container',
         },
+        ReplayVisionActionRun: {
+            name: 'Replay vision action run',
+            import: () => import('./frontend/replay_scanners/VisionActionRunScene'),
+            projectBased: true,
+            iconType: 'replay_vision',
+            layout: 'app-container',
+        },
     },
     routes: {
         '/replay-vision': ['ReplayVision', 'replayVision'],
         '/replay-vision/observations/:observationId': ['ReplayVisionObservation', 'replayVisionObservation'],
+        '/replay-vision/actions/:actionId/runs/:runId': ['ReplayVisionActionRun', 'replayVisionActionRun'],
         '/replay-vision/actions/:actionId': ['ReplayVisionAction', 'replayVisionAction'],
         '/replay-vision/:id/template': ['ReplayVisionScannerEditor', 'replayVisionScannerTemplate'],
         '/replay-vision/:id/configure': ['ReplayVisionScannerEditor', 'replayVisionScannerConfigure'],
@@ -68,6 +76,8 @@ export const manifest: ProductManifest = {
         replayVisionScannerTriggers: (id: string): string => `/replay-vision/${id}/triggers`,
         replayVisionObservation: (observationId: string): string => `/replay-vision/observations/${observationId}`,
         replayVisionAction: (actionId: string): string => `/replay-vision/actions/${actionId}`,
+        replayVisionActionRun: (actionId: string, runId: string): string =>
+            `/replay-vision/actions/${actionId}/runs/${runId}`,
     },
     fileSystemTypes: {},
     treeItemsNew: [],

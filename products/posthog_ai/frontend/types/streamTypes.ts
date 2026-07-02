@@ -20,6 +20,28 @@ export interface ProgressStep {
 }
 
 /**
+ * The kinds of alert the `RunAlertActivity` card renders. `reconnecting` is the live-connection retry
+ * banner (attempt counter + backoff); `connection_failed` is its terminal state (retries exhausted or a
+ * non-retryable open); `agent_error` / `agent_crash` are genuine agent-emitted failures rendered inline.
+ */
+export type RunAlertKind = 'reconnecting' | 'connection_failed' | 'agent_error' | 'agent_crash'
+
+/**
+ * View-model for the live connection banner, derived by `runStreamLogic.runConnectionState` and consumed
+ * by `RunAlertActivity`. Kept a pure type here (Tier 3) so the headless selector never imports the
+ * component. `null` from the selector means "connection healthy — render nothing".
+ */
+export interface RunConnectionState {
+    kind: RunAlertKind
+    /** `reconnecting`: current 1-based reconnect attempt. */
+    attempt?: number
+    /** `reconnecting`: max attempts before the connection is given up. */
+    maxAttempts?: number
+    /** The failed kinds: the error/crash detail to surface. */
+    message?: string
+}
+
+/**
  * One merged tool call: a `tool_call` creation plus N × `tool_call_update`s folded into a
  * single raw stream record keyed on `toolCallId`. Renderer-specific parsing, such as resolving
  * the inner tool name for PostHog's single-exec MCP server, happens outside this stream state.

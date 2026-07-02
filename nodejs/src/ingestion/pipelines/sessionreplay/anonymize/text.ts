@@ -10,17 +10,75 @@ export interface ScrubResult {
 // A "word" is a maximal run of word chars: Unicode letters/numbers, `_`, `'`, `’`.
 const WORD_RE = /[\p{L}\p{N}_'’]+/gu
 
-// Guaranteed email-PII pass, run over all text
-const EMAIL_RE = /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g
-
-/** Redact any email addresses in `input` (length-preserving). Safe to run anywhere. */
+// Guaranteed email-PII pass, run over all text. Hand-rolled scan (expand around each `@`,
+// equivalent to /[A-Za-z0-9._%+-]+@[A-Za-z0-9.-]+\.[A-Za-z]{2,}/g) because that regex
+// backtracks quadratically on long unbroken charset runs (base64 bodies: minutes per event).
 export function redactEmails(input: string): ScrubResult {
+    let at = input.indexOf('@')
+    if (at === -1) {
+        return { value: input, changed: false }
+    }
+    let out = ''
+    let last = 0
     let changed = false
-    const value = input.replace(EMAIL_RE, (m) => {
-        changed = true
-        return REDACT_CHAR.repeat(codePointLength(m))
-    })
-    return { value, changed }
+    while (at !== -1) {
+        let start = at
+        while (start > last && isLocalChar(input.charCodeAt(start - 1))) {
+            start--
+        }
+        let scanEnd = at + 1
+        while (scanEnd < input.length && isDomainChar(input.charCodeAt(scanEnd))) {
+            scanEnd++
+        }
+        const end = trimDomainToTld(input, at + 1, scanEnd)
+        if (start < at && end !== -1) {
+            out += input.slice(last, start) + REDACT_CHAR.repeat(codePointLength(input.slice(start, end)))
+            last = end
+            changed = true
+            at = input.indexOf('@', end)
+        } else {
+            at = input.indexOf('@', at + 1)
+        }
+    }
+    if (!changed) {
+        return { value: input, changed: false }
+    }
+    return { value: out + input.slice(last), changed }
+}
+
+/** Longest `end` in (domainStart, scanEnd] where the domain ends with `.` + ≥2 letters, or -1. */
+function trimDomainToTld(input: string, domainStart: number, scanEnd: number): number {
+    let i = scanEnd
+    while (i > domainStart) {
+        let letters = 0
+        while (i > domainStart && isAsciiLetter(input.charCodeAt(i - 1))) {
+            i--
+            letters++
+        }
+        if (letters >= 2 && i - 1 > domainStart && input.charCodeAt(i - 1) === 0x2e /* . */) {
+            return i + letters
+        }
+        i-- // skip the non-letter (or short-TLD dot) and keep looking left
+    }
+    return -1
+}
+
+function isAsciiLetter(c: number): boolean {
+    return (c >= 0x41 && c <= 0x5a) || (c >= 0x61 && c <= 0x7a)
+}
+
+function isAsciiAlphanumeric(c: number): boolean {
+    return isAsciiLetter(c) || (c >= 0x30 && c <= 0x39)
+}
+
+// [A-Za-z0-9._%+-]
+function isLocalChar(c: number): boolean {
+    return isAsciiAlphanumeric(c) || c === 0x2e || c === 0x5f || c === 0x25 || c === 0x2b || c === 0x2d
+}
+
+// [A-Za-z0-9.-]
+function isDomainChar(c: number): boolean {
+    return isAsciiAlphanumeric(c) || c === 0x2e || c === 0x2d
 }
 
 export function scrubText(ctx: ScrubContext, input: string): ScrubResult {

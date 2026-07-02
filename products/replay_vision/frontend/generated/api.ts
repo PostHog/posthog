@@ -17,7 +17,7 @@ import type {
     PaginatedReplayObservationListApi,
     PaginatedReplayScannerListApi,
     PaginatedVisionActionListApi,
-    PaginatedVisionActionRunListApi,
+    PaginatedVisionActionRunListListApi,
     PatchedReplayScannerApi,
     PatchedVisionActionApi,
     ReplayObservationApi,
@@ -185,11 +185,14 @@ export const visionActionsRunsList = async (
     visionActionId: string,
     params?: VisionActionsRunsListParams,
     options?: RequestInit
-): Promise<PaginatedVisionActionRunListApi> => {
-    return apiMutator<PaginatedVisionActionRunListApi>(getVisionActionsRunsListUrl(projectId, visionActionId, params), {
-        ...options,
-        method: 'GET',
-    })
+): Promise<PaginatedVisionActionRunListListApi> => {
+    return apiMutator<PaginatedVisionActionRunListListApi>(
+        getVisionActionsRunsListUrl(projectId, visionActionId, params),
+        {
+            ...options,
+            method: 'GET',
+        }
+    )
 }
 
 export const getVisionActionsRunsRetrieveUrl = (projectId: string, visionActionId: string, id: string) => {

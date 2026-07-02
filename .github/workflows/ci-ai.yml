@@ -7,15 +7,14 @@ concurrency:
     group: ${{ github.workflow }}-${{ github.head_ref || github.ref }}
     cancel-in-progress: true # We only want one AI CI run per PR concurrently
 
-env:
-    DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
-    DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-
 jobs:
     eval:
         timeout-minutes: 45
         name: AI evals / ${{ matrix.group }}
         runs-on: ubuntu-latest
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         # Skipping on forks as Braintrust credentials are not available there
         if: |
             github.repository == 'PostHog/posthog' && contains(github.event.pull_request.labels.*.name, 'evals-ready')

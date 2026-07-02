@@ -1,9 +1,9 @@
 import { useActions, useValues } from 'kea'
 
+import { HedgehogReadingIsMagic } from '@posthog/brand/hoggies'
 import { IconOpenSidebar } from '@posthog/icons'
 import { LemonButton, LemonInput } from '@posthog/lemon-ui'
 
-import { ReadingHog } from 'lib/components/hedgehogs'
 import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { Sparkline } from 'lib/components/Sparkline'
 import { TZLabel } from 'lib/components/TZLabel'
@@ -330,7 +330,7 @@ export function IngestionWarningsView(): JSX.Element {
                     titleOverride="Nice! No ingestion warnings in the past 30 days"
                     description="Your incoming events look clean. If we detect any issues with your data, we'll show them here."
                     docsURL="https://posthog.com/docs/data/data-management#ingestion-warnings"
-                    customHog={ReadingHog}
+                    customHog={HedgehogReadingIsMagic}
                     actionElementOverride={
                         <LemonButton
                             type="primary"

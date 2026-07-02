@@ -44,10 +44,14 @@ export const DomainsCreateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsCreateBodyDomainMax),
     jit_provisioning_enabled: zod.boolean().optional(),
     sso_enforcement: zod.string().max(domainsCreateBodySsoEnforcementMax).optional(),
-    saml_entity_id: zod.string().max(domainsCreateBodySamlEntityIdMax).nullish(),
-    saml_acs_url: zod.string().max(domainsCreateBodySamlAcsUrlMax).nullish(),
-    saml_x509_cert: zod.string().nullish(),
-    scim_enabled: zod.boolean().optional(),
+    saml_entity_id: zod
+        .string()
+        .max(domainsCreateBodySamlEntityIdMax)
+        .nullish()
+        .describe('SAML IdP entity ID (issuer).'),
+    saml_acs_url: zod.string().max(domainsCreateBodySamlAcsUrlMax).nullish().describe('SAML single sign-on (ACS) URL.'),
+    saml_x509_cert: zod.string().nullish().describe('SAML IdP X.509 signing certificate (PEM).'),
+    scim_enabled: zod.boolean().optional().describe('Whether SCIM provisioning is enabled for this domain.'),
     id_jag_issuer_url: zod
         .string()
         .max(domainsCreateBodyIdJagIssuerUrlMax)
@@ -62,6 +66,12 @@ export const DomainsCreateBody = /* @__PURE__ */ zod.object({
         .array(zod.string().max(domainsCreateBodyIdJagAllowedClientsItemMax))
         .optional()
         .describe('Allowed ID-JAG client IDs. Empty list allows any client_id.'),
+    identity_provider_config: zod
+        .uuid()
+        .nullish()
+        .describe(
+            'Linked IdP configuration (SAML\/SCIM\/XAA) that backs this domain. Must belong to the same organization.'
+        ),
 })
 
 export const domainsUpdateBodyDomainMax = 128
@@ -82,10 +92,14 @@ export const DomainsUpdateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsUpdateBodyDomainMax),
     jit_provisioning_enabled: zod.boolean().optional(),
     sso_enforcement: zod.string().max(domainsUpdateBodySsoEnforcementMax).optional(),
-    saml_entity_id: zod.string().max(domainsUpdateBodySamlEntityIdMax).nullish(),
-    saml_acs_url: zod.string().max(domainsUpdateBodySamlAcsUrlMax).nullish(),
-    saml_x509_cert: zod.string().nullish(),
-    scim_enabled: zod.boolean().optional(),
+    saml_entity_id: zod
+        .string()
+        .max(domainsUpdateBodySamlEntityIdMax)
+        .nullish()
+        .describe('SAML IdP entity ID (issuer).'),
+    saml_acs_url: zod.string().max(domainsUpdateBodySamlAcsUrlMax).nullish().describe('SAML single sign-on (ACS) URL.'),
+    saml_x509_cert: zod.string().nullish().describe('SAML IdP X.509 signing certificate (PEM).'),
+    scim_enabled: zod.boolean().optional().describe('Whether SCIM provisioning is enabled for this domain.'),
     id_jag_issuer_url: zod
         .string()
         .max(domainsUpdateBodyIdJagIssuerUrlMax)
@@ -100,6 +114,12 @@ export const DomainsUpdateBody = /* @__PURE__ */ zod.object({
         .array(zod.string().max(domainsUpdateBodyIdJagAllowedClientsItemMax))
         .optional()
         .describe('Allowed ID-JAG client IDs. Empty list allows any client_id.'),
+    identity_provider_config: zod
+        .uuid()
+        .nullish()
+        .describe(
+            'Linked IdP configuration (SAML\/SCIM\/XAA) that backs this domain. Must belong to the same organization.'
+        ),
 })
 
 export const domainsPartialUpdateBodyDomainMax = 128
@@ -120,10 +140,18 @@ export const DomainsPartialUpdateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsPartialUpdateBodyDomainMax).optional(),
     jit_provisioning_enabled: zod.boolean().optional(),
     sso_enforcement: zod.string().max(domainsPartialUpdateBodySsoEnforcementMax).optional(),
-    saml_entity_id: zod.string().max(domainsPartialUpdateBodySamlEntityIdMax).nullish(),
-    saml_acs_url: zod.string().max(domainsPartialUpdateBodySamlAcsUrlMax).nullish(),
-    saml_x509_cert: zod.string().nullish(),
-    scim_enabled: zod.boolean().optional(),
+    saml_entity_id: zod
+        .string()
+        .max(domainsPartialUpdateBodySamlEntityIdMax)
+        .nullish()
+        .describe('SAML IdP entity ID (issuer).'),
+    saml_acs_url: zod
+        .string()
+        .max(domainsPartialUpdateBodySamlAcsUrlMax)
+        .nullish()
+        .describe('SAML single sign-on (ACS) URL.'),
+    saml_x509_cert: zod.string().nullish().describe('SAML IdP X.509 signing certificate (PEM).'),
+    scim_enabled: zod.boolean().optional().describe('Whether SCIM provisioning is enabled for this domain.'),
     id_jag_issuer_url: zod
         .string()
         .max(domainsPartialUpdateBodyIdJagIssuerUrlMax)
@@ -138,6 +166,12 @@ export const DomainsPartialUpdateBody = /* @__PURE__ */ zod.object({
         .array(zod.string().max(domainsPartialUpdateBodyIdJagAllowedClientsItemMax))
         .optional()
         .describe('Allowed ID-JAG client IDs. Empty list allows any client_id.'),
+    identity_provider_config: zod
+        .uuid()
+        .nullish()
+        .describe(
+            'Linked IdP configuration (SAML\/SCIM\/XAA) that backs this domain. Must belong to the same organization.'
+        ),
 })
 
 /**
@@ -161,10 +195,18 @@ export const DomainsScimTokenCreateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsScimTokenCreateBodyDomainMax),
     jit_provisioning_enabled: zod.boolean().optional(),
     sso_enforcement: zod.string().max(domainsScimTokenCreateBodySsoEnforcementMax).optional(),
-    saml_entity_id: zod.string().max(domainsScimTokenCreateBodySamlEntityIdMax).nullish(),
-    saml_acs_url: zod.string().max(domainsScimTokenCreateBodySamlAcsUrlMax).nullish(),
-    saml_x509_cert: zod.string().nullish(),
-    scim_enabled: zod.boolean().optional(),
+    saml_entity_id: zod
+        .string()
+        .max(domainsScimTokenCreateBodySamlEntityIdMax)
+        .nullish()
+        .describe('SAML IdP entity ID (issuer).'),
+    saml_acs_url: zod
+        .string()
+        .max(domainsScimTokenCreateBodySamlAcsUrlMax)
+        .nullish()
+        .describe('SAML single sign-on (ACS) URL.'),
+    saml_x509_cert: zod.string().nullish().describe('SAML IdP X.509 signing certificate (PEM).'),
+    scim_enabled: zod.boolean().optional().describe('Whether SCIM provisioning is enabled for this domain.'),
     id_jag_issuer_url: zod
         .string()
         .max(domainsScimTokenCreateBodyIdJagIssuerUrlMax)
@@ -179,6 +221,12 @@ export const DomainsScimTokenCreateBody = /* @__PURE__ */ zod.object({
         .array(zod.string().max(domainsScimTokenCreateBodyIdJagAllowedClientsItemMax))
         .optional()
         .describe('Allowed ID-JAG client IDs. Empty list allows any client_id.'),
+    identity_provider_config: zod
+        .uuid()
+        .nullish()
+        .describe(
+            'Linked IdP configuration (SAML\/SCIM\/XAA) that backs this domain. Must belong to the same organization.'
+        ),
 })
 
 export const domainsVerifyCreateBodyDomainMax = 128
@@ -199,10 +247,18 @@ export const DomainsVerifyCreateBody = /* @__PURE__ */ zod.object({
     domain: zod.string().max(domainsVerifyCreateBodyDomainMax),
     jit_provisioning_enabled: zod.boolean().optional(),
     sso_enforcement: zod.string().max(domainsVerifyCreateBodySsoEnforcementMax).optional(),
-    saml_entity_id: zod.string().max(domainsVerifyCreateBodySamlEntityIdMax).nullish(),
-    saml_acs_url: zod.string().max(domainsVerifyCreateBodySamlAcsUrlMax).nullish(),
-    saml_x509_cert: zod.string().nullish(),
-    scim_enabled: zod.boolean().optional(),
+    saml_entity_id: zod
+        .string()
+        .max(domainsVerifyCreateBodySamlEntityIdMax)
+        .nullish()
+        .describe('SAML IdP entity ID (issuer).'),
+    saml_acs_url: zod
+        .string()
+        .max(domainsVerifyCreateBodySamlAcsUrlMax)
+        .nullish()
+        .describe('SAML single sign-on (ACS) URL.'),
+    saml_x509_cert: zod.string().nullish().describe('SAML IdP X.509 signing certificate (PEM).'),
+    scim_enabled: zod.boolean().optional().describe('Whether SCIM provisioning is enabled for this domain.'),
     id_jag_issuer_url: zod
         .string()
         .max(domainsVerifyCreateBodyIdJagIssuerUrlMax)
@@ -215,6 +271,165 @@ export const DomainsVerifyCreateBody = /* @__PURE__ */ zod.object({
         .describe('Override JWKS URL. Defaults to OIDC discovery on the issuer URL.'),
     id_jag_allowed_clients: zod
         .array(zod.string().max(domainsVerifyCreateBodyIdJagAllowedClientsItemMax))
+        .optional()
+        .describe('Allowed ID-JAG client IDs. Empty list allows any client_id.'),
+    identity_provider_config: zod
+        .uuid()
+        .nullish()
+        .describe(
+            'Linked IdP configuration (SAML\/SCIM\/XAA) that backs this domain. Must belong to the same organization.'
+        ),
+})
+
+export const identityProviderConfigsCreateBodyNameMax = 255
+
+export const identityProviderConfigsCreateBodySamlEntityIdMax = 512
+
+export const identityProviderConfigsCreateBodySamlAcsUrlMax = 512
+
+export const identityProviderConfigsCreateBodyIdJagIssuerUrlMax = 512
+
+export const identityProviderConfigsCreateBodyIdJagJwksUrlMax = 512
+
+export const identityProviderConfigsCreateBodyIdJagAllowedClientsItemMax = 256
+
+export const IdentityProviderConfigsCreateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(identityProviderConfigsCreateBodyNameMax)
+        .optional()
+        .describe("Display name for this IdP configuration (e.g. 'Okta production')."),
+    saml_entity_id: zod
+        .string()
+        .max(identityProviderConfigsCreateBodySamlEntityIdMax)
+        .nullish()
+        .describe('SAML IdP entity ID (issuer).'),
+    saml_acs_url: zod
+        .string()
+        .max(identityProviderConfigsCreateBodySamlAcsUrlMax)
+        .nullish()
+        .describe('SAML single sign-on (ACS) URL the IdP redirects to.'),
+    saml_x509_cert: zod.string().nullish().describe('SAML IdP X.509 signing certificate (PEM).'),
+    scim_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether SCIM provisioning is enabled. Setting this true generates a bearer token (returned once); setting it false clears the token.'
+        ),
+    id_jag_issuer_url: zod
+        .string()
+        .max(identityProviderConfigsCreateBodyIdJagIssuerUrlMax)
+        .nullish()
+        .describe('Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG.'),
+    id_jag_jwks_url: zod
+        .string()
+        .max(identityProviderConfigsCreateBodyIdJagJwksUrlMax)
+        .nullish()
+        .describe('Override JWKS URL. Defaults to OIDC discovery on the issuer URL.'),
+    id_jag_allowed_clients: zod
+        .array(zod.string().max(identityProviderConfigsCreateBodyIdJagAllowedClientsItemMax))
+        .optional()
+        .describe('Allowed ID-JAG client IDs. Empty list allows any client_id.'),
+})
+
+export const identityProviderConfigsUpdateBodyNameMax = 255
+
+export const identityProviderConfigsUpdateBodySamlEntityIdMax = 512
+
+export const identityProviderConfigsUpdateBodySamlAcsUrlMax = 512
+
+export const identityProviderConfigsUpdateBodyIdJagIssuerUrlMax = 512
+
+export const identityProviderConfigsUpdateBodyIdJagJwksUrlMax = 512
+
+export const identityProviderConfigsUpdateBodyIdJagAllowedClientsItemMax = 256
+
+export const IdentityProviderConfigsUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(identityProviderConfigsUpdateBodyNameMax)
+        .optional()
+        .describe("Display name for this IdP configuration (e.g. 'Okta production')."),
+    saml_entity_id: zod
+        .string()
+        .max(identityProviderConfigsUpdateBodySamlEntityIdMax)
+        .nullish()
+        .describe('SAML IdP entity ID (issuer).'),
+    saml_acs_url: zod
+        .string()
+        .max(identityProviderConfigsUpdateBodySamlAcsUrlMax)
+        .nullish()
+        .describe('SAML single sign-on (ACS) URL the IdP redirects to.'),
+    saml_x509_cert: zod.string().nullish().describe('SAML IdP X.509 signing certificate (PEM).'),
+    scim_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether SCIM provisioning is enabled. Setting this true generates a bearer token (returned once); setting it false clears the token.'
+        ),
+    id_jag_issuer_url: zod
+        .string()
+        .max(identityProviderConfigsUpdateBodyIdJagIssuerUrlMax)
+        .nullish()
+        .describe('Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG.'),
+    id_jag_jwks_url: zod
+        .string()
+        .max(identityProviderConfigsUpdateBodyIdJagJwksUrlMax)
+        .nullish()
+        .describe('Override JWKS URL. Defaults to OIDC discovery on the issuer URL.'),
+    id_jag_allowed_clients: zod
+        .array(zod.string().max(identityProviderConfigsUpdateBodyIdJagAllowedClientsItemMax))
+        .optional()
+        .describe('Allowed ID-JAG client IDs. Empty list allows any client_id.'),
+})
+
+export const identityProviderConfigsPartialUpdateBodyNameMax = 255
+
+export const identityProviderConfigsPartialUpdateBodySamlEntityIdMax = 512
+
+export const identityProviderConfigsPartialUpdateBodySamlAcsUrlMax = 512
+
+export const identityProviderConfigsPartialUpdateBodyIdJagIssuerUrlMax = 512
+
+export const identityProviderConfigsPartialUpdateBodyIdJagJwksUrlMax = 512
+
+export const identityProviderConfigsPartialUpdateBodyIdJagAllowedClientsItemMax = 256
+
+export const IdentityProviderConfigsPartialUpdateBody = /* @__PURE__ */ zod.object({
+    name: zod
+        .string()
+        .max(identityProviderConfigsPartialUpdateBodyNameMax)
+        .optional()
+        .describe("Display name for this IdP configuration (e.g. 'Okta production')."),
+    saml_entity_id: zod
+        .string()
+        .max(identityProviderConfigsPartialUpdateBodySamlEntityIdMax)
+        .nullish()
+        .describe('SAML IdP entity ID (issuer).'),
+    saml_acs_url: zod
+        .string()
+        .max(identityProviderConfigsPartialUpdateBodySamlAcsUrlMax)
+        .nullish()
+        .describe('SAML single sign-on (ACS) URL the IdP redirects to.'),
+    saml_x509_cert: zod.string().nullish().describe('SAML IdP X.509 signing certificate (PEM).'),
+    scim_enabled: zod
+        .boolean()
+        .optional()
+        .describe(
+            'Whether SCIM provisioning is enabled. Setting this true generates a bearer token (returned once); setting it false clears the token.'
+        ),
+    id_jag_issuer_url: zod
+        .string()
+        .max(identityProviderConfigsPartialUpdateBodyIdJagIssuerUrlMax)
+        .nullish()
+        .describe('Trusted IdP issuer URL for ID-JAG (XAA). Required to enable ID-JAG.'),
+    id_jag_jwks_url: zod
+        .string()
+        .max(identityProviderConfigsPartialUpdateBodyIdJagJwksUrlMax)
+        .nullish()
+        .describe('Override JWKS URL. Defaults to OIDC discovery on the issuer URL.'),
+    id_jag_allowed_clients: zod
+        .array(zod.string().max(identityProviderConfigsPartialUpdateBodyIdJagAllowedClientsItemMax))
         .optional()
         .describe('Allowed ID-JAG client IDs. Empty list allows any client_id.'),
 })
@@ -9513,6 +9728,19 @@ export const NotebooksSharingRefreshCreateBody = /* @__PURE__ */ zod.object({
     enabled: zod.boolean().optional(),
     settings: zod.unknown().optional(),
     password_required: zod.boolean().optional(),
+})
+
+export const ProductEnablementCreateBody = /* @__PURE__ */ zod.object({
+    products: zod
+        .array(
+            zod
+                .enum(['conversations', 'error_tracking', 'session_replay'])
+                .describe(
+                    '\* `conversations` - conversations\n\* `error_tracking` - error_tracking\n\* `session_replay` - session_replay'
+                )
+        )
+        .min(1)
+        .describe('Products to turn on for this project, each enabled with server-owned conservative defaults.'),
 })
 
 export const projectSecretApiKeysCreateBodyLabelMax = 40
