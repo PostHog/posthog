@@ -62,7 +62,73 @@ describe('featureFlagIntentWarningLogic', () => {
                         variant: null,
                     },
                 ],
-                expectedUnreachable: [1],
+                expectedUnreachable: [[1, 0]],
+            },
+            {
+                name: 'cohort-filtered first set at 100% does not shadow a later condition',
+                groups: [
+                    {
+                        properties: [{ key: 'id', type: PropertyFilterType.Cohort, value: 42 }],
+                        rollout_percentage: 100,
+                        variant: null,
+                    },
+                    {
+                        properties: [
+                            {
+                                key: 'email',
+                                type: PropertyFilterType.Person,
+                                value: 'test@posthog.com',
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
+                        rollout_percentage: 50,
+                        variant: null,
+                    },
+                ],
+                expectedUnreachable: [],
+            },
+            {
+                name: 'group-property-filtered first set at 100% does not shadow a later condition',
+                groups: [
+                    {
+                        properties: [
+                            {
+                                key: 'organization_id',
+                                type: PropertyFilterType.Person,
+                                value: 'org_123',
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
+                        rollout_percentage: 100,
+                        variant: null,
+                    },
+                    { properties: [], rollout_percentage: 50, variant: null },
+                ],
+                expectedUnreachable: [],
+            },
+            {
+                name: 'names the broad set even when a filtered set precedes the shadowed condition',
+                groups: [
+                    {
+                        properties: [{ key: 'id', type: PropertyFilterType.Cohort, value: 42 }],
+                        rollout_percentage: 100,
+                        variant: null,
+                    },
+                    { properties: [], rollout_percentage: 100, variant: null },
+                    {
+                        properties: [
+                            {
+                                key: 'organization_id',
+                                type: PropertyFilterType.Person,
+                                value: 'org_123',
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
+                        rollout_percentage: 50,
+                        variant: null,
+                    },
+                ],
+                expectedUnreachable: [[2, 1]],
             },
             {
                 name: 'broad group at end does not trigger unreachable',
@@ -100,7 +166,7 @@ describe('featureFlagIntentWarningLogic', () => {
                         variant: null,
                     },
                 ],
-                expectedUnreachable: [1],
+                expectedUnreachable: [[1, 0]],
             },
             {
                 name: 'multiple unreachable groups detected',
@@ -131,7 +197,10 @@ describe('featureFlagIntentWarningLogic', () => {
                         variant: null,
                     },
                 ],
-                expectedUnreachable: [1, 2],
+                expectedUnreachable: [
+                    [1, 0],
+                    [2, 0],
+                ],
             },
             {
                 name: 'group with properties is not broad even at 100%',
@@ -216,7 +285,7 @@ describe('featureFlagIntentWarningLogic', () => {
                         aggregation_group_type_index: 0,
                     },
                 ],
-                expectedUnreachable: [1],
+                expectedUnreachable: [[1, 0]],
             },
             {
                 name: 'broad condition for group type 0 does not shadow later condition for group type 1',
@@ -243,7 +312,7 @@ describe('featureFlagIntentWarningLogic', () => {
             })
 
             await expectLogic(warningLogic).toMatchValues({
-                unreachableGroups: new Set(expectedUnreachable),
+                unreachableGroups: new Map(expectedUnreachable as [number, number][]),
             })
         })
 
@@ -274,7 +343,7 @@ describe('featureFlagIntentWarningLogic', () => {
             })
 
             await expectLogic(warningLogic).toMatchValues({
-                unreachableGroups: new Set(),
+                unreachableGroups: new Map(),
             })
         })
     })

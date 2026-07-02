@@ -69,20 +69,22 @@ export const featureFlagIntentWarningLogic = kea<featureFlagIntentWarningLogicTy
     }),
 
     selectors({
+        // Maps each unreachable condition-set index to the index of the earlier broad set that shadows it,
+        // so the warning can name the specific culprit instead of a vague "a previous condition".
         unreachableGroups: [
             (s) => [s.featureFlag],
-            (featureFlag: FeatureFlagType): Set<number> => {
+            (featureFlag: FeatureFlagType): Map<number, number> => {
                 const groups = featureFlag?.filters?.groups
                 if (!groups || groups.length <= 1) {
-                    return new Set()
+                    return new Map()
                 }
 
                 // A broad condition only shadows later conditions targeting the same entity type.
                 // Mixed-targeting flags can have condition sets aimed at users (null) or different
                 // group types, which are evaluated independently when their context is provided.
                 const flagAggregation = featureFlag?.filters?.aggregation_group_type_index ?? null
-                const unreachable = new Set<number>()
-                const broadAggregations = new Set<number | null>()
+                const unreachable = new Map<number, number>()
+                const broadAggregations = new Map<number | null, number>()
                 for (let i = 0; i < groups.length; i++) {
                     const group = groups[i]
                     // Distinguish "not provided" (undefined → inherit flag-level) from "explicitly user-targeted" (null).
@@ -91,9 +93,9 @@ export const featureFlagIntentWarningLogic = kea<featureFlagIntentWarningLogicTy
                             ? group.aggregation_group_type_index
                             : flagAggregation
                     if (broadAggregations.has(aggregation)) {
-                        unreachable.add(i)
+                        unreachable.set(i, broadAggregations.get(aggregation)!)
                     } else if (isGroupBroad(group)) {
-                        broadAggregations.add(aggregation)
+                        broadAggregations.set(aggregation, i)
                     }
                 }
                 return unreachable

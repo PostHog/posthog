@@ -312,13 +312,14 @@ function UnreachableConditionBanner({
     groupIndex: number
 }): JSX.Element | null {
     const { unreachableGroups } = useValues(featureFlagIntentWarningLogic({ id: flagId }))
-    if (!unreachableGroups.has(groupIndex)) {
+    const shadowingIndex = unreachableGroups.get(groupIndex)
+    if (shadowingIndex === undefined) {
         return null
     }
     return (
         <LemonBanner type="warning" className="mb-1">
-            <strong>Unreachable condition</strong> — A previous condition matches all users at 100% rollout, so this
-            condition will never be evaluated.
+            <strong>Unreachable condition</strong> — Condition set {shadowingIndex + 1} already matches everyone at 100%
+            rollout, so this condition will never be evaluated.
         </LemonBanner>
     )
 }
