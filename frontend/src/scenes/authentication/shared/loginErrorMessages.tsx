@@ -36,4 +36,6 @@ export const ERROR_MESSAGES: Record<string, string | JSX.Element> = {
     invalid_invite:
         'This invite link is no longer valid. It may have expired or been revoked. Please ask your administrator for a new invite.',
     social_login_failure: 'Login failed. Please try again or contact your administrator.',
+    login_bounced:
+        "You were logged in, but immediately returned to the login page — your session couldn't be saved. This usually means cookies are being blocked, or your instance requires secure (HTTPS) cookies while you're on an insecure connection. Check your browser's cookie settings and try again.",
 }

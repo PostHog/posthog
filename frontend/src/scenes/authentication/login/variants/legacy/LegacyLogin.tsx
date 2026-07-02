@@ -33,7 +33,8 @@ import { loginLogic } from '../../loginLogic'
 const LAST_LOGIN_METHOD_COOKIE = 'ph_last_login_method'
 
 function Login(): JSX.Element {
-    const { precheck, resendEmailMFA, clearGeneralError, resetLogin, devLogin, loadDevUsers } = useActions(loginLogic)
+    const { precheck, resendEmailMFA, clearGeneralError, setLoginValue, devLogin, loadDevUsers } =
+        useActions(loginLogic)
     const { openSupportForm } = useActions(supportLogic)
     const {
         precheckResponse,
@@ -73,10 +74,12 @@ function Login(): JSX.Element {
         if (!isPasswordHidden) {
             passwordInputRef.current?.focus()
         } else if (!wasPasswordHidden) {
-            // clear form when transitioning from visible to hidden
-            resetLogin()
+            // Clear only the password when transitioning from visible to hidden — keep the
+            // already-entered email so the user doesn't have to retype it (and doesn't land
+            // on what looks like a blank form).
+            setLoginValue('password', '')
         }
-    }, [isPasswordHidden, resetLogin])
+    }, [isPasswordHidden, setLoginValue])
 
     // Trigger precheck for password manager autofill/paste (detected by large character delta)
     useEffect(() => {
@@ -149,7 +152,12 @@ function Login(): JSX.Element {
                         formKey="login"
                         enableFormOnSubmit
                         onSubmitCapture={(e) => {
-                            if (isPasswordHidden || preventPasswordError.current) {
+                            // While the password field is still hidden, a click means "continue"
+                            // (reveal the password / SSO options), not "submit" — prevent the submit
+                            // so we don't flag an empty-password error. But only once an email has
+                            // been entered, so clicking with an empty email still surfaces the
+                            // "enter your email" validation error instead of dying silently.
+                            if ((isPasswordHidden && login.email) || preventPasswordError.current) {
                                 e.preventDefault()
                                 e.stopPropagation()
                                 preventPasswordError.current = false
@@ -217,9 +225,17 @@ function Login(): JSX.Element {
                                 loading={isLoginSubmitting || precheckResponseLoading}
                                 size="large"
                                 onMouseDown={() => {
-                                    if (isPasswordHidden) {
+                                    if (isPasswordHidden && login.email) {
                                         // prevent empty password error
                                         preventPasswordError.current = true
+                                    }
+                                }}
+                                onClick={() => {
+                                    if (isPasswordHidden) {
+                                        // Advance the flow instead of dead-clicking: run precheck to
+                                        // reveal the password field (or SSO button) rather than
+                                        // silently swallowing the click.
+                                        precheck({ email: login.email })
                                     }
                                 }}
                             >

@@ -21,6 +21,12 @@ function setVendor(vendor: string): void {
 }
 
 describe('loginLogic', () => {
+    beforeEach(() => {
+        // handleLoginRedirect() writes a sessionStorage marker used for bounce detection —
+        // clear it between tests so it doesn't leak across the direct-call redirect tests.
+        window.sessionStorage.clear()
+    })
+
     describe('redirect vulnerability', () => {
         beforeEach(() => {
             // Note, initKeaTests() is not called here because that uses a memory history, which doesn't throw on origin redirect
@@ -135,6 +141,59 @@ describe('loginLogic', () => {
             logic.actions.precheck({ email: 'user@example.com' })
             await expectLogic(logic).toDispatchActions(['precheckSuccess']).toFinishAllListeners()
             expect(beginHandler).not.toHaveBeenCalled()
+        })
+    })
+
+    describe('post-login bounce detection', () => {
+        let logic: ReturnType<typeof loginLogic.build>
+        const originalVendor = window.navigator.vendor
+        const originalLocation = window.location
+
+        beforeEach(() => {
+            setVendor(WEBKIT_VENDOR) // skip the passkey auto-trigger, isolate the redirect flow
+            // jsdom's window.location.reload is read-only, so swap in a stub that no-ops the
+            // hard reload while preserving the origin handleLoginRedirect() reads.
+            Object.defineProperty(window, 'location', {
+                configurable: true,
+                writable: true,
+                value: {
+                    ...originalLocation,
+                    origin: originalLocation.origin,
+                    href: originalLocation.href,
+                    reload: jest.fn(),
+                },
+            })
+            useMocks({ post: { '/api/login': () => [200, { success: true }] } })
+            initKeaTests()
+            router.actions.push('/login')
+            logic = loginLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            setVendor(originalVendor)
+            Object.defineProperty(window, 'location', {
+                configurable: true,
+                writable: true,
+                value: originalLocation,
+            })
+            jest.clearAllMocks()
+        })
+
+        it('surfaces an error when a completed login lands the user back on /login', async () => {
+            logic.actions.setLoginValues({ email: 'user@example.com', password: 'hunter2' })
+            logic.actions.submitLogin()
+            await expectLogic(logic).toDispatchActions(['submitLoginSuccess']).toFinishAllListeners()
+
+            // The server bounced us back to /login because the session didn't persist.
+            router.actions.push('/login')
+            await expectLogic(logic).toMatchValues({ generalError: { code: 'login_bounced', detail: '' } })
+        })
+
+        it('does not surface a bounce error on a normal /login visit', async () => {
+            router.actions.push('/login')
+            await expectLogic(logic).toMatchValues({ generalError: null })
         })
     })
 

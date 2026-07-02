@@ -42,7 +42,42 @@ const BACKEND_ONLY_ROUTES = [
     '/toolbar_oauth/check',
 ]
 
+// Marker written just before the post-login hard reload. If the server bounces the user
+// straight back to /login (e.g. the session cookie didn't persist), we detect it on the
+// next /login load and surface an error instead of silently looping into a blank form.
+const LOGIN_COMPLETED_MARKER = 'ph_login_completed_at'
+const LOGIN_BOUNCE_WINDOW_MS = 10_000
+
+function markLoginCompleted(): void {
+    try {
+        window.sessionStorage.setItem(LOGIN_COMPLETED_MARKER, String(Date.now()))
+    } catch {
+        // sessionStorage may be unavailable (private mode / blocked storage) — best-effort only
+    }
+}
+
+// Returns true when we land on /login shortly after a successful login, i.e. the session
+// didn't stick and the server bounced us back. Consumes the marker so it only fires once.
+function consumeLoginBounce(): boolean {
+    try {
+        const raw = window.sessionStorage.getItem(LOGIN_COMPLETED_MARKER)
+        if (!raw) {
+            return false
+        }
+        window.sessionStorage.removeItem(LOGIN_COMPLETED_MARKER)
+        const completedAt = parseInt(raw, 10)
+        return Number.isFinite(completedAt) && Date.now() - completedAt < LOGIN_BOUNCE_WINDOW_MS
+    } catch {
+        return false
+    }
+}
+
 export function handleLoginRedirect(): void {
+    // Every caller of this follows it with a hard reload. Record that a login just
+    // completed so that, if the server bounces us straight back to /login (the session
+    // didn't persist), we can detect it and surface an error instead of looping silently.
+    markLoginCompleted()
+
     let nextURL = '/'
     try {
         const nextPath = getRelativeNextPath(router.values.searchParams['next'], location) || '/'
@@ -234,6 +269,10 @@ export const loginLogic = kea<loginLogicType>([
             if (error_code) {
                 actions.setGeneralError(error_code, error_detail)
                 router.actions.replace('/login', {})
+            } else if (consumeLoginBounce()) {
+                // We just logged in successfully but were returned to /login — the session
+                // didn't persist. Make the failure legible instead of hard-reloading forever.
+                actions.setGeneralError('login_bounced', '')
             }
 
             if (message) {
