@@ -443,7 +443,9 @@ SIGNAL_EXTRA_MODELS = list(contracts.SignalExtraBase.__subclasses__())
 @extend_schema_field(
     PolymorphicProxySerializer(
         component_name="SignalExtra",
-        serializers=SIGNAL_EXTRA_MODELS,
+        # drf-spectacular's built-in PydanticExtension resolves the Pydantic models at schema-build
+        # time; the stubs only know about DRF serializers, hence the cast.
+        serializers=cast(list, SIGNAL_EXTRA_MODELS),
         resource_type_field_name=None,
     )
 )
