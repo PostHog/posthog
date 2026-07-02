@@ -311,6 +311,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
 
             if (sourcesChanged) {
                 cache.store?.setSources(snapshotSources)
+                actions.storeUpdated()
             }
 
             actions.loadNextSnapshotSource()
@@ -381,6 +382,10 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         },
 
         maybeStartPolling: () => {
+            // file playback has no recording id and nothing server-side to poll
+            if (!props.sessionRecordingId) {
+                return
+            }
             if (props.blobV2PollingDisabled || !values.allSourcesLoaded || values.isPolling || document.hidden) {
                 return
             }

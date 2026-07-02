@@ -260,7 +260,7 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
             }
         },
     })),
-    selectors(({ cache }) => ({
+    selectors(() => ({
         snapshots: [
             (s) => [s.processedSnapshots],
             (processedSnapshots: RecordingSnapshot[]): RecordingSnapshot[] => {
@@ -370,19 +370,21 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
 
         windowIdForTimestamp: [
             (s) => [s.segments],
-            (segments) =>
-                (timestamp: number): number | undefined => {
-                    cache.windowIdForTimestamp = cache.windowIdForTimestamp || {}
-                    if (cache.windowIdForTimestamp[timestamp] !== undefined) {
-                        return cache.windowIdForTimestamp[timestamp]
+            (segments) => {
+                // memoized per segments recompute — segments reshape as data loads, so a logic-lifetime cache would pin stale window attributions
+                const memo: Record<number, number | undefined> = {}
+                return (timestamp: number): number | undefined => {
+                    if (timestamp in memo) {
+                        return memo[timestamp]
                     }
                     const matchingWindowId = segments.find(
                         (segment) => segment.startTimestamp <= timestamp && segment.endTimestamp >= timestamp
                     )?.windowId
 
-                    cache.windowIdForTimestamp[timestamp] = matchingWindowId
+                    memo[timestamp] = matchingWindowId
                     return matchingWindowId
-                },
+                }
+            },
         ],
 
         urls: [

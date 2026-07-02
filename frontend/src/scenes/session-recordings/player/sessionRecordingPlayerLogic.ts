@@ -598,7 +598,6 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         seekToStart: true,
         showSeekIndicator: (direction: 'forward' | 'backward', seconds: number) => ({ direction, seconds }),
         hideSeekIndicator: true,
-        resolvePlayerState: true,
         updateAnimation: true,
         stopAnimation: true,
         pauseIframePlayback: true,
@@ -1061,6 +1060,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     }
 
                     const snapshots = sessionPlayerData.snapshotsByWindowId[currentSegment.windowId]
+                    if (!snapshots?.length) {
+                        return
+                    }
 
                     return Math.max(0, timestamp - snapshots[0].timestamp)
                 }
@@ -1076,6 +1078,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                         return
                     }
                     const snapshots = sessionPlayerData.snapshotsByWindowId[currentSegment.windowId]
+                    if (!snapshots?.length) {
+                        return
+                    }
                     return snapshots[0].timestamp + time
                 }
             },
@@ -1789,6 +1794,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     values.player?.replayer?.addEvent(eventsToAdd[i])
                     if (performance.now() - lastYield > YIELD_AFTER_MS) {
                         await new Promise<void>((r) => setTimeout(r, 0))
+                        // a newer sync run computed its own event diff — cancel here or both runs add the same tail twice
+                        breakpoint()
                         lastYield = performance.now()
                     }
                 }
