@@ -1842,26 +1842,15 @@ def create_github_issue(
 
     github = GitHubIntegration(integration, source="conversations")
 
-    json_body: dict[str, Any] = {"title": title, "body": body}
-    if labels:
-        json_body["labels"] = labels
-
     try:
-        resp = github.api_request(
-            "POST",
-            f"/repos/{repo}/issues",
-            json_body=json_body,
-            timeout=15,
-        )
-        resp.raise_for_status()
+        issue_data = github.create_issue({"title": title, "body": body, "repository": repo, "labels": labels})
     except GitHubRateLimitError as e:
         logger.warning("github_create_issue_rate_limited", repo=repo)
         raise cast(Any, create_github_issue).retry(exc=e, countdown=min(e.retry_after or 60, 600))
-    except (GitHubIntegrationError, requests.RequestException) as e:
+    except GitHubIntegrationError as e:
         logger.exception("github_create_issue_failed", repo=repo, error=str(e))
         raise cast(Any, create_github_issue).retry(exc=e)
 
-    issue_data = resp.json()
     issue_number = issue_data.get("number")
 
     ticket = Ticket.objects.create_with_number(

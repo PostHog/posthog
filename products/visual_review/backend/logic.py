@@ -457,21 +457,14 @@ def _get_merge_base_sha(github: GitHubIntegration, repo_full_name: str, base: st
 
 
 def _get_default_branch(github: GitHubIntegration, repo_full_name: str) -> str:
-    """Get the repo's default branch name via the GitHub API. Falls back to 'master'."""
+    """The repo's default branch via the integration's cached verb. Falls back to 'master'."""
     try:
-        response = github.api_request("GET", f"/repos/{repo_full_name}")
-    except GitHubIntegrationError:
+        return github.get_default_branch(repo_full_name)
+    except GitHubRateLimitError:
+        raise
+    except Exception:
         logger.warning("visual_review.default_branch_fetch_failed", repo=repo_full_name)
         return "master"
-
-    if response.status_code == 200:
-        return response.json().get("default_branch", "master")
-    logger.warning(
-        "visual_review.default_branch_fetch_failed",
-        repo=repo_full_name,
-        status=response.status_code,
-    )
-    return "master"
 
 
 def _run_is_on_default_branch(repo: Repo, branch: str) -> bool:
@@ -1421,23 +1414,21 @@ def _fetch_baseline_file(
     identifier to ``{hash: "v1.kid.hash.tag"}`` (the signed format).
     If the file doesn't exist, returns ``({}, None)``.
     """
-    import base64
-
     import yaml
 
-    response = github.api_request("GET", f"/repos/{repo_full_name}/contents/{file_path}", params={"ref": branch})
+    try:
+        result = github.get_file_contents(repo_full_name, file_path, ref=branch)
+    except GitHubRateLimitError:
+        raise
+    except GitHubIntegrationError as e:
+        raise GitHubCommitError(f"Failed to fetch baseline file: {e}") from e
 
-    if response.status_code == 404:
+    if result is None:
         return {}, None
 
-    if response.status_code != 200:
-        raise GitHubCommitError(f"Failed to fetch baseline file: {response.status_code} {response.text}")
+    file_sha = result["sha"]
 
-    data = response.json()
-    content = base64.b64decode(data["content"]).decode("utf-8")
-    file_sha = data["sha"]
-
-    parsed = yaml.safe_load(content)
+    parsed = yaml.safe_load(result["content"])
     if not parsed or parsed.get("version") != 1:
         return {}, file_sha
 
