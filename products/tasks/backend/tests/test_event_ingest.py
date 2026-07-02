@@ -5,6 +5,7 @@ from collections.abc import Sequence
 
 from unittest.mock import patch
 
+from django.db import OperationalError
 from django.test import TestCase, override_settings
 
 from asgiref.sync import async_to_sync
@@ -592,6 +593,29 @@ class TestTaskRunEventIngest(TestCase):
 
         self.assertEqual(status, 401)
         self.assertEqual(body["error"], "Invalid event ingest token")
+
+    @override_settings(SANDBOX_JWT_PRIVATE_KEY=TEST_RSA_PRIVATE_KEY)
+    def test_stale_db_connection_during_authorization_retries(self) -> None:
+        # A stale pooled connection makes the run-existence check raise OperationalError.
+        # Without the retry this crashes the ingest mid-stream; the reconnect must recover it.
+        token = self._create_token()
+
+        real_exists = TaskRun.objects.filter(id=self.task_run.id).exists()
+        self.assertTrue(real_exists)
+
+        with patch(
+            "products.tasks.backend.logic.stream.event_ingest._task_run_exists_sync",
+            side_effect=[OperationalError("server closed the connection unexpectedly"), True],
+        ) as exists_sync:
+            status, body = self._call_ingest(
+                token,
+                [{"seq": 1, "event": {"type": "notification", "notification": {"method": "session/update"}}}],
+            )
+
+        self.assertEqual(exists_sync.call_count, 2)
+        self.assertEqual(status, 200)
+        self.assertEqual(body["accepted"], 1)
+        self.assertEqual(self._read_notification_methods(), ["session/update"])
 
     @parameterized.expand(
         [
