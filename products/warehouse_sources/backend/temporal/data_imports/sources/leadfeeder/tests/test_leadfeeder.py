@@ -171,6 +171,18 @@ class TestValidateCredentials:
         validate_credentials("secret")
         assert mock_session.return_value.get.call_args.kwargs["headers"]["Authorization"] == "Token token=secret"
 
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.leadfeeder.leadfeeder.make_tracked_session"
+    )
+    def test_session_redacts_token_and_blocks_redirects(self, mock_session: mock.MagicMock) -> None:
+        # The token rides in a custom `Authorization: Token token=...` header the denylist can't see,
+        # so it must be registered for value-based redaction; redirects must not be followed or the
+        # credentialed request could resend the token off-origin.
+        mock_session.return_value.get.return_value = _FakeResponse(status_code=200)
+        validate_credentials("secret")
+        assert mock_session.call_args.kwargs["redact_values"] == ("secret",)
+        assert mock_session.call_args.kwargs["allow_redirects"] is False
+
 
 class TestTopLevelPagination:
     def test_follows_next_link_and_saves_state_after_batch(self) -> None:

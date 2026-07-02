@@ -162,10 +162,21 @@ def _compute_date_range(
     return start, end.isoformat()
 
 
+def _make_session(api_token: str) -> requests.Session:
+    """Tracked session for Leadfeeder requests.
+
+    `redact_values=(api_token,)` masks the token wherever it lands in logged URLs or captured HTTP
+    samples — the `Authorization: Token token=...` header name isn't on the generic denylist.
+    `allow_redirects=False` keeps the credentialed request pinned to `api.leadfeeder.com` so a
+    redirect can't resend the token to another host.
+    """
+    return make_tracked_session(redact_values=(api_token,), allow_redirects=False)
+
+
 def validate_credentials(api_token: str) -> bool:
     url = f"{LEADFEEDER_BASE_URL}/accounts"
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_token), timeout=10)
+        response = _make_session(api_token).get(url, headers=_get_headers(api_token), timeout=10)
         return response.status_code == 200
     except Exception:
         return False
@@ -309,7 +320,7 @@ def get_rows(
     headers = _get_headers(api_token)
     # One session reused across every page (and, for fan-out, every account) so urllib3 keeps the
     # connection alive instead of re-handshaking per request.
-    session = make_tracked_session()
+    session = _make_session(api_token)
 
     if config.fan_out_over_accounts:
         start_date, end_date = _compute_date_range(
