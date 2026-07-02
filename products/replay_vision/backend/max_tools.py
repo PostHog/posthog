@@ -114,9 +114,9 @@ SEARCH_OBSERVATIONS_TOOL_DESCRIPTION = dedent("""
     - The user wants recordings whose observed reasoning mentions a concept, even if worded differently
 
     # Scope
-    - If a `scanner_id` is available (the user is looking at a specific scanner), the search is scoped to it.
-    - Otherwise the search spans every Replay Vision scanner the user can read — use this to find recordings
-      across the whole project. Leave `scanner_id` unset for a project-wide search.
+    - Pass a `scanner_id` to search one specific scanner.
+    - When `scanner_id` is unset, the search defaults to the scanner the user is currently viewing; if they
+      aren't on a scanner page it spans every Replay Vision scanner they can read.
 
     Works for every scanner type (monitor, classifier, scorer, summarizer).
 
@@ -225,12 +225,8 @@ class SummarizeReplayVisionSummariesTool(MaxTool):
                 e,
                 properties={"team_id": self._team.id, "user_id": self._user.id, "scanner_id": str(resolved_id)},
             )
-            # Generic content — Max may relay it to the user, so don't surface the raw exception.
-            # Raw detail stays in the artifact (not user-visible) for debugging.
-            return "Something went wrong loading the summaries. Please try again.", {
-                "error": "fetch_failed",
-                "details": str(e),
-            }
+            # Generic content and artifact — the raw exception goes to error tracking above, not the conversation.
+            return "Something went wrong loading the summaries. Please try again.", {"error": "fetch_failed"}
 
     @database_sync_to_async
     def _fetch_and_format(self, scanner_id: str) -> tuple[str, dict[str, Any]]:
@@ -360,7 +356,10 @@ class SearchObservationsArgs(BaseModel):
     )
     scanner_id: str | None = Field(
         default=None,
-        description="Scope the search to a single scanner. Omit to search across every scanner the user can read.",
+        description=(
+            "Scope the search to a single scanner. When omitted, defaults to the scanner the user is viewing, "
+            "or every scanner they can read when not on a scanner page."
+        ),
     )
     verdict: list[str] | None = Field(
         default=None,
@@ -404,8 +403,8 @@ class SearchReplayVisionObservationsTool(MaxTool):
         max_score: float | None = None,
         limit: int | None = None,
     ) -> tuple[str, dict[str, Any]]:
-        # A scanner in scene context scopes the search; otherwise it spans every scanner the user can read.
-        resolved_id = self.context.get("scanner_id") or scanner_id
+        # Explicit argument wins; scene context is only the default scope when the model passed nothing.
+        resolved_id = scanner_id or self.context.get("scanner_id")
         if not query or not query.strip():
             return "No search query provided. Please describe what to look for.", {"error": "empty_query"}
 
