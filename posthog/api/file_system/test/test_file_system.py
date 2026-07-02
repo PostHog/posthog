@@ -195,9 +195,7 @@ class TestFileSystemAPI(APIBaseTest):
         delete_response = self.client.delete(f"/api/projects/{self.team.id}/file_system/{file_obj.pk}/")
 
         self.assertEqual(delete_response.status_code, status.HTTP_400_BAD_REQUEST)
-        self.assertEqual(
-            delete_response.json()["detail"], "Cannot delete type 'dashboard' without a reference."
-        )
+        self.assertEqual(delete_response.json()["detail"], "Cannot delete type 'dashboard' without a reference.")
         self.assertTrue(FileSystem.objects.filter(pk=file_obj.pk).exists())
 
     def test_unfiled_endpoint_no_content(self):
