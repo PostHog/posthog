@@ -109,7 +109,7 @@ export function MockWorkflowPage({ slug }: { slug: string }): JSX.Element {
                     label="Cost · 30d"
                     value={fmtUsd(w.cost30d)}
                     delta={<DeltaBadge value={w.costDeltaPct} goodWhenDown />}
-                    sub={`${fmtUsd(w.cost30d / w.runs30d)} per run`}
+                    sub={`${fmtK(w.cost30d * 10)} billable min · ${fmtUsd(w.cost30d / w.runs30d)} per run`}
                 />
             </div>
             <SectionNav

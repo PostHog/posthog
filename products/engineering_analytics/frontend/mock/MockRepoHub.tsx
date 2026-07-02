@@ -56,7 +56,8 @@ export function MockRepoHub(): JSX.Element {
     const totalCost = MOCK_WORKFLOWS.reduce((a, w) => a + w.cost30d, 0)
     const top5 = topByCost.slice(0, 5)
     const otherCost = totalCost - top5.reduce((a, w) => a + w.cost30d, 0)
-    const openPrs = MOCK_PRS.filter((p) => p.state === 'open')
+    // the attention slice: failing CI or stuck open — never the full 988-row open list
+    const attentionPrs = MOCK_PRS.filter((p) => p.state === 'open' && (p.ci === 'failing' || p.openHours > 96))
 
     return (
         <div>
@@ -91,7 +92,7 @@ export function MockRepoHub(): JSX.Element {
                     value={fmtUsd(REPO_COST_30D)}
                     delta={<DeltaBadge value={9} goodWhenDown />}
                     spark={daySeries(222, 380, 40, 3)}
-                    sub="billable minutes × tier rate"
+                    sub="≈118k billable min × tier rate"
                 />
                 <MockStatTile
                     label="Median PR open→merge"
@@ -119,7 +120,11 @@ export function MockRepoHub(): JSX.Element {
                 ]}
             />
 
-            <Section id="now" title="Latest failures" note="the triage layer — everything below is trends">
+            <Section
+                id="now"
+                title="Failing on master"
+                note="grouped by workflow + failure signature, like error tracking — a flat feed would be ~2.5k failing runs/day"
+            >
                 <LemonCard hoverEffect={false} className="p-0">
                     <LemonTable<MockFailure>
                         dataSource={MOCK_FAILURES}
@@ -133,7 +138,7 @@ export function MockRepoHub(): JSX.Element {
                                             <>
                                                 Failure excerpt
                                                 <span className="font-mono font-normal text-tertiary">
-                                                    run #{f.runId}
+                                                    latest run #{f.runId}
                                                 </span>
                                                 <span className="ml-auto">
                                                     <MockLink to={{ page: 'run', id: f.runId }}>Open run →</MockLink>
@@ -157,27 +162,6 @@ export function MockRepoHub(): JSX.Element {
                                 ),
                             },
                             {
-                                title: 'Run',
-                                render: (_, f) => (
-                                    <MockLink to={{ page: 'run', id: f.runId }}>
-                                        <span className="font-mono text-xs">#{f.runId}</span>
-                                    </MockLink>
-                                ),
-                            },
-                            {
-                                title: 'Branch',
-                                render: (_, f) => <span className="font-mono text-xs">{f.branch}</span>,
-                            },
-                            {
-                                title: 'PR',
-                                render: (_, f) =>
-                                    f.prNumber ? (
-                                        <MockLink to={{ page: 'pr', number: f.prNumber }}>#{f.prNumber}</MockLink>
-                                    ) : (
-                                        <span className="text-tertiary">—</span>
-                                    ),
-                            },
-                            {
                                 title: 'What failed',
                                 render: (_, f) => (
                                     <span>
@@ -189,15 +173,30 @@ export function MockRepoHub(): JSX.Element {
                                 ),
                             },
                             {
-                                title: 'When',
+                                title: 'Runs',
+                                align: 'right',
+                                render: (_, f) =>
+                                    f.runCount > 1 ? (
+                                        <LemonTag type="danger">×{f.runCount}</LemonTag>
+                                    ) : (
+                                        <span className="tabular-nums text-tertiary">1</span>
+                                    ),
+                            },
+                            {
+                                title: 'First seen',
+                                align: 'right',
+                                render: (_, f) => <span className="text-tertiary">{f.firstSeen}</span>,
+                            },
+                            {
+                                title: 'Last seen',
                                 align: 'right',
                                 render: (_, f) => <span className="text-tertiary">{f.when}</span>,
                             },
                         ]}
                     />
                     <div className="border-t border-primary px-4 py-2 text-[11px] text-tertiary">
-                        Failure summaries come from ingested CI failure logs — expand a row to read them without leaving
-                        for GitHub.
+                        Expand a row for the failure logs. PR-branch failures in the window (~214 runs across 61 PRs)
+                        are deliberately not listed here — they surface on each PR page and in the slice below.
                     </div>
                 </LemonCard>
             </Section>
@@ -250,11 +249,32 @@ export function MockRepoHub(): JSX.Element {
 
             <Section
                 id="prs"
-                title="Open pull requests"
-                note="same table as the author page — one component, one column set"
+                title="Pull requests needing attention"
+                note="988 open is not a list a human reads — this is the failing / stuck slice"
             >
+                <div className="mb-2 flex flex-wrap gap-2 text-xs text-secondary">
+                    <span>
+                        <strong className="text-primary">988</strong> open
+                    </span>
+                    <span>·</span>
+                    <span>
+                        <strong className="text-primary">498</strong> drafts
+                    </span>
+                    <span>·</span>
+                    <span>
+                        <strong className="text-danger">61</strong> failing CI
+                    </span>
+                    <span>·</span>
+                    <span>
+                        <strong className="text-warning-dark">37</strong> stuck &gt;4d
+                    </span>
+                </div>
                 <LemonCard hoverEffect={false} className="p-0">
-                    <MockPrTable prs={openPrs} />
+                    <MockPrTable prs={attentionPrs} />
+                    <div className="border-t border-primary px-4 py-2 text-[11px] text-tertiary">
+                        Showing {attentionPrs.length} of 988 open pull requests — the full, filterable list stays on its
+                        own view.
+                    </div>
                 </LemonCard>
             </Section>
 

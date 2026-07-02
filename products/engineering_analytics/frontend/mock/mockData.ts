@@ -424,12 +424,16 @@ export const MOCK_LOG_DJANGO: MockLogLine[] = [
 export interface MockFailure {
     workflow: string
     workflowSlug: string
+    /** latest failing run — the drill-down anchor */
     runId: number
     branch: string
     prNumber: number | null
     /** which job failed — a run is a rollup of its jobs, so attribution names the job */
     failedJob: string
     summary: string
+    /** failures group by workflow + failure signature; at ~50k runs/day a flat feed is a firehose */
+    runCount: number
+    firstSeen: string
     when: string
     log: MockLogLine[]
 }
@@ -443,39 +447,41 @@ export const MOCK_FAILURES: MockFailure[] = [
         prNumber: null,
         failedJob: 'e2e (chromium, shard 3/8)',
         summary: 'retention-export.spec.ts — export menu never visible',
+        runCount: 3,
+        firstSeen: '38m ago',
         when: '6m ago',
         log: MOCK_LOG_E2E,
     },
     {
-        workflow: 'E2E CI',
-        workflowSlug: 'e2e-ci',
-        runId: 41390,
+        workflow: 'Container images CD',
+        workflowSlug: 'cd-images',
+        runId: 41361,
         branch: 'master',
         prNumber: null,
-        failedJob: 'e2e (chromium, shard 3/8)',
-        summary: 'same spec — first red run of the window',
-        when: '38m ago',
-        log: MOCK_LOG_E2E,
-    },
-    {
-        workflow: 'Backend CI',
-        workflowSlug: 'backend-ci',
-        runId: 41371,
-        branch: 'feat/retention-export',
-        prNumber: 67891,
-        failedJob: 'Django tests (shard 3/6)',
-        summary: 'test_insight.py::test_retention_export — 404 != 200',
-        when: '1h ago',
-        log: MOCK_LOG_DJANGO,
+        failedJob: 'build (linux/arm64)',
+        summary: 'buildx timeout pulling base image — succeeded on retry',
+        runCount: 1,
+        firstSeen: '5h ago',
+        when: '5h ago',
+        log: [
+            {
+                t: '05:12:44',
+                level: 'error',
+                msg: 'ERROR: failed to solve: DeadlineExceeded pulling ghcr.io/posthog/base:latest',
+            },
+            { t: '05:12:44', level: 'info', msg: 'retry 2 succeeded 11m later — likely registry flake' },
+        ],
     },
     {
         workflow: 'Storybook',
         workflowSlug: 'storybook',
         runId: 41344,
-        branch: 'fix/replay-window',
-        prNumber: 67851,
+        branch: 'master',
+        prNumber: null,
         failedJob: 'chromatic (2/4)',
         summary: 'chromatic diff on InsightCard (2 stories)',
+        runCount: 1,
+        firstSeen: '3h ago',
         when: '3h ago',
         log: [
             { t: '11:04:02', level: 'error', msg: '✗ InsightCard › with legend — visual diff 0.41% (threshold 0.1%)' },
