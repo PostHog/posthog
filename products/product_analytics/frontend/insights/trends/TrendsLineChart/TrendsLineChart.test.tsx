@@ -792,6 +792,15 @@ describe('TrendsLineChart', () => {
             // Without a click handler the canvas still renders; clicking is a no-op.
             expect(personsModal.get()).not.toBeInTheDocument()
         })
+
+        it('shared mode: clicking a data point does not open the persons modal', async () => {
+            renderInsight({ query: buildTrendsQuery(), inSharedMode: true })
+
+            await chart.clickAtIndex(2)
+
+            // Sharing-token auth can't run person-level queries, so shared views must not offer the drill-down.
+            expect(personsModal.get()).not.toBeInTheDocument()
+        })
     })
 
     describe('quill in-chart legend (PRODUCT_ANALYTICS_QUILL_LEGEND on)', () => {

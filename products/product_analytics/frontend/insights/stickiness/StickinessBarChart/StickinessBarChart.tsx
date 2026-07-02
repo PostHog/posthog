@@ -44,11 +44,13 @@ import { buildStickinessBarSeries, buildStickinessBarTimeSeriesConfig } from './
 
 interface StickinessBarChartProps {
     context?: QueryContext<InsightVizNode>
+    /** Gates person-level drill-down clicks; false on shared/exported pages, where those queries can't run. */
+    showPersonsModal?: boolean
 }
 
 const handleChartError = makeChartErrorHandler('stickiness-bar-chart')
 
-export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.Element | null {
+export function StickinessBarChart({ context, showPersonsModal = true }: StickinessBarChartProps): JSX.Element | null {
     const theme = useChartTheme()
     const { insightProps } = useValues(insightLogic)
     const { featureFlags } = useValues(featureFlagLogic)
@@ -131,18 +133,18 @@ export function StickinessBarChart({ context }: StickinessBarChartProps): JSX.El
     // context fields change. `openPersonsModal` is a stable module import.
     const onDataPointClick = context?.onDataPointClick
     const formatCompareLabel = context?.formatCompareLabel
-    const hasClickHandler = !!onDataPointClick || !!hasPersonsModal
+    const hasClickHandler = !!onDataPointClick || (!!hasPersonsModal && showPersonsModal)
 
     const clickDeps = useMemo(
         () => ({
             context: onDataPointClick ? { onDataPointClick } : undefined,
-            hasPersonsModal: !!hasPersonsModal,
+            hasPersonsModal: !!hasPersonsModal && showPersonsModal,
             interval,
             querySource,
             indexedResults: indexedResults ?? [],
             openPersonsModal,
         }),
-        [onDataPointClick, hasPersonsModal, interval, querySource, indexedResults]
+        [onDataPointClick, hasPersonsModal, showPersonsModal, interval, querySource, indexedResults]
     )
 
     const onPointClick = useCallback(

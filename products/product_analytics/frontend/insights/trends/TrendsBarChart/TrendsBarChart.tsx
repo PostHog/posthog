@@ -58,6 +58,8 @@ interface TrendsBarChartProps {
     inSharedMode?: boolean
     /** True when rendered as a fixed-height dashboard/card tile, false on the full insight page. */
     embedded?: boolean
+    /** Gates person-level drill-down clicks; false on shared/exported pages, where those queries can't run. */
+    showPersonsModal?: boolean
 }
 
 const EMPTY_LABELS: string[] = []
@@ -88,6 +90,7 @@ export function TrendsBarChart({
     context,
     inSharedMode = false,
     embedded = false,
+    showPersonsModal = true,
 }: TrendsBarChartProps): JSX.Element | null {
     const theme = useChartTheme()
     const { featureFlags } = useValues(featureFlagLogic)
@@ -305,12 +308,12 @@ export function TrendsBarChart({
         embedded,
     ])
 
-    const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
+    const canHandleClick = !!context?.onDataPointClick || (!!hasPersonsModal && showPersonsModal)
 
     const clickDeps = useMemo<TrendsChartClickDeps>(
         () => ({
             context,
-            hasPersonsModal: !!hasPersonsModal,
+            hasPersonsModal: !!hasPersonsModal && showPersonsModal,
             interval,
             timezone,
             weekStartDay,
@@ -322,6 +325,7 @@ export function TrendsBarChart({
         [
             context,
             hasPersonsModal,
+            showPersonsModal,
             interval,
             timezone,
             weekStartDay,

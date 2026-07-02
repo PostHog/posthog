@@ -37,6 +37,8 @@ import { buildLifecycleChartModel, buildLifecycleValueLabelFormatter } from './t
 interface TrendsLifecycleChartProps {
     context?: QueryContext<InsightVizNode>
     inSharedMode?: boolean
+    /** Gates person-level drill-down clicks; false on shared/exported pages, where those queries can't run. */
+    showPersonsModal?: boolean
 }
 
 const EMPTY_LABELS: string[] = []
@@ -51,7 +53,11 @@ const handleChartError = makeChartErrorHandler('trends-lifecycle-chart')
 // would otherwise prefer `action.name` like "$pageview").
 const renderLifecycleSeriesLabel = (datum: SeriesDatum): React.ReactNode => datum.label
 
-export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLifecycleChartProps): JSX.Element | null {
+export function TrendsLifecycleChart({
+    context,
+    inSharedMode = false,
+    showPersonsModal = true,
+}: TrendsLifecycleChartProps): JSX.Element | null {
     const theme = useChartTheme()
     const { featureFlags } = useValues(featureFlagLogic)
     const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
@@ -145,12 +151,12 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
     )
     const config = useChartConfig(() => baseConfig, [baseConfig])
 
-    const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
+    const canHandleClick = !!context?.onDataPointClick || (!!hasPersonsModal && showPersonsModal)
 
     const clickDeps = useMemo<TrendsChartClickDeps>(
         () => ({
             context,
-            hasPersonsModal: !!hasPersonsModal,
+            hasPersonsModal: !!hasPersonsModal && showPersonsModal,
             interval,
             timezone,
             weekStartDay,
@@ -162,6 +168,7 @@ export function TrendsLifecycleChart({ context, inSharedMode = false }: TrendsLi
         [
             context,
             hasPersonsModal,
+            showPersonsModal,
             interval,
             timezone,
             weekStartDay,

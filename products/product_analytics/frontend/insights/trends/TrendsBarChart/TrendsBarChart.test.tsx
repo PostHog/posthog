@@ -130,6 +130,16 @@ describe('TrendsBarChart (ActionsBar)', () => {
         expect(personsModal.title()).toMatch(/12 Jun/)
     })
 
+    it('shared mode: clicking a bar does not open the persons modal', async () => {
+        renderInsight({ query: trendsBar(), inSharedMode: true })
+        await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
+
+        await chart.clickAtIndex(2)
+
+        // Sharing-token auth can't run person-level queries, so shared views must not offer the drill-down.
+        expect(personsModal.get()).not.toBeInTheDocument()
+    })
+
     it('renders InsightEmptyState when all series are zero', async () => {
         renderInsight({
             query: trendsBar({

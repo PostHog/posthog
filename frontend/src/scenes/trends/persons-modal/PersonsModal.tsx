@@ -39,6 +39,7 @@ import { asDisplay, pickBestPersonDistinctId } from 'scenes/persons/person-utils
 import { PersonDisplay } from 'scenes/persons/PersonDisplay'
 import { teamLogic } from 'scenes/teamLogic'
 
+import { isSharedView } from '~/exporter/exporterViewLogic'
 import { Noun } from '~/models/groupsModel'
 import { MAX_SELECT_RETURNED_ROWS } from '~/queries/nodes/DataTable/DataTableExport'
 import {
@@ -606,6 +607,12 @@ export function MissingPersonsAlert({
 export type OpenPersonsModalProps = Omit<PersonsModalProps, 'onClose' | 'onAfterClose'>
 
 export const openPersonsModal = (props: OpenPersonsModalProps): void => {
+    if (isSharedView()) {
+        // Shared/exported views authenticate with a sharing token, which can never run the
+        // person-level queries this modal needs — it would only ever render an error state.
+        return
+    }
+
     const div = document.createElement('div')
     const root = createRoot(div)
     function destroy(): void {

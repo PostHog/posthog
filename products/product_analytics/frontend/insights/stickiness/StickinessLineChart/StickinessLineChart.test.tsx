@@ -119,6 +119,15 @@ describe('StickinessLineChart', () => {
             expect(seriesArg.day).toBe(3)
             expect(personsModal.get()).not.toBeInTheDocument()
         })
+
+        it('shared mode: clicking a data point does not open the persons modal', async () => {
+            renderInsight({ query: buildStickinessQuery(), inSharedMode: true })
+
+            await chart.clickAtIndex(2)
+
+            // Sharing-token auth can't run person-level queries, so shared views must not offer the drill-down.
+            expect(personsModal.get()).not.toBeInTheDocument()
+        })
     })
 
     describe('quill in-chart legend (PRODUCT_ANALYTICS_QUILL_LEGEND on)', () => {

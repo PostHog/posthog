@@ -40,11 +40,17 @@ import { buildTrendsLineTimeSeriesConfig, buildTrendsSeries } from './trendsChar
 interface TrendsLineChartProps {
     context?: QueryContext<InsightVizNode>
     inSharedMode?: boolean
+    /** Gates person-level drill-down clicks; false on shared/exported pages, where those queries can't run. */
+    showPersonsModal?: boolean
 }
 
 const handleChartError = makeChartErrorHandler('trends-line-chart')
 
-export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineChartProps): JSX.Element | null {
+export function TrendsLineChart({
+    context,
+    inSharedMode = false,
+    showPersonsModal = true,
+}: TrendsLineChartProps): JSX.Element | null {
     const { featureFlags } = useValues(featureFlagLogic)
     const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
     const TOOLTIP_CONFIG = quillTooltipEnabled ? INSIGHT_TOOLTIP_CONFIG : INSIGHT_TOOLTIP_CONFIG_LEGACY
@@ -133,12 +139,12 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
         [indexByResult, showMultipleYAxes]
     )
 
-    const canHandleClick = !!context?.onDataPointClick || !!hasPersonsModal
+    const canHandleClick = !!context?.onDataPointClick || (!!hasPersonsModal && showPersonsModal)
 
     const clickDeps = useMemo(
         () => ({
             context,
-            hasPersonsModal: !!hasPersonsModal,
+            hasPersonsModal: !!hasPersonsModal && showPersonsModal,
             interval,
             timezone,
             weekStartDay,
@@ -150,6 +156,7 @@ export function TrendsLineChart({ context, inSharedMode = false }: TrendsLineCha
         [
             context,
             hasPersonsModal,
+            showPersonsModal,
             interval,
             timezone,
             weekStartDay,
