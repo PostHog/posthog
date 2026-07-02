@@ -71,7 +71,7 @@ CREATE TABLE IF NOT EXISTS {settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE}.{SAMPLES_
     `series_fingerprint` UInt64 CODEC(DoubleDelta),
     `timestamp` DateTime64(6) CODEC(DoubleDelta),
     `value` Float64 CODEC(Gorilla),
-    `count` UInt64 DEFAULT 1 CODEC(T64),
+    `count` UInt64 DEFAULT 1,
     `histogram_bounds` Array(Float64),
     `histogram_counts` Array(UInt64),
     `trace_id` String,

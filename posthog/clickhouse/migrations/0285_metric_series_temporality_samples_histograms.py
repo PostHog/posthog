@@ -33,7 +33,7 @@ ALTER TABLE {_DB}.metric_series1
 
 ALTER_SAMPLES_BASE = f"""
 ALTER TABLE {_DB}.metric_samples1
-    ADD COLUMN IF NOT EXISTS `count` UInt64 DEFAULT 1 CODEC(T64) AFTER value,
+    ADD COLUMN IF NOT EXISTS `count` UInt64 DEFAULT 1 AFTER value,
     ADD COLUMN IF NOT EXISTS `histogram_bounds` Array(Float64) AFTER count,
     ADD COLUMN IF NOT EXISTS `histogram_counts` Array(UInt64) AFTER histogram_bounds
 """
@@ -46,7 +46,7 @@ ALTER TABLE {_DB}.metric_series
 
 ALTER_SAMPLES_DISTRIBUTED = f"""
 ALTER TABLE {_DB}.metric_samples
-    ADD COLUMN IF NOT EXISTS `count` UInt64 DEFAULT 1 CODEC(T64) AFTER value,
+    ADD COLUMN IF NOT EXISTS `count` UInt64 DEFAULT 1 AFTER value,
     ADD COLUMN IF NOT EXISTS `histogram_bounds` Array(Float64) AFTER count,
     ADD COLUMN IF NOT EXISTS `histogram_counts` Array(UInt64) AFTER histogram_bounds
 """
