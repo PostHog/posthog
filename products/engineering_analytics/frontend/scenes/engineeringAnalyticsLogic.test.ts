@@ -35,6 +35,7 @@ import {
     workflowFailureSeries,
     filterQuarantineEntries,
     inferOwnerFromSelector,
+    pytestSelectorFromNodeid,
     quarantineCountsOf,
     quarantineRequestErrorMessage,
     workflowFailureTrend,
@@ -237,6 +238,24 @@ describe('engineeringAnalyticsLogic', () => {
         ['all green', { runs: 3, failing: 0, pending: 0 }, 'passing'],
     ])('ciStatusOf derives %s', (_label, rollup, expected) => {
         expect(ciStatusOf(rollup)).toBe(expected)
+    })
+
+    // A wrong split produces a selector CI's quarantine matching would silently never hit.
+    test.each([
+        [
+            'class-based test',
+            'posthog/api/test/test_event/TestEvents::test_x',
+            'posthog/api/test/test_event.py::TestEvents::test_x',
+        ],
+        ['module-level test', 'posthog/tasks/test/test_calc::test_sum', 'posthog/tasks/test/test_calc.py::test_sum'],
+        [
+            'nested classes',
+            'posthog/test/test_a/TestOuter/TestInner::test_x',
+            'posthog/test/test_a.py::TestOuter::TestInner::test_x',
+        ],
+        ['no classname to split', 'test_bare', 'test_bare'],
+    ])('pytestSelectorFromNodeid handles %s', (_label, nodeid, expected) => {
+        expect(pytestSelectorFromNodeid(nodeid)).toBe(expected)
     })
 
     it('filters by state, author, repo, ci status, and search', () => {

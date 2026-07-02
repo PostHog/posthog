@@ -11,6 +11,7 @@ import { urls } from 'scenes/urls'
 
 import {
     engineeringAnalyticsCiCards,
+    engineeringAnalyticsFlakyTests,
     engineeringAnalyticsPullRequests,
     engineeringAnalyticsQuarantine,
     engineeringAnalyticsQuarantineRequest,
@@ -405,6 +406,52 @@ export function quarantineCountsOf(rows: QuarantineEntryRow[]): QuarantineCounts
     return { ...counts, pastExpiry: counts.inGrace + counts.overdue }
 }
 
+/** Leaderboard windows the UI offers; the endpoint accepts any window up to 30 days. */
+export type FlakyTestWindow = '-7d' | '-14d' | '-30d'
+export const DEFAULT_FLAKY_TEST_WINDOW: FlakyTestWindow = '-7d'
+
+export interface FlakyTestRow {
+    /** Reconstructed pytest nodeid (the CI span name) — not a runnable selector as-is. */
+    nodeid: string
+    /** Failed, then passed on an automatic retry — the strongest flaky signal (rerun-enabled lanes only). */
+    rerunPassedCount: number
+    /** Spans whose final outcome was failed/error. Absolute count, never a rate (denominators are biased). */
+    failedCount: number
+    /** Distinct PRs among the failures; master/branch failures carry no PR and don't count here. */
+    failedPrCount: number
+    /** Distinct branches across the test's flaky-signal spans. */
+    branchCount: number
+    /** Failed while quarantined (xfail) — already masked in CI, still flaky. */
+    xfailedCount: number
+    lastSeenAt: string
+}
+
+export interface FlakyTestsData {
+    rows: FlakyTestRow[]
+    /** True when more tests qualified than the cap; rows are the strongest `limit`. */
+    truncated: boolean
+    limit: number
+}
+
+/**
+ * Best-effort pytest selector from a span nodeid, to pre-fill the quarantine modal
+ * (confirm-then-edit). The emitter folds the file/class boundary into '/' and drops '.py'
+ * ('posthog/api/test/test_x/TestX::test_y'), so this re-splits on the convention that class
+ * segments are CamelCase and everything before them is the module file.
+ */
+export function pytestSelectorFromNodeid(nodeid: string): string {
+    const [classPath, ...testParts] = nodeid.split('::')
+    if (testParts.length === 0 || !classPath.includes('/')) {
+        return nodeid
+    }
+    const segments = classPath.split('/')
+    let moduleEnd = segments.length
+    while (moduleEnd > 1 && /^[A-Z]/.test(segments[moduleEnd - 1])) {
+        moduleEnd--
+    }
+    return [`${segments.slice(0, moduleEnd).join('/')}.py`, ...segments.slice(moduleEnd), ...testParts].join('::')
+}
+
 export type QuarantineRequestAction = 'quarantine' | 'extend' | 'remove'
 
 /** What the tab submits to the write endpoint; the backend opens the issue + PR. */
@@ -505,6 +552,7 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             resetQuarantineFilters: true,
             openQuarantineModal: (state: QuarantineModalState) => ({ state }),
             closeQuarantineModal: true,
+            setFlakyTestWindow: (window: FlakyTestWindow) => ({ window }),
             refresh: true,
         }),
 
@@ -609,6 +657,32 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     },
                 },
             ],
+            flakyTests: [
+                null as FlakyTestsData | null,
+                {
+                    loadFlakyTests: async (): Promise<FlakyTestsData> => {
+                        const data = await engineeringAnalyticsFlakyTests(projectId(), {
+                            date_from: values.flakyTestWindow,
+                            source_id: values.sourceId ?? undefined,
+                        })
+                        return {
+                            rows: data.items.map(
+                                (it): FlakyTestRow => ({
+                                    nodeid: it.nodeid,
+                                    rerunPassedCount: it.rerun_passed_count,
+                                    failedCount: it.failed_count,
+                                    failedPrCount: it.failed_pr_count,
+                                    branchCount: it.branch_count,
+                                    xfailedCount: it.xfailed_count,
+                                    lastSeenAt: it.last_seen_at,
+                                })
+                            ),
+                            truncated: data.truncated,
+                            limit: data.limit,
+                        }
+                    },
+                },
+            ],
             quarantineSubmit: [
                 null as QuarantineRequestResultApi | null,
                 {
@@ -709,6 +783,21 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     loadQuarantine: () => false,
                     loadQuarantineSuccess: () => false,
                     loadQuarantineFailure: () => true,
+                },
+            ],
+            // Leaderboard window; transient like the other lenses (no persisted UI in this phase).
+            flakyTestWindow: [
+                DEFAULT_FLAKY_TEST_WINDOW as FlakyTestWindow,
+                { setFlakyTestWindow: (_, { window }) => window },
+            ],
+            // Any failure hides the leaderboard behind a banner; a 400 (no source) also fails the
+            // quarantine loader, which owns the tab-level "connect a source" state.
+            flakyTestsLoadFailed: [
+                false,
+                {
+                    loadFlakyTests: () => false,
+                    loadFlakyTestsSuccess: () => false,
+                    loadFlakyTestsFailure: () => true,
                 },
             ],
             // Drives the quarantine/extend modal; remove uses a confirm dialog instead.
@@ -879,7 +968,9 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 actions.loadPullRequests()
                 actions.loadWorkflowHealth()
                 actions.loadQuarantine()
+                actions.loadFlakyTests()
             },
+            setFlakyTestWindow: () => actions.loadFlakyTests(),
             // Cards, PR list, workflow health, and quarantine are all per-source — reload them all.
             setSourceId: () => actions.refresh(),
             // The shared window and branch scope workflow health; reload it when either changes.
