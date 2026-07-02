@@ -14,13 +14,6 @@ MAX_ANNOTATIONS = 20
 TITLE_MAX_CHARS = 100
 DESCRIPTION_MAX_CHARS = 500
 
-# Annotation content is user-authored free text headed into the synthesize prompt. Mirrors
-# format_annotations_for_prompt (products/annotations/backend/api/annotation_context.py):
-# strip every Unicode line terminator so hand-crafted content can't fake a new input item,
-# and neutralize angle brackets so it can't forge tag-scoped prompt structure.
-_LINE_BREAK_CHARS = "\n\r\u2028\u2029\u0085\v\f"
-_PROMPT_SAFE_TRANSLATION = str.maketrans({**dict.fromkeys(_LINE_BREAK_CHARS, " "), "<": "‹", ">": "›"})
-
 
 class AnnotationsSource:
     name = "annotations"
@@ -40,7 +33,8 @@ class AnnotationsSource:
         )
         items: list[SourceItem] = []
         for annotation in annotations:
-            content = annotation.content.translate(_PROMPT_SAFE_TRANSLATION)
+            # Untrusted free text is sanitized once at the prompt-render boundary (_render_items)
+            content = annotation.content
             items.append(
                 SourceItem(
                     source=self.name,

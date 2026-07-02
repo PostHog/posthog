@@ -9,6 +9,7 @@ from django.utils import timezone
 
 from parameterized import parameterized
 
+from posthog.models.team import Team
 from posthog.schema_enums import AlertState
 
 from products.alerts.backend.models import AlertConfiguration
@@ -17,6 +18,7 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.exports.backend.models.subscription import Subscription, SubscriptionDelivery
 from products.product_analytics.backend.models.insight import Insight
 from products.product_analytics.backend.models.insight_caching_state import InsightCachingState
+from products.pulse.backend.sources.base import SourceItem
 from products.pulse.backend.sources.resource_health import STUCK_REFRESH_ATTEMPTS, ResourceHealthSource
 
 _TRENDS_QUERY = {
@@ -111,6 +113,14 @@ class TestResourceHealthGather(BaseTest):
 
         assert ResourceHealthSource().gather(self.team, None, period_days=7) == []
 
+    def test_alert_on_soft_deleted_insight_ignored(self) -> None:
+        insight = self._insight()
+        insight.deleted = True
+        insight.save()
+        self._alert(insight=insight)
+
+        assert ResourceHealthSource().gather(self.team, None, period_days=7) == []
+
     def test_failed_deliveries_grouped_per_subscription(self) -> None:
         subscription = self._subscription()
         self._delivery(subscription, days_ago=1)
@@ -171,7 +181,7 @@ class TestResourceHealthGather(BaseTest):
     def test_one_failing_detector_does_not_kill_gather(self) -> None:
         self._delivery(self._subscription())
 
-        def _boom(source: ResourceHealthSource, team: Any, period_days: int) -> list:
+        def _boom(source: ResourceHealthSource, team: Team, period_days: int) -> list[SourceItem]:
             raise RuntimeError("db exploded")
 
         with patch.object(ResourceHealthSource, "_errored_alerts", _boom):

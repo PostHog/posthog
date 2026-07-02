@@ -15,8 +15,12 @@ from posthog.models.scoping import team_scope
 
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
 from products.pulse.backend.models import Opportunity, ProductBrief
-from products.pulse.backend.sources.base import SourceItem
-from products.pulse.backend.temporal.activities import gather_brief_inputs_activity, synthesize_brief_activity
+from products.pulse.backend.sources.base import SourceItem, SourceItemKind
+from products.pulse.backend.temporal.activities import (
+    MAX_ITEMS,
+    gather_brief_inputs_activity,
+    synthesize_brief_activity,
+)
 from products.pulse.backend.temporal.inputs import GenerateBriefWorkflowInputs, SynthesizeActivityInputs
 from products.pulse.backend.temporal.registry import ACTIVITIES
 from products.pulse.backend.temporal.workflow import GenerateProductBriefWorkflow
@@ -46,6 +50,25 @@ class _RaisingSource:
 
     def gather(self, team, config, period_days) -> list[SourceItem]:
         raise RuntimeError("source exploded")
+
+
+class _ManyItemsSource:
+    def __init__(self, kind: SourceItemKind, count: int) -> None:
+        self.name = f"many_{kind}"
+        self._kind: SourceItemKind = kind
+        self._count = count
+
+    def gather(self, team, config, period_days) -> list[SourceItem]:
+        return [
+            SourceItem(
+                source=self.name,
+                kind=self._kind,
+                title=f"{self._kind} {i}",
+                description="d",
+                fingerprint_hint=f"{self._kind}:{i}",
+            )
+            for i in range(self._count)
+        ]
 
 
 @sync_to_async
@@ -114,6 +137,35 @@ async def test_gather_activity_survives_one_broken_source(team) -> None:
             GenerateBriefWorkflowInputs(team_id=team.pk, brief_id="unused", brief_config_id=None, period_days=7),
         )
     assert [item["fingerprint_hint"] for item in items] == ["abc:0"]
+
+
+async def test_gather_activity_raises_when_all_sources_fail(team) -> None:
+    await _set_ai_consent(team, True)
+    env = ActivityEnvironment()
+    with patch(
+        "products.pulse.backend.temporal.activities.get_sources", return_value=[_RaisingSource(), _RaisingSource()]
+    ):
+        with pytest.raises(ApplicationError) as exc_info:
+            await env.run(
+                gather_brief_inputs_activity,
+                GenerateBriefWorkflowInputs(team_id=team.pk, brief_id="unused", brief_config_id=None, period_days=7),
+            )
+    assert exc_info.value.non_retryable is False
+
+
+async def test_gather_activity_cap_keeps_high_priority_kinds(team) -> None:
+    await _set_ai_consent(team, True)
+    env = ActivityEnvironment()
+    health_count = 15
+    sources = [_ManyItemsSource("context", 45), _ManyItemsSource("health", health_count)]
+    with patch("products.pulse.backend.temporal.activities.get_sources", return_value=sources):
+        items = await env.run(
+            gather_brief_inputs_activity,
+            GenerateBriefWorkflowInputs(team_id=team.pk, brief_id="unused", brief_config_id=None, period_days=7),
+        )
+    assert len(items) == MAX_ITEMS
+    health_hints = [item["fingerprint_hint"] for item in items if item["kind"] == "health"]
+    assert health_hints == [f"health:{i}" for i in range(health_count)]
 
 
 async def test_gather_activity_refuses_without_ai_consent(team) -> None:

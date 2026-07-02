@@ -63,8 +63,10 @@ class ResourceHealthSource:
         )
 
     def _errored_alerts(self, team: Team, period_days: int) -> list[SourceItem]:
+        # Deliberately current-state, not period-bounded: an alert that started erroring before
+        # the period is still broken now. Dismissal suppression is the off-switch.
         alerts = (
-            AlertConfiguration.objects.filter(team=team, enabled=True, state=AlertState.ERRORED)
+            AlertConfiguration.objects.filter(team=team, enabled=True, state=AlertState.ERRORED, insight__deleted=False)
             .select_related("insight")
             .order_by("-created_at")[:MAX_ITEMS_PER_DETECTOR]
         )

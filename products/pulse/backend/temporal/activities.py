@@ -20,7 +20,10 @@ from products.pulse.backend.temporal.inputs import (
 
 logger = structlog.get_logger(__name__)
 
+# The cap guards Temporal's ~2 MiB activity payload limit; truncation is priority-aware so a
+# chatty low-priority source can't crowd out actionable items.
 MAX_ITEMS = 50
+KIND_PRIORITY: dict[str, int] = {"health": 0, "movement": 1, "context": 2}
 
 
 def _get_team(team_id: int) -> Team:
@@ -52,6 +55,7 @@ async def gather_brief_inputs_activity(inputs: GenerateBriefWorkflowInputs) -> l
         raise ApplicationError("AI data processing not approved for this organization", non_retryable=True)
     config = await database_sync_to_async(_get_config, thread_sensitive=False)(team, inputs.brief_config_id)
     items: list[SourceItem] = []
+    failed_sources = 0
     for source in get_sources():
         try:
             gathered = await database_sync_to_async(source.gather, thread_sensitive=False)(
@@ -60,9 +64,14 @@ async def gather_brief_inputs_activity(inputs: GenerateBriefWorkflowInputs) -> l
         except Exception:
             # One broken source must not kill the brief; the other sources still contribute.
             logger.exception("pulse_source_gather_failed", team_id=team.id, source=source.name)
+            failed_sources += 1
             continue
         items.extend(gathered)
-    # Keep the activity payload small — well under Temporal's ~2 MiB cap.
+    if failed_sources and not items:
+        # Nothing gathered AND sources broke: that's a failure to retry, not a quiet week.
+        raise ApplicationError(f"brief gather produced no items and {failed_sources} source(s) failed")
+    # Stable sort: highest-priority kinds survive the cap, source order preserved within a kind.
+    items.sort(key=lambda item: KIND_PRIORITY.get(item.kind, len(KIND_PRIORITY)))
     return [dataclasses.asdict(item) for item in items[:MAX_ITEMS]]
 
 

@@ -4,7 +4,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
-from products.pulse.backend.generation.prompts import SYNTHESIZE_PROMPT
+from products.pulse.backend.generation.prompts import SYNTHESIZE_PROMPT, sanitize_for_prompt
 from products.pulse.backend.generation.schemas import KIND_DESCRIPTIONS, BriefOut
 from products.pulse.backend.models import BriefConfig
 from products.pulse.backend.sources.base import SourceItem
@@ -29,14 +29,17 @@ def apply_say_less_gate(out: BriefOut) -> BriefOut:
 
 
 def _render_items(items: list[SourceItem]) -> str:
+    # Titles and descriptions carry untrusted free text (annotation content, resource names) —
+    # sanitize at this boundary, for every source. Evidence labels are not rendered (only
+    # type:ref); if they ever are, they must pass through sanitize_for_prompt too.
     blocks = []
     for item in items:
         numbers = ", ".join(f"{k}={v}" for k, v in item.numbers.items())
-        refs = ", ".join(f"{e['type']}:{e['ref']}" for e in item.evidence)
+        refs = ", ".join(sanitize_for_prompt(f"{e['type']}:{e['ref']}") for e in item.evidence)
         blocks.append(
-            f"- [{item.source}/{item.kind}] {item.title}\n"
+            f"- [{item.source}/{item.kind}] {sanitize_for_prompt(item.title)}\n"
             f"  numbers: {numbers}\n  evidence_refs: {refs}\n  fingerprint_hint: {item.fingerprint_hint}\n"
-            f"  {item.description}"
+            f"  {sanitize_for_prompt(item.description)}"
         )
     return "\n".join(blocks)
 

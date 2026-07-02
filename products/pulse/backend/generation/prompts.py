@@ -1,3 +1,16 @@
+# Free text in source items (annotation content, insight/alert names) is user-authored and
+# untrusted. Mirrors format_annotations_for_prompt (products/annotations/backend/api/
+# annotation_context.py): strip every Unicode line terminator so a hostile value can't fake a
+# new input item, and neutralize angle brackets so it can't forge tag-scoped prompt structure.
+# Extracting a shared cross-product sanitizer is a recorded follow-up.
+_LINE_BREAK_CHARS = "\n\r\u2028\u2029\u0085\v\f"
+_PROMPT_SAFE_TRANSLATION = str.maketrans({**dict.fromkeys(_LINE_BREAK_CHARS, " "), "<": "‹", ">": "›"})
+
+
+def sanitize_for_prompt(text: str) -> str:
+    return text.translate(_PROMPT_SAFE_TRANSLATION)
+
+
 SYNTHESIZE_PROMPT = """You are a senior product manager writing a short product brief for a team whose focus is: {focus_prompt}.
 
 You are given a list of pre-computed observations from the team's product analytics covering the last {period_days} days. Each item carries a title, a description, pre-computed numbers, evidence refs, and a fingerprint_hint.
