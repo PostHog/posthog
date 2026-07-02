@@ -138,6 +138,10 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     model_config = ConfigDict(extra="forbid")
     readonly: Optional[int] = 2
     max_execution_time: Optional[int] = 60
+    # None inherits the cluster profile's overflow behavior. Set "throw" when a partial
+    # result is worse than an error (e.g. sampling queries whose output feeds further
+    # computation), or "break" to accept partial results on timeout.
+    timeout_overflow_mode: Optional[str] = None
     max_memory_usage: Optional[int] = None  # default value coming from cloud config
     max_threads: Optional[int] = None
     allow_experimental_object_type: Optional[bool] = True

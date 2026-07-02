@@ -50,7 +50,11 @@ from .activities.provision_sandbox import (
 from .activities.read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
 from .activities.relay_sandbox_events import RelaySandboxEventsInput, relay_sandbox_events
 from .activities.run_wizard import RunWizardInput, run_wizard
-from .activities.send_followup_to_sandbox import SendFollowupToSandboxInput, send_followup_to_sandbox
+from .activities.send_followup_to_sandbox import (
+    SEND_FOLLOWUP_MAX_ATTEMPTS,
+    SendFollowupToSandboxInput,
+    send_followup_to_sandbox,
+)
 from .activities.start_agent_server import (
     MarkRepoReadyInput,
     StartAgentServerInput,
@@ -1119,7 +1123,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     use_directory_snapshot=self.context.use_modal_directory_resume_snapshots,
                 ),
                 start_to_close_timeout=timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=1),
+                retry_policy=RetryPolicy(maximum_attempts=3),
             )
             if result.external_id:
                 workflow.logger.info(f"Resume snapshot created: {result.external_id} for sandbox {sandbox_id}")
@@ -1304,9 +1308,19 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     message=message,
                     posthog_mcp_scopes=self._posthog_mcp_scopes,
                     artifact_ids=artifact_ids,
+                    message_id=str(workflow.uuid4()),
                 ),
                 start_to_close_timeout=timedelta(minutes=35),
-                retry_policy=RetryPolicy(maximum_attempts=1),
+                # The activity heartbeats while blocked on the sync delivery
+                # call, so a worker restart is detected here instead of at
+                # start_to_close. Retries are safe: message_id lets the
+                # agent-server drop a redelivery it already accepted, and
+                # sentinel-writing failures raise non-retryable.
+                heartbeat_timeout=timedelta(minutes=1),
+                retry_policy=RetryPolicy(
+                    initial_interval=timedelta(seconds=5),
+                    maximum_attempts=SEND_FOLLOWUP_MAX_ATTEMPTS,
+                ),
             )
         except Exception as e:
             error_properties = self._activity_error_properties(e)
