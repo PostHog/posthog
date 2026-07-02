@@ -732,6 +732,7 @@ class TestPostgresSourceNonRetryableErrors:
         # The schema-permission message must win over the generic table-SELECT message and advise
         # USAGE ON SCHEMA rather than the misleading "GRANT SELECT ON <table>".
         assert "USAGE ON SCHEMA" in friendly[0]
+        assert "GRANT SELECT" not in friendly[0]
 
     @pytest.mark.parametrize(
         "error_msg",
