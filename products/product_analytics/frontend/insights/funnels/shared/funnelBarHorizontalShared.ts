@@ -55,8 +55,10 @@ export function buildFunnelBarHorizontalFiller(
 /** Compare-mode drop-off band: fills from the converted segments up to a period's own entry level
  *  (its first-step share of the shared baseline) rather than to 100%. The space above the entry level
  *  is the volume gap — this period simply had fewer entrants — and is left as blank axis whitespace,
- *  visually distinct from drop-off and non-interactive. The leader period's entry level is 100, so it
- *  fills the track exactly like the non-compare filler. */
+ *  visually distinct from drop-off and non-interactive: `trackData` declares the entry level as the
+ *  bar's interactive ceiling, so the chart suppresses hover, tooltip, pointer cursor, and click in
+ *  the gap. The leader period's entry level is 100, so it fills the track exactly like the
+ *  non-compare filler. */
 export function buildFunnelBarHorizontalDropOff(
     segments: Series<FunnelBarHorizontalSegmentMeta>[],
     entryLevelPercent: number,
@@ -71,6 +73,7 @@ export function buildFunnelBarHorizontalDropOff(
         color,
         visibility: { tooltip: false },
         meta: { isDropOff: true, breakdownIndex },
+        trackData: [entryLevelPercent],
     }
 }
 

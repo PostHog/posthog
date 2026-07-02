@@ -327,6 +327,10 @@ describe('buildFunnelBarHorizontalData', () => {
             expect(result.map((s) => s.bars[1].series[0].data[0])).toEqual([80, 40])
             expect(result.map((s) => s.bars[1].series[1].data[0])).toEqual([0, 40])
             expect(result.map((s) => s.bars[1].series[0].data[0] + s.bars[1].series[1].data[0])).toEqual([80, 80])
+            // Each drop-off declares its period's entry level as the bar's interactive ceiling, so the
+            // chart treats the blank gap above it as inert (no hover, tooltip, pointer cursor, or click).
+            expect(result.map((s) => s.bars[0].series[1].trackData)).toEqual([[100], [100]])
+            expect(result.map((s) => s.bars[1].series[1].trackData)).toEqual([[80], [80]])
         })
 
         // At the first step every bar sits exactly at its own entry level, so drop-off is always 0 —
@@ -480,6 +484,10 @@ describe('buildFunnelBarHorizontalData', () => {
                 expect(result[1].bars[0].series.map((s) => s.data[0])).toEqual([30, 20, 50])
                 // Step 1 previous: 15 + 15 segments, aggregate drop-off 45 → reaches its 75 entry; 25 blank.
                 expect(result[1].bars[1].series.map((s) => s.data[0])).toEqual([15, 15, 45])
+                // The aggregate drop-off declares each period's entry total as the interactive ceiling,
+                // so the blank 25 above the previous stack is inert.
+                expect(result[0].bars[0].series[2].trackData).toEqual([100])
+                expect(result[0].bars[1].series[2].trackData).toEqual([75])
             })
 
             it('tags the aggregate drop-off so it isn’t attributed to a single value (breakdownIndex null)', () => {

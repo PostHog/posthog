@@ -116,10 +116,12 @@ export function* barsAtCursor<S extends Pick<Series, 'key' | 'visibility' | 'yAx
     }
 }
 
-/** True when the cursor sits in a grouped bar's inert volume gap — lined up on the band axis with a bar
+/** True when the cursor sits in a bar's inert volume gap — lined up on the band axis with a bar
  *  whose capped `trackData` ceiling it has passed (a funnel compare period's blank space above its
- *  track). Such a position takes no hover, tooltip, highlight, or click. Non-grouped layouts, and bars
- *  whose track spans the full axis, are never a gap. */
+ *  track). Such a position takes no hover, tooltip, highlight, or click. Bars whose track spans the
+ *  full axis are never a gap. A grouped cursor lines up with a single column of the group; stacked
+ *  segments all share their band slot, so the cursor must clear every segment's fill before a
+ *  segment's ceiling can declare the position a gap. */
 export function cursorInInertTrackGap(
     args: Omit<BarsAtCursorArgs, 'series'> & {
         // `trackData` beyond the base pick so the ceiling check sees each series' cap.
@@ -127,22 +129,21 @@ export function cursorInInertTrackGap(
         cursor: { x: number; y: number }
     }
 ): boolean {
-    const { cursor, isHorizontal, layout, scales } = args
-    if (layout !== 'grouped') {
-        return false
-    }
+    const { cursor, isHorizontal, scales } = args
+    let beyondACeiling = false
     for (const { series: s, bar } of barsAtCursor(args)) {
         if (!barContainsPointOnBandAxis(bar, cursor, isHorizontal)) {
             continue
         }
-        // The cursor lines up with this bar's column — it's in the gap only when it's both outside the
-        // bar's own fill and beyond that bar's track ceiling.
-        return (
-            cursorOutsideBarFillExtent(bar, cursor, isHorizontal) &&
-            cursorBeyondTrackCeiling(s, bar, scales, cursor, isHorizontal)
-        )
+        // The cursor is over this bar's own fill — an actual segment, never a gap.
+        if (!cursorOutsideBarFillExtent(bar, cursor, isHorizontal)) {
+            return false
+        }
+        if (cursorBeyondTrackCeiling(s, bar, scales, cursor, isHorizontal)) {
+            beyondACeiling = true
+        }
     }
-    return false
+    return beyondACeiling
 }
 
 export interface ResolveBarsAtCursorResult {

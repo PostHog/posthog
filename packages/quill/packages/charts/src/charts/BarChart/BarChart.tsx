@@ -375,11 +375,10 @@ function BarChartInner<Meta = unknown>({
     )
 
     // A capped track's blank volume gap (funnel compare) is inert: veto the hover there so the tooltip,
-    // pointer cursor, highlight, and click are all suppressed. Only wired when a series caps its track.
-    const seriesHasTrackCeiling = useMemo(
-        () => barTrack && barLayout === 'grouped' && visibleSeries.some((s) => Array.isArray(s.trackData)),
-        [barTrack, barLayout, visibleSeries]
-    )
+    // pointer cursor, highlight, and click are all suppressed. Only wired when a series declares a
+    // `trackData` ceiling — with or without a drawn track (stacked funnel bars cap their interactive
+    // extent without one).
+    const seriesHasTrackCeiling = useMemo(() => visibleSeries.some((s) => Array.isArray(s.trackData)), [visibleSeries])
 
     const resolveHoverIndex = useCallback(
         (index: number, cursor: { x: number; y: number }, scales: ChartScales): number => {

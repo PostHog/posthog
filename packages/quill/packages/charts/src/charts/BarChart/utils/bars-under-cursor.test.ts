@@ -215,13 +215,13 @@ describe('cursorInInertTrackGap', () => {
     const subBandCenterX = (key: string): number =>
         scales.band('x')! + scales.group!(key)! + scales.group!.bandwidth() / 2
 
-    const inGap = (key: string, value: number, layout: 'grouped' | 'stacked' = 'grouped'): boolean =>
+    const inGap = (key: string, value: number): boolean =>
         cursorInInertTrackGap({
             series,
             label: 'x',
             dataIndex: 0,
             scales,
-            layout,
+            layout: 'grouped',
             isHorizontal: false,
             topStackedKeyByAxis: new Map(),
             cursor: { x: subBandCenterX(key), y: scales.value(value) },
@@ -236,7 +236,51 @@ describe('cursorInInertTrackGap', () => {
         expect(inGap(key, value)).toBe(expected)
     })
 
-    it('is false for non-grouped layouts (no capped track)', () => {
-        expect(inGap('b', 80, 'stacked')).toBe(false)
+    describe('stacked layout (a top-to-bottom funnel compare bar)', () => {
+        // One horizontal stacked bar shaped like a funnel compare period: converted (45) + drop-off
+        // (25) sum to the period's 70% entry level, with the drop-off declaring that ceiling via
+        // `trackData` — the 70–100 region is the blank volume gap.
+        const cappedStack: Series[] = [
+            { key: 'converted', label: 'Converted', data: [45] },
+            { key: 'drop-off', label: 'Drop-off', data: [25], trackData: [70] },
+        ]
+        // The same stack without a ceiling — a plain stacked chart, where the space beyond the stack
+        // must keep its ordinary band hover.
+        const uncappedStack: Series[] = [
+            { key: 'converted', label: 'Converted', data: [45] },
+            { key: 'drop-off', label: 'Drop-off', data: [25] },
+        ]
+
+        const stackedInGap = (stack: Series[], value: number): boolean => {
+            const labels = ['0']
+            const stackedScales = createBarScales(stack, labels, dimensions, {
+                barLayout: 'stacked',
+                axisOrientation: 'horizontal',
+                valueDomain: [0, 100],
+            })
+            return cursorInInertTrackGap({
+                series: stack,
+                label: '0',
+                dataIndex: 0,
+                scales: stackedScales,
+                layout: 'stacked',
+                isHorizontal: true,
+                stackedData: computeStackData(stack, labels),
+                topStackedKeyByAxis: new Map(),
+                cursor: {
+                    x: stackedScales.value(value),
+                    y: (stackedScales.band('0') ?? 0) + stackedScales.band.bandwidth() / 2,
+                },
+            })
+        }
+
+        it.each<[string, Series[], number, boolean]>([
+            ['beyond the ceiling (the blank volume gap)', cappedStack, 85, true],
+            ['inside the drop-off segment below the ceiling', cappedStack, 55, false],
+            ['inside the converted segment fill', cappedStack, 20, false],
+            ['beyond an uncapped stack (plain stacked chart keeps band hover)', uncappedStack, 85, false],
+        ])('%s', (_desc, stack, value, expected) => {
+            expect(stackedInGap(stack, value)).toBe(expected)
+        })
     })
 })

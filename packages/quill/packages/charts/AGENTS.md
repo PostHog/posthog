@@ -43,7 +43,7 @@ const series: Series[] = [
 
 - `key` (React key + stacking identity), `label` (legend/tooltip), `data` are required.
 - Line-only options: `points`, `stroke.pattern` (dashes/projections), `fill.opacity` / `fill.gradient` (area), `fill.lowerData` (ribbon).
-- Bar-only options: `bars` (per-bar `color`/`label`/`meta` overrides); `trackData` (grouped + `bars.track` only) caps each bar's "share of a whole" track at a per-bar ceiling in value units — the track fills only to `trackData[i]` and the region beyond is a fully inert gap: no hover, tooltip, pointer cursor, highlight, or click (the chart vetoes the hover there via `resolveHoverIndex`). Funnel compare uses it to draw a shorter period's volume gap as empty space rather than drop-off.
+- Bar-only options: `bars` (per-bar `color`/`label`/`meta` overrides); `trackData` caps each bar's interactive extent at a per-bar ceiling in value units — the region beyond `trackData[i]` is a fully inert gap: no hover, tooltip, pointer cursor, highlight, or click (the chart vetoes the hover there via `resolveHoverIndex`). On grouped charts with `bars.track` the hatched "share of a whole" track also fills only to the ceiling; on stacked charts no track is drawn — the ceiling only bounds interactivity. Funnel compare uses it to draw a shorter period's volume gap as empty space rather than drop-off, in both its grouped (left-to-right) and stacked (top-to-bottom) charts.
 - `yAxisId` scales a series against a second axis; `meta` carries arbitrary data into tooltips.
 
 ## Sizing

@@ -82,6 +82,31 @@ export const WithBarTrackCeiling: Story = {
     },
 }
 
+export const StackedWithTrackCeiling: Story = {
+    render: () => {
+        const theme = useReactiveTheme()
+        // Stacked counterpart of WithBarTrackCeiling — the shape of a top-to-bottom funnel compare bar.
+        // The stack (converted + drop-off) sums to the period's entry level (70), and `trackData` on the
+        // drop-off declares that ceiling: the region beyond it is fully inert (no tooltip, pointer
+        // cursor, or highlight when hovered), with no track drawn.
+        const series: Series[] = [
+            { key: 'converted', label: 'Converted', color: '', data: [45] },
+            { key: 'drop-off', label: 'Drop-off', color: '', data: [25], trackData: [70] },
+        ]
+        const config: BarChartConfig = {
+            barLayout: 'stacked',
+            axisOrientation: 'horizontal',
+            showGrid: true,
+            bars: { cornerRadius: 6, valueDomain: [0, 100] },
+        }
+        return (
+            <Stage height={120}>
+                <BarChart series={series} labels={['Step 1']} config={config} theme={theme} />
+            </Stage>
+        )
+    },
+}
+
 export const Percent: Story = {
     render: () => {
         const theme = useReactiveTheme()
