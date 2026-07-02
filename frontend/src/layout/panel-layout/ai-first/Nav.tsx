@@ -73,7 +73,7 @@ export function SectionTrigger({
             <Label
                 intent="menu"
                 className={cn(
-                    'text-xxs text-secondary text-left group-hover:text-primary mr-1',
+                    'text-xxs text-secondary text-left group-hover:text-primary mr-1 cursor-pointer',
                     isCollapsed && 'text-[7px] m-0 w-full text-center'
                 )}
             >
