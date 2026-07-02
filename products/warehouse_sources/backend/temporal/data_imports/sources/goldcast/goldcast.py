@@ -89,7 +89,9 @@ def _iter_event_ids(session: requests.Session, headers: dict[str, str], logger: 
     """Yield every event id, used to drive the per-event fan-out endpoints."""
     data = _fetch(session, f"{GOLDCAST_BASE_URL}/event/", headers, logger)
     for event in _extract_rows(data):
-        event_id = event.get("id")
+        # `id` is the required fan-out key: access it directly so a malformed event raises loudly
+        # rather than silently under-syncing its webinars/event_members with no signal in the logs.
+        event_id = event["id"]
         if event_id:
             yield str(event_id)
 

@@ -83,7 +83,7 @@ class TestFetchRetries:
         resp = MagicMock()
         resp.status_code = 401
         resp.ok = False
-        resp.raise_for_status.side_effect = requests.HTTPError("401 Client Error")
+        resp.raise_for_status.side_effect = requests.HTTPError("401 Client Error", response=resp)
 
         session = MagicMock()
         session.get.return_value = resp
@@ -170,9 +170,7 @@ class TestGetRowsFanOut:
         assert rows == [{"id": "m1", "event": "e1"}]
 
     def test_child_404_for_one_event_is_skipped_not_fatal(self, monkeypatch: Any) -> None:
-        not_found = requests.HTTPError("404 Client Error")
-        not_found.response = goldcast.requests.Response()
-        not_found.response.status_code = 404
+        not_found = requests.HTTPError("404 Client Error", response=MagicMock(status_code=404))
         _patch_fetch(
             monkeypatch,
             {
@@ -187,32 +185,30 @@ class TestGetRowsFanOut:
         assert rows == [{"id": "w2", "event": "e2"}]
 
     def test_child_non_404_error_propagates(self, monkeypatch: Any) -> None:
-        server_error = requests.HTTPError("500 Server Error")
-        server_error.response = goldcast.requests.Response()
-        server_error.response.status_code = 500
+        # 5xx/429 are retried inside _fetch and surface as GoldcastRetryableError, so the case that
+        # actually reaches the fan-out's `except HTTPError` branch is a non-404 4xx (e.g. a 403).
+        forbidden = requests.HTTPError("403 Client Error", response=MagicMock(status_code=403))
         _patch_fetch(
             monkeypatch,
             {
                 "https://customapi.goldcast.io/event/": [{"id": "e1"}],
-                "https://customapi.goldcast.io/event/webinars/e1/": server_error,
+                "https://customapi.goldcast.io/event/webinars/e1/": forbidden,
             },
         )
 
         with pytest.raises(requests.HTTPError):
             list(get_rows(access_key="tok", endpoint="webinars", logger=MagicMock()))
 
-    def test_events_without_ids_are_skipped_during_fan_out(self, monkeypatch: Any) -> None:
+    def test_event_without_id_fails_loudly(self, monkeypatch: Any) -> None:
+        # A malformed parent event (missing the required `id` fan-out key) must raise rather than
+        # silently under-sync that event's children with no signal.
         _patch_fetch(
             monkeypatch,
-            {
-                "https://customapi.goldcast.io/event/": [{"id": "e1"}, {"name": "no id"}],
-                "https://customapi.goldcast.io/event/webinars/e1/": [{"id": "w1"}],
-            },
+            {"https://customapi.goldcast.io/event/": [{"name": "no id"}]},
         )
 
-        rows = [row for batch in get_rows(access_key="tok", endpoint="webinars", logger=MagicMock()) for row in batch]
-
-        assert rows == [{"id": "w1", "event": "e1"}]
+        with pytest.raises(KeyError):
+            list(get_rows(access_key="tok", endpoint="webinars", logger=MagicMock()))
 
 
 class TestGoldcastSourceResponse:
