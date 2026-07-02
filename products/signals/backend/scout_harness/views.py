@@ -24,6 +24,7 @@ import dataclasses
 from dataclasses import dataclass
 from datetime import timedelta
 
+from django.conf import settings
 from django.utils import timezone
 
 import structlog
@@ -34,6 +35,7 @@ from rest_framework.decorators import action
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
 from rest_framework.response import Response
+from slack_sdk.errors import SlackApiError
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.api.mixins import validated_request
@@ -45,6 +47,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 # password-only user in a 2FA-enforced org read scout runs/scratchpad without
 # completing 2FA.
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.models.integration import Integration, SlackIntegration
 from posthog.models.team.team import Team
 from posthog.permissions import APIScopePermission
 from posthog.temporal.common.client import sync_connect
@@ -68,7 +71,11 @@ from products.signals.backend.scout_harness.lazy_seed import (
     canonical_skill_names,
     sync_canonical_skills,
 )
-from products.signals.backend.scout_harness.limits import MAX_ENABLED_SCOUTS_PER_TEAM, STALE_RUN_CUTOFF_S
+from products.signals.backend.scout_harness.limits import (
+    MAX_ENABLED_SCOUTS_PER_TEAM,
+    MAX_SLACK_NOTIFICATIONS_PER_RUN,
+    STALE_RUN_CUTOFF_S,
+)
 from products.signals.backend.scout_harness.serializers import (
     EditReportRequestSerializer,
     EditReportResponseSerializer,
@@ -89,6 +96,8 @@ from products.signals.backend.scout_harness.serializers import (
     ScoutMemberSerializer,
     ScoutMembersQuerySerializer,
     ScoutMetadataSerializer,
+    ScoutNotifyRequestSerializer,
+    ScoutNotifyResponseSerializer,
     ScoutRunIdsBatchRequestSerializer,
     ScratchpadEntrySerializer,
     SearchMemoryQuerySerializer,
@@ -797,26 +806,26 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             raise exceptions.ValidationError(
                 {"status": f"Reports can only be authored on in-progress runs (current: {run.task_run.status})."}
             )
-        self._assert_report_tool_opted_in(run, required_tool)
+        self._assert_tool_opted_in(run, required_tool)
         return run
 
-    def _assert_report_tool_opted_in(self, run: SignalScoutRun, required_tool: str) -> None:
+    def _assert_tool_opted_in(self, run: SignalScoutRun, required_tool: str) -> None:
         """Fail closed unless the run's skill opted into `required_tool` via `allowed_tools`. Loads the
         exact skill version the run snapshotted so the gate matches what actually ran; a missing/unloadable
-        skill is treated as not-opted-in (deny)."""
+        skill is treated as not-opted-in (deny). Backs both the report channel and the Slack `notify` tool."""
         # `run.team` is the canonical team the run was resolved on (the query above filters on
         # `_canonical_team_id`), and is where the scout's `LLMSkill` rows are seeded.
         try:
             skill = load_skill_for_run(run.team, run.skill_name, version=run.skill_version)
         except SkillNotFoundError:
             raise exceptions.PermissionDenied(
-                f"Report channel is opt-in; skill '{run.skill_name}' (v{run.skill_version}) could not be "
+                f"This tool is opt-in; skill '{run.skill_name}' (v{run.skill_version}) could not be "
                 "resolved to verify its allowed_tools."
             )
         if required_tool not in skill.allowed_tools:
             raise exceptions.PermissionDenied(
-                f"Report channel is opt-in: skill '{run.skill_name}' must list '{required_tool}' in its "
-                "allowed_tools to use this tool."
+                f"This tool is opt-in: skill '{run.skill_name}' must list '{required_tool}' in its "
+                "allowed_tools to use it."
             )
 
     @validated_request(
@@ -938,6 +947,145 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     "updated_fields": result.updated_fields,
                     "note_appended": result.note_appended,
                     "reviewers_set": result.reviewers_set,
+                }
+            ).data,
+            status=status.HTTP_200_OK,
+        )
+
+    @validated_request(
+        request_serializer=ScoutNotifyRequestSerializer,
+        parameters=[_RUN_ID_PATH_PARAMETER],
+        responses={
+            200: OpenApiResponse(
+                response=ScoutNotifyResponseSerializer,
+                description="Alert delivered to the scout's configured Slack channel.",
+            ),
+            400: OpenApiResponse(
+                description=(
+                    "No delivery channel configured, per-run notification cap reached, channel "
+                    "unavailable, or report_id not from this run."
+                )
+            ),
+            404: OpenApiResponse(description="Run not found for this project."),
+        },
+        summary="Send a Slack alert for a confirmed finding",
+        description=(
+            "Deliver a finding summary to this scout's configured Slack channel, tagging the account "
+            "owner when `owner_email` resolves to a Slack user. The channel always comes from the scout "
+            "config's `delivery_config` — never from the request. Capped at "
+            f"{MAX_SLACK_NOTIFICATIONS_PER_RUN} alerts per run. File (or edit) the inbox report first "
+            "and pass its `report_id` so the alert links back. Delivery errors are terminal for the "
+            "run — note them in your run summary and do not retry."
+        ),
+        operation_id="signals_scout_notify",
+    )
+    @action(
+        detail=True,
+        methods=["post"],
+        url_path="notify",
+        required_scopes=["signal_scout_internal:write"],
+        pagination_class=None,
+    )
+    def notify(self, request: Request, **kwargs) -> Response:
+        run = self._resolve_in_progress_run(kwargs, required_tool="send_slack_message")
+        data = request.validated_data
+
+        delivery = ((run.scout_config.delivery_config or {}) if run.scout_config else {}).get("slack") or {}
+        if not delivery.get("integration_id") or not delivery.get("channel_id"):
+            raise exceptions.ValidationError(
+                "This scout has no Slack delivery channel configured. Do not retry; note it in your run summary.",
+                code="no_delivery_config",
+            )
+
+        sent_notifications = run.notifications or []
+        if len(sent_notifications) >= MAX_SLACK_NOTIFICATIONS_PER_RUN:
+            raise exceptions.ValidationError(
+                f"This run already delivered {MAX_SLACK_NOTIFICATIONS_PER_RUN} Slack alerts (the per-run "
+                "cap). File remaining findings as reports and mention the overflow in your run summary.",
+                code="notification_cap_reached",
+            )
+
+        report_id = data.get("report_id")
+        if report_id is not None:
+            run_report_ids = {str(rid) for rid in (run.emitted_report_ids or []) + (run.edited_report_ids or [])}
+            if str(report_id) not in run_report_ids:
+                raise exceptions.ValidationError(
+                    "report_id must be a report this run emitted or edited.",
+                    code="unknown_report_id",
+                )
+
+        integration = Integration.objects.filter(
+            id=delivery["integration_id"], team_id=run.team_id, kind="slack"
+        ).first()
+        if integration is None:
+            raise exceptions.ValidationError(
+                "The Slack integration behind this scout's delivery channel no longer exists. Do not retry.",
+                code="slack_integration_missing",
+            )
+        slack = SlackIntegration(integration)
+
+        owner_tagged = False
+        owner_prefix = str(data.get("owner_label") or "")
+        if data.get("owner_email"):
+            try:
+                lookup = slack.client.users_lookupByEmail(email=data["owner_email"])
+                owner_slack_id = (lookup.get("user") or {}).get("id")
+                if owner_slack_id:
+                    owner_prefix = f"<@{owner_slack_id}>"
+                    owner_tagged = True
+            except Exception:
+                # Tagging is best-effort — a lookup miss must never block delivery.
+                logger.warning("scout_notify_owner_lookup_failed", exc_info=True)
+            if not owner_tagged and not owner_prefix:
+                owner_prefix = str(data["owner_email"])
+
+        emoji = {"high": ":rotating_light:", "medium": ":warning:", "low": ":mag:"}.get(
+            data.get("severity") or "", ":mag:"
+        )
+        body = f"{owner_prefix} {data['text']}".strip()
+        context_text = f"Sent by `{run.skill_name}`"
+        if report_id is not None:
+            report_url = f"{settings.SITE_URL}/project/{run.team_id}/inbox/reports/{report_id}"
+            context_text += f" · <{report_url}|View report in PostHog>"
+        blocks = [
+            {"type": "section", "text": {"type": "mrkdwn", "text": f"{emoji} *{data['account_name']}*"}},
+            {"type": "section", "text": {"type": "mrkdwn", "text": body}},
+            {"type": "context", "elements": [{"type": "mrkdwn", "text": context_text}]},
+        ]
+
+        try:
+            posted = slack.client.chat_postMessage(
+                channel=delivery["channel_id"],
+                text=f"{data['account_name']}: {data['text'][:150]}",
+                blocks=blocks,
+                unfurl_links=False,
+            )
+        except SlackApiError as exc:
+            slack_error = (getattr(exc, "response", None) or {}).get("error", "unknown_error")
+            raise exceptions.ValidationError(
+                f"Slack rejected the delivery ({slack_error}) — the bot may have been removed from the "
+                "channel. Mention this in your run summary and do not retry.",
+                code="channel_unavailable",
+            )
+
+        entry = {
+            "channel_id": delivery["channel_id"],
+            "ts": posted.get("ts"),
+            "account_name": data["account_name"],
+            "owner_email": data.get("owner_email"),
+            "owner_tagged": owner_tagged,
+            "report_id": str(report_id) if report_id is not None else None,
+            "sent_at": timezone.now().isoformat(),
+        }
+        run.notifications = [*sent_notifications, entry]
+        run.save(update_fields=["notifications"])
+
+        return Response(
+            ScoutNotifyResponseSerializer(
+                {
+                    "sent": True,
+                    "owner_tagged": owner_tagged,
+                    "channel": f"#{delivery.get('channel_name') or delivery['channel_id']}",
                 }
             ).data,
             status=status.HTTP_200_OK,

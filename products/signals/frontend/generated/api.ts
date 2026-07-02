@@ -34,6 +34,8 @@ import type {
     ScoutEmissionReportLinkApi,
     ScoutMemberApi,
     ScoutMetadataApi,
+    ScoutNotifyRequestApi,
+    ScoutNotifyResponseApi,
     ScoutRunIdsBatchRequestApi,
     ScratchpadEntryApi,
     SignalReportApi,
@@ -767,6 +769,28 @@ export const signalsScoutEmitSignal = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(emitFindingRequestApi),
+    })
+}
+
+export const getSignalsScoutNotifyUrl = (projectId: string, runId: string) => {
+    return `/api/projects/${projectId}/signals/scout/runs/${runId}/notify/`
+}
+
+/**
+ * Deliver a finding summary to this scout's configured Slack channel, tagging the account owner when `owner_email` resolves to a Slack user. The channel always comes from the scout config's `delivery_config` — never from the request. Capped at 5 alerts per run. File (or edit) the inbox report first and pass its `report_id` so the alert links back. Delivery errors are terminal for the run — note them in your run summary and do not retry.
+ * @summary Send a Slack alert for a confirmed finding
+ */
+export const signalsScoutNotify = async (
+    projectId: string,
+    runId: string,
+    scoutNotifyRequestApi: ScoutNotifyRequestApi,
+    options?: RequestInit
+): Promise<ScoutNotifyResponseApi> => {
+    return apiMutator<ScoutNotifyResponseApi>(getSignalsScoutNotifyUrl(projectId, runId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(scoutNotifyRequestApi),
     })
 }
 

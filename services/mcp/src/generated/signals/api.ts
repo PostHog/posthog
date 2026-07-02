@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 34 enabled ops
+ * PostHog API - MCP 35 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -925,6 +925,70 @@ export const SignalsScoutEmitSignalBody = /* @__PURE__ */ zod
             ),
     })
     .describe('Request body for `emit-finding`. Run attribution is taken from the URL path.')
+
+/**
+ * Deliver a finding summary to this scout's configured Slack channel, tagging the account owner when `owner_email` resolves to a Slack user. The channel always comes from the scout config's `delivery_config` — never from the request. Capped at 5 alerts per run. File (or edit) the inbox report first and pass its `report_id` so the alert links back. Delivery errors are terminal for the run — note them in your run summary and do not retry.
+ * @summary Send a Slack alert for a confirmed finding
+ */
+export const SignalsScoutNotifyParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    run_id: zod.string().describe('UUID of the `SignalScoutRun` bridge row.'),
+})
+
+export const signalsScoutNotifyBodyTextMax = 2500
+
+export const signalsScoutNotifyBodyAccountNameMax = 300
+
+export const signalsScoutNotifyBodyOwnerLabelMax = 200
+
+export const SignalsScoutNotifyBody = /* @__PURE__ */ zod
+    .object({
+        text: zod
+            .string()
+            .max(signalsScoutNotifyBodyTextMax)
+            .describe(
+                'The finding summary, in Slack mrkdwn, written for the account owner: what changed, the magnitude and window, and the one thing to check. 2–4 sentences. Do NOT include an owner mention — the server prepends it.'
+            ),
+        account_name: zod
+            .string()
+            .max(signalsScoutNotifyBodyAccountNameMax)
+            .describe('Display name of the account the finding is about (headline of the alert).'),
+        owner_email: zod
+            .email()
+            .nullish()
+            .describe(
+                "The account owner's email as resolved from the data (`system.accounts` roles or CRM owner join). The server resolves it to a Slack mention via `users.lookupByEmail`; on a miss the alert falls back to plain text. Omit when no owner was resolvable."
+            ),
+        owner_label: zod
+            .string()
+            .max(signalsScoutNotifyBodyOwnerLabelMax)
+            .nullish()
+            .describe(
+                "Human-readable owner fallback (e.g. `Jane Doe (Salesforce)` or `HubSpot owner 1234`) used when `owner_email` is absent or doesn't resolve to a Slack user."
+            ),
+        report_id: zod
+            .uuid()
+            .nullish()
+            .describe(
+                "UUID of the inbox `SignalReport` this run emitted or edited for the same finding. Must be one of this run's report ids; the alert links to it. Always file the report first, then notify."
+            ),
+        severity: zod
+            .union([
+                zod.enum(['high', 'medium', 'low']).describe('* `high` - high\n* `medium` - medium\n* `low` - low'),
+                zod.null(),
+            ])
+            .optional()
+            .describe(
+                "Severity steer for the alert's visual treatment. Omit for a neutral alert.\n\n* `low` - low\n* `medium` - medium\n* `high` - high"
+            ),
+    })
+    .describe(
+        "Request body for `notify`. The target channel always comes from the scout config's\n`delivery_config` — it can never be supplied here."
+    )
 
 /**
  * Return the team's recently emitted scout findings across *every* run, newest first — the cross-run counterpart to the per-run `emissions` action. Each row carries its `run_id`, so you can regroup by run without first listing runs and fanning out one `emissions` call each. Pass `skill_name` to scope to a single scout, and `date_from` / `date_to` (a half-open window on `emitted_at`) to bound or paginate — set `date_to` to the oldest emission's `emitted_at` to walk back past the limit. Pure Postgres, no ClickHouse round-trip. Capped at 200 rows (default 50).

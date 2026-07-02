@@ -1365,7 +1365,98 @@ class ProjectProfileSerializer(serializers.Serializer):
     )
 
 
+# --- Slack notify (delivery channel) ---------------------------------------
+
+
+class ScoutNotifyRequestSerializer(serializers.Serializer):
+    """Request body for `notify`. The target channel always comes from the scout config's
+    `delivery_config` — it can never be supplied here."""
+
+    text = serializers.CharField(
+        max_length=2500,
+        help_text=(
+            "The finding summary, in Slack mrkdwn, written for the account owner: what changed, "
+            "the magnitude and window, and the one thing to check. 2–4 sentences. Do NOT include "
+            "an owner mention — the server prepends it."
+        ),
+    )
+    account_name = serializers.CharField(
+        max_length=300,
+        help_text="Display name of the account the finding is about (headline of the alert).",
+    )
+    owner_email = serializers.EmailField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The account owner's email as resolved from the data (`system.accounts` roles or CRM "
+            "owner join). The server resolves it to a Slack mention via `users.lookupByEmail`; "
+            "on a miss the alert falls back to plain text. Omit when no owner was resolvable."
+        ),
+    )
+    owner_label = serializers.CharField(
+        required=False,
+        allow_null=True,
+        allow_blank=True,
+        max_length=200,
+        help_text=(
+            "Human-readable owner fallback (e.g. `Jane Doe (Salesforce)` or `HubSpot owner 1234`) "
+            "used when `owner_email` is absent or doesn't resolve to a Slack user."
+        ),
+    )
+    report_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "UUID of the inbox `SignalReport` this run emitted or edited for the same finding. "
+            "Must be one of this run's report ids; the alert links to it. Always file the report "
+            "first, then notify."
+        ),
+    )
+    severity = serializers.ChoiceField(
+        choices=["low", "medium", "high"],
+        required=False,
+        allow_null=True,
+        help_text="Severity steer for the alert's visual treatment. Omit for a neutral alert.",
+    )
+
+
+class ScoutNotifyResponseSerializer(serializers.Serializer):
+    """Result of a delivered Slack alert."""
+
+    sent = serializers.BooleanField(help_text="True — the alert was posted to the configured channel.")
+    owner_tagged = serializers.BooleanField(
+        help_text="Whether `owner_email` resolved to a Slack user and the alert mentions them directly."
+    )
+    channel = serializers.CharField(help_text="The channel the alert was delivered to, e.g. `#posthog-inbox`.")
+
+
 # --- Scout config ----------------------------------------------------------
+
+
+class ScoutSlackDeliverySerializer(serializers.Serializer):
+    """Slack delivery target on a scout config. Written only by the provisioning facade
+    (`provision_persona_scouts`) — read-only through the public config API."""
+
+    integration_id = serializers.IntegerField(
+        help_text="Id of the team's Slack `Integration` the alerts post through."
+    )
+    channel_id = serializers.CharField(help_text="Slack channel id (`C…`) alerts are delivered to.")
+    channel_name = serializers.CharField(help_text="Human-readable channel name (without the `#`).")
+    configured_by_user_id = serializers.IntegerField(
+        required=False,
+        allow_null=True,
+        help_text="PostHog user id who configured this delivery target during onboarding.",
+    )
+
+
+class ScoutDeliveryConfigSerializer(serializers.Serializer):
+    """Per-scout delivery targets. `slack` is the only supported target today."""
+
+    slack = ScoutSlackDeliverySerializer(
+        required=False,
+        allow_null=True,
+        help_text="Slack delivery target, or null/absent when the scout has none.",
+    )
 
 
 class SignalScoutConfigSerializer(serializers.ModelSerializer):
@@ -1414,6 +1505,15 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
         allow_null=True,
         help_text="When the coordinator last dispatched this scout. Null if it has never run.",
     )
+    delivery_config = ScoutDeliveryConfigSerializer(
+        read_only=True,
+        allow_null=True,
+        help_text=(
+            "Where this scout delivers alerts (e.g. a Slack channel via the `notify` run tool). "
+            "Null for scouts with no delivery target. Read-only: it is written only by the "
+            "provisioning flow, never through this API."
+        ),
+    )
 
     @extend_schema_field(OpenApiTypes.STR)
     def get_description(self, obj: SignalScoutConfig) -> str:
@@ -1440,9 +1540,10 @@ class SignalScoutConfigSerializer(serializers.ModelSerializer):
             "emit",
             "run_interval_minutes",
             "last_run_at",
+            "delivery_config",
             "created_at",
         ]
-        read_only_fields = ["id", "created_at"]
+        read_only_fields = ["id", "delivery_config", "created_at"]
 
 
 class SignalScoutConfigCreateSerializer(serializers.Serializer):

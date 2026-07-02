@@ -37,3 +37,9 @@ STALE_RUN_CUTOFF_S = 2 * WORKFLOW_HARD_CEILING_S
 # surfaces (config create/update) and in auto-registration, which falls back to registering
 # new scouts disabled once the team is at the cap.
 MAX_ENABLED_SCOUTS_PER_TEAM = 100
+
+# Per-run ceiling on Slack alerts a scout can deliver via the `notify` run tool. A scout
+# that thinks it has more than this many channel-worthy findings in one run should file
+# the rest as inbox reports and say so in its run summary — the cap keeps a runaway or
+# over-eager run from flooding the delivery channel.
+MAX_SLACK_NOTIFICATIONS_PER_RUN = 5
