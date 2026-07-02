@@ -96,17 +96,31 @@ export function splitProjectedPct(
  * Assumes block-only overage policy; revisit when `usage_based` lands so we don't disable on metered orgs.
  */
 export function quotaUx(quota: VisionQuotaApi | null): { disabledReason?: string; tooltip?: string } {
-    if (!quota || quota.monthly_quota <= 0) {
+    const state = quotaBannerState(quota)
+    if (!state.kind) {
         return {}
+    }
+    if (state.kind === 'exhausted') {
+        return { disabledReason: `Monthly observation quota reached. Resets ${state.resetsOn}.` }
+    }
+    return {
+        tooltip: `${state.quota.remaining.toLocaleString()} observations left this month (resets ${state.resetsOn})`,
+    }
+}
+
+/** One shared exhausted/warning classification so the banner, triggers, and tooltips can't drift. */
+export function quotaBannerState(
+    quota: VisionQuotaApi | null
+): { kind: null } | { kind: 'exhausted' | 'warning'; resetsOn: string; quota: VisionQuotaApi } {
+    if (!quota || quota.monthly_quota <= 0) {
+        return { kind: null }
     }
     const resetsOn = dayjs(quota.period_end).format('MMMM D')
     if (quota.exhausted) {
-        return { disabledReason: `Monthly observation quota reached. Resets ${resetsOn}.` }
+        return { kind: 'exhausted', resetsOn, quota }
     }
     if (quota.usage_this_month / quota.monthly_quota >= QUOTA_WARN_THRESHOLD) {
-        return {
-            tooltip: `${quota.remaining.toLocaleString()} observations left this month (resets ${resetsOn})`,
-        }
+        return { kind: 'warning', resetsOn, quota }
     }
-    return {}
+    return { kind: null }
 }

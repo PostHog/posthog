@@ -1,7 +1,7 @@
 from datetime import UTC, datetime, timedelta
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
-from unittest.mock import patch
+from unittest.mock import AsyncMock, MagicMock, patch
 
 from django.core.cache import cache
 from django.test import SimpleTestCase
@@ -11,6 +11,7 @@ from rest_framework import status
 
 from posthog.models import Organization, Team
 from posthog.models.utils import uuid7
+from posthog.temporal.mcp_analytics.intent_clustering.constants import CHILD_WORKFLOW_ID_PREFIX, WORKFLOW_NAME
 
 from products.mcp_analytics.backend import intent_generation
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
@@ -197,12 +198,15 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert data["clusters"][0]["label"] == "check feature flag rollout"
         assert data["computed_with"]["n_clusters"] == 1
 
-    def test_intent_clusters_recompute_enqueues_task_and_returns_computing(self) -> None:
-        # Mock only the Celery dispatch so the synchronous COMPUTING write
-        # still runs. The 202 body should reflect the new state, not the
-        # stale pre-trigger state.
+    def test_intent_clusters_recompute_starts_workflow_and_returns_computing(self) -> None:
+        # Mock async_connect to return a client whose start_workflow is an
+        # AsyncMock — the facade awaits both inside asyncio.run. The
+        # synchronous COMPUTING write still runs against the real DB so
+        # the 202 body reflects the new state, not the stale pre-trigger one.
+        mock_client = MagicMock()
+        mock_client.start_workflow = AsyncMock(return_value=MagicMock())
         with (
-            patch("products.mcp_analytics.backend.tasks.tasks.compute_intent_clusters.delay") as mock_delay,
+            patch("posthog.temporal.common.client.async_connect", new=AsyncMock(return_value=mock_client)),
             patch("posthoganalytics.feature_enabled", return_value=True),
         ):
             response = self.client.post(
@@ -211,10 +215,35 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
 
         assert response.status_code == status.HTTP_202_ACCEPTED
         assert response.json()["status"] == "computing"
-        mock_delay.assert_called_once_with(self.team.id, self.user.id)
         snapshot = MCPIntentClusterSnapshot.objects.get(team=self.team)
         assert snapshot.status == MCPIntentClusterSnapshot.Status.COMPUTING
         assert snapshot.last_computed_by_id == self.user.id
+        mock_client.start_workflow.assert_awaited_once()
+        call_args = mock_client.start_workflow.call_args
+        assert call_args.args[0] == WORKFLOW_NAME
+        assert call_args.args[1].team_id == self.team.id
+        assert call_args.args[1].user_id == self.user.id
+        assert call_args.kwargs["id"].startswith(f"{CHILD_WORKFLOW_ID_PREFIX}-{self.team.id}-adhoc-")
+
+    def test_intent_clusters_recompute_dispatch_failure_reverts_to_error(self) -> None:
+        # If the workflow never starts, no activity will flip the status —
+        # the endpoint must revert its own COMPUTING write, not leave the
+        # snapshot stuck until the stale-COMPUTING sweep.
+        with (
+            patch(
+                "posthog.temporal.common.client.async_connect",
+                new=AsyncMock(side_effect=RuntimeError("temporal unreachable")),
+            ),
+            patch("posthoganalytics.feature_enabled", return_value=True),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/mcp_analytics/intent_clusters/recompute/", {}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        snapshot = MCPIntentClusterSnapshot.objects.get(team=self.team)
+        assert snapshot.status == MCPIntentClusterSnapshot.Status.ERROR
+        assert snapshot.error_message == "Failed to start the intent clustering workflow"
 
     def test_feedback_list_is_team_scoped(self) -> None:
         MCPAnalyticsSubmission.objects.create(

@@ -140,9 +140,9 @@ rust/cymbal-resolution/** @PostHog/team-error-tracking
 rust/cymbal-proto/** @PostHog/team-error-tracking
 rust/common/symbol_data/** @PostHog/team-error-tracking
 
-# Notebooks - owned by @PostHog/team-platform-features
-frontend/src/scenes/notebooks/ @PostHog/team-platform-features
-frontend/src/lib/components/RichContentEditor/ @PostHog/team-platform-features
+# Notebooks - owned by @PostHog/team-data-tools
+frontend/src/scenes/notebooks/ @PostHog/team-data-tools
+frontend/src/lib/components/RichContentEditor/ @PostHog/team-data-tools
 
 # Comments - owned by @PostHog/team-platform-features
 frontend/src/scenes/comments/ @PostHog/team-platform-features
@@ -366,3 +366,18 @@ products/user_interviews/** @pauldambra @fivestarspicy @ksvat
 posthog/api/documentation.py @PostHog/team-devex
 posthog/api/mixins.py @PostHog/team-devex
 posthog/management/commands/find_enum_collisions.py @PostHog/team-devex
+
+# Managed reverse proxy - owned by @PostHog/team-platform-features
+# Placed last so these paths win over the broad frontend/src/scenes/settings/ rule (last-match-wins).
+posthog/models/proxy_record.py @PostHog/team-platform-features
+posthog/api/proxy_record.py @PostHog/team-platform-features
+posthog/api/proxy_record_diagnostics.py @PostHog/team-platform-features
+posthog/api/test/test_proxy_record.py @PostHog/team-platform-features
+posthog/api/test/test_proxy_record_diagnostics.py @PostHog/team-platform-features
+posthog/temporal/proxy_service/ @PostHog/team-platform-features
+posthog/templates/email/proxy_provisioned.html @PostHog/team-platform-features
+frontend/src/scenes/settings/environment/ManagedReverseProxy.tsx @PostHog/team-platform-features
+frontend/src/scenes/settings/environment/ProxySDKSetup.tsx @PostHog/team-platform-features
+frontend/src/scenes/settings/environment/proxyLogic.ts @PostHog/team-platform-features
+frontend/src/scenes/settings/environment/proxyLogic.test.ts @PostHog/team-platform-features
+frontend/src/lib/components/ReverseProxyChecker/ @PostHog/team-platform-features

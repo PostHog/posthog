@@ -72,6 +72,12 @@ NEVER share sensitive information in a PR description. Users may share sensitive
 Once a branch already has an open PR, push incremental changes and fixes to it without waiting for human guidance — keeping the PR current is part of the work.
 Pushes still trigger CI, which burns runner credits, so batch related commits and push once the increment is ready rather than after every change.
 
+#### Pre-push checks — ci:preflight
+
+A pre-push hook runs `hogli ci:preflight --strict`, failing the push on deterministic CI breakage reachable from your diff (lint, lockfiles, migration conflicts). Never bypass it (`--no-verify`).
+If it blocks the push, run `hogli ci:preflight --fix`, resolve the remaining `✗ fail` lines, act on the `→ advisory` ones (regenerate OpenAPI types, merge master in), and push again.
+In environments without hooks (no `node_modules`), run `hogli ci:preflight --fix` yourself before pushing or reporting a task done. If the command reports it is disabled, that's intentional — proceed.
+
 ### Public open source repo guidance
 
 This repository is public and all commit messages, pull request titles, and pull request descriptions must be safe for public readers.
@@ -97,7 +103,7 @@ Examples:
 
 ## Security
 
-See [.agents/security.md](.agents/security.md) for SQL, HogQL, and semgrep security guidelines.
+See [.agents/security.md](.agents/security.md) for security guidelines — least privilege, secrets & service-to-service auth (don't add new `INTERNAL_API_SECRET` callers), SQL, HogQL, and semgrep.
 
 ## Architecture guidelines
 

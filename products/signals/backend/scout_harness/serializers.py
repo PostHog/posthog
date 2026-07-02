@@ -962,6 +962,33 @@ class RecentActivitySerializer(serializers.Serializer):
     )
 
 
+class ReviewerCorrectionEntrySerializer(serializers.Serializer):
+    """One row in `inventory.recent_reviewer_corrections.corrections`."""
+
+    report_id = serializers.CharField(help_text="UUID of the report whose reviewers a human edited.")
+    report_title = serializers.CharField(allow_null=True, help_text="Report title at the time of the edit.")
+    before = serializers.ListField(
+        child=serializers.CharField(), help_text="GitHub logins on the report before the human edit (lowercased)."
+    )
+    after = serializers.ListField(
+        child=serializers.CharField(), help_text="GitHub logins on the report after the human edit (lowercased)."
+    )
+    at = serializers.CharField(allow_null=True, help_text="ISO-8601 timestamp of the edit.")
+
+
+class RecentReviewerCorrectionsSerializer(serializers.Serializer):
+    """`inventory.recent_reviewer_corrections` — human edits to report reviewer lists."""
+
+    window_days = serializers.IntegerField(help_text="Lookback window in days the corrections cover.")
+    corrections = serializers.ListField(
+        child=ReviewerCorrectionEntrySerializer(),
+        help_text=(
+            "Human reviewer edits, newest first. A human swapping a report's suggested "
+            "reviewers is authoritative ownership precedent — route to who they chose."
+        ),
+    )
+
+
 class RecentSurveyEntrySerializer(serializers.Serializer):
     """One row in `inventory.recent_surveys.recent`."""
 
@@ -1209,6 +1236,13 @@ class ProjectProfileInventorySerializer(serializers.Serializer):
             "scope reports `edits` (total log entries), `users` (distinct user count), "
             "and `last_edit` (ISO-8601). Use to triage which scope a team has been working "
             "in lately before drilling down via the per-entity readers or `activity-log-list`."
+        ),
+    )
+    recent_reviewer_corrections = RecentReviewerCorrectionsSerializer(
+        help_text=(
+            "Recent human edits to report reviewer lists (before/after GitHub logins). "
+            "The strongest ownership precedent available — check it before setting "
+            "`suggested_reviewers` and fold what it shows into `reviewer:` memory keys."
         ),
     )
     recent_dashboards = serializers.ListField(
