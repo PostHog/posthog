@@ -20405,6 +20405,7 @@ export namespace Schemas {
      * * `azure_openai` - Azure OpenAI
      * * `together_ai` - Together AI
      * * `minimax` - MiniMax
+     * * `zeabur` - Zeabur AI Hub
      */
     export type LLMProviderEnum = typeof LLMProviderEnum[keyof typeof LLMProviderEnum];
 
@@ -20418,6 +20419,7 @@ export namespace Schemas {
       AzureOpenai: 'azure_openai',
       TogetherAi: 'together_ai',
       Minimax: 'minimax',
+      Zeabur: 'zeabur',
     } as const;
 
     /**
@@ -34214,7 +34216,8 @@ export namespace Schemas {
        * * `fireworks` - Fireworks
        * * `azure_openai` - Azure OpenAI
        * * `together_ai` - Together AI
-       * * `minimax` - MiniMax */
+       * * `minimax` - MiniMax
+       * * `zeabur` - Zeabur AI Hub */
       provider: LLMProviderEnum;
       /**
          * Provider model identifier to use for this tagger.
@@ -41497,7 +41500,8 @@ export namespace Schemas {
        * * `fireworks` - Fireworks
        * * `azure_openai` - Azure OpenAI
        * * `together_ai` - Together AI
-       * * `minimax` - MiniMax */
+       * * `minimax` - MiniMax
+       * * `zeabur` - Zeabur AI Hub */
       provider: LLMProviderEnum;
       /**
          * Provider model identifier to use for this tagger.
@@ -57811,6 +57815,7 @@ export namespace Schemas {
       Openai: 'openai',
       Openrouter: 'openrouter',
       TogetherAi: 'together_ai',
+      Zeabur: 'zeabur',
     } as const;
 
     export type EnvironmentsLlmAnalyticsOfflineEvaluationsExperimentItemsCreate400 = { [key: string]: unknown };
@@ -64459,6 +64464,7 @@ export namespace Schemas {
       Openai: 'openai',
       Openrouter: 'openrouter',
       TogetherAi: 'together_ai',
+      Zeabur: 'zeabur',
     } as const;
 
     export type LlmAnalyticsOfflineEvaluationsExperimentItemsCreate400 = { [key: string]: unknown };
