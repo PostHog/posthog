@@ -1,12 +1,13 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 
-import { visionScannersList, visionScannersObserveCreate, visionObservationsList } from '../generated/api'
+import { visionScannersObserveCreate, visionObservationsList } from '../generated/api'
 import type { ReplayScannerApi, ReplayObservationApi } from '../generated/api.schemas'
 import { scheduleObservationPoll } from './observationPolling'
 import type { observationsDockLogicType } from './observationsDockLogicType'
+import { visionScannersListLogic } from './visionScannersListLogic'
 
 // The observe endpoint only starts the workflow; its row is created a moment later. Keep polling
 // for this window after an observe so the new card appears even before anything reports in flight.
@@ -21,13 +22,15 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
     props({} as ObservationsDockLogicProps),
     key((props) => props.sessionId),
 
+    connect(() => ({
+        // The scanner list is team-wide — shared so per-recording dock instances don't each refetch it.
+        values: [visionScannersListLogic, ['scanners']],
+    })),
+
     actions({
         loadObservations: true,
         loadObservationsSuccess: (observations: ReplayObservationApi[]) => ({ observations }),
         loadObservationsFailure: true,
-        loadScanners: true,
-        loadScannersSuccess: (scanners: ReplayScannerApi[]) => ({ scanners }),
-        loadScannersFailure: true,
         observe: (scannerId: string) => ({ scannerId }),
         observeSuccess: true,
         observeFailure: true,
@@ -49,12 +52,6 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                 loadObservations: () => true,
                 loadObservationsSuccess: () => false,
                 loadObservationsFailure: () => false,
-            },
-        ],
-        scanners: [
-            [] as ReplayScannerApi[],
-            {
-                loadScannersSuccess: (_, { scanners }) => scanners,
             },
         ],
         observing: [
@@ -139,19 +136,6 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
             )
         },
 
-        loadScanners: async () => {
-            const teamId = teamLogic.values.currentTeamId
-            if (!teamId) {
-                return
-            }
-            try {
-                const response = await visionScannersList(String(teamId))
-                actions.loadScannersSuccess(response.results ?? [])
-            } catch {
-                actions.loadScannersFailure()
-            }
-        },
-
         observe: async ({ scannerId }) => {
             actions.setScannerPickerOpen(false)
             const teamId = teamLogic.values.currentTeamId
@@ -181,6 +165,5 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
 
     afterMount(({ actions }) => {
         actions.loadObservations()
-        actions.loadScanners()
     }),
 ])

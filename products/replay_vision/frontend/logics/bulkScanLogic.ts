@@ -1,14 +1,13 @@
-import { actions, afterMount, connect, kea, listeners, path, reducers } from 'kea'
-import { loaders } from 'kea-loaders'
+import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { router } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
-import { visionScannersList, visionScannersObserveCreate } from '../generated/api'
-import type { ReplayScannerApi } from '../generated/api.schemas'
+import { visionScannersObserveCreate } from '../generated/api'
 import type { bulkScanLogicType } from './bulkScanLogicType'
+import { visionScannersListLogic } from './visionScannersListLogic'
 
 // Caps simultaneous workflow-start requests; the batches run sequentially.
 const BULK_SCAN_CONCURRENCY = 10
@@ -17,33 +16,13 @@ export const bulkScanLogic = kea<bulkScanLogicType>([
     path(['products', 'replay_vision', 'frontend', 'logics', 'bulkScanLogic']),
 
     connect(() => ({
-        actions: [teamLogic, ['loadCurrentTeamSuccess']],
+        values: [visionScannersListLogic, ['scanners', 'scannersLoading']],
     })),
 
     actions({
         scanRecordings: (scannerId: string, sessionIds: string[]) => ({ scannerId, sessionIds }),
         scanRecordingsSuccess: true,
         scanRecordingsFailure: true,
-    }),
-
-    loaders({
-        scanners: [
-            [] as ReplayScannerApi[],
-            {
-                loadScanners: async () => {
-                    const teamId = teamLogic.values.currentTeamId
-                    if (!teamId) {
-                        return []
-                    }
-                    try {
-                        const response = await visionScannersList(String(teamId))
-                        return response.results ?? []
-                    } catch {
-                        return []
-                    }
-                },
-            },
-        ],
     }),
 
     reducers({
@@ -120,14 +99,5 @@ export const bulkScanLogic = kea<bulkScanLogicType>([
             }
             actions.scanRecordingsSuccess()
         },
-        // The logic is global/propless, so reload scanners when the active team changes
-        // to avoid POSTing the previous team's scanner IDs to the new team's endpoint.
-        loadCurrentTeamSuccess: () => {
-            actions.loadScanners()
-        },
     })),
-
-    afterMount(({ actions }) => {
-        actions.loadScanners()
-    }),
 ])
