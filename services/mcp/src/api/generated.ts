@@ -34013,6 +34013,7 @@ export namespace Schemas {
      * * `health_checks` - Health checks
      * * `endpoints` - Endpoints
      * * `replay_vision` - Replay Vision
+     * * `pulse` - Pulse
      */
     export type SignalSourceConfigSourceProductEnum = typeof SignalSourceConfigSourceProductEnum[keyof typeof SignalSourceConfigSourceProductEnum];
 
@@ -34031,6 +34032,7 @@ export namespace Schemas {
       HealthChecks: 'health_checks',
       Endpoints: 'endpoints',
       ReplayVision: 'replay_vision',
+      Pulse: 'pulse',
     } as const;
 
     /**
@@ -34048,6 +34050,9 @@ export namespace Schemas {
      * * `endpoint_execution_failed` - Endpoint execution failed
      * * `endpoint_breakdown_limit_exceeded` - Endpoint breakdown limit exceeded
      * * `scanner_finding` - Scanner finding
+     * * `opportunity_build` - Opportunity (build)
+     * * `opportunity_fix` - Opportunity (fix)
+     * * `opportunity_instrument` - Opportunity (instrument)
      */
     export type SignalSourceConfigSourceTypeEnum = typeof SignalSourceConfigSourceTypeEnum[keyof typeof SignalSourceConfigSourceTypeEnum];
 
@@ -34067,6 +34072,9 @@ export namespace Schemas {
       EndpointExecutionFailed: 'endpoint_execution_failed',
       EndpointBreakdownLimitExceeded: 'endpoint_breakdown_limit_exceeded',
       ScannerFinding: 'scanner_finding',
+      OpportunityBuild: 'opportunity_build',
+      OpportunityFix: 'opportunity_fix',
+      OpportunityInstrument: 'opportunity_instrument',
     } as const;
 
     export interface SignalSourceConfig {
@@ -45432,6 +45440,18 @@ export namespace Schemas {
       limit: number;
     }
 
+    export interface PulseOpportunityEvidenceEntry {
+      type: string;
+      ref: string;
+      label: string;
+    }
+
+    export interface PulseOpportunitySignalExtra {
+      brief_id: string;
+      kind: string;
+      evidence: PulseOpportunityEvidenceEntry[];
+    }
+
     /**
      * * `ios` - iOS
      * * `android` - Android
@@ -48199,6 +48219,7 @@ export namespace Schemas {
      * * `logs` - logs
      * * `health_checks` - health_checks
      * * `replay_vision` - replay_vision
+     * * `pulse` - pulse
      */
     export type SignalSourceProduct = typeof SignalSourceProduct[keyof typeof SignalSourceProduct];
 
@@ -48217,6 +48238,7 @@ export namespace Schemas {
       Logs: 'logs',
       HealthChecks: 'health_checks',
       ReplayVision: 'replay_vision',
+      Pulse: 'pulse',
     } as const;
 
     /**
@@ -48235,6 +48257,9 @@ export namespace Schemas {
      * * `alert_state_change` - alert_state_change
      * * `health_issue` - health_issue
      * * `scanner_finding` - scanner_finding
+     * * `opportunity_build` - opportunity_build
+     * * `opportunity_fix` - opportunity_fix
+     * * `opportunity_instrument` - opportunity_instrument
      */
     export type SignalSourceType = typeof SignalSourceType[keyof typeof SignalSourceType];
 
@@ -48255,6 +48280,9 @@ export namespace Schemas {
       AlertStateChange: 'alert_state_change',
       HealthIssue: 'health_issue',
       ScannerFinding: 'scanner_finding',
+      OpportunityBuild: 'opportunity_build',
+      OpportunityFix: 'opportunity_fix',
+      OpportunityInstrument: 'opportunity_instrument',
     } as const;
 
     export interface SessionProblemEventEntry {
@@ -48317,7 +48345,7 @@ export namespace Schemas {
       mcp_trace_id?: string | null;
     }
 
-    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | HealthCheckSignalExtra;
+    export type SignalExtra = SessionProblemSignalExtra | LlmEvalSignalExtra | LlmEvalReportSignalExtra | ZendeskTicketSignalExtra | GithubIssueSignalExtra | LinearIssueSignalExtra | ConversationsTicketSignalExtra | ErrorTrackingSignalExtra | PgAnalyzeIssueSignalExtra | EndpointExecutionFailedSignalExtra | EndpointBreakdownLimitExceededSignalExtra | SignalsScoutSignalExtra | LogsAlertStateChangeSignalExtra | ReplayVisionScannerFindingSignalExtra | HealthCheckSignalExtra | PulseOpportunitySignalExtra;
 
     export type SignalMatchMetadata = MatchedMetadata | NoMatchMetadata;
 
@@ -48340,7 +48368,8 @@ export namespace Schemas {
        * * `signals_scout` - signals_scout
        * * `logs` - logs
        * * `health_checks` - health_checks
-       * * `replay_vision` - replay_vision */
+       * * `replay_vision` - replay_vision
+       * * `pulse` - pulse */
       source_product: SignalSourceProduct;
       /** Signal type within the source product.
        *
@@ -48358,7 +48387,10 @@ export namespace Schemas {
        * * `cross_source_issue` - cross_source_issue
        * * `alert_state_change` - alert_state_change
        * * `health_issue` - health_issue
-       * * `scanner_finding` - scanner_finding */
+       * * `scanner_finding` - scanner_finding
+       * * `opportunity_build` - opportunity_build
+       * * `opportunity_fix` - opportunity_fix
+       * * `opportunity_instrument` - opportunity_instrument */
       source_type: SignalSourceType;
       /** Emitter-scoped id of the underlying object (issue, ticket, ...). */
       source_id: string;

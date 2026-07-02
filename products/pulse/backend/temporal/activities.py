@@ -8,9 +8,10 @@ from posthog.exceptions_capture import capture_exception
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 
-from products.pulse.backend.generation.persist import persist_brief_output
+from products.pulse.backend.generation.persist import opportunity_fingerprint, persist_brief_output
+from products.pulse.backend.generation.schemas import BriefOut
 from products.pulse.backend.generation.synthesize import synthesize_brief
-from products.pulse.backend.models import BriefConfig, ProductBrief
+from products.pulse.backend.models import BriefConfig, Opportunity, ProductBrief
 from products.pulse.backend.sources.base import SourceItem
 from products.pulse.backend.sources.registry import get_sources
 from products.pulse.backend.temporal.inputs import (
@@ -18,6 +19,7 @@ from products.pulse.backend.temporal.inputs import (
     MarkBriefFailedInputs,
     SynthesizeActivityInputs,
 )
+from products.signals.backend.facade.api import emit_signal
 
 logger = structlog.get_logger(__name__)
 
@@ -25,6 +27,9 @@ logger = structlog.get_logger(__name__)
 # chatty low-priority source can't crowd out actionable items.
 MAX_ITEMS = 50
 KIND_PRIORITY: dict[str, int] = {"health": 0, "signal": 1, "movement": 2, "context": 3}
+# Fallback when a created opportunity can't be matched back to its LLM confidence (shouldn't
+# happen — fingerprints are minted from the same output); matches emit_signal's own default.
+DEFAULT_OPPORTUNITY_SIGNAL_WEIGHT = 0.5
 
 
 class BriefGenerationFailed(Exception):
@@ -94,10 +99,41 @@ async def synthesize_brief_activity(inputs: SynthesizeActivityInputs) -> str:
         items=items,
         period_days=brief.period_days,
     )
-    brief = await database_sync_to_async(persist_brief_output, thread_sensitive=False)(
+    created = await database_sync_to_async(persist_brief_output, thread_sensitive=False)(
         brief=brief, out=out, items=items
     )
+    await _emit_opportunity_signals(brief, out, created)
     return brief.status
+
+
+async def _emit_opportunity_signals(brief: ProductBrief, out: BriefOut, created: list[Opportunity]) -> None:
+    """Surface newly created opportunities in the signals inbox via the signals facade.
+
+    Deduped fingerprints never re-emit (they were surfaced by an earlier brief), delivery is
+    opt-in per team (a `pulse` SignalSourceConfig row, checked inside emit_signal), and the
+    emit is best-effort — a failure must never fail the brief.
+    """
+    confidence_by_fingerprint = {
+        opportunity_fingerprint(o.kind, o.fingerprint_hint): o.confidence for o in out.opportunities
+    }
+    for opportunity in created:
+        try:
+            await emit_signal(
+                team=brief.team,
+                source_product="pulse",
+                source_type=f"opportunity_{opportunity.kind}",
+                source_id=str(opportunity.id),
+                description=f"{opportunity.title}\n\n{opportunity.summary}",
+                weight=confidence_by_fingerprint.get(opportunity.fingerprint, DEFAULT_OPPORTUNITY_SIGNAL_WEIGHT),
+                extra={"brief_id": str(brief.id), "kind": opportunity.kind, "evidence": opportunity.evidence},
+            )
+        except Exception:
+            logger.exception(
+                "pulse_opportunity_signal_emit_failed",
+                team_id=brief.team_id,
+                brief_id=str(brief.id),
+                opportunity_id=str(opportunity.id),
+            )
 
 
 @temporalio.activity.defn
