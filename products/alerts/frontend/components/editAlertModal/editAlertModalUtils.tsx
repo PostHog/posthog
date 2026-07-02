@@ -6,10 +6,9 @@ export function getSimulationRangeOptions(interval: AlertCalculationInterval): {
     switch (interval) {
         case AlertCalculationInterval.REAL_TIME:
             return [
-                { label: 'Last 2h', value: '-2h' },
-                { label: 'Last 6h', value: '-6h' },
-                { label: 'Last 12h', value: '-12h' },
-                { label: 'Last 24h', value: '-24h' },
+                { label: 'Last 10 minutes', value: '-10m' },
+                { label: 'Last 1 hour', value: '-1h' },
+                { label: 'Last 3 hours', value: '-3h' },
             ]
         case AlertCalculationInterval.EVERY_15_MINUTES:
             return [
