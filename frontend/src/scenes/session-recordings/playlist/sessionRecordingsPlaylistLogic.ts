@@ -461,6 +461,7 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             userModifiedFilters,
         }),
         maybeLoadSessionRecordings: (direction?: 'newer' | 'older') => ({ direction }),
+        autoExpandEmptyDateRange: true,
         loadNext: true,
         loadPrev: true,
         setSelectedRecordingsIds: (recordingsIds: string[]) => ({ recordingsIds }),
@@ -680,6 +681,12 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
                     }
                 },
                 resetFilters: () => getDefaultFilters(props.personUUID, props.pinnedFilters),
+            },
+        ],
+        hasAutoExpandedDateRange: [
+            false,
+            {
+                autoExpandEmptyDateRange: () => true,
             },
         ],
         showFilters: [
@@ -1010,6 +1017,23 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
 
         loadSessionRecordingsSuccess: () => {
             actions.maybeLoadPropertiesForSessions(values.sessionRecordings)
+
+            // The default list only looks back 3 days, so users who arrive with no custom
+            // filters frequently land on an empty "No matching recordings" state even when
+            // recordings exist just outside that window. Widen the window to 30 days once,
+            // automatically, rather than making them find and click the remedy button. Only
+            // fires for the untouched default view and at most once per mount, so it never
+            // overrides a window the user chose or loops when 30 days is also empty.
+            if (
+                !values.hasAutoExpandedDateRange &&
+                !props.pinnedFilters &&
+                values.sessionRecordings.length === 0 &&
+                values.totalFiltersCount === 0 &&
+                values.filters.date_from === DEFAULT_RECORDING_FILTERS.date_from
+            ) {
+                actions.autoExpandEmptyDateRange()
+                actions.setFilters({ date_from: '-30d' })
+            }
         },
 
         setSelectedRecordingId: () => {

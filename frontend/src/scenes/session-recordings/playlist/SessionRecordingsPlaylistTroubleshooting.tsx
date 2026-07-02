@@ -7,8 +7,8 @@ import { sessionRecordingsPlaylistLogic } from './sessionRecordingsPlaylistLogic
 
 export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
     const { setHideViewedRecordings } = useActions(playerSettingsLogic)
-    const { hiddenRecordingsCount } = useValues(sessionRecordingsPlaylistLogic)
-    const { setShowSettings, setFilters } = useActions(sessionRecordingsPlaylistLogic)
+    const { hiddenRecordingsCount, totalFiltersCount } = useValues(sessionRecordingsPlaylistLogic)
+    const { setShowSettings, setFilters, resetFilters } = useActions(sessionRecordingsPlaylistLogic)
 
     return (
         <>
@@ -36,12 +36,25 @@ export const SessionRecordingsPlaylistTroubleshooting = (): JSX.Element => {
                             type="secondary"
                             fullWidth={true}
                             size="xsmall"
-                            data-attr="expand-replay-listing-from-default-seven-days-to-twenty-one"
+                            data-attr="replay-empty-state-expand-date-range-to-30-days"
                             onClick={() => setFilters({ date_from: '-30d' })}
                         >
                             Search over the last 30 days
                         </LemonButton>
                     </li>
+                    {totalFiltersCount > 0 && (
+                        <li>
+                            <LemonButton
+                                type="secondary"
+                                fullWidth={true}
+                                size="xsmall"
+                                data-attr="replay-empty-state-clear-filters"
+                                onClick={() => resetFilters()}
+                            >
+                                Clear filters
+                            </LemonButton>
+                        </li>
+                    )}
                     <LemonDivider dashed={true} />
                     <li>
                         <Link to="https://posthog.com/docs/session-replay/data-retention" target="_blank">

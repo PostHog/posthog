@@ -919,6 +919,66 @@ describe('sessionRecordingsPlaylistLogic', () => {
         })
     })
 
+    describe('auto-expanding the empty default date window', () => {
+        // Only the 30-day window has recordings; the default 3-day window is empty.
+        beforeEach(() => {
+            useMocks({
+                get: {
+                    '/api/environments/:team_id/session_recordings': ({ request }) => {
+                        const dateFrom = new URL(request.url).searchParams.get('date_from')
+                        return [200, { results: dateFrom === '-30d' ? ['recordings from -30d'] : [] }]
+                    },
+                },
+            })
+        })
+
+        it('widens the window to 30 days once when the default 3-day window is empty', async () => {
+            logic = sessionRecordingsPlaylistLogic({ logicKey: 'auto-expand-tests', updateSearchParams: true })
+            logic.mount()
+
+            await expectLogic(logic)
+                .toDispatchActions([
+                    'loadSessionRecordingsSuccess',
+                    'autoExpandEmptyDateRange',
+                    'setFilters',
+                    'loadSessionRecordingsSuccess',
+                ])
+                .toMatchValues({
+                    hasAutoExpandedDateRange: true,
+                    filters: expect.objectContaining({ date_from: '-30d' }),
+                    sessionRecordings: ['recordings from -30d'],
+                })
+        })
+
+        it('does not widen the window when the user has active filters', async () => {
+            logic = sessionRecordingsPlaylistLogic({
+                logicKey: 'auto-expand-filtered-tests',
+                updateSearchParams: true,
+                filters: {
+                    ...getDefaultFilters(),
+                    date_from: '-3d',
+                    filter_group: {
+                        type: FilterLogicalOperator.And,
+                        values: [
+                            {
+                                type: FilterLogicalOperator.And,
+                                values: [{ id: '$autocapture', type: 'events', order: 0, name: '$autocapture' }],
+                            },
+                        ],
+                    },
+                },
+            })
+            logic.mount()
+
+            await expectLogic(logic)
+                .toDispatchActions(['loadSessionRecordingsSuccess'])
+                .toMatchValues({
+                    hasAutoExpandedDateRange: false,
+                    filters: expect.objectContaining({ date_from: '-3d' }),
+                })
+        })
+    })
+
     describe('person specific logic', () => {
         beforeEach(() => {
             logic = sessionRecordingsPlaylistLogic({
