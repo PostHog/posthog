@@ -119,7 +119,18 @@ class RedditAdsSource(ResumableSource[RedditAdsSourceConfig, RedditAdsResumeConf
             return True, None
         except Exception as e:
             capture_exception(e)
-            return False, f"Failed to validate Reddit Ads credentials: {str(e)}"
+            # A deleted/disconnected integration surfaces as OAuthMixin's
+            # "Integration not found: <id>" ValueError, which echoes an internal id the
+            # user can't act on. Surface the same reconnect prompt the other OAuth sources use.
+            if "Integration not found" in str(e):
+                return (
+                    False,
+                    "The Reddit Ads connection for this source no longer exists. Please reconnect your Reddit Ads account.",
+                )
+            return (
+                False,
+                "Could not validate your Reddit Ads credentials. Please reconnect your Reddit Ads account and try again.",
+            )
 
     def get_schemas(
         self,

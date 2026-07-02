@@ -102,15 +102,15 @@ class TestRedditAdsSource:
     )
     @mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.reddit_ads.source.capture_exception")
     def test_validate_credentials_integration_error(self, mock_capture_exception, mock_get_oauth_integration):
-        """Test credential validation with integration error."""
-        mock_get_oauth_integration.side_effect = Exception("Integration not found")
+        """A missing integration surfaces a reconnect prompt without leaking the internal id."""
+        mock_get_oauth_integration.side_effect = ValueError("Integration not found: 154683")
 
         is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
 
         assert is_valid is False
         assert error_message is not None
-        assert "Failed to validate Reddit Ads credentials" in error_message
-        assert "Integration not found" in error_message
+        assert "reconnect your Reddit Ads account" in error_message
+        assert "154683" not in error_message
         mock_capture_exception.assert_called_once()
 
     @pytest.mark.parametrize(
