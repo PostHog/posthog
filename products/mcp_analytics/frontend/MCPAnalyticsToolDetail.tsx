@@ -41,8 +41,8 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { SceneExport } from '~/scenes/sceneTypes'
 
 import { formatMs, formatMsAsSeconds } from './dashboard/formatters'
-import { mcpAnalyticsFeaturePreviewGate } from './featurePreviewGate'
 import { HarnessLogo, HarnessPill } from './dashboard/harness'
+import { mcpAnalyticsFeaturePreviewGate } from './featurePreviewGate'
 import {
     type DailyChartData,
     IntentCoverage,
