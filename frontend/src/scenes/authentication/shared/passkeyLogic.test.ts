@@ -1,7 +1,8 @@
 import { browserSupportsWebAuthnAutofill, startAuthentication } from '@simplewebauthn/browser'
 import { expectLogic } from 'kea-test-utils'
 
-import { passkeyLogic } from 'scenes/authentication/shared/passkeyLogic'
+import { loginLogic } from 'scenes/authentication/login/loginLogic'
+import { AUTO_PASSKEY_FALLBACK_MESSAGE, passkeyLogic } from 'scenes/authentication/shared/passkeyLogic'
 
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
@@ -94,6 +95,55 @@ describe('passkeyLogic', () => {
             await expectLogic(logic).toFinishAllListeners()
 
             expect(beginHandler).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('failure messaging', () => {
+        let logic: ReturnType<typeof passkeyLogic.build>
+
+        beforeEach(() => {
+            // A genuine (non-cancellation) authenticator failure.
+            ;(startAuthentication as jest.Mock).mockRejectedValue(
+                Object.assign(new Error('boom'), { name: 'NotReadableError' })
+            )
+            useMocks({
+                get: { '/api/users/@me/': () => [200, {}] },
+                post: {
+                    '/api/webauthn/login/begin/': () => [
+                        200,
+                        {
+                            challenge: 'abc',
+                            timeout: 60000,
+                            rpId: 'localhost',
+                            allowCredentials: [],
+                            userVerification: 'preferred',
+                        },
+                    ],
+                },
+            })
+            initKeaTests()
+            loginLogic().mount()
+            logic = passkeyLogic()
+            logic.mount()
+        })
+
+        afterEach(() => {
+            logic.unmount()
+            jest.clearAllMocks()
+        })
+
+        // An auto-triggered prompt the user never asked for should send them to the password field;
+        // an explicit passkey button click should keep the raw authenticator error.
+        it.each([
+            { auto: true, expectedDetail: AUTO_PASSKEY_FALLBACK_MESSAGE },
+            { auto: false, expectedDetail: 'boom' },
+        ])('auto=$auto surfaces the right general error on failure', async ({ auto, expectedDetail }) => {
+            logic.actions.beginPasskeyLogin([{ id: 'cred-1', type: 'public-key' }], auto ? { auto: true } : undefined)
+            await expectLogic(logic).toDispatchActions(['startPasskeyAuthenticationFailure']).toFinishAllListeners()
+
+            await expectLogic(loginLogic).toMatchValues({
+                generalError: { code: 'passkey_error', detail: expectedDetail },
+            })
         })
     })
 })
