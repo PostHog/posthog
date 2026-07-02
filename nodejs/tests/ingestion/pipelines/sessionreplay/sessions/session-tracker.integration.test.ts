@@ -72,4 +72,39 @@ describe('SessionTracker integration', () => {
         expect(result.get(teamId, seen)).toBe(true)
         expect(result.get(teamId, unseen)).toBe(false)
     })
+
+    it('marks an entire batch seen in one call and reads them all back from a fresh instance', async () => {
+        const teamId = 5
+        const a = `batch-a-${testRunId}`
+        const b = `batch-b-${testRunId}`
+        const c = `batch-c-${testRunId}`
+
+        await new SessionTracker(redisPool, 5 * 60 * 1000).markSeen(sessionSet([teamId, a], [teamId, b], [teamId, c]))
+
+        // Fresh instance so the read comes from Redis: every key in the pipeline must have persisted.
+        const result = await new SessionTracker(redisPool, 5 * 60 * 1000).hasSeen(
+            sessionSet([teamId, a], [teamId, b], [teamId, c], [teamId, `batch-never-${testRunId}`])
+        )
+
+        expect(result.get(teamId, a)).toBe(true)
+        expect(result.get(teamId, b)).toBe(true)
+        expect(result.get(teamId, c)).toBe(true)
+        expect(result.get(teamId, `batch-never-${testRunId}`)).toBe(false)
+    })
+
+    it('keeps seen state isolated per team in Redis', async () => {
+        const teamA = 6
+        const teamB = 7
+        const shared = `team-shared-${testRunId}`
+
+        await new SessionTracker(redisPool, 5 * 60 * 1000).markSeen(sessionSet([teamA, shared]))
+
+        // A fresh instance reads both teams' identically-named session from Redis.
+        const result = await new SessionTracker(redisPool, 5 * 60 * 1000).hasSeen(
+            sessionSet([teamA, shared], [teamB, shared])
+        )
+
+        expect(result.get(teamA, shared)).toBe(true) // marked for team A
+        expect(result.get(teamB, shared)).toBe(false) // team B was never marked
+    })
 })
