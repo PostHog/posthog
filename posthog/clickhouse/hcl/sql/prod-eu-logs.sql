@@ -37,7 +37,8 @@ CREATE TABLE posthog.kafka_metrics_avro (
   is_monotonic Nullable(UInt8),
   resource_attributes Map(String, String),
   instrumentation_scope Nullable(String),
-  attributes Map(String, String)
+  attributes Map(String, String),
+  series_fingerprint Nullable(Int64)
 ) ENGINE = Kafka() SETTINGS kafka_broker_list = 'warpstream_metrics', kafka_format = 'kafka_format = \'Avro\'', kafka_group_name = 'kafka_group_name = \'clickhouse-metrics-avro-new\'', kafka_num_consumers = 8, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'kafka_topic_list = \'clickhouse_metrics\'';
 CREATE TABLE posthog.kafka_trace_spans_avro (
   uuid String,
@@ -226,27 +227,15 @@ CREATE TABLE posthog.metric_attributes (
   INDEX idx_attribute_key_n3 attribute_key TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1,
   INDEX idx_attribute_value_n3 attribute_value TYPE ngrambf_v1(3, 32768, 3, 0) GRANULARITY 1
 ) ENGINE = ReplicatedAggregatingMergeTree('/clickhouse/tables/logs/{shard}/posthog.metric_attributes', '{replica}') ORDER BY (team_id, attribute_type, time_bucket, resource_fingerprint, attribute_key, attribute_value) PARTITION BY toDate(time_bucket) SETTINGS deduplicate_merge_projection_mode = 'drop', index_granularity = 8192;
-CREATE TABLE posthog.metric_events_decoded (
-  team_id Int32,
-  metric_name String,
-  series_fingerprint UInt64,
-  metric_type String,
-  unit String,
-  service_name String,
-  resource_attributes Map(String, String),
-  attributes Map(String, String),
-  timestamp DateTime64(6),
-  value Float64,
-  trace_id String,
-  span_id String,
-  trace_flags Int32
-) ENGINE = Null();
 CREATE TABLE posthog.metric_samples1 (
   team_id Int32,
   metric_name LowCardinality(String),
   series_fingerprint UInt64 CODEC(DoubleDelta),
   timestamp DateTime64(6) CODEC(DoubleDelta),
   value Float64 CODEC(Gorilla(8)),
+  count UInt64 DEFAULT 1,
+  histogram_bounds Array(Float64),
+  histogram_counts Array(UInt64),
   trace_id String,
   span_id String,
   trace_flags Int32,
@@ -258,6 +247,8 @@ CREATE TABLE posthog.metric_series1 (
   series_fingerprint UInt64 CODEC(DoubleDelta),
   metric_type LowCardinality(String),
   unit LowCardinality(String),
+  aggregation_temporality LowCardinality(String),
+  is_monotonic Bool DEFAULT false,
   service_name LowCardinality(String),
   resource_attributes Map(LowCardinality(String), String),
   attributes Map(LowCardinality(String), String),
@@ -265,7 +256,7 @@ CREATE TABLE posthog.metric_series1 (
   INDEX idx_service_set service_name TYPE set(1000) GRANULARITY 1,
   INDEX idx_attr_keys mapKeys(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.metric_series1', '{replica}-{shard}', last_seen) ORDER BY (team_id, metric_name, series_fingerprint) SETTINGS index_granularity = 8192;
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.metric_series1', '{replica}-{shard}', last_seen) ORDER BY (team_id, metric_name, series_fingerprint) TTL toDateTime(last_seen) + toIntervalDay(90) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.metrics1 (
   time_bucket DateTime MATERIALIZED toStartOfDay(timestamp),
   uuid String,
@@ -550,27 +541,6 @@ CREATE TABLE posthog.writable_query_log_archive (
   log_comment JSON(max_dynamic_paths=256, access_method LowCardinality(String), alert_config_id String, api_key_label String, api_key_mask String, batch_export_id String, chargeable Bool, client_query_id String, cohort_id Int64, `dagster.job_name` String, `dagster.run_id` String, `dagster.tags.owner` String, dashboard_id Int64, experiment_feature_flag_key String, experiment_id Int64, feature LowCardinality(String), id String, insight_id Int64, is_impersonated Bool, kind LowCardinality(String), name String, org_id String, person_on_events_mode LowCardinality(String), product LowCardinality(String), query_type LowCardinality(String), request_name String, route_id String, service_name String, session_id String, table_id String, team_id Int64, `temporal.activity_id` String, `temporal.activity_type` String, `temporal.attempt` Int64, `temporal.workflow_id` String, `temporal.workflow_namespace` String, `temporal.workflow_run_id` String, `temporal.workflow_type` String, user_id Int64, warehouse_query Bool, workflow LowCardinality(String), workload LowCardinality(String), SKIP cache_key, SKIP filter, SKIP hogql_features, SKIP http_referer, SKIP http_request_id, SKIP http_user_agent, SKIP query_settings, SKIP timings, SKIP user_email),
   ProfileEvents Map(String, UInt64)
 ) ENGINE = Distributed('ops', 'posthog', 'query_log_archive_buffer');
-CREATE MATERIALIZED VIEW posthog.decoded_to_metric_samples TO posthog.metric_samples1 (team_id Int32, metric_name String, series_fingerprint UInt64, timestamp DateTime64(6), value Float64, trace_id String, span_id String, trace_flags Int32) AS SELECT
-  team_id,
-  metric_name,
-  series_fingerprint,
-  timestamp,
-  value,
-  trace_id,
-  span_id,
-  trace_flags
-FROM posthog.metric_events_decoded;
-CREATE MATERIALIZED VIEW posthog.decoded_to_metric_series TO posthog.metric_series1 (team_id Int32, metric_name String, series_fingerprint UInt64, metric_type String, unit String, service_name String, resource_attributes Map(String, String), attributes Map(String, String), last_seen DateTime64(6)) AS SELECT
-  team_id,
-  metric_name,
-  series_fingerprint,
-  metric_type,
-  unit,
-  service_name,
-  resource_attributes,
-  attributes,
-  timestamp AS last_seen
-FROM posthog.metric_events_decoded;
 CREATE MATERIALIZED VIEW posthog.kafka_logs34_avro_mv TO posthog.logs34 (uuid String, trace_id String, span_id String, trace_flags Int32, timestamp DateTime64(6), observed_timestamp DateTime64(6), body String, severity_text String, severity_number Int32, service_name String, instrumentation_scope String, event_name String, attributes_map_str Map(String, String), resource_attributes Map(String, String), team_id Int32, original_expiry_timestamp DateTime64(6), _partition UInt64, _topic LowCardinality(String), _offset UInt64, _record_count Int64, _bytes_uncompressed Nullable(Int64), _bytes_compressed Nullable(Int64)) AS SELECT
   kafka_logs_avro.* EXCEPT(created_at, attribute_values, attribute_keys, attributes, attributes_map_str, attributes_map_float, attributes_map_datetime, resource_attributes, bytes_uncompressed),
   mapSort(mapApply((k, v) -> (concat(k, '__str'), JSONExtractString(v)), attributes)) AS attributes_map_str,
@@ -663,26 +633,37 @@ FROM posthog.kafka_metrics_avro
 SETTINGS
   min_insert_block_size_rows = 0,
   min_insert_block_size_bytes = 0;
-CREATE MATERIALIZED VIEW posthog.kafka_metrics_avro_to_decoded TO posthog.metric_events_decoded (team_id Int32, metric_name String, series_fingerprint UInt64, metric_type String, unit String, service_name String, resource_attributes Map(String, String), attributes Map(String, String), timestamp DateTime64(6), value Float64, trace_id String, span_id String, trace_flags Int32) AS SELECT
+CREATE MATERIALIZED VIEW posthog.kafka_metrics_avro_to_metric_samples TO posthog.metric_samples1 (team_id Int32, metric_name String, series_fingerprint UInt64, timestamp DateTime64(6), value Float64, count UInt64, histogram_bounds Array(Float64), histogram_counts Array(UInt64), trace_id String, span_id String, trace_flags Int32) AS SELECT
   toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
   ifNull(metric_name, '') AS metric_name,
-  cityHash64(
-    ifNull(metric_name, ''),
-    ifNull(service_name, ''),
-    mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)),
-    mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), attributes))
-  ) AS series_fingerprint,
-  ifNull(metric_type, '') AS metric_type,
-  ifNull(unit, '') AS unit,
-  ifNull(service_name, '') AS service_name,
-  mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
-  mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), attributes)) AS attributes,
+  reinterpretAsUInt64(assumeNotNull(series_fingerprint)) AS series_fingerprint,
   timestamp,
   ifNull(value, 0) AS value,
+  toUInt64(ifNull(count, 1)) AS count,
+  histogram_bounds,
+  arrayMap(x -> toUInt64(x), histogram_counts) AS histogram_counts,
   trace_id,
   span_id,
   ifNull(trace_flags, 0) AS trace_flags
 FROM posthog.kafka_metrics_avro
+WHERE kafka_metrics_avro.series_fingerprint IS NOT NULL
+SETTINGS
+  min_insert_block_size_rows = 0,
+  min_insert_block_size_bytes = 0;
+CREATE MATERIALIZED VIEW posthog.kafka_metrics_avro_to_metric_series TO posthog.metric_series1 (team_id Int32, metric_name String, series_fingerprint UInt64, metric_type String, unit String, aggregation_temporality String, is_monotonic UInt8, service_name String, resource_attributes Map(String, String), attributes Map(String, String), last_seen DateTime64(6)) AS SELECT
+  toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
+  ifNull(metric_name, '') AS metric_name,
+  reinterpretAsUInt64(assumeNotNull(series_fingerprint)) AS series_fingerprint,
+  ifNull(metric_type, '') AS metric_type,
+  ifNull(unit, '') AS unit,
+  ifNull(aggregation_temporality, '') AS aggregation_temporality,
+  ifNull(is_monotonic, 0) AS is_monotonic,
+  ifNull(service_name, '') AS service_name,
+  mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
+  mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), attributes)) AS attributes,
+  timestamp AS last_seen
+FROM posthog.kafka_metrics_avro
+WHERE kafka_metrics_avro.series_fingerprint IS NOT NULL
 SETTINGS
   min_insert_block_size_rows = 0,
   min_insert_block_size_bytes = 0;
@@ -1088,6 +1069,9 @@ CREATE TABLE posthog.metric_samples (
   series_fingerprint UInt64 CODEC(DoubleDelta),
   timestamp DateTime64(6) CODEC(DoubleDelta),
   value Float64 CODEC(Gorilla(8)),
+  count UInt64 DEFAULT 1,
+  histogram_bounds Array(Float64),
+  histogram_counts Array(UInt64),
   trace_id String,
   span_id String,
   trace_flags Int32
@@ -1098,6 +1082,8 @@ CREATE TABLE posthog.metric_series (
   series_fingerprint UInt64 CODEC(DoubleDelta),
   metric_type LowCardinality(String),
   unit LowCardinality(String),
+  aggregation_temporality LowCardinality(String),
+  is_monotonic Bool DEFAULT false,
   service_name LowCardinality(String),
   resource_attributes Map(LowCardinality(String), String),
   attributes Map(LowCardinality(String), String),

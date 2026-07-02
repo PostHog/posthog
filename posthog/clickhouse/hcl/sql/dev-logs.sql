@@ -36,7 +36,8 @@ CREATE TABLE posthog.kafka_metrics_avro (
   is_monotonic Nullable(UInt8),
   resource_attributes Map(String, String),
   instrumentation_scope Nullable(String),
-  attributes Map(String, String)
+  attributes Map(String, String),
+  series_fingerprint Nullable(Int64)
 ) ENGINE = Kafka() SETTINGS kafka_broker_list = 'warpstream_metrics', kafka_format = 'kafka_format = \'Avro\'', kafka_group_name = 'kafka_group_name = \'clickhouse-metrics-avro-new\'', kafka_num_consumers = 8, kafka_poll_max_batch_size = 1000, kafka_poll_timeout_ms = 3000, kafka_skip_broken_messages = 100, kafka_thread_per_consumer = 1, kafka_topic_list = 'kafka_topic_list = \'clickhouse_metrics\'';
 CREATE TABLE posthog.log_attributes2 (
   team_id Int32,
@@ -208,6 +209,9 @@ CREATE TABLE posthog.metric_samples1 (
   series_fingerprint UInt64 CODEC(DoubleDelta),
   timestamp DateTime64(6) CODEC(DoubleDelta),
   value Float64 CODEC(Gorilla(8)),
+  count UInt64 DEFAULT 1,
+  histogram_bounds Array(Float64),
+  histogram_counts Array(UInt64),
   trace_id String,
   span_id String,
   trace_flags Int32,
@@ -219,6 +223,8 @@ CREATE TABLE posthog.metric_series1 (
   series_fingerprint UInt64 CODEC(DoubleDelta),
   metric_type LowCardinality(String),
   unit LowCardinality(String),
+  aggregation_temporality LowCardinality(String),
+  is_monotonic Bool DEFAULT false,
   service_name LowCardinality(String),
   resource_attributes Map(LowCardinality(String), String),
   attributes Map(LowCardinality(String), String),
@@ -226,7 +232,7 @@ CREATE TABLE posthog.metric_series1 (
   INDEX idx_service_set service_name TYPE set(1000) GRANULARITY 1,
   INDEX idx_attr_keys mapKeys(attributes) TYPE bloom_filter(0.01) GRANULARITY 1,
   INDEX idx_attr_values mapValues(attributes) TYPE bloom_filter(0.01) GRANULARITY 1
-) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.metric_series1', '{replica}-{shard}', last_seen) ORDER BY (team_id, metric_name, series_fingerprint) SETTINGS index_granularity = 8192;
+) ENGINE = ReplicatedReplacingMergeTree('/clickhouse/tables/noshard/posthog.metric_series1', '{replica}-{shard}', last_seen) ORDER BY (team_id, metric_name, series_fingerprint) TTL toDateTime(last_seen) + toIntervalDay(90) SETTINGS index_granularity = 8192;
 CREATE TABLE posthog.metrics1 (
   time_bucket DateTime MATERIALIZED toStartOfDay(timestamp),
   uuid String,
@@ -796,6 +802,9 @@ CREATE TABLE posthog.metric_samples (
   series_fingerprint UInt64 CODEC(DoubleDelta),
   timestamp DateTime64(6) CODEC(DoubleDelta),
   value Float64 CODEC(Gorilla(8)),
+  count UInt64 DEFAULT 1,
+  histogram_bounds Array(Float64),
+  histogram_counts Array(UInt64),
   trace_id String,
   span_id String,
   trace_flags Int32
@@ -806,6 +815,8 @@ CREATE TABLE posthog.metric_series (
   series_fingerprint UInt64 CODEC(DoubleDelta),
   metric_type LowCardinality(String),
   unit LowCardinality(String),
+  aggregation_temporality LowCardinality(String),
+  is_monotonic Bool DEFAULT false,
   service_name LowCardinality(String),
   resource_attributes Map(LowCardinality(String), String),
   attributes Map(LowCardinality(String), String),

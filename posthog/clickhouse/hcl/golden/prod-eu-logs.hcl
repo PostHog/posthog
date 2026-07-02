@@ -116,6 +116,9 @@ database "posthog" {
     column "attributes" {
       type = "Map(String, String)"
     }
+    column "series_fingerprint" {
+      type = "Nullable(Int64)"
+    }
     engine "kafka" {
       broker_list          = "warpstream_metrics"
       topic_list           = "kafka_topic_list = 'clickhouse_metrics'"
@@ -828,50 +831,6 @@ database "posthog" {
     }
   }
 
-  table "metric_events_decoded" {
-    column "team_id" {
-      type = "Int32"
-    }
-    column "metric_name" {
-      type = "String"
-    }
-    column "series_fingerprint" {
-      type = "UInt64"
-    }
-    column "metric_type" {
-      type = "String"
-    }
-    column "unit" {
-      type = "String"
-    }
-    column "service_name" {
-      type = "String"
-    }
-    column "resource_attributes" {
-      type = "Map(String, String)"
-    }
-    column "attributes" {
-      type = "Map(String, String)"
-    }
-    column "timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "value" {
-      type = "Float64"
-    }
-    column "trace_id" {
-      type = "String"
-    }
-    column "span_id" {
-      type = "String"
-    }
-    column "trace_flags" {
-      type = "Int32"
-    }
-    engine "null" {
-    }
-  }
-
   table "metric_samples" {
     column "team_id" {
       type = "Int32"
@@ -890,6 +849,16 @@ database "posthog" {
     column "value" {
       type  = "Float64"
       codec = "Gorilla(8)"
+    }
+    column "count" {
+      type    = "UInt64"
+      default = "1"
+    }
+    column "histogram_bounds" {
+      type = "Array(Float64)"
+    }
+    column "histogram_counts" {
+      type = "Array(UInt64)"
     }
     column "trace_id" {
       type = "String"
@@ -933,6 +902,16 @@ database "posthog" {
       type  = "Float64"
       codec = "Gorilla(8)"
     }
+    column "count" {
+      type    = "UInt64"
+      default = "1"
+    }
+    column "histogram_bounds" {
+      type = "Array(Float64)"
+    }
+    column "histogram_counts" {
+      type = "Array(UInt64)"
+    }
     column "trace_id" {
       type = "String"
     }
@@ -970,6 +949,13 @@ database "posthog" {
     column "unit" {
       type = "LowCardinality(String)"
     }
+    column "aggregation_temporality" {
+      type = "LowCardinality(String)"
+    }
+    column "is_monotonic" {
+      type    = "Bool"
+      default = "false"
+    }
     column "service_name" {
       type = "LowCardinality(String)"
     }
@@ -992,6 +978,7 @@ database "posthog" {
 
   table "metric_series1" {
     order_by = ["team_id", "metric_name", "series_fingerprint"]
+    ttl      = "toDateTime(last_seen) + toIntervalDay(90)"
     settings = {
       index_granularity = "8192"
     }
@@ -1010,6 +997,13 @@ database "posthog" {
     }
     column "unit" {
       type = "LowCardinality(String)"
+    }
+    column "aggregation_temporality" {
+      type = "LowCardinality(String)"
+    }
+    column "is_monotonic" {
+      type    = "Bool"
+      default = "false"
     }
     column "service_name" {
       type = "LowCardinality(String)"
@@ -2159,92 +2153,6 @@ database "posthog" {
     }
   }
 
-  materialized_view "decoded_to_metric_samples" {
-    to_table = "posthog.metric_samples1"
-    query    = <<SQL
-SELECT
-  team_id,
-  metric_name,
-  series_fingerprint,
-  timestamp,
-  value,
-  trace_id,
-  span_id,
-  trace_flags
-FROM posthog.metric_events_decoded
-SQL
-
-    column "team_id" {
-      type = "Int32"
-    }
-    column "metric_name" {
-      type = "String"
-    }
-    column "series_fingerprint" {
-      type = "UInt64"
-    }
-    column "timestamp" {
-      type = "DateTime64(6)"
-    }
-    column "value" {
-      type = "Float64"
-    }
-    column "trace_id" {
-      type = "String"
-    }
-    column "span_id" {
-      type = "String"
-    }
-    column "trace_flags" {
-      type = "Int32"
-    }
-  }
-
-  materialized_view "decoded_to_metric_series" {
-    to_table = "posthog.metric_series1"
-    query    = <<SQL
-SELECT
-  team_id,
-  metric_name,
-  series_fingerprint,
-  metric_type,
-  unit,
-  service_name,
-  resource_attributes,
-  attributes,
-  timestamp AS last_seen
-FROM posthog.metric_events_decoded
-SQL
-
-    column "team_id" {
-      type = "Int32"
-    }
-    column "metric_name" {
-      type = "String"
-    }
-    column "series_fingerprint" {
-      type = "UInt64"
-    }
-    column "metric_type" {
-      type = "String"
-    }
-    column "unit" {
-      type = "String"
-    }
-    column "service_name" {
-      type = "String"
-    }
-    column "resource_attributes" {
-      type = "Map(String, String)"
-    }
-    column "attributes" {
-      type = "Map(String, String)"
-    }
-    column "last_seen" {
-      type = "DateTime64(6)"
-    }
-  }
-
   materialized_view "kafka_logs34_avro_mv" {
     to_table = "posthog.logs34"
     query    = <<SQL
@@ -2561,29 +2469,80 @@ SQL
     }
   }
 
-  materialized_view "kafka_metrics_avro_to_decoded" {
-    to_table = "posthog.metric_events_decoded"
+  materialized_view "kafka_metrics_avro_to_metric_samples" {
+    to_table = "posthog.metric_samples1"
     query    = <<SQL
 SELECT
   toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
   ifNull(metric_name, '') AS metric_name,
-  cityHash64(
-    ifNull(metric_name, ''),
-    ifNull(service_name, ''),
-    mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)),
-    mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), attributes))
-  ) AS series_fingerprint,
-  ifNull(metric_type, '') AS metric_type,
-  ifNull(unit, '') AS unit,
-  ifNull(service_name, '') AS service_name,
-  mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
-  mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), attributes)) AS attributes,
+  reinterpretAsUInt64(assumeNotNull(series_fingerprint)) AS series_fingerprint,
   timestamp,
   ifNull(value, 0) AS value,
+  toUInt64(ifNull(count, 1)) AS count,
+  histogram_bounds,
+  arrayMap(x -> toUInt64(x), histogram_counts) AS histogram_counts,
   trace_id,
   span_id,
   ifNull(trace_flags, 0) AS trace_flags
 FROM posthog.kafka_metrics_avro
+WHERE kafka_metrics_avro.series_fingerprint IS NOT NULL
+SETTINGS
+  min_insert_block_size_rows = 0,
+  min_insert_block_size_bytes = 0
+SQL
+
+    column "team_id" {
+      type = "Int32"
+    }
+    column "metric_name" {
+      type = "String"
+    }
+    column "series_fingerprint" {
+      type = "UInt64"
+    }
+    column "timestamp" {
+      type = "DateTime64(6)"
+    }
+    column "value" {
+      type = "Float64"
+    }
+    column "count" {
+      type = "UInt64"
+    }
+    column "histogram_bounds" {
+      type = "Array(Float64)"
+    }
+    column "histogram_counts" {
+      type = "Array(UInt64)"
+    }
+    column "trace_id" {
+      type = "String"
+    }
+    column "span_id" {
+      type = "String"
+    }
+    column "trace_flags" {
+      type = "Int32"
+    }
+  }
+
+  materialized_view "kafka_metrics_avro_to_metric_series" {
+    to_table = "posthog.metric_series1"
+    query    = <<SQL
+SELECT
+  toInt32OrZero(_headers.value[indexOf(_headers.name, 'team_id')]) AS team_id,
+  ifNull(metric_name, '') AS metric_name,
+  reinterpretAsUInt64(assumeNotNull(series_fingerprint)) AS series_fingerprint,
+  ifNull(metric_type, '') AS metric_type,
+  ifNull(unit, '') AS unit,
+  ifNull(aggregation_temporality, '') AS aggregation_temporality,
+  ifNull(is_monotonic, 0) AS is_monotonic,
+  ifNull(service_name, '') AS service_name,
+  mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), resource_attributes)) AS resource_attributes,
+  mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), attributes)) AS attributes,
+  timestamp AS last_seen
+FROM posthog.kafka_metrics_avro
+WHERE kafka_metrics_avro.series_fingerprint IS NOT NULL
 SETTINGS
   min_insert_block_size_rows = 0,
   min_insert_block_size_bytes = 0
@@ -2604,6 +2563,12 @@ SQL
     column "unit" {
       type = "String"
     }
+    column "aggregation_temporality" {
+      type = "String"
+    }
+    column "is_monotonic" {
+      type = "UInt8"
+    }
     column "service_name" {
       type = "String"
     }
@@ -2613,20 +2578,8 @@ SQL
     column "attributes" {
       type = "Map(String, String)"
     }
-    column "timestamp" {
+    column "last_seen" {
       type = "DateTime64(6)"
-    }
-    column "value" {
-      type = "Float64"
-    }
-    column "trace_id" {
-      type = "String"
-    }
-    column "span_id" {
-      type = "String"
-    }
-    column "trace_flags" {
-      type = "Int32"
     }
   }
 
