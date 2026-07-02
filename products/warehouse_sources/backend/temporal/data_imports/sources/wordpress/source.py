@@ -95,7 +95,7 @@ To sync private content or authenticate, create an [Application Password](https:
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
             "401 Client Error": "Invalid WordPress username or application password. Create a new application password and reconnect.",
-            "403 Client Error": "Your WordPress credentials lack permission to read this data. Check the user's role and try again.",
+            "403 Client Error": "WordPress returned 403 Forbidden. This is usually a security plugin or managed host blocking REST API (/wp-json) access, or a web server that strips the Authorization header so your application password is treated as anonymous — check your server or proxy config. If neither applies, confirm the user's role has permission to read this data.",
             HOST_NOT_ALLOWED_ERROR: "The WordPress site URL is not allowed. Please use a publicly reachable site URL.",
             HTTP_NOT_ALLOWED_ERROR: "The WordPress site URL must use HTTPS when credentials are provided. Please update the site URL to use https://.",
         }

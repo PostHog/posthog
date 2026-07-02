@@ -261,7 +261,7 @@ class TestValidateCredentials:
         [
             (200, True, None),
             (401, False, "Invalid WordPress username or application password"),
-            (403, False, "lack permission"),
+            (403, False, "anonymous request"),
             (404, False, "REST API not found"),
         ],
     )
@@ -273,6 +273,14 @@ class TestValidateCredentials:
                 assert msg is None
             else:
                 assert expected_msg_substr in (msg or "")
+
+    def test_403_with_credentials_points_at_authorization_header(self):
+        # With credentials, a 403 most often means the Authorization header was stripped before reaching
+        # WordPress, so the message must call that out rather than blaming the credentials.
+        with self._patch_session(_response(status_code=403)):
+            valid, msg = validate_credentials("https://example.com", "admin", "app pass word")
+            assert valid is False
+            assert "Authorization header" in (msg or "")
 
     def test_invalid_site_url(self):
         valid, msg = validate_credentials("", None, None)

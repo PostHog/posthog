@@ -260,7 +260,18 @@ def validate_credentials(
         return False, "Invalid WordPress username or application password"
 
     if response.status_code == 403:
-        return False, "These credentials lack permission to read this WordPress site"
+        if has_credentials:
+            return False, (
+                "WordPress returned 403 Forbidden. If your credentials are correct, the most common cause is a web "
+                "server that strips the Authorization header, so your application password never reaches WordPress and "
+                "the request is treated as anonymous — check your server or proxy config passes Authorization through. "
+                "A security plugin or managed host blocking REST API (/wp-json) access can also cause this."
+            )
+        return False, (
+            "WordPress returned 403 Forbidden for an anonymous request. A security plugin or managed host is likely "
+            "blocking access to the REST API (/wp-json). Allow REST API access, or add an application password to "
+            "authenticate."
+        )
 
     if response.status_code == 404:
         return False, "WordPress REST API not found at this URL — confirm the site URL and that the REST API is enabled"
