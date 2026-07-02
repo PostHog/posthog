@@ -159,6 +159,7 @@ the row lists both.
 | giphy                   | HTTP                        | requests                                                        | ✅                          |
 | gitlab                  | HTTP                        | requests                                                        | ✅                          |
 | gladly                  | HTTP                        | requests                                                        | ✅                          |
+| gnews                   | HTTP                        | requests                                                        | ✅                          |
 | gocardless              | HTTP                        | requests                                                        | ✅                          |
 | goldcast                | HTTP                        | requests                                                        | ✅                          |
 | gong                    | HTTP                        | requests                                                        | ✅                          |
