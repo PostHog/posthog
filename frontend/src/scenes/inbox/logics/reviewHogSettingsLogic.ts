@@ -41,42 +41,40 @@ export interface ViewedSkill {
     skillName: string
 }
 
+// Thin scout-style kickoff pointers (mirrors SCOUT_AUTHOR_PROMPT): the actual authoring guide —
+// pipeline context, naming contract, per-kind body shape, activation steps — lives in the
+// `review-hog-authoring` team skill (canonical source: products/review_hog/skills/), synced per
+// team like the perspectives. Keep knowledge there, not here.
 const SKILL_AUTHOR_TASKS: Record<ReviewSkillKind, { title: string; prompt: string }> = {
     perspective: {
         title: 'Create a ReviewHog perspective',
-        prompt: `I'd like to create a custom ReviewHog review perspective for this PostHog project. ReviewHog is the automated PR reviewer: each enabled perspective is a team skill whose body instructs one specialist review pass that reads every PR chunk in parallel with the other perspectives.
+        prompt: `I'd like to create a custom ReviewHog review perspective for this PostHog project.
 
-First, ground yourself: list the team's skills named \`review-hog-perspective-*\` (PostHog MCP skill tools) and read a canonical one (for example \`review-hog-perspective-logic-correctness\`) so you understand the shape and avoid overlapping an existing lens.
+Use the review-hog-authoring skill from the PostHog MCP to guide creating it — follow its review-perspective path.
 
-Then ask me what my perspective should focus on, and offer a few concrete directions the current set doesn't already cover.
+Ground yourself per that skill first, then ask me what my perspective should focus on and offer a few concrete directions the current set doesn't already cover. Once I pick, author the skill end to end and tell me how to switch it on.
 
-Once I pick, author the skill end to end: create a team skill named \`review-hog-perspective-<short-slug>\` (category \`review_hog\`) whose body is a focused instruction set for that review pass — what to hunt for, what to ignore, and what a publishable finding looks like.
-
-When it's created, remind me to enable it under Inbox → Code review → Perspectives (it shows up disabled for me until I toggle it on).`,
+If the review-hog-authoring skill is unavailable, fall back to the PostHog MCP skill tools directly: list the team's review-hog-perspective-* skills and read a canonical one to learn the shape before authoring.`,
     },
     blind_spots: {
         title: 'Create a ReviewHog blind-spot check',
-        prompt: `I'd like to create a custom ReviewHog blind-spot check for this PostHog project. ReviewHog is the automated PR reviewer: after the review perspectives finish a chunk, one blind-spot skill runs a final sweep over that chunk — it sees what the perspectives found and hunts for real issues they all missed.
+        prompt: `I'd like to create a custom ReviewHog blind-spot check for this PostHog project.
 
-First, ground yourself: read the canonical skill \`review-hog-blind-spots-general\` (PostHog MCP skill tools) so you understand the shape, and list any other \`review-hog-blind-spots-*\` skills on the team.
+Use the review-hog-authoring skill from the PostHog MCP to guide creating it — follow its blind-spot-check path.
 
-Then ask me what my sweep should emphasize, and offer a few concrete directions.
+Ground yourself per that skill first, then ask me what my sweep should emphasize and offer a few concrete directions. Once I pick, author the skill end to end and tell me how to switch it on.
 
-Once I pick, author the skill end to end: create a team skill named \`review-hog-blind-spots-<short-slug>\` (category \`review_hog\`) whose body instructs that final sweep — how to use the covered findings, where to dig, and what a publishable finding looks like.
-
-When it's created, remind me to select it under Inbox → Code review → Blind-spot check (only one runs at a time; selecting it swaps out the current one for my reviews only).`,
+If the review-hog-authoring skill is unavailable, fall back to the PostHog MCP skill tools directly: read the canonical review-hog-blind-spots-general skill to learn the shape before authoring.`,
     },
     validator: {
         title: 'Create ReviewHog validation criteria',
-        prompt: `I'd like to create custom ReviewHog validation criteria for this PostHog project. ReviewHog is the automated PR reviewer: every candidate finding is judged by one validator skill against a quality bar, and only findings that pass get published to the pull request.
+        prompt: `I'd like to create custom ReviewHog validation criteria for this PostHog project.
 
-First, ground yourself: read the canonical skill \`review-hog-validation-criteria\` (PostHog MCP skill tools) so you understand the shape and the current bar.
+Use the review-hog-authoring skill from the PostHog MCP to guide creating it — follow its validation-criteria path.
 
-Then ask me how my bar should differ — stricter, more lenient, or weighted toward specific concerns — and offer a few concrete directions.
+Ground yourself per that skill first, then ask me how my bar should differ — stricter, more lenient, or weighted toward specific concerns — and offer a few concrete directions. Once I pick, author the skill end to end and tell me how to switch it on.
 
-Once I pick, author the skill end to end: create a team skill named \`review-hog-validation-<short-slug>\` (category \`review_hog\`) whose body defines the bar: what makes a finding real, actionable, and worth a reviewer's attention, and what should be rejected as noise.
-
-When it's created, remind me to select it under Inbox → Code review → Validation criteria (only one applies at a time; selecting it swaps out the current one for my reviews only).`,
+If the review-hog-authoring skill is unavailable, fall back to the PostHog MCP skill tools directly: read the canonical review-hog-validation-criteria skill to learn the shape before authoring.`,
     },
 }
 

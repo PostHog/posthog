@@ -217,9 +217,10 @@ floor and blind-spots/validator are **exactly-one-active with deactivation block
 - **Skill lists feed the drawer:** the three config list endpoints (+ PATCH responses) now include the
   skill `body`; "Edit skill ↗" links to `/skills/review-hog`.
 - **"Create your own …":** task kickoff mirroring Inbox "Make a scout" (`api.tasks.create` →
-  `urls.taskDetail`), origin `USER_CREATED`, with inline authoring prompts that carry the naming
-  contract (`review-hog-{perspective,blind-spots,validation}-<slug>`, category `review_hog`, then
-  enable/select in this tab). No ReviewHog authoring MCP skill yet — the prompt self-describes.
+  `urls.taskDetail`), origin `USER_CREATED`. The frontend prompts are thin scout-style pointers; the
+  actual authoring guide (naming contract `review-hog-{perspective,blind-spots,validation}-<slug>`,
+  category `review_hog`, per-kind body shape, `posthog:skill-create` flow, activation steps) lives in
+  the canonical **`review-hog-authoring`** skill — see the follow-up below.
 - **Verified:** 321 review_hog tests (`backend/tests` + `backend/reviewer/tests`, the product's actual
   `backend:test` scope) + ruff + tach; jest inbox suite; oxlint/tsgo clean on the touched files
   (repo-wide `pnpm format` is a footgun: its `--fix-dangerously` pass mangled 5 unrelated files —
@@ -349,6 +350,31 @@ polish from the same session: single-active accent border removed (cards identic
 - Tests: resolve stamping; list scoping (mine + completed only); counts scoped to the latest run with
   validator priority overrides applied + branch-URL fallback. 327 backend tests + 31 inbox jest green;
   migration verified lock-free via sqlmigrate (no `REFERENCES`, plain nullable ADD COLUMN).
+
+#### ✅ BUILT 2026-07-02 — authoring guide moved to a canonical skill (`review-hog-authoring`)
+
+The "Create your own …" frontend prompts were fat, self-describing instruction sets — an
+anti-pattern (knowledge duplicated in FE strings, editable only via deploy, undiscoverable to other
+agents). Reworked to the **scout pattern** (`authoring-scouts`): the FE prompts in
+`reviewHogSettingsLogic.ts` are now thin kickoff pointers ("use the review-hog-authoring skill from
+the PostHog MCP … follow its <kind> path", plus a skill-unavailable fallback), and the actual guide
+is the canonical **`review-hog-authoring`** skill at `products/review_hog/skills/review-hog-authoring/`.
+
+- **The skill** covers all three kinds in one guide: pipeline context, the naming/category contract,
+  ground-first flow (`skill-list` / `skill-get` the canonicals), per-kind body-shape guidance, and —
+  matching scouts — instructs the agent to **create the row itself via `posthog:skill-create`**
+  (iterate with `skill-update`; never `skill-duplicate` a canonical — seeded metadata rides along and
+  the sync may overwrite/prune the copy). Activation stays a human step in the tab (per-user
+  enablement; the config API is INTERNAL-scoped, deliberately not agent-writable — the one divergence
+  from scouts' `signals-scout-config-create`).
+- **Seeding:** `REVIEW_HOG_AUTHORING_PREFIX`/`_SKILL_NAME` (`skill_loader.py`),
+  `discover_canonical_authoring` + `sync_canonical_authoring` (`lazy_seed.py` — same
+  prefix-and-category reconcile), synced in two moments: the run path (`_sync_review_skills`,
+  prune=True) and — because the guide must exist **before any review has run** — the settings GET
+  (`_seed_authoring_skill` in `api/settings.py`, tolerant, effective-team id), the Code review tab's
+  always-called endpoint. Not a run skill: no `ReviewSkillConfig` rows, no loader.
+- Tests: `test_authoring_skill.py` (discover name-contract guard + run-path seed) and a settings-GET
+  idempotent-seed case in `test_settings_api.py`.
 
 ### ✅ Stage 1 — mergeability + docs (current)
 
@@ -1546,6 +1572,20 @@ reusable — ReviewHog fetches via `fetch_pr_data_activity` and reviews via `Mul
 _design_ transfers. The thresholds were calibrated for "safe to rubber-stamp", not "how much review", so expect
 re-tuning for ReviewHog's objective.
 
+**Future — relevance-gate the enabled perspective set per PR/chunk (noted 2026-07-02).** The selection above only
+_adds_ specialists off deterministic categories; as custom perspectives multiply (e.g. a team's
+`review-hog-perspective-sql-checks`), the router should also decide **which enabled perspectives make sense for
+this PR at all** — a SQL lens must not spend a sandbox call per chunk on a PR that touches no SQL. Two placement
+options: **piggyback chunking** (step 4 already reads every changed file in one sandbox call and returns structured
+output — feed it the enabled perspectives' names + descriptions and have it stamp the applicable ones per chunk
+into `ChunksList`), or a **separate cheap route step** deciding per PR. Per-chunk (chunking) is the better cut:
+relevance is genuinely per-chunk (a migrations chunk wants the SQL lens even when the rest of the PR doesn't), and
+it skips exactly the irrelevant `(perspective × chunk)` sandbox calls — the direct spend saver as lenses multiply.
+Guardrails: broad canonical lenses (logic-correctness) likely stay always-on; a deterministic file-pattern floor is
+authoritative Stamphog-style (`*.sql` / `migrations/` hits force the lens ON — the LLM may add a lens, never remove
+a deterministically-matched one); skipping is a per-run routing decision (the user's enablement config is
+untouched); and the blind-spot sweep stays unconditional as the safety net for a wrongly-skipped lens.
+
 #### Cross-turn finding identity & watermarks (the hard prerequisite)
 
 The append-only artefact log + latest-wins-per-`issue_key` read (`load_valid_findings`, `persistence.py:348-389`) is
@@ -2131,6 +2171,10 @@ ownership_ idea was dropped after research found **Signals custom scouts are the
 is just a team-wide renamed `duplicate_skill`. There is **no per-user skill ownership anywhere** in the codebase
 (`LLMSkill` is `(team, name, version)`-scoped, no user dimension; `created_by` is audit-only), so per-user would be
 net-new infrastructure with no precedent. Team-level matches what Scouts actually do — and is mostly already built.
+
+**Related future note:** per-PR/per-chunk **relevance gating** of the enabled perspective set (a custom SQL lens
+skips a PR with no SQL) is sketched in Stage 4 → _Router (step 1)_ → "relevance-gate the enabled perspective set" —
+the natural companion once teams author narrow custom lenses.
 
 **Status — team-level editing of the 3 perspectives + the validator already works, with zero new code.** A team
 edits the canonical-named `LLMSkill` row (e.g. `review-hog-perspective-logic-correctness`,

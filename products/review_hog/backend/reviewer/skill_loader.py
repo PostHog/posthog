@@ -247,3 +247,11 @@ def load_blind_spots_skill_for_run(team_id: int, acting_user_id: int) -> LoadedB
         error=BlindSpotsSkillNotFoundError,
     )
     return LoadedBlindSpotsSkill(skill_name=skill_name, version=version)
+
+
+# Naming contract for the authoring companion (mirrors scouts' `authoring-scouts`): the one canonical
+# guide the "Create your own …" tasks pull over MCP to author custom perspectives / blind-spot checks /
+# validation criteria. Not a run skill — it has no loader and never gets `ReviewSkillConfig` rows; it
+# only needs to exist as a synced team `LLMSkill` so any agent can `skill-get` it.
+REVIEW_HOG_AUTHORING_PREFIX = "review-hog-authoring"
+REVIEW_HOG_AUTHORING_SKILL_NAME = REVIEW_HOG_AUTHORING_PREFIX

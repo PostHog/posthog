@@ -36,6 +36,7 @@ from products.review_hog.backend.reviewer.constants import (
     published_priorities_for,
 )
 from products.review_hog.backend.reviewer.lazy_seed import (
+    sync_canonical_authoring,
     sync_canonical_blind_spots,
     sync_canonical_perspectives,
     sync_canonical_validation,
@@ -460,13 +461,15 @@ def _sync_review_skills(team_id: int) -> None:
     sync_canonical_perspectives(team, prune=True)
     sync_canonical_validation(team, prune=True)
     sync_canonical_blind_spots(team, prune=True)
+    sync_canonical_authoring(team, prune=True)
 
 
 @activity.defn
 @scoped_temporal()
 @close_db_connections
 async def sync_review_skills_activity(input: SyncReviewSkillsInput) -> None:
-    """Reconcile the team's canonical review skills with disk (perspectives + validation + blind spots).
+    """Reconcile the team's canonical review skills with disk (perspectives + validation + blind spots
+    + the authoring companion).
 
     Best-effort: a sync failure shouldn't crash the run — the review proceeds with the team's
     existing skills, and the loaders raise a clear error later if one is genuinely missing.

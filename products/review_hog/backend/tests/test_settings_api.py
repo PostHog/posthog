@@ -3,6 +3,7 @@ from posthog.test.base import APIBaseTest
 from posthog.models import Team, User
 
 from products.review_hog.backend.models import ReviewUserSettings
+from products.skills.backend.models.skills import LLMSkill
 
 
 class TestReviewUserSettingsAPI(APIBaseTest):
@@ -46,6 +47,17 @@ class TestReviewUserSettingsAPI(APIBaseTest):
 
         assert res.status_code == 200
         assert res.json()["review_labeled_prs"] is True
+
+    def test_get_seeds_the_authoring_skill_idempotently(self) -> None:
+        # The settings GET is the tab's always-called endpoint, so it must make the authoring guide
+        # exist before any review has run (the "Create your own …" tasks skill-get it) — and a
+        # repeat GET must not version-bump-loop the row.
+        for _ in range(2):
+            assert self.client.get(self.url).status_code == 200
+
+        rows = LLMSkill.objects.filter(team=self.team, name="review-hog-authoring")
+        assert rows.count() == 1
+        assert rows.get().version == 1
 
     def test_environment_url_resolves_to_the_canonical_team(self) -> None:
         # With an environment (child team) id in the URL, the canonicalized `for_team` filter and a

@@ -8,10 +8,26 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.models.scoping.manager import resolve_effective_team_id
+from posthog.models.team.team import Team
 
 from products.review_hog.backend.models import ReviewUserSettings
+from products.review_hog.backend.reviewer.lazy_seed import sync_canonical_authoring
 
 logger = logging.getLogger(__name__)
+
+
+def _seed_authoring_skill(team_id: int) -> None:
+    """Make the `review-hog-authoring` companion available before any review has run.
+
+    The "Create your own …" tasks `skill-get` it over MCP, and this settings GET is the Code review
+    tab's always-called endpoint — so by the time the authoring buttons are clickable, the skill row
+    exists. The run-path sync keeps it fresh/pruned afterwards. Tolerant: a seed failure (e.g. a
+    malformed canonical on disk) must not break the settings read.
+    """
+    try:
+        sync_canonical_authoring(Team.objects.get(id=team_id))
+    except Exception:
+        logger.warning("review_hog: authoring skill seed failed", exc_info=True)
 
 
 class ReviewUserSettingsSerializer(serializers.ModelSerializer):
@@ -92,4 +108,7 @@ class ReviewUserSettingsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet)
             serializer.is_valid(raise_exception=True)
             serializer.save()
             return Response(serializer.data)
+        # `instance.team_id` is already the effective (root) team — the same team the review runs
+        # under, so the seeded skill lands where the sandbox agent's `skill-get` will look.
+        _seed_authoring_skill(instance.team_id)
         return Response(ReviewUserSettingsSerializer(instance).data)
