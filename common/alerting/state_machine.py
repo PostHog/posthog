@@ -73,6 +73,8 @@ class AlertPolicy:
     cooldown_gates_resolve: bool = True
     # True: an alert that stays breached re-notifies once per cooldown window.
     renotify_while_firing: bool = False
+    # False (insights): resolving back to NOT_FIRING is silent.
+    notify_on_resolve: bool = True
     # True (billing): snooze only mutes while breached — a clear check resolves and
     # un-snoozes; a breached check parks the alert in SNOOZED without notifying.
     # False (logs): a snoozed alert stays snoozed untouched until snooze_until passes.
@@ -92,6 +94,17 @@ BILLING_ALERT_POLICY = AlertPolicy(
     renotify_while_firing=True,
     clear_check_ends_snooze=True,
     disable_when_broken=True,
+)
+
+# Insight alerts have no cooldown (the calculation interval is the pacing), notify on
+# every breached or errored check, resolve silently, and have no failure counter — the
+# snapshot always passes consecutive_failures=0, so BROKEN is unreachable.
+INSIGHT_ALERT_POLICY = AlertPolicy(
+    notify_error_on_every_failure=True,
+    cooldown_gates_initial_fire=False,
+    cooldown_gates_resolve=False,
+    renotify_while_firing=True,
+    notify_on_resolve=False,
 )
 
 
@@ -249,7 +262,8 @@ def evaluate_alert_check(
                 notification = NotificationAction.FIRE
         else:
             new_state = AlertState.NOT_FIRING
-            notification = NotificationAction.RESOLVE
+            if policy.notify_on_resolve:
+                notification = NotificationAction.RESOLVE
 
     else:
         new_state = AlertState.NOT_FIRING

@@ -1605,7 +1605,7 @@ class TestTriggerAlertHogFunctions(APIBaseTest):
             ),
         ]
     )
-    @mock.patch("posthog.tasks.alerts.utils.produce_internal_event")
+    @mock.patch("posthog.alerting.destinations.produce_internal_event")
     def test_insight_alert_firing_detector_props(
         self,
         _name: str,

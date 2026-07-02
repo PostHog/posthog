@@ -9,12 +9,13 @@ from dateutil.relativedelta import MO, relativedelta
 
 from posthog.schema import AlertCalculationInterval, AlertState, ChartDisplayType, NodeKind, TrendsQuery
 
-from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
+from posthog.alerting.destinations import produce_alert_internal_event
 from posthog.email import EmailMessage
 from posthog.exceptions_capture import capture_exception
 from posthog.tasks.alerts.schedule_restriction import snap_candidate_utc_to_schedule_restriction
 
 from products.alerts.backend.models.alert import AlertCheck, AlertConfiguration, derive_detector_event_fields
+from products.alerts.backend.state_machine import decide_insight_alert_check
 
 logger = structlog.get_logger(__name__)
 
@@ -176,13 +177,10 @@ def trigger_alert_hog_functions(alert: AlertConfiguration, properties: dict) -> 
             **properties,
         }
 
-        produce_internal_event(
+        produce_alert_internal_event(
             team_id=alert.team_id,
-            event=InternalEventEvent(
-                event="$insight_alert_firing",
-                distinct_id=f"team_{alert.team_id}",
-                properties=props,
-            ),
+            event_name="$insight_alert_firing",
+            properties=props,
         )
 
     except Exception as e:
@@ -337,18 +335,16 @@ def add_alert_check(
     successful delivery and treats a non-empty value as the idempotency sentinel on retry.
     ``last_notified_at`` is likewise set by the notify activity on success, not here.
     """
-    notify = False
+    now = datetime.now(UTC)
+    new_state, notify = decide_insight_alert_check(
+        alert,
+        threshold_breached=bool(breaches),
+        error_message=(str(error.get("message", "Alert check failed")) if error else None),
+        now=now,
+    )
+    alert.state = new_state
 
-    if error:
-        alert.state = AlertState.ERRORED
-        notify = True
-    elif breaches:
-        alert.state = AlertState.FIRING
-        notify = True
-    else:
-        alert.state = AlertState.NOT_FIRING  # Threshold no longer met
-
-    alert.last_checked_at = datetime.now(UTC)
+    alert.last_checked_at = now
     # Update next_check_at per interval so we don't recheck until the next one is due.
     alert.next_check_at = next_check_time(alert)
 
