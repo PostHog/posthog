@@ -14,13 +14,13 @@ from django.db.models.functions import Concat, Lower
 
 from social_django.models import UserSocialAuth
 
-from products.signals.backend.contracts import RelevantCommit
-
 from posthog.models.integration import GitHubIntegration, Integration
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserIntegration
+
+from products.signals.backend.contracts import RelevantCommit
 
 from ..models import SignalReportArtefact
 

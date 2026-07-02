@@ -5,6 +5,17 @@ from enum import StrEnum
 # equal to their string value, so they drop into `==` checks and ORM filters unchanged.
 
 
+class ReportPriority(StrEnum):
+    # P0–P4 importance/urgency scale shared by signal remediations, scout findings, and report
+    # priority assessments. One scale, one enum: replaces the codegen-synthesized schema.Priority /
+    # schema.Severity that used to leak out of the old TS-first pipeline.
+    P0 = "P0"
+    P1 = "P1"
+    P2 = "P2"
+    P3 = "P3"
+    P4 = "P4"
+
+
 class SignalSourceProduct(StrEnum):
     SESSION_REPLAY = "session_replay"
     LLM_ANALYTICS = "llm_analytics"
@@ -38,6 +49,11 @@ class SignalSourceType(StrEnum):
     HEALTH_ISSUE = "health_issue"
     SCANNER_FINDING = "scanner_finding"
 
+
+# Plain value lists for ENUM_NAME_OVERRIDES in web.py — drf-spectacular hashes ChoiceField
+# choices as (value, value) pairs, which an Enum class path doesn't normalize to.
+SIGNAL_SOURCE_PRODUCT_VALUES: list[str] = [product.value for product in SignalSourceProduct]
+SIGNAL_SOURCE_TYPE_VALUES: list[str] = [source_type.value for source_type in SignalSourceType]
 
 # Human-facing labels for the model's `source_product` choices. Kept beside the enum so a new
 # source is a one-file change; values/labels must stay identical to the migration-frozen choices.

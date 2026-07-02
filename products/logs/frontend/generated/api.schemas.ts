@@ -307,9 +307,10 @@ export interface LogsAlertFiltersApi {
  * * `above` - Above
  * * `below` - Below
  */
-export type ThresholdOperatorEnumApi = (typeof ThresholdOperatorEnumApi)[keyof typeof ThresholdOperatorEnumApi]
+export type LogsAlertThresholdOperatorEnumApi =
+    (typeof LogsAlertThresholdOperatorEnumApi)[keyof typeof LogsAlertThresholdOperatorEnumApi]
 
-export const ThresholdOperatorEnumApi = {
+export const LogsAlertThresholdOperatorEnumApi = {
     Above: 'above',
     Below: 'below',
 } as const
@@ -442,7 +443,7 @@ export interface LogsAlertConfigurationApi {
      *
      * * `above` - Above
      * * `below` - Below */
-    threshold_operator?: ThresholdOperatorEnumApi
+    threshold_operator?: LogsAlertThresholdOperatorEnumApi
     /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
     window_minutes?: number
     /** How often the alert is evaluated, in minutes. Server-managed. */
@@ -549,7 +550,7 @@ export interface PatchedLogsAlertConfigurationApi {
      *
      * * `above` - Above
      * * `below` - Below */
-    threshold_operator?: ThresholdOperatorEnumApi
+    threshold_operator?: LogsAlertThresholdOperatorEnumApi
     /** Time window in minutes over which log entries are counted. Allowed values: 5, 10, 15, 30, 60. */
     window_minutes?: number
     /** How often the alert is evaluated, in minutes. Server-managed. */
@@ -714,7 +715,7 @@ export interface LogsAlertSimulateRequestApi {
      *
      * * `above` - Above
      * * `below` - Below */
-    threshold_operator: ThresholdOperatorEnumApi
+    threshold_operator: LogsAlertThresholdOperatorEnumApi
     /** Window size in minutes — determines bucket interval. */
     window_minutes: number
     /**

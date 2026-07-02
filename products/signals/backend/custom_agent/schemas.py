@@ -7,7 +7,6 @@ from typing import TYPE_CHECKING
 from pydantic import BaseModel, Field, field_validator
 
 from products.signals.backend.contracts import RelevantCommit
-
 from products.signals.backend.report_generation.research import ActionabilityAssessment, PriorityAssessment
 
 if TYPE_CHECKING:

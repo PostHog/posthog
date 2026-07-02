@@ -5,9 +5,11 @@ import { lemonToast } from '@posthog/lemon-ui'
 
 import api from 'lib/api'
 import { SignalNode } from 'scenes/debug/signals/types'
+import { teamLogic } from 'scenes/teamLogic'
 import { userLogic } from 'scenes/userLogic'
 
 import { Task, TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
+import { signalsReportsSignalsRetrieve } from 'products/signals/frontend/generated/api'
 
 import {
     deriveTaskPurpose,
@@ -128,7 +130,10 @@ export const inboxReportDetailLogic = kea<inboxReportDetailLogicType>([
             null as SignalNode[] | null,
             {
                 loadReportSignals: async () => {
-                    const response = await api.signalReports.getReportSignals(props.reportId)
+                    const response = await signalsReportsSignalsRetrieve(
+                        String(teamLogic.values.currentTeamId),
+                        props.reportId
+                    )
                     return response.signals
                 },
             },

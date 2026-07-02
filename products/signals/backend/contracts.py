@@ -1,8 +1,7 @@
 # Source of truth for the signal payload taxonomy — the shared contract between backend emitters,
 # the facade's validation, and the inbox cards. The frontend TypeScript equivalents are generated
-# from these models by `products/signals/backend/build_frontend_types.py` (hogli build:openapi);
-# do not hand-write the TS. Signal extras are ClickHouse-sourced and never pass through a DRF
-# serializer, so they take the Pydantic -> TS path rather than the OpenAPI/Orval one.
+# from these models: the extras are declared on the `signals`-endpoint serializer (see
+# `SignalNodeSerializer` in `serializers.py`), so they flow through the standard OpenAPI/Orval pipeline.
 
 import enum
 from typing import Annotated, Literal, get_args
@@ -10,13 +9,13 @@ from typing import Annotated, Literal, get_args
 from pydantic import BaseModel, Field
 from pydantic.fields import FieldInfo
 
-from products.signals.backend.enums import SignalSourceProduct, SignalSourceType
+from products.signals.backend.enums import ReportPriority, SignalSourceProduct, SignalSourceType
 
 
 class SignalRemediation(BaseModel):
     human: str
     agent: str
-    priority: Literal["P0", "P1", "P2", "P3", "P4"] | None = None
+    priority: ReportPriority | None = None
 
 
 class SignalExtraBase(BaseModel):
@@ -266,7 +265,7 @@ class SignalsScoutSignalExtra(SignalExtraBase):
     skill_name: str
     skill_version: int
     confidence: float
-    severity: Literal["P0", "P1", "P2", "P3", "P4"] | None = None
+    severity: ReportPriority | None = None
     hypothesis: str | None = None
     evidence: list[SignalsScoutEvidenceEntry]
     dedupe_keys: list[str] | None = None
@@ -378,8 +377,8 @@ class EnrichedReviewer(BaseModel):
 
 
 # ── Union over all signal variants ──────────────────────────────────────────────
-# Discrimination is by the composite (source_product, source_type) pair, resolved in the
-# facade's _SIGNAL_VARIANT_LOOKUP — a single-field pydantic discriminator can't express it
+# Discrimination is by the composite (source_product, source_type) pair, resolved via
+# SIGNAL_VARIANT_LOOKUP below — a single-field pydantic discriminator can't express it
 # because llm_analytics/error_tracking map several (product, type) pairs to one variant and
 # github/linear/pganalyze share source_type="issue".
 
@@ -430,8 +429,13 @@ def _literal_values(field: FieldInfo) -> tuple[str, ...]:
 # (source_product, source_type) -> variant model. The pair is the discriminator: several products
 # share a source_type ("issue", "ticket") and error_tracking maps three types to one variant, so a
 # single-field discriminator can't express it. Built once at import.
-SIGNAL_VARIANT_LOOKUP: dict[tuple[str, str], type[SignalInputBase]] = {}
-for _variant in SIGNAL_INPUT_VARIANTS:
-    for _product in _literal_values(_variant.model_fields["source_product"]):
-        for _type in _literal_values(_variant.model_fields["source_type"]):
-            SIGNAL_VARIANT_LOOKUP[(_product, _type)] = _variant
+def _build_variant_lookup() -> dict[tuple[str, str], type[SignalInputBase]]:
+    lookup: dict[tuple[str, str], type[SignalInputBase]] = {}
+    for variant in SIGNAL_INPUT_VARIANTS:
+        for product in _literal_values(variant.model_fields["source_product"]):
+            for source_type in _literal_values(variant.model_fields["source_type"]):
+                lookup[(product, source_type)] = variant
+    return lookup
+
+
+SIGNAL_VARIANT_LOOKUP: dict[tuple[str, str], type[SignalInputBase]] = _build_variant_lookup()
