@@ -1,3 +1,5 @@
+import socket
+import threading
 from collections.abc import Generator, Iterable, Iterator
 from contextlib import contextmanager
 from datetime import UTC, date, datetime, time, timedelta, timezone
@@ -99,6 +101,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.p
     _pk_uniqueness_probe_timeout_error,
     _raise_if_setup_connection_broken,
     _recovery_conflict_abort_error,
+    _resolve_hostaddr_with_timeout,
     _rls_active_from_conn,
     _role_subject_to_rls,
     _safe_close_connection,
@@ -711,6 +714,30 @@ class TestPostgresSourceNonRetryableErrors:
         # The function-permission message must win over the generic table-SELECT message and advise
         # EXECUTE rather than the misleading "GRANT SELECT ON <table>".
         assert "EXECUTE" in friendly[0]
+        assert "GRANT SELECT" not in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg message (what the activity-level check sees via str(e)).
+            "permission denied for schema extensions",
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            "InsufficientPrivilege: permission denied for schema extensions",
+        ],
+    )
+    def test_permission_denied_for_schema_errors_are_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Permission-denied-for-schema error should be non-retryable: {error_msg}"
+
+    def test_permission_denied_for_schema_returns_usage_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = "permission denied for schema extensions"
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Permission-denied-for-schema error should surface an actionable message"
+        # The schema-USAGE message must win over the generic table-SELECT message and advise USAGE
+        # rather than the misleading "GRANT SELECT ON <table>".
+        assert "USAGE" in friendly[0]
         assert "GRANT SELECT" not in friendly[0]
 
     @pytest.mark.parametrize(
@@ -1382,6 +1409,67 @@ class TestConnectForcesUtf8ClientEncoding:
             )
 
         assert connect_mock.call_args.kwargs["options"] == f"{FORCE_UTF8_CLIENT_ENCODING} -c statement_timeout=5000"
+
+
+# psycopg3 resolves hostnames Python-side (`socket.getaddrinfo`) before libpq's `connect_timeout`
+# applies, so a stalled resolver hangs the threaded sync activity until Temporal's
+# `start_to_close_timeout` cancels it, surfacing a misleading `CancelledError`. We bound the lookup
+# and hand psycopg the address via `hostaddr`.
+class TestResolveHostaddrWithTimeout:
+    @pytest.mark.parametrize(
+        "host",
+        [
+            "127.0.0.1",  # already an IP (also the SSH-tunnel local endpoint) — nothing to resolve
+            "::1",
+            "[::1]",  # bracketed IPv6 literal — exercises the host.strip("[]") path in _is_ip_literal
+            "/var/run/postgresql",  # Unix-socket path
+            "",
+        ],
+    )
+    def test_hosts_that_need_no_lookup_short_circuit(self, host):
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.socket.getaddrinfo"
+        ) as getaddrinfo_mock:
+            assert _resolve_hostaddr_with_timeout(host, 5432, 15) is None
+        getaddrinfo_mock.assert_not_called()
+
+    def test_resolved_hostname_returns_first_address(self):
+        addrinfo = [
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("10.0.0.5", 5432)),
+            (socket.AF_INET, socket.SOCK_STREAM, socket.IPPROTO_TCP, "", ("10.0.0.6", 5432)),
+        ]
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.socket.getaddrinfo",
+            return_value=addrinfo,
+        ):
+            assert _resolve_hostaddr_with_timeout("db.example.com", 5432, 15) == "10.0.0.5"
+
+    def test_genuine_resolution_failure_falls_through(self):
+        # A host that doesn't resolve must return None (not raise) so psycopg connects as before and
+        # its own "Name or service not known" error still reaches the non-retryable classifier.
+        with patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.socket.getaddrinfo",
+            side_effect=socket.gaierror(-2, "Name or service not known"),
+        ):
+            assert _resolve_hostaddr_with_timeout("does-not-exist.example.com", 5432, 15) is None
+
+    def test_stalled_resolver_raises_fast_retryable_error(self):
+        release = threading.Event()
+        try:
+            with patch(
+                "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.postgres.socket.getaddrinfo",
+                side_effect=lambda *a, **k: release.wait(),
+            ):
+                with pytest.raises(psycopg.OperationalError) as exc_info:
+                    _resolve_hostaddr_with_timeout("db.example.com", 5432, 0.1)
+        finally:
+            release.set()  # let the orphaned lookup thread exit
+
+        message = str(exc_info.value)
+        assert "Timed out resolving database host name" in message
+        # Must stay retryable: it must not carry any of the non-retryable resolution fragments.
+        assert "could not translate host name" not in message
+        assert "Name or service not known" not in message
 
 
 # Transaction-mode poolers (Supabase Supavisor on :6543, PgBouncer transaction mode, AWS RDS Proxy)

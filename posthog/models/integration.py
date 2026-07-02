@@ -39,6 +39,7 @@ from slack_sdk import WebClient
 from slack_sdk.errors import SlackApiError
 
 from posthog.cache_utils import cache_for
+from posthog.egress.github.transport import GITHUB_API_VERSION
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.encrypted_fields import EncryptedJSONField
 from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
@@ -82,8 +83,6 @@ def _decode_jwt_payload(token: str) -> dict | None:
 oauth_refresh_counter = Counter(
     "integration_oauth_refresh", "Number of times an oauth refresh has been attempted", labelnames=["kind", "result"]
 )
-
-GITHUB_API_VERSION = "2022-11-28"
 
 # `owner/repo`, single slash, no traversal. Used to keep repo/ref/sha values out of GitHub API URL
 # paths where a crafted value (e.g. `../../other-repo/contents/x?ref=y`) could redirect the
@@ -2383,62 +2382,6 @@ class GitHubUserAuthorization:
     refresh_token: str | None
     access_token_expires_in: int | None
     refresh_token_expires_in: int | None
-
-
-class GitHubRateLimitError(GitHubIntegrationError):
-    """GitHub API rate limit exhausted for this installation."""
-
-    def __init__(self, message: str, reset_at: int | None = None, retry_after: int | None = None):
-        # Forward to the base error so backoff filters using `exc.is_rate_limit` /
-        # `exc.retry_after_seconds` continue to work for instances of this subclass.
-        super().__init__(
-            message,
-            is_rate_limit=True,
-            retry_after_seconds=float(retry_after) if retry_after is not None else None,
-        )
-        self.reset_at = reset_at
-        self.retry_after = retry_after
-
-
-def raise_if_github_rate_limited(response: requests.Response) -> None:
-    """Raise GitHubRateLimitError when the response signals a GitHub rate limit.
-
-    Handles both primary (403 + body) and secondary (429) rate limit formats.
-    Safe to call unconditionally after every GitHub API response.
-    """
-    if response.status_code == 429:
-        is_rate_limited = True
-    elif response.status_code == 403:
-        try:
-            body = response.text
-        except Exception:
-            body = ""
-        is_rate_limited = "rate limit" in body.lower()
-    else:
-        return
-
-    if not is_rate_limited:
-        return
-
-    def _int_header(name: str) -> int | None:
-        val = response.headers.get(name)
-        if not val:
-            return None
-        try:
-            return int(val)
-        except (ValueError, TypeError):
-            return None
-
-    reset_at = _int_header("x-ratelimit-reset")
-    retry_after = _int_header("retry-after")
-    if retry_after is None and reset_at is not None:
-        retry_after = max(1, reset_at - int(time.time()))
-
-    raise GitHubRateLimitError(
-        f"GitHub API rate limit exceeded (resets at {reset_at})",
-        reset_at=reset_at,
-        retry_after=retry_after,
-    )
 
 
 @dataclass(frozen=True)

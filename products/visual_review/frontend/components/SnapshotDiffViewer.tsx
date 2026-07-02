@@ -233,6 +233,10 @@ export function SnapshotDiffViewer({
                         result={(snapshot.result || 'unchanged') as VisualDiffResult}
                         imageWidth={width ?? undefined}
                         imageHeight={height ?? undefined}
+                        baselineWidth={snapshot.baseline_artifact?.width ?? undefined}
+                        baselineHeight={snapshot.baseline_artifact?.height ?? undefined}
+                        currentWidth={snapshot.current_artifact?.width ?? undefined}
+                        currentHeight={snapshot.current_artifact?.height ?? undefined}
                         mode={comparisonMode}
                         onModeChange={setComparisonMode}
                         className="min-h-[200px]"

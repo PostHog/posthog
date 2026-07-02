@@ -109,8 +109,15 @@ function LogsViewerContent({
     const { orderBy, sparklineBreakdownBy, sparklineCollapsed, facetRailCollapsed, viewMode } =
         useValues(logsViewerConfigLogic)
     const { setOrderBy, setSparklineBreakdownBy, toggleSparklineCollapsed } = useActions(logsViewerConfigLogic)
-    const { logsLoading, parsedLogs, sparklineData, sparklineLoading, hasMoreLogsToLoad, totalLogsMatchingFilters } =
-        useValues(logsViewerDataLogic)
+    const {
+        logsLoading,
+        parsedLogs,
+        sparklineData,
+        sparklineLoading,
+        sparklineIncompleteBarIndices,
+        hasMoreLogsToLoad,
+        totalLogsMatchingFilters,
+    } = useValues(logsViewerDataLogic)
     const { runQuery, fetchNextLogsPage } = useActions(logsViewerDataLogic)
     const { setDateRange, zoomDateRange } = useActions(logsViewerFiltersLogic)
     const showFacetRail = useFeatureFlag('LOGS_FACET_RAIL')
@@ -293,6 +300,7 @@ function LogsViewerContent({
                 onBreakdownByChange={setSparklineBreakdownBy}
                 collapsed={sparklineCollapsed}
                 onToggleCollapse={toggleSparklineCollapsed}
+                incompleteBarIndices={sparklineIncompleteBarIndices}
             />
             <SceneDivider />
         </>

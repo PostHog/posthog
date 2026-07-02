@@ -146,6 +146,30 @@ class TestGetDagStructureActivity:
         assert len(dag.executable_nodes) == 0
         assert len(dag.edges) == 0
 
+    async def test_endpoint_nodes_are_executable(self, activity_environment, ateam, auser):
+        # endpoints on a v2 DAG schedule must materialize; dropping ENDPOINT from the
+        # executable filter silently stops their refresh (v1 frequency is cleared on migrate)
+        dag = await database_sync_to_async(DAG.objects.create)(team=ateam, name="test-endpoint-dag")
+        endpoint_query = await database_sync_to_async(DataWarehouseSavedQuery.objects.create)(
+            team=ateam,
+            name="endpoint_executable_test",
+            query={"query": "SELECT 1", "kind": "HogQLQuery"},
+            created_by=auser,
+        )
+        endpoint_node = await database_sync_to_async(Node.objects.create)(
+            team=ateam,
+            dag=dag,
+            type=NodeType.ENDPOINT,
+            saved_query=endpoint_query,
+        )
+        inputs = GetDAGStructureInputs(team_id=ateam.pk, dag_id=str(dag.id))
+        result = await activity_environment.run(get_dag_structure_activity, inputs)
+        assert str(endpoint_node.id) in result.executable_nodes
+        assert str(endpoint_node.id) not in result.ephemeral_nodes
+        await database_sync_to_async(endpoint_node.delete)()
+        await database_sync_to_async(dag.delete)()
+        await database_sync_to_async(endpoint_query.delete)()
+
     async def test_identifies_ephemeral_nodes(self, activity_environment, ateam, auser):
         """Test that ephemeral (VIEW) nodes are correctly identified."""
         dag = await database_sync_to_async(DAG.objects.create)(team=ateam, name="test-ephemeral-dag")

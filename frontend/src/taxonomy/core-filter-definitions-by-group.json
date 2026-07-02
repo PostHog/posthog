@@ -2103,6 +2103,30 @@
             "label": "MCP duration (ms)",
             "type": "Numeric"
         },
+        "$mcp_error_message": {
+            "description": "Error message for a failed MCP tool call, truncated. Present when the server passes the thrown error to the SDK; PostHog's own server omits it to avoid capturing query content. Only set when $mcp_is_error is true.",
+            "label": "MCP error message"
+        },
+        "$mcp_error_status": {
+            "description": "Upstream HTTP status code when an MCP tool call failed against a PostHog API (e.g. 429, 500). Only set for API-originated failures.",
+            "examples": [
+                429,
+                500,
+                403
+            ],
+            "label": "MCP error status",
+            "type": "Numeric"
+        },
+        "$mcp_error_type": {
+            "description": "Failure category for an errored MCP tool call, for breaking failures down by reason. PostHog's server emits a semantic bucket (missing_context, validation, permission, timeout, rate_limited, api_4xx, api_5xx, internal); external servers using the SDK fall back to the thrown error's type. Only set when $mcp_is_error is true.",
+            "examples": [
+                "rate_limited",
+                "validation",
+                "timeout",
+                "api_4xx"
+            ],
+            "label": "MCP error type"
+        },
         "$mcp_exec_inner_tool_names": {
             "description": "Array of every inner tool name available to the agent at the time of a tools/list request. Stored as a JSON array \u2014 filter with `contains` against a single tool name (e.g. 'execute-sql'). Only stamped on mcp_tools_list events when running in single-exec mode (in multi-tool mode the SDK's $mcp_listed_tool_names already carries the catalog). Lets you compute zombie tools by diffing against $mcp_exec_tool_call_name from mcp_tool_call events.",
             "examples": [
@@ -6596,6 +6620,30 @@
             ],
             "label": "MCP duration (ms)",
             "type": "Numeric"
+        },
+        "$mcp_error_message": {
+            "description": "Error message for a failed MCP tool call, truncated. Present when the server passes the thrown error to the SDK; PostHog's own server omits it to avoid capturing query content. Only set when $mcp_is_error is true.",
+            "label": "MCP error message"
+        },
+        "$mcp_error_status": {
+            "description": "Upstream HTTP status code when an MCP tool call failed against a PostHog API (e.g. 429, 500). Only set for API-originated failures.",
+            "examples": [
+                429,
+                500,
+                403
+            ],
+            "label": "MCP error status",
+            "type": "Numeric"
+        },
+        "$mcp_error_type": {
+            "description": "Failure category for an errored MCP tool call, for breaking failures down by reason. PostHog's server emits a semantic bucket (missing_context, validation, permission, timeout, rate_limited, api_4xx, api_5xx, internal); external servers using the SDK fall back to the thrown error's type. Only set when $mcp_is_error is true.",
+            "examples": [
+                "rate_limited",
+                "validation",
+                "timeout",
+                "api_4xx"
+            ],
+            "label": "MCP error type"
         },
         "$mcp_exec_inner_tool_names": {
             "description": "Array of every inner tool name available to the agent at the time of a tools/list request. Stored as a JSON array \u2014 filter with `contains` against a single tool name (e.g. 'execute-sql'). Only stamped on mcp_tools_list events when running in single-exec mode (in multi-tool mode the SDK's $mcp_listed_tool_names already carries the catalog). Lets you compute zombie tools by diffing against $mcp_exec_tool_call_name from mcp_tool_call events.",

@@ -205,6 +205,13 @@ class SnowflakeSource(SQLSource[SnowflakeSourceConfig]):
             # warehouse is missing/suspended or the role lacks USAGE on it — it just leaves the session
             # warehouse unset. Retrying can never succeed until the customer fixes the grant or warehouse.
             "No active warehouse selected in the current session": "No active warehouse is available for this connection. Check that the configured warehouse exists, is running, and that the connecting role has USAGE on it, then resync.",
+            # Snowflake error 090105 (22000): the session has no current database, so the first query
+            # that references an unqualified object (our `information_schema` listing query) fails. The
+            # connector doesn't fail at connect time when the configured database is missing or the role
+            # lacks USAGE on it — it just leaves the session database unset. Retrying can never succeed
+            # until the customer fixes the database name or the grant. The query id is volatile, so we
+            # match the stable phrase.
+            "This session does not have a current database": "No database is available for this connection. Check that the configured database exists and that the connecting role has USAGE on it, then resync.",
             "404 Not Found": None,
             "Your free trial has ended": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",
             "Your account is suspended due to lack of payment method": "Your Snowflake account has been suspended or trial has ended. Please check your account status.",

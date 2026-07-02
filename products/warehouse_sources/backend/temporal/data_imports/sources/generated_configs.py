@@ -573,7 +573,7 @@ class CannySourceConfig(config.Config):
 
 @config.config
 class CapsuleCRMSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
@@ -878,6 +878,7 @@ class CustomSourceConfig(config.Config):
     auth_password: str | None = None
     auth_oauth2_client_secret: str | None = None
     auth_oauth2_refresh_token: str | None = None
+    auth_oauth2_integration_id: str | None = None
 
 
 @config.config
@@ -1030,7 +1031,8 @@ class EConomicSourceConfig(config.Config):
 
 @config.config
 class EZOfficeInventorySourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
@@ -1151,7 +1153,9 @@ class FilloutSourceConfig(config.Config):
 
 @config.config
 class FinageSourceConfig(config.Config):
-    pass
+    api_key: str
+    symbols: str
+    start_date: str | None = None
 
 
 @config.config
@@ -1175,7 +1179,8 @@ class FinnworldsSourceConfig(config.Config):
 
 @config.config
 class FireHydrantSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config
@@ -1595,6 +1600,11 @@ class InsightlySourceConfig(config.Config):
 
 @config.config
 class InstagramSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class InstantlySourceConfig(config.Config):
     pass
 
 
@@ -3895,6 +3905,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.INSIGHTFUL: InsightfulSourceConfig,
         ExternalDataSourceType.INSIGHTLY: InsightlySourceConfig,
         ExternalDataSourceType.INSTAGRAM: InstagramSourceConfig,
+        ExternalDataSourceType.INSTANTLY: InstantlySourceConfig,
         ExternalDataSourceType.INSTATUS: InstatusSourceConfig,
         ExternalDataSourceType.INTERCOM: IntercomSourceConfig,
         ExternalDataSourceType.INTERZOID: InterzoidSourceConfig,

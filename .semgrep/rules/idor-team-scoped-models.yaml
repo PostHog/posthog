@@ -92,6 +92,7 @@ rules:
                               |CustomerProfileConfig
                               |CustomOAuth2Integration
                               |CustomPropertyDefinition
+                              |CustomPropertySource
                               |CustomPropertyValue
                               |DAG
                               |Dashboard
@@ -106,6 +107,7 @@ rules:
                               |DataWarehouseManagedViewSet
                               |DataWarehouseModelPath
                               |DataWarehouseSavedQuery
+                              |DataWarehouseSavedQueryColumnAnnotation
                               |DataWarehouseSavedQueryDraft
                               |DataWarehouseSavedQueryFolder
                               |DataWarehouseTable
@@ -121,6 +123,7 @@ rules:
                               |EnterprisePropertyDefinition
                               |EventFilterConfig
                               |ErrorTrackingAssignmentRule
+                              |ErrorTrackingBypassRule
                               |ErrorTrackingGroupingRule
                               |ErrorTrackingIssue
                               |ErrorTrackingIssueFingerprintV2
@@ -362,6 +365,7 @@ rules:
                         |CustomerProfileConfig
                         |CustomOAuth2Integration
                         |CustomPropertyDefinition
+                        |CustomPropertySource
                         |CustomPropertyValue
                         |DAG
                         |Dashboard
@@ -376,6 +380,7 @@ rules:
                         |DataWarehouseManagedViewSet
                         |DataWarehouseModelPath
                         |DataWarehouseSavedQuery
+                        |DataWarehouseSavedQueryColumnAnnotation
                         |DataWarehouseSavedQueryDraft
                         |DataWarehouseSavedQueryFolder
                         |DataWarehouseTable
@@ -391,6 +396,7 @@ rules:
                         |EnterprisePropertyDefinition
                         |EventFilterConfig
                         |ErrorTrackingAssignmentRule
+                        |ErrorTrackingBypassRule
                         |ErrorTrackingGroupingRule
                         |ErrorTrackingIssue
                         |ErrorTrackingIssueFingerprintV2
