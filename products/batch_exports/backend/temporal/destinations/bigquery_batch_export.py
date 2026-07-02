@@ -4,16 +4,12 @@ import time
 import typing
 import asyncio
 import datetime as dt
-import functools
 import contextlib
 import dataclasses
 import collections.abc
-import multiprocessing as mp
-import concurrent.futures
 
 from django.conf import settings
 
-import grpc
 import boto3
 import pyarrow as pa
 import requests
@@ -35,8 +31,6 @@ from google.api_core.exceptions import (
 )
 from google.cloud import bigquery, iam_admin_v1
 from google.cloud.bigquery.table import RowIterator, _EmptyRowIterator
-from google.cloud.bigquery_storage import BigQueryWriteAsyncClient, types
-from google.cloud.bigquery_storage_v1.services.big_query_write.transports import BigQueryWriteGrpcAsyncIOTransport
 from google.oauth2 import service_account
 from structlog.contextvars import bind_contextvars
 from temporalio import activity, workflow
@@ -62,21 +56,17 @@ from products.batch_exports.backend.temporal.batch_exports import (
     get_data_interval,
     start_batch_export_run,
 )
-from products.batch_exports.backend.temporal.metrics import ExecutionTimeRecorder
-from products.batch_exports.backend.temporal.pipeline.consumer import Consumer, run_consumer_from_stage
+from products.batch_exports.backend.temporal.pipeline.consumer import Consumer
 from products.batch_exports.backend.temporal.pipeline.entrypoint import execute_batch_export_using_internal_stage
 from products.batch_exports.backend.temporal.pipeline.producer import Producer
 from products.batch_exports.backend.temporal.pipeline.table import Field, Table, TableReference
 from products.batch_exports.backend.temporal.pipeline.transformer import (
-    ChunkTransformerProtocol,
     JSONLStreamTransformer,
     ParquetStreamTransformer,
     PipelineTransformer,
     SchemaTransformer,
-    SerializedStreamTransformer,
 )
 from products.batch_exports.backend.temporal.pipeline.types import BatchExportResult, reduce_batch_export_results
-from products.batch_exports.backend.temporal.pipeline.worker_init import init_worker
 from products.batch_exports.backend.temporal.spmc import (
     RecordBatchQueue,
     raise_on_task_failure,
@@ -1160,196 +1150,35 @@ class BigQueryConsumer(Consumer):
         self.current_buffer = io.BytesIO()
 
 
-_RETRYABLE_STATUS = {
-    grpc.StatusCode.UNAVAILABLE,
-    grpc.StatusCode.ABORTED,
-    grpc.StatusCode.INTERNAL,
-    grpc.StatusCode.DEADLINE_EXCEEDED,
-    grpc.StatusCode.RESOURCE_EXHAUSTED,
-    grpc.StatusCode.CANCELLED,
-}
-_RETRYABLE_CODES = {s.value[0] for s in _RETRYABLE_STATUS}
-
-
-@contextlib.asynccontextmanager
-async def bigquery_write_async_client(credentials) -> collections.abc.AsyncIterator[BigQueryWriteAsyncClient]:
-    """Create a new BigQuery storage write async client."""
-    channel = BigQueryWriteGrpcAsyncIOTransport.create_channel(
-        credentials=credentials,
-        compression=grpc.Compression.Gzip,
-        options=[("grpc.use_local_subchannel_pool", 1)],
+def _make_parquet_pipeline_transformer(table: BigQueryTable, max_file_size_bytes: int) -> PipelineTransformer:
+    """Helper to initialize a transformer for Parquet files."""
+    transformer = PipelineTransformer(
+        transformers=(
+            SchemaTransformer(
+                table=table,
+            ),
+            ParquetStreamTransformer(
+                compression="zstd",
+                max_file_size_bytes=max_file_size_bytes,
+            ),
+        )
     )
-    transport = BigQueryWriteGrpcAsyncIOTransport(channel=channel)
-    client = BigQueryWriteAsyncClient(
-        transport=transport,
+    return transformer
+
+
+def _make_jsonl_pipeline_transformer(table: BigQueryTable, max_file_size_bytes: int) -> PipelineTransformer:
+    """Helper to initialize a transformer for JSONL files."""
+    transformer = PipelineTransformer(
+        transformers=(
+            SchemaTransformer(
+                table=table,
+            ),
+            JSONLStreamTransformer(
+                max_file_size_bytes=max_file_size_bytes,
+            ),
+        )
     )
-
-    try:
-        yield client
-    finally:
-        await transport.close()
-
-
-class BigQueryStorageConsumer(Consumer):
-    """Consume serialized record batch bytes to a BigQuery storage stream."""
-
-    def __init__(
-        self,
-        client: BigQueryWriteAsyncClient,
-        table: BigQueryTable,
-        transformer: SerializedStreamTransformer,
-        model: str = "events",
-    ):
-        super().__init__(model=model)
-        self._stub = client.transport.append_rows
-        self._first = True
-
-        self.stream = None
-        self.transformer = transformer
-        self.table = table
-        self.logger = self.logger.bind(table=self.table)
-
-    async def consume_chunk(self, data: bytes) -> None:
-        """Directly consume chunk by sending it on the stream."""
-        if not data:
-            return
-
-        self.logger.debug(
-            "Send to stream starting",
-        )
-
-        try:
-            with ExecutionTimeRecorder(
-                "bigquery_storage_send_duration",
-                description="Duration to send a request to BigQuery's Storage API.",
-                log_message=(
-                    "Sent chunk with size %(nbytes)d. Process time:"
-                    " %(duration_seconds).6f seconds, speed: %(mb_per_second).2f MB/s"
-                ),
-                log_attributes={"nbytes": len(data)},
-            ) as recorder:
-                recorder.add_bytes_processed(len(data))
-
-                await self.send(data)
-        except Exception:
-            self.logger.exception("Send to stream failed")
-            await self.close_stream()
-            raise
-
-        self.logger.debug(
-            "Send to stream finished",
-        )
-
-    async def send(self, data: bytes, max_attempts: int = 5):
-        """Send a request on a gRPC stream.
-
-        The request will be retried up to max_attempts. This retry loop can
-        generate duplicates when using the default stream as it only offers
-        at-least-once semantics. In other words, the chunk could have been
-        ingested completely before an error is delivered to us, which means
-        retrying the same request would lead to a duplicate.
-
-        TODO: Consider switching over to a non-default stream which requires
-        offset tracking.
-        """
-
-        attempt = 0
-
-        while True:
-            request = self.prepare_request(data)
-
-            try:
-                stream = self.stream or self.open_stream()
-                await stream.write(request)
-                resp = await stream.read()
-
-                if resp.error.code:
-                    if resp.error.code in _RETRYABLE_CODES and attempt < max_attempts:
-                        backoff = min(2**attempt, 32)
-                        self.logger.warning(
-                            "Storage stream response error",
-                            attempt=attempt,
-                            backoff=backoff,
-                            error_code=resp.error.code,
-                        )
-
-                        await self.close_stream()
-                        await asyncio.sleep(backoff)
-                        attempt += 1
-                        continue
-
-                    raise RuntimeError(f"{resp.error.code}: {resp.error.message}")
-
-                return resp
-
-            except (grpc.aio.AioRpcError, asyncio.InvalidStateError) as exc:
-                if (
-                    isinstance(exc, asyncio.InvalidStateError) or exc.code() in _RETRYABLE_STATUS
-                ) and attempt < max_attempts:
-                    backoff = min(2**attempt, 32)
-                    self.logger.warning(
-                        "Storage stream transient error encountered",
-                        attempt=attempt,
-                        backoff=backoff,
-                        exc_info=True,
-                        error_code=exc.code() if isinstance(exc, grpc.aio.AioRpcError) else None,
-                    )
-
-                    await self.close_stream()
-                    await asyncio.sleep(backoff)
-                    attempt += 1
-                    continue
-
-                raise
-
-    def prepare_request(self, data: bytes):
-        req = types.AppendRowsRequest(  # type: ignore
-            arrow_rows=types.AppendRowsRequest.ArrowData(  # type: ignore
-                rows=types.ArrowRecordBatch(  # type: ignore
-                    serialized_record_batch=data,
-                )
-            )
-        )
-
-        if self._first:
-            stream_name = (
-                f"projects/{self.table.project_id}/datasets/{self.table.dataset_id}/tables/{self.table.name}/_default"
-            )
-            req.write_stream = stream_name
-            schema = self.transformer.schema.serialize().to_pybytes()
-            req.arrow_rows.writer_schema = types.ArrowSchema(serialized_schema=schema)  # type: ignore
-            self._first = False
-
-        return req
-
-    def open_stream(self):
-        """Open a new stream."""
-        stream = self._stub()  # type: ignore
-        self.stream = stream  # type: ignore
-        return stream
-
-    async def close_stream(self) -> None:
-        """Attempt to close current stream."""
-        stream = self.stream
-
-        if stream is not None:
-            try:  # type: ignore
-                await stream.done_writing()
-            except Exception:
-                # Stream is already dead, move on
-                self.logger.warning("Stream close failed", exc_info=True)
-
-        self.stream = None
-        self._first = True
-
-    async def finalize_file(self) -> None:
-        """No files here, just serialized bytes."""
-        # TODO: Make consumer a protocol so we don't need this.
-        pass
-
-    async def finalize(self) -> None:
-        """Finalize by closing the stream."""
-        await self.close_stream()
+    return transformer
 
 
 async def run_consumers(
@@ -1365,6 +1194,19 @@ async def run_consumers(
     tasks = []
     max_file_size_bytes_per_consumer = settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES // max_consumers
 
+    async def run(
+        consumer: BigQueryConsumer,
+        queue: RecordBatchQueue,
+        transformer: PipelineTransformer,
+        producer_task: asyncio.Task[None],
+    ) -> BatchExportResult:
+        return await consumer.start(
+            queue=queue,
+            producer_task=producer_task,
+            transformer=transformer,
+            json_columns=(),
+        )
+
     async with asyncio.TaskGroup() as tg:
         for _ in range(max_consumers):
             consumer = BigQueryConsumer(
@@ -1374,97 +1216,11 @@ async def run_consumers(
                 model=model,
             )
             if can_perform_merge:
-                transformer = PipelineTransformer(
-                    transformers=(
-                        SchemaTransformer(
-                            table=table,
-                        ),
-                        ParquetStreamTransformer(
-                            compression="zstd",
-                            max_file_size_bytes=max_file_size_bytes_per_consumer,
-                        ),
-                    )
-                )
+                transformer = _make_parquet_pipeline_transformer(table, max_file_size_bytes_per_consumer)
             else:
-                transformer = PipelineTransformer(
-                    transformers=(
-                        SchemaTransformer(
-                            table=table,
-                        ),
-                        JSONLStreamTransformer(
-                            max_file_size_bytes=max_file_size_bytes_per_consumer,
-                        ),
-                    )
-                )
+                transformer = _make_jsonl_pipeline_transformer(table, max_file_size_bytes_per_consumer)
 
-            tasks.append(
-                tg.create_task(
-                    consumer.start(
-                        queue=queue,
-                        producer_task=producer_task,
-                        transformer=transformer,
-                        json_columns=(),
-                    )
-                )
-            )
-
-    await raise_on_task_failure(producer_task)
-
-    return reduce_batch_export_results(task.result() for task in tasks)
-
-
-async def run_storage_stream_consumers(
-    client: BigQueryClient,
-    pool: concurrent.futures.ProcessPoolExecutor,
-    table: BigQueryTable,
-    producer_task: asyncio.Task[None],
-    queue: RecordBatchQueue,
-    max_consumers: int,
-    model: str = "events",
-) -> BatchExportResult:
-    tasks = []
-    serialized = SerializedStreamTransformer(pool)
-    transformer: ChunkTransformerProtocol = PipelineTransformer(
-        transformers=(
-            SchemaTransformer(
-                table=table,
-                extra_compatible_types={
-                    # BigQuery Storage requires INTEGER columns be signed
-                    # Cast is safe and will throw on overflow.
-                    (pa.uint64(), pa.int64()): functools.partial(_cast_as_type, type=pa.int64()),
-                    (pa.uint8(), pa.int64()): functools.partial(_cast_as_type, type=pa.int64()),
-                    # BigQuery Storage requires that TIMESTAMP columns be 'us'
-                    (pa.timestamp("ms", tz="UTC"), pa.timestamp("us", tz="UTC")): functools.partial(
-                        _cast_to_lossless_timestamp, unit="us"
-                    ),
-                    (pa.timestamp("ms", tz="Etc/UTC"), pa.timestamp("us", tz="UTC")): functools.partial(
-                        _cast_to_lossless_timestamp, unit="us"
-                    ),
-                },
-            ),
-            serialized,
-        )
-    )
-
-    async def run() -> BatchExportResult:
-        async with bigquery_write_async_client(client.sync_client._credentials) as write_client:
-            consumer: Consumer = BigQueryStorageConsumer(
-                client=write_client,
-                table=table,
-                transformer=serialized,
-                model=model,
-            )
-
-            return await consumer.start(
-                queue=queue,
-                producer_task=producer_task,
-                transformer=transformer,
-                json_columns=(),
-            )
-
-    async with asyncio.TaskGroup() as tg:
-        for _ in range(max_consumers):
-            tasks.append(tg.create_task(run()))
+            tasks.append(tg.create_task(run(consumer, queue, transformer, producer_task)))
 
     await raise_on_task_failure(producer_task)
 
@@ -1706,143 +1462,20 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
             ) as bigquery_consumer_table:
                 file_format: typing.Literal["Parquet", "JSONLines"] = "Parquet" if can_perform_merge else "JSONLines"
 
-                use_storage_stream = (
-                    str(inputs.team_id) in settings.BATCH_EXPORT_BIGQUERY_USE_STORAGE_STREAM_API_TEAM_IDS
+                max_consumers = 1
+                if str(inputs.team_id) in settings.BATCH_EXPORT_BIGQUERY_USE_MULTIPLE_CONSUMERS_TEAM_IDS:
+                    max_consumers = settings.BATCH_EXPORT_BIGQUERY_MAX_CONSUMERS
+
+                result = await run_consumers(
+                    client=bq_client,
+                    table=bigquery_consumer_table,
+                    file_format=file_format,
+                    producer_task=producer_task,
+                    queue=queue,
+                    can_perform_merge=can_perform_merge,
+                    max_consumers=max_consumers,
+                    model=model.name if isinstance(model, BatchExportModel) else "events",
                 )
-
-                if str(inputs.team_id) not in settings.BATCH_EXPORT_BIGQUERY_USE_MULTIPLE_CONSUMERS_TEAM_IDS:
-                    # This just repeats what's in `run_consumers` to preserve backwards compatibility
-                    # while testing.
-                    # TODO: Remove this or the else block after we have tested out whether multiple
-                    # consumers are viable.
-                    if use_storage_stream:
-                        async with (
-                            bigquery_write_async_client(bq_client.sync_client._credentials) as write_client,
-                        ):
-                            pool = concurrent.futures.ProcessPoolExecutor(
-                                max_workers=settings.BATCH_EXPORT_BIGQUERY_TRANSFORMER_MAX_WORKERS,
-                                mp_context=mp.get_context("forkserver"),
-                                initializer=init_worker,
-                            )
-                            try:
-                                serialized = SerializedStreamTransformer(pool)
-                                transformer: ChunkTransformerProtocol = PipelineTransformer(
-                                    transformers=(
-                                        SchemaTransformer(
-                                            table=bigquery_consumer_table,
-                                            extra_compatible_types={
-                                                # BigQuery Storage requires INTEGER columns be signed
-                                                # Cast is safe and will throw on overflow.
-                                                (pa.uint64(), pa.int64()): functools.partial(
-                                                    _cast_as_type, type=pa.int64()
-                                                ),
-                                                (pa.uint8(), pa.int64()): functools.partial(
-                                                    _cast_as_type, type=pa.int64()
-                                                ),
-                                                # BigQuery Storage requires that TIMESTAMP columns be 'us'
-                                                (
-                                                    pa.timestamp("ms", tz="UTC"),
-                                                    pa.timestamp("us", tz="UTC"),
-                                                ): functools.partial(_cast_to_lossless_timestamp, unit="us"),
-                                                (
-                                                    pa.timestamp("ms", tz="Etc/UTC"),
-                                                    pa.timestamp("us", tz="UTC"),
-                                                ): functools.partial(_cast_to_lossless_timestamp, unit="us"),
-                                            },
-                                        ),
-                                        serialized,
-                                    )
-                                )
-
-                                consumer: Consumer = BigQueryStorageConsumer(
-                                    client=write_client,
-                                    table=bigquery_consumer_table,
-                                    transformer=serialized,
-                                    model=model.name if isinstance(model, BatchExportModel) else "events",
-                                )
-
-                                result = await run_consumer_from_stage(
-                                    queue=queue,
-                                    producer_task=producer_task,
-                                    consumer=consumer,
-                                    transformer=transformer,
-                                    json_columns=(),
-                                    records_total=inputs.records_total,
-                                )
-                            finally:
-                                await asyncio.to_thread(pool.shutdown)
-
-                    else:
-                        consumer = BigQueryConsumer(
-                            client=bq_client,
-                            table=bigquery_consumer_table,
-                            file_format=file_format,
-                            model=model.name if isinstance(model, BatchExportModel) else "events",
-                        )
-
-                        if can_perform_merge:
-                            transformer = PipelineTransformer(
-                                transformers=(
-                                    SchemaTransformer(
-                                        table=bigquery_consumer_table,
-                                    ),
-                                    ParquetStreamTransformer(
-                                        compression="zstd",
-                                        max_file_size_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
-                                    ),
-                                )
-                            )
-                        else:
-                            transformer = PipelineTransformer(
-                                transformers=(
-                                    SchemaTransformer(
-                                        table=bigquery_consumer_table,
-                                    ),
-                                    JSONLStreamTransformer(
-                                        max_file_size_bytes=settings.BATCH_EXPORT_BIGQUERY_UPLOAD_CHUNK_SIZE_BYTES,
-                                    ),
-                                )
-                            )
-
-                        result = await run_consumer_from_stage(
-                            queue=queue,
-                            producer_task=producer_task,
-                            consumer=consumer,
-                            transformer=transformer,
-                            json_columns=(),
-                            records_total=inputs.records_total,
-                        )
-
-                else:
-                    if use_storage_stream:
-                        pool = concurrent.futures.ProcessPoolExecutor(
-                            max_workers=settings.BATCH_EXPORT_BIGQUERY_TRANSFORMER_MAX_WORKERS,
-                            mp_context=mp.get_context("forkserver"),
-                            initializer=init_worker,
-                        )
-                        try:
-                            result = await run_storage_stream_consumers(
-                                client=bq_client,
-                                pool=pool,
-                                table=bigquery_consumer_table,
-                                producer_task=producer_task,
-                                queue=queue,
-                                max_consumers=settings.BATCH_EXPORT_BIGQUERY_MAX_CONSUMERS,
-                                model=model.name if isinstance(model, BatchExportModel) else "events",
-                            )
-                        finally:
-                            await asyncio.to_thread(pool.shutdown)
-                    else:
-                        result = await run_consumers(
-                            client=bq_client,
-                            table=bigquery_consumer_table,
-                            file_format=file_format,
-                            producer_task=producer_task,
-                            queue=queue,
-                            can_perform_merge=can_perform_merge,
-                            max_consumers=settings.BATCH_EXPORT_BIGQUERY_MAX_CONSUMERS,
-                            model=model.name if isinstance(model, BatchExportModel) else "events",
-                        )
 
                 if can_perform_merge:
                     _ = await bq_client.merge_tables(
