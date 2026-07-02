@@ -51,9 +51,6 @@ SAFE_NATIVE_PERMISSION_TOOLS = frozenset(
     }
 )
 POSTHOG_EXEC_READ_ONLY_COMMANDS = frozenset({"info", "schema", "search", "tools"})
-DESTRUCTIVE_TOOL_NAME_RE = re.compile(
-    r"(^|-)(archive|bulk-delete|delete|destroy|disconnect|remove|uninstall)(-|$)", re.IGNORECASE
-)
 DESTRUCTIVE_SHELL_PATTERNS = (
     re.compile(r"(^|[;&|])\s*(?:sudo\s+)?(?:rm|rmdir|unlink|shred)\b", re.IGNORECASE),
     re.compile(r"(^|[;&|])\s*(?:sudo\s+)?find\b[^;&|]*\s-delete\b", re.IGNORECASE),
@@ -66,6 +63,83 @@ DESTRUCTIVE_SHELL_PATTERNS = (
         re.IGNORECASE,
     ),
 )
+# Auto-allow only commands positively identified as read-only: anything else
+# (network writes via curl, interpreters, package managers) must go through
+# Slack approval so a prompt-injected agent cannot mutate external state with
+# the sandbox credentials.
+READ_ONLY_SHELL_COMMANDS = frozenset(
+    {
+        "basename",
+        "cat",
+        "cd",
+        "column",
+        "comm",
+        "cut",
+        "date",
+        "df",
+        "diff",
+        "dirname",
+        "du",
+        "echo",
+        "file",
+        "find",
+        "grep",
+        "head",
+        "hostname",
+        "id",
+        "jq",
+        "ls",
+        "md5sum",
+        "nl",
+        "od",
+        "printf",
+        "pwd",
+        "readlink",
+        "realpath",
+        "rg",
+        "sha256sum",
+        "sort",
+        "stat",
+        "strings",
+        "tail",
+        "tr",
+        "tree",
+        "uname",
+        "uniq",
+        "wc",
+        "which",
+        "whoami",
+        "xxd",
+    }
+)
+GIT_READ_ONLY_SUBCOMMANDS = frozenset(
+    {
+        "blame",
+        "branch",
+        "cat-file",
+        "describe",
+        "diff",
+        "grep",
+        "log",
+        "ls-files",
+        "ls-remote",
+        "ls-tree",
+        "rev-parse",
+        "shortlog",
+        "show",
+        "status",
+    }
+)
+# Command substitution, process substitution, and bash network redirection can
+# smuggle arbitrary execution into an otherwise read-only command line.
+SHELL_COMMAND_SUBSTITUTION_RE = re.compile(r"\$\(|`|<\(|>\(|/dev/(?:tcp|udp)/")
+# Flags that make an allowlisted read-only binary execute another program
+# (find -exec/-delete, rg --pre, sort --compress-program, ...).
+SHELL_UNSAFE_FLAG_RE = re.compile(
+    r"(?:^|\s)-{1,2}(?:delete|exec(?:dir)?|exec-batch|ok(?:dir)?|pre|hostname-bin|compress-program)\b"
+)
+SHELL_FD_REDIRECT_RE = re.compile(r"\d*>&\d*|&>>?")
+SHELL_SEGMENT_SPLIT_RE = re.compile(r"[;\n]|\|\|?|&&?")
 
 
 def _interactivity_context_cache_key(context_token: str) -> str:
@@ -126,7 +200,7 @@ def _posthog_exec_command_should_auto_allow(command: str) -> bool:
         return True
 
     inner_tool_name = _posthog_exec_inner_tool_name(command)
-    return inner_tool_name is not None and not _posthog_tool_is_destructive(inner_tool_name)
+    return inner_tool_name is not None and _posthog_tool_is_read_only(inner_tool_name)
 
 
 @lru_cache(maxsize=1)
@@ -151,23 +225,42 @@ def _mcp_tool_annotations() -> dict[str, dict[str, Any]]:
     return annotations_by_tool
 
 
-def _mcp_tool_destructive_hint(tool_name: str) -> bool | None:
+def _posthog_tool_is_read_only(tool_name: str) -> bool:
+    # Fail closed: a tool without a readOnlyHint annotation stays on the approval path.
     annotations = _mcp_tool_annotations().get(tool_name)
     if annotations is None:
-        return None
-    destructive_hint = annotations.get("destructiveHint")
-    return destructive_hint if isinstance(destructive_hint, bool) else None
-
-
-def _posthog_tool_is_destructive(tool_name: str) -> bool:
-    destructive_hint = _mcp_tool_destructive_hint(tool_name)
-    if destructive_hint is not None:
-        return destructive_hint
-    return bool(DESTRUCTIVE_TOOL_NAME_RE.search(tool_name))
+        return False
+    return annotations.get("readOnlyHint") is True
 
 
 def _shell_command_is_destructive(command: str) -> bool:
     return any(pattern.search(command) for pattern in DESTRUCTIVE_SHELL_PATTERNS)
+
+
+def _shell_segment_is_read_only(segment: str) -> bool:
+    try:
+        tokens = shlex.split(segment)
+    except ValueError:
+        return False
+    if not tokens:
+        return True
+    command_name = tokens[0]
+    if command_name == "git":
+        return len(tokens) >= 2 and tokens[1] in GIT_READ_ONLY_SUBCOMMANDS
+    return command_name in READ_ONLY_SHELL_COMMANDS
+
+
+def _shell_command_is_read_only(command: str) -> bool:
+    if not command.strip():
+        return False
+    if _shell_command_is_destructive(command):
+        return False
+    if SHELL_COMMAND_SUBSTITUTION_RE.search(command) or SHELL_UNSAFE_FLAG_RE.search(command):
+        return False
+    stripped = SHELL_FD_REDIRECT_RE.sub(" ", command)
+    return all(
+        _shell_segment_is_read_only(segment) for segment in SHELL_SEGMENT_SPLIT_RE.split(stripped) if segment.strip()
+    )
 
 
 def _permission_request_should_auto_allow(permission_request: dict[str, Any]) -> bool:
@@ -180,12 +273,12 @@ def _permission_request_should_auto_allow(permission_request: dict[str, Any]) ->
         command = _tool_call_raw_input(tool_call).get("command")
         return isinstance(command, str) and _posthog_exec_command_should_auto_allow(command)
     if posthog_tool_name is not None:
-        return not _posthog_tool_is_destructive(posthog_tool_name)
+        return _posthog_tool_is_read_only(posthog_tool_name)
     if tool_name in SAFE_NATIVE_PERMISSION_TOOLS:
         return True
     if tool_name == "Bash":
         command = _tool_call_raw_input(tool_call).get("command")
-        return isinstance(command, str) and not _shell_command_is_destructive(command)
+        return isinstance(command, str) and _shell_command_is_read_only(command)
     return False
 
 
@@ -379,7 +472,7 @@ def _permission_request_from_event(event_data: dict[str, Any]) -> dict[str, Any]
 
 
 def handle_slack_permission_request_for_task_run(task_run: Any, event_data: dict[str, Any]) -> None:
-    """Respond to safe Slack permission requests and prompt for destructive ones."""
+    """Auto-approve read-only or sandbox-local permission requests and prompt for everything else."""
     permission_request = _permission_request_from_event(event_data)
     if permission_request is None:
         return
