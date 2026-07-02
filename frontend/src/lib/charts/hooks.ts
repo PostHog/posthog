@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { useMemo } from 'react'
+import { type DependencyList, useMemo } from 'react'
 
 import type { ChartTheme } from '@posthog/quill-charts'
 
@@ -47,13 +47,18 @@ export function useChartTheme(overrides?: Partial<ChartTheme>): ChartTheme {
     )
 }
 
-/** Merges the refreshed rendering defaults (monotone curve, axis lines, tick marks, crosshair)
- *  under a chart's config when `QUILL_CHART_STYLE_REFRESH` is enabled. Keys the config sets
- *  explicitly (non-undefined) always win. Pass a stable (memoized) config object. */
-export function useRefreshedChartConfig<T extends object>(config: T): T {
+/** Drop-in replacement for the `useMemo` that builds a chart's config object. On top of memoizing,
+ *  it applies app-level rendering defaults — currently the refreshed style (monotone curve, axis
+ *  lines, tick marks, crosshair) behind `QUILL_CHART_STYLE_REFRESH`. Keys the config sets
+ *  explicitly (non-undefined) always win over the defaults. */
+export function useChartConfig<T extends object>(factory: () => T, deps: DependencyList): T
+export function useChartConfig<T extends object>(factory: () => T | undefined, deps: DependencyList): T | undefined
+export function useChartConfig<T extends object>(factory: () => T | undefined, deps: DependencyList): T | undefined {
     const refreshEnabled = useChartStyleRefreshEnabled()
+    // eslint-disable-next-line react-hooks/exhaustive-deps
+    const config = useMemo(factory, deps)
     return useMemo(() => {
-        if (!refreshEnabled) {
+        if (!refreshEnabled || !config) {
             return config
         }
         const defined = Object.fromEntries(Object.entries(config).filter(([, value]) => value !== undefined))

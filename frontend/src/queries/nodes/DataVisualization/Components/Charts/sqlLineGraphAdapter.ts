@@ -339,12 +339,7 @@ function buildYAxisConfig(
     yAxis: YAxisSettings | undefined,
     axisSeries: SqlLineYSeries[],
     yAxisAtZero: boolean | undefined,
-    {
-        forceLinear = false,
-        id,
-        position,
-        gridDefault = true,
-    }: { forceLinear?: boolean; id?: string; position?: 'left' | 'right'; gridDefault?: boolean } = {}
+    { forceLinear = false, id, position }: { forceLinear?: boolean; id?: string; position?: 'left' | 'right' } = {}
 ): YAxisConfig {
     const isLog = !forceLinear && yAxis?.scale === 'logarithmic'
     const tickSettings = axisSeries[0]?.settings
@@ -358,7 +353,7 @@ function buildYAxisConfig(
         ...(position ? { position } : {}),
         label: yAxis?.label,
         scale: isLog ? 'log' : 'linear',
-        showGrid: yAxis?.showGridLines ?? gridDefault,
+        showGrid: yAxis?.showGridLines ?? true,
         hide: yAxis?.showTicks === false,
         tickFormatter,
         // Quill ignores startAtZero on a log scale; floatBaseline (the false case) is line-only, so
@@ -420,11 +415,6 @@ export function buildLineChartConfig({
                       }),
                   ]
                 : buildYAxisConfig(chartSettings.leftYAxisSettings, leftSeries, chartSettings.yAxisAtZero),
-        showCrosshair: true,
-        showAxisLines: true,
-        showTickMarks: true,
-        // Soften the line with a monotone-cubic curve (no overshoot — peaks stay accurate).
-        curve: 'monotone',
         goalLines: schemaGoalLinesToConfigs(goalLines),
         trendLines: buildTrendLineConfigs(ySeriesData),
         legend: buildLegendConfig(chartSettings),
@@ -524,7 +514,5 @@ export function buildComboChartConfig({
             ...buildSqlTooltipConfig(chartSettings, ySeriesData),
             ...(labelFormatter ? { labelFormatter } : {}),
         },
-        // Smooth the line/area series (bars are unaffected) to match the line chart.
-        curve: 'monotone',
     }
 }

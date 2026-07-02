@@ -10,7 +10,7 @@ import type {
     TooltipContext,
 } from '@posthog/quill-charts'
 
-import { useChartTheme } from 'lib/charts/hooks'
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -137,7 +137,7 @@ export function FunnelLineChart({
         [showLegend, series.length, legendPosition, canEditInsight, inSharedMode]
     )
 
-    const chartConfig: TimeSeriesLineChartConfig = useMemo(
+    const chartConfig: TimeSeriesLineChartConfig = useChartConfig(
         () => ({
             ...buildFunnelLineTimeSeriesConfig({
                 indexedSteps: steps,

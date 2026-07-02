@@ -5,7 +5,7 @@ import { useMemo, type ErrorInfo } from 'react'
 import { BarChart, ValueLabels } from '@posthog/quill-charts'
 import type { BarChartConfig } from '@posthog/quill-charts'
 
-import { useChartTheme } from 'lib/charts/hooks'
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { hexToRGBA } from 'lib/utils/colors'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
@@ -55,7 +55,7 @@ export function FunnelHistogramChart(): JSX.Element | null {
         [histogramGraphData, histogramGraphDataPrevious, currentColor]
     )
 
-    const config = useMemo<BarChartConfig>(
+    const config = useChartConfig<BarChartConfig>(
         () => (isComparing ? { ...CHART_CONFIG, barLayout: 'grouped' } : CHART_CONFIG),
         [isComparing]
     )
