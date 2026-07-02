@@ -6,7 +6,10 @@ import contextlib
 import pytest
 from unittest.mock import MagicMock, patch
 
+from django.test import override_settings
+
 from posthog.clickhouse.query_tagging import QueryTags
+from posthog.temporal.common import clickhouse as clickhouse_module
 from posthog.temporal.common.clickhouse import (
     ClickHouseAllReplicasAreStaleError,
     ClickHouseCheckQueryStatusError,
@@ -20,6 +23,7 @@ from posthog.temporal.common.clickhouse import (
     ClickHouseTooManySimultaneousQueriesError,
     add_log_comment_param,
     encode_clickhouse_data,
+    get_client,
 )
 
 
@@ -363,6 +367,78 @@ async def test_acheck_query_not_found_anywhere(clickhouse_client, django_db_setu
     non_existent_query_id = f"test-acheck-query-not-found-{uuid.uuid4()}"
     with pytest.raises(ClickHouseQueryNotFound):
         await clickhouse_client.acheck_query(non_existent_query_id)
+
+
+class _RecordingClickHouseClient:
+    """Stand-in for ClickHouseClient that records constructor kwargs without opening a connection."""
+
+    def __init__(self, **kwargs):
+        self.kwargs = kwargs
+
+    async def __aenter__(self):
+        return self
+
+    async def __aexit__(self, *args):
+        return False
+
+
+_OFFLINE_URL = "http://offline-cluster:8123/"
+_PER_TEAM_SETTINGS = {"2": {"host": "team2-ch", "user": "team2_user", "password": "team2_pass", "database": "team2_db"}}
+_PER_TEAM_OFFLINE_URL = {"2": "https://team2-ch:8443/"}
+
+
+@pytest.mark.parametrize(
+    "team_id,clickhouse_url,expected_url,expected_user,expected_password,expected_database",
+    [
+        # Team 2 is per-team routed: URL, creds and database all come from its dedicated backend.
+        (2, None, "https://team2-ch:8443/", "team2_user", "team2_pass", "team2_db"),
+        # A team without per-team settings falls back to the global offline cluster.
+        (3, None, _OFFLINE_URL, "global_user", "global_pass", "global_db"),
+        # No team_id also uses the global offline cluster.
+        (None, None, _OFFLINE_URL, "global_user", "global_pass", "global_db"),
+        # An explicit clickhouse_url always wins, even for a per-team routed team.
+        (2, "http://explicit:8123/", "http://explicit:8123/", "global_user", "global_pass", "global_db"),
+    ],
+    ids=["per-team", "unconfigured-team", "no-team", "explicit-url-wins"],
+)
+async def test_get_client_routes_offline_reads_per_team(
+    team_id, clickhouse_url, expected_url, expected_user, expected_password, expected_database
+):
+    """get_client sends a per-team routed team's offline/batch reads to its dedicated backend."""
+    with override_settings(
+        CLICKHOUSE_OFFLINE_HTTP_URL=_OFFLINE_URL,
+        CLICKHOUSE_PER_TEAM_SETTINGS=_PER_TEAM_SETTINGS,
+        CLICKHOUSE_PER_TEAM_OFFLINE_HTTP_URL=_PER_TEAM_OFFLINE_URL,
+        CLICKHOUSE_USER="global_user",
+        CLICKHOUSE_PASSWORD="global_pass",
+        CLICKHOUSE_DATABASE="global_db",
+    ):
+        with patch.object(clickhouse_module, "ClickHouseClient", _RecordingClickHouseClient):
+            async with get_client(team_id=team_id, clickhouse_url=clickhouse_url) as client:
+                captured = client.kwargs
+
+    assert captured["url"] == expected_url
+    assert captured["user"] == expected_user
+    assert captured["password"] == expected_password
+    assert captured["database"] == expected_database
+
+
+async def test_get_client_per_team_url_falls_back_to_offline_when_unmapped():
+    """A per-team routed team whose HTTP URL wasn't derived still uses its creds, over the offline URL."""
+    with override_settings(
+        CLICKHOUSE_OFFLINE_HTTP_URL=_OFFLINE_URL,
+        CLICKHOUSE_PER_TEAM_SETTINGS=_PER_TEAM_SETTINGS,
+        CLICKHOUSE_PER_TEAM_OFFLINE_HTTP_URL={},
+        CLICKHOUSE_USER="global_user",
+        CLICKHOUSE_PASSWORD="global_pass",
+        CLICKHOUSE_DATABASE="global_db",
+    ):
+        with patch.object(clickhouse_module, "ClickHouseClient", _RecordingClickHouseClient):
+            async with get_client(team_id=2) as client:
+                captured = client.kwargs
+
+    assert captured["url"] == _OFFLINE_URL
+    assert captured["user"] == "team2_user"
 
 
 async def test_stream_query_as_jsonl_handles_split_chunks(clickhouse_client):

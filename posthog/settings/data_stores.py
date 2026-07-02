@@ -452,6 +452,26 @@ if TEST or DEBUG or os.getenv("CLICKHOUSE_OFFLINE_CLUSTER_HOST", None) is None:
     # Also in EU, there is no offline cluster.
     CLICKHOUSE_OFFLINE_HTTP_URL = CLICKHOUSE_HTTP_URL
 
+# Per-team offline HTTP URLs for the async (Temporal) ClickHouse client. That client speaks HTTP
+# rather than the native TCP protocol used by CLICKHOUSE_PER_TEAM_SETTINGS, so its bare `host` can't
+# be reused directly. We derive an HTTP URL from each team's per-team host (honouring a per-team
+# `secure` override), keeping CLICKHOUSE_PER_TEAM_SETTINGS the single source of truth for where a
+# team's data lives. An explicit CLICKHOUSE_PER_TEAM_OFFLINE_HTTP_URL env override wins when the HTTP
+# endpoint isn't a simple derivation of the native host.
+CLICKHOUSE_PER_TEAM_OFFLINE_HTTP_URL: dict[str, str] = {}
+for _team_id, _team_settings in CLICKHOUSE_PER_TEAM_SETTINGS.items():
+    _team_host = _team_settings.get("host")
+    if not _team_host:
+        continue
+    _team_secure = _team_settings.get("secure", CLICKHOUSE_SECURE)
+    _team_protocol = "https://" if _team_secure else "http://"
+    _team_port = "8443" if _team_secure else "8123"
+    CLICKHOUSE_PER_TEAM_OFFLINE_HTTP_URL[str(_team_id)] = f"{_team_protocol}{_team_host}:{_team_port}/"
+try:
+    CLICKHOUSE_PER_TEAM_OFFLINE_HTTP_URL.update(json.loads(os.getenv("CLICKHOUSE_PER_TEAM_OFFLINE_HTTP_URL", "{}")))
+except Exception:
+    pass
+
 READONLY_CLICKHOUSE_USER: str | None = os.getenv("READONLY_CLICKHOUSE_USER", None)
 READONLY_CLICKHOUSE_PASSWORD: str | None = os.getenv("READONLY_CLICKHOUSE_PASSWORD", None)
 

@@ -990,16 +990,28 @@ async def get_client(
     max_block_size = kwargs.pop("max_block_size", None) or default_max_block_size
     http_send_timeout = kwargs.pop("http_send_timeout", 0)
 
-    if clickhouse_url is None:
-        url = settings.CLICKHOUSE_OFFLINE_HTTP_URL
-    else:
+    user = settings.CLICKHOUSE_USER
+    password = settings.CLICKHOUSE_PASSWORD
+    database = settings.CLICKHOUSE_DATABASE
+
+    if clickhouse_url is not None:
         url = clickhouse_url
+    elif team_id is not None and str(team_id) in settings.CLICKHOUSE_PER_TEAM_SETTINGS:
+        # Route this team's offline/batch reads to its dedicated ClickHouse backend, matching the
+        # sync per-team routing in posthog.clickhouse.client.connection.get_kwargs_for_client.
+        team_settings = settings.CLICKHOUSE_PER_TEAM_SETTINGS[str(team_id)]
+        url = settings.CLICKHOUSE_PER_TEAM_OFFLINE_HTTP_URL.get(str(team_id), settings.CLICKHOUSE_OFFLINE_HTTP_URL)
+        user = team_settings.get("user", user)
+        password = team_settings.get("password", password)
+        database = team_settings.get("database", database)
+    else:
+        url = settings.CLICKHOUSE_OFFLINE_HTTP_URL
 
     async with ClickHouseClient(
         url=url,
-        user=settings.CLICKHOUSE_USER,
-        password=settings.CLICKHOUSE_PASSWORD,
-        database=settings.CLICKHOUSE_DATABASE,
+        user=user,
+        password=password,
+        database=database,
         timeout=timeout,
         ssl=False,
         max_execution_time=settings.CLICKHOUSE_MAX_EXECUTION_TIME,
