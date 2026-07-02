@@ -436,7 +436,7 @@ export function buildBarChartConfig({
     goalLines,
     visualizationType,
     ySeriesData,
-}: BuildBarConfigArgs): TimeSeriesBarChartConfig {
+}: BuildBarConfigArgs): TimeSeriesBarChartConfig & { yAxis?: YAxisConfig } {
     const barLayout = barLayoutForDisplay(visualizationType, chartSettings)
     const labelFormatter = buildSqlDateLabelFormatter(xData, timezone)
 
@@ -465,7 +465,7 @@ export function buildComboChartConfig({
     goalLines,
     visualizationType,
     ySeriesData,
-}: BuildBarConfigArgs): TimeSeriesComboChartConfig {
+}: BuildBarConfigArgs): TimeSeriesComboChartConfig & { yAxis?: YAxisConfig } {
     const labelFormatter = buildSqlDateLabelFormatter(xData, timezone)
 
     return {
