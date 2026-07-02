@@ -91,15 +91,27 @@ registerAsyncFunction('postHogUpdateTicket', {
             throw new Error(`Team ${context.invocation.teamId} has no secret API token configured`)
         }
 
+        const headers: Record<string, string> = {
+            'Content-Type': 'application/json',
+            Authorization: `Bearer ${updateTeam.secret_api_token}`,
+        }
+
+        // Present only when running inside a HogFlow (spread onto the synthesized invocation);
+        // forward the workflow identity so the ticket activity log can attribute and link to it.
+        const hogFlow = (context.invocation as { hogFlow?: { id?: string; name?: string } }).hogFlow
+        if (hogFlow?.id) {
+            headers['X-PostHog-Hog-Flow-Id'] = hogFlow.id
+            if (hogFlow.name) {
+                headers['X-PostHog-Hog-Flow-Name'] = encodeURIComponent(hogFlow.name)
+            }
+        }
+
         result.invocation.queueParameters = CyclotronInvocationQueueParametersFetchSchema.parse({
             type: 'fetch',
             url: `${context.siteUrl}/api/conversations/external/ticket/${ticketId}`,
             method: 'PATCH',
             body: JSON.stringify(updates),
-            headers: {
-                'Content-Type': 'application/json',
-                Authorization: `Bearer ${updateTeam.secret_api_token}`,
-            },
+            headers,
         })
     },
 

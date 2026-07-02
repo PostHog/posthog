@@ -154,7 +154,19 @@ export function ticketActivityDescriber(logItem: ActivityLogItem, asNotification
         return { description: null }
     }
 
-    const user = <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>
+    // When a HogFlow workflow step made the change, attribute it to (and link to) the workflow
+    // instead of the generic "PostHog" system actor.
+    const trigger = logItem.detail.trigger
+    const actor =
+        trigger?.job_type === 'hog_flow' && trigger.job_id ? (
+            <strong>
+                <Link to={urls.workflow(trigger.job_id, 'workflow')}>
+                    {(trigger.payload?.name as string) || 'A workflow'}
+                </Link>
+            </strong>
+        ) : (
+            <strong className="ph-no-capture">{userNameForLogItem(logItem)}</strong>
+        )
     const ticketNumber = logItem.detail.name?.replace(/^Ticket #/, '')
     const ticketLink = nameOrLinkToTicket(ticketNumber, logItem.detail.name)
 
@@ -162,7 +174,7 @@ export function ticketActivityDescriber(logItem: ActivityLogItem, asNotification
         return {
             description: (
                 <>
-                    {user} created {ticketLink}
+                    {actor} created {ticketLink}
                 </>
             ),
         }
@@ -179,7 +191,7 @@ export function ticketActivityDescriber(logItem: ActivityLogItem, asNotification
         return {
             description: (
                 <>
-                    {user} assigned {ticketLink} to <strong>{formatAssignee(after)}</strong>
+                    {actor} assigned {ticketLink} to <strong>{formatAssignee(after)}</strong>
                 </>
             ),
         }
@@ -204,7 +216,7 @@ export function ticketActivityDescriber(logItem: ActivityLogItem, asNotification
             return {
                 description: (
                     <>
-                        {user} {allChanges[0]} on {ticketLink}
+                        {actor} {allChanges[0]} on {ticketLink}
                     </>
                 ),
             }
@@ -214,7 +226,7 @@ export function ticketActivityDescriber(logItem: ActivityLogItem, asNotification
             return {
                 description: (
                     <>
-                        {user} made changes to {ticketLink}:
+                        {actor} made changes to {ticketLink}:
                         <ul className="bullet-list">
                             {allChanges.map((desc, i) => (
                                 <li key={i}>{desc}</li>

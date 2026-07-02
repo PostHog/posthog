@@ -24,6 +24,13 @@ const ticketLogItem = (overrides: Partial<ActivityLogItem>): ActivityLogItem => 
 })
 
 describe('ticketActivityDescriber', () => {
+    const statusChange: ActivityChange = {
+        type: ActivityScope.TICKET,
+        action: 'changed',
+        field: 'status',
+        before: 'new',
+        after: 'open',
+    }
     const snoozeCleared: ActivityChange = {
         type: ActivityScope.TICKET,
         action: 'changed',
@@ -38,6 +45,47 @@ describe('ticketActivityDescriber', () => {
         before: 'on_hold',
         after: 'open',
     }
+
+    it('attributes a workflow-triggered change to the workflow, not PostHog', () => {
+        const result = ticketActivityDescriber(
+            ticketLogItem({
+                detail: {
+                    merge: null,
+                    name: 'Ticket #2043',
+                    changes: [statusChange],
+                    trigger: { job_type: 'hog_flow', job_id: 'flow-123', payload: { name: 'Escalation workflow' } },
+                },
+            })
+        )
+        const text = getTextContent(result)
+        expect(text).toContain('Escalation workflow')
+        expect(text).toContain('changed status')
+        expect(text).not.toContain('PostHog')
+    })
+
+    it('falls back to a generic label when the workflow name is missing', () => {
+        const result = ticketActivityDescriber(
+            ticketLogItem({
+                detail: {
+                    merge: null,
+                    name: 'Ticket #2043',
+                    changes: [statusChange],
+                    trigger: { job_type: 'hog_flow', job_id: 'flow-123', payload: {} },
+                },
+            })
+        )
+        expect(getTextContent(result)).toContain('A workflow')
+    })
+
+    it('attributes a non-workflow change to the acting user', () => {
+        const result = ticketActivityDescriber(
+            ticketLogItem({
+                user: { email: 'max@posthog.com', first_name: 'Max', last_name: 'AI' },
+                detail: { merge: null, trigger: null, name: 'Ticket #2043', changes: [statusChange] },
+            })
+        )
+        expect(getTextContent(result)).toContain('Max AI')
+    })
 
     it('describes a manual unsnooze (user present) as "removed snooze"', () => {
         const result = ticketActivityDescriber(
