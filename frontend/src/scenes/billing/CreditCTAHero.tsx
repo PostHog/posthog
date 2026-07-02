@@ -69,8 +69,8 @@ export const CreditCTAHero = (): JSX.Element | null => {
                                         </>
                                     ) : (
                                         <>
-                                            We'll will charge your card on file and we'll email you if there are any
-                                            issues!"
+                                            We'll charge your card on file and we'll email you if there are any
+                                            issues!
                                         </>
                                     )}
                                 </p>
