@@ -9,6 +9,14 @@ from posthog.clickhouse.client.migration_tools import run_sql_with_exceptions
 # arrays dropped. Add both while the tables are empty (US) / freshly truncated at
 # the fingerprint cutover (EU), plus the series TTL so dead series age out 90 days
 # after their last sample (samples themselves expire at 30).
+#
+# This migration covers the storage tables only. The ingest MVs that populate the
+# new columns (and carry the table-qualified NULL-fingerprint guard) are
+# hand-managed, like all Avro Kafka-engine objects on the logs cluster — the
+# canonical definitions live in bin/clickhouse-metrics.sql and must be dropped and
+# recreated on each region as part of the fingerprint-cutover DDL. Until that
+# manual step runs, rows written by the old MVs simply leave the new columns at
+# their defaults.
 
 _DB = settings.CLICKHOUSE_LOGS_CLUSTER_DATABASE
 
