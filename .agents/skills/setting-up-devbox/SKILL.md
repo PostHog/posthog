@@ -17,7 +17,16 @@ If `hogli devbox:doctor` reports the control plane unreachable, the fix is a PR 
 
 When doctor shows `[ok] Tailscale connected` but fails reachability with a **DNS** cause (`DNS lookup for coder.dev.posthog.dev failed`), that's usually not the grant: the client's split-DNS routes don't cover `dev.posthog.dev`, so the name never reaches the internal resolver.
 The fix is selecting a Tailscale **exit node** — it routes DNS through infra that resolves `*.dev.posthog.dev`.
-Check and fix via the Tailscale menu bar app (Exit Node) or CLI (`tailscale exit-node list`; on macOS the CLI is `/Applications/Tailscale.app/Contents/MacOS/Tailscale` when `tailscale` isn't on `PATH`).
+Check available exit nodes and select one via the Tailscale menu bar app (Exit Node) or CLI:
+
+```bash
+tailscale exit-node list                            # list available exit nodes
+tailscale set --exit-node=<name>                    # enable one (use the Name from the list)
+# on macOS when `tailscale` isn't on PATH:
+/Applications/Tailscale.app/Contents/MacOS/Tailscale exit-node list
+/Applications/Tailscale.app/Contents/MacOS/Tailscale set --exit-node=<name>
+```
+
 Do not suggest `/etc/hosts` or `/etc/resolver` workarounds — they hardcode internal ELB IPs that rotate, and the exit node is the supported path.
 To confirm it's resolution rather than the grant: `dig coder.dev.posthog.dev @10.90.0.2` answering while the system resolver fails proves the name exists and only the resolution path is missing.
 
