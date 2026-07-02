@@ -1,7 +1,7 @@
-{% if js_url %}<link rel="preconnect" href="{{ js_url }}" crossorigin>{% endif %}
 <title>PostHog</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta charset="utf-8">
+
 
 <!-- Favicons & OS-theme configurations -->
 <link rel="apple-touch-icon" sizes="180x180" href="/static/icons/apple-touch-icon.png?v=2023-07-07">
@@ -17,28 +17,40 @@
 <meta name="apple-mobile-web-app-title" content="PostHog">
 <meta name="application-name" content="PostHog">
 
-{# Critical CSS + resource hints. No inline scripts here, so the browser discovers preloads immediately #}
-<style>
-    html,body,#root{height:100%;margin:0;padding:0}
-    body{background:#eeefe9;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica Neue,Arial,sans-serif;color:#2c2c2c;font-size:14px;line-height:1.4}
-    *,:after,:before{box-sizing:border-box}
-    .Preloader{display:flex;align-items:center;justify-content:center;height:100%;min-height:200px;width:100%}
-    .Preloader__inner{width:25px;height:25px;border:5px solid rgba(245,78,0,.333);border-top-color:#f54e00;border-radius:50%;animation:preloader-spin 1s linear infinite}
-    @keyframes preloader-spin{to{transform:rotate(360deg)}}
-</style>
-{% if preload_font_url %}
-    <link rel="preload" href="{{ js_url }}/{{ preload_font_url }}" as="font" type="font/woff2" crossorigin>
+{% if not opt_out_capture and js_posthog_api_key %}
+    <script nonce="{{ request.csp_nonce }}">
+        window.JS_POSTHOG_API_KEY = "{{ js_posthog_api_key|escapejs }}";
+        window.JS_POSTHOG_HOST = "{{ js_posthog_host|escapejs }}";
+        if (window.JS_POSTHOG_HOST.trim().length === 0) {
+            window.JS_POSTHOG_HOST = window.location.origin;
+        }
+        window.JS_POSTHOG_UI_HOST = "{{ js_posthog_ui_host|escapejs }}";
+        window.JS_POSTHOG_SELF_CAPTURE = {{self_capture | yesno:"true,false" }};
+        window.POSTHOG_USER_IDENTITY_WITH_FLAGS = JSON.parse("{{ posthog_bootstrap | escapejs }}")
+        window.IMPERSONATED_SESSION = {{is_impersonated_session | yesno:"true,false"}};
+        window.POSTHOG_JS_UUID_VERSION = "{{posthog_js_uuid_version}}";
+        {% if js_posthog_identity_distinct_id %}
+            window.JS_POSTHOG_IDENTITY_DISTINCT_ID = "{{ js_posthog_identity_distinct_id|escapejs }}";
+            window.JS_POSTHOG_IDENTITY_HASH = "{{ js_posthog_identity_hash|escapejs }}";
+        {% endif %}
+    </script>
 {% endif %}
-{% if preload_css_url %}
-    {# crossorigin matches the runtime loader's fetch mode so the browser reuses one response #}
-    <link rel="preload" href="{{ js_url }}/{{ preload_css_url }}" as="style" crossorigin="anonymous">
-    <link rel="stylesheet" href="{{ js_url }}/{{ preload_css_url }}" crossorigin="anonymous">
+{% if stripe_public_key %}
+    <script nonce="{{ request.csp_nonce }}">
+        window.STRIPE_PUBLIC_KEY = '{{ stripe_public_key | escapejs }}';
+    </script>
 {% endif %}
-{% if preload_js_urls %}
-    {% for url in preload_js_urls %}
-    <link rel="modulepreload" href="{{ js_url }}/{{ url }}">
-    {% endfor %}
-{% endif %}
+<script nonce="{{ request.csp_nonce }}" id='posthog-app-user-preload'>
+    {# nosemgrep: generic.html-templates.security.var-in-script-tag.var-in-script-tag #}
+    window.POSTHOG_APP_CONTEXT = JSON.parse("{{ posthog_app_context | escapejs }}");
+    {# Inject the expected location of JS bundle, #}
+    {# use to allow the location of the bundle to be set at runtime, #}
+    {# e.g. for PostHog Cloud we serve the frontend JS from a CDN #}
+    {# nosemgrep: generic.html-templates.security.var-in-script-tag.var-in-script-tag #}
+    window.JS_URL = "{{ js_url|default:"" }}";
+    {# nosemgrep: generic.html-templates.security.var-in-script-tag.var-in-script-tag (yesno filter produces literal strings) #}
+    window.JS_CAPTURE_TIME_TO_SEE_DATA = {{js_capture_time_to_see_data | yesno:"true,false"}};
+</script>
 
 {% if debug %}
     {# nosemgrep: python.flask.security.xss.audit.template-unescaped-with-safe.template-unescaped-with-safe (dev-only, trusted Vite output) #}

@@ -450,7 +450,7 @@ def _resolve_entry_assets(include_authenticated_shell: bool) -> tuple[str, list[
         if os.path.isfile(preload_manifest_path):
             with open(preload_manifest_path) as f:
                 preload_manifest = json.load(f)
-            js_urls = list(preload_manifest.get("js", []))
+            js_urls: list[str] = list(preload_manifest.get("js", []))
             if include_authenticated_shell:
                 js_urls += [url for url in preload_manifest.get("authenticatedJs", []) if url not in js_urls]
             return (preload_manifest.get("css", ""), js_urls, preload_manifest.get("font", ""))
@@ -478,7 +478,7 @@ def _resolve_entry_assets(include_authenticated_shell: bool) -> tuple[str, list[
                     css_url = imp_entry["css"][0]
                     break
         # JS preloads: the App chunk (the entry's dynamic import) + its heavy static imports
-        js_urls: list[str] = []
+        js_urls = []
         for dimp_src in entry.get("dynamicImports", []):
             _collect_chunk_preloads(manifest, dimp_src, dist_dir, js_urls)
             break
@@ -722,9 +722,11 @@ def _build_template_context(
 
     context["posthog_js_uuid_version"] = settings.POSTHOG_JS_UUID_VERSION
 
-    context["preload_css_url"], context["preload_js_urls"], context["preload_font_url"] = _resolve_entry_assets(
-        bool(request.user and request.user.is_authenticated)
-    )
+    # Only the SPA shell references these; other templates (exporter, layout, ...) load different bundles
+    if template_name == "index.html":
+        context["preload_css_url"], context["preload_js_urls"], context["preload_font_url"] = _resolve_entry_assets(
+            bool(request.user and request.user.is_authenticated)
+        )
 
     if posthog_distinct_id:
         from posthog.models.instance_setting import get_instance_setting

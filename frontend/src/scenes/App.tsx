@@ -46,6 +46,9 @@ idle(() => {
         .catch(() => {})
 
     // On Chrome + Windows, the country flag emojis don't render correctly. This polyfill fixes that.
+    // NOTE: The first argument sets the polyfill's font family name, which our CSS references —
+    // keep the two in sync. Detection is canvas-based and can throw on some browser states
+    // (e.g. Safari/macOS); it's purely cosmetic, so swallow any failure.
     void import('country-flag-emoji-polyfill')
         .then(({ polyfillCountryFlagEmojis }) => polyfillCountryFlagEmojis('Emoji Flags Polyfill'))
         .catch(() => {})
@@ -63,6 +66,11 @@ idle(() => {
 function SceneAnimationRoot({ children }: { children: React.ReactNode }): JSX.Element {
     const ref = useCancelAnimationsOnUnmount<HTMLDivElement>()
     return (
+        // `className="contents"` is load-bearing: the wrapper must take a DOM
+        // node so the ref has something to attach to (we need an element to
+        // call `getAnimations({ subtree: true })` on), but it must also be
+        // transparent to layout. `display: contents` removes it from the box
+        // tree so children render as if there's no wrapper.
         <div ref={ref} className="contents">
             {children}
         </div>
@@ -83,8 +91,13 @@ export function App(): JSX.Element | null {
 
     useMountedLogic(sceneLogic({ scenes: appScenes }))
     useMountedLogic(autofillReleaseLogic)
+    // Unconditional so /oauth/callback's urlToAction is registered before routing. Inert in prod
+    // (OAuth UI gated on preflight.is_debug); no timers/listeners, so cheap to always mount.
     useMountedLogic(oauthLogic)
 
+    // Mount the support-hash router (handles #panel=support) on every page, lazily so it stays out
+    // of App's import graph — a static import drags supportLogic/sceneLogic/organizationLogic into
+    // root init and triggers a circular-import TDZ. Its urlToAction fires on the current URL on mount.
     useEffect(() => {
         let unmount: (() => void) | undefined
         void import('lib/components/Support/supportRouterLogic').then(({ supportRouterLogic }) => {
@@ -95,6 +108,8 @@ export function App(): JSX.Element | null {
 
     useThemedHtml()
 
+    // A cloud OAuth redirect lands at /oauth/callback on the local origin. Render the exchange
+    // screen here (oauthLogic's urlToAction performs the token exchange), before normal routing.
     if (window.location.pathname === '/oauth/callback') {
         return (
             <ErrorBoundary>
@@ -132,6 +147,9 @@ function AppScene(): JSX.Element | null {
     const { showingDelayedSpinner } = useValues(appLogic)
     const { isDarkModeOn } = useValues(themeLogic)
 
+    // Once we know the user is authenticated, kick off an idle prefetch of the
+    // AuthenticatedShell chunk so the Suspense fallback rarely actually fires
+    // when the shell mounts. No-op on prefetch failure — Suspense still works.
     useEffect(() => {
         if (!user) {
             return
@@ -141,7 +159,9 @@ function AppScene(): JSX.Element | null {
                 ? window.requestIdleCallback.bind(window)
                 : (cb: () => void) => setTimeout(cb, 200)
         idle(() => {
-            void import('./AuthenticatedShell').catch(() => {})
+            void import('./AuthenticatedShell').catch(() => {
+                /* prefetch is best-effort; the real Suspense load will surface failures */
+            })
         })
     }, [user])
 
@@ -184,6 +204,7 @@ function AppScene(): JSX.Element | null {
 
     const wrappedSceneElement = (
         <ErrorBoundary key={`error-${activeSceneId}`} exceptionProps={{ feature: activeSceneId }}>
+            {/* Keep chunk-load failures out of the scene error reporter so stale assets reload once instead. */}
             <ChunkLoadErrorBoundary>{sceneContent}</ChunkLoadErrorBoundary>
         </ErrorBoundary>
     )
@@ -201,6 +222,7 @@ function AppScene(): JSX.Element | null {
         <ChunkLoadErrorBoundary>
             <Suspense
                 fallback={
+                    // SpinnerOverlay is already imported here — no new lazy deps vs skeleton.
                     <div className="relative h-screen">
                         <SpinnerOverlay sceneLevel />
                     </div>
