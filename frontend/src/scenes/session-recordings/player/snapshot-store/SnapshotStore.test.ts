@@ -276,18 +276,22 @@ describe('SnapshotStore', () => {
             expect(store.canPlayAt(targetTs)).toBe(true)
         })
 
-        it('returns false when timestamp is beyond all source data', () => {
+        it('resolves timestamps beyond all source data to the loaded tail', () => {
             const store = new SnapshotStore()
             store.setSources(makeSources(5))
 
             const fsTs = new Date(Date.UTC(2023, 7, 11, 12, 0, 30)).getTime()
-            for (let i = 0; i < 5; i++) {
-                store.markLoaded(i, i === 0 ? [makeFullSnapshot(fsTs)] : [makeSnapshot(fsTs + i * 60000)])
-            }
-
-            // All sources loaded, but timestamp is beyond the last source's endMs
             const beyondTs = new Date(Date.UTC(2023, 7, 11, 13, 0, 0)).getTime()
+
+            // Tail not loaded yet: a beyond-end position cannot render
+            store.markLoaded(0, [makeFullSnapshot(fsTs)])
             expect(store.canPlayAt(beyondTs)).toBe(false)
+
+            // Fully loaded: a beyond-end position renders the last frame without loading anything else
+            for (let i = 1; i < 5; i++) {
+                store.markLoaded(i, [makeSnapshot(fsTs + i * 60000)])
+            }
+            expect(store.canPlayAt(beyondTs)).toBe(true)
         })
     })
 

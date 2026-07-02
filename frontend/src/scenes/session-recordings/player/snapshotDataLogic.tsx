@@ -35,14 +35,7 @@ export interface SnapshotLogicProps {
     accessToken?: string
 }
 
-// Reactivity note (#53893): `cache.store` (SnapshotStore) and `cache.scheduler`
-// (LoadingScheduler) live outside Kea. Their mutations are invisible to
-// selectors unless `storeUpdated()` is dispatched. Any listener that
-// mutates either — scheduler.seekTo, scheduler.clearSeek, store.markLoaded,
-// store.setSources — MUST dispatch `storeUpdated()` afterwards. Any selector
-// that reads `cache.scheduler.currentMode` or `cache.store` state MUST depend
-// on `storeUpdateCount` (not `storeVersion`, which only bumps on data mutations
-// and would memoize to stale values across pure mode transitions).
+// Reactivity note (#53893): `cache.store` (SnapshotStore) lives outside Kea, so any listener that mutates it (markLoaded, setSources) MUST dispatch `storeUpdated()` afterwards, and any selector reading it MUST depend on `storeUpdateCount`/`storeVersion`. No selector may read `cache.scheduler` — scheduler state is loader-internal and mutates without dispatches.
 export const snapshotDataLogic = kea<snapshotDataLogicType>([
     path((key) => ['scenes', 'session-recordings', 'snapshotLogic', key]),
     props({} as SnapshotLogicProps),
@@ -444,14 +437,7 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             if (!cache.scheduler || !cache.store) {
                 return
             }
-            // getNextBatch may flip the scheduler out of seek mode without
-            // mutating the store. Kea can't see that, so dispatch storeUpdated
-            // to invalidate selectors that read scheduler state (#53893).
-            const wasSeeking = cache.scheduler.currentMode.kind === 'seek'
             const batch = cache.scheduler.getNextBatch(cache.store, 10, cache.playbackPosition, cache.playbackWindowId)
-            if (wasSeeking && cache.scheduler.currentMode.kind !== 'seek') {
-                actions.storeUpdated()
-            }
             if (!batch) {
                 actions.maybeStartPolling()
                 return
@@ -513,24 +499,6 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
             (s) => [s.storeVersion],
             (): SourceLoadingState[] => {
                 return cache.store?.getSourceStates() ?? []
-            },
-        ],
-
-        isWaitingForPlayableFullSnapshot: [
-            // Depends on storeUpdateCount (not storeVersion) because this
-            // selector reads scheduler state, which can mutate without
-            // bumping store.version — storeVersion would memoize to a
-            // stale value. storeUpdateCount invalidates on every storeUpdated.
-            (s) => [s.storeUpdateCount],
-            (): boolean => {
-                if (!cache.scheduler || !cache.store) {
-                    return false
-                }
-                const mode = cache.scheduler.currentMode
-                if (mode.kind !== 'seek') {
-                    return false
-                }
-                return !cache.store.canPlayAt(mode.targetTimestamp, mode.targetWindowId)
             },
         ],
 

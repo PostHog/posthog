@@ -142,11 +142,8 @@ export class SnapshotStore {
         if (this.entries.length === 0) {
             return false
         }
-        // Timestamp is beyond all known source data — can't play yet
-        if (ts > this.entries[this.entries.length - 1].endMs) {
-            return false
-        }
 
+        // Positions beyond the last source resolve to it, so a fully-loaded tail can render its last frame without first fetching the whole recording.
         const fullSnapshotInfo = this.findNearestFullSnapshot(ts, windowId)
         if (!fullSnapshotInfo) {
             return false
