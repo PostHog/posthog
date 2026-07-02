@@ -969,9 +969,12 @@ def DISTRIBUTED_EVENTS_TABLE_SQL(on_cluster=True):
     )
 
 
-INSERT_EVENT_SQL = lambda: (
-    f"""
-INSERT INTO {EVENTS_DATA_TABLE()}
+def INSERT_EVENT_SQL(table_name: str | None = None) -> str:
+    if table_name is None:
+        table_name = EVENTS_DATA_TABLE()
+
+    return f"""
+INSERT INTO {table_name}
 (
     uuid,
     event,
@@ -1026,12 +1029,14 @@ VALUES
     0
 )
 """
-)
 
 
-BULK_INSERT_EVENT_SQL = lambda: (
-    f"""
-INSERT INTO {EVENTS_DATA_TABLE()}
+def BULK_INSERT_EVENT_SQL(table_name: str | None = None) -> str:
+    if table_name is None:
+        table_name = EVENTS_DATA_TABLE()
+
+    return f"""
+INSERT INTO {table_name}
 (
     uuid,
     event,
@@ -1060,7 +1065,6 @@ INSERT INTO {EVENTS_DATA_TABLE()}
 )
 VALUES
 """
-)
 
 
 NULL_SQL = """

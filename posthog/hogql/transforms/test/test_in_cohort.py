@@ -92,7 +92,7 @@ class TestInCohort(EventsSchemaSnapshotMixin, BaseTest):
             modifiers=HogQLQueryModifiers(inCohortVia=InCohortVia.LEFTJOIN),
             pretty=False,
         )
-        assert pretty_print_response_in_tests(response, self.team.pk) == self.snapshot  # type: ignore
+        self._assert_response_matches_snapshot(response)
         self.assertEqual(len(response.results or []), 1)
         self.assertEqual((response.results or [])[0][0], random_uuid)
 

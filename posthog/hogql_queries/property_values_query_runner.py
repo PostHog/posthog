@@ -1,4 +1,7 @@
 import json
+import uuid
+from ast import literal_eval
+from contextlib import suppress
 from datetime import datetime
 from functools import cached_property
 from typing import Optional, cast
@@ -29,17 +32,35 @@ from posthog.queries.property_values import (
     get_event_property_values_from_aggregated_table,
     get_person_property_values_for_key,
 )
-from posthog.utils import (
-    convert_property_value,
-    flatten,
-    get_instance_region,
-    parse_jsonish_property_value,
-    relative_date_parse,
-)
+from posthog.utils import convert_property_value, flatten, get_instance_region, relative_date_parse
 
 from products.access_control.backend.property_access_control import get_restricted_property_names
 
 PROPERTY_VALUES_TABLE_FLAG = "property-values-table"
+
+
+def _parse_jsonish_property_value(value: object) -> object:
+    if isinstance(value, float | int | bool | uuid.UUID | list | tuple | dict):
+        return value
+    if not isinstance(value, str):
+        return value
+
+    parsed: object = value.replace('\\"', '"')
+    for _ in range(2):
+        if not isinstance(parsed, str):
+            return parsed
+        parsed_str = parsed
+        try:
+            parsed = json.loads(parsed_str)
+        except (json.JSONDecodeError, TypeError):
+            if parsed_str.startswith(("[", "{")):
+                with suppress(ValueError, SyntaxError):
+                    return literal_eval(parsed_str)
+            if len(parsed_str) >= 2 and parsed_str[0] == '"' and parsed_str[-1] == '"':
+                parsed = parsed_str[1:-1]
+                continue
+            return parsed_str
+    return parsed
 
 
 class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse]):
@@ -163,6 +184,7 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
             settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA and not self.query.is_column and not is_virtual
         )
         if use_native_property_subcolumn:
+            value_expr = ast.Call(name="toJSONString", args=[field_expr])
             presence_expr = ast.Call(name="isNotNull", args=[field_expr])
             string_expr = ast.Call(name="toString", args=[field_expr])
 
@@ -236,7 +258,7 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
     def _format_event_results(self, rows: list) -> list[PropertyValueItem]:
         values: list[object] = []
         for row in rows:
-            values.append(parse_jsonish_property_value(row[0]))
+            values.append(_parse_jsonish_property_value(row[0]))
         return self._to_property_value_items(values)
 
     def _format_table_results(self, rows: list) -> list[PropertyValueItem]:
@@ -245,7 +267,7 @@ class PropertyValuesQueryRunner(AnalyticsQueryRunner[PropertyValuesQueryResponse
         # individual entries, matching the events-scan formatting.
         values: list[object] = []
         for row in rows:
-            values.append(parse_jsonish_property_value(row[0]))
+            values.append(_parse_jsonish_property_value(row[0]))
         return self._to_property_value_items(values)
 
     def _to_property_value_items(self, values: list[object]) -> list[PropertyValueItem]:

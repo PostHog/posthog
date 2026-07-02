@@ -594,7 +594,6 @@ class FunnelCorrelationQueryRunner(AnalyticsQueryRunner[FunnelCorrelationRespons
                 "properties",
                 allow_denormalized_props=False,
                 table_alias="event_table",
-                use_json_schema_subcolumns=False,
             )
             # With join_use_nulls=0, unmatched join rows yield '' for event_table.event
             # rather than NULL, so guard with empty() instead of isNull().

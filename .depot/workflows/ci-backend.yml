@@ -1167,11 +1167,25 @@ jobs:
                         [range(1; $n + 1) | {
                           segment: "Core",
                           "person-on-events": false,
+                          "new-events-schema": false,
                           "python-version": "3.13.13",
                           "clickhouse-server-image": $image,
                           concurrency: 1,
                           group: 1,
                           artifact_key: "core-1",
+                          compat: false
+                        }]
+                      ')
+                      core_new_events_schema=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$core_count" '
+                        [range(1; $n + 1) | {
+                          segment: "Core",
+                          "person-on-events": false,
+                          "new-events-schema": true,
+                          "python-version": "3.13.13",
+                          "clickhouse-server-image": $image,
+                          concurrency: 1,
+                          group: 1,
+                          artifact_key: "core-events-json-1",
                           compat: false
                         }]
                       ')
@@ -1181,6 +1195,7 @@ jobs:
                         [range(1; $n + 1) | {
                           segment: "Core",
                           "person-on-events": true,
+                          "new-events-schema": false,
                           "python-version": "3.13.13",
                           "clickhouse-server-image": $image,
                           concurrency: 1,
@@ -1195,6 +1210,7 @@ jobs:
                         [range(1; $n + 1) | {
                           segment: "Temporal",
                           "person-on-events": false,
+                          "new-events-schema": false,
                           "python-version": "3.13.13",
                           "clickhouse-server-image": $image,
                           concurrency: 1,
@@ -1223,6 +1239,7 @@ jobs:
                         [range(1; $shards + 1) | {
                           segment: "Core",
                           "person-on-events": false,
+                          "new-events-schema": false,
                           "python-version": "3.13.13",
                           "clickhouse-server-image": $image,
                           concurrency: $shards,
@@ -1232,10 +1249,25 @@ jobs:
                         }]
                       ')
 
+                      core_new_events_schema=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$CORE_SHARDS" '
+                        [range(1; $shards + 1) | {
+                          segment: "Core",
+                          "person-on-events": false,
+                          "new-events-schema": true,
+                          "python-version": "3.13.13",
+                          "clickhouse-server-image": $image,
+                          concurrency: $shards,
+                          group: .,
+                          artifact_key: ("core-events-json-" + (.|tostring)),
+                          compat: false
+                        }]
+                      ')
+
                       core_persons_on_events=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$CORE_POE_SHARDS" '
                         [range(1; $shards + 1) | {
                           segment: "Core",
                           "person-on-events": true,
+                          "new-events-schema": false,
                           "python-version": "3.13.13",
                           "clickhouse-server-image": $image,
                           concurrency: $shards,
@@ -1249,6 +1281,7 @@ jobs:
                         [range(1; $shards + 1) | {
                           segment: "Temporal",
                           "person-on-events": false,
+                          "new-events-schema": false,
                           "python-version": "3.13.13",
                           "clickhouse-server-image": $image,
                           concurrency: $shards,
@@ -1266,6 +1299,7 @@ jobs:
                           | .value + {
                               segment: "Core",
                               "person-on-events": false,
+                              "new-events-schema": false,
                               "python-version": "3.13.13",
                               compat: true,
                               artifact_key: ("compat-" + ((.key + 1)|tostring))
@@ -1282,10 +1316,11 @@ jobs:
                   else
                     include=$(jq -cn \
                       --argjson core "$core" \
+                      --argjson core_new_events_schema "$core_new_events_schema" \
                       --argjson core_persons_on_events "$core_persons_on_events" \
                       --argjson temporal "$temporal" \
                       --argjson compat "$compat" \
-                      '$core + $core_persons_on_events + $temporal + $compat')
+                      '$core + $core_new_events_schema + $core_persons_on_events + $temporal + $compat')
                   fi
 
                   echo "include=$include" >> "$GITHUB_OUTPUT"
@@ -1310,7 +1345,7 @@ jobs:
         # increase for tmate testing
         # 45 to match canonical; the shadow is non-blocking so no deploy-gate coupling.
         timeout-minutes: 45
-        name: Django tests – ${{ matrix.segment }}${{ matrix.compat && ' compat' || '' }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
+        name: Django tests – ${{ matrix.segment }}${{ matrix.compat && ' compat' || '' }} (persons-on-events ${{ matrix.person-on-events && 'on' || 'off' }}, events schema ${{ matrix.new-events-schema && 'json' || 'legacy' }}), Py ${{ matrix.python-version }}, ${{ matrix.clickhouse-server-image }} (${{matrix.group}}/${{ matrix.concurrency }})
         # Match canonical's runner size. The shadow restores the same master-primed
         # schema cache (turbo-discover key + check-migrations save), so shards skip
         # migrations exactly like canonical once Depot's cache is warmed by a master run.
@@ -1516,6 +1551,7 @@ jobs:
                   SHARD_GROUP: ${{ matrix.group }}
                   SHARD_CONCURRENCY: ${{ matrix.concurrency }}
                   CLICKHOUSE_IMAGE: ${{ matrix.clickhouse-server-image }}
+                  CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
                   COMMIT_SHA: ${{ github.sha }}
                   BRANCH_NAME: ${{ github.head_ref || github.ref_name }}
               run: |
@@ -1523,6 +1559,7 @@ jobs:
                   echo "Shard: $SHARD_GROUP/$SHARD_CONCURRENCY"
                   echo "Python version: $(python --version)"
                   echo "ClickHouse version: $CLICKHOUSE_IMAGE"
+                  echo "Events schema: $CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA"
                   echo "Commit: $COMMIT_SHA"
                   echo "Branch: $BRANCH_NAME"
                   echo "Runner: $(uname -a)"
@@ -1536,6 +1573,7 @@ jobs:
               if: ${{ needs.changes.outputs.backend == 'true' && matrix.segment == 'Core' }}
               env:
                   PERSON_ON_EVENTS_V2_ENABLED: ${{ matrix.person-on-events && 'true' || 'false' }}
+                  CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA: ${{ matrix.new-events-schema && 'true' || 'false' }}
                   MODE: ${{ needs.select-tests.outputs.mode }}
                   CORE_FILES: ${{ needs.select-tests.outputs.core_files }}
                   POE_FILES: ${{ needs.select-tests.outputs.poe_files }}

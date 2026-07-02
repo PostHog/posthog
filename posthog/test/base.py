@@ -1852,6 +1852,7 @@ def reset_clickhouse_database() -> None:
         ]
     )
 
+
 class ClickhouseDestroyTablesMixin(BaseTest):
     """
     To speed up tests we normally don't destroy the tables between tests, so clickhouse tables will have data from previous tests.
