@@ -24,18 +24,20 @@ _ASSET_EXPIRES_AFTER_DAYS = 90
 async def ensure_session_asset_activity(inputs: EnsureSessionAssetInputs) -> EnsureSessionAssetOutput:
     """Get-or-create the `is_system=True` MP4 ExportedAsset for `(team, session)`; concurrent runs may produce orphaned duplicates that the asset expiry cleans up."""
     existing = await aretry_on_db_connection_drop(
-        lambda: ExportedAsset.objects.filter(
-            team_id=inputs.team_id,
-            export_format=_EXPORT_FORMAT,
-            export_context__session_recording_id=inputs.session_id,
-            export_context__playback_speed=_PLAYBACK_SPEED,
-            export_context__recording_fps=_RECORDING_FPS,
-            export_context__show_metadata_footer=_SHOW_METADATA_FOOTER,
-            export_context__mouse_tail=_MOUSE_TAIL,
-            is_system=True,
+        lambda: (
+            ExportedAsset.objects.filter(
+                team_id=inputs.team_id,
+                export_format=_EXPORT_FORMAT,
+                export_context__session_recording_id=inputs.session_id,
+                export_context__playback_speed=_PLAYBACK_SPEED,
+                export_context__recording_fps=_RECORDING_FPS,
+                export_context__show_metadata_footer=_SHOW_METADATA_FOOTER,
+                export_context__mouse_tail=_MOUSE_TAIL,
+                is_system=True,
+            )
+            .order_by("id")
+            .afirst()
         )
-        .order_by("id")
-        .afirst()
     )
     if existing is not None:
         return EnsureSessionAssetOutput(asset_id=existing.id)
