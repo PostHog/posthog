@@ -376,9 +376,9 @@ inbox, but it routes to no one, so it tends to sit unactioned.
   suggested reviewer for someone else is the strongest ownership evidence there is:
   treat it as authoritative precedent over commit history, and fold what you learn into
   your `reviewer:` memory keys. For history beyond the profile window, query
-  `advanced-activity-logs-list` with `scope=SignalReport`,
-  `activity=suggested_reviewers_changed` (on an org without the audit-logs feature that
-  call fails with a payment-required error — skip it and move on, don't retry).
+  `advanced-activity-logs-list` with `scopes=["SignalReport"]`,
+  `activities=["suggested_reviewers_changed"]` (on an org without the audit-logs feature
+  that call fails with a payment-required error — skip it and move on, don't retry).
 - **No owner in your evidence? List the members.** When the owner isn't already named in
   what you gathered, call `signals-scout-members-list` to get this project's members —
   each row carries the member's `email`, name, and resolved `github_login` (pass `search`

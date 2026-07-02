@@ -1763,6 +1763,9 @@ class SignalReportArtefactViewSet(
             # Human reviewer corrections are a routing signal (scouts query them via the
             # activity log to learn who owns an area), so log them — but only genuine
             # membership changes by a human, not agent writes or order-only rewrites.
+            # `new_content` is deduped above; dedupe `prior_logins` too (a legacy or
+            # hand-crafted prior row may carry duplicates) so before/after read symmetrically.
+            prior_logins = list(dict.fromkeys(prior_logins))
             new_logins = [entry["github_login"] for entry in new_content]
             if attribution.kind == "user" and set(prior_logins) != set(new_logins):
                 log_activity(

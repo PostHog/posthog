@@ -672,10 +672,10 @@ def _recent_reviewer_corrections(team: Team) -> dict[str, Any]:
     A human swapping a report's suggested reviewers is the strongest ownership
     precedent a scout can route by, so it's surfaced directly in the profile —
     an ORM read, deliberately not the activity-log API (premium-gated on cloud),
-    so every scout sees it regardless of the org's plan. Only human edits are
-    written under this (scope, activity) pair, and only real membership changes
-    (see the reviewer PUT handler), so no is_system/impersonation filter is
-    needed beyond mirroring the write path's guarantees.
+    so every scout sees it regardless of the org's plan. The impersonation/system
+    filter matches the partial index `idx_alog_team_scp_act_crtd` (both flags
+    required False) and keeps support-staff edits out of the team's routing
+    precedent — the write path records `was_impersonated`, so such rows do exist.
     """
     cutoff = timezone.now() - timedelta(days=REVIEWER_CORRECTIONS_WINDOW_DAYS)
     rows = ActivityLog.objects.filter(
@@ -683,6 +683,8 @@ def _recent_reviewer_corrections(team: Team) -> dict[str, Any]:
         scope="SignalReport",
         activity="suggested_reviewers_changed",
         created_at__gte=cutoff,
+        was_impersonated=False,
+        is_system=False,
     ).order_by("-created_at")[:REVIEWER_CORRECTIONS_LIMIT]
 
     corrections: list[dict[str, Any]] = []

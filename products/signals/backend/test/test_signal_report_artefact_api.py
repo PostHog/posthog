@@ -460,6 +460,7 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert log.activity == "suggested_reviewers_changed"
         assert str(log.item_id) == str(report.id)
         assert log.user == self.user
+        assert log.detail is not None
         assert log.detail["name"] == "Test report"
         (change,) = log.detail["changes"]
         assert change["field"] == "suggested_reviewers"
