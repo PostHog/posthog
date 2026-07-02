@@ -456,6 +456,8 @@ class TestHandleFollowup:
 
         await workflow._handle_followup(PendingFollowup(message="msg", artifact_ids=[], ack_id="ack-fail"))
 
+        assert workflow._task_completed is True
+        assert workflow._completion_status == "failed"
         assert workflow._completion_error == "Follow-up delivery failed: send_followup failed: sandbox unreachable"
         ack = workflow._pending_outbound[-1]
         assert ack.args[3] == "send_followup failed: sandbox unreachable"
