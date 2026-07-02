@@ -21,6 +21,7 @@ export const SECTIONS = [
     { id: 'storybook-snapshots', title: 'Storybook snapshots' },
     { id: 'playwright-snapshots', title: 'Playwright snapshots' },
     { id: 'backend-snapshots', title: 'Backend snapshots' },
+    { id: 'ai-evals', title: 'AI evals' },
 ]
 
 export const STATUS_EMOJI = { ok: '✅', warn: '⚠️', fail: '❌', info: 'ℹ️' }
