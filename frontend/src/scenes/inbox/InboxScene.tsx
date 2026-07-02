@@ -27,7 +27,7 @@ import { ReportsTab } from './components/tabs/ReportsTab'
 import { RunsTab } from './components/tabs/RunsTab'
 import { inboxSceneLogic } from './inboxSceneLogic'
 import { inboxOnboardingLogic } from './logics/inboxOnboardingLogic'
-import { InboxTabKey, SignalReport } from './types'
+import { INBOX_TAB_DESCRIPTION, InboxTabKey, SignalReport } from './types'
 
 export const scene: SceneExport = {
     component: InboxScene,
@@ -163,6 +163,7 @@ function InboxPanelView({ onBack, children }: { onBack: () => void; children: JS
 
 export function InboxScene(): JSX.Element {
     const {
+        activeTab,
         isRunningSessionAnalysis,
         selectedReportId,
         selectedReport,
@@ -186,9 +187,13 @@ export function InboxScene(): JSX.Element {
             <div className={showDetail ? 'hidden' : 'flex flex-col gap-y-4 flex-1 min-h-0'}>
                 <SceneTitleSection
                     name="Inbox"
-                    // The takeover's hero carries its own headline + pitch, so the scene description
-                    // would be redundant there; keep it for the normal/banner states.
-                    description="Self-driving for your product. Look through work done by PostHog agents – code changes and reports."
+                    // The description explains the active tab so new users can orient themselves.
+                    // In the onboarding takeover the tabs are locked, so keep the overall pitch.
+                    description={
+                        onboardingMode === 'takeover'
+                            ? 'Self-driving for your product. Look through work done by PostHog agents – code changes and reports.'
+                            : INBOX_TAB_DESCRIPTION[activeTab]
+                    }
                     resourceType={{ type: 'inbox' }}
                     actions={
                         isDev ? (

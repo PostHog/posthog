@@ -127,8 +127,8 @@ export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
     config: 'Configuration',
 }
 
-/** What each tab holds, surfaced as the tab's hover tooltip so new users can orient themselves. */
-export const INBOX_TAB_TOOLTIP: Record<InboxTabKey, string> = {
+/** What each tab holds, surfaced as the scene description while that tab is active so new users can orient themselves. */
+export const INBOX_TAB_DESCRIPTION: Record<InboxTabKey, string> = {
     pulls: 'Pull requests agents opened to resolve reports. Review and merge them on GitHub.',
     reports: 'Issues and opportunities agents found in your product data, researched and prioritized for your review.',
     'not-actionable':
