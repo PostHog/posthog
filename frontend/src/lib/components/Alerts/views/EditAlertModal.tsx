@@ -36,7 +36,7 @@ import { alertNotificationLogic } from '../alertNotificationLogic'
 import { isNextPlannedEvaluationStale } from '../alertSchedulingStale'
 import { insightAlertsLogic } from '../insightAlertsLogic'
 import { SnoozeButton } from '../SnoozeButton'
-import { supportsAnomalyDetection, supportsOngoingInterval } from '../types'
+import { supportsAnomalyDetection, supportsForecast, supportsOngoingInterval } from '../types'
 import type { AlertType } from '../types'
 import { AlertHistorySection, AlertHistorySectionSkeleton } from './AlertHistorySection'
 
@@ -291,7 +291,9 @@ export function EditAlertModal({
                                         anomalyDetectionEnabled={
                                             anomalyDetectionEnabled && supportsAnomalyDetection(alertForm.config)
                                         }
-                                        forecastAlertsEnabled={forecastAlertsEnabled}
+                                        forecastAlertsEnabled={
+                                            forecastAlertsEnabled && supportsForecast(alertForm.config)
+                                        }
                                         investigationAgentEnabled={investigationAgentEnabled}
                                         simulationResult={simulationResult}
                                         simulationResultLoading={simulationResultLoading}

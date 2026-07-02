@@ -184,12 +184,16 @@ export function AlertDefinitionSection({
                             label: 'Threshold',
                             tooltip: 'Alert when a value goes above or below a fixed threshold you define.',
                         },
-                        {
-                            value: 'detector',
-                            label: 'Anomaly detection',
-                            tooltip:
-                                'Automatically detect unusual changes using AI (ohhh fancy, jk its just good old stats and ml stuff). No manual thresholds needed.',
-                        },
+                        ...(anomalyDetectionEnabled
+                            ? [
+                                  {
+                                      value: 'detector',
+                                      label: 'Anomaly detection',
+                                      tooltip:
+                                          'Automatically detect unusual changes using AI (ohhh fancy, jk its just good old stats and ml stuff). No manual thresholds needed.',
+                                  },
+                              ]
+                            : []),
                         ...(forecastAlertsEnabled && supportsForecast(alertForm.config)
                             ? [
                                   {

@@ -72,6 +72,7 @@ export function ForecastSelector({ value, onChange, calculationInterval }: Forec
             <span className="text-secondary">Expected range</span>
             <LemonSegmentedButton
                 size="small"
+                data-attr="alertForm-forecast-interval-width"
                 value={config.interval_width ?? 0.95}
                 onChange={(interval_width) => onChange({ ...config, interval_width })}
                 options={[
