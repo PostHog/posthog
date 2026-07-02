@@ -27,16 +27,6 @@
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
       historical_migration Bool
-          , `dmat_string_0` Nullable(String)
-      , `dmat_string_1` Nullable(String)
-      , `dmat_string_2` Nullable(String)
-      , `dmat_string_3` Nullable(String)
-      , `dmat_string_4` Nullable(String)
-      , `dmat_string_5` Nullable(String)
-      , `dmat_string_6` Nullable(String)
-      , `dmat_string_7` Nullable(String)
-      , `dmat_string_8` Nullable(String)
-      , `dmat_string_9` Nullable(String)
       
       
       
@@ -223,16 +213,6 @@
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
       historical_migration Bool
-          , `dmat_string_0` Nullable(String)
-      , `dmat_string_1` Nullable(String)
-      , `dmat_string_2` Nullable(String)
-      , `dmat_string_3` Nullable(String)
-      , `dmat_string_4` Nullable(String)
-      , `dmat_string_5` Nullable(String)
-      , `dmat_string_6` Nullable(String)
-      , `dmat_string_7` Nullable(String)
-      , `dmat_string_8` Nullable(String)
-      , `dmat_string_9` Nullable(String)
       
       
       
@@ -1165,7 +1145,6 @@
       historical_migration Bool
       
       
-      
   , _timestamp DateTime
   , _offset UInt64
   , inserted_at Nullable(DateTime64(6, 'UTC')) DEFAULT NOW64()
@@ -1254,19 +1233,6 @@
           ENGINE = Distributed(posthog, system, processes)
           SETTINGS skip_unavailable_shards=1
       
-  '''
-# ---
-# name: test_create_table_query[dmat_slot_assignments]
-  '''
-  
-  CREATE TABLE IF NOT EXISTS `dmat_slot_assignments`  (
-      team_id UInt64,
-      column_index UInt8,
-      property_name String,
-      version UInt32 DEFAULT toUnixTimestamp(now())
-  ) ENGINE = ReplacingMergeTree(version)
-  ORDER BY (team_id, column_index);
-  
   '''
 # ---
 # name: test_create_table_query[error_tracking_fingerprint_issue_state]
@@ -1390,16 +1356,6 @@
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
       historical_migration Bool
-          , `dmat_string_0` Nullable(String)
-      , `dmat_string_1` Nullable(String)
-      , `dmat_string_2` Nullable(String)
-      , `dmat_string_3` Nullable(String)
-      , `dmat_string_4` Nullable(String)
-      , `dmat_string_5` Nullable(String)
-      , `dmat_string_6` Nullable(String)
-      , `dmat_string_7` Nullable(String)
-      , `dmat_string_8` Nullable(String)
-      , `dmat_string_9` Nullable(String)
       
       , $group_0 VARCHAR COMMENT 'column_materializer::$group_0'
       , $group_1 VARCHAR COMMENT 'column_materializer::$group_1'
@@ -1516,16 +1472,6 @@
   group4_created_at,
   person_mode,
   historical_migration,
-  dmat_string_0,
-  dmat_string_1,
-  dmat_string_2,
-  dmat_string_3,
-  dmat_string_4,
-  dmat_string_5,
-  dmat_string_6,
-  dmat_string_7,
-  dmat_string_8,
-  dmat_string_9,
   _timestamp,
   _offset,
   arrayMap(
@@ -1567,7 +1513,6 @@
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
       historical_migration Bool
-      
       
       
   , _timestamp DateTime
@@ -2110,16 +2055,6 @@
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
       historical_migration Bool
-          , `dmat_string_0` Nullable(String)
-      , `dmat_string_1` Nullable(String)
-      , `dmat_string_2` Nullable(String)
-      , `dmat_string_3` Nullable(String)
-      , `dmat_string_4` Nullable(String)
-      , `dmat_string_5` Nullable(String)
-      , `dmat_string_6` Nullable(String)
-      , `dmat_string_7` Nullable(String)
-      , `dmat_string_8` Nullable(String)
-      , `dmat_string_9` Nullable(String)
       
       
       
@@ -6018,16 +5953,6 @@
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
       historical_migration Bool
-          , `dmat_string_0` Nullable(String)
-      , `dmat_string_1` Nullable(String)
-      , `dmat_string_2` Nullable(String)
-      , `dmat_string_3` Nullable(String)
-      , `dmat_string_4` Nullable(String)
-      , `dmat_string_5` Nullable(String)
-      , `dmat_string_6` Nullable(String)
-      , `dmat_string_7` Nullable(String)
-      , `dmat_string_8` Nullable(String)
-      , `dmat_string_9` Nullable(String)
       
       , $group_0 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0'
       , $group_1 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1'
@@ -6124,7 +6049,6 @@
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
       historical_migration Bool
-      
       
       
   , _timestamp DateTime
@@ -8117,16 +8041,6 @@
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
       historical_migration Bool
-          , `dmat_string_0` Nullable(String)
-      , `dmat_string_1` Nullable(String)
-      , `dmat_string_2` Nullable(String)
-      , `dmat_string_3` Nullable(String)
-      , `dmat_string_4` Nullable(String)
-      , `dmat_string_5` Nullable(String)
-      , `dmat_string_6` Nullable(String)
-      , `dmat_string_7` Nullable(String)
-      , `dmat_string_8` Nullable(String)
-      , `dmat_string_9` Nullable(String)
       
       
   , _timestamp DateTime
@@ -8196,7 +8110,6 @@
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
       historical_migration Bool
-      
       
       
   , _timestamp DateTime
@@ -9079,19 +8992,6 @@
   ) ENGINE = ReplicatedCollapsingMergeTree('/clickhouse/tables/77f1df52-4b43-11e9-910f-b8ca3a9b9f3e_noshard/posthog.cohortpeople', '{replica}-{shard}', sign)
   Order By (team_id, cohort_id, person_id, version)
   
-  
-  '''
-# ---
-# name: test_create_table_query_replicated_and_storage[dmat_slot_assignments]
-  '''
-  
-  CREATE TABLE IF NOT EXISTS `dmat_slot_assignments`  (
-      team_id UInt64,
-      column_index UInt8,
-      property_name String,
-      version UInt32 DEFAULT toUnixTimestamp(now())
-  ) ENGINE = ReplacingMergeTree(version)
-  ORDER BY (team_id, column_index);
   
   '''
 # ---
@@ -10430,16 +10330,6 @@
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
       historical_migration Bool
-          , `dmat_string_0` Nullable(String)
-      , `dmat_string_1` Nullable(String)
-      , `dmat_string_2` Nullable(String)
-      , `dmat_string_3` Nullable(String)
-      , `dmat_string_4` Nullable(String)
-      , `dmat_string_5` Nullable(String)
-      , `dmat_string_6` Nullable(String)
-      , `dmat_string_7` Nullable(String)
-      , `dmat_string_8` Nullable(String)
-      , `dmat_string_9` Nullable(String)
       
       , $group_0 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_0'), '^"|"$', '') COMMENT 'column_materializer::$group_0'
       , $group_1 VARCHAR MATERIALIZED replaceRegexpAll(JSONExtractRaw(properties, '$group_1'), '^"|"$', '') COMMENT 'column_materializer::$group_1'
@@ -10536,7 +10426,6 @@
       group4_created_at DateTime64,
       person_mode Enum8('full' = 0, 'propertyless' = 1, 'force_upgrade' = 2),
       historical_migration Bool
-      
       
       
   , _timestamp DateTime

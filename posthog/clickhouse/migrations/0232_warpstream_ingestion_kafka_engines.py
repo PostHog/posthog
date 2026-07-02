@@ -8,11 +8,7 @@ from posthog.models.ai_events.sql import (
     DISTRIBUTED_AI_EVENTS_TABLE_SQL,
     KAFKA_AI_EVENTS_WS_TABLE_SQL,
 )
-from posthog.models.event.sql import (
-    ALTER_TABLE_ADD_DYNAMICALLY_MATERIALIZED_COLUMNS,
-    EVENTS_TABLE_JSON_WS_MV_SQL,
-    KAFKA_EVENTS_TABLE_JSON_WS_SQL,
-)
+from posthog.models.event.sql import EVENTS_TABLE_JSON_WS_MV_SQL, KAFKA_EVENTS_TABLE_JSON_WS_SQL
 from posthog.models.group.sql import GROUPS_WS_TABLE_MV_SQL, KAFKA_GROUPS_WS_TABLE_SQL
 from posthog.models.person.sql import (
     KAFKA_PERSON_DISTINCT_ID2_WS_TABLE_SQL,
@@ -20,6 +16,15 @@ from posthog.models.person.sql import (
     PERSON_DISTINCT_ID2_WS_MV_SQL,
     PERSONS_WS_TABLE_MV_SQL,
 )
+
+
+# Inlined from the former dmat helpers in event/sql.py, which were removed when the
+# dynamic-materialized-columns feature was deleted. This already-applied migration must keep
+# producing the same additive ALTER it always did. (SQL whitespace is irrelevant to ClickHouse.)
+def _add_dmat_string_columns(table: str) -> str:
+    pieces = [f"ADD COLUMN IF NOT EXISTS `dmat_string_{i}` Nullable(String)" for i in range(10)]
+    return f"ALTER TABLE {table} " + ", ".join(pieces)
+
 
 # Migration to create WarpStream Kafka engine tables for core ingestion topics.
 #
@@ -67,7 +72,7 @@ operations = (
         ),
         # dmat_* slots (40 columns) — migration 0179 only added these to DATA nodes.
         run_sql_with_exceptions(
-            ALTER_TABLE_ADD_DYNAMICALLY_MATERIALIZED_COLUMNS(table="writable_events"),
+            _add_dmat_string_columns("writable_events"),
             node_roles=[NodeRole.INGESTION_EVENTS],
         ),
         run_sql_with_exceptions(
