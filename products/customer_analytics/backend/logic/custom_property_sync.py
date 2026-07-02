@@ -14,6 +14,7 @@ from django.db import transaction
 from django.utils import timezone
 
 from posthog.hogql import ast
+from posthog.hogql.errors import QueryError, ResolutionError
 from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.query_tagging import Feature, Product, tags_context
@@ -40,6 +41,25 @@ class SyncResult:
     written: int = 0
     unmatched_keys: int = 0
     source_errors: dict[str, str] = dataclasses.field(default_factory=dict)
+    # The view exists but wasn't resolvable in the HogQL database this run (see _view_unresolvable).
+    # Treated as a no-op: no outcome recorded, so it re-syncs next run without counting as a failure.
+    skipped: bool = False
+
+
+def _view_unresolvable(exc: BaseException, view_name: str) -> bool:
+    """True if `exc` means the top-level view itself couldn't be resolved as a table.
+
+    The sync is enqueued on materialization success, so by the time the task builds its HogQL
+    database the just-materialized view may not be visible yet (replica lag, an in-flight
+    rename/delete, or access-control filtering when the query runs with no user context). That
+    surfaces as an "Unknown table" / "no access" error naming the view. Scoped to the view's own
+    name so a genuinely broken view query (a missing table it references) still counts as a failure.
+    """
+    if not isinstance(exc, QueryError | ResolutionError):
+        return False
+    message = str(exc)
+    names_view = f"`{view_name}`" in message
+    return names_view and ("Unknown table" in message or "access to table" in message)
 
 
 def sync_custom_property_values(*, team_id: int, saved_query_id: str | UUID) -> SyncResult:
@@ -71,7 +91,12 @@ def sync_custom_property_values(*, team_id: int, saved_query_id: str | UUID) -> 
 
     ordered = sorted(selected_columns)
     column_index = {column: position for position, column in enumerate(ordered)}
-    rows = _read_view(Team.objects.get(id=team_id), saved_query.name, ordered)
+    try:
+        rows = _read_view(Team.objects.get(id=team_id), saved_query.name, ordered)
+    except (QueryError, ResolutionError) as exc:
+        if _view_unresolvable(exc, saved_query.name):
+            return SyncResult(view_found=True, skipped=True)
+        raise
     accounts = _accounts_by_external_id(team_id, rows, column_index, usable)
 
     unmatched: set[Any] = set()
@@ -172,7 +197,8 @@ def run_custom_property_sync(*, team_id: int, saved_query_id: str | UUID) -> Syn
     """Run one sync and persist its outcome. The Celery task's entrypoint.
 
     On a hard failure the outcome is recorded (so the failure streak/auto-disable still advance)
-    and the error is captured, then re-raised so the run shows as failed.
+    and the error is captured, then re-raised so the run shows as failed. A transient skip (the
+    view wasn't resolvable yet) records no outcome so it retries cleanly on the next run.
     """
     try:
         result = sync_custom_property_values(team_id=team_id, saved_query_id=saved_query_id)
@@ -180,6 +206,11 @@ def run_custom_property_sync(*, team_id: int, saved_query_id: str | UUID) -> Syn
         record_sync_outcome(team_id=team_id, saved_query_id=saved_query_id, run_failed=True, run_error=str(e))
         capture_exception(e)
         raise
+
+    if result.skipped:
+        # The view wasn't resolvable yet — record no outcome so the failure streak stays put and
+        # the sync retries cleanly on the next materialization instead of drifting toward auto-disable.
+        return result
 
     record_sync_outcome(
         team_id=team_id,

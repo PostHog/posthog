@@ -6,6 +6,8 @@ from django.apps import apps
 
 from parameterized import parameterized
 
+from posthog.hogql.errors import QueryError, ResolutionError
+
 from products.customer_analytics.backend.logic.custom_property_sync import (
     MAX_CONSECUTIVE_SYNC_FAILURES,
     record_sync_outcome,
@@ -113,6 +115,45 @@ class CustomPropertySyncTest(TeamScopedTestMixin, BaseTest):
 
         assert result.written == 0
         assert result.unmatched_keys == 0
+
+    @parameterized.expand(
+        [
+            ("resolution_error", ResolutionError("Unknown table `billing_view`.")),
+            ("query_error_unknown_table", QueryError("Unknown table `billing_view`. Did you mean: billing_views?")),
+            ("query_error_access_denied", QueryError("You don't have access to table `billing_view`.")),
+        ]
+    )
+    def test_unresolvable_view_is_skipped_not_failed(self, _name, exc):
+        self._source(self.mrr_def, "mrr")
+        with patch(_EXECUTE, side_effect=exc):
+            result = sync_custom_property_values(team_id=self.team.id, saved_query_id=self.view.id)
+
+        assert result.skipped is True
+        assert result.view_found is True
+
+    def test_error_naming_a_different_table_still_fails(self):
+        # A view whose own query references a missing table is genuinely broken — the scoping in
+        # _view_unresolvable must not swallow it, or a real failure would silently never surface.
+        self._source(self.mrr_def, "mrr")
+        with (
+            patch(_EXECUTE, side_effect=QueryError("Unknown table `some_other_table`.")),
+            pytest.raises(QueryError),
+        ):
+            sync_custom_property_values(team_id=self.team.id, saved_query_id=self.view.id)
+
+    def test_skipped_run_does_not_advance_failure_streak_or_disable(self):
+        source = self._source(self.mrr_def, "mrr")
+        # One short of the cap: a counted failure here would disable the source.
+        CustomPropertySource.objects.filter(id=source.id).update(consecutive_failures=MAX_CONSECUTIVE_SYNC_FAILURES - 1)
+
+        with patch(_EXECUTE, side_effect=ResolutionError("Unknown table `billing_view`.")):
+            result = run_custom_property_sync(team_id=self.team.id, saved_query_id=self.view.id)
+
+        source.refresh_from_db()
+        assert result.skipped is True
+        assert source.is_enabled is True
+        assert source.consecutive_failures == MAX_CONSECUTIVE_SYNC_FAILURES - 1
+        assert source.last_sync_error is None
 
     def test_run_sync_records_success_outcome(self):
         source = self._source(self.mrr_def, "mrr")
