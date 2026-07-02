@@ -573,7 +573,7 @@ class CannySourceConfig(config.Config):
 
 @config.config
 class CapsuleCRMSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
@@ -599,7 +599,7 @@ class CastorEDCSourceConfig(config.Config):
 
 @config.config
 class ChameleonSourceConfig(config.Config):
-    pass
+    account_secret: str
 
 
 @config.config
@@ -721,7 +721,8 @@ class ClockifySourceConfig(config.Config):
 
 @config.config
 class ClockodoSourceConfig(config.Config):
-    pass
+    api_user: str
+    api_key: str
 
 
 @config.config
@@ -791,7 +792,9 @@ class CommercetoolsSourceConfig(config.Config):
 
 @config.config
 class ConcordSourceConfig(config.Config):
-    pass
+    api_key: str
+    environment: Literal["production", "sandbox"] = config.value(default="production")
+    organization_id: str | None = None
 
 
 @config.config
@@ -873,6 +876,9 @@ class CustomSourceConfig(config.Config):
     auth_token: str | None = None
     auth_api_key: str | None = None
     auth_password: str | None = None
+    auth_oauth2_client_secret: str | None = None
+    auth_oauth2_refresh_token: str | None = None
+    auth_oauth2_integration_id: str | None = None
 
 
 @config.config
@@ -1025,7 +1031,8 @@ class EConomicSourceConfig(config.Config):
 
 @config.config
 class EZOfficeInventorySourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
@@ -1146,7 +1153,9 @@ class FilloutSourceConfig(config.Config):
 
 @config.config
 class FinageSourceConfig(config.Config):
-    pass
+    api_key: str
+    symbols: str
+    start_date: str | None = None
 
 
 @config.config
@@ -1170,7 +1179,8 @@ class FinnworldsSourceConfig(config.Config):
 
 @config.config
 class FireHydrantSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu"] = config.value(default="us")
 
 
 @config.config

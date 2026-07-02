@@ -210,7 +210,7 @@ impl EventDispatcher {
                     consumed.partition,
                     consumed.offset,
                     ShuffleMessage::Event {
-                        event: consumed.event,
+                        event: Box::new(consumed.event),
                         cse_offset: consumed.offset,
                     },
                 )

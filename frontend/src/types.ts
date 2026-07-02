@@ -286,6 +286,7 @@ export enum AccessControlResourceType {
     Survey = 'survey',
     Logs = 'logs',
     Endpoint = 'endpoint',
+    EarlyAccessFeature = 'early_access_feature',
     ProductTour = 'product_tour',
     Experiment = 'experiment',
     ExperimentHoldout = 'experiment_holdout',
@@ -4391,6 +4392,8 @@ export interface EarlyAccessFeatureType {
     payload?: Record<string, any>
     created_at: string
     _create_in_folder?: string | null
+    /** The effective access level the user has for this early access feature. */
+    user_access_level?: AccessControlLevel
 }
 
 export interface NewEarlyAccessFeatureType extends Omit<EarlyAccessFeatureType, 'id' | 'created_at' | 'feature_flag'> {
@@ -5661,6 +5664,7 @@ export type APIScopeObject =
     | 'organization_member'
     | 'person'
     | 'plugin'
+    | 'product_enablement'
     | 'product_tour'
     | 'project'
     | 'property_definition'

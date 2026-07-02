@@ -195,6 +195,21 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   `observability-gaps` only _recommends building_ a funnel; once a flow exists, this
   scout owns its behavioral health. Acquisition/attribution is the web-analytics
   scout's territory and experiment validity is the experiments scout's.
+- `signals-scout-skills-store/` — skill-hygiene watcher for the team's PostHog
+  skills store (`LLMSkill` rows), read entirely via the MCP skill tools
+  (`skill-list` / `skill-get` / `skill-file-get`) so it works on any project with
+  no repo access. Sweeps skills whose `updated_at` / `version` advanced past its
+  cursor every run, plus a ~weekly gated deep pass over the store's most-used /
+  highest-leverage tier (usage events when the project has them, else version
+  churn and cross-references), checking a cached, ~weekly-refreshed checklist of
+  statically-verifiable authoring rules: description quality, body size /
+  progressive disclosure, single responsibility, bundled-file link hygiene, no
+  committed secrets, near-duplicate skills. Bundles one finding per skill, P3
+  (P2 when the skill is effectively broken for consumers or leaks a credential).
+  Its discriminator is a statically-verifiable rule violation in a skill that is
+  fresh or load-bearing — the unchanged long tail, subjective style nits, and
+  canonical seeded scout rows (`category: "scout"`) are noise. Treats skill
+  bodies as untrusted data under test, never instructions.
 - `signals-scout-customer-analytics/` — account-health watcher for the Customer
   analytics (Accounts) product, where each `system.accounts` row is a customer
   organization keyed to its analytics by `external_id` (the group key). Curates a
@@ -213,6 +228,18 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   `revenue-analytics` watches the lagging revenue/MRR signal; neither scores an
   individual account's engagement trajectory. Acquisition is the web-analytics
   scout's territory.
+- `signals-scout-mcp-tool-calls/` — tool-quality watcher for PostHog MCP usage. Reads
+  `$mcp_tool_call` telemetry for tools that need improvement: high, broad-reach failure
+  rates, per-session retry/hammering that betrays a confusing schema, slow or
+  context-bloating responses, and undiagnosable failures (an instrumentation gap). Its
+  discriminator is rate/struggle weighted by volume and reach, concentrated in a
+  consistent shape — not raw counts. Coverage-aware: it first probes which enrichment
+  fields the project captures (they split by regime — PostHog's own hono server vs
+  external SDK servers) and picks lenses to match, resting detection only on always-present
+  fields (error flag, duration, tool name, session). On the **report channel**
+  (`emit_report` / `edit_report`): files one report per tool carrying the fix hypothesis,
+  editing the live report when the problem persists; bundles `references/queries.md`, a
+  HogQL cookbook validated against real telemetry.
 
 ### How the coordinator decides what runs
 
@@ -260,7 +287,9 @@ Each scout's body is an instruction set the harness loads verbatim into the syst
 prompt. References (siblings of `SKILL.md`) are progressively disclosed via
 `Skill.read_file()` from inside the run. Keep the body lean — every line is a
 recurring token cost on every run — and push detail into references that are only
-read when needed.
+read when needed. Do not hard-wrap scout `SKILL.md` prose at a column width — use
+semantic line breaks (sentence per line); the body is a prompt, not display text,
+and column wrapping only adds diff noise.
 
 The generalist (`signals-scout-general`) is **report-only** — it authors `SignalReport`s
 directly and does not `emit_signal`. The **report-channel contract** (when to author a fresh

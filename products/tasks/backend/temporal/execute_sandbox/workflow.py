@@ -861,7 +861,8 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         )
         self._sandbox_id_for_cleanup = created.sandbox_id
 
-        if prepared.used_snapshot:
+        used_snapshot = created.used_snapshot if created.used_snapshot is not None else prepared.used_snapshot
+        if used_snapshot:
             await self._emit_progress(
                 "sandbox",
                 "completed",
@@ -872,7 +873,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         else:
             await self._emit_progress("sandbox", "completed", "Set up sandbox", "setup")
 
-        if prepared.snapshot_external_id:
+        if used_snapshot and prepared.snapshot_external_id:
             await workflow.execute_activity(
                 inject_fresh_tokens_on_resume,
                 InjectFreshTokensOnResumeInput(
@@ -887,7 +888,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
         can_clone_without_integration = is_public_sandbox_repo(prepared.repository)
         has_clone_credentials = self.context.has_github_credentials or can_clone_without_integration
 
-        will_clone = bool(prepared.repository and not prepared.used_snapshot and has_clone_credentials)
+        will_clone = bool(prepared.repository and not used_snapshot and has_clone_credentials)
         will_checkout = bool(prepared.repository and prepared.branch and has_clone_credentials)
 
         if will_clone:
@@ -921,7 +922,7 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
                     branch=prepared.branch,
                     github_token=prepared.github_token,
                     shallow_clone=prepared.shallow_clone,
-                    used_snapshot=prepared.used_snapshot,
+                    used_snapshot=used_snapshot,
                 ),
                 start_to_close_timeout=timedelta(minutes=5),
                 retry_policy=RetryPolicy(maximum_attempts=3),
@@ -932,8 +933,8 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
             sandbox_id=created.sandbox_id,
             sandbox_url=created.sandbox_url,
             connect_token=created.connect_token,
-            used_snapshot=prepared.used_snapshot,
-            should_create_snapshot=prepared.should_create_snapshot,
+            used_snapshot=used_snapshot,
+            should_create_snapshot=not used_snapshot,
         )
 
     async def _cleanup_sandbox(self, sandbox_id: str) -> None:
@@ -1155,7 +1156,11 @@ class ExecuteSandboxWorkflow(PostHogWorkflow):
     async def _create_resume_snapshot(self, sandbox_id: str) -> None:
         result = await workflow.execute_activity(
             create_resume_snapshot,
-            CreateResumeSnapshotInput(sandbox_id=sandbox_id, run_id=self.context.run_id),
+            CreateResumeSnapshotInput(
+                sandbox_id=sandbox_id,
+                run_id=self.context.run_id,
+                use_directory_snapshot=self.context.use_modal_directory_resume_snapshots,
+            ),
             start_to_close_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=1),
         )

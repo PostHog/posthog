@@ -8686,6 +8686,8 @@ export namespace Schemas {
     } as const;
 
     export interface FunnelsAlertConfig {
+      /** When true, evaluate the current (still in-progress) period; by default only completed periods are used. */
+      check_ongoing_interval?: boolean | null;
       /** Zero-based step index to evaluate. Null = the last step (overall conversion). */
       funnel_step?: number | null;
       metric: FunnelConversionMetric;
@@ -8944,7 +8946,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly checks_total: number | null;
-      /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step) and metric ('conversion_from_start' or 'conversion_from_previous'); funnel alerts only support absolute_value conditions. */
+      /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step), metric ('conversion_from_start' or 'conversion_from_previous'), and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease (compared against the prior period). */
       config?: AlertConfigUnion | null;
       detector_config?: DetectorConfig | null;
       /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
@@ -14112,6 +14114,47 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Binds a materialized data-warehouse view column to a custom property definition; the view's
+     * values are synced onto matching accounts on each materialization.
+     */
+    export interface CustomPropertySource {
+      readonly id: string;
+      /** UUID of the custom property definition this source feeds. One source per definition. */
+      definition: string;
+      /** UUID of the data-warehouse saved query (materialized view) to read values from. */
+      saved_query: string;
+      /**
+         * Column in the view whose value is written to the property.
+         * @maxLength 400
+         */
+      source_column: string;
+      /**
+         * Column in the view whose value matches an account's external_id.
+         * @maxLength 400
+         */
+      key_column: string;
+      /** Whether the source syncs. Auto-disabled after repeated failures or a missing view; re-enabling resets the failure count. */
+      is_enabled?: boolean;
+      /** Consecutive failed sync runs; the source auto-disables at the cap. */
+      readonly consecutive_failures: number;
+      /**
+         * When the most recent sync run finished.
+         * @nullable
+         */
+      readonly last_synced_at: string | null;
+      /**
+         * Error summary from the last run, or null if it succeeded.
+         * @nullable
+         */
+      readonly last_sync_error: string | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly created_by: number | null;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    /**
      * A place that uses a custom property definition (read-only).
      */
     export interface CustomPropertyReference {
@@ -14129,8 +14172,7 @@ export namespace Schemas {
      * A team-scoped definition of a custom account property — the attribute side of the model.
      *
      * Holds only the property's shape (name, display type, big-number flag). Per-account values are
-     * stored separately, so this serializer never reads or writes account values. The numeric-only
-     * big-number rule and the unique-name conflict are enforced behind the facade.
+     * stored separately, so this serializer never reads or writes account values.
      */
     export interface CustomPropertyDefinition {
       readonly id: string;
@@ -14156,6 +14198,8 @@ export namespace Schemas {
       display_type: CustomPropertyDisplayTypeEnum;
       /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
       is_big_number?: boolean;
+      /** The data-warehouse view-sync binding feeding this property, or null when values are set manually. */
+      readonly source: CustomPropertySource | null;
       readonly created_at: string;
       /** @nullable */
       readonly created_by: number | null;
@@ -14163,6 +14207,25 @@ export namespace Schemas {
       readonly updated_at: string | null;
       /** Workflows that use this property, resolved by definition id. */
       readonly references: readonly CustomPropertyReference[];
+    }
+
+    /**
+     * Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so
+     * they are intentionally absent — only these reach the facade's update.
+     */
+    export interface CustomPropertySourceUpdate {
+      /**
+         * Column in the view whose value is written to the property.
+         * @maxLength 400
+         */
+      source_column?: string;
+      /**
+         * Column in the view whose value matches an account's external_id.
+         * @maxLength 400
+         */
+      key_column?: string;
+      /** Whether the source syncs; re-enabling it resets the failure count. */
+      is_enabled?: boolean;
     }
 
     /**
@@ -17895,6 +17958,9 @@ export namespace Schemas {
       Archived: 'archived',
     } as const;
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface EarlyAccessFeature {
       readonly id: string;
       readonly feature_flag: MinimalFeatureFlag;
@@ -17922,8 +17988,16 @@ export namespace Schemas {
       /** Feature flag payload for this early access feature */
       readonly payload: EarlyAccessFeaturePayload;
       readonly created_at: string;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface EarlyAccessFeatureSerializerCreateOnly {
       readonly id: string;
       /**
@@ -17954,6 +18028,11 @@ export namespace Schemas {
       feature_flag_id?: number;
       readonly feature_flag: MinimalFeatureFlag;
       _create_in_folder?: string;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     export interface Edge {
@@ -19077,6 +19156,31 @@ export namespace Schemas {
       tags?: QueryLogTags | null;
       /** version of the node, used for schema migrations */
       version?: number | null;
+    }
+
+    export interface ErrorTrackingBypassRule {
+      /** Unique identifier of the bypass rule. */
+      readonly id: string;
+      /** Property-group filters that define which incoming error events bypass rate limiting. */
+      filters: unknown;
+      /** Position of the rule in the team's ordered list. Rules are evaluated greedily in ascending order. */
+      order_key: number;
+      /** Populated when the rule has been automatically disabled (for example, after its filters failed to evaluate during ingestion). Null while the rule is active. */
+      disabled_data: unknown;
+      /** When the rule was created. */
+      readonly created_at: string;
+      /** When the rule was last updated. */
+      readonly updated_at: string;
+    }
+
+    export interface ErrorTrackingBypassRuleCreateRequest {
+      /** Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter — empty rules are rejected. To stop rate limiting entirely, adjust the rate limit settings instead of creating a match-all bypass rule. */
+      filters: PropertyGroupFilterValue;
+    }
+
+    export interface ErrorTrackingBypassRuleUpdateRequest {
+      /** Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter. Omit to preserve the existing filters. */
+      filters?: PropertyGroupFilterValue;
     }
 
     export interface ErrorTrackingDateRange {
@@ -21374,8 +21478,8 @@ export namespace Schemas {
       id?: number | null;
       /** Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure. */
       kind?: Kind1 | null;
-      /** Event property filters. Pass an empty array if no filters needed. */
-      properties: EventPropertyFilter[];
+      /** Property filters (event, person, and other supported types). Pass an empty array if no filters needed. */
+      properties: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[];
     }
 
     export interface ExperimentApiExposureCriteria {
@@ -30716,6 +30820,7 @@ export namespace Schemas {
      * * `signal_report` - Signal Report
      * * `signals_scout` - Signals Scout
      * * `support_reply` - Support Reply
+     * * `hogdesk` - HogDesk
      */
     export type OriginProductEnum = typeof OriginProductEnum[keyof typeof OriginProductEnum];
 
@@ -30733,6 +30838,7 @@ export namespace Schemas {
       SignalReport: 'signal_report',
       SignalsScout: 'signals_scout',
       SupportReply: 'support_reply',
+      Hogdesk: 'hogdesk',
     } as const;
 
     /**
@@ -31119,6 +31225,15 @@ export namespace Schemas {
       results: CustomPropertyDefinition[];
     }
 
+    export interface PaginatedCustomPropertySourceList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: CustomPropertySource[];
+    }
+
     export interface PaginatedCustomerJourneyList {
       count: number;
       /** @nullable */
@@ -31297,6 +31412,15 @@ export namespace Schemas {
       /** @nullable */
       previous?: string | null;
       results: ErrorTrackingAssignmentRule[];
+    }
+
+    export interface PaginatedErrorTrackingBypassRuleList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: ErrorTrackingBypassRule[];
     }
 
     export interface PaginatedErrorTrackingExternalReferenceResultList {
@@ -33180,6 +33304,11 @@ export namespace Schemas {
       readonly is_suggested_reviewer: boolean;
       /** Distinct source products contributing signals to this report (from ClickHouse). */
       readonly source_products: readonly string[];
+      /**
+         * skill_name slug of the scout that authored this report, when scout-authored (from ClickHouse); null otherwise.
+         * @nullable
+         */
+      readonly scout_name: string | null;
       /**
          * PR URL from the latest implementation task run, if available.
          * @nullable
@@ -35284,9 +35413,9 @@ export namespace Schemas {
     } as const;
 
     /**
-     * Read-only history of one VisionAction execution, backing the per-action run list + summary view.
+     * Lightweight run row for the per-action run list (no report body — that's fetched on retrieve).
      */
-    export interface VisionActionRun {
+    export interface VisionActionRunList {
       readonly id: string;
       /** Run outcome: running, completed, failed, or skipped.
        *
@@ -35302,8 +35431,6 @@ export namespace Schemas {
       readonly scheduled_at: string | null;
       /** Number of observations that fed this run's summary. */
       readonly observation_count: number;
-      /** The synthesized group-summary report in Markdown. Empty until a run completes successfully. */
-      readonly synthesized_markdown: string;
       /**
          * Short human-readable reason a run skipped or failed; null on success.
          * @nullable
@@ -35313,13 +35440,13 @@ export namespace Schemas {
       readonly updated_at: string;
     }
 
-    export interface PaginatedVisionActionRunList {
+    export interface PaginatedVisionActionRunListList {
       count: number;
       /** @nullable */
       next?: string | null;
       /** @nullable */
       previous?: string | null;
-      results: VisionActionRun[];
+      results: VisionActionRunList[];
     }
 
     export interface WarehouseColumnAnnotation {
@@ -35781,7 +35908,7 @@ export namespace Schemas {
          * @nullable
          */
       readonly checks_total?: number | null;
-      /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step) and metric ('conversion_from_start' or 'conversion_from_previous'); funnel alerts only support absolute_value conditions. */
+      /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step), metric ('conversion_from_start' or 'conversion_from_previous'), and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease (compared against the prior period). */
       config?: AlertConfigUnion | null;
       detector_config?: DetectorConfig | null;
       /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
@@ -36186,8 +36313,7 @@ export namespace Schemas {
      * A team-scoped definition of a custom account property — the attribute side of the model.
      *
      * Holds only the property's shape (name, display type, big-number flag). Per-account values are
-     * stored separately, so this serializer never reads or writes account values. The numeric-only
-     * big-number rule and the unique-name conflict are enforced behind the facade.
+     * stored separately, so this serializer never reads or writes account values.
      */
     export interface PatchedCustomPropertyDefinition {
       readonly id?: string;
@@ -36213,6 +36339,8 @@ export namespace Schemas {
       display_type?: CustomPropertyDisplayTypeEnum;
       /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
       is_big_number?: boolean;
+      /** The data-warehouse view-sync binding feeding this property, or null when values are set manually. */
+      readonly source?: CustomPropertySource | null;
       readonly created_at?: string;
       /** @nullable */
       readonly created_by?: number | null;
@@ -36220,6 +36348,25 @@ export namespace Schemas {
       readonly updated_at?: string | null;
       /** Workflows that use this property, resolved by definition id. */
       readonly references?: readonly CustomPropertyReference[];
+    }
+
+    /**
+     * Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so
+     * they are intentionally absent — only these reach the facade's update.
+     */
+    export interface PatchedCustomPropertySourceUpdate {
+      /**
+         * Column in the view whose value is written to the property.
+         * @maxLength 400
+         */
+      source_column?: string;
+      /**
+         * Column in the view whose value matches an account's external_id.
+         * @maxLength 400
+         */
+      key_column?: string;
+      /** Whether the source syncs; re-enabling it resets the failure count. */
+      is_enabled?: boolean;
     }
 
     export interface PatchedCustomerJourney {
@@ -36524,6 +36671,9 @@ export namespace Schemas {
      */
     export type PatchedEarlyAccessFeaturePayload = { [key: string]: unknown };
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface PatchedEarlyAccessFeature {
       readonly id?: string;
       readonly feature_flag?: MinimalFeatureFlag;
@@ -36551,6 +36701,11 @@ export namespace Schemas {
       /** Feature flag payload for this early access feature */
       readonly payload?: PatchedEarlyAccessFeaturePayload;
       readonly created_at?: string;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level?: string | null;
     }
 
     export interface PatchedEdge {
@@ -36765,6 +36920,26 @@ export namespace Schemas {
       filters?: PropertyGroupFilterValue | null;
       /** User or role to assign matching issues to. */
       assignee?: ErrorTrackingAssignmentRuleAssigneeRequest | null;
+    }
+
+    export interface PatchedErrorTrackingBypassRule {
+      /** Unique identifier of the bypass rule. */
+      readonly id?: string;
+      /** Property-group filters that define which incoming error events bypass rate limiting. */
+      filters?: unknown;
+      /** Position of the rule in the team's ordered list. Rules are evaluated greedily in ascending order. */
+      order_key?: number;
+      /** Populated when the rule has been automatically disabled (for example, after its filters failed to evaluate during ingestion). Null while the rule is active. */
+      disabled_data?: unknown;
+      /** When the rule was created. */
+      readonly created_at?: string;
+      /** When the rule was last updated. */
+      readonly updated_at?: string;
+    }
+
+    export interface PatchedErrorTrackingBypassRuleUpdateRequest {
+      /** Property-group filters that define which incoming error events bypass rate limiting. Must contain at least one filter. Omit to preserve the existing filters. */
+      filters?: PropertyGroupFilterValue;
     }
 
     /**
@@ -41479,7 +41654,8 @@ export namespace Schemas {
        * * `posthog_ai` - PostHog AI
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
-       * * `support_reply` - Support Reply */
+       * * `support_reply` - Support Reply
+       * * `hogdesk` - HogDesk */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -42578,6 +42754,38 @@ export namespace Schemas {
     export interface PrimaryPropertiesResponse {
       /** Mapping from event name to the team-configured primary property for that event. Names without a configured primary property are omitted; callers should fall back to the core taxonomy defaults for those. */
       primary_properties: PrimaryPropertiesResponsePrimaryProperties;
+    }
+
+    /**
+     * * `conversations` - conversations
+     * * `error_tracking` - error_tracking
+     * * `session_replay` - session_replay
+     */
+    export type ProductsEnum = typeof ProductsEnum[keyof typeof ProductsEnum];
+
+
+    export const ProductsEnum = {
+      Conversations: 'conversations',
+      ErrorTracking: 'error_tracking',
+      SessionReplay: 'session_replay',
+    } as const;
+
+    export interface ProductEnablement {
+      /**
+         * Products to turn on for this project, each enabled with server-owned conservative defaults.
+         * @minItems 1
+         */
+      products: ProductsEnum[];
+    }
+
+    /**
+     * Per requested product: "enabled" (just turned on) or "already_enabled".
+     */
+    export type ProductEnablementResultResults = {[key: string]: string};
+
+    export interface ProductEnablementResult {
+      /** Per requested product: "enabled" (just turned on) or "already_enabled". */
+      results: ProductEnablementResultResults;
     }
 
     /**
@@ -47102,6 +47310,28 @@ export namespace Schemas {
       results: DashboardTileResult[];
     }
 
+    /**
+     * One recording an action run included in its summary — the 'recordings included' list on the run detail view.
+     */
+    export interface RunObservation {
+      /** Observation id; links to the observation detail view. */
+      readonly id: string;
+      /** Session recording id this observation was made on. */
+      readonly session_id: string;
+      /**
+         * Email of the person in the recorded session, captured at scan time; null if unidentified.
+         * @nullable
+         */
+      readonly recording_subject_email: string | null;
+      /**
+         * Short title from the observation's summary; null if the observation had none.
+         * @nullable
+         */
+      readonly title: string | null;
+      /** When the observation was produced. */
+      readonly created_at: string;
+    }
+
     export interface RunWidgetsResponse {
       /** Per-tile widget run results. */
       results: DashboardWidgetRunResult[];
@@ -48128,6 +48358,22 @@ export namespace Schemas {
       source_id: string;
       /** ISO-8601 timestamp the finding was emitted. */
       emitted_at: string;
+    }
+
+    /**
+     * Response for an on-demand (`run now`) scout dispatch.
+     *
+     * The run executes asynchronously on the Temporal worker, so there is no `SignalScoutRun`
+     * row yet at response time — the bridge row is created once the run's first turn starts.
+     * Poll the scout's runs (`signals-scout-runs-list`) to see the resulting run and its findings.
+     */
+    export interface SignalScoutManualRun {
+      /** The `signals-scout-*` skill that was dispatched. */
+      skill_name: string;
+      /** Temporal workflow id for the dispatched run. The run executes asynchronously; poll the scout's runs to see the resulting run row, its status, and any emitted findings. */
+      workflow_id: string;
+      /** True when a new run was dispatched. The endpoint returns 409 instead when a run for this scout is already in progress. */
+      started: boolean;
     }
 
     /**
@@ -51901,8 +52147,16 @@ export namespace Schemas {
     }
 
     export interface TaskRunRelayMessageRequest {
-      /** @maxLength 10000 */
+      /**
+         * Joined message body. Used when text_parts is absent.
+         * @maxLength 10000
+         */
       text: string;
+      /**
+         * Ordered assistant text blocks. When present, the last non-empty entry is posted instead of text.
+         * @items.maxLength 10000
+         */
+      text_parts?: string[];
     }
 
     export interface TaskRunRelayMessageResponse {
@@ -52078,7 +52332,8 @@ export namespace Schemas {
        * * `posthog_ai` - PostHog AI
        * * `signal_report` - Signal Report
        * * `signals_scout` - Signals Scout
-       * * `support_reply` - Support Reply */
+       * * `support_reply` - Support Reply
+       * * `hogdesk` - HogDesk */
       origin_product?: OriginProductEnum;
       /**
          * Target GitHub repository in `organization/repo` format (e.g. `posthog/posthog-js`).
@@ -52951,6 +53206,38 @@ export namespace Schemas {
       source_table_key: string;
     }
 
+    /**
+     * Full run detail: the list fields plus the synthesized report and the recordings it summarized.
+     */
+    export interface VisionActionRun {
+      readonly id: string;
+      /** Run outcome: running, completed, failed, or skipped.
+       *
+       * * `running` - Running
+       * * `completed` - Completed
+       * * `failed` - Failed
+       * * `skipped` - Skipped */
+      readonly status: VisionActionRunStatusEnum;
+      /**
+         * The scheduled fire time this run was claimed for.
+         * @nullable
+         */
+      readonly scheduled_at: string | null;
+      /** Number of observations that fed this run's summary. */
+      readonly observation_count: number;
+      /**
+         * Short human-readable reason a run skipped or failed; null on success.
+         * @nullable
+         */
+      readonly error_reason: string | null;
+      readonly created_at: string;
+      readonly updated_at: string;
+      /** The synthesized group-summary report in Markdown. Empty until a run completes successfully. */
+      readonly synthesized_markdown: string;
+      /** Recordings this run included in its summary, in summary order. Empty for runs recorded before this was tracked, and for skipped/failed runs. */
+      readonly observations: readonly RunObservation[];
+    }
+
     export interface VisionQuota {
       /** Total observations the org may complete per calendar month. */
       readonly monthly_quota: number;
@@ -53316,6 +53603,36 @@ export namespace Schemas {
          * @nullable
          */
       estimated_cost_usd: number | null;
+    }
+
+    export interface WorkflowRunActivityPoint {
+      /** GitHub Actions run id. */
+      run_id: number;
+      /**
+         * Run conclusion ('success', 'failure', 'timed_out', 'cancelled', 'skipped', ...), or null while still in progress.
+         * @nullable
+         */
+      conclusion: string | null;
+      /** When the run started. Never null on this endpoint: runs without a parseable start timestamp are excluded from the window (they can't be plotted on the chart's time axis). */
+      run_started_at: string;
+      /**
+         * Wall-clock duration in seconds; null until the run completes.
+         * @nullable
+         */
+      duration_seconds: number | null;
+      /** Git branch the run was triggered on, or '' when unknown. */
+      head_branch: string;
+      /** Attributed pull request number, or 0 when unattributed. */
+      pr_number: number;
+    }
+
+    export interface WorkflowRunActivity {
+      /** Per-run chart points, newest first, capped at `limit`. */
+      points: WorkflowRunActivityPoint[];
+      /** True when more runs matched than the cap; `points` is the newest `limit` runs, so the chart covers only the most recent activity, not the full window. */
+      truncated: boolean;
+      /** Maximum number of run points returned in `points`. */
+      limit: number;
     }
 
     export interface WorkflowRunDetail {
@@ -55537,6 +55854,17 @@ export namespace Schemas {
     };
 
     export type EnvironmentsErrorTrackingAssignmentRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type EnvironmentsErrorTrackingBypassRulesListParams = {
     /**
      * Number of results to return per page.
      */
@@ -58044,11 +58372,14 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * Number of results to return per page.
+     * Maximum number of sessions to return per page. Defaults to 100; values above 500 are rejected.
+     * @minimum 1
+     * @maximum 500
      */
     limit?: number;
     /**
-     * The initial index from which to return the results.
+     * Number of sessions to skip before returning results. Combine with limit to page through sessions; the response's has_next flag indicates whether more remain.
+     * @minimum 0
      */
     offset?: number;
     /**
@@ -60838,6 +61169,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type CustomPropertySourcesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type CustomerJourneysListParams = {
     /**
      * Number of results to return per page.
@@ -61568,7 +61910,7 @@ export namespace Schemas {
 
     export type EngineeringAnalyticsWorkflowHealthParams = {
     /**
-     * Optional exact git branch (head_branch) to scope workflow health to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
      */
     branch?: string;
     /**
@@ -61611,7 +61953,38 @@ export namespace Schemas {
     source_id?: string;
     };
 
+    export type EngineeringAnalyticsWorkflowRunActivityParams = {
+    /**
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     */
+    branch?: string;
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * 'owner/name' repository the workflow belongs to.
+     */
+    repo: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    /**
+     * Workflow name to load run activity for.
+     */
+    workflow_name: string;
+    };
+
     export type EngineeringAnalyticsWorkflowRunnerCostsParams = {
+    /**
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     */
+    branch?: string;
     /**
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
      */
@@ -61635,6 +62008,10 @@ export namespace Schemas {
     };
 
     export type EngineeringAnalyticsWorkflowRunsParams = {
+    /**
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     */
+    branch?: string;
     /**
      * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
      */
@@ -61676,6 +62053,17 @@ export namespace Schemas {
     };
 
     export type ErrorTrackingAssignmentRulesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
+    export type ErrorTrackingBypassRulesListParams = {
     /**
      * Number of results to return per page.
      */
@@ -62068,6 +62456,10 @@ export namespace Schemas {
     };
 
     export type ExperimentSavedMetricsListParams = {
+    /**
+     * Filter to shared metrics whose query references this event name. Matches events used directly in metric queries as well as events behind any actions those metrics reference. Use this for reuse discovery (find a metric by what it measures); distinct from 'search', which matches the metric's own name/description/tags.
+     */
+    event?: string;
     /**
      * Number of results to return per page.
      */
@@ -64675,11 +65067,14 @@ export namespace Schemas {
      */
     date_to?: string;
     /**
-     * Number of results to return per page.
+     * Maximum number of sessions to return per page. Defaults to 100; values above 500 are rejected.
+     * @minimum 1
+     * @maximum 500
      */
     limit?: number;
     /**
-     * The initial index from which to return the results.
+     * Number of sessions to skip before returning results. Combine with limit to page through sessions; the response's has_next flag indicates whether more remain.
+     * @minimum 0
      */
     offset?: number;
     /**
@@ -66032,9 +66427,14 @@ export namespace Schemas {
      */
     created_by?: number;
     /**
-     * When true, list internal tasks instead of user-facing ones. Honored in debug environments or for staff users; ignored for non-staff users in production. Defaults to excluding internal tasks.
+     * Filter by the internal flag, which controls whether a task is shown by default, not whether it is accessible. Defaults to excluding internal tasks. Use 'all' to include both internal and user-facing tasks (available to any team member; access stays governed by task visibility). 'true' lists only internal tasks and is a staff/debug view.
+     *
+     * * `true` - true
+     * * `false` - false
+     * * `all` - all
+     * @minLength 1
      */
-    internal?: boolean;
+    internal?: TasksListInternal;
     /**
      * Number of results to return per page.
      * @minimum 1
@@ -66088,6 +66488,15 @@ export namespace Schemas {
 
 
     export const TasksListArchived = {
+      True: 'true',
+      False: 'false',
+      All: 'all',
+    } as const;
+
+    export type TasksListInternal = typeof TasksListInternal[keyof typeof TasksListInternal];
+
+
+    export const TasksListInternal = {
       True: 'true',
       False: 'false',
       All: 'all',

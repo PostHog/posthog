@@ -530,7 +530,17 @@ class TaskRunRelayMessageResponseSerializer(serializers.Serializer):
 
 
 class TaskRunRelayMessageRequestSerializer(serializers.Serializer):
-    text = serializers.CharField(max_length=10000)
+    text = serializers.CharField(
+        max_length=10000,
+        help_text="Joined message body. Used when text_parts is absent.",
+    )
+    # Kept optional for forward/backward compatibility during rollout; will be aligned once deployed.
+    text_parts = serializers.ListField(
+        child=serializers.CharField(max_length=10000, allow_blank=True),
+        required=False,
+        allow_empty=True,
+        help_text="Ordered assistant text blocks. When present, the last non-empty entry is posted instead of text.",
+    )
 
 
 class TaskRunArtifactUploadSerializer(serializers.Serializer):
@@ -912,9 +922,15 @@ class TaskListQuerySerializer(serializers.Serializer):
         choices=[choice.value for choice in tasks_facade.TaskRunStatus],
         help_text="Filter tasks by the status of their most recent run.",
     )
-    internal = serializers.BooleanField(
+    internal = serializers.ChoiceField(
         required=False,
-        help_text="When true, list internal tasks instead of user-facing ones. Honored in debug environments or for staff users; ignored for non-staff users in production. Defaults to excluding internal tasks.",
+        choices=["true", "false", "all"],
+        help_text=(
+            "Filter by the internal flag, which controls whether a task is shown by default, not whether "
+            "it is accessible. Defaults to excluding internal tasks. Use 'all' to include both internal "
+            "and user-facing tasks (available to any team member; access stays governed by task "
+            "visibility). 'true' lists only internal tasks and is a staff/debug view."
+        ),
     )
     archived = serializers.ChoiceField(
         required=False,

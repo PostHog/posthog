@@ -374,6 +374,21 @@ class TestSavedQuery(APIBaseTest):
         response_json = response.json()
         assert "Filters and placeholder expressions are not allowed in views" in response_json["detail"]
 
+    def test_create_with_malformed_query_returns_validation_error(self):
+        response = self.client.post(
+            f"/api/environments/{self.team.id}/warehouse_saved_queries/",
+            {
+                "name": "test_malformed",
+                "query": {
+                    "kind": "HogQLQuery",
+                    "query": "select * from events *",
+                },
+            },
+        )
+        assert response.status_code == 400, response.content
+        response_json = response.json()
+        assert "Invalid query" in response_json["detail"]
+
     def test_delete(self):
         query_name = "test_query"
         saved_query = DataWarehouseSavedQuery.objects.create(team=self.team, name=query_name)

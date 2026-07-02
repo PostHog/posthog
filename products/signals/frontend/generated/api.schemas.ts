@@ -103,6 +103,11 @@ export interface SignalReportApi {
     /** Distinct source products contributing signals to this report (from ClickHouse). */
     readonly source_products: readonly string[]
     /**
+     * skill_name slug of the scout that authored this report, when scout-authored (from ClickHouse); null otherwise.
+     * @nullable
+     */
+    readonly scout_name: string | null
+    /**
      * PR URL from the latest implementation task run, if available.
      * @nullable
      */
@@ -486,6 +491,22 @@ export interface PatchedSignalScoutConfigApi {
      */
     readonly last_run_at?: string | null
     readonly created_at?: string
+}
+
+/**
+ * Response for an on-demand (`run now`) scout dispatch.
+ *
+ * The run executes asynchronously on the Temporal worker, so there is no `SignalScoutRun`
+ * row yet at response time — the bridge row is created once the run's first turn starts.
+ * Poll the scout's runs (`signals-scout-runs-list`) to see the resulting run and its findings.
+ */
+export interface SignalScoutManualRunApi {
+    /** The `signals-scout-*` skill that was dispatched. */
+    skill_name: string
+    /** Temporal workflow id for the dispatched run. The run executes asynchronously; poll the scout's runs to see the resulting run row, its status, and any emitted findings. */
+    workflow_id: string
+    /** True when a new run was dispatched. The endpoint returns 409 instead when a run for this scout is already in progress. */
+    started: boolean
 }
 
 /**

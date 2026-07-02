@@ -19,6 +19,7 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 from rest_framework.exceptions import ValidationError
 
+from posthog.egress.github.transport import GitHubRateLimitError, raise_if_github_rate_limited
 from posthog.models.github_integration_base import GITHUB_BRANCH_CACHE_TTL_SECONDS, GITHUB_REPOSITORY_CACHE_TTL_SECONDS
 from posthog.models.instance_setting import set_instance_setting
 from posthog.models.integration import (
@@ -32,7 +33,6 @@ from posthog.models.integration import (
     EmailIntegration,
     GitHubIntegration,
     GitHubIntegrationError,
-    GitHubRateLimitError,
     GoogleCloudIntegration,
     GoogleCloudServiceAccountIntegration,
     Integration,
@@ -43,7 +43,6 @@ from posthog.models.integration import (
     S3CredentialIntegrationError,
     SlackIntegration,
     invalidate_github_repository_caches_for_installation,
-    raise_if_github_rate_limited,
 )
 from posthog.models.organization import Organization
 from posthog.models.team.team import Team
@@ -910,8 +909,14 @@ class TestGitHubIntegrationModel(BaseTest):
         _config.update(config or {})
         _sensitive_config.update(sensitive_config or {})
 
+        # Mirror production (integration_from_installation_id): the model integration_id field holds the
+        # GitHub App installation id, which is what egress telemetry keys its gauges on.
         return Integration.objects.create(
-            team=self.team, kind="github", config=_config, sensitive_config=_sensitive_config
+            team=self.team,
+            kind="github",
+            integration_id=(config or {}).get("installation_id"),
+            config=_config,
+            sensitive_config=_sensitive_config,
         )
 
     def mock_github_client_request(
@@ -1117,7 +1122,7 @@ class TestGitHubIntegrationModel(BaseTest):
             ),
         ]
     )
-    @patch("posthog.models.github_integration_base.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     def test_github_api_request_metrics_include_integration_and_rate_limit_headers(
         self,
         _name: str,
@@ -1128,8 +1133,11 @@ class TestGitHubIntegrationModel(BaseTest):
         expected_reset: int | None,
         mock_get,
     ):
+        # Distinct installation id per case: the gauges are keyed by installation_id on a process-global
+        # registry that isn't reset between methods, so a shared id would make the no_headers "== None"
+        # assertion depend on parametrize ordering (another case sets the same (id, "unknown") series).
         integration = self.create_integration(
-            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
+            {"installation_id": f"INSTALL-{_name}", "account": {"name": "PostHog"}},
             {"access_token": "ACCESS_TOKEN"},
         )
         response = MagicMock()
@@ -1138,10 +1146,11 @@ class TestGitHubIntegrationModel(BaseTest):
         mock_get.return_value = response
 
         labels = {
-            "integration_id": str(integration.id),
+            "installation_id": integration.integration_id,
             "method": "GET",
             "endpoint": "/repos/{owner}/{repo}",
             "status_code": "200",
+            "source": "integration",
         }
         previous_count = REGISTRY.get_sample_value("github_integration_api_requests_total", labels) or 0
 
@@ -1155,26 +1164,26 @@ class TestGitHubIntegrationModel(BaseTest):
         assert (
             REGISTRY.get_sample_value(
                 "github_integration_api_rate_limit_remaining",
-                {"integration_id": str(integration.id), "resource": expected_resource},
+                {"installation_id": integration.integration_id, "resource": expected_resource},
             )
             == expected_remaining
         )
         assert (
             REGISTRY.get_sample_value(
                 "github_integration_api_rate_limit_limit",
-                {"integration_id": str(integration.id), "resource": expected_resource},
+                {"installation_id": integration.integration_id, "resource": expected_resource},
             )
             == expected_limit
         )
         assert (
             REGISTRY.get_sample_value(
                 "github_integration_api_rate_limit_reset_timestamp_seconds",
-                {"integration_id": str(integration.id), "resource": expected_resource},
+                {"installation_id": integration.integration_id, "resource": expected_resource},
             )
             == expected_reset
         )
 
-    @patch("posthog.models.github_integration_base.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     def test_github_api_request_metrics_include_request_exceptions(self, mock_get):
         integration = self.create_integration(
             {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
@@ -1183,10 +1192,11 @@ class TestGitHubIntegrationModel(BaseTest):
         mock_get.side_effect = requests.RequestException("network failure")
 
         labels = {
-            "integration_id": str(integration.id),
+            "installation_id": integration.integration_id,
             "method": "GET",
             "endpoint": "/repos/{owner}/{repo}",
             "status_code": "exception",
+            "source": "integration",
         }
         previous_count = REGISTRY.get_sample_value("github_integration_api_requests_total", labels) or 0
 
@@ -1208,10 +1218,11 @@ class TestGitHubIntegrationModel(BaseTest):
         mock_client_request.side_effect = requests.RequestException("network failure")
 
         labels = {
-            "integration_id": str(integration.id),
+            "installation_id": integration.integration_id,
             "method": "POST",
             "endpoint": "/app/installations/{installation_id}/access_tokens",
             "status_code": "exception",
+            "source": "integration",
         }
         previous_count = REGISTRY.get_sample_value("github_integration_api_requests_total", labels) or 0
 
@@ -1291,7 +1302,7 @@ class TestGitHubIntegrationModel(BaseTest):
         integration.refresh_from_db()
         assert integration.errors == ""
 
-    @patch("posthog.models.github_integration_base.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
     def test_list_repositories_retries_transient_non_json_response(self, _mock_expired, mock_get):
         integration = self.create_integration(
@@ -1323,7 +1334,7 @@ class TestGitHubIntegrationModel(BaseTest):
         assert has_more is False
         assert mock_get.call_count == 2
 
-    @patch("posthog.models.github_integration_base.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
     def test_list_repositories_raises_after_repeated_transient_non_json(self, _mock_expired, mock_get):
         integration = self.create_integration(
@@ -1346,7 +1357,7 @@ class TestGitHubIntegrationModel(BaseTest):
 
         assert mock_get.call_count == 2
 
-    @patch("posthog.models.github_integration_base.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
     def test_list_all_repositories_raises_when_later_page_fails(self, _mock_expired, mock_get):
         integration = self.create_integration(
@@ -1910,8 +1921,13 @@ class TestGitHubIntegrationModel(BaseTest):
 
     # --- exception hierarchy ---
 
-    def test_github_rate_limit_error_is_integration_error(self):
-        assert isinstance(GitHubRateLimitError("test"), GitHubIntegrationError)
+    def test_github_rate_limit_error_is_egress_error_not_fatal_integration_error(self):
+        # Deliberately NOT a GitHubIntegrationError: a transient rate limit is retryable, not a fatal
+        # integration failure, and it lives in the egress layer. Backoff filters key off these fields.
+        err = GitHubRateLimitError("test", retry_after=45)
+        assert not isinstance(err, GitHubIntegrationError)
+        assert err.is_rate_limit is True
+        assert err.retry_after_seconds == 45.0
 
     # --- get_access_token ---
 
@@ -1965,7 +1981,7 @@ class TestGitHubIntegrationGhApiGet(BaseTest):
             sensitive_config={"access_token": "ACCESS_TOKEN"},
         )
 
-    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
     def test_returns_parsed_json_body(self, _mock_expired, mock_get):
         ok = MagicMock()
@@ -1977,7 +1993,7 @@ class TestGitHubIntegrationGhApiGet(BaseTest):
         body = GitHubIntegration(integration)._gh_api_get("/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}")
         assert body == {"default_branch": "main"}
 
-    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
     def test_retries_once_on_transient_5xx(self, _mock_expired, mock_get):
         transient = MagicMock()
@@ -1993,7 +2009,7 @@ class TestGitHubIntegrationGhApiGet(BaseTest):
         assert body == {"ok": True}
         assert mock_get.call_count == 2
 
-    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
     def test_raises_rate_limit_error_on_secondary_limit(self, _mock_expired, mock_get):
         resp = MagicMock()
@@ -2008,7 +2024,7 @@ class TestGitHubIntegrationGhApiGet(BaseTest):
         assert excinfo.value.is_rate_limit is True
         assert excinfo.value.retry_after_seconds == 5.0
 
-    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
     def test_detects_secondary_limit_from_body_when_headers_missing(self, _mock_expired, mock_get):
         resp = MagicMock()
@@ -2024,7 +2040,7 @@ class TestGitHubIntegrationGhApiGet(BaseTest):
         assert excinfo.value.is_rate_limit is True
         assert excinfo.value.retry_after_seconds == 60.0
 
-    @patch("posthog.models.integration.requests.get")
+    @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.GitHubIntegration.refresh_access_token")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
     def test_refreshes_token_on_401(self, _mock_expired, mock_refresh, mock_get):

@@ -442,6 +442,9 @@ tools:
     organizations-projects-settings-as-of-retrieve:
         operation: organizations_projects_settings_as_of_retrieve
         enabled: false
+    product-enablement-create:
+        operation: product_enablement_create
+        enabled: false
     project-get:
         operation: organizations_projects_retrieve
         enabled: true
@@ -453,10 +456,12 @@ tools:
             idempotent: true
         title: Get project
         description: |
-            Retrieve a project and its settings. Pass `@current` as the ID to fetch the caller's active project.
+            Retrieve a project and its settings. Omit the ID to get the caller's active project.
         param_overrides:
             id:
-                description: Project ID, or `@current` to fetch the caller's active project.
+                description: Project ID. If omitted, returns the caller's active project.
+                optional: true
+                fallback: projectId
                 cast: string-int
         response:
             exclude:
