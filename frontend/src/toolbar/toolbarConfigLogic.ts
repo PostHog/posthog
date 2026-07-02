@@ -15,6 +15,7 @@ import {
     OAUTH_LOCALSTORAGE_KEY,
     PKCE_STORAGE_KEY,
     readToolbarAuthHash,
+    safeFetch,
 } from './utils'
 
 export type ApiHostSource = 'posthog_api_host' | 'api_url' | 'fallback_rejected' | 'fallback_absent'
@@ -635,7 +636,10 @@ function verifyUiHostReachability(
     }
 
     const checkStart = Date.now()
-    void fetch(`${values.uiHost}/toolbar_oauth/check`, {
+    // Route through safeFetch (not raw fetch) so a customer-page `window.fetch` shim that
+    // throws synchronously surfaces as a rejected promise this .catch can handle, rather
+    // than escaping afterMount as an unhandled exception.
+    void safeFetch(`${values.uiHost}/toolbar_oauth/check`, {
         method: 'HEAD',
         mode: 'cors',
         signal: AbortSignal.timeout(5000),
@@ -657,13 +661,26 @@ function verifyUiHostReachability(
         })
         .catch((error: unknown) => {
             actions.setAuthStatus('error')
-            captureToolbarException(error, 'ui_host_check', {
-                error_type: classifyFetchError(error),
-            })
+            const errorType = classifyFetchError(error)
+            // A timeout or network/CORS rejection here is expected browser-level noise
+            // (offline, ad blocker, strict CSP, CORS-blocked HEAD). It doesn't indicate a
+            // toolbar bug, so keep it out of error tracking — the `toolbar ui host check`
+            // analytics event below still records every failure for monitoring. Only
+            // genuinely unexpected failures are promoted to exceptions.
+            if (errorType !== 'network_or_cors' && errorType !== 'timeout') {
+                captureToolbarException(error, 'ui_host_check', {
+                    error_type: errorType,
+                })
+            } else {
+                toolbarLogger.warn('config', 'uiHost reachability check failed', {
+                    ui_host: values.uiHost,
+                    error_type: errorType,
+                })
+            }
             toolbarPosthogJS.capture('toolbar ui host check', {
                 ...checkBaseProps,
                 status: 'error',
-                error_type: classifyFetchError(error),
+                error_type: errorType,
                 duration_ms: Date.now() - checkStart,
             })
 

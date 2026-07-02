@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { canonicalizeApiHost, canonicalizeUiHost, toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarFetch, toolbarUploadMedia } from '~/toolbar/toolbarFetch'
+import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 // The toolbar calls `global.fetch` directly (not the app api client / MSW). Reassign the mock per
@@ -344,6 +345,44 @@ describe('toolbar toolbarConfigLogic', () => {
             logic.mount()
             expect(logic.values.authStatus).toBe('checking')
             window.history.pushState({}, '', '/')
+        })
+    })
+
+    describe('reachability check error reporting', () => {
+        let captureExceptionSpy: jest.SpyInstance
+
+        beforeEach(() => {
+            captureExceptionSpy = jest.spyOn(toolbarPosthogJS, 'captureException').mockReturnValue(undefined as any)
+        })
+
+        afterEach(() => {
+            captureExceptionSpy.mockRestore()
+        })
+
+        it('does not report transient network/CORS failures to error tracking', async () => {
+            // A raw "Failed to fetch" is browser-level noise (offline, ad blocker, CORS
+            // block) — it must flip authStatus to error but must NOT be promoted into an
+            // error-tracking issue.
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.reject(new TypeError('Failed to fetch')))
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+            expect(captureExceptionSpy).not.toHaveBeenCalled()
+        })
+
+        it('reports unexpected (non-network) reachability failures to error tracking', async () => {
+            // A reachable host returning a non-2xx status is a genuine misconfiguration,
+            // not transient noise, so it should still surface as an exception.
+            ;(global.fetch as jest.Mock).mockImplementation(() => Promise.resolve({ ok: false, status: 500 }))
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+            expect(captureExceptionSpy).toHaveBeenCalledWith(
+                expect.anything(),
+                expect.objectContaining({ toolbar_context: 'ui_host_check', error_type: 'http_error' })
+            )
         })
     })
 
