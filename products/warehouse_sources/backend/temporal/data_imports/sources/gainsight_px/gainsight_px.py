@@ -101,7 +101,9 @@ def validate_credentials(api_key: str, region: str) -> bool:
         session = make_tracked_session(retry=Retry(total=0), redact_values=(api_key,))
         response = session.get(url, headers=_get_headers(api_key), timeout=REQUEST_TIMEOUT_SECONDS)
         return response.status_code == 200
-    except Exception:
+    except (requests.ConnectionError, requests.Timeout):
+        # Only transient network failures should read as "invalid credentials"; programming errors
+        # (TypeError, AttributeError, …) must surface rather than being masked as a bad key.
         return False
 
 

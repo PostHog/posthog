@@ -1,4 +1,4 @@
-from typing import Optional, cast
+from typing import cast
 
 from posthog.schema import (
     DataWarehouseSourceCategory,
@@ -55,7 +55,7 @@ class GainsightPxSource(ResumableSource[GainsightPxSourceConfig, GainsightPxResu
         }
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_px.canonical_descriptions import (
+        from products.warehouse_sources.backend.temporal.data_imports.sources.gainsight_px.canonical_descriptions import (  # noqa: PLC0415
             CANONICAL_DESCRIPTIONS,
         )
 
@@ -89,7 +89,7 @@ class GainsightPxSource(ResumableSource[GainsightPxSourceConfig, GainsightPxResu
         return schemas
 
     def validate_credentials(
-        self, config: GainsightPxSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self, config: GainsightPxSourceConfig, team_id: int, schema_name: str | None = None
     ) -> tuple[bool, str | None]:
         if validate_gainsight_px_credentials(config.api_key, config.region):
             return True, None
