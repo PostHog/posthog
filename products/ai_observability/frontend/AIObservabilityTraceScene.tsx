@@ -1501,7 +1501,11 @@ const EventContent = React.memo(
         return (
             <div className="flex-1 min-h-0 md:min-w-0 bg-surface-primary border rounded flex flex-col border-primary p-4 overflow-y-auto">
                 {!event ? (
-                    <InsightEmptyState heading="Event not found" detail="Check if the event ID is correct." />
+                    <InsightEmptyState
+                        heading="Event not found"
+                        detail="Check if the event ID is correct."
+                        sampleDataVariant="table"
+                    />
                 ) : (
                     <>
                         <header className="deprecated-space-y-2">

@@ -138,6 +138,11 @@ def handle_pull_request_event(payload: dict) -> HttpResponse:
     _capture_pr_event(payload, task_run, analytics_event, event_uuid)
 
     if task_run and action == "closed" and merged:
+        # Only trust the merge for runs that already claim this PR URL, or webhook matches from a
+        # branch in the installed repo itself (same fork-PR caveat as the pr_url backstop above).
+        run_output = task_run.output if isinstance(task_run.output, dict) else {}
+        if run_output.get("pr_url") == pr_url or is_internal_branch:
+            _record_run_pr_merged(task_run)
         _resolve_signal_reports_for_task(task_run.task_id, pr_url)
 
     return HttpResponse(status=200)
@@ -150,23 +155,41 @@ def _record_run_pr_url(task_run: TaskRun, pr_url: str) -> None:
     the PR. When that detection misses, a branch+repo webhook match is the
     backstop — without this the run is recognized for analytics but its
     ``output.pr_url`` stays empty, so inbox notifications, the CI follow-up loop,
-    and later webhook lookups never resolve the PR. Tolerant: a failure here must
-    not fail the webhook (GitHub retries 5xx, and the event is already handled).
+    and later webhook lookups never resolve the PR.
     """
-    if isinstance(task_run.output, dict) and task_run.output.get("pr_url"):
+    _record_run_output_field(task_run, "pr_url", pr_url, "github_pr_webhook_record_pr_url_failed")
+
+
+def _record_run_pr_merged(task_run: TaskRun) -> None:
+    """Persist ``output.pr_merged`` when the run's PR is merged.
+
+    Surfaces that gate on merge state (e.g. the pre-ingestion sample-data placeholder pointing at
+    the wizard's setup PR) read it off the run's ``output``, which is the only PR state the task
+    APIs expose.
+    """
+    _record_run_output_field(task_run, "pr_merged", True, "github_pr_webhook_record_pr_merged_failed")
+
+
+def _record_run_output_field(task_run: TaskRun, key: str, value: str | bool, failure_log_event: str) -> None:
+    """Idempotently merge ``{key: value}`` into a run's ``output`` JSON under a row lock.
+
+    Tolerant: a failure here must not fail the webhook (GitHub retries 5xx, and the event is
+    already handled).
+    """
+    if isinstance(task_run.output, dict) and task_run.output.get(key):
         return
     try:
         with transaction.atomic():
             locked = TaskRun.objects.select_for_update().get(id=task_run.id)
             output = locked.output if isinstance(locked.output, dict) else {}
-            if output.get("pr_url"):
+            if output.get(key):
                 return
-            locked.output = {**output, "pr_url": pr_url}
+            locked.output = {**output, key: value}
             locked.save(update_fields=["output", "updated_at"])
         # Keep the in-memory instance consistent for the rest of this request.
-        task_run.output = {**(task_run.output if isinstance(task_run.output, dict) else {}), "pr_url": pr_url}
+        task_run.output = locked.output
     except Exception:
-        logger.warning("github_pr_webhook_record_pr_url_failed", run_id=str(task_run.id), exc_info=True)
+        logger.warning(failure_log_event, run_id=str(task_run.id), exc_info=True)
 
 
 # Nulled on external PRs so their schema matches task-originated PR events.
