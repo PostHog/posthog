@@ -1,3 +1,4 @@
+{% if js_url %}<link rel="preconnect" href="{{ js_url }}" crossorigin>{% endif %}
 <title>PostHog</title>
 <meta name="viewport" content="width=device-width, initial-scale=1">
 <meta charset="utf-8">
@@ -16,21 +17,25 @@
 <meta name="apple-mobile-web-app-title" content="PostHog">
 <meta name="application-name" content="PostHog">
 
-{# Critical CSS + resource hints — NO inline scripts so browser discovers preloads immediately #}
+{# Critical CSS + resource hints. No inline scripts here, so the browser discovers preloads immediately #}
 <style>
     html,body,#root{height:100%;margin:0;padding:0}
     body{background:#eeefe9;font-family:Inter,-apple-system,BlinkMacSystemFont,Segoe UI,Roboto,Helvetica Neue,Arial,sans-serif;color:#2c2c2c;font-size:14px;line-height:1.4}
     *,:after,:before{box-sizing:border-box}
-    .Spinner{display:flex;align-items:center;justify-content:center;height:100%;min-height:200px;width:100%}
-    .Spinner__inner{width:32px;height:32px;border:3px solid #d0d1c9;border-top-color:#1d4aff;border-radius:50%;animation:spin .6s linear infinite}
-    @keyframes spin{to{transform:rotate(360deg)}}
+    .Preloader{display:flex;align-items:center;justify-content:center;height:100%;min-height:200px;width:100%}
+    .Preloader__inner{width:25px;height:25px;border:5px solid rgba(245,78,0,.333);border-top-color:#f54e00;border-radius:50%;animation:preloader-spin 1s linear infinite}
+    @keyframes preloader-spin{to{transform:rotate(360deg)}}
 </style>
-{% if vite_css_url %}
-    <link rel="preload" href="{{ js_url }}/{{ vite_css_url }}" as="style">
-    <link rel="stylesheet" href="{{ js_url }}/{{ vite_css_url }}">
+{% if preload_font_url %}
+    <link rel="preload" href="{{ js_url }}/{{ preload_font_url }}" as="font" type="font/woff2" crossorigin>
 {% endif %}
-{% if vite_js_url %}
-    {% for url in vite_js_url %}
+{% if preload_css_url %}
+    {# crossorigin matches the runtime loader's fetch mode so the browser reuses one response #}
+    <link rel="preload" href="{{ js_url }}/{{ preload_css_url }}" as="style" crossorigin="anonymous">
+    <link rel="stylesheet" href="{{ js_url }}/{{ preload_css_url }}" crossorigin="anonymous">
+{% endif %}
+{% if preload_js_urls %}
+    {% for url in preload_js_urls %}
     <link rel="modulepreload" href="{{ js_url }}/{{ url }}">
     {% endfor %}
 {% endif %}

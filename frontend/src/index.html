@@ -34,8 +34,8 @@
         </script>
         <div id="root"></div>
 
-        {# Deferred inline scripts — data is only needed after React mounts #} {% if not opt_out_capture and
-        js_posthog_api_key %}
+        {# These inline scripts sit after #root because their data is only needed once React mounts #}
+        {% if not opt_out_capture and js_posthog_api_key %}
         <script nonce="{{ request.csp_nonce }}">
             window.JS_POSTHOG_API_KEY = "{{ js_posthog_api_key|escapejs }}";
             window.JS_POSTHOG_HOST = "{{ js_posthog_host|escapejs }}";
@@ -58,8 +58,11 @@
         </script>
         {% endif %}
         <script nonce="{{ request.csp_nonce }}">
+            {# nosemgrep: generic.html-templates.security.var-in-script-tag.var-in-script-tag #}
             window.POSTHOG_APP_CONTEXT = JSON.parse("{{ posthog_app_context | escapejs }}");
+            {# nosemgrep: generic.html-templates.security.var-in-script-tag.var-in-script-tag #}
             window.JS_URL = "{{ js_url|default:"" }}";
+            {# nosemgrep: generic.html-templates.security.var-in-script-tag.var-in-script-tag (yesno filter produces literal strings) #}
             window.JS_CAPTURE_TIME_TO_SEE_DATA = {{js_capture_time_to_see_data | yesno:"true,false"}};
         </script>
     </body>

@@ -403,60 +403,99 @@ def get_js_url(request: HttpRequest) -> str:
     return settings.JS_URL
 
 
-def _resolve_vite_entry_assets() -> tuple[str, list[str]]:
-    """
-    Read the Vite production manifest and return (css_url, [js_preload_urls]) for preloading.
-    Returns empty strings/lists in debug/dev mode or if the manifest doesn't exist.
-    """
-    import os
+_VITE_PRELOAD_MIN_CHUNK_BYTES = 50 * 1024
 
-    from django.conf import settings
 
+def _collect_chunk_preloads(manifest: dict, chunk_src: str, dist_dir: str, js_urls: list[str]) -> None:
+    """Append a chunk's file plus its heavy static imports to js_urls (deduplicated)."""
+    chunk = manifest.get(chunk_src)
+    if not chunk:
+        return
+    if chunk["file"] not in js_urls:
+        js_urls.append(chunk["file"])
+    for imp_src in chunk.get("imports", []):
+        imp_entry = manifest.get(imp_src)
+        if not imp_entry:
+            continue
+        imp_file = imp_entry["file"]
+        imp_path = os.path.join(dist_dir, imp_file)
+        if (
+            imp_file not in js_urls
+            and os.path.isfile(imp_path)
+            and os.path.getsize(imp_path) > _VITE_PRELOAD_MIN_CHUNK_BYTES
+        ):
+            js_urls.append(imp_file)
+
+
+@lru_cache(maxsize=2)
+def _resolve_entry_assets(include_authenticated_shell: bool) -> tuple[str, list[str], str]:
+    """
+    Return (css_url, [js_preload_urls], font_url) for <head> preload tags, relative to JS_URL.
+    Preloading lets the browser fetch the boot chain (entry -> App -> AuthenticatedShell chunks,
+    the CSS bundle, and the Inter font, which is otherwise discovered only once the CSS is parsed)
+    in parallel instead of as a waterfall.
+
+    Reads the esbuild preload manifest (production; see writePreloadManifest in frontend/build.mjs),
+    falling back to the Vite manifest for Vite builds. Returns empty values in debug/dev mode or
+    if no manifest exists. Cached per process: manifests are immutable for the lifetime of a deploy.
+    """
     if settings.DEBUG:
-        return ("", [])
+        return ("", [], "")
 
-    MANIFEST_PATH = os.path.join(settings.BASE_DIR, "frontend", "dist", ".vite", "manifest.json")
-    ENTRY_SRC = "src/index.tsx"
+    dist_dir = os.path.join(settings.BASE_DIR, "frontend", "dist")
+
+    # esbuild path (production): dist/preload-manifest.json
+    preload_manifest_path = os.path.join(dist_dir, "preload-manifest.json")
     try:
-        if not os.path.isfile(MANIFEST_PATH):
-            return ("", [])
-        with open(MANIFEST_PATH) as f:
-            import json
+        if os.path.isfile(preload_manifest_path):
+            with open(preload_manifest_path) as f:
+                preload_manifest = json.load(f)
+            js_urls = list(preload_manifest.get("js", []))
+            if include_authenticated_shell:
+                js_urls += [url for url in preload_manifest.get("authenticatedJs", []) if url not in js_urls]
+            return (preload_manifest.get("css", ""), js_urls, preload_manifest.get("font", ""))
+    except Exception:
+        return ("", [], "")
 
+    # Vite fallback: dist/.vite/manifest.json
+    manifest_path = os.path.join(dist_dir, ".vite", "manifest.json")
+    try:
+        if not os.path.isfile(manifest_path):
+            return ("", [], "")
+        with open(manifest_path) as f:
             manifest = json.load(f)
-        entry = manifest.get(ENTRY_SRC)
+        entry = manifest.get("src/index.tsx")
         if not entry:
-            return ("", [])
-        # CSS: find it among the entry's static imports
+            return ("", [], "")
+        # CSS: on the entry itself, or failing that among its static imports
         css_url = ""
-        for imp_src in entry.get("imports", []):
-            imp_entry = manifest.get(imp_src)
-            if imp_entry and imp_entry.get("css"):
-                css_list = imp_entry["css"]
-                if css_list:
-                    css_url = css_list[0]
+        if entry.get("css"):
+            css_url = entry["css"][0]
+        else:
+            for imp_src in entry.get("imports", []):
+                imp_entry = manifest.get(imp_src)
+                if imp_entry and imp_entry.get("css"):
+                    css_url = imp_entry["css"][0]
                     break
-        # JS preloads: the App chunk (first dynamic import) + its heavy static imports
+        # JS preloads: the App chunk (the entry's dynamic import) + its heavy static imports
         js_urls: list[str] = []
         for dimp_src in entry.get("dynamicImports", []):
-            dimp_entry = manifest.get(dimp_src)
-            if dimp_entry:
-                app_file = dimp_entry["file"]
-                js_urls.append(app_file)
-                # Also preload heavy static imports of the App chunk (>50KB)
-                for app_imp in dimp_entry.get("imports", []):
-                    app_imp_entry = manifest.get(app_imp)
-                    if app_imp_entry:
-                        imp_file = app_imp_entry["file"]
-                        imp_path = os.path.join(os.path.dirname(MANIFEST_PATH), "..", imp_file)
-                        if os.path.isfile(imp_path) and os.path.getsize(imp_path) > 50 * 1024:
-                            if imp_file not in js_urls:
-                                js_urls.append(imp_file)
+            _collect_chunk_preloads(manifest, dimp_src, dist_dir, js_urls)
+            break
+        if include_authenticated_shell:
+            _collect_chunk_preloads(manifest, "src/scenes/AuthenticatedShell.tsx", dist_dir, js_urls)
+        # Inter woff2 gets a hashed URL via the CSS asset pipeline, so find it in the manifest
+        font_url = ""
+        for manifest_entry in manifest.values():
+            for asset in manifest_entry.get("assets", []):
+                if "Inter" in asset and asset.endswith(".woff2"):
+                    font_url = asset
+                    break
+            if font_url:
                 break
-        return (css_url, js_urls)
+        return (css_url, js_urls, font_url)
     except Exception:
-        return ("", [])
-    return ("", [])
+        return ("", [], "")
 
 
 @tracer.start_as_current_span("template.context")
@@ -683,9 +722,9 @@ def _build_template_context(
 
     context["posthog_js_uuid_version"] = settings.POSTHOG_JS_UUID_VERSION
 
-    # Resolve the production CSS URL from the Vite manifest for CSS preloading
-    # This lets the browser discover and start loading CSS before JS finishes parsing
-    context["vite_css_url"], context["vite_js_url"] = _resolve_vite_entry_assets()
+    context["preload_css_url"], context["preload_js_urls"], context["preload_font_url"] = _resolve_entry_assets(
+        bool(request.user and request.user.is_authenticated)
+    )
 
     if posthog_distinct_id:
         from posthog.models.instance_setting import get_instance_setting

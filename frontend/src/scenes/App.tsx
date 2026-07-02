@@ -32,12 +32,9 @@ window.process = MOCK_NODE_PROCESS
 
 // Kea must initialize synchronously before any component mounts
 initKea()
-// PostHog self-capture initialization deferred to microtask — posthog-js singleton is
-// already importable, and init() just configures it. Deferring lets the App chunk
-// evaluate faster and React start rendering before posthog-js network calls complete.
+// Deferred to a microtask so React starts rendering before posthog-js issues network calls
 queueMicrotask(loadPostHogJS)
 
-// Deferred idle work — pre-warm decompression workers, polyfill emoji flags, etc.
 const idle =
     typeof window !== 'undefined' && typeof window.requestIdleCallback === 'function'
         ? window.requestIdleCallback.bind(window)
@@ -49,13 +46,9 @@ idle(() => {
         .catch(() => {})
 
     // On Chrome + Windows, the country flag emojis don't render correctly. This polyfill fixes that.
-    try {
-        void import('country-flag-emoji-polyfill').then(({ polyfillCountryFlagEmojis }) =>
-            polyfillCountryFlagEmojis('Emoji Flags Polyfill')
-        )
-    } catch {
-        /* best-effort polyfill */
-    }
+    void import('country-flag-emoji-polyfill')
+        .then(({ polyfillCountryFlagEmojis }) => polyfillCountryFlagEmojis('Emoji Flags Polyfill'))
+        .catch(() => {})
 })
 
 /**
@@ -76,7 +69,7 @@ function SceneAnimationRoot({ children }: { children: React.ReactNode }): JSX.El
     )
 }
 
-/** Lazy-loaded Kea devtools panel — only rendered in dev mode with dev tools open */
+/** Lazy-loaded Kea devtools panel, only rendered in dev mode with dev tools open */
 function KeaDevtoolsLoader(): JSX.Element | null {
     const [DevTools, setDevTools] = React.useState<React.ComponentType | null>(null)
     React.useEffect(() => {
