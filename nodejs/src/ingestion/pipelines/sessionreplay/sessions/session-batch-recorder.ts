@@ -225,21 +225,14 @@ export class SessionBatchRecorder {
         return this.ackMessage(message, bytesWritten)
     }
 
-    private ignoreMessage(message: MessageWithTeam): 0 {
-        this.offsetManager.trackOffset({
-            partition: message.message.metadata.partition,
-            offset: message.message.metadata.offset,
-        })
+    private ignoreMessage(_message: MessageWithTeam): 0 {
+        // Offsets are tracked once per batch from the pipeline results, not here — see
+        // {@link runSessionReplayPipeline} and {@link SessionBatchManager.trackProcessedOffsets}.
         return 0
     }
 
     private ackMessage(message: MessageWithTeam, bytesWritten: number): number {
         const { partition } = message.message.metadata
-
-        this.offsetManager.trackOffset({
-            partition: message.message.metadata.partition,
-            offset: message.message.metadata.offset,
-        })
 
         logger.debug('🔁', 'session_batch_recorder_recorded_message', {
             partition,
