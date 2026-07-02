@@ -733,6 +733,34 @@ describe('sqlLineGraphAdapter', () => {
             })
             expect(config.trendLines?.length).toBeGreaterThan(0)
         })
+
+        it('skips trend lines for percent-stacked bars, where they would render off-scale', () => {
+            const ySeriesData = [ySeries('a', [1, 2], { display: { trendLine: true } })]
+            const config = buildBarChartConfig({
+                xData: dateXData,
+                chartSettings: { stackBars100: true },
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsStackedBar,
+                ySeriesData,
+            })
+            expect(config.trendLines).toEqual([])
+        })
+
+        it('emits a per-axis array with forceLinear threaded through both gutters when a series targets the right axis', () => {
+            const ySeriesData = [ySeries('a', [1, 2]), ySeries('b', [3, 4], { display: { yAxisPosition: 'right' } })]
+            const config = buildBarChartConfig({
+                xData: dateXData,
+                chartSettings: { stackBars100: true, leftYAxisSettings: { scale: 'logarithmic' } },
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsStackedBar,
+                ySeriesData,
+            })
+            // forceLinear (percent layout) overrides the logarithmic setting on both gutters.
+            expect(config.yAxis).toMatchObject([
+                { id: 'left', position: 'left', scale: 'linear' },
+                { id: 'right', position: 'right', scale: 'linear' },
+            ])
+        })
     })
 
     describe('buildComboChartConfig', () => {
@@ -790,6 +818,21 @@ describe('sqlLineGraphAdapter', () => {
                 visualizationType: ChartDisplayType.ActionsBar,
             })
             expect(config.yAxis).toEqual({ label: 'Combo Left', scale: 'log', showGrid: false, hide: false })
+        })
+
+        it('emits a per-axis array when a series targets the right axis', () => {
+            const ySeriesData = [ySeries('a', [1, 2]), ySeries('b', [3, 4], { display: { yAxisPosition: 'right' } })]
+            const config = buildComboChartConfig({
+                xData: dateXData,
+                chartSettings: {},
+                timezone: 'UTC',
+                visualizationType: ChartDisplayType.ActionsBar,
+                ySeriesData,
+            })
+            expect(config.yAxis).toMatchObject([
+                { id: 'left', position: 'left' },
+                { id: 'right', position: 'right' },
+            ])
         })
     })
 })

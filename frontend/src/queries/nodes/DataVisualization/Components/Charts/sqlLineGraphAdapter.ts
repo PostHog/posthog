@@ -449,7 +449,9 @@ export function buildBarChartConfig({
                   }),
         goalLines: schemaGoalLinesToConfigs(goalLines),
         barLayout,
-        trendLines: buildTrendLineConfigs(ySeriesData),
+        // Percent bars scale against a [0, 1] domain; trend lines plot raw series values, so they'd
+        // render off-scale and invisible.
+        trendLines: barLayout === 'percent' ? [] : buildTrendLineConfigs(ySeriesData),
         legend: buildLegendConfig(chartSettings),
         valueLabels: buildValueLabelsConfig(chartSettings, ySeriesData),
         tooltip: { enabled: true, pinnable: true, placement: 'cursor', ...(labelFormatter ? { labelFormatter } : {}) },
