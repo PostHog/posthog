@@ -151,7 +151,7 @@ export const improveFromLabelsLogic = kea<improveFromLabelsLogicType>([
 ])
 
 /**
- * Scanner-level "Improve prompt from labeled sessions" entry point: gathers the sessions the user labeled
+ * Scanner-level "Improve scanner prompt" entry point: gathers the sessions the user labeled
  * and hands them, with the current prompt, to PostHog AI.
  */
 export function ImproveFromLabelsButton({
@@ -179,10 +179,11 @@ export function ImproveFromLabelsButton({
             size="small"
             icon={<IconAI />}
             loading={improving}
+            tooltip="Gathers the sessions your team labeled (correct ones to keep passing, incorrect ones with their feedback) and asks PostHog AI to rewrite this scanner's prompt"
             onClick={() => improveFromLabels(scannerName, scannerType, prompt)}
             data-attr="replay-vision-improve-from-labels"
         >
-            Improve prompt from labeled sessions
+            Improve scanner prompt
         </LemonButton>
     )
 }
