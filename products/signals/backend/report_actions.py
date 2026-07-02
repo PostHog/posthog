@@ -7,7 +7,6 @@ import logging
 from django.db import transaction
 
 from products.signals.backend.artefact_schemas import Dismissal
-from products.signals.backend.implementation_pr import close_implementation_pr_for_report
 from products.signals.backend.models import (
     ArtefactAttribution,
     InvalidStatusTransition,
@@ -61,9 +60,6 @@ def suppress_report_from_slack(
             content=Dismissal(reason="slack_dismiss", slack_user_id=slack_user_id),
             attribution=attribution,
         )
-
-    # Comment on and close the linked implementation PR only after the suppression commits — a
-    # dismissed report means the fix isn't wanted. Deferred past the atomic block because it's an
-    # irreversible external side effect; kept best-effort so a GitHub failure never undoes the dismiss.
-    close_implementation_pr_for_report(team_id, str(report_id))
+    # The linked implementation PR is closed by the post_save receiver on the transition into
+    # SUPPRESSED (see receivers.close_pr_when_report_dismissed) — no per-caller call needed here.
     return True
