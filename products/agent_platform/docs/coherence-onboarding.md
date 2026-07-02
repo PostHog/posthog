@@ -70,24 +70,7 @@ feature: a `boundary` claim welds a declared **invariant** → a **chokepoint sy
 Reach for it when a correctness commitment must *stay* enforced under future edits, not for
 one-off bugs.
 
-Practical guide to the `coherence-harness` ([daniloc/coherence](https://github.com/daniloc/coherence))
-in this repo. The upstream README covers the concepts; this front-loads the
-**traps that will bite you** and the **validation discipline that makes it worth
-anything** — both learned by actually running it, not reading it.
-
-**Status here:** evaluated as a spike (see
-[proposals/coherence-adoption-step-1.md](proposals/coherence-adoption-step-1.md)).
-The harness is not yet wired into CI or committed as a dependency; it was built
-standalone and pointed at `products/agent_platform/services/agent-shared`.
-
-## What it is / when to reach for it
-
-A zero-dependency Node CLI that derives a graph from a `*.spec.md` tree + the
-code, then **verifies the docs/claims haven't rotted**. Its one load-bearing
-feature: a `boundary` claim ties a declared **invariant** → a **chokepoint
-symbol** → a **totality oracle test**, and fails the build if the oracle is
-renamed, deleted, or missing. Reach for it when you have a security/correctness
-commitment you need to _stay_ enforced under future edits — not for one-off bugs.
+### Claim grammar (the part to get right)
 
 Each claim in a spec's `## works when` list is verified at one tier:
 
@@ -132,7 +115,7 @@ benign edits (false alarms), and score which go red.
 ## Setup and the local gate
 
 ```sh
-git clone --branch v0.5.3 https://github.com/daniloc/coherence.git /tmp/coherence
+git clone --branch v0.6.0 https://github.com/daniloc/coherence.git /tmp/coherence
 cd /tmp/coherence && npm install && npm run build   # → dist/cli.js (Node ≥22, zero runtime deps)
 ```
 
