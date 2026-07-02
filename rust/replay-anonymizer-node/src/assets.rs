@@ -50,12 +50,15 @@ pub fn blur_inline_image_attr(ctx: &Ctx<'_>, attrs: &mut Object, name: &str) -> 
 }
 
 /// Replace a media element's source attrs with the blurred image (data URIs) or placeholder (remote
-/// URLs, whose scrubbed original is stashed under a namespaced attr).
-pub fn apply_blur(ctx: &Ctx<'_>, attrs: &mut Object) {
+/// URLs, whose scrubbed original is stashed under a namespaced attr). Returns whether it changed any
+/// attribute — a media tag with no source attrs (e.g. a bare `<img>`) is left untouched.
+pub fn apply_blur(ctx: &Ctx<'_>, attrs: &mut Object) -> bool {
+    let mut acted = false;
     for key in MEDIA_SRC_ATTRS {
         let Some(existing) = attrs.get(*key).and_then(as_str).map(str::to_string) else {
             continue;
         };
+        acted = true;
         if is_image_data_uri(&existing) {
             let blurred = ctx
                 .blur_data_uri(&existing)
@@ -75,4 +78,5 @@ pub fn apply_blur(ctx: &Ctx<'_>, attrs: &mut Object) {
             );
         }
     }
+    acted
 }

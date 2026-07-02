@@ -225,8 +225,7 @@ fn scrub_attrs(ctx: &Ctx<'_>, attrs: &mut Object, kind: TagKind) -> bool {
     }
 
     if kind == TagKind::Media {
-        apply_blur(ctx, attrs);
-        changed = true;
+        changed |= apply_blur(ctx, attrs);
     }
 
     changed
@@ -322,6 +321,20 @@ mod tests {
         assert!(
             scrubbed.contains("url(data:image/png"),
             "replaced with a data image: {scrubbed}"
+        );
+    }
+
+    #[test]
+    fn media_tag_without_source_attrs_is_not_marked_changed() {
+        // A bare <img> (media tag, but no src/href/etc. to blur) must report "unchanged" so the whole
+        // message isn't needlessly re-serialized just because a media element was present.
+        let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+        let ctx = Ctx::new(&allow);
+        let mut bytes = br#"{"node":{"type":0,"childNodes":[{"type":2,"tagName":"img","attributes":{"class":"logo"},"childNodes":[]}]},"initialOffset":{"top":0,"left":0}}"#.to_vec();
+        let mut data = simd_json::to_owned_value(&mut bytes).unwrap();
+        assert!(
+            !scrub_full_snapshot(&ctx, &mut data),
+            "a media tag with nothing to blur should not count as a change"
         );
     }
 }

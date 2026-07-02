@@ -79,6 +79,9 @@ describe('anonymize shared fixtures', () => {
     const describeAddon = rustAddon ? describe : describe.skip
     describeAddon('native rust addon matches the shared fixtures', () => {
         test.each(eventCases.map((c) => [c.name, c] as const))('event: %s', async (_name, c) => {
+            // The addon holds one process-global allow list (set once in prod, mirroring cyclotron's
+            // initManager). Re-initing per case is safe only because Jest runs this file with
+            // --runInBand: cases are sequential, so no case observes another's allow list.
             rustAddon!.initAnonymizer(c.allow)
             const result = await rustAddon!.anonymize(JSON.stringify({ w: [c.event] }))
             expect(result.failed).toBe(false)
