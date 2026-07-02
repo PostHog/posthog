@@ -13,9 +13,15 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
 
     Algorithm Overview:
     ──────────────────
-    This optimizer makes two top-down passes through the query tree: the first only collects
-    demands, the second prunes with the complete demand set. A CTE can be consumed by nodes
-    visited after it — notably sibling UNION branches — so pruning must wait for the full walk.
+    This optimizer walks the query tree in collect-only passes until the demand sets stop
+    growing, then makes one final pass that prunes with the complete demands. A CTE can be
+    consumed by nodes visited after it — notably sibling UNION branches — and each pass
+    propagates demands only one CTE hop, so chained CTEs need the fixpoint loop (demand sets
+    only ever grow, over a finite set of columns, so it terminates).
+
+    Two invariants keep the repeated walks sound: collect passes never mutate the tree (the
+    id()-keyed maps rely on stable node identities), and demands persist across passes with
+    grow-only set-union, so re-collection is idempotent and can only retain more columns.
 
     Each pass runs these phases per query:
 
@@ -23,19 +29,31 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
     Phase 2 - Collect: Gather column demands from WHERE/GROUP BY/ORDER BY/etc
     Phase 3 - Propagate: For demanded columns, visit their source to propagate to child queries
     Phase 4 - Recurse: Visit child subqueries (repeat phases 1-4)
-    Phase 5 - Prune: Remove unreferenced asterisk columns from this query (second pass only)
+    Phase 5 - Prune: Remove unreferenced asterisk columns from this query (final pass only)
     """
 
     def __init__(self):
         super().__init__()
         self.demands: dict[int, set[str]] = defaultdict(set)
         self.subquery_map: dict[int, ast.SelectQuery | ast.SelectSetQuery] = {}
-        # True during the first pass; gates pruning to the second (see class docstring)
-        self.collecting: bool = False
+        # Defaults to collect-only so a bare visit() can never prune with incomplete demands;
+        # only optimize() flips this off, once the demand fixpoint is reached.
+        self.collecting: bool = True
+        self.saw_asterisk: bool = False
 
     def optimize(self, node: ast.SelectQuery | ast.SelectSetQuery) -> ast.SelectQuery | ast.SelectSetQuery:
+        self.demands.clear()
+        self.subquery_map.clear()
+        self.saw_asterisk = False
         self.collecting = True
-        self.visit(node)
+        while True:
+            demand_count = sum(len(names) for names in self.demands.values())
+            self.visit(node)
+            if not self.saw_asterisk:
+                # Nothing to prune, so demand completeness doesn't matter — skip further walks.
+                return node
+            if sum(len(names) for names in self.demands.values()) == demand_count:
+                break
         self.collecting = False
         return cast(ast.SelectQuery | ast.SelectSetQuery, self.visit(node))
 
@@ -80,7 +98,7 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         if node.select_from:
             self.visit(node.select_from)
 
-        # Phase 5: Prune unreferenced asterisk columns from this query and CTEs (second pass only)
+        # Phase 5: Prune unreferenced asterisk columns from this query and CTEs (final pass only)
         if not self.collecting:
             self._prune_columns(node)
             if node.ctes:
@@ -110,8 +128,9 @@ class ProjectionPushdownOptimizer(TraversingVisitor):
         """Check if an expression was expanded from asterisk"""
         if isinstance(expr, ast.Alias):
             expr = expr.expr  # whoops - we want to take the Field from the Alias
-        if isinstance(expr, ast.Field):
-            return expr.from_asterisk
+        if isinstance(expr, ast.Field) and expr.from_asterisk:
+            self.saw_asterisk = True
+            return True
         return False
 
     def _propagate_demands_to_children(self, node: ast.SelectQuery) -> None:
@@ -302,5 +321,10 @@ def pushdown_projections(node: _T_AST, context: HogQLContext) -> _T_AST:
     """Prune unused columns from asterisk expansions in subqueries"""
     if not isinstance(node, (ast.SelectQuery, ast.SelectSetQuery)):
         return node
-    optimizer = ProjectionPushdownOptimizer()
-    return cast(_T_AST, optimizer.optimize(node))
+    try:
+        optimizer = ProjectionPushdownOptimizer()
+        return cast(_T_AST, optimizer.optimize(node))
+    finally:
+        # Pruning mutates SelectQueryType.columns, staling cached CTE tables. Drop them so a
+        # wrongly pruned column fails loudly at compile time instead of emitting broken SQL.
+        context.cte_database_table_cache.clear()
