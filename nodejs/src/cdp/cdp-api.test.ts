@@ -31,6 +31,7 @@ import { CdpApi } from './cdp-api'
 import { CdpConsumerBaseDeps } from './consumers/cdp-base.consumer'
 import { posthogFilterOutPlugin } from './legacy-plugins/_transformations/posthog-filter-out-plugin/template'
 import { BASE_REDIS_KEY, HogWatcherState } from './services/monitoring/hog-watcher.service'
+import { compileHog } from './templates/compiler'
 import { HogFunctionInvocationGlobals, HogFunctionType } from './types'
 
 describe('CDP API', () => {
@@ -609,6 +610,112 @@ describe('CDP API', () => {
             expect(res.status).toEqual(200)
             expect(res.body.logs.map((log: any) => log.message)).toMatchInlineSnapshot(`[]`)
             expect(res.body.result).toMatchInlineSnapshot(`null`)
+        })
+    })
+
+    describe('log transformations', () => {
+        let configuration: HogFunctionType
+
+        const logRecordGlobals = {
+            record: {
+                body: 'login ok password=hunter2',
+                severity_text: 'info',
+                severity_number: 9,
+                service_name: 'payments-api',
+                attributes: { 'http.method': 'POST' },
+                resource_attributes: { 'k8s.namespace.name': 'payments' },
+            },
+        }
+
+        beforeEach(async () => {
+            const hog = `
+                let r := record
+                if (r.severity_text == 'debug') {
+                    return null
+                }
+                if (r.body != null) {
+                    r.body := replaceAll(r.body, inputs.needle, '[REDACTED]')
+                }
+                r.attributes.transformed := 'true'
+                return r
+            `
+            configuration = createHogFunction({
+                type: 'transformation_log',
+                name: 'Test log transformation',
+                team_id: team.id,
+                enabled: true,
+                hog,
+                bytecode: await compileHog(hog),
+                inputs: { needle: { value: 'hunter2' } },
+            })
+        })
+
+        it('transforms a mock log record', async () => {
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_functions/new/invocations`)
+                .send({ globals: logRecordGlobals, configuration })
+
+            expect(res.status).toEqual(200)
+            expect(res.body.status).toEqual('success')
+            expect(res.body.errors).toEqual([])
+            expect(res.body.result.body).toEqual('login ok password=[REDACTED]')
+            expect(res.body.result.severity_text).toEqual('info')
+            expect(res.body.result.attributes).toEqual({ 'http.method': 'POST', transformed: 'true' })
+        })
+
+        it('returns null result when the record is dropped', async () => {
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_functions/new/invocations`)
+                .send({
+                    globals: { record: { ...logRecordGlobals.record, severity_text: 'debug' } },
+                    configuration,
+                })
+
+            expect(res.status).toEqual(200)
+            expect(res.body.status).toEqual('success')
+            expect(res.body.result).toEqual(null)
+            expect(res.body.logs.map((log: any) => log.message)).toContain('Record dropped by transformation.')
+        })
+
+        it('returns 400 when the record global is missing', async () => {
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_functions/new/invocations`)
+                .send({ globals: {}, configuration })
+
+            expect(res.status).toEqual(400)
+            expect(res.body.error).toEqual('Missing record')
+        })
+
+        it('reports a malformed return value as an error', async () => {
+            // Returning a non-record, non-null value is a customer mistake the endpoint must surface
+            const hog = `return 42`
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_functions/new/invocations`)
+                .send({
+                    globals: logRecordGlobals,
+                    configuration: { ...configuration, hog, bytecode: await compileHog(hog) },
+                })
+
+            expect(res.status).toEqual(200)
+            expect(res.body.status).toEqual('error')
+            expect(res.body.errors.length).toBeGreaterThan(0)
+        })
+
+        it('captures print output from the transformation', async () => {
+            const hog = `
+                print('inspecting', record.service_name)
+                return record
+            `
+            const res = await supertest(app)
+                .post(`/api/projects/${team.id}/hog_functions/new/invocations`)
+                .send({
+                    globals: logRecordGlobals,
+                    configuration: { ...configuration, hog, bytecode: await compileHog(hog) },
+                })
+
+            expect(res.status).toEqual(200)
+            expect(res.body.status).toEqual('success')
+            expect(res.body.logs.map((log: any) => log.message)).toContain('inspecting, payments-api')
         })
     })
 

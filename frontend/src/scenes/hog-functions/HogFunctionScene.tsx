@@ -61,6 +61,7 @@ export type HogFunctionSceneTab = (typeof HOG_FUNCTION_SCENE_TABS)[number]
 
 const HogFunctionSceneMapping: Partial<Record<HogFunctionTypeType, { scene: Scene; url: () => string }>> = {
     transformation: { scene: Scene.Transformations, url: urls.transformations },
+    transformation_log: { scene: Scene.Logs, url: urls.logs },
     destination: { scene: Scene.Destinations, url: urls.destinations },
     site_destination: { scene: Scene.Destinations, url: urls.destinations },
     source_webhook: { scene: Scene.Sources, url: urls.sources },
@@ -249,7 +250,10 @@ export const hogFunctionSceneLogic = kea<hogFunctionSceneLogicType>([
                     return [
                         {
                             key: sceneMapping.scene,
-                            name: `${capitalizeFirstLetter(type).replace('_', ' ')}s`,
+                            name:
+                                type === 'transformation_log'
+                                    ? 'Log transformations'
+                                    : `${capitalizeFirstLetter(type).replace('_', ' ')}s`,
                             path: id ? sceneMapping.url() : urls.dataPipelinesNew(type as DataPipelinesNewSceneKind),
                             iconType: 'data_pipeline',
                         },
@@ -464,7 +468,12 @@ export function HogFunctionScene(): JSX.Element {
                   key: 'invocations',
                   content: <HogInvocations id={id} functionKind="hog_function" />,
               },
-        type === 'site_app' || type === 'site_destination' || type === 'internal_destination'
+        // Log transformations test against a sample record (inline, in Configuration), not historical
+        // events — so skip the events-based testing tab the same way internal destinations do.
+        type === 'site_app' ||
+        type === 'site_destination' ||
+        type === 'internal_destination' ||
+        type === 'transformation_log'
             ? null
             : {
                   label: 'Testing',

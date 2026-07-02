@@ -14,5 +14,8 @@ export function humanizeHogFunctionType(type: HogFunctionTypeType, plural: boole
     if (type === 'site_app') {
         return 'Web script' + (plural ? 's' : '')
     }
+    if (type === 'transformation_log') {
+        return 'log transformation' + (plural ? 's' : '')
+    }
     return type.replaceAll('_', ' ') + (plural ? 's' : '')
 }

@@ -49,6 +49,10 @@ import { template as piiHashingTemplate } from './_transformations/pii-hashing/p
 import { template as removeNullPropertiesTemplate } from './_transformations/remove-null-properties/remove-null-properties.template'
 import { template as urlMaskingTemplate } from './_transformations/url-masking/url-masking.template'
 import { template as urlNormalizationTemplate } from './_transformations/url-normalization/url-normalization.template'
+import { template as logDefaultTemplate } from './_transformations_log/default/default.template'
+import { template as logDropBySeverityTemplate } from './_transformations_log/drop-by-severity/drop-by-severity.template'
+import { template as logPiiScrubTemplate } from './_transformations_log/pii-scrub/pii-scrub.template'
+import { template as logRedactAttributesTemplate } from './_transformations_log/redact-attributes/redact-attributes.template'
 
 export const HOG_FUNCTION_TEMPLATES_COMING_SOON: HogFunctionTemplate[] = allComingSoonTemplates
 
@@ -100,6 +104,13 @@ export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS: HogFunctionTemplate[] = [
     urlNormalizationTemplate,
 ]
 
+export const HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_LOG: HogFunctionTemplate[] = [
+    logDefaultTemplate,
+    logPiiScrubTemplate,
+    logDropBySeverityTemplate,
+    logRedactAttributesTemplate,
+]
+
 export const NATIVE_HOG_FUNCTIONS: (HogFunctionTemplate & NativeTemplate)[] = [nativeWebhookTemplate].map((plugin) => ({
     ...plugin,
     code_language: 'javascript',
@@ -149,6 +160,7 @@ export const HOG_FUNCTION_TEMPLATES: HogFunctionTemplate[] = [
     ...HOG_FUNCTION_TEMPLATES_DESTINATIONS_DEPRECATED,
     ...HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS,
     ...HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_DEPRECATED,
+    ...HOG_FUNCTION_TEMPLATES_TRANSFORMATIONS_LOG,
     ...HOG_FUNCTION_TEMPLATES_SOURCES,
     ...HOG_FUNCTION_TEMPLATES_COMING_SOON,
     ...NATIVE_HOG_FUNCTIONS,
