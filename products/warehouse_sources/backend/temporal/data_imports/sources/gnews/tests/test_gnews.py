@@ -127,6 +127,24 @@ class TestValidateCredentials:
         assert "boom" in (message or "")
 
 
+class TestCredentialHardening:
+    # The API key rides in a custom X-Api-Key header, so both call sites must redact it from
+    # captured samples/logs and refuse redirects (else a 30x replays the key to another host).
+    # These have no observable effect at runtime, so guard the session construction directly.
+    def test_validate_credentials_session_is_hardened(self) -> None:
+        session = MagicMock()
+        session.get.return_value = MagicMock(status_code=200)
+        with patch(f"{_MODULE}.make_tracked_session", return_value=session) as factory:
+            validate_credentials("some-key")
+        factory.assert_called_once_with(redact_values=("some-key",), allow_redirects=False)
+
+    def test_get_rows_session_is_hardened(self) -> None:
+        with patch(f"{_MODULE}.make_tracked_session", return_value=MagicMock()) as factory:
+            with patch(f"{_MODULE}._fetch_page", return_value=_page(1)):
+                _collect(get_rows("some-key", "articles", "posthog", None, None, None, MagicMock(), _resume_manager()))
+        factory.assert_called_once_with(redact_values=("some-key",), allow_redirects=False)
+
+
 def _resume_manager(state: GNewsResumeConfig | None = None) -> MagicMock:
     manager = MagicMock()
     manager.can_resume.return_value = state is not None

@@ -119,8 +119,12 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     # Probe /top-headlines (no keyword required) with the smallest possible page. GNews has no
     # per-endpoint scopes, so a single probe confirms the key for every table.
     url = _build_url(GNEWS_ENDPOINTS["top_headlines"], {"category": "general", "max": 1})
+    # Redact the key from captured samples/logs (it's sent in a custom X-Api-Key header the
+    # name-based denylist may not recognise) and never follow redirects — GNews is a fixed host,
+    # so a 30x elsewhere must not replay the credential to another origin.
+    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
+        response = session.get(url, headers=_get_headers(api_key), timeout=10)
     except requests.exceptions.RequestException as e:
         return False, str(e)
 
@@ -166,7 +170,8 @@ def get_rows(
     config = GNEWS_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
     batcher = Batcher(logger=logger, chunk_size=2000, chunk_size_bytes=100 * 1024 * 1024)
-    session = make_tracked_session()
+    # Redact the key from captured samples/logs and never follow redirects — see validate_credentials.
+    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
 
     from_value = (
         _format_from_value(db_incremental_field_last_value)
