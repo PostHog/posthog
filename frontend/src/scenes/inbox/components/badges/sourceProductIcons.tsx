@@ -122,6 +122,11 @@ export function knownSourceProductEntries(sourceProducts: string[] | null | unde
         .filter((entry): entry is KnownSourceProductEntry => entry.meta !== null)
 }
 
+/** Tooltip copy listing every contributing source product, shared by the card and detail meta rows. */
+export function sourceProductsTooltipTitle(entries: KnownSourceProductEntry[]): string {
+    return `Signals in this report came from: ${entries.map((e) => e.meta.label).join(', ')}`
+}
+
 /** Row of color-coded source-product icons. Surfaces vary in wrapper layout, so the caller supplies `className`. */
 export function SourceProductIconRow({
     entries,
