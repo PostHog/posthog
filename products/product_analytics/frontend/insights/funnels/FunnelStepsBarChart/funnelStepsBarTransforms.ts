@@ -1,4 +1,4 @@
-import type { PointClickData } from '@posthog/quill-charts'
+import type { BarChartConfig, PointClickData } from '@posthog/quill-charts'
 
 import type { FunnelStepWithConversionMetrics } from '~/types'
 
@@ -70,6 +70,25 @@ export function buildFunnelStepsBarData(
     }
 
     return buildFunnelStepsBars(steps, seriesVariants)
+}
+
+/** Derives the chart config from the base config plus the two things that vary per render:
+ *  whether the legend is needed (breakdown + compare) and whether the new pinnable tooltip is
+ *  enabled. A breakdown always puts one series per breakdown value at each step, so a pinnable
+ *  tooltip here always covers multiple series — `resolveClickToNearestSeries` resolves the
+ *  click to the nearest one and opens its persons modal directly instead of pinning first. */
+export function buildFunnelStepsBarChartConfig(
+    baseConfig: BarChartConfig,
+    options: { isBreakdownCompare?: boolean; quillTooltipEnabled: boolean }
+): BarChartConfig {
+    const base = options.isBreakdownCompare ? { ...baseConfig, legend: { show: true, interactive: false } } : baseConfig
+    if (options.quillTooltipEnabled) {
+        return {
+            ...base,
+            tooltip: { pinnable: true, resolveClickToNearestSeries: true, placement: 'cursor' },
+        }
+    }
+    return base
 }
 
 export interface FunnelStepClickTarget {

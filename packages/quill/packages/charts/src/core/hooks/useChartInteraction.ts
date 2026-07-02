@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo } from 'react'
 
+import { findClosestSeriesKey } from '../../overlays/tooltipUtils'
 import {
     buildLabelPositions,
     buildPointClickData,
@@ -31,6 +32,8 @@ interface UseChartInteractionOptions<Meta> {
     wrapperRef: React.RefObject<HTMLDivElement>
     showTooltip: boolean
     pinnable: boolean
+    /** See `TooltipConfig.resolveClickToNearestSeries`. */
+    resolveClickToNearestSeries?: boolean
     onPointClick?: (data: PointClickData<Meta>) => void
     onDateRangeZoom?: (data: DateRangeZoomData) => void
     resolveValue?: ResolveValueFn
@@ -71,6 +74,7 @@ export function useChartInteraction<Meta = unknown>({
     wrapperRef,
     showTooltip,
     pinnable,
+    resolveClickToNearestSeries = false,
     onPointClick,
     onDateRangeZoom,
     resolveValue = defaultResolveValue,
@@ -265,6 +269,27 @@ export function useChartInteraction<Meta = unknown>({
         // consumer's own row handler. With a single series there's nothing to pin, so
         // onPointClick fires immediately instead.
         if (pinnable && tooltipCtx && tooltipCtx.seriesData.length > 1) {
+            // Opt-in: a click nearer one series than the others is unambiguous, so resolve it
+            // and fire onPointClick directly instead of making the user pin then pick a row.
+            if (resolveClickToNearestSeries && onPointClick && hoverPositionRef.current) {
+                const cursorValueCoord =
+                    interactionAxis === 'y' ? hoverPositionRef.current.x : hoverPositionRef.current.y
+                const closestKey = findClosestSeriesKey(tooltipCtx.seriesData, cursorValueCoord)
+                const closest = closestKey ? tooltipCtx.seriesData.find((d) => d.series.key === closestKey) : undefined
+                if (closest) {
+                    const clickData: PointClickData<Meta> = {
+                        seriesIndex: series.findIndex((s) => s.key === closest.series.key),
+                        dataIndex: currentIndex,
+                        series: closest.series,
+                        value: closest.value,
+                        label: labels[currentIndex],
+                        crossSeriesData: tooltipCtx.seriesData.map((d) => ({ series: d.series, value: d.value })),
+                        cursor: hoverPositionRef.current,
+                    }
+                    onPointClick(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
+                    return
+                }
+            }
             pin()
             return
         }
@@ -281,6 +306,8 @@ export function useChartInteraction<Meta = unknown>({
         labels,
         resolveValue,
         pinnable,
+        resolveClickToNearestSeries,
+        interactionAxis,
         tooltipCtx,
         isPinned,
         clearTooltip,

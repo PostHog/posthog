@@ -22,6 +22,7 @@ import { ChartParams } from '~/types'
 import { buildFunnelStepsBarConfig, FUNNEL_STEPS_BAND_PADDING } from '../shared/funnelStepsBarShared'
 import { FunnelStepsBarTooltip } from './FunnelStepsBarTooltip'
 import {
+    buildFunnelStepsBarChartConfig,
     buildFunnelStepsBarData,
     type FunnelStepsBarSeriesMeta,
     resolveFunnelStepClick,
@@ -86,13 +87,10 @@ export function FunnelStepsBarChart({
     const isBreakdownCompare = steps[0]?.nested_breakdown?.some(
         (variant) => variant.compare_label != null && hasBreakdown(variant.breakdown_value)
     )
-    const config = useMemo(() => {
-        const base = isBreakdownCompare ? { ...chartConfig, legend: { show: true, interactive: false } } : chartConfig
-        if (quillTooltipEnabled) {
-            return { ...base, tooltip: { pinnable: true, placement: 'cursor' as const } }
-        }
-        return base
-    }, [isBreakdownCompare, quillTooltipEnabled])
+    const config = useMemo(
+        () => buildFunnelStepsBarChartConfig(chartConfig, { isBreakdownCompare, quillTooltipEnabled }),
+        [isBreakdownCompare, quillTooltipEnabled]
+    )
 
     const groupTypeLabel = aggregationLabel(querySource?.aggregation_group_type_index).plural
     const showTime = steps.some((step) => step.average_conversion_time != null)
