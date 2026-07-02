@@ -506,7 +506,7 @@ class TestTrendsDashboardFilters(BaseTest):
             )
         )
 
-        # date range is overriden
+        # date range is overridden
         assert query_runner.query.dateRange is not None
         assert query_runner.query.dateRange.date_from == "2024-07-07"
         assert query_runner.query.dateRange.date_to == "2024-07-14"

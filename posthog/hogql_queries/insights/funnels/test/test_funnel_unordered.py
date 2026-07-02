@@ -97,7 +97,7 @@ class TestFunnelUnorderedStepsBreakdown(
     maxDiff = None
 
     def test_funnel_step_breakdown_event_single_person_events_with_multiple_properties(self):
-        # overriden from factory
+        # overridden from factory
 
         query = unordered_funnels_query(
             series=[

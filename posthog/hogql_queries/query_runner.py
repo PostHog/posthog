@@ -1326,7 +1326,7 @@ class QueryRunner(ABC, Generic[Q, R, CR]):
         self.__post_init__()
 
     def __post_init__(self):
-        """Called after init, can by overriden by subclasses. Should be idempotent. Also called after dashboard overrides are set."""
+        """Called after init, can be overridden by subclasses. Should be idempotent. Also called after dashboard overrides are set."""
         pass
 
     def _on_user_changed(self) -> None:

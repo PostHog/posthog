@@ -96,7 +96,7 @@ def unwrap_cohort(filter: Filter, team_id: int, team: Optional[Team] = None, coh
         if len(property_group.values):
             if isinstance(property_group.values[0], PropertyGroup):
                 # dealing with a list of property groups, so unwrap each one
-                # Propogate the negation to the children and handle as necessary with respect to deMorgan's law
+                # Propagate the negation to the children and handle as necessary with respect to deMorgan's law
                 if not negate_group:
                     return PropertyGroup(
                         type=property_group.type,

@@ -438,7 +438,7 @@ class TrendsQueryRunner(AnalyticsQueryRunner[TrendsQueryResponse]):
                 [j.start() for j in jobs]  # type:ignore
                 [j.join() for j in jobs]  # type:ignore
 
-        # Raise any errors raised in a seperate thread
+        # Raise any errors raised in a separate thread
         if len(errors) > 0:
             raise errors[0]
 
