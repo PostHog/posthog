@@ -110,9 +110,10 @@ impl ValueOperator for FrameResolver {
         mut evt: ExceptionProperties,
         ctx: ResolutionStage,
     ) -> OperatorResult<Self> {
-        // `debug_images` is not read again on this event (the output props drop
-        // it), so move it into the shared Arc instead of cloning the Vec.
-        let debug_images = Arc::new(std::mem::take(&mut evt.debug_images));
+        // Clone rather than take: `$debug_images` is serialized back onto the
+        // event after resolution (rules eval and the /process response), so the
+        // field must survive this stage.
+        let debug_images = Arc::new(evt.debug_images.clone());
         evt.exception_list = FrameResolver::resolve_exception_list_frames(
             evt.team_id,
             evt.exception_list,
