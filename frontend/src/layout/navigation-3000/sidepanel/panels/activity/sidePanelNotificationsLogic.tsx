@@ -47,7 +47,7 @@ const SSE_RETRY_INITIAL_DELAY_MS = 30000
 const SSE_RETRY_BACKOFF_MULTIPLIER = 4
 
 // Notifications fetched per page for the in-app list (initial load + "Load more"). Backend max_limit is 100.
-const NOTIFICATION_PAGE_SIZE = 50
+const NOTIFICATION_PAGE_SIZE = 30
 
 // Maps each source type to a path builder from `source_id`, or `null` to fall through to the
 // backend-provided `source_url` (customer_analytics carries a precise account deep-link a
