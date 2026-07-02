@@ -11,9 +11,12 @@ from django.utils import timezone
 import requests
 from parameterized import parameterized
 
+from posthog.clickhouse.query_tagging import get_query_tags
+
 from products.experiments.backend.models.experiment import Experiment, ExperimentSavedMetric, ExperimentToSavedMetric
 from products.experiments.backend.models.team_experiments_config import TeamExperimentsConfig
 from products.experiments.backend.temporal.canary_logic import (
+    _execute_canary_run,
     evaluate_canary_runs,
     relative_deviation,
     report_canary_results_sync,
@@ -383,6 +386,35 @@ class TestRunMetricCanary(BaseTest):
         ):
             with pytest.raises(RuntimeError):
                 run_metric_canary_sync(self._target(experiment, metric["uuid"]))
+
+
+class TestExecuteCanaryRunTags:
+    def test_canary_run_tags_query_with_team_id(self):
+        # The canary runs userless in a Temporal activity, so nothing backfills team_id the way DRF routing
+        # does. Without it, the schema-introspection query fired on a cold materialized-columns cache trips
+        # validated_client_query_id (client_query_id set, team_id missing) and raises. Guard both tags.
+        experiment = MagicMock(id=42, team_id=7)
+        captured: dict[str, object] = {}
+
+        def fake_calculate():
+            tags = get_query_tags()
+            captured["team_id"] = tags.team_id
+            captured["client_query_id"] = tags.client_query_id
+            response = MagicMock()
+            response.baseline = None
+            response.variant_results = []
+            response.is_precomputed = False
+            return response
+
+        with (
+            patch("products.experiments.backend.temporal.canary_logic.ExperimentQueryRunner") as mock_runner,
+            patch("products.experiments.backend.temporal.canary_logic.ExperimentQuery"),
+        ):
+            mock_runner.return_value.calculate.side_effect = fake_calculate
+            _execute_canary_run(experiment, MagicMock(), MagicMock(), "precomputed", "canary-query-id")
+
+        assert captured["team_id"] == 7
+        assert captured["client_query_id"] == "canary-query-id"
 
 
 def _result(outcome: str, **kwargs) -> CanaryMetricResult:

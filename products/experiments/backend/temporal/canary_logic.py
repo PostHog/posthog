@@ -310,7 +310,7 @@ def _execute_canary_run(
         # resolve warehouse tables here instead of failing closed.
         bypass_warehouse_access_control=True,
     )
-    with tags_context(client_query_id=query_id, trigger="experiment_precompute_canary"):
+    with tags_context(client_query_id=query_id, team_id=experiment.team_id, trigger="experiment_precompute_canary"):
         response = runner.calculate()
 
     stats_entries = [*([response.baseline] if response.baseline else []), *(response.variant_results or [])]
