@@ -49,12 +49,17 @@ function FakeMessage({ role, text }: { role: FakeItem['role']; text: string }): 
 
 const getKey = (item: FakeItem): string => item.id
 
+// Story wrappers use a fixed `w-180` (720px, the thread's own max row width) instead of `w-full`: in the
+// visual-regression runtime `#storybook-root` is `inline-block` (it hugs the component), and the virtualized
+// rows are absolutely positioned — no intrinsic width — so a percentage width collapses the snapshot to the
+// wrapper's 2px border.
+
 /** Long static thread — opens already scrolled to the last message, with no top-frame flicker or crawl. */
 export const LongThread: Story = {
     render: () => {
         const items = makeItems(80)
         return (
-            <div className="h-[600px] w-full border rounded overflow-hidden">
+            <div className="h-[600px] w-180 border rounded overflow-hidden">
                 <VirtualizedThread.Root items={items} getItemKey={getKey} stickToBottom>
                     {(item) => (
                         <VirtualizedThread.Row>
@@ -72,7 +77,7 @@ export const BoundedEmbed: Story = {
     render: () => {
         const items = makeItems(40)
         return (
-            <div className="h-[420px] w-full max-w-180 mx-auto border rounded overflow-hidden">
+            <div className="h-[420px] w-180 mx-auto border rounded overflow-hidden">
                 <VirtualizedThread.Root
                     items={items}
                     getItemKey={getKey}
@@ -128,7 +133,7 @@ export const Streaming: Story = {
         }, [])
 
         return (
-            <div className="h-[600px] w-full border rounded overflow-hidden">
+            <div className="h-[600px] w-180 border rounded overflow-hidden">
                 <VirtualizedThread.Root
                     items={items}
                     getItemKey={getKey}
@@ -153,7 +158,7 @@ export const Streaming: Story = {
 /** Empty thread (rowCount 0) — renders an empty scroll container, no rows, stick effects no-op. */
 export const Empty: Story = {
     render: () => (
-        <div className="h-[300px] w-full border rounded overflow-hidden">
+        <div className="h-[300px] w-180 border rounded overflow-hidden">
             <VirtualizedThread.Root items={[] as FakeItem[]} getItemKey={getKey} stickToBottom>
                 {(item) => (
                     <VirtualizedThread.Row>
@@ -168,7 +173,7 @@ export const Empty: Story = {
 /** Header + footer only (no items) — the offset mapping still resolves both synthetic rows. */
 export const HeaderFooterOnly: Story = {
     render: () => (
-        <div className="h-[300px] w-full border rounded overflow-hidden">
+        <div className="h-[300px] w-180 border rounded overflow-hidden">
             <VirtualizedThread.Root
                 items={[] as FakeItem[]}
                 getItemKey={getKey}
@@ -202,7 +207,7 @@ export const FlowMode: Story = {
     render: () => {
         const items = makeItems(12)
         return (
-            <div className="h-[500px] w-full max-w-180 mx-auto overflow-y-auto border rounded flex flex-col gap-1.5 p-2">
+            <div className="h-[500px] w-180 mx-auto overflow-y-auto border rounded flex flex-col gap-1.5 p-2">
                 <VirtualizedThread.Root items={items} getItemKey={getKey} virtualized={false}>
                     {(item) => (
                         <VirtualizedThread.Row>
