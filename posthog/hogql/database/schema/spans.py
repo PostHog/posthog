@@ -1,12 +1,13 @@
 from posthog.hogql.database.models import (
-    BooleanDatabaseField,
     DateTimeDatabaseField,
+    ExpressionField,
     FieldOrTable,
     IntegerDatabaseField,
     MapStringDatabaseField,
     StringDatabaseField,
     Table,
 )
+from posthog.hogql.parser import parse_expr
 
 from posthog.clickhouse.workload import Workload
 
@@ -25,8 +26,14 @@ class TraceSpansTable(Table):
         "parent_span_id": StringDatabaseField(
             name="parent_span_id", nullable=False, description="Identifier of the parent span; empty for root spans."
         ),
-        "is_root_span": BooleanDatabaseField(
-            name="is_root_span", nullable=False, description="True if this span has no parent (the trace root)."
+        # Computed inline from parent_span_id rather than read from the physical `is_root_span`
+        # MATERIALIZED column: that column ships via a separate logs-cluster migration, so it can be
+        # absent from trace_spans_distributed during a schema rollout. Deriving it here (mirroring the
+        # column's own DDL expression) keeps every query path working regardless of migration order.
+        "is_root_span": ExpressionField(
+            name="is_root_span",
+            expr=parse_expr("replaceAll(trimRight(parent_span_id, '='), 'A', '') = ''"),
+            description="True if this span has no parent (the trace root).",
         ),
         "name": StringDatabaseField(
             name="name", nullable=False, description="Name of the operation the span represents."

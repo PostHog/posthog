@@ -1,6 +1,7 @@
 import datetime as dt
 
 from posthog.clickhouse.client import sync_execute
+from posthog.clickhouse.traces.spans import TRACE_SPANS_DISTRIBUTED_TABLE_SQL, TRACE_SPANS_TABLE_SQL
 
 from products.tracing.backend.tests.test_keyset_pagination import DATE_FROM, DATE_TO, _b64, _TraceSpansTestBase
 
@@ -133,3 +134,55 @@ class TestTraceSpansSparkline(_TraceSpansTestBase):
 
         self.assertEqual(sum(r["count"] for r in self._sparkline(service_names=["multirootsvc"])), 2)
         self.assertEqual(sum(r["count"] for r in self._sparkline(service_names=["multirootsvc"], root_spans=True)), 1)
+
+
+class TestTraceSpansSparklineWithoutIsRootSpanColumn(_TraceSpansTestBase):
+    # `is_root_span` is a MATERIALIZED column that ships via a separate logs-cluster migration, not the
+    # tracked Python DDL, so it can be absent from trace_spans during a schema rollout. The traces-mode
+    # sparkline (rootSpans=True, the endpoint default) must still run instead of raising a ClickHouse
+    # "no column is_root_span" error — it derives is_root_span inline from parent_span_id.
+    @classmethod
+    def setUpTestData(cls):
+        super().setUpTestData()
+        # Create only the tracked DDL (no ALTER adding is_root_span), so the column is genuinely
+        # missing — unlike the other tracing tests, which add it to mirror production.
+        sync_execute("DROP TABLE IF EXISTS trace_spans_distributed")
+        sync_execute("DROP TABLE IF EXISTS trace_spans")
+        sync_execute(TRACE_SPANS_TABLE_SQL())
+        sync_execute(TRACE_SPANS_DISTRIBUTED_TABLE_SQL())
+
+    def setUp(self):
+        super().setUp()
+        sync_execute("TRUNCATE TABLE trace_spans")
+        # One trace: a root span (empty parent) plus a child.
+        trace_id = _b64((700).to_bytes(16, "big"))
+        root_span_id = _b64((7000).to_bytes(8, "big"))
+        ts = "2026-06-02 08:00:00.000000"
+        spans = [(root_span_id, ""), (_b64((7001).to_bytes(8, "big")), root_span_id)]
+        rows = [
+            f"('019e8757-0000-0000-0000-{7000 + i:012d}', {self.team.id}, '{trace_id}', '{span_id}', "
+            f"'{parent}', 'op', 2, '{ts}', '{ts}', '{ts}', 0, 'rootless')"
+            for i, (span_id, parent) in enumerate(spans)
+        ]
+        sync_execute(
+            "INSERT INTO trace_spans (uuid, team_id, trace_id, span_id, parent_span_id, name, kind, "
+            "timestamp, end_time, observed_timestamp, status_code, service_name) VALUES " + ",".join(rows)
+        )
+
+    def _sparkline(self, *, service_names: list[str], root_spans: bool | None = None) -> list[dict]:
+        query: dict = {"dateRange": {"date_from": DATE_FROM, "date_to": DATE_TO}, "serviceNames": service_names}
+        if root_spans is not None:
+            query["rootSpans"] = root_spans
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/tracing/spans/sparkline/",
+            {"query": query},
+            format="json",
+        )
+        self.assertEqual(response.status_code, 200, response.content)
+        return response.json()["results"]
+
+    def test_traces_mode_sparkline_runs_without_is_root_span_column(self):
+        # Spans mode counts both spans; traces mode counts the single distinct trace via its root —
+        # and, crucially, neither query references the absent physical is_root_span column.
+        self.assertEqual(sum(r["count"] for r in self._sparkline(service_names=["rootless"])), 2)
+        self.assertEqual(sum(r["count"] for r in self._sparkline(service_names=["rootless"], root_spans=True)), 1)
