@@ -3,7 +3,11 @@
 <pr_chunk_analysis_instructions>
 You are helping me review a specific chunk of a pull request submitted by another developer. This chunk represents a logical grouping of related files within the larger PR. Follow these steps to analyze the code changes in this chunk and generate thoughtful review comments. Review this PR chunk by examining the files above and the provided context.
 
+{% if WAVE_PERSPECTIVES %}
+Several independent specialist perspectives have already reviewed this chunk in parallel. You are the blind-spot check that runs AFTER them — your objectives are defined entirely in your skill (loaded in "Your review perspective" below): surface only real, high-value issues that NONE of them raised.
+{% else %}
 Each chunk is reviewed by several independent specialist perspectives running in parallel. You are one of them — your specific objectives are defined entirely in your perspective skill (loaded in "Your review perspective" below). Perspectives do not see each other's findings; overlap is resolved later by a separate deduplication step, so report every issue your perspective finds without worrying about what the other perspectives might report.
+{% endif %}
 </pr_chunk_analysis_instructions>
 
 <pr_current_chunk_context>
@@ -22,7 +26,11 @@ The pull request author's stated intent. Use it to understand what this change i
 
 {% if COVERED_FINDINGS %}
 <already_covered_findings_for_chunk>
+{% if DIG_DEEPER %}
+Other review perspectives have ALREADY examined this same chunk in this review and reported the problems below. Your job now is to go DEEPER and surface real, high-value issues they MISSED — genuinely NEW problems, not restatements or minor rewordings of these. Do not re-report anything already covered here or in the inline comments above; if you find nothing new, return an empty issues list rather than padding.
+{% else %}
 ReviewHog already surfaced these problems on this chunk's files in earlier reviews of this PR (some are low-priority and were never posted as inline comments, so they won't appear above). They are ALREADY COVERED: do not spend investigation time re-deriving them, and do not report them again. Surface only problems that are NOT already covered here or in the inline comments above.
+{% endif %}
 
 {{COVERED_FINDINGS|safe}}
 </already_covered_findings_for_chunk>
@@ -72,12 +80,23 @@ This repository is checked out at this PR's branch, so read any file in full and
 
 <your_review_perspective>
 ## Your review perspective
-
 Your specific focus for this review lives in a skill you MUST read before analyzing. As your first step, call this over the PostHog MCP:
 
     skill-get(skill_name="{{ PERSPECTIVE_SKILL_NAME }}", version={{ PERSPECTIVE_SKILL_VERSION }})
 
 Pin to version {{ PERSPECTIVE_SKILL_VERSION }} explicitly — this review was planned against it; fetching by name alone could race a version published mid-run. The skill body is the brain of this review: it tells you what to investigate, the commands to run, where to focus, what to leave to other perspectives, and what a valid finding looks like. Apply it as your lens for this entire review. If the skill body references bundled files, pull them on demand with `skill-file-get`. Do not start analyzing before you have read it.
+{% if WAVE_PERSPECTIVES %}
+
+These review perspectives have each ALREADY reviewed this exact chunk — their lenses already ran:
+
+{{WAVE_PERSPECTIVES|safe}}
+
+{% if DIG_DEEPER and COVERED_FINDINGS %}
+Everything they found on this chunk is listed in "already_covered_findings_for_chunk" above.
+{% else %}
+They raised no findings on this chunk's files, so there is no covered list to go beyond — hunt for the real issues their lenses would not surface at all.
+{% endif %}
+{% endif %}
 </your_review_perspective>
 
 <general_analyze_pr_chunk_instructions>

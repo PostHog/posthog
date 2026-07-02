@@ -184,11 +184,12 @@ class ReviewSkillConfig(UUIDModel, TeamScopedRootMixin):
     """Per-(team, user, review-skill) enablement for ReviewHog.
 
     One generic table for which review skills run for a user, discriminated by the skill-name prefix:
-    `review-hog-perspective-*` (the review perspectives — **multi-enable**, ≥1 must stay on) and, later,
-    `review-hog-validation-*` (the validator — **single-active**: exactly one runs, the select endpoint
-    flips the others off, falling back to the canonical default when none is set). `enabled=True` means
-    "active for this user" in both cases; the cardinality rules are enforced in app code, not the DB,
-    the same way the perspective min-1 floor is.
+    `review-hog-perspective-*` (the review perspectives — **multi-enable**, ≥1 must stay on), plus
+    `review-hog-validation-*` (the validator) and `review-hog-blind-spots-*` (the blind-spot check) —
+    both **single-active**: exactly one runs, the select endpoint flips the others off, falling back to
+    the canonical default when none is set. `enabled=True` means "active for this user" in every case;
+    the cardinality rules are enforced in app code, not the DB, the same way the perspective min-1
+    floor is.
 
     A skill is any team `LLMSkill` carrying the prefix (canonical or custom — handled identically);
     canonicals auto-seed on first resolve, customs are switched on via the config API. The skill itself

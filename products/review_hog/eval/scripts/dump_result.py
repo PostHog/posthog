@@ -147,7 +147,9 @@ w("| chunks | review units | raw issues | after dedup | passed validator |")
 w("| ------ | ------------ | ---------- | ----------- | ---------------- |")
 w(f"| {chunk_count} | {review_units} | {raw_issues} | {dedup_count} | {valid_count} |")
 w("")
-w(f"- **review units** = every (perspective|gap × chunk) sandbox review that ran = the model-held-constant cost proxy.")
+w(
+    f"- **review units** = every (perspective|blind-spot × chunk) sandbox review that ran = the model-held-constant cost proxy."
+)
 if token_totals:
     w("- **local `$ai_generation` tokens (best-effort, may be pre-ingestion / partial):**")
     w("")

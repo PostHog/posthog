@@ -2,9 +2,10 @@
 
 Ported from Signals' `scout_harness/lazy_seed.py` (the scout fleet's canonical-skill sync) and
 trimmed to ReviewHog's needs: no companion skills, no per-team holdback. The reconcile is
-prefix-and-category-driven so the same machinery seeds both skill sets — the review
-**perspectives** (`review-hog-perspective-*`) and the **validation criteria**
-(`review-hog-validation-*`). It reads the matching dirs under `products/review_hog/skills/` and
+prefix-and-category-driven so the same machinery seeds every skill set — the review
+**perspectives** (`review-hog-perspective-*`), the **validation criteria**
+(`review-hog-validation-*`), and the **blind-spot check** (`review-hog-blind-spots-*`).
+It reads the matching dirs under `products/review_hog/skills/` and
 reconciles each against a team's `LLMSkill` rows — creating missing rows, updating ones the team
 hasn't edited, leaving diverged / hand-authored rows alone, tombstoning rows whose canonical was
 deleted. Only rows we seeded (`metadata.seeded_by == "review_hog"`) are ever updated.
@@ -31,6 +32,7 @@ import yaml
 from posthog.models.team.team import Team
 
 from products.review_hog.backend.reviewer.skill_loader import (
+    REVIEW_HOG_BLIND_SPOTS_PREFIX,
     REVIEW_HOG_PERSPECTIVE_PREFIX,
     REVIEW_HOG_VALIDATION_PREFIX,
 )
@@ -225,6 +227,11 @@ def discover_canonical_perspectives(skills_dir: Path | None = None) -> tuple[Can
 def discover_canonical_validation(skills_dir: Path | None = None) -> tuple[CanonicalSkill, ...]:
     """Every parsed `review-hog-validation-*` skill on disk (the single criteria skill today)."""
     return _discover_canonical(REVIEW_HOG_VALIDATION_PREFIX, skills_dir)
+
+
+def discover_canonical_blind_spots(skills_dir: Path | None = None) -> tuple[CanonicalSkill, ...]:
+    """Every parsed `review-hog-blind-spots-*` skill on disk (the single general sweep today)."""
+    return _discover_canonical(REVIEW_HOG_BLIND_SPOTS_PREFIX, skills_dir)
 
 
 def _compute_canonical_hash(canonical: CanonicalSkill) -> str:
@@ -465,5 +472,16 @@ def sync_canonical_validation(team: Team, *, prune: bool = False) -> SyncResult:
         canonicals=discover_canonical_validation(),
         category=REVIEW_HOG_SKILL_CATEGORY,
         prefix=REVIEW_HOG_VALIDATION_PREFIX,
+        prune=prune,
+    )
+
+
+def sync_canonical_blind_spots(team: Team, *, prune: bool = False) -> SyncResult:
+    """Reconcile a team's rows with the canonical `review-hog-blind-spots-*` skill on disk."""
+    return _sync_canonicals(
+        team,
+        canonicals=discover_canonical_blind_spots(),
+        category=REVIEW_HOG_SKILL_CATEGORY,
+        prefix=REVIEW_HOG_BLIND_SPOTS_PREFIX,
         prune=prune,
     )

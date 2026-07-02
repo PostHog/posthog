@@ -66,35 +66,70 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    the pin has to be checked BEFORE the persisted-chunk-set resume, or a stale set silently voids it.
    Net behavior change: PRs at 401–1000 reviewable additions now reach the semantic chunker (previously
    one chunk), aiming at ~300-line chunks.
-2. **Blind-spot check → prod, always-on** (every review, incl. single-chunk PRs). Naming: this is the
-   eval's **"gap pass"** — renamed 2026-07-02 because "blind spots" pairs with "perspectives" in the same
-   seeing metaphor (perspectives see; the blind-spot check hunts what every perspective misses). The
-   staged experiment code still says "gap" (`EXPERIMENT_COMPLETENESS_PASS`, `COMPLETENESS_GAP_PERSPECTIVE`,
-   the `gap_pass` activity flag, the `GAP_PASS` template var) — rename those while productionizing.
-   Promote the `EXPERIMENT_COMPLETENESS_PASS` branch in `ReviewPerspectivesWorkflow` to the permanent
-   second round (wave → blind-spot check), dropping the flag. Design decisions:
+2. **✅ DONE 2026-07-02 — Blind-spot check in prod, always-on** (every review, incl. single-chunk PRs).
+   Naming: this is the eval's **"gap pass"** — renamed because "blind spots" pairs with "perspectives" in
+   the same seeing metaphor. Built exactly as locked; as-built notes inline:
+   - **Always-on second round inside `ReviewPerspectivesWorkflow`** (wave → blind-spot check), flag gone;
+     `EXPERIMENT_COMPLETENESS_PASS` + `COMPLETENESS_GAP_PERSPECTIVE` deleted, the `gap_pass` activity flag
+     is now `ReviewChunkInput.blind_spot_check`. A separate child workflow was considered with the user
+     and rejected as overengineering: the round shares the review activity/fan-out/persistence, is
+     conditioned on the wave (max pass + lens list, in scope in-workflow), and per-activity retries + DB
+     skip-resume already give child-workflow-grade recovery. Revisit only if the sweep needs its own
+     lifecycle (e.g. a "re-run blind spots" action). Own failure floor ("Blind spots").
    - **Own step, NOT a fourth perspective** — it consumes the wave's findings, so perspective-prefix
      tricks would still need an ordering layer while contorting the multi-enable semantics.
    - **Customizable single-active blind-spots skill**, exactly the validator pattern: third prefix
-     `review-hog-blind-spots-*` in `ReviewSkillConfig` (canonical: `review-hog-blind-spots-general`), a
-     `load_blind_spots_skill_for_run` mirroring `load_validation_skill_for_run` (canonical fallback,
-     hard-raise on missing selected skill), sibling single-active viewset. Its findings keep the synthetic
-     pass number (max+1) and get `source_perspective` = the blind-spots skill name; sandbox
-     `step_name="blind-spots-c{chunk}"`. UI label: "Blind spots" (sentence case).
+     `review-hog-blind-spots-*` in `ReviewSkillConfig` (canonical: `review-hog-blind-spots-general`, on
+     disk under `skills/`), `load_blind_spots_skill_for_run` mirroring the validator loader (canonical
+     fallback, hard-raise on missing selected skill; shared `_load_single_active_skill` /
+     `_register_missing_configs` helpers now back both), sibling `ReviewBlindSpotsConfigViewSet` at
+     `/blind_spots`, seeded by `sync_review_hog_skills` + the cold-start sync. Findings run under the
+     **reserved `BLIND_SPOT_PASS_NUMBER = 1000`** — NOT max(wave pass)+1 as originally planned: the
+     adversarial review showed max+1 collides with the persisted `(pass, chunk)` resume keys when the
+     enabled-perspective set changes between executions at the same head (a newly enabled perspective
+     lands on the stale blind-spot row and is silently skipped, or the sweep lands on an occupied wave
+     pass and silently never runs). A fixed reserved pass can never collide with wave enumeration and
+     keeps the `prior_pass < pass_number` same-turn filter working. (Residual, pre-existing: wave passes
+     are positional over the sorted enabled set, so wave-vs-wave keys can still mis-match across
+     executions if the enabled set changes mid-head — belongs to the finding-identity work, not this
+     change.) `source_perspective` = the blind-spots skill name (falls out of the existing stamp);
+     sandbox `step_name="blind-spots-c{chunk}"`. UI label: "Blind spots" (sentence case).
    - **Canonical blind-spots skill v1 = PURE GENERIC** — exactly the eval-proven C4/C7 shape: wave
      findings in, "find real issues NONE of the lenses surfaced", empty-list-over-padding. **No category
      checklist** (locked with the user after iteration: static content here is fourth-perspective drift
      and breaks under per-user perspective customization — anything static belongs in perspectives; the
      five never-surfaced finding categories go to the content round, item 5). The skill's unique power is
      being conditioned on the run's actual output.
-   - **Prompt changes:** replace the hardcoded `GAP_PASS` jinja branch in
-     `prompts/issues_review/prompt.jinja` with a pinned `skill-get` (same as perspectives), and inject the
-     enabled perspectives' names + descriptions ("these lenses already ran") — static plumbing from rows
-     already loaded for the run, per-user correct (locked in v1; note it's a low-risk addition beyond what
-     the eval measured — the C4/C7 prompt worked without it).
+   - **Prompt changes:** the hardcoded `GAP_PASS` jinja branch is gone — the skill-get block is now
+     unconditional, and blind-spot units additionally get the enabled perspectives' names + descriptions
+     ("these lenses already ran") via `WAVE_PERSPECTIVES`, threaded from the loaded rows
+     (`LoadedPerspective` gained `description`; `ReviewChunkInput.wave_perspectives`) — per-user correct
+     (a low-risk addition beyond what the eval measured — the C4/C7 prompt worked without it). Two prompt
+     fixes out of the adversarial review, both beyond the eval'd C4/C7 text: the intro's
+     parallel-isolation paragraph ("report every issue… without worrying about overlap") now has a
+     blind-spot branch — it actively licensed the wave-restating duplicates the dedup nudge exists to
+     mop up — and the lens lead-in only points at "already_covered_findings_for_chunk" when that block
+     actually rendered, saying "they raised no findings on this chunk" otherwise (a clean chunk is a
+     normal wave outcome; the eval prompt dangled there).
    - **Dedup nudge:** blind-spot-check output overlaps the wave more than perspectives overlap each other
-     — 3 duplicate pairs slipped through dedup in the C7 runs. Tighten the dedup prompt for that round
-     (same-problem anchor already exists; emphasize wave-vs-blind-spot-check comparison).
+     — 3 duplicate pairs slipped through dedup in the C7 runs. The dedup prompt now tells the agent to
+     compare blind-spot findings (`source_perspective` prefix `review-hog-blind-spots-`) against the
+     wave's on the same chunk first.
+   - Tests (312 review_hog total): loader prefix-isolation + canonical fallback + hard-raise, config-API
+     single-active + cross-prefix scoping, workflow wave→blind-spot routing (reserved pass, skill + lens
+     threading, strictly-after ordering), prompt skill-get + lens injection + no-findings lead-in,
+     activity (pass, chunk) same-turn scoping + step name. A 4-lens adversarial review (Temporal
+     correctness / prefix scoping / prompt content / data flow, 15 agents) confirmed 4 issues — the
+     max+1 collision, the two prompt contradictions above, and one flaky order-sensitive test assertion
+     — all fixed; 3 further claims refuted. **e2e ✅ 2026-07-02 on frozen #62096** (no-publish, clean DB):
+     2 chunks (new 400-gate engaged the semantic chunker) · 8 units (6 wave + `blind-spots-c1/c2`
+     strictly after) · 10 raw → 8 dedup → 4 valid · ~26 min effective / ~13.1M input tokens. Canonical
+     skill auto-seeded (v1, `review_hog` category); pass-1000 ids flowed through dedup + validation;
+     chunk 2's wave found nothing → its blind-spot unit exercised the "they raised no findings" branch
+     and still swept (its 1 finding deduped out). **1 of the 4 valid findings is blind-spots-only**
+     (over-length action name → unhandled `DataError` instead of a retryable tool error, should_fix) —
+     the eval-predicted uplift, live. First chunking sandbox failed (cold start) and the activity retry
+     absorbed it (+~6 min).
 3. **✅ DONE 2026-07-02 — losing experiment paths deleted (no dead code).** Executed the full warm-session
    removal list: `EXPERIMENT_WARM_REVIEW_SESSION` + its workflow branch, `review_perspective_session_activity` +
    `ReviewPerspectiveSessionInput` + the `temporal/__init__.py` registration, `build_review_followup_prompt`,
@@ -132,7 +167,11 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    attribution then context/payload trimming (runs consume 11–21M input tokens — find where); reviewer
    model retry (gpt-5.5 when its harness stabilizes, Sonnet-tier for cost floors); single-chunk blind-spot-check
    value (always-on assumed but unmeasured on 1-chunk PRs); warm sessions revisited with an
-   anti-anchoring device.
+   anti-anchoring device; **per-chunk review→validate pipelining** — when one chunk's review units
+   (wave + blind-spot) are done, dedup THAT chunk and spawn its validation session immediately instead of
+   waiting for every chunk: **per-chunk dedup** first, a **cross-chunk dedup pass** later (cross-chunk
+   dupes are rare — chunks are distinct concerns), and dedup as **plain LLM calls** instead of a sandbox
+   agent (it compares finding texts + prior comments, no repo access needed) — faster for sure.
 
 ### ✅ Stage 1 — mergeability + docs (current)
 

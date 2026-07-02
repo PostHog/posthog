@@ -1,6 +1,7 @@
 from posthog.api.routing import RouterRegistry
 
 from products.review_hog.backend.api import (
+    ReviewBlindSpotsConfigViewSet,
     ReviewHogTriggerViewSet,
     ReviewPerspectiveConfigViewSet,
     ReviewValidatorConfigViewSet,
@@ -23,5 +24,12 @@ def register_routes(routers: RouterRegistry) -> None:
         r"review_hog/validators",
         ReviewValidatorConfigViewSet,
         "project_review_hog_validators",
+        ["team_id"],
+    )
+    # Team-scoped: per-user selection of the single active blind-spots skill (the future config UI).
+    routers.projects.register(
+        r"review_hog/blind_spots",
+        ReviewBlindSpotsConfigViewSet,
+        "project_review_hog_blind_spots",
         ["team_id"],
     )

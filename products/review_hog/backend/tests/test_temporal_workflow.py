@@ -15,8 +15,11 @@ from temporalio.client import WorkflowFailureError
 from temporalio.testing import WorkflowEnvironment
 from temporalio.worker import Worker
 
+from products.review_hog.backend.reviewer.constants import BLIND_SPOT_PASS_NUMBER
 from products.review_hog.backend.temporal.activities import (
     DedupResult,
+    LoadBlindSpotsInput,
+    LoadedBlindSpotsSkillDTO,
     LoadedPerspectiveDTO,
     LoadedValidationSkillDTO,
     LoadPerspectivesInput,
@@ -56,11 +59,13 @@ async def _run_full_review_pr_workflow(
     # already_published drives the early-exit gate; acting_user_id None means the author isn't a
     # PostHog user, so the workflow skips the review.
     split_calls: list[int] = []
-    review_calls: list[tuple[int, int]] = []
+    # Each review unit as (pass_number, chunk_id, blind_spot_check, skill_name, wave lens names) — the
+    # blind-spot fields let the fan-out test pin the second round's routing contract.
+    review_calls: list[tuple[int, int, bool, str, tuple[str, ...]]] = []
     validate_calls: list[int] = []
     publish_calls: list[int] = []
-    # The user id the parent threads into the perspective + validation loads (should be the RESOLVED
-    # value, not the None workflow input) — guards the per-user perspective/validator selection seam.
+    # The user id the parent threads into the perspective / blind-spots / validation loads (should be
+    # the RESOLVED value, not the None workflow input) — guards each per-user selection seam.
     load_user_ids: list[int | None] = []
 
     @activity.defn(name="validate_github_integration_activity")
@@ -107,9 +112,22 @@ async def _run_full_review_pr_workflow(
             LoadedPerspectiveDTO(pass_number=3, skill_name="s-perf", version=1),
         ]
 
+    @activity.defn(name="load_blind_spots_skill_activity")
+    async def load_blind_spots(input: LoadBlindSpotsInput) -> LoadedBlindSpotsSkillDTO:
+        load_user_ids.append(input.acting_user_id)
+        return LoadedBlindSpotsSkillDTO(skill_name="s-blind", version=1)
+
     @activity.defn(name="review_chunk_activity")
     async def review(input: ReviewChunkInput) -> bool:
-        review_calls.append((input.pass_number, input.chunk_id))
+        review_calls.append(
+            (
+                input.pass_number,
+                input.chunk_id,
+                input.blind_spot_check,
+                input.skill_name,
+                tuple(p.skill_name for p in input.wave_perspectives),
+            )
+        )
         return True
 
     @activity.defn(name="combine_and_clean_activity")
@@ -158,6 +176,7 @@ async def _run_full_review_pr_workflow(
                 gen_schemas,
                 split,
                 load_perspectives,
+                load_blind_spots,
                 review,
                 combine,
                 dedup,
@@ -191,13 +210,23 @@ async def _run_full_review_pr_workflow(
 async def test_review_pr_workflow_runs_all_stages_and_fans_out():
     recorded = await _run_full_review_pr_workflow(publish=False)
     assert recorded["result"] == "rep-1"
-    # Review fans out per (perspective × chunk); validate fans out one warm session per chunk.
-    assert len(recorded["review"]) == 6  # 3 perspectives × 2 chunks
+    # Review fans out per (perspective × chunk), then the always-on blind-spot check adds one unit
+    # per chunk; validate fans out one warm session per chunk.
+    wave = [c for c in recorded["review"] if not c[2]]
+    blind = [c for c in recorded["review"] if c[2]]
+    assert len(wave) == 6  # 3 perspectives × 2 chunks
+    # The blind-spot round runs strictly after the wave: one unit per chunk, on the loaded
+    # blind-spots skill, at the reserved pass number, told which lenses already ran.
+    assert recorded["review"][:6] == wave
+    assert sorted((p, c) for p, c, *_ in blind) == [(BLIND_SPOT_PASS_NUMBER, 1), (BLIND_SPOT_PASS_NUMBER, 2)]
+    assert {c[3] for c in blind} == {"s-blind"}
+    assert {c[4] for c in blind} == {("s-logic", "s-sec", "s-perf")}
+    assert {c[4] for c in wave} == {()}  # the wave itself gets no cross-perspective context
     assert sorted(recorded["validate"]) == [1, 2]  # one session per chunk-with-issues
     assert recorded["publish"] == []  # publish=False → never posts to GitHub
     # The RESOLVED acting user (3 from the resolve stub), not the None workflow input, threads into
-    # both the perspective and validation loads — the per-user selection seam for each.
-    assert recorded["load_user_ids"] == [3, 3]
+    # the perspective, blind-spots, and validation loads — the per-user selection seam for each.
+    assert recorded["load_user_ids"] == [3, 3, 3]
 
 
 @pytest.mark.asyncio

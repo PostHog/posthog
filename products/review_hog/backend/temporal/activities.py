@@ -15,7 +15,7 @@ access goes through `database_sync_to_async(..., thread_sensitive=False)`; `@sco
 """
 
 import logging
-from dataclasses import dataclass
+from dataclasses import dataclass, field
 
 from temporalio import activity
 from temporalio.exceptions import ApplicationError
@@ -34,7 +34,11 @@ from products.review_hog.backend.reviewer.constants import (
     REVIEW_REASONING_EFFORT,
     REVIEW_RUNTIME_ADAPTER,
 )
-from products.review_hog.backend.reviewer.lazy_seed import sync_canonical_perspectives, sync_canonical_validation
+from products.review_hog.backend.reviewer.lazy_seed import (
+    sync_canonical_blind_spots,
+    sync_canonical_perspectives,
+    sync_canonical_validation,
+)
 from products.review_hog.backend.reviewer.models import generate_all_schemas
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
@@ -62,7 +66,11 @@ from products.review_hog.backend.reviewer.sandbox.executor import (
     run_sandbox_review,
     start_sandbox_session,
 )
-from products.review_hog.backend.reviewer.skill_loader import load_perspectives_for_run, load_validation_skill_for_run
+from products.review_hog.backend.reviewer.skill_loader import (
+    load_blind_spots_skill_for_run,
+    load_perspectives_for_run,
+    load_validation_skill_for_run,
+)
 from products.review_hog.backend.reviewer.tools.github_meta import PRFetcher
 from products.review_hog.backend.reviewer.tools.issue_cleaner import clean_issues
 from products.review_hog.backend.reviewer.tools.issue_combination import combine_issues
@@ -156,6 +164,12 @@ class LoadValidationInput:
 
 
 @dataclass
+class LoadBlindSpotsInput:
+    team_id: int
+    acting_user_id: int
+
+
+@dataclass
 class SyncReviewSkillsInput:
     team_id: int
 
@@ -179,11 +193,25 @@ class SandboxStageInput:
 
 
 @dataclass
+class LoadedPerspectiveDTO:
+    pass_number: int
+    skill_name: str
+    version: int
+    # Injected into the blind-spot check's prompt ("these lenses already ran"). Defaulted so payloads
+    # serialized before the field existed still deserialize.
+    description: str = ""
+
+
+@dataclass
 class ReviewChunkInput(SandboxStageInput):
     chunk_id: int
     pass_number: int
     skill_name: str
     skill_version: int
+    # Blind-spot check: the broad "what did everyone miss?" sweep run per chunk after the perspective
+    # wave — fed every wave finding for the chunk, and told (below) which lenses already ran.
+    blind_spot_check: bool = False
+    wave_perspectives: list[LoadedPerspectiveDTO] = field(default_factory=list)
 
 
 @dataclass
@@ -203,14 +231,13 @@ class ValidateChunkResult:
 
 
 @dataclass
-class LoadedPerspectiveDTO:
-    pass_number: int
+class LoadedValidationSkillDTO:
     skill_name: str
     version: int
 
 
 @dataclass
-class LoadedValidationSkillDTO:
+class LoadedBlindSpotsSkillDTO:
     skill_name: str
     version: int
 
@@ -403,6 +430,7 @@ def _sync_review_skills(team_id: int) -> None:
     team = Team.objects.get(id=team_id)
     sync_canonical_perspectives(team)
     sync_canonical_validation(team)
+    sync_canonical_blind_spots(team)
 
 
 @activity.defn
@@ -488,7 +516,9 @@ async def split_chunks_activity(input: SandboxStageInput) -> list[int]:
 
 def _load_perspectives(team_id: int, acting_user_id: int) -> list[LoadedPerspectiveDTO]:
     return [
-        LoadedPerspectiveDTO(pass_number=p.pass_number, skill_name=p.skill_name, version=p.version)
+        LoadedPerspectiveDTO(
+            pass_number=p.pass_number, skill_name=p.skill_name, version=p.version, description=p.description
+        )
         for p in load_perspectives_for_run(team_id, acting_user_id)
     ]
 
@@ -501,6 +531,21 @@ async def load_perspectives_activity(input: LoadPerspectivesInput) -> list[Loade
     return await database_sync_to_async(_load_perspectives, thread_sensitive=False)(input.team_id, input.acting_user_id)
 
 
+def _load_blind_spots_skill(team_id: int, acting_user_id: int) -> LoadedBlindSpotsSkillDTO:
+    loaded = load_blind_spots_skill_for_run(team_id, acting_user_id)
+    return LoadedBlindSpotsSkillDTO(skill_name=loaded.skill_name, version=loaded.version)
+
+
+@activity.defn
+@scoped_temporal()
+@close_db_connections
+async def load_blind_spots_skill_activity(input: LoadBlindSpotsInput) -> LoadedBlindSpotsSkillDTO:
+    """Resolve the acting user's selected blind-spots skill, pinned to its current version, for this run."""
+    return await database_sync_to_async(_load_blind_spots_skill, thread_sensitive=False)(
+        input.team_id, input.acting_user_id
+    )
+
+
 def _prepare_review_prompt(
     team_id: int,
     report_id: str,
@@ -510,6 +555,8 @@ def _prepare_review_prompt(
     skill_name: str,
     skill_version: int,
     run_index: int,
+    blind_spot_check: bool,
+    wave_perspectives: list[LoadedPerspectiveDTO],
 ) -> str | None:
     """Build the review prompt for one (perspective, chunk), or None if already reviewed this turn."""
     done = load_perspective_results(team_id=team_id, report_id=report_id, head_sha=head_sha)
@@ -523,6 +570,13 @@ def _prepare_review_prompt(
     if chunk is None:
         raise ApplicationError(f"Chunk {chunk_id} not found in chunk set", non_retryable=True)
     prior_findings = load_prior_findings(team_id=team_id, report_id=report_id, before_run_index=run_index)
+    # The blind-spot check reads its own chunk's lower-pass wave findings; regular perspective units
+    # stay blind to each other (overlap is dedup's job).
+    same_turn_findings: list[Issue] = []
+    if blind_spot_check:
+        for (prior_pass, prior_chunk), review in done.items():
+            if prior_chunk == chunk_id and prior_pass < pass_number:
+                same_turn_findings.extend(review.issues)
     return build_review_prompt(
         skill_name=skill_name,
         skill_version=skill_version,
@@ -531,6 +585,9 @@ def _prepare_review_prompt(
         pr_comments=snapshot.pr_comments,
         pr_files=snapshot.pr_files,
         prior_findings=prior_findings,
+        same_turn_findings=same_turn_findings,
+        dig_deeper=bool(same_turn_findings),
+        wave_perspectives={p.skill_name: p.description for p in wave_perspectives} if blind_spot_check else None,
     )
 
 
@@ -538,7 +595,7 @@ def _prepare_review_prompt(
 @scoped_temporal()
 @close_db_connections
 async def review_chunk_activity(input: ReviewChunkInput) -> bool:
-    """Review one chunk through one perspective in a sandbox agent and persist it (idempotent)."""
+    """Review one chunk through one perspective (or the blind-spot check) and persist it (idempotent)."""
     prompt = await database_sync_to_async(_prepare_review_prompt, thread_sensitive=False)(
         input.team_id,
         input.report_id,
@@ -548,9 +605,16 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
         input.skill_name,
         input.skill_version,
         input.run_index,
+        input.blind_spot_check,
+        input.wave_perspectives,
     )
     if prompt is None:
         return True
+    step_name = (
+        f"blind-spots-c{input.chunk_id}"
+        if input.blind_spot_check
+        else f"issues-review-p{input.pass_number}-c{input.chunk_id}"
+    )
     async with Heartbeater():
         review = await run_sandbox_review(
             team_id=input.team_id,
@@ -560,7 +624,7 @@ async def review_chunk_activity(input: ReviewChunkInput) -> bool:
             prompt=prompt,
             system_prompt=REVIEW_SYSTEM_PROMPT,
             model_to_validate=IssuesReview,
-            step_name=f"issues-review-p{input.pass_number}-c{input.chunk_id}",
+            step_name=step_name,
             runtime_adapter=REVIEW_RUNTIME_ADAPTER,
             model=REVIEW_MODEL,
             reasoning_effort=REVIEW_REASONING_EFFORT,

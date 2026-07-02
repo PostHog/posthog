@@ -26,6 +26,12 @@ for that problem and mark the rest as duplicates. A prior comment that already r
 makes the matching fresh finding a duplicate (we will not re-post it). Fewer, distinct, useful
 findings is the goal.
 
+Pay special attention to blind-spot findings (`source_perspective` starting with
+`review-hog-blind-spots-`): that sweep runs AFTER the specialist perspectives over the same chunk, so
+its output overlaps theirs more than they overlap each other. Compare each blind-spot finding against
+the specialist findings on its chunk first — a restated specialist problem from the sweep is exactly
+the duplicate to collapse, keeping whichever statement is more comprehensive.
+
 **Your task**
 1. For each fresh finding, decide whether it restates the same concrete problem as another fresh
    finding or a prior comment.

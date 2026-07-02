@@ -24,7 +24,11 @@ from temporalio import workflow
 from temporalio.common import RetryPolicy
 from temporalio.exceptions import ApplicationError
 
-from products.review_hog.backend.reviewer.constants import FAN_OUT_FAILURE_FLOOR, MAX_CONCURRENT_SANDBOXES
+from products.review_hog.backend.reviewer.constants import (
+    BLIND_SPOT_PASS_NUMBER,
+    FAN_OUT_FAILURE_FLOOR,
+    MAX_CONCURRENT_SANDBOXES,
+)
 from products.review_hog.backend.temporal.activities import (
     BuildBodyInput,
     CombineCleanInput,
@@ -32,6 +36,8 @@ from products.review_hog.backend.temporal.activities import (
     DedupResult,
     FetchPRDataInput,
     GenerateSchemasInput,
+    LoadBlindSpotsInput,
+    LoadedBlindSpotsSkillDTO,
     LoadedPerspectiveDTO,
     LoadedValidationSkillDTO,
     LoadPerspectivesInput,
@@ -50,6 +56,7 @@ from products.review_hog.backend.temporal.activities import (
     dedup_activity,
     fetch_pr_data_activity,
     generate_schemas_activity,
+    load_blind_spots_skill_activity,
     load_perspectives_activity,
     load_validation_skill_activity,
     publish_review_activity,
@@ -99,11 +106,13 @@ class ValidateIssuesInputs(SandboxStageInput):
 
 @temporalio.workflow.defn(name="review-perspectives")
 class ReviewPerspectivesWorkflow:
-    """Fan out one review sandbox activity per (perspective × chunk) (bounded, best-effort).
+    """Fan out the perspective wave, then one blind-spot check per chunk (bounded, best-effort).
 
     Perspectives are resolved (and version-pinned) once via an activity, then every (perspective,
     chunk) pair runs concurrently with no cross-perspective context — overlap is resolved by the
-    downstream dedup stage.
+    downstream dedup stage. After the wave, the blind-spot check (a customizable single-active skill,
+    like the validator) runs once per chunk: it reads every wave finding for its chunk and hunts for
+    what all the perspectives missed, under the reserved `BLIND_SPOT_PASS_NUMBER`.
     """
 
     @temporalio.workflow.run
@@ -114,10 +123,14 @@ class ReviewPerspectivesWorkflow:
             start_to_close_timeout=_QUICK_TIMEOUT,
             retry_policy=_RETRY,
         )
-        units = [(perspective, chunk_id) for perspective in perspectives for chunk_id in inputs.chunk_ids]
+        # Ascending pass_number keeps the blind-spot check's injected lens list deterministic; it's a
+        # no-op ordering for the parallel fan-out itself.
+        ordered = sorted(perspectives, key=lambda p: p.pass_number)
         semaphore = asyncio.Semaphore(MAX_CONCURRENT_SANDBOXES)
 
-        async def _review(perspective: LoadedPerspectiveDTO, chunk_id: int) -> bool:
+        async def _review(
+            pass_number: int, skill_name: str, skill_version: int, chunk_id: int, blind_spot_check: bool
+        ) -> bool:
             async with semaphore:
                 return await workflow.execute_activity(
                     review_chunk_activity,
@@ -130,16 +143,23 @@ class ReviewPerspectivesWorkflow:
                         branch=inputs.branch,
                         run_index=inputs.run_index,
                         chunk_id=chunk_id,
-                        pass_number=perspective.pass_number,
-                        skill_name=perspective.skill_name,
-                        skill_version=perspective.version,
+                        pass_number=pass_number,
+                        skill_name=skill_name,
+                        skill_version=skill_version,
+                        blind_spot_check=blind_spot_check,
+                        wave_perspectives=ordered if blind_spot_check else [],
                     ),
                     start_to_close_timeout=_SANDBOX_TIMEOUT,
                     heartbeat_timeout=_SANDBOX_HEARTBEAT,
                     retry_policy=_RETRY,
                 )
 
-        results = await asyncio.gather(*(_review(p, c) for p, c in units), return_exceptions=True)
+        units = [(p, c) for p in ordered for c in inputs.chunk_ids]
+        results = await asyncio.gather(
+            *(_review(p.pass_number, p.skill_name, p.version, c, False) for p, c in units),
+            return_exceptions=True,
+        )
+
         total = len(units)
         failed = sum(1 for r in results if isinstance(r, BaseException))
         _enforce_failure_floor("Review", failed, total)
@@ -148,6 +168,31 @@ class ReviewPerspectivesWorkflow:
             workflow.logger.warning(
                 f"Reviewed {reviewed}/{total} (perspective, chunk) pair(s); {failed} failed best-effort"
             )
+
+        # Blind-spot check: after the perspective wave, one broad "what did everyone miss?" unit per
+        # chunk reads every wave finding and sweeps for what none of the lenses surfaced.
+        blind_spots: LoadedBlindSpotsSkillDTO = await workflow.execute_activity(
+            load_blind_spots_skill_activity,
+            LoadBlindSpotsInput(team_id=inputs.team_id, acting_user_id=inputs.acting_user_id),
+            start_to_close_timeout=_QUICK_TIMEOUT,
+            retry_policy=_RETRY,
+        )
+        spot_results = await asyncio.gather(
+            *(
+                _review(BLIND_SPOT_PASS_NUMBER, blind_spots.skill_name, blind_spots.version, c, True)
+                for c in inputs.chunk_ids
+            ),
+            return_exceptions=True,
+        )
+        spot_total = len(inputs.chunk_ids)
+        spot_failed = sum(1 for r in spot_results if isinstance(r, BaseException))
+        _enforce_failure_floor("Blind spots", spot_failed, spot_total)
+        reviewed += spot_total - spot_failed
+        if spot_failed:
+            workflow.logger.warning(
+                f"Blind-spot check reviewed {spot_total - spot_failed}/{spot_total} chunk(s); {spot_failed} failed"
+            )
+
         return reviewed
 
 
@@ -333,7 +378,7 @@ class ReviewPRWorkflow:
 
         parent_id = workflow.info().workflow_id
 
-        workflow.logger.info("STAGE 3/8 · Review chunks (per enabled perspective)")
+        workflow.logger.info("STAGE 3/8 · Review chunks (perspective wave + blind-spot check)")
         await workflow.execute_child_workflow(
             ReviewPerspectivesWorkflow.run,
             ReviewPerspectivesInputs(

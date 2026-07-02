@@ -46,3 +46,10 @@ CHUNK_TARGET_ADDITIONS = 300
 # Soft cap the LLM chunker is told to stay under — guidance, not enforced: split large concerns at
 # natural seams rather than emit one mega-chunk, but keep a truly atomic concern whole if it runs over.
 CHUNK_SOFT_MAX_ADDITIONS = 600
+
+
+# BLIND-SPOT CHECK
+# Reserved pass number for the blind-spot unit. Fixed and far above any wave enumeration (passes
+# 1..N over enabled perspectives), so persisted (pass, chunk) resume keys never collide with a wave
+# pass when the enabled set changes between executions at the same head.
+BLIND_SPOT_PASS_NUMBER = 1000

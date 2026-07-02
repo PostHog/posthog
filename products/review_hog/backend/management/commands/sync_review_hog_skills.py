@@ -7,9 +7,9 @@ this command is the impatient path:
 - You merged a SKILL.md change and want it on a team now, not on its next review run.
 - You're onboarding a team (e.g. seeding team 1 before an e2e run).
 
-It seeds both review-hog skill sets — the parallel-review **perspectives** and the **validation
-criteria**. `--all-teams` fans out to every team that already has review-hog-seeded rows (the
-post-edit propagation).
+It seeds every review-hog skill set — the parallel-review **perspectives**, the **validation
+criteria**, and the **blind-spot check**. `--all-teams` fans out to every team that already has
+review-hog-seeded rows (the post-edit propagation).
 """
 
 from __future__ import annotations
@@ -25,17 +25,25 @@ from posthog.models.team.team import Team
 from products.review_hog.backend.reviewer.lazy_seed import (
     REVIEW_HOG_SEEDED_BY,
     SyncResult,
+    sync_canonical_blind_spots,
     sync_canonical_perspectives,
     sync_canonical_validation,
 )
 from products.skills.backend.models.skills import LLMSkill
 
 # Every canonical-skill syncer ReviewHog owns; the command runs them all per team.
-_SYNCERS: tuple[Callable[..., SyncResult], ...] = (sync_canonical_perspectives, sync_canonical_validation)
+_SYNCERS: tuple[Callable[..., SyncResult], ...] = (
+    sync_canonical_perspectives,
+    sync_canonical_validation,
+    sync_canonical_blind_spots,
+)
 
 
 class Command(BaseCommand):
-    help = "Sync canonical review-hog skills (perspectives + validation criteria) from disk to teams' LLMSkill rows."
+    help = (
+        "Sync canonical review-hog skills (perspectives + validation criteria + blind-spot check) "
+        "from disk to teams' LLMSkill rows."
+    )
 
     def add_arguments(self, parser: CommandParser) -> None:
         parser.add_argument("--team-id", type=int, help="Sync a specific team. Mutually exclusive with --all-teams.")
