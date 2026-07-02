@@ -287,6 +287,12 @@ export class SessionRecordingIngester {
         this.kafkaConsumer.heartbeat()
 
         if (this.sessionBatchManager.shouldFlush()) {
+            // The pipeline schedules its side effects (DLQ and overflow produces) fire-and-forget on
+            // the promise scheduler. Drain them before flushing so we never commit a message's offset
+            // before its produce is durable — otherwise a crash in that window would lose it.
+            await instrumentFn(`recordingingesterv2.handleEachBatch.flush.awaitSideEffects`, async () => {
+                await this.promiseScheduler.waitForAllSettled()
+            })
             await instrumentFn(`recordingingesterv2.handleEachBatch.flush`, async () =>
                 this.sessionBatchManager.flush()
             )
