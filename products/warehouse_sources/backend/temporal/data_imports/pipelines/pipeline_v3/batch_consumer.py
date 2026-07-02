@@ -803,6 +803,11 @@ class BatchConsumer:
                         attempt=batch.latest_attempt,
                         error_response={"error": "executing timed out - pod restart or OOM"},
                     )
+            except OwnershipLostError:
+                # The batch was terminally retired (supersede/replan) between the
+                # stale scan and this write — there is nothing left to recover.
+                # Never abort the sweep (or crash the startup sweep) over it.
+                logger.info(self._event("batch_recovery_skipped_already_retired"), batch_id=batch.id)
             finally:
                 structlog.contextvars.unbind_contextvars(*recovery_bound_keys)
 

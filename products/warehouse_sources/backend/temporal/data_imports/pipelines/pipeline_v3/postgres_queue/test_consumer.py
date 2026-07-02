@@ -341,6 +341,32 @@ class TestRecoverySweep:
         mock_unlock.assert_not_called()
 
     @pytest.mark.asyncio
+    async def test_recovery_sweep_skips_batches_retired_mid_sweep(self):
+        # A batch terminally retired between the stale scan and the re-queue
+        # write surfaces as OwnershipLostError from the adapter; the sweep
+        # (including the unwrapped startup sweep) must skip it, not crash.
+        from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
+            OwnershipLostError,
+        )
+
+        consumer = _make_consumer(max_attempts=3)
+        stale_batch = _make_batch(latest_attempt=1)
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_stale_executing",
+                new_callable=AsyncMock,
+                return_value=[stale_batch],
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                new_callable=AsyncMock,
+                side_effect=OwnershipLostError("batch was terminally retired while claimed"),
+            ),
+        ):
+            await consumer._recovery_sweep()
+
+    @pytest.mark.asyncio
     async def test_recovery_sweep_error_propagates_without_releasing_leases(self):
         consumer = _make_consumer(max_attempts=3)
         stale_batch = _make_batch(latest_attempt=1)
