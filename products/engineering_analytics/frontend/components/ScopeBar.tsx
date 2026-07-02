@@ -48,14 +48,15 @@ const CHIP_CLASS =
     'inline-flex items-center gap-1.5 rounded border border-primary bg-surface-primary px-2.5 py-1 text-xs text-secondary'
 
 /** The repo scope on pages that already mount engineeringAnalyticsLogic (hub, list pages): a source
- *  picker when the team connected more than one GitHub source, otherwise the repo name. */
-export function SourceScopeChip(): JSX.Element {
+ *  picker when the team connected more than one GitHub source, otherwise the repo name.
+ *  `pickerOnly` is for pages that state the repo elsewhere (the hub's entity header) — the picker
+ *  still earns its place on multi-source teams, but a static chip would just repeat the header. */
+export function SourceScopeChip({ pickerOnly = false }: { pickerOnly?: boolean }): JSX.Element | null {
     const { hasMultipleSources, sourceOptions, sourceId, githubSources } = useValues(engineeringAnalyticsLogic)
     const { setSourceId } = useActions(engineeringAnalyticsLogic)
-    const repoLabel =
-        (sourceId
-            ? githubSources.find((source: GitHubSourceApi) => source.id === sourceId)?.repo
-            : githubSources[0]?.repo) || 'Repository'
+    const repoLabel = sourceId
+        ? githubSources.find((source: GitHubSourceApi) => source.id === sourceId)?.repo
+        : githubSources[0]?.repo
     if (hasMultipleSources) {
         return (
             <LemonSelect
@@ -63,12 +64,17 @@ export function SourceScopeChip(): JSX.Element {
                 value={sourceId}
                 onChange={setSourceId}
                 options={sourceOptions}
-                placeholder={repoLabel}
+                placeholder={repoLabel || 'Repository'}
                 allowClear
                 dropdownMatchSelectWidth={false}
                 data-attr="engineering-analytics-source-select"
             />
         )
+    }
+    // No repo name to show (source connected before the repo landed) — a placeholder chip carries
+    // no information, so render nothing rather than a dead "Repository" pill.
+    if (pickerOnly || !repoLabel) {
+        return null
     }
     return (
         <span className={CHIP_CLASS}>
