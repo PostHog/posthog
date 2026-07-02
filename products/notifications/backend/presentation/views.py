@@ -363,9 +363,8 @@ class NotificationsViewSet(TeamAndOrgViewSetMixin, GenericViewSet):
             return Response({"status": "ok"})
 
         user = self._get_user()
-        event = self.get_object()
+        event = self._get_recipient_event_or_404()
         if event.archivable:
-            # nosemgrep: idor-lookup-without-team -- event is already authorized via get_object()
             NotificationArchiveState.objects.get_or_create(notification_event=event, user=user)
             invalidate_unread_count(user.id, self.team.organization_id)
         return Response({"status": "ok"})

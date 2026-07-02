@@ -515,6 +515,22 @@ class TestNotificationsAPI(BaseTest):
         assert resp.json()["updated"] == 0
         assert not NotificationArchiveState.objects.filter(notification_event=other_event, user=self.user).exists()
 
+    def test_archive_detail_skips_non_recipient(self):
+        other_event = NotificationEvent.objects.create(
+            organization=self.organization,
+            team=self.team,
+            notification_type="alert_firing",
+            title="Other",
+            body="",
+            target_type="user",
+            target_id="999",
+            resolved_user_ids=[],
+            archivable=True,
+        )
+        resp = self.client.post(f"/api/environments/{self.team.id}/notifications/{other_event.id}/archive/")
+        assert resp.status_code == 404
+        assert not NotificationArchiveState.objects.filter(notification_event=other_event, user=self.user).exists()
+
     def test_archive_all_only_archives_archivable(self):
         a1 = self._create_archivable("A1")
         a2 = self._create_archivable("A2")
