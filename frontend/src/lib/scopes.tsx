@@ -144,6 +144,7 @@ export const API_SCOPES: APIScope[] = [
     { key: 'tracing', objectName: 'Tracing', objectPlural: 'tracing' },
     { key: 'field_note', objectName: 'Field note', objectPlural: 'field notes' },
     { key: 'uploaded_media', objectName: 'Uploaded media', objectPlural: 'uploaded media' },
+    { key: 'uptime', objectName: 'Uptime monitor', objectPlural: 'uptime monitors' },
     { key: 'usage_metric', objectName: 'Usage metric', objectPlural: 'usage metrics' },
     {
         key: 'user',

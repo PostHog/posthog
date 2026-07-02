@@ -231,6 +231,7 @@
             "type": null,
             "intents": ["tracing"]
         },
+        { "path": "Uptime", "category": "Behavior", "iconType": "uptime", "type": null, "intents": [] },
         {
             "path": "User research",
             "category": "Unreleased",

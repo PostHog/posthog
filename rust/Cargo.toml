@@ -57,6 +57,7 @@ members = [
   "personhog-router",
   "affected-services",
   "property-vals-rs",
+  "uptime-pinger",
 ]
 
 [workspace.lints.rust]

@@ -112,6 +112,7 @@ depends_on = [
     "products.surveys",
     "products.tasks",
     "products.tracing",
+    "products.uptime",
     "products.user_interviews",
     "products.mcp_analytics",
     "products.web_analytics",
@@ -972,6 +973,21 @@ expose = [
 ]
 from = [
     "products.business_knowledge",
+]
+
+[[modules]]
+path = "products.uptime"
+depends_on = ["posthog"]
+layer = "modules"
+
+[[interfaces]]
+expose = [
+    "backend\\.facade.*",
+    "backend\\.routes.*",
+    "backend\\.sql.*",
+]
+from = [
+    "products.uptime",
 ]
 
 [[modules]]

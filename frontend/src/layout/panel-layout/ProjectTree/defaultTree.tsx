@@ -75,6 +75,22 @@ import {
 import { FileSystemIconType, FileSystemImport } from '~/queries/schema/schema-general'
 import { FileSystemIconColor } from '~/types'
 
+// Inline icon — matches the sizing/stroke conventions of @posthog/icons so it
+// can sit alongside them in the navbar without pulling in a package change.
+function IconUptime(props: React.SVGProps<SVGSVGElement>): JSX.Element {
+    return (
+        <svg viewBox="0 0 24 24" fill="none" xmlns="http://www.w3.org/2000/svg" width="1em" height="1em" {...props}>
+            <path
+                d="M2.5 12 H7 L8.5 9.5 L10 14 L11.5 6.5 L13 17.5 L14.5 11 L16 12 H21.5"
+                stroke="currentColor"
+                strokeWidth="1.6"
+                strokeLinecap="round"
+                strokeLinejoin="round"
+            />
+        </svg>
+    )
+}
+
 const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: FileSystemIconColor }> = {
     default_icon_type: {
         icon: <IconCircleDashed />,
@@ -354,6 +370,10 @@ const iconTypes: Record<FileSystemIconType, { icon: JSX.Element; iconColor?: Fil
     },
     exports: {
         icon: <IconDownload />,
+    },
+    uptime: {
+        icon: <IconUptime />,
+        iconColor: ['var(--color-product-uptime-light)', 'var(--color-product-uptime-dark)'],
     },
 }
 

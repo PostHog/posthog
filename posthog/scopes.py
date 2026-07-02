@@ -103,6 +103,7 @@ APIScopeObject = Literal[
     "tracing",
     "field_note",
     "uploaded_media",
+    "uptime",
     "usage_metric",
     "user",
     "user_interview",  # Alpha product — access gated by feature flag at the MCP/API layer rather than by hiding the scope.

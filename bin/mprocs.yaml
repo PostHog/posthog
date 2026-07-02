@@ -438,6 +438,16 @@ procs:
             layer: Ingestion pipeline
             tech: Rust
 
+    uptime-pinger:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service uptime-pinger
+        capability: uptime_monitoring
+        ready_pattern: 'uptime-pinger worker started'
+        groups:
+            layer: Product services
+            tech: Rust
+
     personhog-replica:
         shell: |-
             bin/wait-for-docker && \

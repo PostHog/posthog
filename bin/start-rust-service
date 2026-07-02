@@ -366,6 +366,15 @@ case "$RS_SVC" in
     export METRICS_PORT=9103
     ;;
 
+  uptime-pinger)
+    SQLX_QUERY_LEVEL=${SQLX_QUERY_LEVEL:-warn}
+    export RUST_LOG=info,sqlx::query=$SQLX_QUERY_LEVEL,rdkafka=warn
+    export RUST_BACKTRACE=1
+    export DATABASE_URL="${DATABASE_URL:-$DEFAULT_PG}"
+    export KAFKA_HOSTS="$DEFAULT_KAFKA"
+    export BIND_PORT=3320
+    ;;
+
   *)
     echo "ERROR unknown posthog/rust service '$RS_SVC' please register in: $0" >&2
     exit 1

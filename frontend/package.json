@@ -123,6 +123,7 @@
         "@posthog/products-surveys": "workspace:*",
         "@posthog/products-tasks": "workspace:*",
         "@posthog/products-tracing": "workspace:*",
+        "@posthog/products-uptime": "workspace:*",
         "@posthog/products-user-interviews": "workspace:*",
         "@posthog/products-visual-review": "workspace:*",
         "@posthog/products-warehouse-sources": "workspace:*",

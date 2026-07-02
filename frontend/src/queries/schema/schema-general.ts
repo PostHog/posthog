@@ -3902,6 +3902,7 @@ export type FileSystemIconType =
     | 'health'
     | 'inbox'
     | 'sdk_health'
+    | 'uptime'
     | 'pipeline_status'
     | 'llm_evaluations'
     | 'llm_tags'

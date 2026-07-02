@@ -13955,6 +13955,19 @@ export namespace Schemas {
       representative_email: string;
     }
 
+    export interface CreateMonitor {
+      /**
+         * Human-readable name of the monitor.
+         * @maxLength 255
+         */
+      name: string;
+      /**
+         * HTTP(S) URL to ping every 5 minutes.
+         * @maxLength 2048
+         */
+      url: string;
+    }
+
     /**
      * Typed output for view set `create`.
      */
@@ -14318,6 +14331,29 @@ export namespace Schemas {
       readonly created_at: string;
       /** @nullable */
       readonly updated_at: string | null;
+    }
+
+    /**
+     * * `up` - up
+     * * `degraded` - degraded
+     * * `down` - down
+     * * `no_data` - no_data
+     */
+    export type DailyBucketDTOStatusEnum = typeof DailyBucketDTOStatusEnum[keyof typeof DailyBucketDTOStatusEnum];
+
+
+    export const DailyBucketDTOStatusEnum = {
+      Up: 'up',
+      Degraded: 'degraded',
+      Down: 'down',
+      NoData: 'no_data',
+    } as const;
+
+    export interface DailyBucketDTO {
+      date: string;
+      total: number;
+      failed: number;
+      status: DailyBucketDTOStatusEnum;
     }
 
     export type DashboardFilters = { [key: string]: unknown };
@@ -29213,10 +29249,10 @@ export namespace Schemas {
      * * `completed` - Completed
      * * `error` - Error
      */
-    export type OutcomeEnum = typeof OutcomeEnum[keyof typeof OutcomeEnum];
+    export type MCPIntentClusterJourneyPathOutcomeEnum = typeof MCPIntentClusterJourneyPathOutcomeEnum[keyof typeof MCPIntentClusterJourneyPathOutcomeEnum];
 
 
-    export const OutcomeEnum = {
+    export const MCPIntentClusterJourneyPathOutcomeEnum = {
       Completed: 'completed',
       Error: 'error',
     } as const;
@@ -29228,7 +29264,7 @@ export namespace Schemas {
        *
        * * `completed` - Completed
        * * `error` - Error */
-      readonly outcome: OutcomeEnum;
+      readonly outcome: MCPIntentClusterJourneyPathOutcomeEnum;
       /** Number of sessions in this cluster that followed this exact path. */
       readonly count: number;
     }
@@ -29865,6 +29901,13 @@ export namespace Schemas {
       FeatureFlag: 'FeatureFlag',
     } as const;
 
+    export interface MonitorDTO {
+      id: string;
+      name: string;
+      url: string;
+      created_at: string;
+    }
+
     export interface MonitorStats {
       /** Succeeded observations whose verdict was `yes`. */
       yes_total: number;
@@ -29872,6 +29915,48 @@ export namespace Schemas {
       no_total: number;
       /** Succeeded observations whose verdict was `inconclusive`. */
       inconclusive_total: number;
+    }
+
+    /**
+     * * `up` - up
+     * * `down` - down
+     * * `no_data` - no_data
+     */
+    export type MonitorSummaryDTOStatusEnum = typeof MonitorSummaryDTOStatusEnum[keyof typeof MonitorSummaryDTOStatusEnum];
+
+
+    export const MonitorSummaryDTOStatusEnum = {
+      Up: 'up',
+      Down: 'down',
+      NoData: 'no_data',
+    } as const;
+
+    /**
+     * * `success` - SUCCESS
+     * * `failure` - FAILURE
+     */
+    export type PingOutcome = typeof PingOutcome[keyof typeof PingOutcome];
+
+
+    export const PingOutcome = {
+      Success: 'success',
+      Failure: 'failure',
+    } as const;
+
+    export interface MonitorSummaryDTO {
+      id: string;
+      name: string;
+      url: string;
+      created_at: string;
+      status: MonitorSummaryDTOStatusEnum;
+      /** @nullable */
+      uptime_90d: number | null;
+      /** @nullable */
+      avg_latency_24h_ms: number | null;
+      /** @nullable */
+      last_ping_at: string | null;
+      last_ping_outcome: PingOutcome | null;
+      daily_buckets: DailyBucketDTO[];
     }
 
     export interface MoveTileTile {
@@ -30864,6 +30949,16 @@ export namespace Schemas {
       SupportReply: 'support_reply',
       Hogdesk: 'hogdesk',
     } as const;
+
+    export interface OutageDTO {
+      monitor_id: string;
+      started_at: string;
+      /** @nullable */
+      resolved_at: string | null;
+      fail_count: number;
+      /** @nullable */
+      last_status_code: number | null;
+    }
 
     /**
      * Initial goal and session outcome coming from LLM.
@@ -42142,6 +42237,19 @@ export namespace Schemas {
       widgets?: UpdateDashboardWidgetRequest[];
     }
 
+    export interface PatchedUpdateMonitor {
+      /**
+         * New human-readable name of the monitor.
+         * @maxLength 255
+         */
+      name?: string;
+      /**
+         * New HTTP(S) URL to ping.
+         * @maxLength 2048
+         */
+      url?: string;
+    }
+
     /**
      * @nullable
      */
@@ -42703,6 +42811,15 @@ export namespace Schemas {
       by_model: _ModelBreakdown;
       /** Deprecated — always returns `{items: [], truncated: false}`. Trace IDs are opaque strings that aren't actionable in the UI. Kept in the response shape so existing consumers don't crash; remove your rendering of this field and we'll drop it from the response entirely in a follow-up. */
       top_traces: _TopTraces;
+    }
+
+    export interface PingDTO {
+      monitor_id: string;
+      timestamp: string;
+      latency_ms: number;
+      /** @nullable */
+      status_code: number | null;
+      outcome: PingOutcome;
     }
 
     export interface PinnedSceneTabs {
@@ -66744,6 +66861,13 @@ export namespace Schemas {
     };
 
     export type UploadedMediaCreate201 = { [key: string]: unknown };
+
+    export type UptimeMonitorsOutagesListParams = {
+    /**
+     * Look-back window in days. Defaults to 7.
+     */
+    days?: number;
+    };
 
     export type UserInterviewTopicsListParams = {
     /**

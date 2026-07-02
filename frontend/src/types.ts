@@ -5683,6 +5683,7 @@ export type APIScopeObject =
     | 'task'
     | 'ticket'
     | 'uploaded_media'
+    | 'uptime'
     | 'usage_metric'
     | 'user'
     | 'user_interview'

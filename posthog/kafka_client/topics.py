@@ -90,3 +90,7 @@ KAFKA_SIGNALS_REPORT_COMPLETED = f"{KAFKA_PREFIX}signals_report_completed{SUFFIX
 # concern — no Node-side mirror needed.
 KAFKA_FLAGS_CACHE_INVALIDATION = f"{KAFKA_PREFIX}flags_cache_invalidation{SUFFIX}"
 KAFKA_FLAGS_CACHE_INVALIDATION_DLQ = f"{KAFKA_PREFIX}flags_cache_invalidation_dlq{SUFFIX}"
+
+# Producer: rust/uptime-pinger. Consumer: the `kafka_uptime_pings` ClickHouse
+# Kafka-engine table. Not a plugin-server concern — no Node-side mirror needed.
+KAFKA_CLICKHOUSE_UPTIME_PINGS = f"{KAFKA_PREFIX}clickhouse_uptime_pings{SUFFIX}"

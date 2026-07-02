@@ -177,6 +177,8 @@ export const OAUTH_SCOPES_SUPPORTED = [
     'field_note:write',
     'uploaded_media:read',
     'uploaded_media:write',
+    'uptime:read',
+    'uptime:write',
     'usage_metric:read',
     'usage_metric:write',
     'user:read',

@@ -80,6 +80,7 @@ class Product(StrEnum):
     SESSION_SUMMARY = "session_summary"
     SIGNALS = "signals"
     SURVEYS = "surveys"
+    UPTIME = "uptime"
     USER_INTERVIEWS = "user_interviews"
     WAREHOUSE = "warehouse"
     WEB_ANALYTICS = "web_analytics"
@@ -130,6 +131,7 @@ class Feature(StrEnum):
     POSTHOG_AI = "posthog_ai"
     MCP = "mcp"
     SEMANTIC_SEARCH = "semantic_search"
+    UPTIME_PINGS = "uptime_pings"
 
 
 class FallbackTags(TypedDict):
