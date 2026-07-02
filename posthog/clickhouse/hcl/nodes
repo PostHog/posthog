@@ -50,12 +50,10 @@ prod-eu  ai_events  roles/shared roles/ai_events/shared roles/ai_events/prod
 # property values, web/marketing preaggregated). roles/aux/shared holds the env-uniform
 # objects; local carries the MSK ingest variant (kafka_error_tracking + its MV, MSK
 # kafka_hog_invocation_results); prod carries the WarpStream variant. prod-us adds the
-# ingestion_warnings tables. roles/aux/shared is listed first (before roles/shared) to
-# work around PostHog/chschema#80 (a dictionary is dropped when its layer is composed
-# after another). prod goldens are dump-baselined (not live-verifiable here).
-local    aux        roles/aux/shared roles/aux/local roles/shared
-prod-us  aux        roles/aux/shared roles/aux/prod roles/aux/prod-us roles/shared
-prod-eu  aux        roles/aux/shared roles/aux/prod roles/aux/prod-eu roles/shared
+# ingestion_warnings tables. prod goldens are dump-baselined (not live-verifiable here).
+local    aux        roles/shared roles/aux/shared roles/aux/local
+prod-us  aux        roles/shared roles/aux/shared roles/aux/prod roles/aux/prod-us
+prod-eu  aux        roles/shared roles/aux/shared roles/aux/prod roles/aux/prod-eu
 
 # SESSIONS satellite: the local node runs only the shared query_log_archive path
 # (session tables are prod-only), so it composes roles/shared alone. prod nodes host
@@ -63,15 +61,14 @@ prod-eu  aux        roles/aux/shared roles/aux/prod roles/aux/prod-eu roles/shar
 # channel_definition + web_pre_aggregated_teams (+ their dictionaries), and person
 # join tables. roles/sessions/shared holds the env-uniform objects; prod-us/prod-eu
 # carry the env-specific channel_definition / events / raw_sessions_v3 (prod-us also
-# has writable_events_recent). roles/sessions/shared leads to satisfy chschema#80.
-# prod goldens are dump-baselined (not live-verifiable here).
+# has writable_events_recent). prod goldens are dump-baselined (not live-verifiable here).
 local    sessions   roles/shared
-prod-us  sessions   roles/sessions/shared roles/sessions/prod-us roles/shared
-prod-eu  sessions   roles/sessions/shared roles/sessions/prod-eu roles/shared
+prod-us  sessions   roles/shared roles/sessions/shared roles/sessions/prod-us
+prod-eu  sessions   roles/shared roles/sessions/shared roles/sessions/prod-eu
 
 # SESSIONSV3 satellite: US-only node hosting the v3 session tables (events replica,
 # raw_sessions_v3) plus the query_log_archive path. Dump-baselined.
-prod-us  sessionsv3 roles/sessionsv3/prod-us roles/shared
+prod-us  sessionsv3 roles/shared roles/sessionsv3/prod-us
 
 # prod-us  data       roles/shared roles/data/shared roles/data/prod-us
 # prod-us  endpoints  roles/shared
