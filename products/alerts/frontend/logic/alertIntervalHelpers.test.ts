@@ -84,6 +84,24 @@ describe('alertIntervalHelpers', () => {
             expect(onSelect).toHaveBeenCalledWith(AlertCalculationInterval.EVERY_15_MINUTES)
         })
 
+        it('updates interval when real time is selected with entitlement', () => {
+            const onSelect = jest.fn()
+            const guardAvailableFeature: GuardAvailableFeatureFn = (_feature, callback) => {
+                callback?.()
+                return true
+            }
+
+            const applied = selectAlertCalculationInterval(AlertCalculationInterval.REAL_TIME, {
+                guardAvailableFeature,
+                onSelect,
+                hasHighFrequencyAlertsEntitlement: false,
+                hasRealTimeAlertsEntitlement: true,
+            })
+
+            expect(applied).toBe(true)
+            expect(onSelect).toHaveBeenCalledWith(AlertCalculationInterval.REAL_TIME)
+        })
+
         it('updates interval for non-15-minute options without calling the guard', () => {
             const onSelect = jest.fn()
             const guardAvailableFeature = jest.fn<

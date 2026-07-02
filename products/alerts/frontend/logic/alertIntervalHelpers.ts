@@ -30,10 +30,6 @@ export function isHighFrequencyAlertInterval(interval: AlertCalculationInterval)
     )
 }
 
-export function isRealTimeAlertInterval(interval: AlertCalculationInterval): boolean {
-    return interval === AlertCalculationInterval.REAL_TIME
-}
-
 export const HIGH_FREQUENCY_ALERTS_REQUIRED_MESSAGE =
     '15-minute alert intervals require a Boost, Scale, or Enterprise platform add-on.'
 
