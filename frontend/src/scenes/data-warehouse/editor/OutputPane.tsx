@@ -991,58 +991,62 @@ function InternalDataTableVisualization(
     )
 }
 
-// The shared `warnings` field is a tagged union; split by discriminator so each kind renders with its own copy.
-const isSyncWarning = (w: NonNullable<HogQLQueryResponse['warnings']>[number]): w is DataWarehouseSyncWarning =>
-    w.type === 'warehouse_sync'
-const isAccessControlWarning = (
-    w: NonNullable<HogQLQueryResponse['warnings']>[number]
-): w is AccessControlFilterWarning => w.type === 'access_control'
-
-const SyncWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warnings'] }): JSX.Element | null => {
-    const syncWarnings = warnings?.filter(isSyncWarning)
-    if (!syncWarnings || syncWarnings.length === 0) {
+// The shared `warnings` field is a tagged union; render one banner per warning kind present,
+// each with its own headline and bullet rendering.
+const QueryWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warnings'] }): JSX.Element | null => {
+    if (!warnings || warnings.length === 0) {
         return null
     }
+    const syncWarnings = warnings.filter((w): w is DataWarehouseSyncWarning => w.type === 'warehouse_sync')
+    const acWarnings = warnings.filter((w): w is AccessControlFilterWarning => w.type === 'access_control')
     return (
-        <LemonBanner type="warning" className="m-2 flex-shrink-0" data-attr="sql-editor-output-pane-sync-warnings">
-            <div className="font-semibold mb-1">
-                Some warehouse sources used by this query are out of date — results may not reflect current data
-            </div>
-            <ul className="list-disc pl-5 space-y-1">
-                {syncWarnings.map((warning, index) => (
-                    <li key={`${warning.table_name}-${warning.schema_name}-${index}`}>
-                        {warning.message}
-                        {warning.source_id && (
-                            <>
-                                {' '}
-                                <Link to={urls.dataWarehouseSource(`managed-${warning.source_id}`)} target="_blank">
-                                    Manage source
-                                </Link>
-                            </>
-                        )}
-                    </li>
-                ))}
-            </ul>
-        </LemonBanner>
-    )
-}
-
-const AccessControlFilterBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warnings'] }): JSX.Element | null => {
-    const acWarnings = warnings?.filter(isAccessControlWarning)
-    if (!acWarnings || acWarnings.length === 0) {
-        return null
-    }
-    return (
-        <LemonBanner type="warning" className="m-2" data-attr="sql-editor-output-pane-access-control-warnings">
-            <div className="font-semibold mb-1">
-                This is a partial result set — rows you don't have access to were excluded
-            </div>
-            <ul className="list-disc pl-5 space-y-1">
-                {acWarnings.map((warning, index) => (
-                    <li key={`${warning.resource}-${index}`}>{warning.message}</li>
-                ))}
-            </ul>
-        </LemonBanner>
+        <>
+            {syncWarnings.length > 0 && (
+                <LemonBanner
+                    type="warning"
+                    className="m-2 flex-shrink-0"
+                    data-attr="sql-editor-output-pane-sync-warnings"
+                >
+                    <div className="font-semibold mb-1">
+                        Some warehouse sources used by this query are out of date — results may not reflect current data
+                    </div>
+                    <ul className="list-disc pl-5 space-y-1">
+                        {syncWarnings.map((warning, index) => (
+                            <li key={`${warning.table_name}-${warning.schema_name}-${index}`}>
+                                {warning.message}
+                                {warning.source_id && (
+                                    <>
+                                        {' '}
+                                        <Link
+                                            to={urls.dataWarehouseSource(`managed-${warning.source_id}`)}
+                                            target="_blank"
+                                        >
+                                            Manage source
+                                        </Link>
+                                    </>
+                                )}
+                            </li>
+                        ))}
+                    </ul>
+                </LemonBanner>
+            )}
+            {acWarnings.length > 0 && (
+                <LemonBanner
+                    type="warning"
+                    className="m-2 flex-shrink-0"
+                    data-attr="sql-editor-output-pane-access-control-warnings"
+                >
+                    <div className="font-semibold mb-1">
+                        This is a partial result set — rows you don't have access to were excluded
+                    </div>
+                    <ul className="list-disc pl-5 space-y-1">
+                        {acWarnings.map((warning, index) => (
+                            <li key={`${warning.resource}-${index}`}>{warning.message}</li>
+                        ))}
+                    </ul>
+                </LemonBanner>
+            )}
+        </>
     )
 }
 
@@ -1175,8 +1179,7 @@ const Content = ({
 
         return (
             <div className="absolute inset-0 flex flex-col border-t overflow-hidden">
-                <SyncWarningsBanner warnings={response?.warnings} />
-                <AccessControlFilterBanner warnings={response?.warnings} />
+                <QueryWarningsBanner warnings={response?.warnings} />
                 <div className="flex flex-col flex-1 min-h-0 hide-scrollbar overflow-auto">
                     <InternalDataTableVisualization
                         uniqueKey={vizKey}
@@ -1238,8 +1241,7 @@ const Content = ({
     if (activeTab === OutputTab.Results) {
         return (
             <div className="flex flex-col flex-1 min-h-0 w-full overflow-hidden">
-                <SyncWarningsBanner warnings={response?.warnings} />
-                <AccessControlFilterBanner warnings={response?.warnings} />
+                <QueryWarningsBanner warnings={response?.warnings} />
                 {rows.length === 0 ? (
                     <EmptyResultsState />
                 ) : (
