@@ -29,6 +29,7 @@ from posthog.temporal.usage_report.activities import (
     enqueue_pointer_message,
     run_query_to_s3,
 )
+from posthog.temporal.usage_report.metrics import get_workflow_finished_metric, record_workflow_latency
 from posthog.temporal.usage_report.queries import QUERIES, QuerySpec
 from posthog.temporal.usage_report.storage import run_prefix
 from posthog.temporal.usage_report.types import (
@@ -72,6 +73,7 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
 
     @workflow.run
     async def run(self, inputs: RunUsageReportsInputs) -> dict:
+        started_at = workflow.now()
         try:
             ctx = build_context(inputs, run_id=workflow.info().run_id, now=workflow.now())
             workflow.logger.info(
@@ -144,10 +146,15 @@ class RunUsageReportsWorkflow(PostHogWorkflow):
                 },
             )
 
+            get_workflow_finished_metric(status="COMPLETED").add(1)
+            record_workflow_latency(workflow.now() - started_at, status="COMPLETED")
+
             return agg.model_dump()
         except Exception as err:
             workflow.logger.exception("Usage reports workflow failed", extra={"error": str(err)})
             capture_exception(err)
+            get_workflow_finished_metric(status="FAILED").add(1)
+            record_workflow_latency(workflow.now() - started_at, status="FAILED")
             raise
 
     async def _run_query(self, ctx: WorkflowContext, spec: QuerySpec) -> RunQueryToS3Result:

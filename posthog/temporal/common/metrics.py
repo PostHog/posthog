@@ -60,7 +60,8 @@ class ExecutionTimeRecorder:
         attributes = dict(self.histogram_attributes)
         if exc_value is not None:
             attributes["status"] = "FAILED"
-            attributes["exception"] = str(exc_value)
+            # Class name, not str(exc): a free-form message would explode label cardinality.
+            attributes["exception"] = type(exc_value).__name__
         elif self._status_override is not None:
             attributes["status"] = self._status_override
             attributes["exception"] = ""
