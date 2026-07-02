@@ -26,6 +26,9 @@ impl<'a> Ctx<'a> {
         }
     }
 
+    // Borrow discipline: never hold a `blur_cache` borrow across the blur call — the compute runs
+    // borrow-free, so a future blur helper that re-entered `Ctx` still couldn't double-borrow-panic.
+
     /// Blur a data-image URI, memoized on the URI. `None` → caller falls back to a blank/placeholder.
     pub fn blur_data_uri(&self, original: &str) -> Option<String> {
         if let Some(hit) = self.blur_cache.borrow().get(original) {

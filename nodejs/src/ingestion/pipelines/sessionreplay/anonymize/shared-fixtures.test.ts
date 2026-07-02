@@ -42,11 +42,16 @@ function ctxOf(allow: AllowSpec): ScrubContext {
 }
 
 // Try to load the native addon; it's built by turbo `^build` in CI. When it isn't (a dev who hasn't
-// run `pnpm build:replay-anonymizer`), skip only the addon block — the TS parity still runs.
+// run `pnpm build:replay-anonymizer`), skip only the addon block — the TS parity still runs. In CI the
+// addon is always built, so a load failure would silently drop all native parity coverage: fail loudly
+// there instead of skipping, so a broken addon can't turn the suite green with zero cross-impl checks.
 let rustAddon: typeof import('@posthog/replay-anonymizer') | null = null
 try {
     rustAddon = require('@posthog/replay-anonymizer')
-} catch {
+} catch (e) {
+    if (process.env.CI) {
+        throw new Error(`replay-anonymizer addon failed to load; native parity cannot run in CI: ${String(e)}`)
+    }
     logger.warn('🙈', 'replay_anonymizer_addon_not_built_skipping_native_parity')
 }
 

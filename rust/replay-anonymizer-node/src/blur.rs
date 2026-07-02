@@ -58,6 +58,9 @@ fn encode_png_base64(img: &DynamicImage) -> Option<String> {
 }
 
 /// Downsample a base64 image data URI to a fraction of its size + a blur, as a PNG; None if it can't.
+/// On any failure we return None and the caller blanks the image. This intentionally omits the TS
+/// fallback ladder (plain downsample-without-blur before giving up): failing toward a blank pixel is
+/// strictly safer than emitting an unblurred thumbnail on this unencrypted-bucket path.
 pub fn blur_image_data_uri(s: &str) -> Option<String> {
     let rest = s.strip_prefix("data:")?;
     let (meta, payload) = rest.split_once(',')?;

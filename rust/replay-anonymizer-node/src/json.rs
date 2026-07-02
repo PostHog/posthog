@@ -93,3 +93,48 @@ pub fn is_true(v: &OwnedValue) -> bool {
 pub fn string_value(s: String) -> OwnedValue {
     OwnedValue::String(s)
 }
+
+// Untrusted rrweb can nest arbitrarily deep. Both the simd-json parse and the recursive scrub walk one
+// stack frame per level, so a crafted payload could overflow the worker-thread stack — an abort, which
+// `catch_unwind` cannot contain. Reject over-deep input up front (before parsing). Legitimate DOM/canvas
+// nesting is well under this. Applies to the outer message *and* to every gunzipped `cv` payload.
+pub const MAX_JSON_DEPTH: usize = 1024;
+
+/// Max `{`/`[` nesting depth in raw JSON, ignoring bracket bytes inside strings. Linear, no recursion.
+pub fn max_bracket_depth(json: &[u8]) -> usize {
+    let mut depth = 0usize;
+    let mut max = 0usize;
+    let mut in_string = false;
+    let mut escaped = false;
+    for &b in json {
+        if in_string {
+            if escaped {
+                escaped = false;
+            } else if b == b'\\' {
+                escaped = true;
+            } else if b == b'"' {
+                in_string = false;
+            }
+            continue;
+        }
+        match b {
+            b'"' => in_string = true,
+            b'{' | b'[' => {
+                depth += 1;
+                max = max.max(depth);
+            }
+            b'}' | b']' => depth = depth.saturating_sub(1),
+            _ => {}
+        }
+    }
+    max
+}
+
+/// Rejects raw JSON bytes that nest past [`MAX_JSON_DEPTH`], failing closed before any recursive parse.
+pub fn reject_if_too_deep(json: &[u8], context: &str) -> anyhow::Result<()> {
+    let depth = max_bracket_depth(json);
+    if depth > MAX_JSON_DEPTH {
+        anyhow::bail!("{context} nested too deep ({depth} > {MAX_JSON_DEPTH})");
+    }
+    Ok(())
+}

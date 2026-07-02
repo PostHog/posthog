@@ -13,7 +13,7 @@ use simd_json::{OwnedValue, StaticNode};
 
 use crate::context::Ctx;
 use crate::dom::{scrub_full_snapshot, scrub_mutation};
-use crate::json::as_object_mut;
+use crate::json::{as_object_mut, reject_if_too_deep};
 
 /// PostHog wire format: each gzip byte stored as its U+00XX codepoint (latin-1).
 fn latin1_to_bytes(s: &str) -> Result<Vec<u8>> {
@@ -45,6 +45,10 @@ fn decompress_string(s: &str) -> Result<OwnedValue> {
     if json.len() as u64 > MAX_DECOMPRESSED_BYTES {
         bail!("cv payload decompresses beyond {MAX_DECOMPRESSED_BYTES} bytes");
     }
+    // The outer message depth guard never saw inside this gzip. Re-check before parsing/walking the
+    // decompressed payload — both the parse and the scrub recurse per level, so an over-deep `cv` blob
+    // would otherwise overflow the worker-thread stack (an abort catch_unwind cannot contain).
+    reject_if_too_deep(&json, "cv payload")?;
     let value = simd_json::to_owned_value(&mut json).context("parse cv payload")?;
     Ok(value)
 }
@@ -96,7 +100,8 @@ pub fn scrub_compressed_mutation(ctx: &Ctx<'_>, event: &mut Object) -> Result<bo
 
     // Sub-fields are gzipped strings on the wire but may arrive as plain arrays; handle both. We move
     // each out of `data`, scrub via a synthetic mutation, then always put a value back (even when
-    // nothing changed) so no sub-field is dropped.
+    // nothing changed) so no sub-field is dropped. The synthetic holds only these three sub-fields:
+    // `scrub_mutation` never reads `data.source`, so omitting it here is safe.
     let keys = ["texts", "attributes", "adds"];
     let mut synthetic = Object::default();
     let mut plan: Vec<Sub> = Vec::with_capacity(keys.len());
@@ -297,6 +302,26 @@ mod tests {
         );
         let mut event = event_with_data(data);
         assert!(scrub_compressed_mutation(&ctx, &mut event).is_err());
+    }
+
+    #[test]
+    fn compressed_payload_fails_closed_when_nested_too_deep() {
+        let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+        let ctx = Ctx::new(&allow);
+        // A tiny gzip whose decompressed JSON nests past MAX_JSON_DEPTH must fail closed (Err), not
+        // overflow the worker-thread stack — a stack overflow aborts the process, which catch_unwind
+        // cannot contain, so it would bypass the fail-closed contract entirely. The payload is a valid,
+        // balanced nested array: without the depth guard it parses fine and returns Ok(false), so this
+        // test only passes because the guard rejects it up front.
+        let n = crate::json::MAX_JSON_DEPTH + 10;
+        let deep = format!("{}{}", "[".repeat(n), "]".repeat(n));
+        let mut gz = GzEncoder::new(Vec::new(), Compression::default());
+        gz.write_all(deep.as_bytes()).unwrap();
+        let data = bytes_to_latin1(&gz.finish().unwrap());
+
+        let mut event = Object::default();
+        event.insert("data".to_string(), OwnedValue::String(data));
+        assert!(scrub_compressed_full_snapshot(&ctx, &mut event).is_err());
     }
 
     #[test]

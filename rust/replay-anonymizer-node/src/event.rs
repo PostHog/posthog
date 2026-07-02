@@ -11,7 +11,9 @@ use crate::canvas::scrub_canvas_mutation;
 use crate::context::Ctx;
 use crate::cv::{scrub_compressed_full_snapshot, scrub_compressed_mutation};
 use crate::dom::{scrub_full_snapshot, scrub_mutation};
-use crate::json::{as_array_mut, as_object, as_object_mut, as_small_uint, as_str};
+use crate::json::{
+    as_array_mut, as_object, as_object_mut, as_small_uint, as_str, reject_if_too_deep,
+};
 use crate::text::scrub_text;
 use crate::url::scrub_url_opts;
 use crate::value::{scrub_console_plugin, scrub_generic_field, scrub_network_plugin};
@@ -31,20 +33,12 @@ const SOURCE_CANVAS_MUTATION: u8 = 9;
 const NETWORK_PLUGIN: &str = "rrweb/network@1";
 const CONSOLE_PLUGIN: &str = "rrweb/console@1";
 
-// Untrusted rrweb can nest arbitrarily deep; both the JSON parse and the recursive scrub walk one
-// stack frame per level, so a crafted payload could overflow the worker-thread stack (an abort, not a
-// catchable error). Reject over-deep input up front. Legitimate DOM/canvas nesting is well under this.
-const MAX_JSON_DEPTH: usize = 1024;
-
 /// Anonymizes every event in a parsed message (`{ windowId: Event[] }`) in place. `Ok(None)` means
 /// nothing changed (the caller can keep its original). `Err` means an event could not be anonymized —
 /// fail closed, the caller must drop the message. A single `Ctx` spans the whole message so its blur
 /// memo is shared across every event (an image recurring across events is blurred once).
 pub fn anonymize_message(allow: &AllowLists, json: &mut [u8]) -> Result<Option<String>> {
-    let depth = max_bracket_depth(json);
-    if depth > MAX_JSON_DEPTH {
-        bail!("eventsByWindowId nested too deep ({depth} > {MAX_JSON_DEPTH})");
-    }
+    reject_if_too_deep(json, "eventsByWindowId")?;
     let mut root = simd_json::to_owned_value(json).context("parse eventsByWindowId json")?;
     let Some(obj) = as_object_mut(&mut root) else {
         bail!("eventsByWindowId is not an object");
@@ -62,36 +56,6 @@ pub fn anonymize_message(allow: &AllowLists, json: &mut [u8]) -> Result<Option<S
         return Ok(None);
     }
     Ok(Some(root.encode()))
-}
-
-/// Max `{`/`[` nesting depth in raw JSON, ignoring bracket bytes inside strings. Linear, no recursion.
-fn max_bracket_depth(json: &[u8]) -> usize {
-    let mut depth = 0usize;
-    let mut max = 0usize;
-    let mut in_string = false;
-    let mut escaped = false;
-    for &b in json {
-        if in_string {
-            if escaped {
-                escaped = false;
-            } else if b == b'\\' {
-                escaped = true;
-            } else if b == b'"' {
-                in_string = false;
-            }
-            continue;
-        }
-        match b {
-            b'"' => in_string = true,
-            b'{' | b'[' => {
-                depth += 1;
-                max = max.max(depth);
-            }
-            b'}' | b']' => depth = depth.saturating_sub(1),
-            _ => {}
-        }
-    }
-    max
 }
 
 /// Convenience for tests/callers holding a single event as a JSON string: parse, scrub, re-serialize.
