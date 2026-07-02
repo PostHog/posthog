@@ -16,6 +16,7 @@ from django.db import close_old_connections
 import structlog
 from asgiref.sync import async_to_sync
 from structlog.contextvars import bind_contextvars
+from structlog.types import FilteringBoundLogger
 from temporalio import activity
 
 from posthog.exceptions_capture import capture_exception
@@ -35,6 +36,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     MAX_REPARTITION_ATTEMPTS,
     base_event_props,
     capture_repartition_event,
+    maybe_flag_for_repartition,
+    target_partition_bytes,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.load.metrics import (
     DELTA_REPARTITION_DURATION_SECONDS,
@@ -64,6 +67,46 @@ def _target_from_schema(schema: ExternalDataSchema) -> RepartitionTarget:
     )
 
 
+def _maybe_flag_pre_extraction(
+    schema: ExternalDataSchema,
+    job: ExternalDataJob,
+    helper: DeltaTableHelper,
+    logger: FilteringBoundLogger,
+) -> dict[str, Any] | None:
+    """Detect an over-budget partition against the on-disk table before extraction, and flag it.
+
+    The post-load detector (`maybe_flag_for_repartition`) only runs after a merge completes, so a table
+    whose merge OOMs every run can never flag itself for repair — the classic chicken-and-egg. Running
+    the same detection (same feature-flag, budget, and cooldown gating) here, pre-extraction, closes
+    that gap: the on-disk table already reflects the over-budget layout, so we can flag and — in this
+    same run — rewrite it before the merge that would OOM. Returns the pending target set by detection,
+    or None if nothing was flagged. Never raises.
+    """
+    # CDC tables are excluded from the controller, matching the post-load call site in load.py.
+    if schema.sync_type == ExternalDataSchema.SyncType.CDC:
+        return None
+
+    # Cheap in-memory gate: skip the extra delta-log read on the healthy path. The post-load detector
+    # records `max_partition_bytes` after every successful merge, so a table with a known within-budget
+    # measurement can't need repair. We only reach the full on-disk measurement when the last recording
+    # was over budget or never happened — the latter covering a table whose merge always OOMs (so
+    # post-load never ran to record it).
+    last_measured = schema.max_partition_bytes
+    if last_measured is not None and last_measured <= target_partition_bytes():
+        return None
+
+    try:
+        delta_table = async_to_sync(helper.get_delta_table)()
+        if delta_table is None:
+            return None
+        async_to_sync(maybe_flag_for_repartition)(schema, schema.source, job, delta_table, logger)
+    except Exception as e:
+        # Detection is best-effort; a failure here must not block the sync.
+        capture_exception(e)
+        return None
+    return schema.repartition_pending
+
+
 @activity.defn
 def maybe_repartition_table_activity(inputs: RepartitionActivityInputs) -> None:
     # Sync activity (runs in the worker's thread pool) so its ORM access is safe off the event loop;
@@ -75,22 +118,30 @@ def maybe_repartition_table_activity(inputs: RepartitionActivityInputs) -> None:
     try:
         schema = ExternalDataSchema.objects.select_related("source").get(id=inputs.schema_id)
     except ExternalDataSchema.DoesNotExist:
+        logger.warning("repartition: schema not found, skipping activity", schema_id=inputs.schema_id)
         return
-
-    pending = schema.repartition_pending
-    swap = schema.repartition_swap
-    if pending is None and swap is None:
-        return  # Nothing queued — cheap common path.
 
     try:
         job = ExternalDataJob.objects.get(id=inputs.job_id)
     except ExternalDataJob.DoesNotExist:
+        logger.warning("repartition: job not found, skipping activity", job_id=inputs.job_id)
         return
+
+    helper = DeltaTableHelper(resource_name=schema.name, job=job, logger=logger)
+
+    pending = schema.repartition_pending
+    swap = schema.repartition_swap
+    if pending is None and swap is None:
+        # Nothing was queued by a prior run's post-load detection. Measure the on-disk table now and
+        # self-flag if it's over budget — the only path that can rescue a table which OOMs its merge
+        # every run (and so never reaches post-load detection to flag itself).
+        pending = _maybe_flag_pre_extraction(schema, job, helper, logger)
+        if pending is None:
+            logger.debug("repartition: nothing queued and table within budget, nothing to do")
+            return
 
     target = RepartitionTarget.from_dict(pending) if pending is not None else _target_from_schema(schema)
     trigger_reason = (pending or {}).get("trigger_reason", "resume")
-
-    helper = DeltaTableHelper(resource_name=schema.name, job=job, logger=logger)
 
     started_props = base_event_props(schema, schema.source, inputs.job_id)
     started_props["trigger_reason"] = trigger_reason
