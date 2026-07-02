@@ -229,7 +229,25 @@ describe('sqlLineGraphAdapter', () => {
             )
         })
 
-        it('renders natively for percent-stacked bars', () => {
+        it('renders natively for percent-stacked bars when the line is on the right axis', () => {
+            const yData = [
+                ySeries('a', [1], { display: { displayType: 'line', yAxisPosition: 'right' } }),
+                ySeries('b', [2], { display: { displayType: 'bar' } }),
+            ]
+            expect(
+                canRenderSqlComboGraph(
+                    baseProps({
+                        visualizationType: ChartDisplayType.ActionsStackedBar,
+                        yData,
+                        chartSettings: { stackBars100: true },
+                    })
+                )
+            ).toBe(true)
+        })
+
+        it("falls back for percent-stacked bars when a line shares the bars' axis", () => {
+            // The bars' axis clamps to [0, 1] in percent mode — a line on the same (default/left)
+            // axis has no way to plot its raw values there, so the combo path is unavailable.
             expect(
                 canRenderSqlComboGraph(
                     baseProps({
@@ -238,7 +256,7 @@ describe('sqlLineGraphAdapter', () => {
                         chartSettings: { stackBars100: true },
                     })
                 )
-            ).toBe(true)
+            ).toBe(false)
         })
     })
 

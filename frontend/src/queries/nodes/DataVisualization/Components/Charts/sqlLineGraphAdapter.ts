@@ -140,12 +140,12 @@ export function canRenderSqlBarGraph(props: LineGraphProps): boolean {
 }
 
 /**
- * Mixed bar + line/area series render on quill's {@link TimeSeriesComboChart}. Trend lines and
- * percent-stacked layouts (unsupported by ComboChart) and right y-axis series (a single tick
- * formatter can't honor a second gutter's settings yet) still fall back to legacy chart.js.
+ * Mixed bar + line/area series render on quill's {@link TimeSeriesComboChart}. Percent-stacked
+ * bars are supported as long as every line/area series is routed to the right axis — one sharing
+ * the bars' axis can't be reconciled with the bars' [0, 1] percent scale, so that case falls back.
  */
 export function canRenderSqlComboGraph(props: LineGraphProps): boolean {
-    const { visualizationType, yData } = props
+    const { visualizationType, yData, chartSettings } = props
 
     if (
         visualizationType !== ChartDisplayType.ActionsLineGraph &&
@@ -156,6 +156,18 @@ export function canRenderSqlComboGraph(props: LineGraphProps): boolean {
         return false
     }
     if (!yData || !hasMixedSeriesTypes(yData, visualizationType)) {
+        return false
+    }
+    // Percent-stacked bars clamp their axis to [0, 1] — a line/area series sharing that same axis
+    // would plot its raw values off-scale with no way to reconcile the two domains. Only allow a
+    // percent-stack combo when every non-bar series is routed to the right axis instead.
+    if (
+        visualizationType === ChartDisplayType.ActionsStackedBar &&
+        chartSettings.stackBars100 &&
+        yData.some(
+            (series) => seriesDisplayType(visualizationType, series.settings) !== 'bar' && !isRightAxisSeries(series)
+        )
+    ) {
         return false
     }
     return true

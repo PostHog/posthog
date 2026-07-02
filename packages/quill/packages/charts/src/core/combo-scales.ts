@@ -103,9 +103,12 @@ export function createComboScales(
         })
         // `createYScale` applies the shared overlay baseline clamp, degenerate `min === max`
         // guard, log fallback, and `{ include }` goal-line domain extension — primary axis only.
+        // Percent-clamp only axes that actually carry bar series — a line/area-only axis (e.g. a
+        // series explicitly routed to the right axis) keeps its own data-derived scale instead of
+        // being forced onto [0, 1].
         const scale = createYScale(axisValueSeries, dimensions, {
             scaleType,
-            percentStack: barLayout === 'percent',
+            percentStack: barLayout === 'percent' && axisSeries.some((s) => seriesTypeOf(s) === 'bar'),
             valueDomain: axisId === primaryAxisId ? valueDomain : undefined,
         })
         yAxes[axisId] = { scale, position }
