@@ -15,10 +15,18 @@ from pathlib import Path
 # from substring hits like "session" in "SessionAnalysis" or "key" in
 # "localStorage key". Patterns are compiled into regexes at import time.
 #
+# Only file paths hard-deny. PR titles never deny on their own: calibration
+# against ~440 deny-listed PRs showed title-only hits were dominated by
+# incidental mentions ("treat OAuth invalid_grant as non-retryable" in a
+# connector fix) that humans approved unchanged. Title matches surface as
+# scrutiny flags for the LLM instead (see detect_title_scrutiny_flags),
+# which reads the actual diff and can refuse when the change really does
+# touch the flagged domain.
+#
 # Two pattern lists per category:
-#   "paths"  — matched against file paths only
-#   "any"    — matched against both file paths and the PR title
-# If a category only has "any", all patterns apply everywhere.
+#   "paths"  — matched against file paths (hard deny)
+#   "any"    — matched against file paths (hard deny) and the PR title
+#              (scrutiny flag only)
 
 _DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = {
     "auth": {
@@ -39,12 +47,19 @@ _DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = {
         # file paths (e.g. SessionAnalysisWarning, tokenize, tokenizer).
         # "permission" matches permission-checking helpers everywhere.
         # Restrict these to path-only with tighter patterns.
+        # "authentication"/"authorize"/"authorization" are here because the
+        # word-boundary regex doesn't break inside them, so a bare "auth"
+        # pattern misses posthog/api/authentication.py and the whole
+        # frontend/src/scenes/authentication/ tree.
         "paths": [
             "session_auth",
             "session_token",
             "auth/session",
             "auth/token",
             "permission",
+            "authentication",
+            "authorize",
+            "authorization",
         ],
     },
     "crypto_secrets": {
@@ -82,26 +97,29 @@ _DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = {
             "kubernetes",
             "helm",
         ],
+        # "routing" and "deploy" are gone on purpose: every historical match
+        # was app-level (posthog/api/routing.py DRF routers, Slack/Teams
+        # message-routing tests, deploy-timing docs), never infrastructure.
         "paths": [
             r"k8s",
             "dockerfile",
             "docker-compose",
             r"\.github/workflows",
-            "deploy",
             "iam",
             "cloudflare",
             "cdn",
             "waf",
-            "routing",
         ],
     },
     "billing": {
+        # "subscription" is gone on purpose: in this repo it means scheduled
+        # insight/report deliveries (ee/api/subscription.py, products/exports),
+        # not payments. Real billing surfaces still match via the other words.
         "any": [
             "billing",
             "payment",
             "stripe",
             "invoice",
-            "subscription",
             "pricing",
         ],
     },
@@ -374,63 +392,53 @@ def test_only(categories: dict[str, int]) -> bool:
 
 # ── Deny / allow detection ───────────────────────────────────────
 
-# Path prefixes exempt from the `auth` deny category. Code under these trees
-# performs auth/OAuth/credential handshakes as part of its normal job — e.g.
-# every data warehouse import connector — so the code and PR titles legitimately
-# mention auth, oauth, token, login, etc. without touching the auth *system*.
-# Without this, the `auth` deny would force T2-never on essentially every such
-# PR. Other deny categories (crypto/secrets, migrations, …) still apply. Add new
+# Code under these trees performs auth/OAuth/billing-API handshakes as part of
+# its normal job — every data warehouse import connector (Stripe, Google Ads,
+# Salesforce, …) — so file names legitimately mention auth, oauth, stripe,
+# api_key, etc. without touching the auth *system* or PostHog's own billing.
+_CONNECTOR_SOURCE_PREFIXES = ("products/warehouse_sources/backend/temporal/data_imports/sources/",)
+
+# Per-category path prefixes exempt from deny matching. Categories not listed
+# (crypto_secrets, migrations, infra_cicd, …) apply everywhere — connector
+# code that stores customer API keys still deserves the crypto gate. Add new
 # exempt trees here rather than special-casing in detect_deny_categories.
-AUTH_EXEMPT_PATH_PREFIXES = ("products/warehouse_sources/backend/temporal/data_imports/sources/",)
+DENY_EXEMPT_PATH_PREFIXES: dict[str, tuple[str, ...]] = {
+    "auth": _CONNECTOR_SOURCE_PREFIXES,
+    "billing": _CONNECTOR_SOURCE_PREFIXES,
+}
 
 
-def _is_auth_exempt_path(path: str) -> bool:
-    low = path.lower()
-    return any(low.startswith(prefix) for prefix in AUTH_EXEMPT_PATH_PREFIXES)
+def _is_exempt_path(category: str, path: str) -> bool:
+    return path.startswith(DENY_EXEMPT_PATH_PREFIXES.get(category, ()))
 
 
-def detect_deny_categories(files: list[str], subject: str, ignored_files: set[str] | None = None) -> list[str]:
+def detect_deny_categories(files: list[str], ignored_files: set[str] | None = None) -> list[str]:
+    """Categories hard-denied by the changed file paths. Titles never deny."""
     hits: set[str] = set()
     ignored_files_lower = {f.lower() for f in ignored_files or set()}
     paths_lower = [f.lower() for f in files if f.lower() not in ignored_files_lower]
-    subject_lower = subject.lower()
-
-    # Auth exemption for AUTH_EXEMPT_PATH_PREFIXES: drop exempt paths from auth
-    # path-matching, and — when any exempt path is in the change set — only let
-    # the PR title trip `auth` if a non-exempt file is also touched. PRs that
-    # touch no exempt paths are evaluated exactly as before.
-    auth_paths = [p for p in paths_lower if not _is_auth_exempt_path(p)]
-    has_exempt_path = len(auth_paths) != len(paths_lower)
-    auth_title_eligible = (not has_exempt_path) or bool(auth_paths)
 
     for category, scopes in DENY_PATTERNS.items():
-        category_paths = auth_paths if category == "auth" else paths_lower
-        title_eligible = auth_title_eligible if category == "auth" else True
-        found = False
-        # "paths" patterns — only match against file paths
-        for rx in scopes.get("paths", []):
-            if found:
-                break
-            for p in category_paths:
-                if rx.search(p):
-                    hits.add(category)
-                    found = True
-                    break
-        if found:
-            continue
-        # "any" patterns — match against file paths (path_rx) and title (title_rx)
-        for path_rx, title_rx in scopes.get("any", []):
-            if found:
-                break
-            for p in category_paths:
-                if path_rx.search(p):
-                    hits.add(category)
-                    found = True
-                    break
-            if not found and title_eligible and title_rx.search(subject_lower):
-                hits.add(category)
-                found = True
+        category_paths = [p for p in paths_lower if not _is_exempt_path(category, p)]
+        path_regexes = list(scopes.get("paths", [])) + [path_rx for path_rx, _title_rx in scopes.get("any", [])]
+        if any(rx.search(p) for rx in path_regexes for p in category_paths):
+            hits.add(category)
     return sorted(hits)
+
+
+def detect_title_scrutiny_flags(subject: str) -> list[str]:
+    """Categories whose keywords appear in the PR title.
+
+    Not a gate: the reviewer prompt tells the LLM to refuse only when the
+    diff behaviorally touches the flagged domain, so incidental mentions
+    (an OAuth error string in a connector fix) don't force a human review.
+    """
+    subject_lower = subject.lower()
+    return sorted(
+        category
+        for category, scopes in DENY_PATTERNS.items()
+        if any(title_rx.search(subject_lower) for _path_rx, title_rx in scopes.get("any", []))
+    )
 
 
 def has_dependency_changes(files: list[str]) -> bool:

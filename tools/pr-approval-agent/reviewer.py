@@ -147,6 +147,14 @@ REVIEWER_SYSTEM = textwrap.dedent(
     pass/fail status are provided in the prompt — rely on those, not
     assumptions. You typically see T1 PRs that passed all gates.
 
+    Title scrutiny flags (in the prompt when set): the PR title mentions a
+    sensitive domain (auth, billing, infra_cicd, …) but no deny-listed file
+    was touched. Verify against the diff: if the change behaviorally touches
+    that domain (authentication/authorization flows, payment or plan logic,
+    CI/deploy behavior), REFUSE and route to a human. If the keyword is
+    incidental — an error string, a warehouse connector fix, a docs mention —
+    judge the PR normally. A flag is a magnifying glass, not a verdict.
+
     T1 sub-tiers (provided in the prompt):
     - T1a-trivial: ≤20 lines, ≤3 files, single area
     - T1b-small: ≤100 lines, ≤5 files, focused
@@ -435,6 +443,14 @@ class Reviewer:
             constraint = "\nGates DENIED this PR. Your verdict MUST be REFUSE or ESCALATE."
         elif gate_verdict == "AUTO-APPROVED":
             constraint = "\nGates auto-approved (T0). Confirm or flag concerns."
+
+        title_flags = cl.get("title_scrutiny_flags", [])
+        if title_flags:
+            constraint += (
+                f"\nTitle scrutiny flags: {', '.join(title_flags)} — the title mentions "
+                "these sensitive domains but no deny-listed file was touched. Verify the "
+                "diff does not behaviorally touch them; REFUSE if it does."
+            )
 
         file_list = "\n".join(
             f"  {f['filename']} (+{f['additions']}/-{f['deletions']})" + (" [NEW]" if f.get("status") == "A" else "")

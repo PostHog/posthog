@@ -62,8 +62,11 @@ Prerequisites (hard gate)
   │
   ▼
 Deny-list (hard gate)
-  - Checks file paths + PR title against sensitive categories
+  - Checks file paths against sensitive categories
   - Any match → gates DENY
+  - PR-title keywords never deny on their own — they surface as scrutiny
+    flags the LLM must verify against the diff (REFUSE if the change
+    behaviorally touches the flagged domain, judge normally if incidental)
   │
   ▼
 Size ceiling (hard gate)
@@ -136,15 +139,23 @@ Sub-classified by risk to calibrate scrutiny:
 
 Deny-listed categories where even a small diff can have high blast radius:
 
-| Category           | Patterns                                                                                     |
-| ------------------ | -------------------------------------------------------------------------------------------- |
-| **auth**           | auth, login, signup, session, token, oauth, saml, sso, permission, oidc, credential, etc.    |
-| **crypto_secrets** | crypto, encrypt, decrypt, secret, key, cert, signing, .env, vault                            |
-| **migrations**     | migrations/, migrate, backfill, schema_change                                                |
-| **infra_cicd**     | terraform, k8s, helm, dockerfile, .github/workflows, deploy, iam, cloudflare, etc.           |
-| **billing**        | billing, payment, stripe, invoice, subscription, pricing                                     |
-| **public_api**     | openapi, api_schema, swagger, public_api                                                     |
-| **deps_toolchain** | package.json, requirements.txt, pyproject.toml, pnpm-lock, uv.lock, Cargo.toml, go.mod, etc. |
+| Category           | Patterns                                                                                          |
+| ------------------ | ------------------------------------------------------------------------------------------------- |
+| **auth**           | auth, authentication, authorize, login, signup, oauth, saml, sso, permission, oidc, credential, … |
+| **crypto_secrets** | crypto, encrypt, decrypt, secret, key, cert, signing, .env, vault                                 |
+| **migrations**     | migrations/, migrate, backfill, schema_change                                                     |
+| **infra_cicd**     | terraform, k8s, helm, dockerfile, .github/workflows, iam, cloudflare, etc.                        |
+| **billing**        | billing, payment, stripe, invoice, pricing                                                        |
+| **public_api**     | openapi, api_schema, swagger, public_api                                                          |
+| **deps_toolchain** | package.json, requirements.txt, pyproject.toml, pnpm-lock, uv.lock, Cargo.toml, go.mod, etc.      |
+
+Notably absent, on purpose (calibrated against ~440 deny-listed PRs over 120 days):
+`subscription` (means scheduled insight deliveries here, not payments) and
+`routing`/`deploy` (every match was app-level routing or docs, never infra).
+Data warehouse connector sources (`products/warehouse_sources/.../sources/`)
+are exempt from the **auth** and **billing** categories — connector code
+legitimately does OAuth and talks to the Stripe API without touching
+PostHog's auth system or its billing.
 
 The **migrations** deny-list is bypassed when the `Migration risk` check on the head commit concludes `success` (all migrations classified Safe). The check is published by `analyze_migration_risk` in `ci-backend.yml` and is the same signal humans see in the PR's Checks tab. See `tools/pr-approval-agent/migration_risk.py` for how stamphog reads it.
 

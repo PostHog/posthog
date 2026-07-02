@@ -33,6 +33,7 @@ from gates import (
     classify_files,
     detect_deny_categories,
     detect_ownership,
+    detect_title_scrutiny_flags,
     has_ci_workflow_changes,
     has_dependency_changes,
     is_allow_listed_only,
@@ -308,7 +309,8 @@ class Pipeline:
         breadth = scope_breadth(top_dirs)
         cc = parse_conventional_commit(pr.title)
         safe_migrations = safe_migration_files(pr.check_runs, file_paths)
-        deny = detect_deny_categories(file_paths, pr.title, ignored_files=safe_migrations)
+        deny = detect_deny_categories(file_paths, ignored_files=safe_migrations)
+        title_flags = [c for c in detect_title_scrutiny_flags(pr.title) if c not in deny]
         allow_only = is_allow_listed_only(file_paths)
         is_test = test_only(categories)
         ownership_rules = parse_codeowners_soft(CODEOWNERS_SOFT)
@@ -340,6 +342,7 @@ class Pipeline:
             "commit_scope": cc["scope"],
             "categories": categories,
             "deny_categories": deny,
+            "title_scrutiny_flags": title_flags,
             "safe_migration_files": sorted(safe_migrations),
             "allow_listed_only": allow_only,
             "is_test_only": is_test,
@@ -602,6 +605,7 @@ class Pipeline:
                 "breadth": self.classification.get("breadth", ""),
                 "commit_type": self.classification.get("commit_type"),
                 "deny_categories": self.classification.get("deny_categories", []),
+                "title_scrutiny_flags": self.classification.get("title_scrutiny_flags", []),
                 "safe_migration_files": self.classification.get("safe_migration_files", []),
                 "ownership": self.classification.get("ownership", {}),
             },
