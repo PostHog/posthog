@@ -167,6 +167,7 @@ the row lists both.
 | granola                 | HTTP                        | requests                                                        | ✅                          |
 | gorgias                 | HTTP                        | requests                                                        | ✅                          |
 | greenhouse              | HTTP                        | requests                                                        | ✅                          |
+| gridly                  | HTTP                        | requests                                                        | ✅                          |
 | guardian                | HTTP                        | requests                                                        | ✅                          |
 | guru                    | HTTP                        | requests                                                        | ✅                          |
 | hellobaton              | HTTP                        | requests                                                        | ✅                          |
@@ -174,6 +175,7 @@ the row lists both.
 | hubspot                 | HTTP                        | requests                                                        | ✅                          |
 | hugging_face            | HTTP                        | requests                                                        | ✅                          |
 | incident_io             | HTTP                        | requests                                                        | ✅                          |
+| insightly               | HTTP                        | requests                                                        | ✅                          |
 | intercom                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | iterable                | HTTP                        | requests                                                        | ✅                          |
 | jira                    | HTTP                        | requests                                                        | ✅                          |
@@ -444,7 +446,6 @@ doesn't conflict with concurrent PRs.
 - google_workspace_admin_reports
 - grafana
 - greythr
-- gridly
 - gusto
 - harness
 - heap
@@ -463,7 +464,6 @@ doesn't conflict with concurrent PRs.
 - inflowinventory
 - infor_nexus
 - insightful
-- insightly
 - instagram
 - instantly
 - instatus

@@ -1478,7 +1478,8 @@ class GreytHrSourceConfig(config.Config):
 
 @config.config
 class GridlySourceConfig(config.Config):
-    pass
+    api_key: str
+    view_id: str
 
 
 @config.config
@@ -1613,7 +1614,8 @@ class InsightfulSourceConfig(config.Config):
 
 @config.config
 class InsightlySourceConfig(config.Config):
-    pass
+    pod: str
+    api_key: str
 
 
 @config.config
