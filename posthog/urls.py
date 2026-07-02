@@ -60,7 +60,11 @@ from products.slack_app.backend.api import (
     posthog_code_interactivity_handler,
     slack_workspace_claims_view,
 )
-from products.slack_app.backend.views import slack_user_link_authorize, slack_user_link_callback
+from products.slack_app.backend.views import (
+    slack_app_command_handler,
+    slack_user_link_authorize,
+    slack_user_link_callback,
+)
 from products.surveys.backend.api.survey import public_survey_page
 from products.tasks.backend.facade.agent_proxy import agent_proxy_callback
 from products.user_interviews.backend.presentation.webhooks import (
@@ -467,6 +471,7 @@ urlpatterns = [
     path("uploaded_media/<str:image_uuid>", uploaded_media.download),
     opt_slash_path("slack/interactivity-callback", posthog_code_interactivity_handler),
     opt_slash_path("slack/event-callback", posthog_code_event_handler),
+    opt_slash_path("slack/command-callback", slack_app_command_handler),
     opt_slash_path("slack/workspace/claims", slack_workspace_claims_view),
     # GitHub App webhook — fans out to tasks (PRs) and conversations (issues)
     opt_slash_path("webhooks/github/pr", github_webhook),
