@@ -1838,6 +1838,7 @@ email@example.org,
                 filters={"properties": {"type": "OR", "values": values}},
                 cohort_type=CohortType.REALTIME if realtime_backfilled else None,
                 last_backfill_person_properties_at=timezone.now() if realtime_backfilled else None,
+                last_backfill_events_at=timezone.now() if realtime_backfilled else None,
             )
 
         cohorts = {
