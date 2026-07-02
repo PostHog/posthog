@@ -10,7 +10,7 @@ pipeline yet.
 
 import re
 import datetime as dt
-from collections.abc import Sequence
+from collections.abc import Mapping, Sequence
 from typing import Any, Literal
 
 from posthog.hogql import ast
@@ -234,6 +234,7 @@ class MetricQueryRunner:
         group_by: Sequence[MetricGroupBy] = (),
         interval: str | None = None,
         quantile: float | None = None,
+        group_by_value_allowlist: Mapping[str, Sequence[str]] | None = None,
     ) -> None:
         if aggregation not in _ALLOWED_AGGREGATIONS:
             raise ValueError(f"Unsupported aggregation: {aggregation!r}")
@@ -263,6 +264,11 @@ class MetricQueryRunner:
         self.group_by = tuple(group_by)
         self.interval = interval or _pick_interval(date_from, date_to)
         self.quantile = quantile
+        # Restricts each named group_by key to a set of label values, keeping
+        # `buckets × cardinality` bounded on high-cardinality drill-downs. This
+        # is an internal knob (the anomaly drill-down sets it) — it is not part
+        # of the public query contract.
+        self.group_by_value_allowlist = {key: tuple(values) for key, values in (group_by_value_allowlist or {}).items()}
 
     def run(self) -> list[dict[str, Any]]:
         """Bucketed rows: `{"time", "value", "labels"}`. `labels` carries one
@@ -341,6 +347,23 @@ class MetricQueryRunner:
                 "use a coarser interval, a narrower range, or a lower-cardinality group_by"
             )
 
+    def _where_expr(self) -> ast.Expr:
+        """User filters ANDed with any internal group_by value allowlist. The
+        allowlist keeps each restricted key to its listed label values so a
+        high-cardinality group_by can't blow the row limit."""
+        conditions: list[ast.Expr] = [_filters_expr(self.filters)]
+        scope_by_key = {group.key: group.scope.value for group in self.group_by}
+        for key, values in self.group_by_value_allowlist.items():
+            label_expr = ast.Call(name="toString", args=[attribute_field(key, scope=scope_by_key.get(key, "auto"))])
+            conditions.append(
+                ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=label_expr,
+                    right=ast.Tuple(exprs=[ast.Constant(value=value) for value in values]),
+                )
+            )
+        return conditions[0] if len(conditions) == 1 else ast.And(exprs=conditions)
+
     def _splice_group_columns(self, query: ast.SelectQuery) -> None:
         """Insert the group_by label columns between `time` and `value` —
         parse_select placeholders can't express a variable column count."""
@@ -373,7 +396,7 @@ class MetricQueryRunner:
                 "metric_name": ast.Constant(value=self.metric_name),
                 "date_from": ast.Constant(value=self.date_from),
                 "date_to": ast.Constant(value=self.date_to),
-                "filters": _filters_expr(self.filters),
+                "filters": self._where_expr(),
                 "row_limit": ast.Constant(value=_ROW_LIMIT),
             },
         )
@@ -447,7 +470,7 @@ class MetricQueryRunner:
                 "metric_name": ast.Constant(value=self.metric_name),
                 "date_from": ast.Constant(value=self.date_from),
                 "date_to": ast.Constant(value=self.date_to),
-                "filters": _filters_expr(self.filters),
+                "filters": self._where_expr(),
                 "row_limit": ast.Constant(value=_ROW_LIMIT),
             },
         )
@@ -511,7 +534,7 @@ class MetricQueryRunner:
                 "metric_name": ast.Constant(value=self.metric_name),
                 "date_from": ast.Constant(value=self.date_from),
                 "date_to": ast.Constant(value=self.date_to),
-                "filters": _filters_expr(self.filters),
+                "filters": self._where_expr(),
                 "row_limit": ast.Constant(value=_ROW_LIMIT),
             },
         )

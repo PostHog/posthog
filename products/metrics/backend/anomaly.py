@@ -31,11 +31,24 @@ from products.metrics.backend.facade.contracts import (
     MetricSeries,
 )
 from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner
-from products.metrics.backend.metric_query_runner import _INTERVAL_LADDER, MetricQueryRunner, _pick_interval
+from products.metrics.backend.metric_query_runner import (
+    _INTERVAL_LADDER,
+    _ROW_LIMIT,
+    MetricQueryRunner,
+    _pick_interval,
+    attribute_field,
+)
 
 # How many label keys to drill into and how many movers to report.
 MAX_CANDIDATE_KEYS = 4
 MAX_TOP_MOVERS = 8
+
+# Cap on distinct label values pulled per key in a drill-down. A grouped
+# query returns `buckets × cardinality` rows, so a high-cardinality key (pod
+# name, request id) would overrun the runner's row limit. We keep the most
+# frequent values — enough to surface the dominant cause — and coarsen the
+# interval on top of that so the grouped query stays under the budget.
+_MAX_DRILLDOWN_LABELS = 50
 
 # Bucket budget for the single combined baseline+anomaly query — the
 # resolution follows the anomaly window, but a faraway baseline must not
@@ -153,7 +166,11 @@ def characterize_anomaly(
     # an explicit faraway baseline) are plotted but excluded from the stats.
     interval = _pick_combined_interval(baseline_from, anomaly_from, anomaly_to)
 
-    def _run(group_by: tuple[MetricGroupBy, ...] = ()) -> list[dict[str, Any]]:
+    def _run(
+        group_by: tuple[MetricGroupBy, ...] = (),
+        interval_override: str | None = None,
+        label_allowlist: dict[str, tuple[str, ...]] | None = None,
+    ) -> list[dict[str, Any]]:
         return MetricQueryRunner(
             team=team,
             metric_name=metric_name,
@@ -162,8 +179,9 @@ def characterize_anomaly(
             date_to=anomaly_to,
             filters=filters,
             group_by=group_by,
-            interval=interval,
+            interval=interval_override or interval,
             quantile=quantile if aggregation == "histogram_quantile" else None,
+            group_by_value_allowlist=label_allowlist,
         ).run()
 
     rows = _run()
@@ -195,6 +213,7 @@ def characterize_anomaly(
         baseline_to=baseline_to,
         anomaly_from=anomaly_from,
         anomaly_to=anomaly_to,
+        interval=interval,
         filters=filters,
         candidate_keys=candidate_keys,
     )
@@ -258,6 +277,52 @@ def _discover_candidate_keys(
     return tuple(keys[:MAX_CANDIDATE_KEYS])
 
 
+def _discover_key_labels(
+    team: Team, metric_name: str, key: str, date_from: dt.datetime, date_to: dt.datetime, limit: int
+) -> tuple[str, ...]:
+    """The most frequent label values for `key` over the window, most common
+    first. Resolved through the same field accessor a group_by uses, so the
+    first-class service-name column and the attribute maps match the rows the
+    drill-down itself groups. The `LIMIT` bounds the returned cardinality, so
+    the grouped drill-down can stay under the runner's row budget."""
+    label_expr = ast.Call(name="toString", args=[attribute_field(key)])
+    query = parse_select(
+        """
+            SELECT {label} AS label, count() AS occurrences
+            FROM posthog.metrics
+            WHERE metric_name = {metric_name}
+              AND timestamp >= {date_from}
+              AND timestamp < {date_to}
+            GROUP BY label
+            ORDER BY occurrences DESC, label ASC
+            LIMIT {limit}
+        """,
+        placeholders={
+            "label": label_expr,
+            "metric_name": ast.Constant(value=metric_name),
+            "date_from": ast.Constant(value=date_from),
+            "date_to": ast.Constant(value=date_to),
+            "limit": ast.Constant(value=limit),
+        },
+    )
+    response = execute_hogql_query(query_type="MetricQuery", query=query, team=team, workload=Workload.LOGS)
+    return tuple(row[0] for row in response.results)
+
+
+def _coarsen_for_cardinality(interval: str, combined_span: dt.timedelta, cardinality: int) -> str:
+    """Coarsen `interval` until `buckets × cardinality` fits the row budget,
+    giving a grouped drill-down the same protection the ungrouped query has.
+
+    Two buckets of headroom below the limit absorb the partial bucket
+    `toStartOfInterval` can add at each window edge and the `>=` truncation
+    check, so the grouped query lands strictly under `_ROW_LIMIT`."""
+    max_buckets = max(1, _ROW_LIMIT // max(cardinality, 1) - 2)
+    index = next(i for i, (name, _, _) in enumerate(_INTERVAL_LADDER) if name == interval)
+    while index < len(_INTERVAL_LADDER) - 1 and combined_span / _INTERVAL_LADDER[index][1] > max_buckets:
+        index += 1
+    return _INTERVAL_LADDER[index][0]
+
+
 def dimension_magnitude(mover: MetricAnomalyDimension) -> float:
     """How much a label value actually moved, blending relative change with
     scale: a tiny series that tripled and a large series that barely budged
@@ -279,6 +344,7 @@ def _find_top_movers(
     baseline_to: dt.datetime,
     anomaly_from: dt.datetime,
     anomaly_to: dt.datetime,
+    interval: str,
     filters: tuple[MetricFilter, ...],
     candidate_keys: tuple[str, ...] | None,
 ) -> tuple[MetricAnomalyDimension, ...]:
@@ -286,7 +352,18 @@ def _find_top_movers(
 
     movers: list[MetricAnomalyDimension] = []
     for key in keys[:MAX_CANDIDATE_KEYS]:
-        rows = run(group_by=(MetricGroupBy(key=key),))
+        # Restrict the grouped query to the most frequent label values and
+        # coarsen the interval to match, so `buckets × cardinality` stays
+        # under the row limit even when the key is high-cardinality.
+        labels = _discover_key_labels(team, metric_name, key, baseline_from, anomaly_to, _MAX_DRILLDOWN_LABELS)
+        if not labels:
+            continue
+        drill_interval = _coarsen_for_cardinality(interval, anomaly_to - baseline_from, len(labels))
+        rows = run(
+            group_by=(MetricGroupBy(key=key),),
+            interval_override=drill_interval,
+            label_allowlist={key: labels},
+        )
         per_label: dict[str, dict[str, list[float]]] = {}
         for row in rows:
             time = _parse_point_time(row["time"])

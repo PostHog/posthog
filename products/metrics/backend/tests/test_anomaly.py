@@ -1,15 +1,20 @@
+import math
 import datetime as dt
 from typing import Any
 
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
 
+from django.test import SimpleTestCase
 from django.utils import timezone
 
+from parameterized import parameterized
 from rest_framework import status
 
 from posthog.clickhouse.client import sync_execute
 
+from products.metrics.backend.anomaly import _coarsen_for_cardinality
 from products.metrics.backend.facade.api import characterize_metric_anomaly
+from products.metrics.backend.metric_query_runner import _INTERVAL_LADDER, _ROW_LIMIT
 from products.metrics.backend.tests._seeder import seed_metric
 
 
@@ -159,6 +164,45 @@ class TestCharacterizeAnomaly(ClickhouseTestMixin, APIBaseTest):
         report = self._characterize(metric_name="reqs_total")
         self.assertEqual(report.aggregation, "rate")
 
+    def test_high_cardinality_drilldown_stays_under_row_limit(self):
+        # A grouped drill-down returns buckets × cardinality rows. Without
+        # capping the labels and coarsening the interval to match, a
+        # high-cardinality key overruns the runner's row limit and raises
+        # instead of reporting — the anomaly-report drill-down break this
+        # guards against. 60 hosts over 200 one-minute buckets is 12000
+        # grouped rows, past the 10000 limit; one host spikes in the anomaly
+        # window and must still be blamed.
+        base = self.start - dt.timedelta(hours=4)
+        anomaly_from = base + dt.timedelta(minutes=140)
+        anomaly_to = base + dt.timedelta(minutes=200)
+        for i in range(60):
+            host = f"host-{i:03d}"
+            if host == "host-000":
+                points = [(base + dt.timedelta(minutes=m), 10.0) for m in range(140)] + [
+                    (base + dt.timedelta(minutes=m), 100.0) for m in range(140, 200)
+                ]
+            else:
+                points = [(base + dt.timedelta(minutes=m), 10.0) for m in range(200)]
+            seed_metric(
+                team_id=self.team.id,
+                metric_name="host_rps",
+                metric_type="gauge",
+                points=points,
+                labels={"host": host},
+            )
+
+        report = self._characterize(
+            metric_name="host_rps",
+            anomaly_from=anomaly_from,
+            anomaly_to=anomaly_to,
+            candidate_keys=("host",),
+        )
+
+        self.assertEqual(report.direction, "up")
+        self.assertTrue(report.top_movers)
+        top = report.top_movers[0]
+        self.assertEqual((top.key, top.label), ("host", "host-000"))
+
     def test_characterize_via_api(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/metrics/characterize",
@@ -191,3 +235,35 @@ class TestCharacterizeAnomaly(ClickhouseTestMixin, APIBaseTest):
             content_type="application/json",
         )
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)
+
+
+class TestCoarsenForCardinality(SimpleTestCase):
+    def _step(self, name: str) -> dt.timedelta:
+        return next(step for entry_name, step, _ in _INTERVAL_LADDER if entry_name == name)
+
+    @parameterized.expand(
+        [
+            # (base_interval, span_minutes, cardinality)
+            ("minute", 60, 2),  # low cardinality: no coarsening needed
+            ("minute", 200, 50),  # combined_buckets × cap overruns -> coarsen
+            ("second", 30, 50),
+            ("minute", 44640, 50),  # 31-day span at the label cap
+            ("hour", 1440, 10),
+        ]
+    )
+    def test_keeps_grouped_query_under_row_limit(self, base_interval, span_minutes, cardinality):
+        span = dt.timedelta(minutes=span_minutes)
+        chosen = _coarsen_for_cardinality(base_interval, span, cardinality)
+
+        base_index = next(i for i, (name, _, _) in enumerate(_INTERVAL_LADDER) if name == base_interval)
+        chosen_index = next(i for i, (name, _, _) in enumerate(_INTERVAL_LADDER) if name == chosen)
+        # A drill-down must never render finer than the ungrouped series.
+        self.assertGreaterEqual(chosen_index, base_index)
+
+        # +1 for the partial bucket toStartOfInterval can add at a window edge.
+        worst_case_rows = (math.floor(span / self._step(chosen)) + 1) * cardinality
+        is_coarsest = chosen == _INTERVAL_LADDER[-1][0]
+        self.assertTrue(
+            worst_case_rows < _ROW_LIMIT or is_coarsest,
+            f"{chosen} yields ~{worst_case_rows} rows, not under {_ROW_LIMIT}",
+        )
