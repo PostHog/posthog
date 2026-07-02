@@ -1,4 +1,5 @@
 import { useActions, useValues } from 'kea'
+import posthog from 'posthog-js'
 
 import { LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
 
@@ -10,6 +11,7 @@ import { urls } from 'scenes/urls'
 
 import type { AccountNoteApi } from 'products/customer_analytics/frontend/generated/api.schemas'
 
+import { AccountsEvents } from '../Accounts/constants'
 import { accountNotesLogic } from './accountNotesLogic'
 
 export function AccountNotesTabContent(): JSX.Element {
@@ -32,6 +34,9 @@ export function AccountNotesTabContent(): JSX.Element {
                         to={urls.notebook(note.short_id)}
                         className="font-semibold"
                         onClick={(event) => {
+                            posthog.capture(AccountsEvents.NotesTabNoteClicked, {
+                                notebook_short_id: note.short_id,
+                            })
                             event.preventDefault()
                             selectNotebook(note.short_id)
                         }}
@@ -50,6 +55,9 @@ export function AccountNotesTabContent(): JSX.Element {
                         data-attr="account-note-account"
                         to={urls.customerAnalyticsAccount(note.account_id)}
                         className="whitespace-nowrap"
+                        onClick={() => {
+                            posthog.capture(AccountsEvents.NotesTabAccountClicked, { account_id: note.account_id })
+                        }}
                     >
                         {accountName}
                     </Link>
