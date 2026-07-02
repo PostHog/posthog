@@ -140,9 +140,9 @@ rust/cymbal-resolution/** @PostHog/team-error-tracking
 rust/cymbal-proto/** @PostHog/team-error-tracking
 rust/common/symbol_data/** @PostHog/team-error-tracking
 
-# Notebooks - owned by @PostHog/team-platform-features
-frontend/src/scenes/notebooks/ @PostHog/team-platform-features
-frontend/src/lib/components/RichContentEditor/ @PostHog/team-platform-features
+# Notebooks - owned by @PostHog/team-data-tools
+frontend/src/scenes/notebooks/ @PostHog/team-data-tools
+frontend/src/lib/components/RichContentEditor/ @PostHog/team-data-tools
 
 # Comments - owned by @PostHog/team-platform-features
 frontend/src/scenes/comments/ @PostHog/team-platform-features
