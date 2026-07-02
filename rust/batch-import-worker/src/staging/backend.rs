@@ -7,6 +7,7 @@ use bytes::Bytes;
 use tokio::fs::File;
 use tokio::io::{AsyncReadExt, AsyncSeekExt, AsyncWriteExt};
 use tokio::sync::{mpsc, Mutex};
+use tokio::task::JoinHandle;
 use tracing::warn;
 use uuid::Uuid;
 
@@ -18,18 +19,48 @@ use uuid::Uuid;
 /// exact same byte stream, so a part's byte offsets stay valid across backends.
 pub struct PlaintextStream {
     rx: mpsc::Receiver<Result<Bytes, Error>>,
+    // The producer task, if this stream owns one. Awaited on channel EOF so a producer
+    // panic surfaces as a stream error instead of being mistaken for a clean end-of-stream
+    // (which would silently truncate the staged part).
+    producer: Option<JoinHandle<()>>,
 }
 
 impl PlaintextStream {
-    /// Wrap a receiver of decompressed blocks. The sender side is the pipeline's
-    /// producer; each item is either a block of plaintext or a decode/IO error.
+    /// Wrap a receiver of decompressed blocks with no owned producer. The caller is
+    /// responsible for the sender side (tests, manual channels).
     pub fn new(rx: mpsc::Receiver<Result<Bytes, Error>>) -> Self {
-        Self { rx }
+        Self { rx, producer: None }
     }
 
-    /// Pull the next block, or `None` once the producer has finished (EOF).
+    /// Wrap a receiver alongside the producer task feeding it, so a producer panic is
+    /// detected at EOF and reported rather than swallowed.
+    pub(crate) fn from_producer(
+        rx: mpsc::Receiver<Result<Bytes, Error>>,
+        producer: JoinHandle<()>,
+    ) -> Self {
+        Self {
+            rx,
+            producer: Some(producer),
+        }
+    }
+
+    /// Pull the next block, or `None` once the producer has finished cleanly. If the
+    /// channel closes without the producer sending an error, the owned producer handle is
+    /// awaited: a panic (or cancellation) is surfaced as an error so the consumer does not
+    /// treat a crashed producer as a complete stream.
     pub async fn next(&mut self) -> Option<Result<Bytes, Error>> {
-        self.rx.recv().await
+        if let Some(item) = self.rx.recv().await {
+            return Some(item);
+        }
+        match self.producer.take() {
+            Some(handle) => match handle.await {
+                Ok(()) => None,
+                Err(join_err) => Some(Err(Error::msg(format!(
+                    "decompression task terminated abnormally: {join_err}"
+                )))),
+            },
+            None => None,
+        }
     }
 
     /// Build a stream from in-memory blocks, feeding them through a bounded channel
@@ -41,14 +72,14 @@ impl PlaintextStream {
         I::IntoIter: Send,
     {
         let (tx, rx) = mpsc::channel(16);
-        tokio::spawn(async move {
+        let handle = tokio::spawn(async move {
             for chunk in chunks {
                 if tx.send(Ok(chunk)).await.is_err() {
                     break;
                 }
             }
         });
-        Self { rx }
+        Self::from_producer(rx, handle)
     }
 }
 
@@ -300,6 +331,26 @@ mod tests {
             .await
             .unwrap()
             .is_empty());
+    }
+
+    #[tokio::test]
+    async fn producer_panic_surfaces_as_error_not_clean_eof() {
+        // A producer that panics (mirrors a flate2/zip internal panic) must not look like a
+        // clean EOF — otherwise the consumer would stage a silently truncated part.
+        let (tx, rx) = mpsc::channel::<Result<Bytes, Error>>(4);
+        let handle = tokio::task::spawn_blocking(move || {
+            let _tx = tx; // hold the sender so the channel closes only on unwind
+            panic!("simulated decoder panic");
+        });
+        let mut stream = PlaintextStream::from_producer(rx, handle);
+
+        let mut saw_error = false;
+        while let Some(item) = stream.next().await {
+            if item.is_err() {
+                saw_error = true;
+            }
+        }
+        assert!(saw_error, "a producer panic must surface as a stream error");
     }
 
     #[tokio::test]
