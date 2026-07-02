@@ -94,7 +94,16 @@ export const dataWarehouseViewsLogic = kea<dataWarehouseViewsLogicType>([
             [] as DataWarehouseSavedQueryFolder[],
             {
                 loadDataWarehouseSavedQueryFolders: async () => {
-                    return await api.dataWarehouseSavedQueryFolders.list()
+                    try {
+                        return await api.dataWarehouseSavedQueryFolders.list()
+                    } catch (error: any) {
+                        // Users without warehouse access get a 403 from this RBAC-gated endpoint;
+                        // that's an expected permission boundary, so fall back to no folders.
+                        if (error?.status === 403) {
+                            return []
+                        }
+                        throw error
+                    }
                 },
                 createDataWarehouseSavedQueryFolder: async (name: string) => {
                     const folder = await api.dataWarehouseSavedQueryFolders.create({ name })
