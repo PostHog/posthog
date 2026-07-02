@@ -511,9 +511,9 @@ class _JUnitTimingsPlugin:
         # str() widens TestReport.outcome's Literal: "rerun" is assigned by pytest-rerunfailures.
         if not reruns or report.when != "teardown" or str(report.outcome) == "rerun":
             return
-        # `user_properties` is shared across the item's reports; guard against duplicates.
-        if all(name != self._PROPERTY_RERUNS for name, _ in report.user_properties):
-            report.user_properties.append((self._PROPERTY_RERUNS, str(reruns)))
+        # Appended exactly once: intermediate attempts never log a non-rerun teardown,
+        # and each report owns its own copy of `user_properties`.
+        report.user_properties.append((self._PROPERTY_RERUNS, str(reruns)))
 
     @staticmethod
     def _find_junit_xml_plugin(config: pytest.Config) -> Any:
