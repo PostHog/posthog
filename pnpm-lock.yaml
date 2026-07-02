@@ -3990,7 +3990,7 @@ importers:
         version: 6.0.3
     devDependencies:
       '@testing-library/react':
-        specifier: '*'
+        specifier: ^14.3.1
         version: 14.3.1(@types/react@18.3.27)(react-dom@18.3.1(react@18.3.1))(react@18.3.1)
       kea-test-utils:
         specifier: 'catalog:'

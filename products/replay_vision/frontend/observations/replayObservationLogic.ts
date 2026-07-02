@@ -102,7 +102,12 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
                 if (!label || label.is_correct !== false || (label.feedback ?? '') === feedback) {
                     return
                 }
+                const epoch = cache.labelEpoch ?? 0
                 await breakpoint(800)
+                // A Correct/Clear click while the debounce was pending wins over the stale autosave.
+                if ((cache.labelEpoch ?? 0) !== epoch) {
+                    return
+                }
                 actions.setLabel(false, feedback)
             },
 
@@ -154,6 +159,7 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
             },
 
             setLabel: async ({ isCorrect, feedback }) => {
+                cache.labelEpoch = (cache.labelEpoch ?? 0) + 1
                 const teamId = teamLogic.values.currentTeamId
                 if (!teamId) {
                     return
@@ -173,6 +179,7 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
             },
 
             clearLabel: async () => {
+                cache.labelEpoch = (cache.labelEpoch ?? 0) + 1
                 const teamId = teamLogic.values.currentTeamId
                 if (!teamId) {
                     return
