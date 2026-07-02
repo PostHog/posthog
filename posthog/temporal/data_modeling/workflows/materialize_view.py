@@ -385,7 +385,7 @@ class MaterializeViewWorkflow(PostHogWorkflow):
             capture_exception(e)
             temporalio.workflow.logger.warning(
                 "Failed to start view semantic enrichment",
-                extra={"saved_query_id": saved_query_id},
+                extra={"saved_query_id": saved_query_id, "error": str(e)},
             )
 
     async def _collect_shadow_comparison(

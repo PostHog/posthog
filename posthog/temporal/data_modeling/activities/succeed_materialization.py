@@ -67,7 +67,13 @@ def _succeed_node_and_data_modeling_job(inputs: SucceedMaterializationInputs):
     node = None
     if inputs.update_node:
         with transaction.atomic():
-            node = Node.objects.select_for_update().get(id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id)
+            # select_related avoids a second round-trip on node.saved_query in _view_enrichment_needed;
+            # of=("self",) keeps the FOR UPDATE lock on the node row only, not the joined saved_query.
+            node = (
+                Node.objects.select_for_update(of=("self",))
+                .select_related("saved_query")
+                .get(id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id)
+            )
             status = DataModelingJobStatus.COMPLETED
             update_node_system_properties(
                 node,
