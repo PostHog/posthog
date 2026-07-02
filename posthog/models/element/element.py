@@ -95,36 +95,52 @@ def chain_to_elements(chain: str) -> list[Element]:
 
 
 _MAX_DATA_ATTRIBUTES = 50
-_MAX_WILDCARDS_PER_ENTRY = 1
 
 
 def _glob_matcher(pattern: str) -> Callable[[str], bool]:
-    """Returns a linear-time matcher for a single glob pattern (supports at most one *)."""
-    if "*" not in pattern:
-        return lambda key: key == pattern
-    prefix, _, suffix = pattern.partition("*")
-    min_len = len(prefix) + len(suffix)
+    """Returns a matcher for a glob pattern where each * matches any run of characters.
+    Linear-time string scanning, never regex, so caller-supplied patterns can't trigger
+    catastrophic backtracking."""
+    head, *middle, tail = pattern.split("*")
 
     def matches(key: str) -> bool:
-        return len(key) >= min_len and key.startswith(prefix) and key.endswith(suffix)
+        if not key.startswith(head) or not key.endswith(tail):
+            return False
+        position = len(head)
+        end = len(key) - len(tail)
+        for segment in middle:
+            found = key.find(segment, position, end)
+            if found == -1:
+                return False
+            position = found + len(segment)
+        return position <= end
 
     return matches
 
 
-def attributes_filter_regex(wanted_data_attributes: list[str]) -> Callable[[str], bool]:
+def build_attributes_filter(wanted_data_attributes: list[str]) -> Callable[[str], bool] | None:
     """
-    Returns a matcher for attr__ keys matching the configured data attributes, mirroring
-    the toolbar's matchesDataAttribute. Keys are stored with an attr__ prefix; configured
-    names may contain a single * wildcard (e.g. data-*). Entries with more than one *,
-    and entries beyond the first 50, are silently ignored to prevent ReDoS.
+    Builds a matcher for attr__ keys matching the configured data attributes, mirroring the
+    toolbar's matchesDataAttribute: keys carry an attr__ prefix and configured names may use
+    * wildcards (e.g. data-*). Entries beyond the first 50 are ignored to bound per-key cost.
+    Returns None when there is nothing to filter by.
     """
-    if not wanted_data_attributes:
-        return lambda _: False
-    safe_entries = [
-        a for a in wanted_data_attributes[:_MAX_DATA_ATTRIBUTES] if a.count("*") <= _MAX_WILDCARDS_PER_ENTRY
-    ]
-    matchers = [_glob_matcher(f"attr__{entry}") for entry in safe_entries]
-    return lambda key: any(m(key) for m in matchers)
+    entries = [attribute.strip() for attribute in wanted_data_attributes[:_MAX_DATA_ATTRIBUTES] if attribute.strip()]
+    if not entries:
+        return None
+
+    exact_keys = frozenset(f"attr__{entry}" for entry in entries if "*" not in entry)
+    glob_matchers = [_glob_matcher(f"attr__{entry}") for entry in entries if "*" in entry]
+
+    def matches(key: str) -> bool:
+        if key in exact_keys:
+            return True
+        for matcher in glob_matchers:
+            if matcher(key):
+                return True
+        return False
+
+    return matches
 
 
 def chain_to_element_dicts(chain: str, attributes_filter: Callable[[str], bool] | None = None) -> list[dict]:
@@ -132,7 +148,7 @@ def chain_to_element_dicts(chain: str, attributes_filter: Callable[[str], bool] 
     Converts an elements chain string into serialized element dicts, shaped exactly like
     ElementSerializer output but without instantiating Element models, so the elements API
     can serialize large pages cheaply. attributes_filter optionally restricts the attributes
-    map to matching keys (see attributes_filter_regex).
+    map to matching keys (see build_attributes_filter).
     """
     element_dicts: list[dict] = []
     for idx, el_string in enumerate(split_chain_regex.findall(chain)):

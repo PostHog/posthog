@@ -15,7 +15,7 @@ from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import ServerTimingsGathered, action
 from posthog.clickhouse.client import sync_execute
 from posthog.models import Element, Filter
-from posthog.models.element.element import attributes_filter_regex, chain_to_element_dicts
+from posthog.models.element.element import build_attributes_filter, chain_to_element_dicts
 from posthog.models.element.sql import GET_ELEMENTS, GET_VALUES
 from posthog.models.property.util import parse_prop_grouped_clauses
 from posthog.queries.query_date_range import QueryDateRange
@@ -147,12 +147,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
                 events_filter = self._events_filter(request)
 
-                wanted_data_attributes = [
-                    attribute.strip()
-                    for attribute in request.query_params.get("data_attributes", "").split(",")
-                    if attribute.strip()
-                ]
-                attributes_filter = attributes_filter_regex(wanted_data_attributes) if wanted_data_attributes else None
+                attributes_filter = build_attributes_filter(request.query_params.get("data_attributes", "").split(","))
 
                 # unless someone is using this as an API client, this is only for the toolbar,
                 # which only ever queries date range, event type, and URL

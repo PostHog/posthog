@@ -6,7 +6,7 @@ from parameterized import parameterized
 
 from posthog.api.element import ElementSerializer
 from posthog.models.element import Element, chain_to_elements, elements_to_string
-from posthog.models.element.element import attributes_filter_regex, chain_to_element_dicts
+from posthog.models.element.element import build_attributes_filter, chain_to_element_dicts
 
 
 class TestElement(ClickhouseTestMixin, BaseTest):
@@ -93,11 +93,11 @@ class TestElement(ClickhouseTestMixin, BaseTest):
             ("exact name", ["data-attr"], {"attr__data-attr": "x"}),
             ("wildcard", ["data-*"], {"attr__data-attr": "x", "attr__data-tracking-id": "y"}),
             ("no match keeps other fields", ["data-nope"], {}),
-            ("multi-wildcard entry ignored", ["data-*-*-*"], {}),
+            ("multiple wildcards, matching the toolbar's semantics", ["data-*ing-*"], {"attr__data-tracking-id": "y"}),
             (
-                "multi-wildcard entry ignored but valid entry still matches",
-                ["data-*-*", "data-attr"],
-                {"attr__data-attr": "x"},
+                "wildcard and exact entries together",
+                ["data-*-id", "data-attr"],
+                {"attr__data-attr": "x", "attr__data-tracking-id": "y"},
             ),
         ]
     )
@@ -105,20 +105,21 @@ class TestElement(ClickhouseTestMixin, BaseTest):
         self, _name: str, wanted: list[str], expected_attributes: dict
     ) -> None:
         chain = 'a.small:attr__class="small"attr__data-attr="x"attr__data-tracking-id="y"attr__style="color: red"href="/a-url"nth-child="1"nth-of-type="1"'
-        element_dicts = chain_to_element_dicts(chain, attributes_filter_regex(wanted))
+        element_dicts = chain_to_element_dicts(chain, build_attributes_filter(wanted))
         assert element_dicts[0]["attributes"] == expected_attributes
         assert element_dicts[0]["href"] == "/a-url"
         assert element_dicts[0]["attr_class"] == ["small"]
 
-    def test_attributes_filter_regex_caps_entry_count(self) -> None:
+    def test_build_attributes_filter_caps_entry_count(self) -> None:
         many_attrs = [f"data-attr-{i}" for i in range(100)]
-        matcher = attributes_filter_regex(many_attrs)
+        matcher = build_attributes_filter(many_attrs)
+        assert matcher is not None
         assert matcher("attr__data-attr-0")
         assert not matcher("attr__data-attr-99")
 
-    def test_attributes_filter_regex_empty_returns_no_match(self) -> None:
-        matcher = attributes_filter_regex([])
-        assert not matcher("attr__data-attr")
+    @parameterized.expand([("empty list", []), ("blank entries only", ["  ", ""])])
+    def test_build_attributes_filter_returns_none_when_nothing_to_filter(self, _name: str, wanted: list[str]) -> None:
+        assert build_attributes_filter(wanted) is None
 
     def test_broken_class_names(self):
         elements = chain_to_elements("a........small")
