@@ -938,6 +938,7 @@ class SavedHeatmapRequestSerializer(serializers.ModelSerializer):
             "url": {
                 "required": True,
                 "help_text": "Exact page URL to render and overlay heatmap data on. Wildcards are not allowed.",
+                "error_messages": {"blank": "Page URL is required.", "required": "Page URL is required."},
             },
             "data_url": {
                 "required": False,
