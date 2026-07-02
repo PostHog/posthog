@@ -2,28 +2,20 @@
 
 from __future__ import annotations
 
-from dataclasses import dataclass
 from typing import Any, Literal
 
 from products.logs.backend.models import LogsAlertConfiguration
 
+from common.alerting.destinations import (
+    EventKindSpec,
+    build_slack_destination_config,
+    build_teams_destination_config,
+    build_webhook_destination_config,
+)
+
 EventKind = Literal["firing", "resolved", "broken", "errored"]
 
-
-@dataclass(frozen=True)
-class EventKindSpec:
-    event_id: str
-    display_kind: str
-    header: str
-    # Plain-text (label, value) pairs; each destination renders these in its own markup.
-    details: tuple[tuple[str, str], ...]
-    button_url: str
-    button_label: str
-    webhook_body: dict[str, Any]
-
-    def destination_description(self, alert_name: str) -> str:
-        return f'Sends {self.display_kind} notifications for logs alert "{alert_name}".'
-
+_PRODUCT_LABEL = "logs alert"
 
 _FIRE_RESOLVE_DATA: dict[str, str] = {
     "alert_id": "{event.properties.alert_id}",
@@ -68,6 +60,7 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
             "timestamp": "{event.properties.triggered_at}",
             "data": _FIRE_RESOLVE_DATA,
         },
+        product_label=_PRODUCT_LABEL,
     ),
     "resolved": EventKindSpec(
         event_id="$logs_alert_resolved",
@@ -88,6 +81,7 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
             "timestamp": "{event.properties.triggered_at}",
             "data": _FIRE_RESOLVE_DATA,
         },
+        product_label=_PRODUCT_LABEL,
     ),
     "broken": EventKindSpec(
         event_id="$logs_alert_auto_disabled",
@@ -108,6 +102,7 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
                 "last_error_message": "{event.properties.last_error_message}",
             },
         },
+        product_label=_PRODUCT_LABEL,
     ),
     "errored": EventKindSpec(
         event_id="$logs_alert_errored",
@@ -128,20 +123,11 @@ EVENT_KIND_CONFIG: dict[EventKind, EventKindSpec] = {
                 "error_message": "{event.properties.error_message}",
             },
         },
+        product_label=_PRODUCT_LABEL,
     ),
 }
 
 EVENT_KINDS: tuple[EventKind, ...] = tuple(EVENT_KIND_CONFIG.keys())
-
-# HogFunction.name is `models.CharField(max_length=400)` — clip rendered names to fit.
-_HOG_FUNCTION_NAME_MAX_LEN = 400
-
-
-def _clip_name(name: str) -> str:
-    if len(name) <= _HOG_FUNCTION_NAME_MAX_LEN:
-        return name
-    return name[: _HOG_FUNCTION_NAME_MAX_LEN - 1] + "…"
-
 
 _SEVERITY_SERVICE_CONTEXT = (
     "{if(length(event.properties.severity_levels) > 0 or length(event.properties.service_names) > 0,"
@@ -158,57 +144,10 @@ _SEVERITY_SERVICE_CONTEXT = (
     " 'All log levels and services')}"
 )
 
-
-def _slack_body(spec: EventKindSpec) -> str:
-    # Slack mrkdwn: *single asterisks* for bold, one line per detail.
-    return "\n".join(f"*{label}:* {value}" for label, value in spec.details)
-
-
-def _slack_blocks(spec: EventKindSpec) -> list[dict]:
-    return [
-        {"type": "header", "text": {"type": "plain_text", "text": spec.header}},
-        {"type": "section", "text": {"type": "mrkdwn", "text": _slack_body(spec)}},
-        {
-            "type": "context",
-            "elements": [
-                {"type": "mrkdwn", "text": _SEVERITY_SERVICE_CONTEXT},
-                {"type": "mrkdwn", "text": "Project: <{project.url}|{project.name}>"},
-            ],
-        },
-        {"type": "divider"},
-        {
-            "type": "actions",
-            "elements": [
-                {
-                    "url": spec.button_url,
-                    "text": {"text": spec.button_label, "type": "plain_text"},
-                    "type": "button",
-                }
-            ],
-        },
-    ]
-
-
-def _teams_text(spec: EventKindSpec) -> str:
-    # The Microsoft Teams template renders a single Adaptive Card TextBlock from `text`, so fold
-    # the header, details, and action into one markdown string (the button becomes an inline link).
-    # Adaptive Card markdown: **double asterisks** for bold, blank lines between paragraphs.
-    details = "\n\n".join(f"**{label}:** {value}" for label, value in spec.details)
-    return f"**{spec.header}**\n\n{details}\n\n[{spec.button_label}]({spec.button_url})"
-
-
-def _filter_for(alert: LogsAlertConfiguration, kind: EventKind) -> dict[str, Any]:
-    return {
-        "events": [{"id": EVENT_KIND_CONFIG[kind].event_id, "type": "events"}],
-        "properties": [
-            {
-                "key": "alert_id",
-                "value": str(alert.id),
-                "operator": "exact",
-                "type": "event",
-            }
-        ],
-    }
+_SLACK_CONTEXT_ELEMENTS = (
+    _SEVERITY_SERVICE_CONTEXT,
+    "Project: <{project.url}|{project.name}>",
+)
 
 
 def build_slack_config(
@@ -220,21 +159,16 @@ def build_slack_config(
 ) -> dict[str, Any]:
     spec = EVENT_KIND_CONFIG[kind]
     channel_display = slack_channel_name or "channel"
-    return {
-        "team": alert.team,
-        "type": "internal_destination",
-        "enabled": True,
-        "filters": _filter_for(alert, kind),
-        "name": _clip_name(f"Logs alert — {alert.name} ({spec.display_kind}) → Slack #{channel_display}"),
-        "description": spec.destination_description(alert.name),
-        "template_id": "template-slack",
-        "inputs": {
-            "blocks": {"value": _slack_blocks(spec)},
-            "text": {"value": spec.header},
-            "slack_workspace": {"value": slack_workspace_id},
-            "channel": {"value": slack_channel_id},
-        },
-    }
+    return build_slack_destination_config(
+        team=alert.team,
+        spec=spec,
+        alert_id=str(alert.id),
+        alert_name=alert.name,
+        name=f"Logs alert — {alert.name} ({spec.display_kind}) → Slack #{channel_display}",
+        slack_workspace_id=slack_workspace_id,
+        slack_channel_id=slack_channel_id,
+        context_elements=_SLACK_CONTEXT_ELEMENTS,
+    )
 
 
 def build_webhook_config(
@@ -243,20 +177,14 @@ def build_webhook_config(
     webhook_url: str,
 ) -> dict[str, Any]:
     spec = EVENT_KIND_CONFIG[kind]
-    return {
-        "team": alert.team,
-        "type": "internal_destination",
-        "enabled": True,
-        "filters": _filter_for(alert, kind),
-        "name": _clip_name(f"Logs alert — {alert.name} ({spec.display_kind}) → Webhook {webhook_url}"),
-        "description": spec.destination_description(alert.name),
-        "template_id": "template-webhook",
-        "inputs": {
-            "body": {"value": spec.webhook_body},
-            "url": {"value": webhook_url},
-            "headers": {"value": {"Content-Type": "application/json", "X-PostHog-Webhook-Version": "1"}},
-        },
-    }
+    return build_webhook_destination_config(
+        team=alert.team,
+        spec=spec,
+        alert_id=str(alert.id),
+        alert_name=alert.name,
+        name=f"Logs alert — {alert.name} ({spec.display_kind}) → Webhook {webhook_url}",
+        webhook_url=webhook_url,
+    )
 
 
 def build_teams_config(
@@ -265,16 +193,11 @@ def build_teams_config(
     webhook_url: str,
 ) -> dict[str, Any]:
     spec = EVENT_KIND_CONFIG[kind]
-    return {
-        "team": alert.team,
-        "type": "internal_destination",
-        "enabled": True,
-        "filters": _filter_for(alert, kind),
-        "name": _clip_name(f"Logs alert — {alert.name} ({spec.display_kind}) → Microsoft Teams"),
-        "description": spec.destination_description(alert.name),
-        "template_id": "template-microsoft-teams",
-        "inputs": {
-            "webhookUrl": {"value": webhook_url},
-            "text": {"value": _teams_text(spec)},
-        },
-    }
+    return build_teams_destination_config(
+        team=alert.team,
+        spec=spec,
+        alert_id=str(alert.id),
+        alert_name=alert.name,
+        name=f"Logs alert — {alert.name} ({spec.display_kind}) → Microsoft Teams",
+        webhook_url=webhook_url,
+    )

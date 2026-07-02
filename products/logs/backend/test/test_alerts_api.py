@@ -1731,7 +1731,7 @@ class TestSimulateEvaluatorLifecycleParity(ClickhouseTestMixin, APIBaseTest):
         # A None return would read as "enqueue failed" and roll back every
         # notification, so the fake must return a (mock) ProduceResult.
         self._kafka_patcher = patch(
-            "products.logs.backend.temporal.activities.produce_internal_event",
+            "posthog.alerting.destinations.produce_internal_event",
             return_value=MagicMock(),
         )
         self._kafka_patcher.start()
