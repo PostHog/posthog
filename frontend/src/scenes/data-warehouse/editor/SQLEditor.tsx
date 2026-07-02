@@ -279,8 +279,8 @@ export function SQLEditor({
 }
 
 function ViewLoadingOverlay(): JSX.Element | null {
-    const { viewLoading } = useValues(sqlEditorLogic)
-    if (!viewLoading) {
+    const { viewQueryLoading } = useValues(sqlEditorLogic)
+    if (!viewQueryLoading) {
         return null
     }
     return (

@@ -550,6 +550,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
         setMetadataLoading: (loading: boolean) => ({ loading }),
         setInsightLoading: (loading: boolean) => ({ loading }),
         setViewLoading: (loading: boolean) => ({ loading }),
+        setViewQueryLoading: (loading: boolean) => ({ loading }),
         setMaterializationModalOpen: (open: boolean) => ({ open }),
         setMaterializationModalView: (view: DataWarehouseSavedQuery | null) => ({ view }),
         editView: (query: string, view: DataWarehouseSavedQuery) => ({
@@ -806,6 +807,14 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             false,
             {
                 setViewLoading: (_, { loading }) => loading,
+            },
+        ],
+        // Scoped to the editor "open a view" flow so the editor-pane overlay does not flash
+        // during the materialization modal's own (also viewLoading-gated) fetch.
+        viewQueryLoading: [
+            false,
+            {
+                setViewQueryLoading: (_, { loading }) => loading,
             },
         ],
         insightLoading: [
@@ -1843,6 +1852,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
             closeEditingObject: () => {
                 actions.setInsightLoading(false)
                 actions.setViewLoading(false)
+                actions.setViewQueryLoading(false)
 
                 if (!values.activeTab) {
                     actions.createTab(values.queryInput ?? '')
@@ -2373,6 +2383,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     const viewId = viewIdFromUrl
 
                     actions.setViewLoading(true)
+                    actions.setViewQueryLoading(true)
 
                     if (values.dataWarehouseSavedQueries.length === 0) {
                         await dataWarehouseViewsLogic.asyncActions.loadDataWarehouseSavedQueries()
@@ -2382,6 +2393,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     if (!view) {
                         lemonToast.error('View not found')
                         actions.setViewLoading(false)
+                        actions.setViewQueryLoading(false)
                         return
                     }
 
@@ -2392,6 +2404,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         } catch {
                             lemonToast.error('Failed to load view details')
                             actions.setViewLoading(false)
+                            actions.setViewQueryLoading(false)
                             return
                         }
                     }
@@ -2404,6 +2417,7 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                         actions.editView(queryToOpen, view)
                     }
                     actions.setViewLoading(false)
+                    actions.setViewQueryLoading(false)
                     tabAdded = true
                     router.actions.replace(urls.sqlEditor(), undefined, getTabHash(values))
                 } else if (
