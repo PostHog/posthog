@@ -1,0 +1,15 @@
+[package]
+name = "replay-anonymizer-node"
+version = "0.0.1"
+edition = "2021"
+exclude = ["index.node"]
+publish = false
+
+[lib]
+crate-type = ["cdylib"]
+
+[dependencies]
+common-replay-anonymizer = { path = "../common/replay-anonymizer" }
+neon = { workspace = true }
+serde = { workspace = true }
+serde_json = { workspace = true }

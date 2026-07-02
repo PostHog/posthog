@@ -1,10 +1,13 @@
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3'
 
+import { initAnonymizer } from '@posthog/replay-anonymizer'
+
 import { initializePrometheusLabels } from '~/common/api/router'
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
 import { PostgresRouter } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
+import { logger } from '~/common/utils/logger'
 import { getDefaultKafkaDownstreamProducerEnvConfig } from '~/ingestion/common/outputs/producers'
 import { getDefaultIngestionConsumerConfig } from '~/ingestion/config'
 import { AllowListFetcher, loadAllowLists } from '~/ingestion/pipelines/sessionreplay/anonymize/allow-list-loader'
@@ -110,9 +113,14 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
             ? new S3SessionBatchFileStorage(s3Client, bucket, prefix, this.config.SESSION_RECORDING_V2_S3_TIMEOUT_MS)
             : new BlackholeSessionBatchFileStorage()
 
-        const scrubContext: ScrubContext = {
-            allow: await loadAllowLists(this.buildAllowListFetcher(s3Client, bucket)),
+        const allow = await loadAllowLists(this.buildAllowListFetcher(s3Client, bucket))
+        const useRustAnonymizer = this.config.SESSION_RECORDING_ML_RUST_ANONYMIZER
+        if (useRustAnonymizer) {
+            // The native addon holds its own copy of the (immutable) allow lists; set it once at startup.
+            initAnonymizer(allow.entries())
+            logger.info('🦀', 'ml_mirror_rust_anonymizer_enabled')
         }
+        const scrubContext: ScrubContext = { allow, useRustAnonymizer }
 
         // Block metadata is produced to Kafka; the dedicated Parquet-sink deployment writes it to the ML bucket.
         const metadataStore = new MlBlockMetadataSink(outputs, pseudonymSecret)

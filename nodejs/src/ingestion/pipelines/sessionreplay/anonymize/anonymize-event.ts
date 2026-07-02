@@ -1,6 +1,7 @@
 /** Routes each parsed rrweb event to the right scrubber by type/source. */
+import { parseJSON } from '~/common/utils/json-parse'
 import { logger } from '~/common/utils/logger'
-import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
+import { ParsedMessageData, SnapshotEvent } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { RRWebEventSource, RRWebEventType } from '~/ingestion/pipelines/sessionreplay/rrweb-types'
 
 import { runBlurJobs } from './blur'
@@ -20,6 +21,35 @@ const yieldToEventLoop = (): Promise<void> => new Promise((resolve) => setImmedi
 // Diagnostic: log the per-message time breakdown when a message takes longer than this to anonymize.
 const ANON_SLOW_LOG_THRESHOLD_MS = 5000
 
+// Lazily loaded so environments that never enable the flag don't pay the native-module load (and so a
+// missing addon only breaks the Rust path, not every import of this module).
+type RustAnonymizer = typeof import('@posthog/replay-anonymizer')
+let rustAnonymizer: RustAnonymizer | undefined
+function getRustAnonymizer(): RustAnonymizer {
+    if (!rustAnonymizer) {
+        rustAnonymizer = require('@posthog/replay-anonymizer') as RustAnonymizer
+    }
+    return rustAnonymizer
+}
+
+/**
+ * Anonymize the whole message through the native Rust addon. The addon owns the full scrub
+ * (walk + gzip + image blur); `data === null` means nothing changed, so we keep the original parse.
+ * Fail-closed: any addon error drops the message.
+ */
+async function anonymizeWithRust(parsedMessage: ParsedMessageData): Promise<{ failed: boolean }> {
+    const eventsJson = JSON.stringify(parsedMessage.eventsByWindowId)
+    const result = await getRustAnonymizer().anonymize(eventsJson)
+    if (result.failed) {
+        logger.warn('🙈', 'anonymize_event_failed', { error: result.error ?? 'rust anonymizer failed' })
+        return { failed: true }
+    }
+    if (result.data !== null) {
+        parsedMessage.eventsByWindowId = parseJSON(result.data) as Record<string, SnapshotEvent[]>
+    }
+    return { failed: false }
+}
+
 /**
  * Anonymizes every event in a parsed message in place, then awaits its blur jobs.
  * Fails closed: returns `failed: true` if any event errors, so the caller can drop
@@ -29,6 +59,10 @@ export async function anonymizeParsedMessage(
     scrubContext: ScrubContext,
     parsedMessage: ParsedMessageData
 ): Promise<{ failed: boolean }> {
+    if (scrubContext.useRustAnonymizer) {
+        return anonymizeWithRust(parsedMessage)
+    }
+
     const blurJobs: BlurJob[] = []
     // One memo per Kafka message: identical images across its rrweb events share a single sharp call.
     const blurCache: BlurCache = new Map()

@@ -1,0 +1,62 @@
+[
+  {
+    "name": "keeps allow-listed words, redacts the rest length-preserving",
+    "allow": { "text": ["hello"], "url": [] },
+    "input": "hello world",
+    "expected": "hello *****"
+  },
+  {
+    "name": "numeric tokens become #",
+    "allow": { "text": [], "url": [] },
+    "input": "order 12345",
+    "expected": "***** #####"
+  },
+  {
+    "name": "redacts a whole email before tokenizing",
+    "allow": { "text": ["contact", "me", "at", "now"], "url": [] },
+    "input": "contact me at john.doe@example.com now",
+    "expected": "contact me at ******************** now"
+  },
+  {
+    "name": "keeps a possessive whose base is allow-listed",
+    "allow": { "text": ["posthog", "dashboard"], "url": [] },
+    "input": "PostHog's dashboard",
+    "expected": "PostHog's dashboard"
+  },
+  {
+    "name": "typographic apostrophe possessive resolves to allow-listed base",
+    "allow": { "text": ["it", "fine"], "url": [] },
+    "input": "it’s fine",
+    "expected": "it’s fine"
+  },
+  {
+    "name": "unicode word kept when allow-listed",
+    "allow": { "text": ["café"], "url": [] },
+    "input": "café",
+    "expected": "café"
+  },
+  {
+    "name": "unicode word redacted per code point",
+    "allow": { "text": [], "url": [] },
+    "input": "café",
+    "expected": "****"
+  },
+  {
+    "name": "decimal number splits on the dot (tokenizer boundary), each digit run masked",
+    "allow": { "text": [], "url": [] },
+    "input": "3.14",
+    "expected": "#.##"
+  },
+  {
+    "name": "alphanumeric token is not numeric",
+    "allow": { "text": ["build"], "url": [] },
+    "input": "v2 build",
+    "expected": "** build"
+  },
+  {
+    "name": "at-sign without a valid TLD is not treated as an email",
+    "allow": { "text": ["foo", "bar"], "url": [] },
+    "input": "foo@bar",
+    "expected": "foo@bar"
+  }
+]

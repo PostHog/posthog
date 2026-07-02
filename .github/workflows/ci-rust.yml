@@ -132,6 +132,7 @@ jobs:
                       "common-kafka": 67,
                       "common-metrics": 6,
                       "common-profiler": 51,
+                      "common-replay-anonymizer": 30,
                       "common-s3": 31,
                       "cyclotron-core": 17,
                       "cyclotron-janitor": 139,
@@ -153,6 +154,7 @@ jobs:
                       "personhog-router": 38,
                       "posthog-symbol-data": 19,
                       "property-defs-rs": 136,
+                      "replay-anonymizer-node": 20,
                       "property-vals-rs": 5,
                       "serve-metrics": 14,
                   }

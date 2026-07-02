@@ -1,0 +1,44 @@
+[
+  {
+    "name": "keeps allow-listed path segments, masks numbers",
+    "allow": { "text": [], "url": ["users", "profile"] },
+    "input": "https://example.com/users/42/profile",
+    "scrubAuthority": false,
+    "expected": "https://example.com/users/$$/profile"
+  },
+  {
+    "name": "redacts non-allow-listed path segments",
+    "allow": { "text": [], "url": [] },
+    "input": "/foo/bar?x=1",
+    "scrubAuthority": false,
+    "expected": "/[redacted]/[redacted]"
+  },
+  {
+    "name": "query param survives on allow-listed key, number value masked",
+    "allow": { "text": [], "url": ["page"] },
+    "input": "https://example.com/?page=2&secret=abc",
+    "scrubAuthority": false,
+    "expected": "https://example.com/?page=$"
+  },
+  {
+    "name": "allow-listed fragment kept",
+    "allow": { "text": [], "url": ["section"] },
+    "input": "https://example.com/#section",
+    "scrubAuthority": false,
+    "expected": "https://example.com/#section"
+  },
+  {
+    "name": "scrubAuthority strips userinfo/port and keeps allow-listed subdomain",
+    "allow": { "text": [], "url": ["us", "path"] },
+    "input": "https://user:pw@us.example.org:8080/path",
+    "scrubAuthority": true,
+    "expected": "https://us.example.com/path"
+  },
+  {
+    "name": "scrubAuthority collapses a two-label host to example.com",
+    "allow": { "text": [], "url": [] },
+    "input": "https://example.com/u/42",
+    "scrubAuthority": true,
+    "expected": "https://example.com/[redacted]/$$"
+  }
+]

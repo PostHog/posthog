@@ -42,4 +42,9 @@ export class AllowLists {
     public urlContains(segment: string): boolean {
         return this.url.has(hasUpperAscii(segment) ? asciiLowercase(segment) : segment)
     }
+
+    /** The (ASCII-lowercased) entries, e.g. to hand to the native Rust anonymizer at init. */
+    public entries(): { text: string[]; url: string[] } {
+        return { text: [...this.text], url: [...this.url] }
+    }
 }
