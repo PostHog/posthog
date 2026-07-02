@@ -444,11 +444,14 @@ def _read_preload_manifest(manifest_path: str, include_authenticated_shell: bool
             and isinstance(font, str)
             and isinstance(js, list)
             and isinstance(authenticated_js, list)
-            and all(isinstance(url, str) for url in [*js, *authenticated_js])
         ):
             raise ValueError("preload manifest fields have unexpected types")
-        js_urls = list(js)
-        js_urls += [url for url in authenticated_js if url not in js_urls]
+        js_urls: list[str] = []
+        for url in [*js, *authenticated_js]:
+            if not isinstance(url, str):
+                raise ValueError("preload manifest fields have unexpected types")
+            if url not in js_urls:
+                js_urls.append(url)
         return (css, tuple(js_urls), font)
     except Exception as e:
         logger.warning("preload_manifest_unreadable", manifest_path=manifest_path, error=str(e))
