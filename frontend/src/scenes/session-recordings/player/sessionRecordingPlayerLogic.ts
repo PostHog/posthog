@@ -1657,30 +1657,52 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             values.player?.replayer?.setConfig({ speed: values.playerSpeed })
         },
         checkBufferingCompleted: () => {
-            // If buffering has completed, resume last playing state.
-            // Gates on the raw isBuffering reducer rather than currentPlayerState ===
-            // BUFFER — other states (e.g. SKIP while skipping inactivity) outrank
-            // BUFFER in that selector and would otherwise mask the exit forever.
-            // == null also catches the null that currentTimestamp holds before
-            // playback initializes — seeking to it would derail the initial load
-            if (values.currentTimestamp == null || !values.isBuffering) {
+            // The null check also catches the null that currentTimestamp holds before playback initializes — seeking to it would derail the initial load.
+            if (values.currentTimestamp == null) {
                 return
             }
-            const isBufferingSegment = values.segmentForTimestamp(values.currentTimestamp)?.kind === 'buffer'
+            const segment = values.segmentForTimestamp(values.currentTimestamp)
             const renderability = values.seekRenderability(values.currentTimestamp)
-            // A definitive verdict ends buffering even while the scheduler is still in
-            // seek mode for this position — the re-seek below clamps forward to the
-            // next FullSnapshot or errors if the position can never play
+            // Re-targets the (window-blind) loader with the segment's windowId, without which it may consider a seek satisfied by another window's FullSnapshot and never load the sources this position actually needs.
+            const retargetLoader = (): void => {
+                if (
+                    renderability.kind === 'waitingForData' &&
+                    segment?.kind === 'window' &&
+                    segment.windowId !== undefined &&
+                    values.currentTimestamp != null
+                ) {
+                    actions.setTargetTimestamp(values.currentTimestamp, segment.windowId)
+                }
+            }
+
+            // Gates on the raw isBuffering reducer rather than currentPlayerState === BUFFER — other states (e.g. SKIP while skipping inactivity) outrank BUFFER in that selector and would otherwise mask the exit forever.
+            if (!values.isBuffering) {
+                // Segments lag the store by one dispatch, so buffering can end on a transiently-renderable verdict — resume it instead of sitting on an unrenderable frame.
+                if (isAwaitingMoreData(renderability)) {
+                    values.player?.replayer?.pause()
+                    actions.startBuffer()
+                    retargetLoader()
+                    actions.loadNextSnapshotSource()
+                }
+                return
+            }
+
+            // A definitive verdict ends buffering even while the scheduler is still in seek mode for this position — the re-seek below clamps forward to the next FullSnapshot or errors if the position can never play.
             const hasDefinitiveVerdict =
                 renderability.kind === 'clampToFullSnapshot' || renderability.kind === 'unplayable'
             const stillBuffering =
                 !hasDefinitiveVerdict &&
-                (isBufferingSegment || values.isWaitingForPlayableFullSnapshot || isAwaitingMoreData(renderability))
+                (segment?.kind === 'buffer' ||
+                    values.isWaitingForPlayableFullSnapshot ||
+                    isAwaitingMoreData(renderability))
 
-            if (!stillBuffering) {
-                actions.endBuffer()
-                actions.seekToTimestamp(values.currentTimestamp, values.playingState === SessionPlayerState.PLAY)
+            if (stillBuffering) {
+                retargetLoader()
+                return
             }
+
+            actions.endBuffer()
+            actions.seekToTimestamp(values.currentTimestamp, values.playingState === SessionPlayerState.PLAY)
         },
         initializePlayerFromStart: () => {
             cache.groupedAssetErrors = null

@@ -441,6 +441,8 @@ describe('sessionRecordingPlayerLogic', () => {
         // second-window incremental for the multi-window case
         const w2inc = (timestamp: number): RecordingSnapshot =>
             ({ timestamp, type: EventType.IncrementalSnapshot, windowId: 2, data: {} }) as unknown as RecordingSnapshot
+        const w2fs = (timestamp: number): RecordingSnapshot =>
+            ({ timestamp, type: EventType.FullSnapshot, windowId: 2, data: {} }) as unknown as RecordingSnapshot
 
         // Seeds the snapshot store and the coordinator's processed snapshots (which
         // segments derive from) directly, bypassing the network loading machinery.
@@ -550,6 +552,55 @@ describe('sessionRecordingPlayerLogic', () => {
             )
             expect(clampCalls).toHaveLength(0)
             expect(logic.values.currentTimestamp).not.toBe(LATE_FS_TS)
+        })
+
+        it("re-targets the loader when a window-blind seek is satisfied by another window's full snapshot", async () => {
+            const dataLogic = snapshotDataLogic({ sessionRecordingId: '2' })
+            const coordinator = sessionRecordingDataCoordinatorLogic({ sessionRecordingId: '2' })
+            const sources = ['10', '11', '12', '13', '14', '15'].map((blobKey, index) => ({
+                source: 'blob_v2',
+                blob_key: blobKey,
+                start_timestamp: new Date(START + index * 60000).toISOString(),
+                end_timestamp: new Date(START + (index + 1) * 60000).toISOString(),
+            }))
+            const seekTarget = START + 250000
+
+            dataLogic.actions.loadSnapshotSourcesSuccess(sources as any)
+            const store = dataLogic.cache.store
+            // a loaded tail keeps the recording end past the seek target, which sits in unloaded territory with no known windowId
+            const tail = [inc(START + 295000)]
+            store.markLoaded(5, tail)
+            dataLogic.actions.storeUpdated()
+            coordinator.actions.setProcessedSnapshots(tail)
+            logic.actions.setPause()
+
+            logic.actions.seekToTimestamp(seekTarget)
+            expect(logic.values.isBuffering).toBe(true)
+
+            // the seek window arrives: window 2's FullSnapshot satisfies the window-blind canPlayAt while window 1's FullSnapshot sits in the still-unloaded first source
+            const arrived = [
+                inc(START + 65000),
+                inc(START + 125000),
+                inc(START + 185000),
+                w2fs(START + 245000),
+                inc(START + 248000),
+                inc(START + 252000),
+            ]
+            await expectLogic(dataLogic, () => {
+                store.markLoaded(1, [arrived[0]])
+                store.markLoaded(2, [arrived[1]])
+                store.markLoaded(3, [arrived[2]])
+                store.markLoaded(4, arrived.slice(3))
+                dataLogic.actions.storeUpdated()
+                coordinator.actions.setProcessedSnapshots([...arrived, ...tail])
+            }).toDispatchActions([
+                (action) =>
+                    action.type === dataLogic.actionTypes.loadSnapshotsForSource &&
+                    action.payload.sources?.[0]?.blob_key === '10',
+            ])
+
+            expect(logic.values.isBuffering).toBe(true)
+            expect(logic.values.playerError).toBeNull()
         })
 
         it('buffers while earlier data that could contain a full snapshot is still loading', () => {
