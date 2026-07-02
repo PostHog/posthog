@@ -383,18 +383,18 @@ def _top_k_ranking_expr(runner: "WebStatsTableQueryRunner") -> ast.Expr | None:
     direction = order_by[1] if len(order_by) > 1 else WebAnalyticsOrderByDirection.DESC
     if direction != WebAnalyticsOrderByDirection.DESC:
         return None
-    # `over` merges the metric across the breakdown's per-hour rows so the capped template
-    # can rank in one pass. It's a module-constant window clause — no user input reaches it.
-    over = "OVER (PARTITION BY breakdown_value)"
+    # The `OVER (PARTITION BY breakdown_value)` window merges the metric across the
+    # breakdown's per-hour rows so the capped template can rank in one pass. Fully static
+    # SQL — no interpolation, no user input.
     field = order_by[0] if order_by else WebAnalyticsOrderByFields.VISITORS
     if field == WebAnalyticsOrderByFields.VIEWS:
-        # nosemgrep: hogql-fstring-audit (only the constant `over` window clause is interpolated, no user input)
-        return parse_expr(f"sumMerge(sum_pageviews_state) {over}")
+        return parse_expr("sumMerge(sum_pageviews_state) OVER (PARTITION BY breakdown_value)")
     if field == WebAnalyticsOrderByFields.BOUNCE_RATE:
-        # nosemgrep: hogql-fstring-audit (only the constant `over` window clause is interpolated, no user input)
-        return parse_expr(f"if(isNaN(avgMerge(avg_bounce_state) {over}), -1.0, avgMerge(avg_bounce_state) {over})")
-    # nosemgrep: hogql-fstring-audit (only the constant `over` window clause is interpolated, no user input)
-    return parse_expr(f"uniqMerge(uniq_users_state) {over}")
+        return parse_expr(
+            "if(isNaN(avgMerge(avg_bounce_state) OVER (PARTITION BY breakdown_value)), -1.0, "
+            "avgMerge(avg_bounce_state) OVER (PARTITION BY breakdown_value))"
+        )
+    return parse_expr("uniqMerge(uniq_users_state) OVER (PARTITION BY breakdown_value)")
 
 
 def ensure_web_stats_paths_precomputed(
