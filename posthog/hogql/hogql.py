@@ -18,7 +18,7 @@ def translate_hogql(
     dialect: Literal["hogql", "clickhouse"] = "clickhouse",
     *,
     events_table_alias: Optional[str] = None,
-    events_table_use_new_schema: bool = False,
+    events_table_use_new_schema: Optional[bool] = None,
     placeholders: Optional[dict[str, ast.Expr]] = None,
 ) -> str:
     """Translate a HogQL expression into a ClickHouse expression."""
@@ -31,7 +31,8 @@ def translate_hogql(
     actual_use_new_events_schema = context.use_new_events_schema
     try:
         context.modifiers.personsOnEventsMode = alias_poe_mode_for_legacy(actual_poe_mode)
-        context.use_new_events_schema = events_table_use_new_schema
+        if events_table_use_new_schema is not None:
+            context.use_new_events_schema = events_table_use_new_schema
         # Create a fake query that selects from "events" to have fields to select from.
         if context.database is None:
             if context.team_id is None:

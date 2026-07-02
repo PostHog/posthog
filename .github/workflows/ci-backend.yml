@@ -50,6 +50,7 @@ env:
     TEST: 1
     CLICKHOUSE_SERVER_IMAGE_VERSION: ${{ github.event.inputs.clickhouseServerVersion || '' }}
     CLICKHOUSE_COMPAT_PYTEST_TARGETS: 'posthog/clickhouse ee/clickhouse'
+    CLICKHOUSE_NEW_EVENTS_SCHEMA_PYTEST_TARGETS: 'posthog/hogql posthog/hogql_queries posthog/models/test/test_data_deletion_request.py'
     OBJECT_STORAGE_ENABLED: 'True'
     OBJECT_STORAGE_ENDPOINT: 'http://localhost:19000'
     OBJECT_STORAGE_ACCESS_KEY_ID: 'object_storage_root_user'
@@ -1970,6 +1971,15 @@ jobs:
                       # segments with no selected files, drop compat entirely.
                       core_count=0
                       [[ -n "$CORE_FILES" ]] && core_count=1
+                      core_new_events_schema_count=0
+                      for target in $CORE_FILES; do
+                          case "$target" in
+                              posthog/hogql/*|posthog/hogql_queries/*|posthog/models/test/test_data_deletion_request.py)
+                                  core_new_events_schema_count=1
+                                  break
+                                  ;;
+                          esac
+                      done
                       core=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$core_count" '
                         [range(1; $n + 1) | {
                           segment: "Core",
@@ -1983,7 +1993,7 @@ jobs:
                           compat: false
                         }]
                       ')
-                      core_new_events_schema=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$core_count" '
+                      core_new_events_schema=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson n "$core_new_events_schema_count" '
                         [range(1; $n + 1) | {
                           segment: "Core",
                           "person-on-events": false,
@@ -2032,6 +2042,7 @@ jobs:
                       # Falls back to hardcoded defaults if turbo-discover failed or data is missing.
                       CORE_SHARDS=38
                       CORE_POE_SHARDS=7
+                      CORE_NEW_EVENTS_SCHEMA_SHARDS=8
                       TEMPORAL_SHARDS=7
                       if [ -n "$DJANGO_SHARDS_JSON" ] && echo "$DJANGO_SHARDS_JSON" | jq -e '.Core.shards' > /dev/null 2>&1; then
                         CORE_SHARDS=$(echo "$DJANGO_SHARDS_JSON" | jq -r '.Core.shards')
@@ -2056,7 +2067,7 @@ jobs:
                         }]
                       ')
 
-                      core_new_events_schema=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$CORE_SHARDS" '
+                      core_new_events_schema=$(jq -cn --arg image "$OLDEST_SUPPORTED_IMAGE" --argjson shards "$CORE_NEW_EVENTS_SCHEMA_SHARDS" '
                         [range(1; $shards + 1) | {
                           segment: "Core",
                           "person-on-events": false,
@@ -2504,7 +2515,20 @@ jobs:
                       # No --splits/--group (no sharding), no --store-durations (don't pollute timing
                       # data with a partial run), no --reruns (selected runs should fail loud so flaky
                       # tests get fixed instead of masked; the ready-for-review full run has reruns).
-                      if [[ "${{ matrix.person-on-events }}" == "true" ]]; then
+                      if [[ "${{ matrix.new-events-schema }}" == "true" ]]; then
+                          targets=""
+                          for target in $CORE_FILES; do
+                              case "$target" in
+                                  posthog/hogql/*|posthog/hogql_queries/*|posthog/models/test/test_data_deletion_request.py)
+                                      targets="$targets $target"
+                                      ;;
+                              esac
+                          done
+                          if [[ -z "${targets// }" ]]; then
+                              echo "No selected HogQL events-schema tests for this shard"
+                              exit 0
+                          fi
+                      elif [[ "${{ matrix.person-on-events }}" == "true" ]]; then
                           targets="$POE_FILES"
                       else
                           targets="$CORE_FILES"
@@ -2515,20 +2539,22 @@ jobs:
                           --junitxml=junit-core.xml \
                           $PYTEST_ARGS
                   else
-                    pytest -v --tb=short --reuse-db -o junit_duration_report=call ${{
-                        matrix.compat
-                        && env.CLICKHOUSE_COMPAT_PYTEST_TARGETS
-                        || (
-                        matrix.person-on-events
-                        && './posthog/clickhouse/ ./posthog/queries/ ./products/product_analytics/backend/api/test/ ./posthog/api/test/dashboards/test_dashboard.py'
-                        || 'posthog'
-                        )
-                    }} ${{ matrix.compat && '' || (matrix.person-on-events && 'ee/clickhouse/' || 'ee/') }} -m "not async_migrations" \
+                    full_targets="posthog ee/"
+                    full_ignores=()
+                    if [[ "${{ matrix.new-events-schema }}" == "true" ]]; then
+                        full_targets="$CLICKHOUSE_NEW_EVENTS_SCHEMA_PYTEST_TARGETS"
+                    elif [[ "${{ matrix.compat }}" == "true" ]]; then
+                        full_targets="$CLICKHOUSE_COMPAT_PYTEST_TARGETS"
+                    elif [[ "${{ matrix.person-on-events }}" == "true" ]]; then
+                        full_targets="./posthog/clickhouse/ ./posthog/queries/ ./products/product_analytics/backend/api/test/ ./posthog/api/test/dashboards/test_dashboard.py ee/clickhouse/"
+                        full_ignores+=(--ignore=posthog/hogql_queries --ignore=posthog/hogql)
+                    fi
+                    # shellcheck disable=SC2086
+                    pytest -v --tb=short --reuse-db -o junit_duration_report=call $full_targets -m "not async_migrations" \
                         --ignore=posthog/temporal \
                         --ignore=posthog/dags \
                         --ignore=common/hogvm/python/test \
-                        ${{ matrix.person-on-events && '--ignore=posthog/hogql_queries' || '' }} \
-                        ${{ matrix.person-on-events && '--ignore=posthog/hogql' || '' }} \
+                        "${full_ignores[@]}" \
                         --splits ${{ matrix.concurrency }} --group ${{ matrix.group }} \
                         --durations=1000 --durations-min=1.0 --store-durations \
                         --pytest-durations=100 \
