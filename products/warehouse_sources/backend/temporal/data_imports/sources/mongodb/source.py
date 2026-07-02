@@ -215,10 +215,19 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             # signature hashes, BSON ids — so str(e) must never be surfaced. Map the stable error
             # markers to a clean message; an authorization failure ("not authorized") means the
             # credentials are valid but lack read access, which is distinct from a bad password.
-            capture_exception(e)
-            if "not authorized" in str(e):
+            # Both are user-side credential/permission problems we already surface an actionable
+            # message for and classify as non-retryable — never a PostHog bug — so don't report
+            # them to error tracking as non-actionable noise.
+            message = str(e)
+            if "not authorized" in message:
                 return False, _MONGO_NOT_AUTHORIZED_MESSAGE
-            return False, _MONGO_AUTHENTICATION_FAILED_MESSAGE
+            if any(marker in message for marker in ("AuthenticationFailed", "Authentication failed", "bad auth")):
+                return False, _MONGO_AUTHENTICATION_FAILED_MESSAGE
+            # Any other OperationFailure on listCollections is unexpected (server bug, unsupported
+            # option, ...) — capture it so the signal isn't lost, and surface a generic message
+            # rather than mislabelling it as an authentication problem.
+            capture_exception(e)
+            return False, _MONGO_CONNECT_FAILED_MESSAGE
         except ServerSelectionTimeoutError as e:
             # pymongo dumps a verbose topology description into str(e); surface a concise,
             # actionable message instead. A DNS failure means the host doesn't resolve at all,

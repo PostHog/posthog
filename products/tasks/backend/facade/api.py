@@ -537,8 +537,13 @@ def get_stale_queued_task_run_ids(
     *,
     created_hard_cap: timedelta | None = None,
     hard_cap_min_queued: timedelta = timedelta(hours=1),
+    cloud_only: bool = False,
 ) -> list[UUID]:
     """Ids of runs stuck in QUEUED, by ``updated_at`` age or an optional ``created_at`` backstop.
+
+    ``cloud_only`` restricts the sweep to cloud-environment runs. Local (desktop) runs sit in
+    QUEUED by design while the desktop agent drives them, so dispatch-recovery callers must
+    exclude them — cloud-dispatching one hijacks the user's live local session.
 
     Intentionally cross-team — the janitor sweep runs without a team context.
     """
@@ -546,12 +551,10 @@ def get_stale_queued_task_run_ids(
     stale = Q(updated_at__lt=now - older_than)
     if created_hard_cap is not None:
         stale |= Q(created_at__lt=now - created_hard_cap, updated_at__lt=now - hard_cap_min_queued)
-    return list(
-        TaskRun.objects.filter(status=TaskRun.Status.QUEUED)  # nosemgrep: celery-task-team-scope-audit
-        .filter(stale)
-        .order_by("updated_at")
-        .values_list("id", flat=True)[:limit]
-    )
+    queryset = TaskRun.objects.filter(status=TaskRun.Status.QUEUED)  # nosemgrep: celery-task-team-scope-audit
+    if cloud_only:
+        queryset = queryset.filter(environment=TaskRun.Environment.CLOUD)
+    return list(queryset.filter(stale).order_by("updated_at").values_list("id", flat=True)[:limit])
 
 
 def get_stale_prewarmed_queued_task_run_ids(older_than: timedelta, limit: int) -> list[UUID]:
@@ -3328,7 +3331,10 @@ def run_task(
         prev_state = parse_run_state(previous_run.state)
         extra_state = extra_state or {}
         extra_state["resume_from_run_id"] = str(resume_from_run_id)
-        if prev_state.snapshot_external_id:
+        # An unusable directory snapshot (see RunState.resume_snapshot_is_usable) must not be
+        # carried into the new run's state — the stripped mount path would get re-defaulted
+        # downstream and mount mismatched content.
+        if prev_state.snapshot_external_id and prev_state.resume_snapshot_is_usable():
             extra_state["snapshot_external_id"] = prev_state.snapshot_external_id
             extra_state["snapshot_kind"] = prev_state.resume_snapshot_kind()
             snapshot_mount_path = prev_state.resume_snapshot_mount_path()

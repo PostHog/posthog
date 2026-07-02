@@ -698,6 +698,9 @@ class ExternalDataSourceType(models.TextChoices):
     PODIUM = "Podium", "Podium"
     LOOPS = "Loops", "Loops"
     REDIS = "Redis", "Redis"
+    MERCURY = "Mercury", "Mercury"
+    GOJIBERRY = "Gojiberry", "Gojiberry"
+    TEACHABLE = "Teachable", "Teachable"
 
 
 # Maps a source type to the direct-SQL engine that can query it live. A source type is only

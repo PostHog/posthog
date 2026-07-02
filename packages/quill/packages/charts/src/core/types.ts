@@ -156,6 +156,13 @@ export interface TooltipContext<Meta = unknown> {
          *  distance-to-midpoint, giving correct results regardless of segment size differences. */
         yPixelBottom?: number
     }[]
+    /** Key of the series whose bar/segment is under the cursor. Set only by BarChart's
+     *  cursor narrowing (stacked: the visible segment containing the cursor; grouped: the
+     *  band-slot hit) — `undefined` for other chart types and for pinned rebuilds with no
+     *  cursor. May reference a series hidden from `seriesData` via `visibility.tooltip:
+     *  false` (e.g. a drop-off filler segment), so callers must not assume a matching
+     *  `seriesData` entry exists. */
+    hoveredSeriesKey?: string
     /** Pixel position (relative to the chart container) for anchoring the tooltip.
      *  `width` (optional) is the horizontal data-extent centered on `x` — bar charts
      *  populate it with the band width so {@link Tooltip} can anchor at the band edge
@@ -299,6 +306,11 @@ export interface TooltipConfig {
     enabled?: boolean
     /** When true, clicking a data point with multiple series pins the tooltip in place. */
     pinnable?: boolean
+    /** When a pinnable tooltip covers multiple series, resolve the series nearest the cursor and
+     *  fire `onPointClick` for it directly instead of pinning — skips the pin-then-click-a-row
+     *  step. Opt-in per chart; default false keeps the pin-first flow for ambiguous multi-series
+     *  charts (e.g. overlapping trend lines) where a wrong guess is costly. */
+    resolveClickToNearestSeries?: boolean
     /** Where the tooltip anchors. `follow-data` (default) tracks the highest data point at the
      *  hovered x; `top` fixes the tooltip to the top of the chart so it doesn't jump vertically
      *  as the cursor moves between data points; `cursor` tracks the mouse, so the tooltip sits

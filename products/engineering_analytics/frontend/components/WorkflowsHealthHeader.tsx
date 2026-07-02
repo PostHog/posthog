@@ -16,10 +16,8 @@ interface WorkflowsHealthHeaderProps {
 }
 
 /**
- * Fleet verdict strip above the all-workflows table: the same colored state word + a "% green" headline
- * as the single-workflow header, but rolled up across every workflow in the window — how many are red
- * right now, total runs, and total CI spend. The duration scatter has no place here (no single run
- * list), so this strip is the at-a-glance answer for the whole page.
+ * Fleet verdict strip above the all-workflows table: colored state word + "% green" headline rolled up
+ * across every workflow in the window (how many are red now, total runs, total CI spend).
  */
 export function WorkflowsHealthHeader({ summary, truncated, className }: WorkflowsHealthHeaderProps): JSX.Element {
     const meta = STATE_META[summary.state]
@@ -30,7 +28,7 @@ export function WorkflowsHealthHeader({ summary, truncated, className }: Workflo
     return (
         <LemonCard
             hoverEffect={false}
-            // Left accent in the state color (border-l-4 + the state's token class).
+            // Left accent in the state color.
             className={cn(
                 'flex flex-wrap items-center gap-x-6 gap-y-4 border-l-4 px-5 py-4',
                 meta.borderClass,

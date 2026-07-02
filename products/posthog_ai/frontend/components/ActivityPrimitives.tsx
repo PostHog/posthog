@@ -113,7 +113,8 @@ export function ActivityHeader({
         <div
             className={clsx(
                 'group/activity-header transition-all duration-500 flex select-none min-w-0',
-                (isPending || isFailed) && 'text-muted',
+                isPending && 'text-muted',
+                isFailed && 'text-danger',
                 !isInProgress && !isPending && !isFailed && 'text-default',
                 hasDetails ? 'cursor-pointer' : 'cursor-default',
                 hasDetails && 'rounded px-1 -mx-1 hover:bg-fill-button-tertiary-hover',

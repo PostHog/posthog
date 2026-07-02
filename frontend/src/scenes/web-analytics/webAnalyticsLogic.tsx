@@ -2480,8 +2480,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         actions.loadShouldShowGeoIPQueries()
     }),
 
-    trackedActionToUrl(({ values }) => {
-        const stateToUrl = (): string => {
+    trackedActionToUrl(({ values, cache }) => {
+        const buildStateUrl = (): string => {
             const urlParams = new URLSearchParams(router.values.location.search)
 
             const {
@@ -2604,6 +2604,22 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
             return `${basePath}${urlParams.toString() ? '?' + urlParams.toString() : ''}`
         }
 
+        // Exposed so `urlToAction` can reconcile the URL against the restored state in a single write once
+        // restoration finishes (see `reconcileUrlAfterRestore`), without re-implementing this serialization.
+        cache.buildStateUrl = buildStateUrl
+
+        const stateToUrl = (): string | undefined => {
+            // While `urlToAction` is applying state from the URL, the actions it dispatches would each
+            // re-enter `actionToUrl` and recompute the (already-current) URL. Returning `undefined` here
+            // tells kea-router to skip the write, breaking the actionToUrl <-> urlToAction cascade that
+            // otherwise fires a burst of redundant evaluations and trips the rapid-URL-change detector.
+            // A single corrective write is emitted afterwards by `reconcileUrlAfterRestore`.
+            if (cache.applyUrlStateDepth > 0) {
+                return undefined
+            }
+            return buildStateUrl()
+        }
+
         return {
             setWebAnalyticsFilters: stateToUrl,
             togglePropertyFilter: stateToUrl,
@@ -2627,8 +2643,8 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
         }
     }),
 
-    urlToAction(({ actions, values }) => {
-        const toAction = (
+    urlToAction(({ actions, values, cache }) => {
+        const applyUrlState = (
             { productTab = ProductTab.ANALYTICS }: { productTab?: ProductTab },
             {
                 filters,
@@ -2767,6 +2783,52 @@ export const webAnalyticsLogic = kea<webAnalyticsLogicType>([
                 if (parsed !== values.includeHostPath) {
                     actions.setIncludeHostPath(parsed)
                 }
+            }
+        }
+
+        // Reconcile the URL with the restored state in a single write. Restoring can normalise state that
+        // the incoming URL contradicts — e.g. a conversion goal coerces an incompatible `graphs_tab` onto a
+        // conversion-compatible tab. The per-action `actionToUrl` writes are suppressed during restore (see
+        // `stateToUrl`), so without this the visible chart state and the shareable/reload URL would diverge.
+        // Only fire when a param the URL actually carried no longer matches the restored state, so a plain
+        // restore doesn't rewrite the URL with canonical-only defaults.
+        const reconcileUrlAfterRestore = (): void => {
+            const canonicalUrl = cache.buildStateUrl?.()
+            if (!canonicalUrl) {
+                return
+            }
+            const queryStart = canonicalUrl.indexOf('?')
+            const canonicalParams = new URLSearchParams(queryStart === -1 ? '' : canonicalUrl.slice(queryStart + 1))
+            const currentParams = new URLSearchParams(router.values.location.search)
+            let diverged = false
+            currentParams.forEach((value, key) => {
+                // Only a param that restoration re-serialized to a *different* value is a genuine
+                // correction (e.g. `graphs_tab`). A param the current tab simply doesn't serialize back
+                // (e.g. `percentile` outside web vitals) is left untouched, so a plain restore is a no-op.
+                const canonicalValue = canonicalParams.get(key)
+                if (canonicalValue !== null && canonicalValue !== value) {
+                    diverged = true
+                }
+            })
+            if (diverged) {
+                router.actions.replace(canonicalUrl)
+            }
+        }
+
+        // Guard the state-restoration so the actions it dispatches don't write back to the URL via
+        // `actionToUrl` (see `stateToUrl`). Restoring a URL with several params would otherwise fan out
+        // into a burst of redundant URL evaluations and trip the rapid-URL-change detector. The depth
+        // counter keeps the guard correct if a restore re-enters (e.g. the bots-flag redirect).
+        const toAction = (params: { productTab?: ProductTab }, searchParams: Record<string, any>): void => {
+            cache.applyUrlStateDepth = (cache.applyUrlStateDepth ?? 0) + 1
+            try {
+                applyUrlState(params, searchParams)
+            } finally {
+                cache.applyUrlStateDepth -= 1
+            }
+            // Only reconcile once unwound to the outermost restore, so a nested restore doesn't fire its own.
+            if (cache.applyUrlStateDepth === 0) {
+                reconcileUrlAfterRestore()
             }
         }
 
