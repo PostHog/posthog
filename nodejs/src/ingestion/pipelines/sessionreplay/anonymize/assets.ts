@@ -1,5 +1,5 @@
 /** Media detection + placeholder/blur dispatch. */
-import { BLANK_IMAGE_DATA_URI, blurImageDataUri, isImageDataUri } from './blur'
+import { BLANK_IMAGE_DATA_URI, blurImageDataUri, isImageDataUri, memoizedBlur } from './blur'
 import { ScrubContext } from './config'
 import { scrubUrl } from './url'
 
@@ -48,7 +48,7 @@ export function blurInlineImageAttr(ctx: ScrubContext, attrs: Record<string, unk
     const original = value
     attrs[name] = BLANK_IMAGE_DATA_URI
     ctx.blurJobs?.push(async () => {
-        const blurred = await blurImageDataUri(original)
+        const blurred = await memoizedBlur(ctx.blurCache, original, () => blurImageDataUri(original))
         if (blurred !== null) {
             attrs[name] = blurred
         }
@@ -66,7 +66,7 @@ export function applyBlur(ctx: ScrubContext, attrs: Record<string, unknown>): vo
         if (isImageDataUri(existing)) {
             attrs[key] = PLACEHOLDER_SRC
             ctx.blurJobs?.push(async () => {
-                const blurred = await blurImageDataUri(existing)
+                const blurred = await memoizedBlur(ctx.blurCache, existing, () => blurImageDataUri(existing))
                 if (blurred !== null) {
                     attrs[key] = blurred
                 }

@@ -7,9 +7,10 @@ tables, columns, data types, relationships, and descriptions are available witho
     SELECT * FROM system.information_schema.relationships WHERE source_table = 'events'
 
 The rows are computed at query time from the live, per-team `Database` object, so they always
-reflect the caller's own access (denied/hidden tables never appear). Descriptions are read
-uniformly from `FieldOrTable.description`; for data warehouse tables they are merged in from the
-`WarehouseColumnAnnotation` semantic layer, fetched lazily only when these tables are queried.
+reflect the caller's own access (denied/hidden tables never appear). Descriptions are resolved
+through the shared `TableDescriptions` layer — static `FieldOrTable.description`, plus the
+`WarehouseColumnAnnotation` (warehouse tables) and `DataWarehouseSavedQueryColumnAnnotation` (views)
+semantic layers — fetched lazily only when these tables are queried.
 """
 
 import hashlib
@@ -45,6 +46,7 @@ from posthog.hogql.database.models import (
     UUIDDatabaseField,
     VirtualTable,
 )
+from posthog.hogql.database.schema.table_descriptions import TableDescriptions
 from posthog.hogql.errors import BaseHogQLError
 
 if TYPE_CHECKING:
@@ -183,65 +185,35 @@ _ColumnStats = tuple[Optional[float], Optional[str], Optional[str]]
 
 def _warehouse_metadata(
     team_id: Optional[int],
-) -> tuple[
-    dict[tuple[str, str], str],
-    dict[str, Optional[int]],
-    dict[str, Optional[int]],
-    dict[tuple[str, str], _ColumnStats],
-    dict[tuple[str, str], str],
-]:
-    """Lazily load warehouse semantic descriptions, row counts, and column statistics for the team.
+) -> tuple[dict[str, Optional[int]], dict[str, Optional[int]], dict[tuple[str, str], _ColumnStats]]:
+    """Lazily load warehouse row counts and column statistics for the team.
 
-    Returns `(descriptions, row_counts, view_row_counts, column_stats, view_descriptions)`.
-    `descriptions` are physical-table annotations keyed by `(table_id, column_name)` with `""`
-    denoting the table-level description. `row_counts` is keyed by warehouse table name,
-    `view_row_counts` by saved-query (view) name. `column_stats` is keyed by `(table_id, column_name)`
-    and carries `(null_fraction, min_value, max_value)` from the Delta-log profiling.
-    `view_descriptions` are data-modelling saved-query (view) annotations keyed by
-    `(saved_query_id, column_name)`, `""` denoting the view-level description. Only runs when an
+    Returns `(row_counts, view_row_counts, column_stats)`. `row_counts` is keyed by warehouse table
+    name, `view_row_counts` by saved-query (view) name. `column_stats` is keyed by
+    `(table_id, column_name)` and carries `(null_fraction, min_value, max_value)` from the Delta-log
+    profiling. Descriptions are resolved separately via `TableDescriptions`. Only runs when an
     information_schema table is actually queried, so it never touches the hot `create_hogql_database`
     path. Mirrors how `serialize_database` sources counts so the catalog and the SQL-editor schema
     agree.
     """
-    descriptions: dict[tuple[str, str], str] = {}
     row_counts: dict[str, Optional[int]] = {}
     view_row_counts: dict[str, Optional[int]] = {}
     column_stats: dict[tuple[str, str], _ColumnStats] = {}
-    view_descriptions: dict[tuple[str, str], str] = {}
     if team_id is None:
-        return descriptions, row_counts, view_row_counts, column_stats, view_descriptions
+        return row_counts, view_row_counts, column_stats
 
     # Inline imports: keeps the products dependency off the hogql import path (avoids an import
     # cycle, since products import hogql) and off every non-information_schema query.
     from posthog.models.scoping import team_scope  # noqa: PLC0415
 
-    from products.data_modeling.backend.facade.models import (  # noqa: PLC0415
-        DataWarehouseSavedQuery,
-        DataWarehouseSavedQueryColumnAnnotation,
-    )
+    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery  # noqa: PLC0415
     from products.warehouse_sources.backend.facade.models import (  # noqa: PLC0415
         DataWarehouseTable,
-        WarehouseColumnAnnotation,
         WarehouseColumnStatistics,
     )
 
     try:
         with team_scope(team_id):
-            # Key by table UUID, not name: the catalog entry's `table.name` is the source-prefixed
-            # key (e.g. `stripe.prod.charge`) while the annotation's `table__name` is the raw model
-            # name (e.g. `prod_stripe_charge`), so a name-keyed lookup never matches a synced table.
-            # `column_name=""` is the table-level description.
-            for table_id, column_name, description in WarehouseColumnAnnotation.objects.values_list(
-                "table_id", "column_name", "description"
-            ):
-                descriptions[(str(table_id), column_name)] = description
-            # View (saved-query) annotations, keyed by the saved-query UUID — the `SavedQuery` HogQL
-            # object carries that same id, so the catalog lookup matches. `column_name=""` is the
-            # view-level description.
-            for saved_query_id, column_name, description in DataWarehouseSavedQueryColumnAnnotation.objects.values_list(
-                "saved_query_id", "column_name", "description"
-            ):
-                view_descriptions[(str(saved_query_id), column_name)] = description
             # `DataWarehouseTable` is on the IDOR baseline (not team-scoped), so `team_scope` is a
             # no-op for it — filter by team_id explicitly or it reads every team's tables. `.queryable()`
             # (not `.objects`) drops soft-deleted tables and orphans of a soft-deleted source —
@@ -262,8 +234,8 @@ def _warehouse_metadata(
                 .values_list("name", "table__row_count")
             ):
                 view_row_counts[view_name] = row_count
-            # Per-column profiling stats (keyed by table UUID + column, like descriptions). Only the
-            # columns that have been profiled appear; everything else stays absent (NULL in the catalog).
+            # Per-column profiling stats (keyed by table UUID + column). Only the columns that have been
+            # profiled appear; everything else stays absent (NULL in the catalog).
             for (
                 table_id,
                 column_name,
@@ -278,9 +250,9 @@ def _warehouse_metadata(
         # Schema discovery must never fail a query because the warehouse metadata could not be read,
         # but log so a transient DB error can be told apart from a real bug in the fetch loop.
         logger.exception("information_schema: failed to load warehouse metadata", team_id=team_id)
-        return {}, {}, {}, {}, {}
+        return {}, {}, {}
 
-    return descriptions, row_counts, view_row_counts, column_stats, view_descriptions
+    return row_counts, view_row_counts, column_stats
 
 
 def _unwrap(expr: ast.Expr) -> ast.Expr:
@@ -466,13 +438,8 @@ class _Introspection:
         self.allowed_tables = allowed_tables
         self.warehouse = set(database.get_warehouse_table_names())
         self.views = set(database.get_view_names())
-        (
-            self.descriptions,
-            self.row_counts,
-            self.view_row_counts,
-            self.column_stats,
-            self.view_descriptions,
-        ) = _warehouse_metadata(context.team_id)
+        self.row_counts, self.view_row_counts, self.column_stats = _warehouse_metadata(context.team_id)
+        self.table_descriptions = TableDescriptions.load(context.team_id)
         # Resolved `SELECT * FROM <table>` scope per table, so expression columns can be typed without
         # re-resolving the table once per expression.
         self._table_scope_cache: dict[str, Optional[ast.SelectQueryType]] = {}
@@ -527,30 +494,11 @@ class _Introspection:
             return self.view_row_counts.get(name)
         return None
 
-    def _table_description(self, table: Table, table_type: str) -> Optional[str]:
-        if table.description:
-            return table.description
-        table_id = getattr(table, "table_id", None)
-        if table_type == "data_warehouse" and table_id:
-            return self.descriptions.get((str(table_id), ""))
-        # Views carry their saved-query UUID on the `SavedQuery` HogQL object as `id`.
-        view_id = getattr(table, "id", None)
-        if table_type == "view" and view_id:
-            return self.view_descriptions.get((str(view_id), ""))
-        return None
+    def _table_description(self, table: Table) -> Optional[str]:
+        return self.table_descriptions.for_table(table)
 
-    def _column_description(
-        self, table: Table, table_type: str, column_name: str, field: FieldOrTable
-    ) -> Optional[str]:
-        if field.description:
-            return field.description
-        table_id = getattr(table, "table_id", None)
-        if table_type == "data_warehouse" and table_id:
-            return self.descriptions.get((str(table_id), column_name))
-        view_id = getattr(table, "id", None)
-        if table_type == "view" and view_id:
-            return self.view_descriptions.get((str(view_id), column_name))
-        return None
+    def _column_description(self, table: Table, column_name: str, field: FieldOrTable) -> Optional[str]:
+        return self.table_descriptions.for_column(table, column_name, field)
 
     def _column_stats(self, table: Table, table_type: str, column_name: str) -> _ColumnStats:
         """`(null_fraction, min_value, max_value)` for a warehouse column, or all-None otherwise."""
@@ -578,9 +526,7 @@ class _Introspection:
 
             table_type, table_schema = _classify_table(name, table, self.warehouse, self.views)
             row_count = self._row_count(name, table, table_type)
-            table_rows.append(
-                [name, table_schema, name, table_type, self._table_description(table, table_type), row_count]
-            )
+            table_rows.append([name, table_schema, name, table_type, self._table_description(table), row_count])
 
             self._collect_fields(name, table_schema, table_type, table, table.fields, column_rows, relationship_rows)
 
@@ -619,7 +565,7 @@ class _Introspection:
                         bool(field.is_nullable()),
                         bool(field.array),
                         kind,
-                        self._column_description(table, table_type, qualified, field),
+                        self._column_description(table, qualified, field),
                         null_fraction,
                         min_value,
                         max_value,

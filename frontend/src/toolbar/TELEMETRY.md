@@ -167,7 +167,7 @@ A user paginating emits one event per page with cumulative `event_count` — gro
 | `duration_ms`            | `number`  | Wall-clock processing time, including main-thread yields; DOM index build time is included only on a cold cache  |
 | `trigger`                | `string`  | What started the run: `initial`, `pagination`, `refresh`, or `toggle`                                            |
 | `cache_hit`              | `boolean` | Whether the page-elements cache was warm (no collect + index rebuild)                                            |
-| `completed`              | `boolean` | False when the run was cancelled mid-processing by a newer run                                                   |
+| `completed`              | `boolean` | False when the run did not finish — superseded by a newer run, or failed mid-processing                          |
 
 **File:** `elements/heatmapToolbarMenuLogic.ts`
 

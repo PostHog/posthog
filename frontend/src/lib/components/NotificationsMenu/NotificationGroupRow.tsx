@@ -7,6 +7,7 @@ import {
     NotificationRow,
     NotificationTitle,
 } from 'lib/components/NotificationsMenu/NotificationRow'
+import { useAutoMarkRead } from 'lib/components/NotificationsMenu/useAutoMarkRead'
 import { dayjs } from 'lib/dayjs'
 
 import {
@@ -54,6 +55,12 @@ export function NotificationGroupRow({
     const isExpanded = expandedGroupKeys.has(group.group_key)
     const isLoading = loadingGroupKeys.has(group.group_key)
 
+    // Dwelling on a collapsed, unread group marks the whole group read. When expanded,
+    // the individual child rows mark themselves read instead, so disarm here.
+    const autoMarkRef = useAutoMarkRead(group.count > 1 && group.has_unread && !isExpanded, () =>
+        toggleGroupRead(group)
+    )
+
     if (group.count === 1) {
         return <NotificationRow notification={group.representative} onNavigate={onNavigate} />
     }
@@ -76,6 +83,7 @@ export function NotificationGroupRow({
     return (
         <div className="flex flex-col">
             <div
+                ref={autoMarkRef}
                 className={`flex items-start gap-2 p-2 rounded cursor-pointer transition-colors ${
                     allRead ? 'hover:bg-fill-highlight-100' : 'bg-fill-highlight-50 hover:bg-fill-highlight-100'
                 }`}
