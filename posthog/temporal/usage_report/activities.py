@@ -208,7 +208,10 @@ async def enqueue_pointer_message(inputs: EnqueuePointerInputs) -> None:
     ) as recorder:
         if not settings.EE_AVAILABLE:
             recorder.set_status("SKIPPED")
-            get_pointer_messages_sent_metric(outcome="skipped_no_ee").add(1)
+            try:
+                get_pointer_messages_sent_metric(outcome="skipped_no_ee").add(1)
+            except Exception as err:
+                await logger.awarning("usage_reports.metrics.record_failed", error=str(err))
             await logger.awarning("usage_reports.sqs.skipped_no_ee")
             return
 
@@ -247,13 +250,19 @@ async def enqueue_pointer_message(inputs: EnqueuePointerInputs) -> None:
                 raise RuntimeError("SQS send_message returned no response")
 
         await send()
-        get_pointer_messages_sent_metric(outcome="sent").add(1)
-        record_aggregate_output(
-            total_orgs=inputs.aggregate.total_orgs,
-            total_orgs_with_usage=inputs.aggregate.total_orgs_with_usage,
-            chunk_count=len(inputs.aggregate.chunk_keys),
-        )
-        record_pointer_sent_timestamp()
+        # Best-effort from here down: the pointer is already delivered, so a
+        # metric-layer failure must not fail the activity — Temporal would
+        # retry it and send billing a duplicate pointer.
+        try:
+            get_pointer_messages_sent_metric(outcome="sent").add(1)
+            record_aggregate_output(
+                total_orgs=inputs.aggregate.total_orgs,
+                total_orgs_with_usage=inputs.aggregate.total_orgs_with_usage,
+                chunk_count=len(inputs.aggregate.chunk_keys),
+            )
+            record_pointer_sent_timestamp()
+        except Exception as err:
+            await logger.awarning("usage_reports.metrics.record_failed", error=str(err))
 
 
 @activity.defn(name="usage-reports-cleanup-intermediates")
