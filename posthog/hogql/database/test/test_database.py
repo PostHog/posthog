@@ -9,6 +9,7 @@ from posthog.test.base import BaseTest, FuzzyInt, QueryMatchingTest, snapshot_po
 from unittest import TestCase
 from unittest.mock import patch
 
+from django.db import InterfaceError, OperationalError
 from django.test import override_settings
 
 from parameterized import parameterized
@@ -31,6 +32,7 @@ from posthog.hogql.database.database import (
     _compute_system_table_access_decision,
     _construct_database_root_node,
     _preload_active_external_data_schemas,
+    _retry_on_db_connection_drop,
     build_database_root_node,
     get_data_warehouse_table_name,
 )
@@ -928,6 +930,44 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         assert database.has_table("charges_view")
         assert database.has_table("renamed_view")
         assert not database.has_table("old_view_name")
+
+    @parameterized.expand(
+        [
+            ("operational_error", OperationalError("the connection is closed")),
+            ("interface_error", InterfaceError("connection already closed")),
+        ]
+    )
+    def test_create_for_recovers_from_dropped_db_connection(self, _name, dropped_connection_error):
+        # A stale persistent connection drops the first time _fetch_sources touches Postgres; the retry
+        # must reissue the fetch on a fresh connection so create_for succeeds instead of aborting.
+        real_fetch_sources = Database._fetch_sources
+        calls = {"count": 0}
+
+        def flaky_fetch_sources(*args, **kwargs):
+            calls["count"] += 1
+            if calls["count"] == 1:
+                raise dropped_connection_error
+            return real_fetch_sources(*args, **kwargs)
+
+        with patch.object(Database, "_fetch_sources", side_effect=flaky_fetch_sources):
+            database = Database.create_for(team=self.team)
+
+        assert calls["count"] == 2
+        assert database.has_table("events")
+
+    def test_retry_on_db_connection_drop_propagates_second_failure(self):
+        # A genuinely degraded DB fails on both attempts; the retry must give up and surface the error
+        # rather than looping.
+        calls = {"count": 0}
+
+        def always_fails():
+            calls["count"] += 1
+            raise OperationalError("the connection is closed")
+
+        with pytest.raises(OperationalError):
+            _retry_on_db_connection_drop(always_fails)
+
+        assert calls["count"] == 2
 
     @patch("posthog.hogql.query.sync_execute", return_value=([], []))
     def test_build_from_sources_performs_no_io_for_direct_postgres(self, patch_execute):

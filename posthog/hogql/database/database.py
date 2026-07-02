@@ -8,9 +8,11 @@ from collections import defaultdict
 from collections.abc import Callable, Sequence
 from datetime import UTC, datetime
 from functools import cache
-from typing import TYPE_CHECKING, Any, Literal, Optional, Union, cast
+from typing import TYPE_CHECKING, Any, Literal, Optional, TypeVar, Union, cast
 from zoneinfo import ZoneInfo, ZoneInfoNotFoundError
 
+from django.conf import settings
+from django.db import InterfaceError, OperationalError, connections
 from django.db.models import Prefetch, Q
 
 import structlog
@@ -236,6 +238,42 @@ type DatabaseSchemaTable = (
 )
 
 logger = structlog.get_logger(__name__)
+
+T = TypeVar("T")
+
+
+def _discard_dead_db_connections() -> None:
+    """Close every initialized Django DB connection so the next query reopens a fresh one.
+
+    Skipped under ``settings.TEST`` to avoid tearing down the test DB connection that
+    ``transaction``-wrapped fixtures rely on.
+    """
+    if settings.TEST:
+        return
+    for conn in connections.all(initialized_only=True):
+        conn.close()
+
+
+def _retry_on_db_connection_drop(operation: Callable[[], T]) -> T:
+    """Run a synchronous DB read, retrying once on a transient connection drop.
+
+    The persistent Postgres connection reused across requests (and across long-lived
+    workers such as Temporal activities) can be recycled, failed over, or killed
+    server-side, leaving a stale connection that raises ``OperationalError`` /
+    ``InterfaceError`` ("the connection is closed") the first time it's used. Evict the
+    dead connection and retry once so a transient blip recovers transparently instead of
+    aborting the whole request. A second failure propagates — that's a genuinely degraded
+    DB, left to the caller's retry posture.
+
+    Pass a zero-arg callable that *produces* the work (not its result), so the retry can
+    reissue the queries against a fresh connection.
+    """
+    try:
+        return operation()
+    except (OperationalError, InterfaceError):
+        logger.warning("hogql_database_fetch_sources_connection_drop_retry", exc_info=True)
+        _discard_dead_db_connections()
+        return operation()
 
 
 # READ BEFORE EDITING:
@@ -1057,15 +1095,19 @@ class Database(BaseModel):
         if timings is None:
             timings = HogQLTimings()
 
-        sources = Database._fetch_sources(
-            team_id,
-            team=team,
-            user=user,
-            user_access_control=user_access_control,
-            modifiers=modifiers,
-            timings=timings,
-            connection_id=connection_id,
-            bypass_warehouse_access_control=bypass_warehouse_access_control,
+        # All the up-front Postgres I/O lives in _fetch_sources; a stale persistent connection can
+        # drop mid-fetch ("the connection is closed"), so retry once on a fresh connection.
+        sources = _retry_on_db_connection_drop(
+            lambda: Database._fetch_sources(
+                team_id,
+                team=team,
+                user=user,
+                user_access_control=user_access_control,
+                modifiers=modifiers,
+                timings=timings,
+                connection_id=connection_id,
+                bypass_warehouse_access_control=bypass_warehouse_access_control,
+            )
         )
         return Database._build_from_sources(sources, timings=timings)
 
