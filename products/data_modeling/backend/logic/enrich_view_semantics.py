@@ -148,10 +148,10 @@ def _gather_lineage(team: Team, saved_query: DataWarehouseSavedQuery, query_str:
         .values_list("id", "name")
     )
     if tables:
-        for annotation in WarehouseColumnAnnotation.objects.for_team(team.id).filter(
+        for table_annotation in WarehouseColumnAnnotation.objects.for_team(team.id).filter(
             table_id__in=list(tables), column_name=""
         ):
-            descriptions.setdefault(tables[annotation.table_id], annotation.description)
+            descriptions.setdefault(tables[table_annotation.table_id], table_annotation.description)
 
     # Everything else (PostHog core tables, unresolved names) contributes its name only.
     return [{"name": name, "description": descriptions.get(name)} for name in sorted(parent_names)]

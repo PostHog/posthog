@@ -265,8 +265,8 @@ class TestBuildViewEnrichmentPrompt:
             business_context="",
         )
         assert len(prompt) <= MAX_PROMPT_CHARS
-        assert columns[0]["name"] in prompt
-        assert columns[-1]["name"] not in prompt
+        assert str(columns[0]["name"]) in prompt
+        assert str(columns[-1]["name"]) not in prompt
 
 
 class TestComputeEnrichmentHash:
