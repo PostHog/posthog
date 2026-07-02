@@ -82,8 +82,13 @@ def clickhouse_error_type(e: Exception) -> str:
     return f"CHQueryError{look_up_clickhouse_error_code_meta(e).label}"
 
 
-def wrap_clickhouse_query_error(err: Exception) -> Exception:
+def wrap_clickhouse_query_error(err: Exception, query_id: Optional[str] = None) -> Exception:
     "Beautifies clickhouse client errors, using custom error classes for every code"
+    if isinstance(err, UnicodeDecodeError):
+        # clickhouse_driver decodes server exception packets as strict UTF-8, so a stray byte in the
+        # exception name/message/stack trace makes it raise UnicodeDecodeError instead of ServerException,
+        # discarding the real ClickHouse error. Recover it best-effort from the bytes the decode choked on.
+        return _wrap_undecodable_server_exception(err, query_id)
     if not isinstance(err, ServerException):
         return err
 
@@ -155,6 +160,19 @@ def wrap_clickhouse_query_error(err: Exception) -> Exception:
         return type(name, (processed_error_class,), {})(message, code=err.code, code_name=meta.name.lower())
 
 
+def _wrap_undecodable_server_exception(err: UnicodeDecodeError, query_id: Optional[str]) -> Exception:
+    """Recover a best-effort ClickHouse error from a UnicodeDecodeError raised while the driver was
+    parsing a server exception packet, so the underlying error isn't lost to an opaque decode error."""
+    raw = err.object if isinstance(err.object, (bytes, bytearray)) else b""
+    recovered = bytes(raw).decode("utf-8", errors="replace").strip()
+    context = f" (query_id={query_id})" if query_id else ""
+    message = (
+        f"ClickHouse returned a server exception that could not be UTF-8 decoded{context}. "
+        f"Best-effort decode of the offending field: {recovered!r}"
+    )
+    return CHQueryErrorUndecodableServerException(message, code_name="undecodable_server_exception")
+
+
 def look_up_clickhouse_error_code_meta(error: ServerException) -> ErrorCodeMeta:
     code = getattr(error, "code", None)
     if code is None or code not in CLICKHOUSE_ERROR_CODE_LOOKUP:
@@ -198,6 +216,13 @@ class CHQueryErrorCannotScheduleTask(InternalCHQueryError):
 
 
 class CHQueryErrorS3Error(InternalCHQueryError):
+    pass
+
+
+class CHQueryErrorUndecodableServerException(InternalCHQueryError):
+    """Raised when clickhouse_driver fails to UTF-8 decode a ClickHouse server exception packet.
+    Carries a best-effort decode of the raw bytes so the real error stays diagnosable."""
+
     pass
 
 

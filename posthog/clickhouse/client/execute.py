@@ -484,7 +484,7 @@ def sync_execute(
             workload=workload.value if workload else "None",
             chargeable=str(tags.chargeable or "0"),
         ).inc()
-        err = wrap_clickhouse_query_error(e)
+        err = wrap_clickhouse_query_error(e, query_id=query_id)
         raise err from e
     finally:
         execution_time = perf_counter() - start_time

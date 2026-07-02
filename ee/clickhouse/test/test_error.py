@@ -159,3 +159,20 @@ def test_wrap_clickhouse_query_error(error, expected_type, expected_message, exp
     assert str(new_error) == expected_message
     assert getattr(new_error, "code", None) == expected_code
     assert label == expected_ch_error
+
+
+def test_wrap_clickhouse_query_error_recovers_undecodable_server_exception():
+    # clickhouse_driver raises UnicodeDecodeError (not ServerException) when a server exception packet
+    # has a stray byte, throwing away the real error. We recover it best-effort from the offending bytes.
+    raw = b"Illegal value \x8a for column"
+    try:
+        raw.decode("utf-8")
+        raise AssertionError("expected UnicodeDecodeError")
+    except UnicodeDecodeError as decode_error:
+        error = decode_error
+
+    new_error = wrap_clickhouse_query_error(error, query_id="42_abc_1")
+    assert type(new_error).__name__ == "CHQueryErrorUndecodableServerException"
+    assert "query_id=42_abc_1" in str(new_error)
+    assert "Illegal value" in str(new_error)
+    assert "for column" in str(new_error)
