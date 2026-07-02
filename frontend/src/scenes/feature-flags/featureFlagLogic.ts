@@ -2043,9 +2043,6 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
             // Bail if the logic unmounted (e.g. navigated away) while release conditions were loading —
             // otherwise the reads below hit a store path that no longer exists and kea throws.
             breakpoint()
-            if (!values.featureFlag) {
-                return
-            }
             const defaultGroups =
                 defaultConfig?.enabled && defaultConfig.default_groups?.length > 0 ? defaultConfig.default_groups : []
             const templateGroups = templateValues.filters?.groups ?? []
