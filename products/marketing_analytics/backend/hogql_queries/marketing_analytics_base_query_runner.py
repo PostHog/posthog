@@ -151,7 +151,13 @@ class MarketingAnalyticsBaseQueryRunner(AnalyticsQueryRunner[ResponseType], ABC,
         # filter_system_tables_for_user, saved queries, revenue views, …) surface in the query's
         # timings instead of a discarded HogQLTimings — otherwise this whole build shows as an
         # opaque flat span.
-        return Database.create_for(team=self.team, user=self.user, modifiers=modifiers, timings=self.timings)
+        return Database.create_for(
+            team=self.team,
+            user=self.user,
+            modifiers=modifiers,
+            timings=self.timings,
+            build_postgres_foreign_keys=False,
+        )
 
     @cached_property
     def _shared_hogql_context(self) -> HogQLContext:
