@@ -208,30 +208,34 @@ export class SnapshotStore {
     }
 
     syncFullSnapshotTimestamps(processedSnapshots: RecordingSnapshot[]): boolean {
+        // Bucketed by nearest source (not by [startMs, endMs] range) so a synthesized FullSnapshot whose timestamp falls between two sources' metadata ranges is still indexed somewhere.
+        const buckets = new Map<number, FullSnapshotRef[]>()
+        for (const snap of processedSnapshots) {
+            if (snap.type !== EventType.FullSnapshot) {
+                continue
+            }
+            const sourceIndex = this.getSourceIndexForTimestamp(snap.timestamp)
+            if (sourceIndex === null) {
+                continue
+            }
+            const bucket = buckets.get(sourceIndex) ?? []
+            bucket.push({ timestamp: snap.timestamp, windowId: snap.windowId })
+            buckets.set(sourceIndex, bucket)
+        }
+
         let changed = false
         for (const entry of this.entries) {
             if (entry.state !== 'loaded') {
                 continue
             }
-            const fullSnapshots: FullSnapshotRef[] = []
-            for (const snap of processedSnapshots) {
-                if (
-                    snap.type === EventType.FullSnapshot &&
-                    snap.timestamp >= entry.startMs &&
-                    snap.timestamp <= entry.endMs
-                ) {
-                    fullSnapshots.push({ timestamp: snap.timestamp, windowId: snap.windowId })
-                }
-            }
-            fullSnapshots.sort((a, b) => a.timestamp - b.timestamp)
+            const fullSnapshots = (buckets.get(entry.index) ?? []).sort((a, b) => a.timestamp - b.timestamp)
             if (
-                fullSnapshots.length > 0 &&
-                (fullSnapshots.length !== entry.fullSnapshots.length ||
-                    fullSnapshots.some(
-                        (fs, j) =>
-                            fs.timestamp !== entry.fullSnapshots[j].timestamp ||
-                            fs.windowId !== entry.fullSnapshots[j].windowId
-                    ))
+                fullSnapshots.length !== entry.fullSnapshots.length ||
+                fullSnapshots.some(
+                    (fs, j) =>
+                        fs.timestamp !== entry.fullSnapshots[j].timestamp ||
+                        fs.windowId !== entry.fullSnapshots[j].windowId
+                )
             ) {
                 entry.fullSnapshots = fullSnapshots
                 changed = true
@@ -243,6 +247,7 @@ export class SnapshotStore {
         return changed
     }
 
+    // Deliberately does not bump(): consumers should keep their memoized view; only loaded-state metadata remains meaningful afterwards.
     clearSnapshotData(): void {
         for (const entry of this.entries) {
             entry.processedSnapshots = null

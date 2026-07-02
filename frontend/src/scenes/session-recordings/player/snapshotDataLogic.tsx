@@ -435,10 +435,9 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
         snapshotsLoading: [
             (s) => [s.snapshotSourcesLoading, s.snapshotsForSourceLoading, s.storeVersion],
             (snapshotSourcesLoading: boolean, snapshotsForSourceLoading: boolean): boolean => {
-                return (
-                    (cache.store?.getAllLoadedSnapshots().length ?? 0) === 0 &&
-                    (snapshotSourcesLoading || snapshotsForSourceLoading)
-                )
+                // Keyed on loaded-source state (not snapshot arrays, which the coordinator releases after processing), so a fully-watchable recording doesn't flap back to loading during source polls.
+                const hasLoadedAnySource = cache.store?.getSourceStates().some((s) => s.state === 'loaded') ?? false
+                return !hasLoadedAnySource && (snapshotSourcesLoading || snapshotsForSourceLoading)
             },
         ],
 

@@ -419,6 +419,24 @@ describe('SnapshotStore', () => {
             expect(store.canPlayAt(snapTs)).toBe(true)
         })
 
+        it('indexes synthesized full snapshots that fall between source metadata ranges', () => {
+            const store = new SnapshotStore()
+            const iso = (second: number): string => new Date(Date.UTC(2023, 7, 11, 12, 0, second)).toISOString()
+            const at = (second: number): number => new Date(Date.UTC(2023, 7, 11, 12, 0, second)).getTime()
+            store.setSources([
+                { source: 'blob_v2', blob_key: 'a', start_timestamp: iso(0), end_timestamp: iso(50) },
+                { source: 'blob_v2', blob_key: 'b', start_timestamp: iso(56), end_timestamp: iso(110) },
+            ] as any)
+            store.markLoaded(0, [makeSnapshot(at(10))])
+            store.markLoaded(1, [makeSnapshot(at(70))])
+
+            // mobile processing synthesizes a FullSnapshot at screenshot.timestamp - 1, which can land between blob ranges
+            const changed = store.syncFullSnapshotTimestamps([makeFullSnapshot(at(55))])
+
+            expect(changed).toBe(true)
+            expect(store.findNearestFullSnapshot(at(70))).toMatchObject({ timestamp: at(55) })
+        })
+
         it.each([
             {
                 description: 'returns false when timestamps are unchanged',
