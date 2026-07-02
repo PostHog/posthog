@@ -282,9 +282,9 @@ describe('ci-report section helper', () => {
             }
             await postSection({ id: 'eager-graph', status: 'warn', summary: 'e', body: 'EAGER' }, opts)
             expect(github.comments).toHaveLength(1)
-            const sections = parseSections(github.comments[0].body)
+            const sections = parseSections(github.comments[0].body) as SectionState
             expect([...sections.keys()]).toEqual(['bundle-size', 'eager-graph', 'dist-size'])
-            expect(get(sections as SectionState, 'eager-graph').inner).toBe('EAGER')
+            expect(get(sections, 'eager-graph').inner).toBe('EAGER')
         })
 
         it('merges duplicate report comments into the oldest and deletes the rest', async () => {

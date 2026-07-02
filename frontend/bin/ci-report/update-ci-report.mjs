@@ -133,11 +133,10 @@ export async function gh(token, url, options = {}) {
         },
     })
     if (!response.ok) {
-        const error = new Error(
-            `GitHub API ${options.method || 'GET'} ${url} -> ${response.status}: ${await response.text()}`
+        throw Object.assign(
+            new Error(`GitHub API ${options.method || 'GET'} ${url} -> ${response.status}: ${await response.text()}`),
+            { status: response.status }
         )
-        error.status = response.status
-        throw error
     }
     return response.status === 204 ? null : response.json()
 }
