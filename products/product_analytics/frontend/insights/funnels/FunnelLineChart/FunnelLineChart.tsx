@@ -73,10 +73,13 @@ export function FunnelLineChart({
     // Breakdown funnels have one series per breakdown value, so a click always covers multiple
     // series — resolve the one nearest the cursor and open the persons modal for it directly
     // instead of pinning first, unlike other multi-series insight charts.
-    const TOOLTIP_CONFIG: TooltipConfig = {
-        ...(quillTooltipEnabled ? INSIGHT_TOOLTIP_CONFIG : INSIGHT_TOOLTIP_CONFIG_LEGACY),
-        resolveClickToNearestSeries: true,
-    }
+    const TOOLTIP_CONFIG: TooltipConfig = useMemo(
+        () => ({
+            ...(quillTooltipEnabled ? INSIGHT_TOOLTIP_CONFIG : INSIGHT_TOOLTIP_CONFIG_LEGACY),
+            resolveClickToNearestSeries: true,
+        }),
+        [quillTooltipEnabled]
+    )
     const { insightProps, insight, canEditInsight } = useValues(insightLogic)
 
     const {
