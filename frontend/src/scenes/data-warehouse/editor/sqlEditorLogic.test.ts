@@ -760,6 +760,40 @@ describe('sqlEditorLogic', () => {
         })
     })
 
+    describe('Update view', () => {
+        it('advances the saved baseline after updating so reverting to the original query re-enables Update view', async () => {
+            logic = sqlEditorLogic({
+                tabId: TAB_ID,
+                monaco: createMockMonaco(),
+                editor: createMockEditor(),
+            })
+            logic.mount()
+
+            // Open the saved view (query "SELECT 1") into a tab — no changes to save yet.
+            logic.actions.createTab(MOCK_VIEW.query.query, MOCK_VIEW)
+            await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
+            expect(logic.values.changesToSave).toBe(false)
+
+            // Editing the query surfaces changes to save.
+            logic.actions.setQueryInput('SELECT 2')
+            expect(logic.values.changesToSave).toBe(true)
+
+            // A successful update must advance the baseline to the just-saved query.
+            logic.actions.updateViewSuccess({
+                id: MOCK_VIEW.id,
+                query: { kind: NodeKind.HogQLQuery, query: 'SELECT 2' },
+                types: [],
+            })
+            await expectLogic(logic).toDispatchActions(['updateViewSuccess', 'updateTab'])
+            expect(logic.values.editingView?.query?.query).toBe('SELECT 2')
+            expect(logic.values.changesToSave).toBe(false)
+
+            // Reverting to the original query is a real change again — the button stays enabled.
+            logic.actions.setQueryInput(MOCK_VIEW.query.query)
+            expect(logic.values.changesToSave).toBe(true)
+        })
+    })
+
     describe('inline insight metadata editing', () => {
         async function loadInsight(): Promise<void> {
             logic = sqlEditorLogic({

@@ -235,9 +235,10 @@ export function SQLEditor({
                                                     )}
                                                     <div
                                                         data-attr="editor-scene"
-                                                        className="EditorScene flex min-h-0 grow flex-row overflow-hidden"
+                                                        className="EditorScene relative flex min-h-0 grow flex-row overflow-hidden"
                                                         ref={ref}
                                                     >
+                                                        <ViewLoadingOverlay />
                                                         <QueryWindow
                                                             mode={mode}
                                                             tabId={tabId || ''}
@@ -274,6 +275,18 @@ export function SQLEditor({
                 </BindLogic>
             </BindLogic>
         </BindLogic>
+    )
+}
+
+function ViewLoadingOverlay(): JSX.Element | null {
+    const { viewLoading } = useValues(sqlEditorLogic)
+    if (!viewLoading) {
+        return null
+    }
+    return (
+        <div className="absolute inset-0 z-10 flex items-center justify-center bg-primary/70">
+            <Spinner className="text-2xl" />
+        </div>
     )
 }
 

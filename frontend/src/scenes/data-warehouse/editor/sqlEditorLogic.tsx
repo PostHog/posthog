@@ -1961,6 +1961,17 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 if (draftId) {
                     actions.deleteDraft(draftId, view?.name)
                 }
+                // Refresh the tab's baseline so `changesToSave` compares against the just-saved query,
+                // not the pre-edit one — otherwise reverting to the original wrongly disables "Update view".
+                if (values.activeTab?.view && values.activeTab.view.id === view.id && view.query) {
+                    actions.updateTab({
+                        ...values.activeTab,
+                        view: {
+                            ...values.activeTab.view,
+                            query: view.query,
+                        },
+                    })
+                }
             },
             deleteDraftSuccess: ({ draftId, viewName }) => {
                 if (values.activeTab && values.activeTab.draft?.id === draftId) {
