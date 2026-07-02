@@ -6,6 +6,8 @@ import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene
 
 import { mswDecorator } from '~/mocks/browser'
 
+import __mcpMissingCapability from '../../../mocks/fixtures/api/projects/team_id/insights/mcpMissingCapability.json'
+
 type Story = StoryObj<{}>
 const meta: Meta = {
     title: 'Scenes-App/Insights/MCP Missing Capability',
@@ -35,11 +37,7 @@ const meta: Meta = {
 }
 export default meta
 
-/* eslint-disable @typescript-eslint/no-var-requires */
-export const MCPMissingCapability: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/mcpMissingCapability.json')
-)
-/* eslint-enable @typescript-eslint/no-var-requires */
+export const MCPMissingCapability: Story = createInsightStory(__mcpMissingCapability as any)
 MCPMissingCapability.parameters = {
     testOptions: { waitForSelector: '[data-attr=insights-table-graph] td' },
 }
