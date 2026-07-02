@@ -26,7 +26,8 @@ const sessionSet = (...pairs: [number, string][]): SessionSet => {
 
 describe('SessionFilter', () => {
     let sessionFilter: SessionFilter
-    let mockRedis: { set: jest.Mock; mget: jest.Mock }
+    let mockPipeline: { set: jest.Mock; exec: jest.Mock }
+    let mockRedis: { set: jest.Mock; mget: jest.Mock; pipeline: jest.Mock }
     let mockRedisPool: jest.Mocked<RedisPool>
     let mockConsume: jest.Mock
 
@@ -37,9 +38,11 @@ describe('SessionFilter', () => {
     beforeEach(() => {
         jest.clearAllMocks()
 
+        mockPipeline = { set: jest.fn().mockReturnThis(), exec: jest.fn().mockResolvedValue([]) }
         mockRedis = {
             set: jest.fn().mockResolvedValue('OK'),
             mget: jest.fn().mockResolvedValue([null]),
+            pipeline: jest.fn().mockReturnValue(mockPipeline),
         }
 
         mockRedisPool = {
@@ -62,24 +65,25 @@ describe('SessionFilter', () => {
         })
     })
 
-    describe('blocking via handleNewSession', () => {
+    describe('blocking via handleNewSessions', () => {
         it('should set a key in Redis with TTL when rate limited', async () => {
             mockConsume.mockReturnValue(false)
 
-            await sessionFilter.handleNewSession(1, 'session-123')
+            await sessionFilter.handleNewSessions(sessionSet([1, 'session-123']))
 
-            expect(mockRedis.set).toHaveBeenCalledWith(
+            expect(mockPipeline.set).toHaveBeenCalledWith(
                 '@posthog/replay/session-blocked:1:session-123',
                 '1',
                 'EX',
                 48 * 60 * 60
             )
+            expect(mockPipeline.exec).toHaveBeenCalledTimes(1)
         })
 
         it('should increment metrics when blocking a session', async () => {
             mockConsume.mockReturnValue(false)
 
-            await sessionFilter.handleNewSession(1, 'session-123')
+            await sessionFilter.handleNewSessions(sessionSet([1, 'session-123']))
 
             expect(SessionBatchMetrics.incrementSessionsBlocked).toHaveBeenCalled()
         })
@@ -87,7 +91,7 @@ describe('SessionFilter', () => {
         it('should acquire and release Redis connection', async () => {
             mockConsume.mockReturnValue(false)
 
-            await sessionFilter.handleNewSession(1, 'session-123')
+            await sessionFilter.handleNewSessions(sessionSet([1, 'session-123']))
 
             expect(mockRedisPool.acquire).toHaveBeenCalled()
             expect(mockRedisPool.release).toHaveBeenCalledWith(mockRedis)
@@ -95,10 +99,10 @@ describe('SessionFilter', () => {
 
         it('should fail open on Redis error but still block locally', async () => {
             mockConsume.mockReturnValue(false)
-            mockRedis.set.mockRejectedValue(new Error('Redis error'))
+            mockPipeline.exec.mockRejectedValue(new Error('Redis error'))
 
             // Should not throw - fails open
-            await sessionFilter.handleNewSession(1, 'session-123')
+            await sessionFilter.handleNewSessions(sessionSet([1, 'session-123']))
 
             expect(mockRedisPool.release).toHaveBeenCalledWith(mockRedis)
             expect(SessionBatchMetrics.incrementSessionFilterRedisErrors).toHaveBeenCalled()
@@ -163,9 +167,9 @@ describe('SessionFilter', () => {
             expect(SessionBatchMetrics.incrementSessionFilterCacheHit).toHaveBeenCalled()
         })
 
-        it('should cache blocked sessions locally after blocking via handleNewSession', async () => {
+        it('should cache blocked sessions locally after blocking via handleNewSessions', async () => {
             mockConsume.mockReturnValue(false)
-            await sessionFilter.handleNewSession(1, 'session-123')
+            await sessionFilter.handleNewSessions(sessionSet([1, 'session-123']))
 
             // Now check if blocked - should hit local cache
             expect(await blocked(sessionFilter, 1, 'session-123')).toBe(true)
@@ -226,16 +230,16 @@ describe('SessionFilter', () => {
         it('should generate unique keys for different teams', async () => {
             mockConsume.mockReturnValue(false)
 
-            await sessionFilter.handleNewSession(1, 'session-123')
-            await sessionFilter.handleNewSession(2, 'session-123')
+            await sessionFilter.handleNewSessions(sessionSet([1, 'session-123']))
+            await sessionFilter.handleNewSessions(sessionSet([2, 'session-123']))
 
-            expect(mockRedis.set).toHaveBeenCalledWith(
+            expect(mockPipeline.set).toHaveBeenCalledWith(
                 '@posthog/replay/session-blocked:1:session-123',
                 '1',
                 'EX',
                 expect.any(Number)
             )
-            expect(mockRedis.set).toHaveBeenCalledWith(
+            expect(mockPipeline.set).toHaveBeenCalledWith(
                 '@posthog/replay/session-blocked:2:session-123',
                 '1',
                 'EX',
@@ -246,16 +250,16 @@ describe('SessionFilter', () => {
         it('should generate unique keys for different sessions', async () => {
             mockConsume.mockReturnValue(false)
 
-            await sessionFilter.handleNewSession(1, 'session-123')
-            await sessionFilter.handleNewSession(1, 'session-456')
+            await sessionFilter.handleNewSessions(sessionSet([1, 'session-123']))
+            await sessionFilter.handleNewSessions(sessionSet([1, 'session-456']))
 
-            expect(mockRedis.set).toHaveBeenCalledWith(
+            expect(mockPipeline.set).toHaveBeenCalledWith(
                 '@posthog/replay/session-blocked:1:session-123',
                 '1',
                 'EX',
                 expect.any(Number)
             )
-            expect(mockRedis.set).toHaveBeenCalledWith(
+            expect(mockPipeline.set).toHaveBeenCalledWith(
                 '@posthog/replay/session-blocked:1:session-456',
                 '1',
                 'EX',
@@ -298,22 +302,22 @@ describe('SessionFilter', () => {
         })
     })
 
-    describe('handleNewSession', () => {
+    describe('handleNewSessions', () => {
         it('should not block when limiter allows the session', async () => {
             mockConsume.mockReturnValue(true)
 
-            await sessionFilter.handleNewSession(1, 'session-123')
+            await sessionFilter.handleNewSessions(sessionSet([1, 'session-123']))
 
             expect(mockConsume).toHaveBeenCalledWith('1', 1)
-            expect(mockRedis.set).not.toHaveBeenCalled()
+            expect(mockPipeline.set).not.toHaveBeenCalled()
         })
 
         it('should block when limiter denies and rate limiting is enabled', async () => {
             mockConsume.mockReturnValue(false)
 
-            await sessionFilter.handleNewSession(1, 'session-123')
+            await sessionFilter.handleNewSessions(sessionSet([1, 'session-123']))
 
-            expect(mockRedis.set).toHaveBeenCalled()
+            expect(mockPipeline.set).toHaveBeenCalled()
             expect(SessionBatchMetrics.incrementNewSessionsRateLimited).toHaveBeenCalledWith(1)
             expect(SessionBatchMetrics.incrementSessionsBlocked).toHaveBeenCalled()
         })
@@ -329,9 +333,9 @@ describe('SessionFilter', () => {
             })
             mockConsume.mockReturnValue(false)
 
-            await disabledFilter.handleNewSession(1, 'session-123')
+            await disabledFilter.handleNewSessions(sessionSet([1, 'session-123']))
 
-            expect(mockRedis.set).not.toHaveBeenCalled()
+            expect(mockPipeline.set).not.toHaveBeenCalled()
             expect(SessionBatchMetrics.incrementNewSessionsRateLimited).toHaveBeenCalledWith(1)
         })
 
@@ -346,9 +350,9 @@ describe('SessionFilter', () => {
             })
             mockConsume.mockReturnValue(false)
 
-            // handleNewSession should not call Redis when filter is disabled
-            await disabledFilter.handleNewSession(1, 'session-123')
-            expect(mockRedis.set).not.toHaveBeenCalled()
+            // handleNewSessions should not call Redis when filter is disabled
+            await disabledFilter.handleNewSessions(sessionSet([1, 'session-123']))
+            expect(mockPipeline.set).not.toHaveBeenCalled()
 
             // isBlocked should return false immediately without Redis
             expect(await blocked(disabledFilter, 1, 'session-123')).toBe(false)
@@ -360,7 +364,7 @@ describe('SessionFilter', () => {
             mockRedisPool.acquire.mockRejectedValue(new Error('Pool exhausted'))
 
             // Should not throw
-            await sessionFilter.handleNewSession(1, 'session-123')
+            await sessionFilter.handleNewSessions(sessionSet([1, 'session-123']))
 
             expect(SessionBatchMetrics.incrementSessionFilterRedisErrors).toHaveBeenCalled()
             // Session should still be blocked locally
@@ -370,19 +374,19 @@ describe('SessionFilter', () => {
         it('should consume from limiter on each call even for same session', async () => {
             mockConsume.mockReturnValue(false)
 
-            await sessionFilter.handleNewSession(1, 'session-123')
-            await sessionFilter.handleNewSession(1, 'session-123')
+            await sessionFilter.handleNewSessions(sessionSet([1, 'session-123']))
+            await sessionFilter.handleNewSessions(sessionSet([1, 'session-123']))
 
             // Limiter is consumed each time - the limiter handles deduplication if needed
             expect(mockConsume).toHaveBeenCalledTimes(2)
             // Redis set is also called twice - this is fine since SET is idempotent at Redis level
-            expect(mockRedis.set).toHaveBeenCalledTimes(2)
+            expect(mockPipeline.set).toHaveBeenCalledTimes(2)
         })
 
         it('should not increment rate limited metric when limiter allows', async () => {
             mockConsume.mockReturnValue(true)
 
-            await sessionFilter.handleNewSession(1, 'session-123')
+            await sessionFilter.handleNewSessions(sessionSet([1, 'session-123']))
 
             expect(SessionBatchMetrics.incrementNewSessionsRateLimited).not.toHaveBeenCalled()
             expect(SessionBatchMetrics.incrementSessionsBlocked).not.toHaveBeenCalled()

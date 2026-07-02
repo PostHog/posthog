@@ -49,14 +49,14 @@ describe('SessionFilter integration', () => {
             // Bucket capacity is 5, so 6th session should be blocked
             for (let i = 1; i <= 5; i++) {
                 const sessionId = `${testRunId}-session-${i}`
-                await sessionFilter.handleNewSession(teamId, sessionId)
+                await sessionFilter.handleNewSessions(new SessionSet().add(teamId, sessionId))
                 const isBlocked = await blocked(sessionFilter, teamId, sessionId)
                 expect(isBlocked).toBe(false)
             }
 
             // 6th session should be rate limited and blocked
             const blockedSessionId = `${testRunId}-session-6`
-            await sessionFilter.handleNewSession(teamId, blockedSessionId)
+            await sessionFilter.handleNewSessions(new SessionSet().add(teamId, blockedSessionId))
             const isBlocked = await blocked(sessionFilter, teamId, blockedSessionId)
             expect(isBlocked).toBe(true)
         })
@@ -76,10 +76,10 @@ describe('SessionFilter integration', () => {
             })
 
             // First session consumes the bucket
-            await filter1.handleNewSession(teamId, `${testRunId}-first-session`)
+            await filter1.handleNewSessions(new SessionSet().add(teamId, `${testRunId}-first-session`))
 
             // Second session should be blocked
-            await filter1.handleNewSession(teamId, sessionId)
+            await filter1.handleNewSessions(new SessionSet().add(teamId, sessionId))
             expect(await blocked(filter1, teamId, sessionId)).toBe(true)
 
             // Create a new filter instance (simulating a new consumer)
@@ -114,11 +114,11 @@ describe('SessionFilter integration', () => {
             })
 
             // First session consumes the bucket
-            await disabledFilter.handleNewSession(teamId, `${testRunId}-disabled-session-1`)
+            await disabledFilter.handleNewSessions(new SessionSet().add(teamId, `${testRunId}-disabled-session-1`))
 
             // Second session would be rate limited but should NOT be blocked
             const session2 = `${testRunId}-disabled-session-2`
-            await disabledFilter.handleNewSession(teamId, session2)
+            await disabledFilter.handleNewSessions(new SessionSet().add(teamId, session2))
             expect(await blocked(disabledFilter, teamId, session2)).toBe(false)
         })
 
@@ -135,9 +135,9 @@ describe('SessionFilter integration', () => {
             })
 
             // Exhaust bucket and block a session
-            await filter.handleNewSession(teamId, `${testRunId}-cache-first`)
+            await filter.handleNewSessions(new SessionSet().add(teamId, `${testRunId}-cache-first`))
             const blockedSession = `${testRunId}-cache-blocked`
-            await filter.handleNewSession(teamId, blockedSession)
+            await filter.handleNewSessions(new SessionSet().add(teamId, blockedSession))
 
             // First isBlocked call goes to Redis
             const isBlocked1 = await blocked(filter, teamId, blockedSession)

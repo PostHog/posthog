@@ -25,7 +25,7 @@ const mapAll =
 
 describe('createResolveSessionKeyStep', () => {
     let mockSessionTracker: jest.Mocked<Pick<SessionTracker, 'hasSeen' | 'markSeen'>>
-    let mockSessionFilter: jest.Mocked<Pick<SessionFilter, 'handleNewSession' | 'isBlocked'>>
+    let mockSessionFilter: jest.Mocked<Pick<SessionFilter, 'handleNewSessions' | 'isBlocked'>>
     let mockKeyStore: jest.Mocked<Pick<KeyStore, 'generateKey' | 'getKey'>>
 
     // Minimal element carrying just what the step reads (message offset, team, session_id header, retention).
@@ -68,7 +68,7 @@ describe('createResolveSessionKeyStep', () => {
             markSeen: jest.fn().mockResolvedValue(undefined),
         }
         mockSessionFilter = {
-            handleNewSession: jest.fn().mockResolvedValue(undefined),
+            handleNewSessions: jest.fn().mockResolvedValue(undefined),
             isBlocked: jest.fn(mapAll(false)),
         }
         mockKeyStore = {
@@ -85,7 +85,7 @@ describe('createResolveSessionKeyStep', () => {
 
         const results = await step([element(1, 'a', '90d')])
 
-        expect(mockSessionFilter.handleNewSession).toHaveBeenCalledWith(1, 'a')
+        expect(mockSessionFilter.handleNewSessions).toHaveBeenCalledWith(new SessionSet().add(1, 'a'))
         // New sessions generate a key whose expiry is the resolved retention.
         expect(mockKeyStore.generateKey).toHaveBeenCalledWith('a', 1, RetentionPeriodToDaysMap['90d'])
         expect(mockKeyStore.getKey).not.toHaveBeenCalled()
@@ -102,7 +102,8 @@ describe('createResolveSessionKeyStep', () => {
 
         const results = await step([element(1, 'a')])
 
-        expect(mockSessionFilter.handleNewSession).not.toHaveBeenCalled()
+        // Seen sessions aren't rate-limited: the new-session set handed to the filter is empty.
+        expect(mockSessionFilter.handleNewSessions).toHaveBeenCalledWith(new SessionSet())
         expect(mockKeyStore.getKey).toHaveBeenCalledWith('a', 1)
         expect(mockKeyStore.generateKey).not.toHaveBeenCalled()
         expect(isOkResult(results[0]) ? results[0].value.sessionKey : null).toBe(existing)
@@ -122,7 +123,7 @@ describe('createResolveSessionKeyStep', () => {
         // messages are in the batch — repeating would over-consume the new-session budget and
         // regenerate the key. hasSeen and markSeen run once each for the whole batch.
         expect(mockSessionTracker.hasSeen).toHaveBeenCalledTimes(1)
-        expect(mockSessionFilter.handleNewSession).toHaveBeenCalledTimes(1)
+        expect(mockSessionFilter.handleNewSessions).toHaveBeenCalledTimes(1)
         expect(mockKeyStore.generateKey).toHaveBeenCalledTimes(1)
         expect(mockSessionTracker.markSeen).toHaveBeenCalledTimes(1)
         expect(mockSessionTracker.markSeen).toHaveBeenCalledWith(new SessionSet().add(1, 'a'))
@@ -166,16 +167,16 @@ describe('createResolveSessionKeyStep', () => {
     })
 
     it('rate-limits then blocks a brand-new session in the same batch, dropping it', async () => {
-        // A new session runs handleNewSession (which may block it via its own budget) before the
+        // New sessions run handleNewSessions (which may block them via their own budget) before the
         // block check — so a new session can be dropped by the block it just tripped. Reordering
-        // isBlocked before handleNewSession would regress this.
+        // isBlocked before handleNewSessions would regress this.
         mockSessionTracker.hasSeen.mockImplementation(mapAll(false))
         mockSessionFilter.isBlocked.mockImplementation(mapAll(true))
         const step = createStep()
 
         const results = await step([element(1, 'new-and-blocked', '30d', 2, 7)])
 
-        expect(mockSessionFilter.handleNewSession).toHaveBeenCalledWith(1, 'new-and-blocked')
+        expect(mockSessionFilter.handleNewSessions).toHaveBeenCalledWith(new SessionSet().add(1, 'new-and-blocked'))
         expect(results[0].type).toBe(PipelineResultType.DROP)
         // Still marked seen so it isn't rate-limited again next batch.
         expect(mockSessionTracker.markSeen).toHaveBeenCalledWith(new SessionSet().add(1, 'new-and-blocked'))

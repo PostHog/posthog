@@ -24,7 +24,7 @@ type SessionResolution = { sessionKey: SessionKey } | { drop: string }
  * per session even when the batch holds many of its messages):
  * - check whether the session has been seen before ({@link SessionTracker.hasSeen}) to learn whether
  *   it's new;
- * - for a new session, run the new-session rate limiter ({@link SessionFilter.handleNewSession}),
+ * - for a new session, run the new-session rate limiter ({@link SessionFilter.handleNewSessions}),
  *   which may block a team that's over its new-session budget — this consumes one token per new
  *   session, which is exactly why the work must be deduped and not repeated per message;
  * - drop the session if it's blocked;
@@ -68,8 +68,13 @@ export function createResolveSessionKeyStep<
 
         // Rate-limit the new sessions first (this may block some), before the batched block check —
         // so a session blocked by its own new-session budget in this batch is caught below.
-        const newSessions = [...toResolve].filter(({ teamId, sessionId }) => !seen.get(teamId, sessionId))
-        await Promise.all(newSessions.map(({ teamId, sessionId }) => sessionFilter.handleNewSession(teamId, sessionId)))
+        const newSessions = new SessionSet()
+        for (const { teamId, sessionId } of toResolve) {
+            if (!seen.get(teamId, sessionId)) {
+                newSessions.add(teamId, sessionId)
+            }
+        }
+        await sessionFilter.handleNewSessions(newSessions)
 
         // One batched Redis read tells us which sessions are blocked.
         const blocked = await sessionFilter.isBlocked(toResolve)

@@ -60,38 +60,36 @@ export class SessionFilter {
     }
 
     /**
-     * Block a session so all future messages are dropped.
+     * Block sessions so all their future messages are dropped, persisting the whole set to Redis in
+     * one pipelined round trip.
      *
-     * Fails open: if Redis is unavailable, the session won't be persisted
-     * to the blocklist but will still be blocked locally for this consumer.
+     * Fails open: if Redis is unavailable, the sessions aren't persisted to the blocklist but are
+     * still blocked locally for this consumer.
      *
-     * @param teamId - The team ID
-     * @param sessionId - The session ID to block
+     * @param sessions - The sessions to block
      */
-    private async blockSession(teamId: number, sessionId: string): Promise<void> {
-        const key = this.generateKey(teamId, sessionId)
-
-        // Add to local cache immediately for fast lookups
-        // This ensures blocking works even if Redis fails
-        this.localCache.set(key, true)
-        SessionBatchMetrics.incrementSessionsBlocked()
+    private async blockSessions(sessions: SessionSet): Promise<void> {
+        // Block locally first so it holds even if the Redis write fails.
+        for (const { teamId, sessionId } of sessions) {
+            this.localCache.set(this.generateKey(teamId, sessionId), true)
+            SessionBatchMetrics.incrementSessionsBlocked()
+        }
 
         const startTime = performance.now()
         let client
         try {
             client = await this.redisPool.acquire()
-            await client.set(key, '1', 'EX', SESSION_FILTER_REDIS_TTL_SECONDS)
+            const pipeline = client.pipeline()
+            for (const { teamId, sessionId } of sessions) {
+                pipeline.set(this.generateKey(teamId, sessionId), '1', 'EX', SESSION_FILTER_REDIS_TTL_SECONDS)
+            }
+            await pipeline.exec()
 
-            logger.info('session_filter_blocked_session', {
-                teamId,
-                sessionId,
-            })
+            logger.info('session_filter_blocked_sessions', { count: sessions.size })
         } catch (error) {
-            // Fail open: log the error but don't throw
-            // The session is still blocked locally via the cache
-            logger.error('session_filter_block_session_redis_error', {
-                teamId,
-                sessionId,
+            // Fail open: log the error but don't throw. The sessions are still blocked locally.
+            logger.error('session_filter_block_sessions_redis_error', {
+                count: sessions.size,
                 error: String(error),
             })
             SessionBatchMetrics.incrementSessionFilterRedisErrors()
@@ -169,30 +167,35 @@ export class SessionFilter {
     }
 
     /**
-     * Handle a new session by checking rate limits and blocking if necessary.
+     * Handle a batch of new sessions by checking each against its team's rate limit and blocking the
+     * ones that exceed it. The rate-limit check is an in-memory token bucket, so the only Redis cost is
+     * one pipelined write for whichever sessions get blocked. The caller should then check isBlocked()
+     * to determine whether to process each session's messages.
      *
-     * This method should be called for new sessions (as determined by SessionTracker).
-     * If the team has exceeded its rate limit and rate limiting is enabled,
-     * the session will be blocked. The caller should then check isBlocked() to
-     * determine whether to process the message.
+     * Should be called with the sessions the tracker reports as newly seen.
      *
-     * @param teamId - The team ID
-     * @param sessionId - The session ID
+     * @param sessions - The new sessions to rate-limit
      */
-    public async handleNewSession(teamId: number, sessionId: string): Promise<void> {
-        const isAllowed = this.sessionLimiter.consume(String(teamId), 1)
-
-        if (!isAllowed) {
+    public async handleNewSessions(sessions: SessionSet): Promise<void> {
+        const toBlock = new SessionSet()
+        for (const { teamId, sessionId } of sessions) {
+            const isAllowed = this.sessionLimiter.consume(String(teamId), 1)
+            if (isAllowed) {
+                continue
+            }
             logger.debug('session_filter_new_session_rate_limited', {
                 teamId,
                 sessionId,
                 blockingEnabled: this.blockingEnabled,
             })
             SessionBatchMetrics.incrementNewSessionsRateLimited(teamId)
-
             if (this.blockingEnabled && this.filterEnabled) {
-                await this.blockSession(teamId, sessionId)
+                toBlock.add(teamId, sessionId)
             }
+        }
+
+        if (toBlock.size > 0) {
+            await this.blockSessions(toBlock)
         }
     }
 
