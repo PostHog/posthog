@@ -62,8 +62,8 @@ def suppress_report_from_slack(
             attribution=attribution,
         )
 
-    # Close the linked implementation PR only after the suppression commits — a dismissed report
-    # means the fix isn't wanted. Deferred past the atomic block because it's an irreversible
-    # external side effect; kept best-effort so a GitHub failure never undoes the dismiss.
+    # Comment on and close the linked implementation PR only after the suppression commits — a
+    # dismissed report means the fix isn't wanted. Deferred past the atomic block because it's an
+    # irreversible external side effect; kept best-effort so a GitHub failure never undoes the dismiss.
     close_implementation_pr_for_report(team_id, str(report_id))
     return True

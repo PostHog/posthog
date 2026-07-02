@@ -1453,6 +1453,28 @@ class TestSignalReportSuppressionAPI(APIBaseTest):
         assert report.title == "Original title"
         assert report.summary == "Original summary"
 
+    def test_suppress_via_api_closes_linked_pr(self):
+        report = self._create_report()
+        with patch("products.signals.backend.views.close_implementation_pr_for_report") as mock_close:
+            response = self.client.post(
+                self._state_url(str(report.id)),
+                data=json.dumps({"state": "suppressed"}),
+                content_type="application/json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        mock_close.assert_called_once_with(self.team.id, str(report.id))
+
+    def test_restore_via_api_does_not_close_pr(self):
+        report = self._create_report(report_status=SignalReport.Status.SUPPRESSED)
+        with patch("products.signals.backend.views.close_implementation_pr_for_report") as mock_close:
+            response = self.client.post(
+                self._state_url(str(report.id)),
+                data=json.dumps({"state": "potential"}),
+                content_type="application/json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        mock_close.assert_not_called()
+
 
 class TestAvailableReviewersAPI(APIBaseTest):
     """GET signals/reports/available_reviewers/: returns every eligible org member (no cap), with server-side search."""
@@ -1587,6 +1609,14 @@ class TestSignalReportBulkStateAPI(APIBaseTest):
             )
             assert artefacts.count() == 1
             assert json.loads(artefacts.get().content)["reason"] == "wontfix_intentional"
+
+    def test_bulk_suppress_closes_each_reports_pr(self):
+        reports = [self._create_report() for _ in range(3)]
+        ids = [str(r.id) for r in reports]
+        with patch("products.signals.backend.views.close_implementation_pr_for_report") as mock_close:
+            response = self._post({"ids": ids, "state": "suppressed"})
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert {call.args for call in mock_close.call_args_list} == {(self.team.id, rid) for rid in ids}
 
     def test_bulk_skips_disallowed_transitions_but_processes_the_rest(self):
         ready = self._create_report(report_status=SignalReport.Status.READY)

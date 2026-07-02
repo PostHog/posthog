@@ -67,7 +67,10 @@ from products.signals.backend.artefact_schemas import (
     parse_artefact_content,
 )
 from products.signals.backend.facade.api import emit_signal
-from products.signals.backend.implementation_pr import fetch_implementation_pr_urls_for_reports
+from products.signals.backend.implementation_pr import (
+    close_implementation_pr_for_report,
+    fetch_implementation_pr_urls_for_reports,
+)
 from products.signals.backend.models import (
     ArtefactAttribution,
     AutonomyPriority,
@@ -1436,6 +1439,13 @@ class SignalReportViewSet(
                 # just-written reason/note instead of the previous (or empty) dismissal.
                 if hasattr(report, "prefetched_dismissal_artefacts"):
                     del report.prefetched_dismissal_artefacts
+
+        # A dismissal means the fix isn't wanted — close the linked implementation PR (with an
+        # explanatory comment). Runs after the commit since it's an irreversible external side
+        # effect, and is best-effort so a GitHub failure never fails the transition. Restore /
+        # snooze (target == "potential") is not a dismissal, so it's left out.
+        if target == "suppressed":
+            close_implementation_pr_for_report(self.team.id, str(report.id))
 
         return SignalReportBulkStateOutcome.TRANSITIONED
 

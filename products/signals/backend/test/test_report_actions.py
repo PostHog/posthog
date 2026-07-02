@@ -19,9 +19,10 @@ class TestSuppressReportFromSlack(BaseTest):
             total_weight=1.0,
         )
 
-    def test_dismiss_closes_linked_implementation_pr(self):
+    def test_dismiss_comments_on_and_closes_linked_implementation_pr(self):
         report = self._create_report()
         github = MagicMock()
+        github.comment_on_pull_request_from_url.return_value = {"success": True}
         github.close_pull_request_from_url.return_value = {"success": True, "number": 123, "state": "closed"}
 
         with (
@@ -39,6 +40,8 @@ class TestSuppressReportFromSlack(BaseTest):
         report.refresh_from_db()
         assert report.status == SignalReport.Status.SUPPRESSED
         mock_resolve.assert_called_once_with(self.team.id, "PostHog/posthog")
+        # An explanatory comment is left before the PR is closed.
+        assert github.comment_on_pull_request_from_url.call_args.args[0] == _PR_URL
         github.close_pull_request_from_url.assert_called_once_with(_PR_URL)
 
     def test_dismiss_already_suppressed_does_not_close_again(self):

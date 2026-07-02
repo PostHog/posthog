@@ -401,6 +401,51 @@ class GitHubIntegrationBase:
             logger.warning("GitHubIntegration: installation PATCH failed", url=url, exc_info=True)
             return None
 
+    def _installation_authenticated_post(
+        self,
+        url: str,
+        *,
+        endpoint: str,
+        json_body: Mapping[str, object],
+    ) -> requests.Response | None:
+        """POST with installation token; refreshes on expiry or 401."""
+        try:
+            if self.access_token_expired():
+                self.refresh_access_token()
+        except Exception:
+            logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
+
+        def send() -> requests.Response:
+            access_token = (self.integration.sensitive_config or {}).get("access_token")
+            return self._github_api_post(
+                url,
+                endpoint=endpoint,
+                headers={
+                    "Accept": "application/vnd.github+json",
+                    "Authorization": f"Bearer {access_token}",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
+                },
+                json_body=json_body,
+            )
+
+        try:
+            response = send()
+            if response.status_code == 401:
+                try:
+                    self.refresh_access_token()
+                except Exception as exc:
+                    logger.exception(
+                        "GitHubIntegration: token refresh after 401 failed",
+                        integration_id=self.integration.id,
+                        status_code=getattr(exc, "status_code", None),
+                    )
+                    return None
+                response = send()
+            return response
+        except Exception:
+            logger.warning("GitHubIntegration: installation POST failed", url=url, exc_info=True)
+            return None
+
     def installation_can_access_repository(self, repository: str) -> bool:
         """Whether this installation token can access the repo (``GET /repos/{owner}/{repo}`` returns 200)."""
         response = self._installation_authenticated_get(
@@ -648,6 +693,36 @@ class GitHubIntegrationBase:
             return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
         owner, repo, pr_number = parsed
         return self.close_pull_request(f"{owner}/{repo}", pr_number)
+
+    def comment_on_pull_request(self, repository: str, pr_number: int, body: str) -> dict[str, Any]:
+        """Post a comment on a pull request. ``repository`` is ``owner/repo`` or a bare repo.
+
+        PR comments use the issues endpoint (a PR is an issue for commenting purposes).
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+
+        response = self._installation_authenticated_post(
+            f"https://api.github.com/repos/{repo_path}/issues/{pr_number}/comments",
+            endpoint="/repos/{owner}/{repo}/issues/{issue_number}/comments",
+            json_body={"body": body},
+        )
+        if response is None:
+            return {"success": False, "error": "Network error commenting on pull request"}
+        if response.status_code != 201:
+            return {
+                "success": False,
+                "error": f"Failed to comment on pull request: {response.text}",
+                "status_code": response.status_code,
+            }
+        return {"success": True}
+
+    def comment_on_pull_request_from_url(self, pr_url: str, body: str) -> dict[str, Any]:
+        """Post a comment on a pull request by its HTML URL."""
+        parsed = self.parse_pull_request_url(pr_url)
+        if parsed is None:
+            return {"success": False, "error": f"Invalid GitHub pull request URL: {pr_url}"}
+        owner, repo, pr_number = parsed
+        return self.comment_on_pull_request(f"{owner}/{repo}", pr_number, body)
 
     def find_pull_request_urls_for_branch(self, repository: str, branch: str) -> list[str]:
         """Return the HTML URLs of open or closed PRs whose head is ``branch`` in ``repository``.

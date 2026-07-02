@@ -1138,6 +1138,26 @@ class TestGitHubIntegrationModel(BaseTest):
         assert result["success"] is False
         mock_patch.assert_not_called()
 
+    def test_comment_on_pull_request_posts_to_issues_endpoint(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=201)
+        with patch.object(github, "_installation_authenticated_post", return_value=mock_response) as mock_post:
+            result = github.comment_on_pull_request("PostHog/posthog", 123, "hello")
+        assert result == {"success": True}
+        # PR comments go through the issues endpoint, not /pulls.
+        assert mock_post.call_args.args[0] == "https://api.github.com/repos/PostHog/posthog/issues/123/comments"
+        assert mock_post.call_args.kwargs["json_body"] == {"body": "hello"}
+
+    def test_comment_on_pull_request_from_url_parses_and_posts(self):
+        integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
+        github = GitHubIntegration(integration)
+        mock_response = MagicMock(status_code=201)
+        with patch.object(github, "_installation_authenticated_post", return_value=mock_response) as mock_post:
+            result = github.comment_on_pull_request_from_url("https://github.com/PostHog/posthog/pull/42", "note")
+        assert result["success"] is True
+        assert mock_post.call_args.args[0] == "https://api.github.com/repos/PostHog/posthog/issues/42/comments"
+
     @parameterized.expand(
         [
             (
