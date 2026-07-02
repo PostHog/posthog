@@ -240,7 +240,11 @@ class Pipeline:
         while time.monotonic() < deadline:
             print(_warn(f"in-flight bot review ({', '.join(bots)}) — waiting {BOT_REVIEW_POLL_SECONDS}s"))
             time.sleep(BOT_REVIEW_POLL_SECONDS)
-            self._fetch()
+            try:
+                self._fetch()
+            except Exception as exc:
+                print(_warn(f"refetch failed ({exc}); treating as still in flight"))
+                continue
             bots = self._in_flight_bot_reviewers()
             if not bots:
                 return None
@@ -253,13 +257,13 @@ class Pipeline:
                 f"{bot_list} still has a review in flight (👀) after "
                 f"{BOT_REVIEW_WAIT_BUDGET_SECONDS // 60} minutes — not approving over an "
                 "unfinished review. The `stamphog` label has been kept; the review re-runs "
-                "on the next push, or re-apply the label once the reviewer finishes."
+                "on the next push, or remove and re-apply the label once the reviewer finishes."
             ),
             "risk": "unknown",
             "issues": [],
         }
         print(f"\n{_warn('WAIT')} — bot review still in flight ({bot_list}); label retained for retry")
-        self._capture_review_completed("PENDING", "WAIT")
+        self._capture_review_completed("SKIPPED", "WAIT")
         return self.final_verdict
 
     def _refuse_pending_migration_check(self) -> str:
