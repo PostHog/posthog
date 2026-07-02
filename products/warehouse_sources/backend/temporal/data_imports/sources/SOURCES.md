@@ -547,8 +547,6 @@ doesn't conflict with concurrent PRs.
 - onepagecrm
 - onesignal
 - open_data_dc
-- open_exchange_rates
-- openaq
 - openfda
 - opinion_stage
 - opsgenie
