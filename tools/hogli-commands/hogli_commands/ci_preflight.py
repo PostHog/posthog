@@ -4,22 +4,22 @@
 you what's broken on master, preflight stops you from being the one who breaks
 it. It scopes a curated set of checks to the files your branch actually touched,
 each mapped to a CI failure class we've seen take master down, plus an always-on
-branch-freshness check (a stale branch breaks CI on merge whatever the diff), and
-is advisory by default so it never blocks a push.
+branch-freshness check that flags concrete merge risks (textual conflicts,
+migration collisions, generated-file drift, CI changes on master).
 
     hogli ci:preflight            # report what your diff could break in CI
     hogli ci:preflight --fix      # auto-remediate what's safe, report the rest
-    hogli ci:preflight --strict   # exit non-zero on failed/advisory checks (for hooks/CI)
+    hogli ci:preflight --strict   # exit non-zero on failed checks (the pre-push hook)
     hogli ci:preflight --against origin/master   # diff against an explicit base
 
-``HOGLI_PREFLIGHT_DISABLED=1`` makes the command a no-op — the rollout/emergency
-kill switch for the definition-of-done requirement (still emits a run event so
-opt-out prevalence is measurable).
+``HOGLI_PREFLIGHT_DISABLED=1`` makes the command (and thus the pre-push hook) a
+no-op — the rollout/emergency kill switch (still emits a run event so opt-out
+prevalence is measurable).
 
 Checks declare what they need (``node`` modules, the dev ``stack``) and skip with
 a note when it's absent, so the no-dependency checks always run — even on a bare
-checkout or inside an agent sandbox. The agent loop is expected to run this with
-``--fix`` before declaring a task done; see the ci-preflight skill.
+checkout or inside an agent sandbox. The pre-push hook runs ``--strict`` (failures
+block, advisories never do); the fix loop is ``--fix`` — see the running-ci-preflight skill.
 """
 
 from __future__ import annotations
@@ -40,7 +40,10 @@ from hogli import telemetry
 from hogli.hooks import telemetry_property_hooks
 from hogli.manifest import REPO_ROOT
 
-from hogli_commands.build import TRIGGERS as BUILD_TRIGGERS
+from hogli_commands.build import (
+    TRIGGERS as BUILD_TRIGGERS,
+    _match_commands,
+)
 from hogli_commands.change_detection import changed_files, matches_globs
 
 Requirement = Literal["node", "stack", "clickhouse"]
@@ -75,6 +78,13 @@ DIFF_CHECKS: list[DiffCheck] = [
         verify=["pnpm", "install", "--frozen-lockfile", "--lockfile-only"],
         fix=["pnpm", "install", "--no-frozen-lockfile"],
         requires=("node",),
+    ),
+    DiffCheck(
+        key="uv-lock",
+        label="uv.lock out of sync with pyproject.toml (blocks Python CI)",
+        triggers=["pyproject.toml", "*/pyproject.toml", "uv.lock"],
+        verify=["uv", "lock", "--check"],
+        fix=["uv", "lock"],
     ),
     DiffCheck(
         key="ruff-lint",
@@ -200,22 +210,28 @@ def _run_diff_check(chk: DiffCheck, do_fix: bool) -> tuple[Status, str]:
     return "fail", " · ".join(lines[:3]) if lines else f"exit {result.returncode}"
 
 
-# Branch-freshness thresholds. Aggressive on purpose: master moves hundreds of
-# commits/day, so a stale branch hits merge conflicts and generated-file drift.
-# Advisory only (never auto-merged). Env-tunable; calibrate from telemetry.
+# Branch-freshness backstop thresholds. The risk signals in ``_staleness_risks``
+# are the primary advisory trigger (a mere behind-count fires on every branch at
+# master's velocity and trains readers to ignore it); these only nudge a branch so
+# old that generic drift is likely. Advisory only (never auto-merged). Env-tunable.
 _MASTER_REF = "origin/master"
-_STALE_COMMITS_DEFAULT = 10
-_STALE_DAYS_DEFAULT = 1
+_STALE_COMMITS_DEFAULT = 250
+_STALE_DAYS_DEFAULT = 7
 _FETCH_TTL_SECONDS = 600  # skip re-fetching origin/master if refreshed this recently
 
 
-def _git(*args: str, timeout: float = 5.0) -> str | None:
-    """Run a git command in the repo, returning trimmed stdout or None on any failure."""
+def _git_run(*args: str, timeout: float = 15.0) -> subprocess.CompletedProcess[str] | None:
+    """Run a git command in the repo; None on OS error or timeout."""
     try:
-        result = subprocess.run(["git", "-C", str(REPO_ROOT), *args], capture_output=True, text=True, timeout=timeout)
+        return subprocess.run(["git", "-C", str(REPO_ROOT), *args], capture_output=True, text=True, timeout=timeout)
     except (OSError, subprocess.SubprocessError):
         return None
-    return result.stdout.strip() if result.returncode == 0 else None
+
+
+def _git(*args: str, timeout: float = 5.0) -> str | None:
+    """Like ``_git_run`` but collapses to trimmed stdout, None on any failure."""
+    result = _git_run(*args, timeout=timeout)
+    return result.stdout.strip() if result is not None and result.returncode == 0 else None
 
 
 def _fetch_marker() -> Path | None:
@@ -261,9 +277,51 @@ def _commit_age_days(ref: str) -> int | None:
     return max(0, (datetime.now(when.tzinfo) - when).days)
 
 
-def _staleness() -> tuple[Status, str, dict[str, Any]]:
-    """How far the branch has drifted from master, independent of the diff. On
-    squash-merge master, commits behind ≈ PRs merged since the branch last synced.
+def _merge_conflicts() -> list[str] | None:
+    """Files that would conflict if master were merged right now, computed without
+    touching the working tree (``git merge-tree``, git >= 2.38). None = can't tell."""
+    result = _git_run("merge-tree", "--write-tree", "--name-only", "HEAD", _MASTER_REF)
+    if result is None or result.returncode not in (0, 1):
+        return None
+    # returncode 1 = conflicts; first output line is the merged tree OID.
+    return [line for line in result.stdout.splitlines()[1:] if line] if result.returncode == 1 else []
+
+
+def _changed_on_master(merge_base: str) -> list[str]:
+    result = _git_run("diff", "--name-only", "-z", f"{merge_base}..{_MASTER_REF}")
+    if result is None or result.returncode != 0:
+        return []
+    return [path for path in result.stdout.split("\0") if path]
+
+
+_MIGRATION_GLOB = ["*/migrations/*.py"]
+
+
+def _staleness_risks(branch_files: list[str], master_files: list[str], conflicts: list[str] | None) -> list[str]:
+    """Concrete ways merging master late will break this branch — each a failure
+    class that recurs on unrebased PRs: textual conflicts, migration collisions,
+    generated-file drift, and CI workflows changing underneath the branch."""
+    risks: list[str] = []
+    if conflicts:
+        risks.append(f"merging master conflicts in {len(conflicts)} file(s) (e.g. {conflicts[0]})")
+    branch_apps = {str(Path(f).parent) for f in branch_files if matches_globs(f, _MIGRATION_GLOB)}
+    master_apps = {str(Path(f).parent) for f in master_files if matches_globs(f, _MIGRATION_GLOB)}
+    collisions = sorted(branch_apps & master_apps)
+    if collisions:
+        risks.append(f"migrations added on both sides in {', '.join(collisions)}")
+    drift = sorted(set(_match_commands(branch_files)) & set(_match_commands(master_files)))
+    if drift:
+        risks.append(f"master also changed {', '.join(drift)} inputs — regenerate after merging")
+    workflows = sum(f.startswith(".github/workflows/") for f in master_files)
+    if workflows:
+        risks.append(f"CI workflows changed on master ({workflows} file(s))")
+    return risks
+
+
+def _staleness(branch_files: list[str]) -> tuple[Status, str, dict[str, Any]]:
+    """Whether merging master *now* would break this branch. Risk signals are the
+    advisory trigger; a raw behind-count only kicks in past the generous backstop
+    thresholds. On squash-merge master, commits behind ≈ PRs merged.
     Returns (status, detail, telemetry props)."""
     merge_base = _git("merge-base", "HEAD", _MASTER_REF)
     if not merge_base:
@@ -279,19 +337,25 @@ def _staleness() -> tuple[Status, str, dict[str, Any]]:
         return "pass", "even with master", {"stale": False, "behind_commits": 0, "branch_age_days": 0}
 
     age_days = _commit_age_days(merge_base)  # merge-base age ≈ time since the branch last synced with master
-    props: dict[str, Any] = {"stale": False, "behind_commits": behind, "branch_age_days": age_days}
-
-    reasons: list[str] = []
+    conflicts = _merge_conflicts()
+    risks = _staleness_risks(branch_files, _changed_on_master(merge_base), conflicts)
     if behind >= _env_int("HOGLI_PREFLIGHT_STALE_COMMITS", _STALE_COMMITS_DEFAULT):
-        reasons.append(f"{behind} commits (≈ PRs) behind")
-    if age_days is not None and age_days >= _env_int("HOGLI_PREFLIGHT_STALE_DAYS", _STALE_DAYS_DEFAULT):
-        reasons.append(f"last synced {age_days}d ago")
-    if reasons:
-        props["stale"] = True
-        return "advisory", f"{' · '.join(reasons)} — merge master in: git merge {_MASTER_REF}", props
+        risks.append(f"{behind} commits (≈ PRs) behind")
+    elif age_days is not None and age_days >= _env_int("HOGLI_PREFLIGHT_STALE_DAYS", _STALE_DAYS_DEFAULT):
+        risks.append(f"last synced {age_days}d ago")
+
+    props: dict[str, Any] = {
+        "stale": bool(risks),
+        "behind_commits": behind,
+        "branch_age_days": age_days,
+        "merge_conflict_files": len(conflicts) if conflicts is not None else None,
+        "staleness_risks": len(risks),
+    }
+    if risks:
+        return "advisory", f"{' · '.join(risks)} — merge master in: git merge {_MASTER_REF}", props
 
     synced = f", synced {age_days}d ago" if age_days is not None else ""
-    return "pass", f"{behind} commits behind master{synced}", props
+    return "pass", f"{behind} commits behind master{synced} — no conflict or drift risk detected", props
 
 
 _ICON: dict[Status, str] = {"pass": "✓", "fail": "✗", "advisory": "→", "skipped": "·"}
@@ -313,6 +377,8 @@ def _emit_telemetry(summary: dict[str, Any]) -> None:
         "stale",
         "behind_commits",
         "branch_age_days",
+        "merge_conflict_files",
+        "staleness_risks",
     )
     props: dict[str, Any] = {k: summary[k] for k in keys if k in summary}
     props["results"] = {r["check"]: r["status"] for r in summary["results"]}
@@ -335,7 +401,7 @@ def _emit_telemetry(summary: dict[str, Any]) -> None:
 @click.option(
     "--strict",
     is_flag=True,
-    help="Exit non-zero on any failed or advisory check (staleness stays advisory) — for hooks/CI.",
+    help="Exit non-zero on any failed check (advisories never block) — for the pre-push hook.",
 )
 @click.option("--against", default=None, help="Diff against this base ref instead of the branch default.")
 @click.option("--json", "as_json", is_flag=True, help="Emit the result summary as JSON.")
@@ -345,7 +411,11 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
         if as_json:
             click.echo(json.dumps(disabled_summary))
         else:
-            click.secho("  ci:preflight disabled (HOGLI_PREFLIGHT_DISABLED) — CI remains the gate.", fg="yellow")
+            click.secho(
+                "  ci:preflight disabled by operator (HOGLI_PREFLIGHT_DISABLED) — intentional; "
+                "do not unset. Nothing to check, CI remains the gate.",
+                fg="yellow",
+            )
         _emit_telemetry(disabled_summary)
         return
 
@@ -370,7 +440,7 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
     # Always-on branch-health check, independent of which files changed: a stale
     # branch breaks CI on merge no matter what the diff touches. Advisory only —
     # it never counts toward `failures` (a merge is the human/agent's call).
-    stale_status, stale_detail, stale_props = _staleness()
+    stale_status, stale_detail, stale_props = _staleness(files)
     results.append({"check": "staleness", "status": stale_status, "files": 0, "detail": stale_detail})
     if not as_json:
         click.secho(f"   {_ICON[stale_status]} [staleness] branch freshness vs master", fg=_COLOR[stale_status])
@@ -407,7 +477,8 @@ def ci_preflight(do_fix: bool, strict: bool, against: str | None, as_json: bool)
 
     _emit_telemetry(summary)
 
-    # Advisory by default — only --strict turns findings (fails and diff-check
-    # advisories; never staleness) into a non-zero exit so a push or CI gate can
-    # act on them. SystemExit so the telemetry wrapper records it.
-    raise SystemExit(1 if (strict and (failures or advisories)) else 0)
+    # Advisory by default — --strict turns verified *failures* into a non-zero exit
+    # for the pre-push hook. Advisories never block: guidance-only checks can't tell
+    # done from not-done, so blocking on them would false-block every matching push.
+    # SystemExit so the telemetry wrapper records it.
+    raise SystemExit(1 if (strict and failures) else 0)
