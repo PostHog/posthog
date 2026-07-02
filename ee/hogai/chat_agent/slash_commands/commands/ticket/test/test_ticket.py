@@ -40,9 +40,9 @@ class TestTicketCommand(BaseTest):
             patch(f"{COMMAND_MODULE}.BillingManager") as mock_manager,
         ):
             if isinstance(billing_response, Exception):
-                mock_manager.return_value.get_billing.side_effect = billing_response
+                mock_manager.return_value._get_billing.side_effect = billing_response
             else:
-                mock_manager.return_value.get_billing.return_value = billing_response
+                mock_manager.return_value._get_billing.return_value = billing_response
             result = await self.command.execute(self._config(), state)
         message = result.messages[0]
         assert isinstance(message, AssistantMessage)
@@ -60,24 +60,24 @@ class TestTicketCommand(BaseTest):
             ]
         )
 
-        message = await self._execute_with_billing({"subscription_level": "paid"}, state=state)
+        message = await self._execute_with_billing({"customer": {"subscription_level": "paid"}}, state=state)
 
         self.assertEqual(message.content, "Summary of the conversation")
         mock_summarize.assert_called_once()
 
     async def test_execute_first_message_prompts_for_input(self):
-        message = await self._execute_with_billing({"subscription_level": "paid"})
+        message = await self._execute_with_billing({"customer": {"subscription_level": "paid"}})
 
         self.assertIn(DESCRIBE_ISSUE_MARKER, message.content.lower())
 
     @parameterized.expand(
         [
-            ("paid_subscription", {"subscription_level": "paid"}, True),
-            ("custom_subscription", {"subscription_level": "custom"}, True),
-            ("active_trial", {"subscription_level": "free", "trial": {"status": "active"}}, True),
-            ("free_plan", {"subscription_level": "free"}, False),
-            ("expired_trial", {"subscription_level": "free", "trial": {"status": "expired"}}, False),
-            ("no_billing_info", {}, False),
+            ("paid_subscription", {"customer": {"subscription_level": "paid"}}, True),
+            ("custom_subscription", {"customer": {"subscription_level": "custom"}}, True),
+            ("active_trial", {"customer": {"subscription_level": "free", "trial": {"status": "active"}}}, True),
+            ("free_plan", {"customer": {"subscription_level": "free"}}, False),
+            ("expired_trial", {"customer": {"subscription_level": "free", "trial": {"status": "expired"}}}, False),
+            ("no_customer_info", {}, False),
         ]
     )
     async def test_eligibility_follows_billing_subscription(self, _name, billing_response, allowed):
@@ -101,7 +101,7 @@ class TestTicketCommand(BaseTest):
         ):
             result = await self.command.execute(self._config(), state)
 
-        mock_manager.return_value.get_billing.assert_not_called()
+        mock_manager.assert_not_called()
         message = result.messages[0]
         assert isinstance(message, AssistantMessage)
         assert isinstance(message.content, str)

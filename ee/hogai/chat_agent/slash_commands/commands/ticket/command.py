@@ -1,4 +1,5 @@
 from collections.abc import Sequence
+from typing import Any, cast
 from uuid import uuid4
 
 from django.conf import settings
@@ -63,12 +64,16 @@ class TicketCommand(SlashCommand):
 
         def check() -> bool:
             license = get_cached_instance_license()
-            if not license:
+            if not license or not license.is_v2_license:
                 return False
-            billing = BillingManager(license, self._user).get_billing(self._team.organization)
-            if billing.get("subscription_level") in ("paid", "custom"):
+            # `_get_billing` is the raw read-only fetch. The public `get_billing` also syncs
+            # license/org rows to the DB, and a transient failure in those writes must not
+            # flip an eligible customer to "denied".
+            billing_status = BillingManager(license, self._user)._get_billing(self._team.organization)
+            customer = cast(dict[str, Any], billing_status.get("customer") or {})
+            if customer.get("subscription_level") in ("paid", "custom"):
                 return True
-            trial = billing.get("trial")
+            trial = customer.get("trial")
             return bool(trial and trial.get("status") == "active")
 
         try:
