@@ -99,8 +99,7 @@ class ProductBriefSerializer(serializers.ModelSerializer):
 
 class ProductBriefListSerializer(ProductBriefSerializer):
     # The list view stays light: full section markdown is only shipped on retrieve.
-    sections = None
-
+    # Omitting "sections" from fields is sufficient — DRF drops declared fields not listed there.
     class Meta(ProductBriefSerializer.Meta):
         fields = [f for f in ProductBriefSerializer.Meta.fields if f != "sections"]
         read_only_fields = fields
@@ -206,5 +205,11 @@ class ProductBriefViewSet(TeamAndOrgViewSetMixin, viewsets.ReadOnlyModelViewSet)
         except WorkflowAlreadyStartedError:
             brief.delete()
             return Response({"detail": "Brief generation already in progress"}, status=status.HTTP_409_CONFLICT)
+        except Exception as exc:
+            # Dispatch never reached Temporal — mark the row FAILED so it can't strand in GENERATING.
+            ProductBrief.objects.for_team(self.team_id).filter(id=brief.id).update(
+                status=ProductBrief.Status.FAILED, error=str(exc)
+            )
+            raise
 
         return Response(ProductBriefSerializer(brief).data, status=status.HTTP_201_CREATED)

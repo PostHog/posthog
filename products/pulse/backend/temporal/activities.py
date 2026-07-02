@@ -78,7 +78,7 @@ async def synthesize_brief_activity(inputs: SynthesizeActivityInputs) -> str:
 
 @temporalio.activity.defn
 async def mark_brief_failed_activity(inputs: MarkBriefFailedInputs) -> None:
-    logger.error("pulse_brief_generation_failed", team_id=inputs.team_id, brief_id=inputs.brief_id)
+    logger.error("pulse_brief_generation_failed", team_id=inputs.team_id, brief_id=inputs.brief_id, error=inputs.error)
     await database_sync_to_async(_mark_brief_failed, thread_sensitive=False)(
         inputs.team_id, inputs.brief_id, inputs.error
     )

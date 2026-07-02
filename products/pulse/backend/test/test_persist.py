@@ -78,3 +78,8 @@ class TestPersistBriefOutput(BaseTest):
         brief = persist_brief_output(brief=self._brief(), out=BriefOut(sections=[], opportunities=[]), items=[])
         assert brief.status == ProductBrief.Status.QUIET
         assert brief.sources_used == []
+
+    def test_opportunity_only_output_marks_ready(self) -> None:
+        out = BriefOut(sections=[], opportunities=_out().opportunities)
+        brief = persist_brief_output(brief=self._brief(), out=out, items=[_item()])
+        assert brief.status == ProductBrief.Status.READY

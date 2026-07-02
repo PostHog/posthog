@@ -11,7 +11,7 @@ from posthog.models.team import Team
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.product_analytics.backend.models.insight import Insight
 from products.pulse.backend.models import BriefConfig
-from products.pulse.backend.sources.base import SourceItem
+from products.pulse.backend.sources.base import EvidenceRef, SourceItem
 
 logger = structlog.get_logger(__name__)
 
@@ -89,6 +89,8 @@ class AnchoredInsightsSource:
             if not isinstance(series_result, dict) or "data" not in series_result:
                 continue  # non-trends result shape — skip
             values = [float(v) for v in series_result["data"][-2 * period_days :]]
+            if len(values) % 2:
+                values = values[1:]  # drop the oldest sample so the two windows compare equal lengths
             if len(values) < 2:
                 continue
             half = len(values) // 2
@@ -112,7 +114,7 @@ class AnchoredInsightsSource:
                         "current_total": movement.current_total,
                         "period_days": period_days,
                     },
-                    evidence=[{"type": "insight", "ref": insight.short_id, "label": label}],
+                    evidence=[EvidenceRef(type="insight", ref=insight.short_id, label=label)],
                     fingerprint_hint=f"{insight.short_id}:{series_index}",
                 )
             )

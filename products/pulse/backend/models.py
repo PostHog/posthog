@@ -44,7 +44,8 @@ class ProductBrief(PulseModel):
         ON_DEMAND = "on_demand"
         SCHEDULED = "scheduled"
 
-    config = models.ForeignKey(BriefConfig, on_delete=models.CASCADE, null=True, blank=True)
+    # SET_NULL: deleting a config must not destroy the brief history generated from it.
+    config = models.ForeignKey(BriefConfig, on_delete=models.SET_NULL, null=True, blank=True)
     status = models.CharField(max_length=20, choices=Status.choices, default=Status.GENERATING)
     trigger = models.CharField(max_length=20, choices=Trigger.choices)
     period_days = models.IntegerField(default=7)
@@ -83,4 +84,6 @@ class Opportunity(PulseModel):
     feedback = models.JSONField(default=dict)
 
     class Meta(PulseModel.Meta):
-        indexes = [models.Index(fields=["team", "fingerprint"], name="pulse_opp_team_fp_idx")]
+        # Dedup race guard: concurrent persists can't double-insert a fingerprint (persist
+        # bulk_creates with ignore_conflicts). The unique index doubles as the lookup index.
+        constraints = [models.UniqueConstraint(fields=["team", "fingerprint"], name="pulse_opp_team_fp_unique")]

@@ -57,6 +57,8 @@ async def synthesize_brief(
     llm = MaxChatOpenAI(
         model=SYNTHESIS_MODEL,
         timeout=_LLM_TIMEOUT_SECONDS,
+        # Worst case 2 attempts x 120s stays under the 5-minute synthesize activity timeout.
+        max_retries=1,
         user=user,
         team=team,
         billable=True,
@@ -65,6 +67,7 @@ async def synthesize_brief(
     # database_sync_to_async (not to_thread): MaxChatOpenAI reads billing/quota from the ORM
     result = await database_sync_to_async(llm.invoke, thread_sensitive=False)([("system", rendered)])
     if not isinstance(result, BriefOut):
+        # Raise so the workflow marks the brief FAILED — a malformed output is not a quiet week.
         logger.error("pulse_synthesize_unexpected_output", team_id=team.id, output_type=type(result).__name__)
-        return BriefOut(sections=[], opportunities=[])
+        raise ValueError(f"LLM returned unexpected structured output type: {type(result).__name__}")
     return apply_say_less_gate(result)

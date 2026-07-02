@@ -1,3 +1,4 @@
+import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -9,6 +10,7 @@ from products.pulse.backend.generation.synthesize import (
     apply_say_less_gate,
     synthesize_brief,
 )
+from products.pulse.backend.sources.base import EvidenceRef, SourceItem
 
 
 def _section(confidence: float) -> BriefSectionOut:
@@ -67,3 +69,18 @@ class TestSayLessGate:
         assert out.sections == []
         assert out.opportunities == []
         mock_llm.assert_not_called()
+
+    @patch("products.pulse.backend.generation.synthesize.MaxChatOpenAI")
+    async def test_malformed_llm_output_raises(self, mock_llm: MagicMock) -> None:
+        mock_llm.return_value.with_structured_output.return_value.invoke.return_value = {"not": "a BriefOut"}
+        item = SourceItem(
+            source="anchored_insights",
+            kind="movement",
+            title="t",
+            description="d",
+            numbers={"pct_change": -30.0},
+            evidence=[EvidenceRef(type="insight", ref="abc", label="")],
+            fingerprint_hint="abc:0",
+        )
+        with pytest.raises(ValueError):
+            await synthesize_brief(team=MagicMock(), user=MagicMock(), config=None, items=[item], period_days=7)
