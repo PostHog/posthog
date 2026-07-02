@@ -65,7 +65,8 @@ class ExternalDataSource(ModelActivityMixin, CreatedMetaFields, UpdatedMetaField
     created_via = models.CharField(max_length=20, choices=CreatedVia, null=True, blank=True)
     access_method = models.CharField(max_length=32, choices=AccessMethod, default=AccessMethod.WAREHOUSE)
     # Lets a synced (warehouse) source also be live-queryable via direct connection; ignored for pure direct sources.
-    direct_query_enabled = models.BooleanField(default=True)
+    # Off by default — a user opts a synced source in explicitly before it becomes live-queryable.
+    direct_query_enabled = models.BooleanField(default=False)
 
     # DEPRECATED: Check inside `revenue_analytics_config` instead
     revenue_analytics_enabled = models.BooleanField(default=False, blank=True, null=True)

@@ -399,7 +399,7 @@ class TestExternalDataSource(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("omitted_defaults_true", {}, True),
+            ("omitted_defaults_false", {}, False),
             ("explicit_true", {"direct_query_enabled": True}, True),
             ("explicit_false", {"direct_query_enabled": False}, False),
         ]
@@ -483,17 +483,17 @@ class TestExternalDataSource(APIBaseTest):
 
     def test_patch_external_data_source_toggles_direct_query_enabled(self):
         source = self._create_external_data_source()
-        assert source.direct_query_enabled is True
+        assert source.direct_query_enabled is False
 
         response = self.client.patch(
             f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
-            data={"direct_query_enabled": False},
+            data={"direct_query_enabled": True},
         )
 
         assert response.status_code == 200, response.json()
-        assert response.json()["direct_query_enabled"] is False
+        assert response.json()["direct_query_enabled"] is True
         source.refresh_from_db()
-        assert source.direct_query_enabled is False
+        assert source.direct_query_enabled is True
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.postgres.source.PostgresSource.validate_credentials_for_access_method",

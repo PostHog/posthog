@@ -986,8 +986,10 @@ class Database(BaseModel):
             # Function-local: keeps the direct-SQL driver imports off the django.setup() path.
             from posthog.hogql.direct_sql.capability import is_direct_capable  # noqa: PLC0415
 
+            connection_id = self._connection_id
+            assert connection_id is not None  # guaranteed by _is_direct_query()
             dual_source = (
-                ExternalDataSource.objects.filter(team_id=context.team_id, id=self._connection_id)
+                ExternalDataSource.objects.filter(team_id=context.team_id, id=connection_id)
                 .exclude(deleted=True)
                 .select_related(None)
                 .defer("job_inputs")
@@ -1011,7 +1013,7 @@ class Database(BaseModel):
                 )
                 schema_rows = (
                     ExternalDataSchema.objects.filter(
-                        team_id=context.team_id, source_id=self._connection_id, should_sync=True
+                        team_id=context.team_id, source_id=connection_id, should_sync=True
                     )
                     .exclude(deleted=True)
                     .order_by("name")
@@ -1026,8 +1028,6 @@ class Database(BaseModel):
                         table = self.get_table(table_key)
                     except QueryError:
                         # Not built for this connection (unusable columns, or access-denied).
-                        continue
-                    if not isinstance(table, Table):
                         continue
 
                     fields = serialize_fields(table.fields, context, table_key.split("."), table_type="external")

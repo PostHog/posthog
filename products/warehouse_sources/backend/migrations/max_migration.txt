@@ -1,1 +1,1 @@
-0054_custom_oauth2_integration
+0055_direct_query_enabled_default_false

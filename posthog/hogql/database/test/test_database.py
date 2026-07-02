@@ -1198,6 +1198,7 @@ class TestDatabase(BaseTest, QueryMatchingTest):
         # Only the virtual entries serialize in dual mode — no posthog/system tables, no S3 rows.
         assert list(serialized.keys()) == ["public.users"]
         entry = serialized["public.users"]
+        assert isinstance(entry, DatabaseSchemaDataWarehouseTable)
         assert entry.id == str(schema_row.id)
         assert entry.format is None
         assert entry.url_pattern is None
