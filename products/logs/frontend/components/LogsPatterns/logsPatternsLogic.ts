@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, key, listeners, path, props, selectors } from 'kea'
+import { afterMount, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -22,6 +22,7 @@ const EMPTY_RESPONSE: _LogsPatternsResponseApi = {
     scanned_count: 0,
     total_count: 0,
     sampled: false,
+    sample_coverage_pct: 100,
 }
 
 // Keyed by the Viewer's `id`: the logic mounts only while the Patterns mode is active (the
@@ -76,6 +77,19 @@ export const logsPatternsLogic = kea<logsPatternsLogicType>([
             },
         ],
     })),
+
+    // A failed mine (e.g. the sampling query exceeding its execution budget) must surface as
+    // an error, not render as "no patterns found" — that would misrepresent the data.
+    reducers({
+        patternsError: [
+            null as string | null,
+            {
+                loadPatterns: () => null,
+                loadPatternsSuccess: () => null,
+                loadPatternsFailure: (_, { error }) => error ?? 'Pattern analysis failed',
+            },
+        ],
+    }),
 
     selectors({
         patterns: [
