@@ -70,6 +70,19 @@ class TestAlertRealTimeInterval(APIBaseTest):
         assert response.status_code == status.HTTP_201_CREATED, response.content
         assert response.json()["calculation_interval"] == AlertCalculationInterval.REAL_TIME
 
+    def test_patch_real_time_succeeds_with_entitlement(self) -> None:
+        self._enable_real_time_alerts()
+        create_response = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request())
+        alert_id = create_response.json()["id"]
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{alert_id}",
+            {"name": "updated real time alert"},
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        assert response.json()["name"] == "updated real time alert"
+        assert response.json()["calculation_interval"] == AlertCalculationInterval.REAL_TIME
+
     def test_patch_existing_real_time_rejected_after_entitlement_removed(self) -> None:
         self._enable_real_time_alerts()
         create_response = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request())
