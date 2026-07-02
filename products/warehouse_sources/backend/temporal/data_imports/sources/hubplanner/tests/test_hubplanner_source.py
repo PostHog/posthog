@@ -109,7 +109,6 @@ class TestHubplannerSource:
         inputs.schema_name = "bookings"
         inputs.should_use_incremental_field = True
         inputs.db_incremental_field_last_value = "2026-01-01"
-        inputs.incremental_field = "updatedDate"
 
         with patch.object(source_module, "hubplanner_source") as mock_source:
             self.source.source_for_pipeline(config, manager, inputs)

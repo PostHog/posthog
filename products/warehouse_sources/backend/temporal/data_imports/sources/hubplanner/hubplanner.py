@@ -71,7 +71,7 @@ def validate_credentials(api_key: str) -> bool:
     # per-resource scoped, so a reachable /project confirms the whole token).
     url = _build_url(f"{HUBPLANNER_BASE_URL}/project", {"page": 0, "limit": 1})
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
+        response = make_tracked_session(redact_values=(api_key,)).get(url, headers=_get_headers(api_key), timeout=10)
         return response.status_code == 200
     except Exception:
         return False
@@ -158,12 +158,11 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[HubPlannerResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Any = None,
-    incremental_field: str | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = HUBPLANNER_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
     # One session reused across every page so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    session = make_tracked_session(redact_values=(api_key,))
 
     method, path, body, sort_field = _build_request_plan(
         config, should_use_incremental_field, db_incremental_field_last_value
@@ -201,7 +200,6 @@ def hubplanner_source(
     resumable_source_manager: ResumableSourceManager[HubPlannerResumeConfig],
     should_use_incremental_field: bool = False,
     db_incremental_field_last_value: Optional[Any] = None,
-    incremental_field: str | None = None,
 ) -> SourceResponse:
     config = HUBPLANNER_ENDPOINTS[endpoint]
 
@@ -214,7 +212,6 @@ def hubplanner_source(
             resumable_source_manager=resumable_source_manager,
             should_use_incremental_field=should_use_incremental_field,
             db_incremental_field_last_value=db_incremental_field_last_value,
-            incremental_field=incremental_field,
         ),
         primary_keys=config.primary_keys,
         partition_count=1,

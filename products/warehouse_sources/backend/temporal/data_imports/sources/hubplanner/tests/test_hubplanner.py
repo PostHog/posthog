@@ -270,3 +270,29 @@ class TestValidateCredentials:
         session.get.side_effect = requests.ConnectionError("boom")
         with patch.object(hubplanner, "make_tracked_session", return_value=session):
             assert validate_credentials("some-key") is False
+
+
+class TestApiKeyRedaction:
+    # Hub Planner echoes the API key back in auth-error bodies, so the tracked transport must be
+    # given the key as a redact value on every path — otherwise it can leak into captured samples.
+    def test_validate_credentials_redacts_api_key(self) -> None:
+        session = MagicMock()
+        session.get.return_value = MagicMock(status_code=200)
+        with patch.object(hubplanner, "make_tracked_session", return_value=session) as factory:
+            validate_credentials("my-secret-key")
+        assert factory.call_args.kwargs["redact_values"] == ("my-secret-key",)
+
+    def test_get_rows_redacts_api_key(self) -> None:
+        with (
+            patch.object(hubplanner, "_fetch_page", return_value=[]),
+            patch.object(hubplanner, "make_tracked_session", return_value=MagicMock()) as factory,
+        ):
+            list(
+                get_rows(
+                    api_key="my-secret-key",
+                    endpoint="projects",
+                    logger=MagicMock(),
+                    resumable_source_manager=MagicMock(),
+                )
+            )
+        assert factory.call_args.kwargs["redact_values"] == ("my-secret-key",)
