@@ -7,7 +7,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { LLMTraceEvent } from '~/queries/schema/schema-general'
 
-import { TraceBarKind, buildTraceTimeline } from './buildTraceTimeline'
+import { TraceBarKind, TraceTimelineBar, buildTraceTimeline } from './buildTraceTimeline'
 
 // Same hues as the tree's EventTypeTag: generation green, embedding amber,
 // span neutral, trace purple. Highlight fills keep the labels inside readable.
@@ -73,7 +73,27 @@ export function TraceTimeline({
 }): JSX.Element | null {
     const [collapsed, setCollapsed] = useState(false)
     const { bars, totalMs, laneCount } = useMemo(() => buildTraceTimeline(events), [events])
-    const barById = useMemo(() => new Map(bars.map((b) => [b.id, b])), [bars])
+    // One └ hook per parent per row, anchored at that row's first child — a row
+    // of siblings shares a single connector instead of one hook per bar.
+    const elbows = useMemo(() => {
+        const barById = new Map(bars.map((b) => [b.id, b]))
+        const seen = new Set<string>()
+        const result: { child: TraceTimelineBar; parent: TraceTimelineBar }[] = []
+        // bars are sorted by lane then startMs, so the first hit per key is the
+        // row's earliest child.
+        for (const bar of bars) {
+            const parent = bar.parentEventId ? barById.get(bar.parentEventId) : undefined
+            if (!parent || parent.lane >= bar.lane) {
+                continue
+            }
+            const key = `${bar.parentEventId}:${bar.lane}`
+            if (!seen.has(key)) {
+                seen.add(key)
+                result.push({ child: bar, parent })
+            }
+        }
+        return result
+    }, [bars])
 
     // A single bar spanning the full width says nothing — only render when the
     // timeline can actually show how the trace's latency breaks down.
@@ -155,24 +175,20 @@ export function TraceTimeline({
                                     style={{ left: `${pct(tick)}%` }}
                                 />
                             ))}
-                            {bars.map((bar) => {
-                                const parent = bar.parentEventId ? barById.get(bar.parentEventId) : undefined
-                                if (!parent || parent.lane >= bar.lane) {
-                                    return null
-                                }
+                            {elbows.map(({ child, parent }) => {
                                 const elbowTop = parent.lane * LANE_H + BAR_H + 1
                                 return (
                                     // └-shaped elbow from the parent's underside into the
-                                    // child's left edge, directory-tree style.
+                                    // row's first child, directory-tree style.
                                     <div
-                                        key={`elbow-${bar.id}`}
+                                        key={`elbow-${child.id}`}
                                         aria-hidden
                                         className="absolute w-1 rounded-bl-sm border-l border-b border-border-bold"
                                         // eslint-disable-next-line react/forbid-dom-props
                                         style={{
-                                            left: `calc(${pct(bar.startMs)}% - 4px)`,
+                                            left: `calc(${pct(child.startMs)}% - 4px)`,
                                             top: elbowTop,
-                                            height: bar.lane * LANE_H + BAR_H / 2 - elbowTop,
+                                            height: child.lane * LANE_H + BAR_H / 2 - elbowTop,
                                         }}
                                     />
                                 )
