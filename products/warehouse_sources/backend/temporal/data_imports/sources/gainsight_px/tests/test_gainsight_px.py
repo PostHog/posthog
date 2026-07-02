@@ -1,5 +1,5 @@
 from datetime import UTC, datetime
-from typing import Any
+from typing import Any, cast
 
 import pytest
 from unittest.mock import MagicMock, patch
@@ -97,7 +97,9 @@ class TestFetchPage:
 
     def test_auth_error_is_not_retried(self) -> None:
         response = MagicMock(status_code=401, ok=False, text="unauthorized")
-        response.raise_for_status.side_effect = requests.HTTPError("401 Client Error: Unauthorized")
+        response.raise_for_status.side_effect = requests.HTTPError(
+            "401 Client Error: Unauthorized", response=cast(requests.Response, response)
+        )
         session = MagicMock()
         session.get.return_value = response
 
