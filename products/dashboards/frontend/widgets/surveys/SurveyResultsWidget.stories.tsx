@@ -89,7 +89,6 @@ function SurveyResultsWidgetTileStory({
     )
 }
 
-// Storybook CSF requires a string literal `title` derived from catalog groupLabel/label.
 const meta: Meta<typeof SurveyResultsWidgetTileStory> = {
     title: 'Dashboards/Dashboard Widgets/Widget types/Surveys/Survey results',
     component: SurveyResultsWidgetTileStory,

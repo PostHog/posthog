@@ -34,7 +34,6 @@ function EditSurveyResultsWidgetModalStory({
     )
 }
 
-// Storybook CSF requires a string literal `title` derived from catalog groupLabel/label.
 const meta: Meta<typeof EditSurveyResultsWidgetModalStory> = {
     title: 'Dashboards/Dashboard Widgets/Widget types/Surveys/Survey results/Widget settings',
     component: EditSurveyResultsWidgetModalStory,
