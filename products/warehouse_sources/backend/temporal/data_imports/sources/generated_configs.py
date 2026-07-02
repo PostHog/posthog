@@ -1273,7 +1273,8 @@ class FreshsalesSourceConfig(config.Config):
 
 @config.config
 class FreshserviceSourceConfig(config.Config):
-    pass
+    domain: str
+    api_key: str
 
 
 @config.config
