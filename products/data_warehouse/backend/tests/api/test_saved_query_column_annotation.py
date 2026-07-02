@@ -149,8 +149,15 @@ class TestDataWarehouseSavedQueryColumnAnnotation(APIBaseTest):
         assert response.status_code == expected_status, response.json()
 
     def test_cannot_annotate_view_user_is_denied(self):
-        # A member with general editor access but an explicit "none" on this specific view must not be
-        # able to annotate it — perform_create re-checks editor access on the target view.
+        # A member with general editor access but an explicit "none" on this specific view must not be able
+        # to annotate it — perform_create re-checks editor access on the target view. Also guards against a
+        # schema leak: an invalid column_name must NOT echo the view's real columns before the access check.
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="secret_metrics",
+            query={"kind": "HogQLQuery", "query": "select 1"},
+            columns={"revenue": {"clickhouse": "Int64"}},
+        )
         self.organization.available_product_features = [
             {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
         ]
@@ -171,7 +178,7 @@ class TestDataWarehouseSavedQueryColumnAnnotation(APIBaseTest):
         AccessControl.objects.create(
             team=self.team,
             resource="warehouse_view",
-            resource_id=str(self.view.id),
+            resource_id=str(view.id),
             access_level="none",
             organization_member=membership,
         )
@@ -179,9 +186,10 @@ class TestDataWarehouseSavedQueryColumnAnnotation(APIBaseTest):
         self.client.force_login(member)
         response = self.client.post(
             self._url(),
-            {"saved_query": str(self.view.id), "column_name": "status", "description": "should be denied"},
+            {"saved_query": str(view.id), "column_name": "typo_column", "description": "should be denied"},
         )
         assert response.status_code == 403, response.json()
+        assert "revenue" not in response.content.decode()
         assert not DataWarehouseSavedQueryColumnAnnotation.objects.for_team(self.team.pk).exists()
 
     @parameterized.expand(["edit", "delete"])

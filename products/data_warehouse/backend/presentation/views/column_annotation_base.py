@@ -26,8 +26,9 @@ class BaseColumnAnnotationSerializer(serializers.ModelSerializer):
     """Shared serializer for the physical-table and saved-query-view annotation surfaces.
 
     Subclasses add a `Meta` (model + fields) and the parent foreign-key field (`table`/`saved_query`),
-    and set `parent_field_name` to that FK's name. Everything else — the shared field definitions, the
-    column-name validation, and the immutable-FK-on-update rule — lives here.
+    and set `parent_field_name` to that FK's name. The shared field definitions and the
+    immutable-FK-on-update rule live here; column-name validation lives on the viewset so it runs after
+    the editor-access check (avoiding a schema leak to callers denied the parent).
     """
 
     # Name of the parent FK field on the concrete serializer ("table" / "saved_query").
@@ -71,33 +72,6 @@ class BaseColumnAnnotationSerializer(serializers.ModelSerializer):
         # handled there rather than rejected as a 400 here. On update the target is immutable (see
         # get_fields), so no collision is possible.
         return []
-
-    def _parent_object(self, attrs: dict[str, Any]) -> Any:
-        if self.parent_field_name in attrs:
-            return attrs[self.parent_field_name]
-        if self.instance is not None:
-            return getattr(self.instance, self.parent_field_name)
-        return None
-
-    def validate(self, attrs: dict[str, Any]) -> dict[str, Any]:
-        column_name = attrs.get("column_name", getattr(self.instance, "column_name", "") if self.instance else "")
-        # Empty column_name is the table/view-level annotation and is always valid.
-        if column_name:
-            parent = self._parent_object(attrs)
-            known_columns = set((getattr(parent, "columns", None) or {}).keys()) if parent is not None else set()
-            # Only validate when the parent's columns are known — a freshly created view has none until it
-            # runs, so we allow draft annotations rather than blocking. When columns ARE known, reject an
-            # unknown name so an agent typo becomes a clear error instead of a row that never surfaces in
-            # information_schema (which looks up by exact (id, column_name)).
-            if known_columns and column_name not in known_columns:
-                raise serializers.ValidationError(
-                    {
-                        "column_name": (
-                            f"Column '{column_name}' does not exist. Valid columns: {', '.join(sorted(known_columns))}."
-                        )
-                    }
-                )
-        return attrs
 
 
 class BaseColumnAnnotationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
@@ -144,11 +118,30 @@ class BaseColumnAnnotationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
         if not self.user_access_control.check_access_level_for_object(parent, required_level="editor"):
             raise PermissionDenied("You do not have permission to annotate this table or view.")
 
+    def _validate_column_name(self, parent: Any, column_name: str) -> None:
+        # Runs only AFTER the editor-access check (see perform_create), so the valid-column list is never
+        # leaked to a caller who is denied the parent — otherwise an invalid column_name would echo the
+        # schema of a table/view they cannot access. Empty column_name is the table/view-level annotation.
+        if not column_name:
+            return
+        known_columns = set((getattr(parent, "columns", None) or {}).keys())
+        # Only validate when the parent's columns are known — a freshly created view has none until it runs,
+        # so we allow draft annotations rather than blocking. When columns ARE known, reject an unknown name
+        # so an agent typo becomes a clear error instead of a row that never surfaces in information_schema
+        # (which looks up by exact (id, column_name)).
+        if known_columns and column_name not in known_columns:
+            raise serializers.ValidationError(
+                {
+                    "column_name": f"Column '{column_name}' does not exist. Valid columns: {', '.join(sorted(known_columns))}."
+                }
+            )
+
     def perform_create(self, serializer: serializers.BaseSerializer) -> None:
         # Upsert on (parent, column_name): re-describing a column is idempotent instead of a unique-constraint
         # 500, so agents can call create without first checking whether an annotation already exists.
         parent = serializer.validated_data[self.parent_field_name]
         self._require_parent_editor_access(parent)
+        self._validate_column_name(parent, serializer.validated_data.get("column_name", ""))
         model: Any = cast(Any, serializer).Meta.model
         description = serializer.validated_data["description"]
         # nosemgrep: orm-field-injection -- parent_field_name is a hardcoded class attribute ("table"/"saved_query"), not user input
