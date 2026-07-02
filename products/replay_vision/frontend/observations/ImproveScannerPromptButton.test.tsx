@@ -82,7 +82,7 @@ describe('ImproveScannerPromptButton', () => {
                 </Provider>
             )
 
-            fireEvent.click(screen.getByText('Ask PostHog AI to improve this prompt'))
+            fireEvent.click(screen.getByText('Improve prompt'))
 
             expect(sidePanelStateLogic.values.selectedTab).toBe(SidePanelTab.Max)
             const options = sidePanelStateLogic.values.selectedTabOptions ?? ''
