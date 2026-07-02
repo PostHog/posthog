@@ -7,7 +7,7 @@
 use std::collections::BTreeMap;
 use std::sync::Arc;
 
-use metrics::counter;
+use metrics::{counter, histogram};
 use uuid::Uuid;
 
 use crate::consumers::events::CohortStreamEvent;
@@ -16,8 +16,8 @@ use crate::filters::{Generation, TeamId};
 use crate::hogvm::{build_behavioral_globals, build_person_property_globals, CohortEvaluator};
 use crate::observability::metrics::{
     STAGE1_ARGMAX_STALE, STAGE1_CONDITIONS_EVALUATED, STAGE1_CONDITIONS_SKIPPED,
-    STAGE1_PERSON_INDEX_APPENDS, STAGE1_REPLAY_SKIPPED, STAGE1_STATE_DECODE_ERROR,
-    STAGE1_STATE_WRITES, STAGE1_UNSUPPORTED_VARIANT_SKIPPED,
+    STAGE1_PERSON_INDEX_APPENDS, STAGE1_REPLAY_SKIPPED, STAGE1_SNAPSHOT_KEYS,
+    STAGE1_STATE_DECODE_ERROR, STAGE1_STATE_WRITES, STAGE1_UNSUPPORTED_VARIANT_SKIPPED,
 };
 use crate::stage1::bucket_tz::{
     daily_bucket_len, day_idx_in_tz, now_day_for_window, window_start_for_now,
@@ -142,6 +142,84 @@ struct PendingWrite {
     variant: StateVariant,
 }
 
+/// One apply's stored state as read by the event's single snapshot read.
+enum PriorState {
+    /// No row: this apply is the leaf's first write.
+    Absent,
+    /// The decoded pre-event record.
+    Present(StatefulRecord),
+    /// A row exists but does not decode; the apply is skipped.
+    Corrupt,
+}
+
+impl PriorState {
+    /// Decode one `multi_get_stage1` slot. The decode error is counted here — the only place a
+    /// `Corrupt` can be born.
+    fn decode(bytes: Option<Vec<u8>>) -> Self {
+        match bytes {
+            None => Self::Absent,
+            Some(bytes) => match StatefulRecord::decode(&bytes) {
+                Ok(record) => Self::Present(record),
+                Err(_) => {
+                    counter!(STAGE1_STATE_DECODE_ERROR).increment(1);
+                    Self::Corrupt
+                }
+            },
+        }
+    }
+}
+
+/// An [`Apply`] joined with its [`Stage1Key`] and pre-event state. Constructed only by
+/// [`EventSnapshot::read`], so holding one proves the state came from the event's single batched
+/// pre-event read — never a mid-event re-read.
+struct PreparedApply {
+    apply: Apply,
+    key: Stage1Key,
+    prior: PriorState,
+}
+
+/// The event's whole Stage-1 read set, fetched in one `multi_get_stage1`. A snapshot spans exactly
+/// one event: the next event in the sub-batch must see this event's committed writes (argMax
+/// tiebreaker, replay dedup), so never batch across events.
+struct EventSnapshot(Vec<PreparedApply>);
+
+impl EventSnapshot {
+    /// All writes are deferred to the post-loop `write_batch`, so every apply sees the pre-event
+    /// image whether the reads are batched or sequential — batching is observably identical.
+    fn read(
+        store: &CohortStore,
+        partition_id: u16,
+        team_id: u64,
+        person_id: Uuid,
+        applies: Vec<Apply>,
+    ) -> Result<Self, StoreError> {
+        let keys: Vec<Stage1Key> = applies
+            .iter()
+            .map(|apply| Stage1Key {
+                partition_id,
+                team_id,
+                leaf_state_key: apply.lsk(),
+                person_id,
+            })
+            .collect();
+        histogram!(STAGE1_SNAPSHOT_KEYS).record(keys.len() as f64);
+        let values = store.multi_get_stage1(&keys)?;
+        // Alignment-safe zip: `multi_get_stage1` preserves input order, `None` for absent keys.
+        Ok(Self(
+            applies
+                .into_iter()
+                .zip(keys)
+                .zip(values)
+                .map(|((apply, key), bytes)| PreparedApply {
+                    apply,
+                    key,
+                    prior: PriorState::decode(bytes),
+                })
+                .collect(),
+        ))
+    }
+}
+
 /// Fold one event with the person memo disabled (full person sweep). The memoizing entry is
 /// [`process_event_with_memo`].
 pub fn process_event(
@@ -231,75 +309,63 @@ pub fn process_event_with_memo(
     };
 
     let team_id = event.team_id as u64;
+    let snapshot = EventSnapshot::read(store, partition_id, team_id, person_id, applies)?;
+
     let mut transitions = Vec::new();
     let mut schedules: Vec<(Stage1Key, i64)> = Vec::new();
     let mut pending = Vec::new();
 
-    for apply in &applies {
-        let key = Stage1Key {
-            partition_id,
-            team_id,
-            leaf_state_key: apply.lsk(),
-            person_id,
+    for PreparedApply { apply, key, prior } in snapshot.0 {
+        let (prev, first_write) = match prior {
+            PriorState::Absent => (None, true),
+            PriorState::Present(record) => (Some(record), false),
+            PriorState::Corrupt => continue,
         };
-
-        let prev = match store.get_stage1(&key)? {
-            None => None,
-            Some(bytes) => match StatefulRecord::decode(&bytes) {
-                Ok(record) => Some(record),
-                Err(_) => {
-                    counter!(STAGE1_STATE_DECODE_ERROR).increment(1);
-                    continue;
-                }
-            },
-        };
-        let first_write = prev.is_none();
 
         let mutation = match apply {
-            Apply::Behavioral { condition_hash, .. } => {
-                match filters.by_lsk.get(&apply.lsk()).map(|meta| meta.variant) {
-                    Some(StateVariant::BehavioralDailyBuckets) => mutate_behavioral_daily(
-                        filters,
-                        apply.lsk(),
-                        *condition_hash,
-                        person_id,
-                        origin,
-                        event,
-                        event_ms,
-                        prev,
-                    ),
-                    Some(StateVariant::BehavioralCompressedHistory) => {
-                        mutate_behavioral_compressed(
-                            filters,
-                            apply.lsk(),
-                            *condition_hash,
-                            person_id,
-                            origin,
-                            event,
-                            event_ms,
-                            prev,
-                        )
-                    }
-                    _ => mutate_behavioral(
-                        filters,
-                        apply.lsk(),
-                        *condition_hash,
-                        person_id,
-                        origin,
-                        event,
-                        event_ms,
-                        prev,
-                    ),
-                }
-            }
+            Apply::Behavioral {
+                lsk,
+                condition_hash,
+            } => match filters.by_lsk.get(&lsk).map(|meta| meta.variant) {
+                Some(StateVariant::BehavioralDailyBuckets) => mutate_behavioral_daily(
+                    filters,
+                    lsk,
+                    condition_hash,
+                    person_id,
+                    origin,
+                    event,
+                    event_ms,
+                    prev,
+                ),
+                Some(StateVariant::BehavioralCompressedHistory) => mutate_behavioral_compressed(
+                    filters,
+                    lsk,
+                    condition_hash,
+                    person_id,
+                    origin,
+                    event,
+                    event_ms,
+                    prev,
+                ),
+                _ => mutate_behavioral(
+                    filters,
+                    lsk,
+                    condition_hash,
+                    person_id,
+                    origin,
+                    event,
+                    event_ms,
+                    prev,
+                ),
+            },
             Apply::Person {
+                lsk,
                 condition_hash,
                 matches,
-                ..
             } => mutate_person(
-                apply.lsk(),
-                *condition_hash,
-                *matches,
+                lsk,
+                condition_hash,
+                matches,
                 person_id,
                 origin,
                 event,

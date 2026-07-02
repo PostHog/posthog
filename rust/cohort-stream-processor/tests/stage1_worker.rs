@@ -405,6 +405,100 @@ fn c1_same_hash_two_windows_get_independent_state_and_deadlines() {
     assert_eq!(after_replay, advanced, "replay must not regress state");
 }
 
+/// The batched pre-event read under a mixed read set — stored rows `[present, corrupt, absent]`
+/// across one event's applies. Pins the alignment of `multi_get` slots to applies: a hole or a
+/// decode failure in one slot must not shift a neighbour's prior state or first-write bookkeeping.
+#[test]
+fn mixed_present_corrupt_absent_read_set_stays_aligned() {
+    let (_dir, store) = temp_store();
+    let filters = build_team_filters(vec![
+        (CohortId(1), cohort(vec![behavioral_leaf(7)])),
+        (
+            CohortId(2),
+            cohort(vec![behavioral_leaf_multiple(7, "gte", 1)]),
+        ),
+        (CohortId(3), cohort(vec![person_leaf()])),
+    ]);
+    let lsks = &filters.by_condition_to_lsk[&BEHAVIORAL_HASH];
+    let single_lsk = *lsks
+        .iter()
+        .find(|lsk| filters.by_lsk[*lsk].variant == StateVariant::BehavioralSingle)
+        .unwrap();
+    let daily_lsk = *lsks
+        .iter()
+        .find(|lsk| filters.by_lsk[*lsk].variant == StateVariant::BehavioralDailyBuckets)
+        .unwrap();
+    let person_lsk = LeafStateKey::for_person_property(&PERSON_HASH);
+    let alice = person(1);
+
+    // Present: a member record whose last-event ts is NEWER than the incoming event — the folded
+    // result (max) can only come from the decoded prior, never from a first write.
+    let newer_ts = "2026-05-27 12:34:56.789000";
+    let newer_ms = clickhouse_timestamp_to_millis(newer_ts).unwrap();
+    let seeded = StatefulRecord::new(
+        Stage1State::BehavioralSingle {
+            has_match: true,
+            last_event_at_ms: newer_ms,
+            earliest_eviction_at_ms: start_of_day_ms_in_tz(
+                day_idx_in_tz(newer_ms, UTC) + 7 + 1,
+                UTC,
+            ),
+        },
+        AppliedOffsets::default(),
+    );
+    store
+        .write_batch(|batch| {
+            batch.put_stage1(&stage1_key(single_lsk, alice), &seeded.encode());
+            // Corrupt: undecodable bytes under the daily leaf's key. The person leaf stays absent.
+            batch.put_stage1(&stage1_key(daily_lsk, alice), b"not a record");
+        })
+        .unwrap();
+
+    let out = process_event(PARTITION_ID, &store, &filters, &event(alice, 1, 10)).unwrap();
+    assert_eq!(out.skipped, None);
+
+    // Only the absent slot first-writes: one Entered, one index append, both for exactly that leaf.
+    assert_eq!(out.transitions.len(), 1);
+    assert_eq!(out.transitions[0].leaf_state_key, person_lsk);
+    assert_eq!(out.transitions[0].kind, TransitionKind::Entered);
+    assert_eq!(
+        store.get_person_index(&person_index_key(alice)).unwrap(),
+        vec![person_lsk],
+    );
+    match state_at(&store, person_lsk, alice).unwrap() {
+        Stage1State::PersonProperty { matches, .. } => assert!(matches),
+        other => panic!("expected PersonProperty, got {other:?}"),
+    }
+
+    // The present slot folded the event into its decoded prior: the newer seeded ts survives the
+    // max, and the event's offset advanced the dedup high-water mark.
+    let record = record_at(&store, single_lsk, alice).unwrap();
+    match record.state {
+        Stage1State::BehavioralSingle {
+            has_match,
+            last_event_at_ms,
+            ..
+        } => {
+            assert!(has_match);
+            assert_eq!(
+                last_event_at_ms, newer_ms,
+                "prior state lost or misattributed",
+            );
+        }
+        other => panic!("expected BehavioralSingle, got {other:?}"),
+    }
+    assert_high_water(&record.applied_offsets, 1, 10);
+
+    // The corrupt slot is skipped, not written: the garbage stays in place.
+    assert_eq!(
+        store
+            .get_stage1(&stage1_key(daily_lsk, alice))
+            .unwrap()
+            .unwrap(),
+        b"not a record",
+    );
+}
+
 #[test]
 fn behavioral_deadline_tracks_newest_event_not_the_late_one() {
     let (_dir, store) = temp_store();
