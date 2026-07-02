@@ -80,16 +80,19 @@ def sync_custom_property_values(*, team_id: int, saved_query_id: str | UUID) -> 
     ordered = sorted(selected_columns)
     column_index = {column: position for position, column in enumerate(ordered)}
     account_ids_by_external_id = _get_account_ids_by_external_id(team_id)
-    key_columns = sorted({source.key_column for source in usable})
     external_ids = sorted(account_ids_by_external_id)
-    rows = _read_view(Team.objects.get(id=team_id), saved_query.name, ordered, key_columns, external_ids)
+    team = Team.objects.get(id=team_id)
+    rows_by_key_column = {
+        key_column: _read_view(team, saved_query.name, ordered, key_column, external_ids)
+        for key_column in sorted({source.key_column for source in usable})
+    }
     result.accounts_total = len(account_ids_by_external_id)
-    result.rows_fetched = len(rows)
+    result.rows_fetched = sum(len(rows) for rows in rows_by_key_column.values())
 
     unmatched: set[Any] = set()
     for source in usable:
         key_index, value_index = column_index[source.key_column], column_index[source.source_column]
-        for row in rows:
+        for row in rows_by_key_column[source.key_column]:
             key = row[key_index]
             if key is None:
                 continue
@@ -132,39 +135,36 @@ def _write(*, team_id: int, account_id: Any, source: CustomPropertySource, value
     return False
 
 
-def _read_view(team: Team, view_name: str, columns: list[str], key_columns: list[str], external_ids: list[str]) -> list:
+def _read_view(team: Team, view_name: str, columns: list[str], key_column: str, external_ids: list[str]) -> list:
     """Reads only view rows whose key matches a known account external_id, batching the key filter to
     keep each query small. An unfiltered read would be silently capped by the HogQL default limit —
-    views are often orders of magnitude larger than the account set they enrich."""
+    views are often orders of magnitude larger than the account set they enrich. Filtering on a single
+    key column keeps batches disjoint: a row matches at most one batch, so no duplicates accumulate."""
     rows: list = []
-    for start in range(0, len(external_ids), _SYNC_KEYS_PER_QUERY):
-        batch = external_ids[start : start + _SYNC_KEYS_PER_QUERY]
-        key_matches = [
-            ast.CompareOperation(
-                op=ast.CompareOperationOp.In,
-                left=ast.Call(name="toString", args=[ast.Field(chain=[key_column])]),
-                right=ast.Array(exprs=[ast.Constant(value=external_id) for external_id in batch]),
+    with tags_context(product=Product.CUSTOMER_ANALYTICS, feature=Feature.ACCOUNTS, team_id=team.pk):
+        for start in range(0, len(external_ids), _SYNC_KEYS_PER_QUERY):
+            batch = external_ids[start : start + _SYNC_KEYS_PER_QUERY]
+            query = ast.SelectQuery(
+                select=[ast.Field(chain=[column]) for column in columns],
+                select_from=ast.JoinExpr(table=ast.Field(chain=[view_name])),
+                where=ast.CompareOperation(
+                    op=ast.CompareOperationOp.In,
+                    left=ast.Call(name="toString", args=[ast.Field(chain=[key_column])]),
+                    right=ast.Array(exprs=[ast.Constant(value=external_id) for external_id in batch]),
+                ),
+                limit=ast.Constant(value=MAX_SELECT_RETURNED_ROWS),
             )
-            for key_column in key_columns
-        ]
-        query = ast.SelectQuery(
-            select=[ast.Field(chain=[column]) for column in columns],
-            select_from=ast.JoinExpr(table=ast.Field(chain=[view_name])),
-            where=ast.Or(exprs=key_matches) if len(key_matches) > 1 else key_matches[0],
-            limit=ast.Constant(value=MAX_SELECT_RETURNED_ROWS),
-        )
-        with tags_context(product=Product.CUSTOMER_ANALYTICS, feature=Feature.ACCOUNTS, team_id=team.pk):
             # Runs as a userless system sync, so bypass user-scoped warehouse-view access control
             # (it fails closed without a user); tenant isolation still holds via team.
             batch_rows = execute_hogql_query(query, team=team, bypass_warehouse_access_control=True).results or []
-        if len(batch_rows) >= MAX_SELECT_RETURNED_ROWS:
-            logger.warning(
-                "custom_property_sync.view_read_truncated",
-                team_id=team.pk,
-                view_name=view_name,
-                batch_keys=len(batch),
-            )
-        rows.extend(batch_rows)
+            if len(batch_rows) >= MAX_SELECT_RETURNED_ROWS:
+                logger.warning(
+                    "custom_property_sync.view_read_truncated",
+                    team_id=team.pk,
+                    view_name=view_name,
+                    batch_keys=len(batch),
+                )
+            rows.extend(batch_rows)
     return rows
 
 

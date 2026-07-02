@@ -141,7 +141,7 @@ class CustomPropertySyncTest(TeamScopedTestMixin, BaseTest):
         batch_size = "products.customer_analytics.backend.logic.custom_property_sync._SYNC_KEYS_PER_QUERY"
         responses = [_Response([(100.0, "acme")]), _Response([(200.0, "globex")])]
         with patch(_EXECUTE, side_effect=responses), patch(batch_size, 1):
-            rows = _read_view(self.team, "billing_view", ["mrr", "org_id"], ["org_id"], ["acme", "globex"])
+            rows = _read_view(self.team, "billing_view", ["mrr", "org_id"], "org_id", ["acme", "globex"])
 
         assert rows == [(100.0, "acme"), (200.0, "globex")]
 
@@ -158,7 +158,7 @@ class ReadViewAccessControlTest(ClickhouseTestMixin, TeamScopedTestMixin, BaseTe
             columns={"org_id": "String", "health_score": "Int64"},
         )
 
-        rows = _read_view(self.team, view.name, ["health_score", "org_id"], ["org_id"], ["acme"])
+        rows = _read_view(self.team, view.name, ["health_score", "org_id"], "org_id", ["acme"])
 
         assert rows == [(100, "acme")]
 
@@ -179,7 +179,7 @@ class ReadViewLimitTest(ClickhouseTestMixin, TeamScopedTestMixin, BaseTest):
         )
         external_ids = [str(n) for n in range(120)]
 
-        rows = _read_view(self.team, view.name, ["org_id", "score"], ["org_id"], external_ids)
+        rows = _read_view(self.team, view.name, ["org_id", "score"], "org_id", external_ids)
 
         assert len(rows) == 120
 
