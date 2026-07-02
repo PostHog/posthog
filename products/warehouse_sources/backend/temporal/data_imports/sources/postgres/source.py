@@ -361,6 +361,19 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "crypto_aead_det_decrypt). Grant the connecting role EXECUTE on that function, or remove the "
                 "view that uses it from the sync, then re-enable the sync."
             ),
+            # A selected table lives in a schema the connecting role can't access (SQLSTATE 42501,
+            # "permission denied for schema <name>") — most often a non-public schema like `extensions`
+            # holding an extension's objects. USAGE on the schema is a prerequisite for reading anything
+            # inside it, so granting SELECT on the table alone won't help — distinct from the table/view
+            # SELECT denial below, and it must precede the generic "permission denied for" so this
+            # USAGE-oriented message is the one selected.
+            "permission denied for schema": (
+                "PostHog's database role isn't allowed to access a schema that contains one or more of the "
+                'tables you selected to sync (PostgreSQL reported "permission denied for schema"). Grant the '
+                "connecting role USAGE on that schema and SELECT on the tables in it (for example: "
+                "GRANT USAGE ON SCHEMA <schema> TO <role>), or remove those tables from the sync, then "
+                "re-enable the sync."
+            ),
             "permission denied for": (
                 "PostHog's database role isn't allowed to read one or more of the tables you selected to sync "
                 '(PostgreSQL reported "permission denied"). Grant the connecting role SELECT on those tables '
@@ -532,6 +545,19 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # against the source data, so retrying re-evaluates the same view and hits the same row.
             "cannot call jsonb_each on a non-object": "A view you're syncing calls jsonb_each() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
             "cannot call jsonb_each_text on a non-object": "A view you're syncing calls jsonb_each_text() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each_text() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
+            # A selected relation is a postgres_fdw foreign table and the connecting role has no user
+            # mapping for the foreign server it points at, so every SELECT fails with
+            # "UndefinedObject: user mapping not found for user <user>, server <server>" (SQLSTATE
+            # 42704). The mapping is fixed server-side config only the customer can create, so
+            # retrying re-reads into the same wall. Match the stable fragment and exclude the volatile
+            # user/server names.
+            "user mapping not found for": (
+                "One of the tables you selected to sync is a foreign table (postgres_fdw), and "
+                "PostHog's database role has no user mapping for the foreign server it points at "
+                '(PostgreSQL reported "user mapping not found"). Create a user mapping for the '
+                "connecting role on that foreign server (CREATE USER MAPPING ...), or remove the "
+                "foreign table from the sync, then re-enable the sync."
+            ),
         }
 
     def reconcile_schema_metadata(

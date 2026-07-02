@@ -588,8 +588,9 @@ class TestExperimentCRUD(APILicensedTest):
         assert experiment.end_date is not None
         self.assertEqual(experiment.end_date.strftime("%Y-%m-%dT%H:%M"), end_date)
 
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("products.experiments.backend.experiment_service.report_user_action")
-    def test_creating_experiment_reports_user_action(self, mock_report_user_action):
+    def test_creating_experiment_reports_user_action(self, mock_report_user_action, _mock_on_commit):
         ff_key = "tracked-experiment"
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
@@ -3877,9 +3878,15 @@ class TestExperimentCRUD(APILicensedTest):
             ("copy_to_project", "copy_to_project", True),
         ]
     )
+    @patch("django.db.transaction.on_commit", side_effect=lambda func: func())
     @patch("products.experiments.backend.experiment_service.report_user_action")
     def test_clone_experiment_reports_creation_mode(
-        self, _name: str, expected_mode: str, needs_target_team: bool, mock_report_user_action: MagicMock
+        self,
+        _name: str,
+        expected_mode: str,
+        needs_target_team: bool,
+        mock_report_user_action: MagicMock,
+        _mock_on_commit: MagicMock,
     ) -> None:
         target_team = (
             Team.objects.create(organization=self.organization, name="Target Team") if needs_target_team else None
