@@ -1,6 +1,7 @@
 import { actions, connect, kea, listeners, path, reducers } from 'kea'
 import { router } from 'kea-router'
 
+import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
@@ -52,8 +53,8 @@ export const bulkScanLogic = kea<bulkScanLogicType>([
             // The backend keys the workflow on (scanner, session) and no-ops duplicates, so no client-side dedup.
             let started = 0
             let failed = 0
-            let firstError: any = null
-            let quotaError: any = null
+            let firstError: ApiError | null = null
+            let quotaError: ApiError | null = null
             // Batched so selecting hundreds of recordings doesn't fire hundreds of simultaneous workflow starts.
             for (let i = 0; i < sessionIds.length && !quotaError; i += BULK_SCAN_CONCURRENCY) {
                 const batch = sessionIds.slice(i, i + BULK_SCAN_CONCURRENCY)
@@ -66,9 +67,11 @@ export const bulkScanLogic = kea<bulkScanLogicType>([
                         continue
                     }
                     failed += 1
-                    firstError = firstError ?? result.reason
-                    if (result.reason?.status === 402) {
-                        quotaError = result.reason // Quota is org-wide — the rest of the batch would 402 too.
+                    if (result.reason instanceof ApiError) {
+                        firstError = firstError ?? result.reason
+                        if (result.reason.status === 402) {
+                            quotaError = result.reason // Quota is org-wide — the rest of the batch would 402 too.
+                        }
                     }
                 }
             }
