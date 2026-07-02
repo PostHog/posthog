@@ -5,6 +5,8 @@ import tempfile
 import pytest
 from unittest.mock import AsyncMock, patch
 
+from django.db import OperationalError
+
 import pyarrow as pa
 import deltalake as deltalake
 import structlog
@@ -158,6 +160,68 @@ class TestRepartitionDetection:
         assert schema.repartition_pending is None
         assert capture.call_args.args[0] == "warehouse_repartition_skipped"
         assert capture.call_args.args[1]["reason"] == "unpartitionable_no_keys"
+
+    def test_transient_drop_recovers_on_retry_and_records_measurement(self, team):
+        # The transaction pooler can close a pooled connection mid-sync, so the first bookkeeping
+        # write raises OperationalError. The retry evicts the stale connection and lands the
+        # best-effort measurement rather than losing it.
+        schema = _make_schema(team, {"partitioning_enabled": True, "partition_mode": "md5", "partition_count": 2})
+        real_record = schema.record_partition_measurement
+        calls = {"n": 0}
+
+        def flaky(max_partition_bytes: int) -> None:
+            calls["n"] += 1
+            if calls["n"] == 1:
+                raise OperationalError("server closed the connection unexpectedly")
+            real_record(max_partition_bytes)
+
+        with tempfile.TemporaryDirectory() as d:
+            delta = _write_partitioned_delta(f"{d}/t", ["0", "1"])
+            with (
+                patch.object(ctrl, "target_partition_bytes", return_value=10**12),
+                patch.object(ctrl, "capture_exception") as capture_exc,
+                patch.object(schema, "record_partition_measurement", side_effect=flaky),
+            ):
+                self._detect(team, schema, delta)
+
+        assert calls["n"] == 2
+        capture_exc.assert_not_called()
+        schema.refresh_from_db()
+        assert schema.max_partition_bytes is not None and schema.max_partition_bytes > 0
+
+    def test_persistent_transient_drop_is_not_surfaced_to_error_tracking(self, team):
+        # A pooler drop that outlives the single retry must still not fail the run nor add
+        # error-tracking noise — the detection step is best-effort, so it's downgraded to a warning.
+        schema = _make_schema(team, {"partitioning_enabled": True, "partition_mode": "md5", "partition_count": 2})
+        with tempfile.TemporaryDirectory() as d:
+            delta = _write_partitioned_delta(f"{d}/t", ["0", "1"])
+            with (
+                patch.object(ctrl, "target_partition_bytes", return_value=10**12),
+                patch.object(ctrl, "capture_exception") as capture_exc,
+                patch.object(
+                    schema,
+                    "record_partition_measurement",
+                    side_effect=OperationalError("server closed the connection unexpectedly"),
+                ),
+            ):
+                self._detect(team, schema, delta)
+
+        capture_exc.assert_not_called()
+
+    def test_non_transient_detection_error_is_still_captured(self, team):
+        # Guard against over-broadening the swallow: a genuine bug in detection must still reach
+        # error tracking rather than being silently downgraded.
+        schema = _make_schema(team, {"partitioning_enabled": True, "partition_mode": "md5", "partition_count": 2})
+        with tempfile.TemporaryDirectory() as d:
+            delta = _write_partitioned_delta(f"{d}/t", ["0", "1"])
+            with (
+                patch.object(ctrl, "target_partition_bytes", return_value=10**12),
+                patch.object(ctrl, "capture_exception") as capture_exc,
+                patch.object(schema, "record_partition_measurement", side_effect=ValueError("boom")),
+            ):
+                self._detect(team, schema, delta)
+
+        capture_exc.assert_called_once()
 
 
 class TestRepartitionActivity:

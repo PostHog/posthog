@@ -12,6 +12,7 @@ import asyncio
 from typing import TYPE_CHECKING, Any
 
 from django.conf import settings
+from django.db import InterfaceError, OperationalError, close_old_connections
 from django.utils import timezone
 
 import deltalake as deltalake
@@ -118,6 +119,22 @@ def _cooldown_seconds_remaining(schema: ExternalDataSchema) -> float:
     return max(0.0, REPARTITION_COOLDOWN_SECONDS - (timezone.now() - last_dt).total_seconds())
 
 
+def _record_measurement_with_retry(schema: ExternalDataSchema, max_partition_bytes: int) -> None:
+    """Record the partition measurement, retrying once on a transient pooler connection drop.
+
+    Detection runs inside the long-lived sync activity, so the transaction pooler can close a
+    pooled Postgres connection mid-sync — the next write then raises ``OperationalError`` /
+    ``InterfaceError`` while Django reopens it. Evict the stale connection and retry once (on the
+    same thread as the query, so the eviction targets the right connection) so this best-effort
+    measurement still lands instead of being lost. A second failure propagates to the caller.
+    """
+    try:
+        schema.record_partition_measurement(max_partition_bytes)
+    except (OperationalError, InterfaceError):
+        close_old_connections()
+        schema.record_partition_measurement(max_partition_bytes)
+
+
 async def maybe_flag_for_repartition(
     schema: ExternalDataSchema,
     source: ExternalDataSource,
@@ -140,7 +157,7 @@ async def maybe_flag_for_repartition(
             return
 
         max_bytes = max(partition_bytes.values())
-        await asyncio.to_thread(schema.record_partition_measurement, max_bytes)
+        await asyncio.to_thread(_record_measurement_with_retry, schema, max_bytes)
 
         budget = target_partition_bytes()
         if max_bytes <= budget:
@@ -229,6 +246,13 @@ async def maybe_flag_for_repartition(
             target_format=target.partition_format,
             target_count=target.partition_count,
             target_size=target.partition_size,
+        )
+    except (OperationalError, InterfaceError) as e:
+        # A pooled Postgres connection dropped mid-sync (the transaction pooler recycles idle
+        # connections). Detection is best-effort and the run completed fine, so don't surface this
+        # transient blip to error tracking — a warning is enough to correlate if it ever recurs.
+        await logger.awarning(
+            "repartition: detection skipped, transient DB connection drop", schema_id=str(schema.id), error=str(e)
         )
     except Exception as e:
         # Detection is best-effort; never fail post-load over it.
