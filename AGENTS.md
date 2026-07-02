@@ -73,11 +73,11 @@ Don't open GitHub issues or pull requests without human instruction.
 Once a branch already has an open PR, push incremental changes and fixes to it without waiting for human guidance — keeping the PR current is part of the work.
 Pushes still trigger CI, which burns runner credits, so batch related commits and push once the increment is ready rather than after every change.
 
-#### Definition of done — run preflight before pushing
+#### Pre-push checks — ci:preflight
 
-Before you push (or tell the human a task is done), run `hogli ci:preflight --fix` and resolve everything it reports.
-It scopes checks to the files your branch touched — formatting, lint, lockfile integrity, OpenAPI drift, migration conflicts — each mapped to a failure class that has taken master down, plus a branch-freshness check that tells you to merge master in when the branch is stale.
-It is advisory (it never blocks): fix the `✗ fail` lines and act on the `→ advisory` ones (including merging master). Checks needing the dev stack or `node_modules` skip with a note when those are absent, so it is always safe to run.
+A pre-push hook runs `hogli ci:preflight --strict`, failing the push on deterministic CI breakage reachable from your diff (lint, lockfiles, migration conflicts). Never bypass it (`--no-verify`).
+If it blocks the push, run `hogli ci:preflight --fix`, resolve the remaining `✗ fail` lines, act on the `→ advisory` ones (regenerate OpenAPI types, merge master in), and push again.
+In environments without hooks (no `node_modules`), run `hogli ci:preflight --fix` yourself before pushing or reporting a task done. If the command reports it is disabled, that's intentional — proceed.
 
 ### Public open source repo guidance
 
