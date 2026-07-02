@@ -985,19 +985,25 @@ function InternalDataTableVisualization(
     )
 }
 
+// The backend `message` is kept self-contained (it also feeds LLM/MCP contexts), so it restates
+// "results may be out of date" — which the banner header already says. Strip that redundant tail
+// for display only, while preserving any "a new sync is in progress" detail.
+const trimRedundantTail = (message: string): string =>
+    message
+        .replace(/\.\s*(A new sync is in progress) but results may be out of date\.?\s*$/i, '. $1.')
+        .replace(/\.\s*Results may be out of date\.?\s*$/i, '.')
+
 const SyncWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warnings'] }): JSX.Element | null => {
     if (!warnings || warnings.length === 0) {
         return null
     }
     return (
         <LemonBanner type="warning" className="m-2 flex-shrink-0" data-attr="sql-editor-output-pane-sync-warnings">
-            <div className="font-semibold mb-1">
-                Some warehouse sources used by this query are out of date — results may not reflect current data
-            </div>
-            <ul className="list-disc pl-5 space-y-1">
+            Some warehouse sources used by this query are out of date — results may not reflect current data:
+            <ul className="list-disc pl-5">
                 {warnings.map((warning, index) => (
                     <li key={`${warning.table_name}-${warning.schema_name}-${index}`}>
-                        {warning.message}
+                        {trimRedundantTail(warning.message)}
                         {warning.source_id && (
                             <>
                                 {' '}
