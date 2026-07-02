@@ -48,16 +48,18 @@ def is_non_time_series_trend(query: TrendsQuery) -> bool:
 
 def calculation_interval_to_order(interval: AlertCalculationInterval | None) -> int:
     match interval:
-        case AlertCalculationInterval.EVERY_15_MINUTES:
+        case AlertCalculationInterval.REAL_TIME:
             return 0
-        case AlertCalculationInterval.HOURLY:
+        case AlertCalculationInterval.EVERY_15_MINUTES:
             return 1
-        case AlertCalculationInterval.DAILY:
+        case AlertCalculationInterval.HOURLY:
             return 2
+        case AlertCalculationInterval.DAILY:
+            return 3
         case AlertCalculationInterval.WEEKLY:
-            return 3
+            return 4
         case AlertCalculationInterval.MONTHLY:
-            return 3
+            return 4
         case None:
             raise ValueError("Invalid alert calculation interval: None")
         case _ as unreachable:
@@ -66,6 +68,8 @@ def calculation_interval_to_order(interval: AlertCalculationInterval | None) -> 
 
 def alert_calculation_interval_to_relativedelta(alert_calculation_interval: AlertCalculationInterval) -> relativedelta:
     match alert_calculation_interval:
+        case AlertCalculationInterval.REAL_TIME:
+            return relativedelta(minutes=2)
         case AlertCalculationInterval.EVERY_15_MINUTES:
             return relativedelta(minutes=15)
         case AlertCalculationInterval.HOURLY:
@@ -97,6 +101,8 @@ def _next_check_time_core(alert: AlertConfiguration) -> datetime:
     team_timezone = pytz.timezone(alert.team.timezone)
 
     match alert.calculation_interval:
+        case AlertCalculationInterval.REAL_TIME:
+            return (alert.next_check_at or now) + relativedelta(minutes=2)
         case AlertCalculationInterval.EVERY_15_MINUTES:
             return (alert.next_check_at or now) + relativedelta(minutes=15)
         case AlertCalculationInterval.HOURLY:
