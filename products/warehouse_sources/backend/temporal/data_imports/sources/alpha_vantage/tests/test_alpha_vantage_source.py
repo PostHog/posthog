@@ -1,5 +1,6 @@
 from typing import Any
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -72,6 +73,14 @@ class TestAlphaVantageSource:
             ("valid", "KEY", "IBM", True, True, None),
             ("invalid_key", "KEY", "IBM", False, False, "Invalid Alpha Vantage API key"),
             ("no_symbols", "KEY", "  ", True, False, "Enter at least one symbol (e.g. IBM, AAPL)"),
+            (
+                "too_many_symbols",
+                "KEY",
+                ",".join(f"S{i}" for i in range(101)),
+                True,
+                False,
+                "Too many symbols (101); enter at most 100 distinct symbols.",
+            ),
         ]
     )
     def test_validate_credentials(
@@ -107,6 +116,17 @@ class TestAlphaVantageSource:
         # Symbols are parsed (upper-cased, de-duplicated) before handing off to the transport.
         assert kwargs["symbols"] == ["IBM", "AAPL"]
         assert kwargs["endpoint"] == "time_series_daily"
+
+    def test_source_for_pipeline_rejects_oversized_symbol_list(self) -> None:
+        # A previously-saved oversized config must fail the run instead of fanning out into a runaway sync.
+        inputs = MagicMock()
+        inputs.schema_name = "time_series_daily"
+        inputs.logger = MagicMock()
+        oversized = _make_config("abc", ",".join(f"S{i}" for i in range(101)))
+        with patch(f"{MODULE}.alpha_vantage_source") as source_fn:
+            with pytest.raises(ValueError, match="Too many symbols"):
+                AlphaVantageSource().source_for_pipeline(oversized, inputs)
+        source_fn.assert_not_called()
 
     @parameterized.expand(
         [

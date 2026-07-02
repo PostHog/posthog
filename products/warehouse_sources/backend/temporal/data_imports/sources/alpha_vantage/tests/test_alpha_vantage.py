@@ -21,6 +21,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.alpha_vant
     get_rows,
     parse_symbols,
     validate_credentials,
+    validate_symbols,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.alpha_vantage.settings import (
     ALPHA_VANTAGE_ENDPOINTS,
@@ -121,9 +122,11 @@ class TestAlphaVantage:
     def test_parse_quote_empty(self) -> None:
         assert list(_parse_quote({"Global Quote": {}}, "IBM")) == []
 
-    def test_parse_overview_injects_lowercase_symbol(self) -> None:
-        rows = list(_parse_overview({"Symbol": "IBM", "Name": "IBM"}, "IBM"))
-        assert rows == [{"symbol": "IBM", "Symbol": "IBM", "Name": "IBM"}]
+    def test_parse_overview_normalizes_keys_and_dedupes_symbol(self) -> None:
+        # PascalCase response keys must be normalized like every other parser, and the response's own
+        # "Symbol" must collapse into the single injected "symbol" column rather than a Symbol/symbol pair.
+        rows = list(_parse_overview({"Symbol": "IBM", "Name": "IBM Corp", "PERatio": "20.5"}, "IBM"))
+        assert rows == [{"symbol": "IBM", "name": "IBM Corp", "peratio": "20.5"}]
 
     def test_parse_overview_empty(self) -> None:
         assert list(_parse_overview({}, "IBM")) == []
@@ -149,6 +152,35 @@ class TestAlphaVantage:
             {"symbol": "IBM", "report_type": "annual", "fiscalDateEnding": "2025-12-31", "reportedEPS": "11.5"},
             {"symbol": "IBM", "report_type": "quarterly", "fiscalDateEnding": "2025-09-30", "reportedEPS": "2.6"},
         ]
+
+    @parameterized.expand(
+        [("reports", _parse_reports, "annualReports"), ("earnings", _parse_earnings, "annualEarnings")]
+    )
+    def test_parse_raises_when_primary_key_missing(self, _name: str, parser: Any, block_key: str) -> None:
+        # fiscalDateEnding is a primary key; a report missing it must raise rather than silently yield an
+        # unkeyed row that breaks downstream deduplication.
+        body = {block_key: [{"totalRevenue": "1"}]}
+        with pytest.raises(KeyError):
+            list(parser(body, "IBM"))
+
+    @parameterized.expand(
+        [
+            ("valid", "IBM, AAPL", ["IBM", "AAPL"], None),
+            ("empty", "  ", [], "Enter at least one symbol (e.g. IBM, AAPL)"),
+            ("at_limit", ",".join(f"SYM{i}" for i in range(100)), None, None),
+            ("over_limit", ",".join(f"SYM{i}" for i in range(101)), None, "Too many symbols"),
+        ]
+    )
+    def test_validate_symbols_bounds_the_list(
+        self, _name: str, raw: str, expected_parsed: list[str] | None, expected_error_fragment: str | None
+    ) -> None:
+        parsed, error = validate_symbols(raw)
+        if expected_parsed is not None:
+            assert parsed == expected_parsed
+        if expected_error_fragment is None:
+            assert error is None
+        else:
+            assert error is not None and expected_error_fragment in error
 
     def test_request_params_adds_outputsize_full_only_for_time_series(self) -> None:
         ts = _request_params(ALPHA_VANTAGE_ENDPOINTS["time_series_daily"], "IBM", "KEY")

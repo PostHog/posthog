@@ -15,8 +15,8 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.alpha_vantage.alpha_vantage import (
     alpha_vantage_source,
-    parse_symbols,
     validate_credentials as validate_alpha_vantage_credentials,
+    validate_symbols,
 )
 from products.warehouse_sources.backend.temporal.data_imports.sources.alpha_vantage.settings import (
     ALPHA_VANTAGE_ENDPOINTS,
@@ -86,8 +86,9 @@ class AlphaVantageSource(SimpleSource[AlphaVantageSourceConfig]):
     def validate_credentials(
         self, config: AlphaVantageSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        if not parse_symbols(config.symbols):
-            return False, "Enter at least one symbol (e.g. IBM, AAPL)"
+        _, symbols_error = validate_symbols(config.symbols)
+        if symbols_error:
+            return False, symbols_error
 
         if validate_alpha_vantage_credentials(config.api_key):
             return True, None
@@ -95,9 +96,14 @@ class AlphaVantageSource(SimpleSource[AlphaVantageSourceConfig]):
         return False, "Invalid Alpha Vantage API key"
 
     def source_for_pipeline(self, config: AlphaVantageSourceConfig, inputs: SourceInputs) -> SourceResponse:
+        # Re-validate here so a previously-saved oversized symbol list can't trigger a runaway sync.
+        symbols, symbols_error = validate_symbols(config.symbols)
+        if symbols_error:
+            raise ValueError(f"Alpha Vantage source misconfigured: {symbols_error}")
+
         return alpha_vantage_source(
             api_key=config.api_key,
-            symbols=parse_symbols(config.symbols),
+            symbols=symbols,
             endpoint=inputs.schema_name,
             logger=inputs.logger,
         )

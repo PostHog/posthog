@@ -15,6 +15,11 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.htt
 
 ALPHA_VANTAGE_BASE_URL = "https://www.alphavantage.co/query"
 
+# The connector issues one outbound request per symbol for every selected table, so an unbounded
+# symbol list lets a saved config fan out into arbitrarily many requests/retries per scheduled sync.
+# Cap the distinct-symbol count to keep worker time and third-party quota bounded.
+MAX_SYMBOLS = 100
+
 # Strips the ordinal prefix Alpha Vantage puts on time-series/quote keys (e.g. "1. open" -> "open",
 # "07. latest trading day" -> "latest trading day").
 _ORDINAL_PREFIX = re.compile(r"^\d+\.\s*")
@@ -108,7 +113,12 @@ def _parse_overview(body: dict[str, Any], symbol: str) -> Iterator[dict[str, Any
     # OVERVIEW is already a flat object; an empty {} means "no fundamentals for this symbol".
     if not any(key for key in body if key != "Meta Data"):
         return
-    yield {"symbol": symbol, **body}
+    # Normalize the PascalCase response keys (e.g. "PERatio", "MarketCapitalization") the same way as
+    # every other parser, and let the injected snake_case `symbol` override the response's own
+    # "Symbol" key so the table has a single primary-key column rather than a Symbol/symbol pair.
+    row: dict[str, Any] = {_normalize_key(key): value for key, value in body.items()}
+    row["symbol"] = symbol
+    yield row
 
 
 def _parse_reports(body: dict[str, Any], symbol: str) -> Iterator[dict[str, Any]]:
@@ -118,7 +128,14 @@ def _parse_reports(body: dict[str, Any], symbol: str) -> Iterator[dict[str, Any]
             continue
         for report in reports:
             if isinstance(report, dict):
-                yield {"symbol": symbol, "report_type": report_type, **report}
+                # Access the primary-key field directly so a missing fiscalDateEnding raises instead of
+                # silently yielding a row without its key.
+                yield {
+                    "symbol": symbol,
+                    "report_type": report_type,
+                    "fiscalDateEnding": report["fiscalDateEnding"],
+                    **report,
+                }
 
 
 def _parse_earnings(body: dict[str, Any], symbol: str) -> Iterator[dict[str, Any]]:
@@ -128,7 +145,14 @@ def _parse_earnings(body: dict[str, Any], symbol: str) -> Iterator[dict[str, Any
             continue
         for report in reports:
             if isinstance(report, dict):
-                yield {"symbol": symbol, "report_type": report_type, **report}
+                # Access the primary-key field directly so a missing fiscalDateEnding raises instead of
+                # silently yielding a row without its key.
+                yield {
+                    "symbol": symbol,
+                    "report_type": report_type,
+                    "fiscalDateEnding": report["fiscalDateEnding"],
+                    **report,
+                }
 
 
 _PARSERS = {
@@ -150,6 +174,21 @@ def parse_symbols(symbols: str) -> list[str]:
             seen.add(symbol)
             result.append(symbol)
     return result
+
+
+def validate_symbols(symbols: str) -> tuple[list[str], str | None]:
+    """Parse and bound the symbols field. Returns the parsed list plus a user-facing error, if any.
+
+    Enforces both a lower bound (at least one symbol) and an upper bound (MAX_SYMBOLS distinct
+    symbols) so neither an empty config nor an oversized one that fans out into runaway syncs can be
+    saved or run.
+    """
+    parsed = parse_symbols(symbols)
+    if not parsed:
+        return parsed, "Enter at least one symbol (e.g. IBM, AAPL)"
+    if len(parsed) > MAX_SYMBOLS:
+        return parsed, f"Too many symbols ({len(parsed)}); enter at most {MAX_SYMBOLS} distinct symbols."
+    return parsed, None
 
 
 def _request_params(config: AlphaVantageEndpointConfig, symbol: str, api_key: str) -> dict[str, Any]:
