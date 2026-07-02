@@ -146,7 +146,7 @@ export class HogFunctionHandler implements ActionHandler {
                     {
                         team_id: hogFunctionInvocation.teamId,
                         app_source_id: hogFunctionInvocation.functionId,
-                        instance_id: hogFunctionInvocation.state.actionId || hogFunctionInvocation.id,
+                        instance_id: action.id,
                         metric_kind: 'email',
                         metric_name: 'email_bounce_prevented',
                         count: 1,
