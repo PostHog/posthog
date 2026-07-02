@@ -1,3 +1,4 @@
+import re
 from datetime import datetime
 from typing import Literal, Optional, cast
 
@@ -30,6 +31,27 @@ from posthog.clickhouse.materialized_columns import (
 )
 from posthog.models import Team
 from posthog.models.property import PropertyName, TableColumn
+
+# Datetime string forms ClickHouse's strict toDateTime64 parser accepts: a date, a
+# MySQL-style datetime, or one with fractional seconds. ISO 8601 forms carrying a `T`
+# separator or a `Z`/offset suffix are NOT accepted — toDateTime64 throws at the `Z` —
+# so those have to go through the best-effort parser instead. Mirrors the printer's
+# constant-folding patterns (see clickhouse.py).
+_STRICT_DATETIME_STRING = re.compile(r"^\d{4}-\d{2}-\d{2}( \d{2}:\d{2}:\d{2}(\.\d{1,6})?)?$")
+
+
+def wrap_datetime_constant_with_timezone(value_expr: ast.Expr, value: object, tz: str) -> ast.Call:
+    """Wrap a datetime constant so ClickHouse parses it in ``tz``.
+
+    Strict-parseable string forms (and non-string constants) use ``toDateTime64``,
+    which is fast and lets the query planner prune on the bare timestamp column. ISO
+    8601 strings carrying a ``T``/``Z``/offset would make ``toDateTime64``'s strict
+    parser throw, so they route through ``toDateTime`` — which the printer lowers to
+    ``parseDateTime64BestEffort``, honoring the embedded offset.
+    """
+    if isinstance(value, str) and not _STRICT_DATETIME_STRING.match(value):
+        return ast.Call(name="toDateTime", args=[value_expr, ast.Constant(value=tz)])
+    return ast.Call(name="toDateTime64", args=[value_expr, ast.Constant(value=6), ast.Constant(value=tz)])
 
 
 def build_property_swapper(node: ast.AST, context: HogQLContext) -> None:
@@ -484,11 +506,14 @@ class PropertySwapper(CloningVisitor):
 
     @staticmethod
     def _ensure_constant_has_timezone(expr: ast.Expr, tz: str) -> ast.Expr:
-        """Wrap a constant expression with toDateTime64(..., 6, tz) if it doesn't
-        already carry timezone information.
+        """Wrap a constant expression with a timezone-carrying datetime parse if it
+        doesn't already carry timezone information.
 
         Constants that are already wrapped in toDateTime64/toDateTime with a tz
-        argument are left unchanged. Bare string/datetime constants get wrapped.
+        argument are left unchanged. Bare string/datetime constants get wrapped via
+        wrap_datetime_constant_with_timezone, which keeps the strict toDateTime64
+        fast-path for strict-parseable values and routes ISO 8601 T/Z strings through
+        the best-effort parser.
         """
         inner = expr
         if isinstance(inner, ast.Alias):
@@ -517,10 +542,7 @@ class PropertySwapper(CloningVisitor):
         if isinstance(inner, ast.Constant):
             if isinstance(inner.value, datetime) and inner.value.tzinfo is not None:
                 return expr
-            new_call = ast.Call(
-                name="toDateTime64",
-                args=[inner, ast.Constant(value=6), ast.Constant(value=tz)],
-            )
+            new_call = wrap_datetime_constant_with_timezone(inner, inner.value, tz)
             if isinstance(expr, ast.Alias):
                 return ast.Alias(alias=expr.alias, expr=new_call)
             return new_call

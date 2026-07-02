@@ -33,6 +33,7 @@ from posthog.hogql.functions.mapping import HOGQL_COMPARISON_MAPPING
 from posthog.hogql.printer.base import resolve_field_type
 from posthog.hogql.printer.clickhouse import AI_BLOOM_FILTER_PROPERTIES, COLUMNS_WITH_HACKY_OPTIMIZED_NULL_HANDLING
 from posthog.hogql.restricted_properties import restricted_property_keys_for_table_type
+from posthog.hogql.transforms.property_types import wrap_datetime_constant_with_timezone
 from posthog.hogql.type_system import (
     ComparisonCompatibility,
     comparison_compatibility,
@@ -927,7 +928,9 @@ class ClickHousePropertyResolver(CloningVisitor):
 
         right_expr = cast(ast.Expr, self.visit(node.right))
         if converts_to_datetime:
-            right_expr = _call("toDateTime64", [right_expr, _const(6), ast.Constant(value=self._project_timezone())])
+            right_expr = wrap_datetime_constant_with_timezone(
+                right_expr, right_constant.value if right_constant is not None else None, self._project_timezone()
+            )
 
         column = _OptimizableProperty(field_type=field_type, key=property_name, source=source)
         cmp = _call(op_name, [column.bare_column(), right_expr])

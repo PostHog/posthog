@@ -886,6 +886,20 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         hogql = "SELECT count() FROM events WHERE event = 'utc_test' AND timestamp >= '2024-03-01' AND timestamp < '2024-03-02'"
         self._assert_correct_results(hogql, timezone="UTC", expected_count=2)
 
+    def test_iso8601_z_datetime_filter_executes_and_honors_offset(self):
+        """A range filter with ISO 8601 `T`/`Z` constants used to hard-error in ClickHouse
+        (the timezone-move rewrite wrapped them in strict toDateTime64). It must now run and
+        honor the `Z` offset — 2024-02-29T18:30:00Z is inside the window, 17:00 the next day is not."""
+        _create_event(team=self.team, distinct_id="z_user", event="z_test", timestamp=datetime(2024, 2, 29, 18, 30, 0))
+        _create_event(team=self.team, distinct_id="z_user", event="z_test", timestamp=datetime(2024, 3, 1, 17, 0, 0))
+        flush_persons_and_events()
+
+        hogql = (
+            "SELECT count() FROM events WHERE event = 'z_test' "
+            "AND timestamp >= '2024-02-29T18:00:00Z' AND timestamp < '2024-03-01T16:00:00Z'"
+        )
+        self._assert_correct_results(hogql, timezone="America/New_York", expected_count=1)
+
     def test_brazil_historical_dst_does_not_drop_events(self):
         """Brazil dropped DST in 2019. Events during the old DST period must still work."""
         _create_event(
@@ -933,6 +947,24 @@ class TestTimezoneIndexPruning(ClickhouseTestMixin, BaseTest):
         )
         assert "toDateTime64" in sql, f"Expected toDateTime64 wrapping on constants, got:\n{sql}"
         assert "America/New_York" in values.values(), f"Expected timezone in parameterized values, got:\n{values}"
+
+    def test_iso8601_z_constant_routes_through_best_effort_parser(self):
+        """ISO 8601 `T`/`Z` constants can't go through strict toDateTime64 — it throws at the `Z`.
+
+        The timezone-move rewrite must route them through parseDateTime64BestEffort instead,
+        while strict-parseable forms keep the fast toDateTime64 path.
+        """
+        z_sql, _ = self._compile_hogql(
+            "SELECT count() FROM events WHERE timestamp >= '2024-03-01T03:01:01Z'",
+            timezone="America/New_York",
+        )
+        where_clause = z_sql.split("WHERE")[1]
+        assert "parseDateTime64BestEffort" in where_clause, (
+            f"Expected best-effort parse for ISO 8601 Z constant, got:\n{where_clause}"
+        )
+        assert "toDateTime64" not in where_clause, (
+            f"Strict toDateTime64 would throw on the `Z` — expected it absent, got:\n{where_clause}"
+        )
 
     def test_alias_preserved_when_recursing_into_assumeNotNull(self):
         """Alias wrappers on assumeNotNull(toDateTime(...)) constants must be preserved."""
