@@ -48,10 +48,7 @@ from products.notebooks.backend import collab_stream, markdown_collab, presence
 from products.notebooks.backend.activity_logging import log_notebook_activity
 from products.notebooks.backend.collab import submit_steps
 from products.notebooks.backend.data_v2 import is_data_v2_enabled
-from products.notebooks.backend.data_v2_serializers import (
-    NotebookDataV2RunRequestSerializer,
-    NotebookDataV2RunResponseSerializer,
-)
+from products.notebooks.backend.data_v2_serializers import NotebookDataV2RunRequestSerializer
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
@@ -870,7 +867,8 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         return Response(data)
 
-    @extend_schema(request=NotebookDataV2RunRequestSerializer, responses=NotebookDataV2RunResponseSerializer)
+    # Experimental, flag-gated slice — kept out of the public OpenAPI schema (no generated FE/MCP types yet).
+    @extend_schema(exclude=True)
     @action(methods=["POST"], url_path="data_v2/run", detail=True)
     def data_v2_run(self, request: Request, **kwargs):
         user = self._current_user()
@@ -908,17 +906,7 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
 
         return Response({"run_id": str(run.id)})
 
-    @extend_schema(
-        parameters=[
-            OpenApiParameter(
-                "run_id",
-                OpenApiTypes.STR,
-                OpenApiParameter.PATH,
-                description="Identifier of the run to stream results for.",
-            )
-        ],
-        responses={(200, "text/event-stream"): OpenApiTypes.STR},
-    )
+    @extend_schema(exclude=True)
     @action(
         methods=["GET"],
         url_path="data_v2/runs/(?P<run_id>[^/.]+)/stream",

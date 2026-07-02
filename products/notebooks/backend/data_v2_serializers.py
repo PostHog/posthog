@@ -9,12 +9,6 @@ class NotebookDataV2RunRequestSerializer(serializers.Serializer):
     )
 
 
-class NotebookDataV2RunResponseSerializer(serializers.Serializer):
-    run_id = serializers.UUIDField(
-        help_text="Identifier of the created run. Used for the result callback and the SSE result stream.",
-    )
-
-
 class NotebookDataV2EnvelopeSerializer(serializers.Serializer):
     status = serializers.CharField(help_text="Run outcome: 'ok' or 'error'.")
     columns = serializers.ListField(
