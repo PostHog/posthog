@@ -13,7 +13,7 @@ pub use column_families::{
 pub use keys::{
     MergeAppliedKey, MergeDrainKey, PendingTransferKey, PersonIndexKey, Stage2Key, TombstoneKey,
 };
-pub use rocks::{BatchBuilder, CohortStore, StoreConfig, StoreError};
+pub use rocks::{BatchBuilder, CfStats, CohortStore, StoreConfig, StoreError, StoreStats};
 pub use secondary_index::{decode_person_index, IndexOp, PERSON_INDEX_MERGE_OPERATOR_NAME};
 
 pub use crate::stage1::key::{LeafStateKey, Stage1Key};
