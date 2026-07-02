@@ -3,8 +3,12 @@ import { Message } from 'node-rdkafka'
 import { DLQ_OUTPUT, INGESTION_WARNINGS_OUTPUT, OVERFLOW_OUTPUT } from '~/common/outputs'
 import { OverflowOutput } from '~/common/outputs'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
-import { ingestionPipelineResultCounter } from '~/ingestion/common/event-pipeline/metrics'
-import { logDroppedMessage, produceMessageToDLQ, redirectMessageToOutput } from '~/ingestion/common/pipeline-helpers'
+import { ingestionPipelineResultCounter } from '~/ingestion/common/metrics'
+import {
+    logDroppedMessage,
+    produceMessageToDLQ,
+    redirectMessageToOutput,
+} from '~/ingestion/framework/result-handling-helpers'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 import { createMockPipeline } from '~/tests/helpers/mock-pipeline'
 
@@ -13,14 +17,14 @@ import { PipelineConfig, ResultHandlingPipeline } from './result-handling-pipeli
 import { dlq, drop, ok, redirect } from './results'
 
 // Mock the pipeline helpers
-jest.mock('~/ingestion/common/pipeline-helpers', () => ({
+jest.mock('~/ingestion/framework/result-handling-helpers', () => ({
     logDroppedMessage: jest.fn(),
     redirectMessageToOutput: jest.fn(),
     produceMessageToDLQ: jest.fn(),
 }))
 
 // Mock the metrics
-jest.mock('~/ingestion/common/event-pipeline/metrics', () => ({
+jest.mock('~/ingestion/common/metrics', () => ({
     ingestionPipelineResultCounter: {
         labels: jest.fn().mockReturnValue({
             inc: jest.fn(),

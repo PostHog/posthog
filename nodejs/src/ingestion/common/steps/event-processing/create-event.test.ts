@@ -1,6 +1,6 @@
 import { DateTime } from 'luxon'
 
-import { createEvent, getElementsChain } from '~/ingestion/common/create-event'
+import { createEvent, getElementsChain } from '~/ingestion/common/steps/event-processing/create-event'
 import { ISOTimestamp, Person, PreIngestionEvent, ProjectId } from '~/types'
 
 describe('createEvent', () => {
