@@ -103,8 +103,6 @@ describe('sceneLogic', () => {
             hash: '',
             title: 'Default dashboard',
             iconType: 'dashboard' as const,
-            active: false,
-            pinned: true,
             sceneId: Scene.Dashboard,
             sceneKey: 'dashboard-42',
             sceneParams: { params: {}, searchParams: {}, hashParams: {} },

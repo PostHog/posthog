@@ -1,6 +1,7 @@
 """Shared attachment helpers for conversations channels (email, Slack, etc.)."""
 
 from io import BytesIO
+from typing import Any
 
 from django.conf import settings
 
@@ -11,6 +12,8 @@ from posthog.models.team import Team
 from posthog.models.uploaded_media import UploadedMedia, save_content_to_object_storage
 
 logger = structlog.get_logger(__name__)
+
+CONVERSATIONS_MAX_IMAGE_BYTES = 20 * 1024 * 1024  # 20 MiB
 
 
 def is_valid_image(content: bytes) -> bool:
@@ -77,3 +80,26 @@ def save_file_to_uploaded_media(
         bytes_size=len(content),
     )
     return uploaded_media.get_absolute_url()
+
+
+def build_content_with_images(
+    cleaned_text: str, rich_content: dict[str, Any] | None, images: list[dict[str, Any]]
+) -> tuple[str, dict[str, Any] | None]:
+    """Merge extracted image metadata into plain-text content and rich_content doc."""
+    content = cleaned_text
+    if not images:
+        return content, rich_content
+
+    image_markdown = "\n".join(f"![{img['name']}]({img['url']})" for img in images)
+    content = f"{cleaned_text}\n\n{image_markdown}" if cleaned_text else image_markdown
+    if not isinstance(rich_content, dict):
+        rich_content = {"type": "doc", "content": []}
+    rich_nodes = rich_content.setdefault("content", [])
+    for img in images:
+        rich_nodes.append(
+            {
+                "type": "image",
+                "attrs": {"src": img["url"], "alt": img.get("name", "image")},
+            }
+        )
+    return content, rich_content

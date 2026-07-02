@@ -465,3 +465,22 @@ class TestEmailReplySignalGuard(BaseTest):
         )
 
         assert EmailOutboxMessage.objects.filter(ticket=self.email_ticket).count() == expected_count
+
+
+class TestIsOutboundReply:
+    @parameterized.expand(
+        [
+            ("private_ai_note", {"author_type": "AI", "is_private": True}, None, False),
+            ("public_ai_reply", {"author_type": "AI", "is_private": False}, None, True),
+            ("human_team_reply", {"author_type": "support", "is_private": False}, 42, True),
+            ("private_human_note", {"author_type": "support", "is_private": True}, 42, False),
+            ("customer_message", {"author_type": "customer", "is_private": False}, None, False),
+            ("customer_with_created_by", {"author_type": "customer", "is_private": False}, 1, False),
+            ("none_context", None, 42, False),
+            ("non_dict_context", "garbage", None, False),
+        ]
+    )
+    def test_outbound_reply_gating(self, _name, item_context, created_by_id, expected):
+        from products.conversations.backend.signals import _is_outbound_reply
+
+        assert _is_outbound_reply(item_context, created_by_id) is expected

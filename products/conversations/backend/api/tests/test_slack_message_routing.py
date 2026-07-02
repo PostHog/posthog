@@ -387,3 +387,25 @@ class TestSlackMemberAlerts(BaseTest):
         handle_member_joined_channel({"user": "U123", "channel": "C_SUPPORT"}, self.team, "T123")
 
         mock_get_client.return_value.chat_postMessage.assert_not_called()
+
+    @patch(f"{MODULE}.resolve_slack_user")
+    @patch(f"{MODULE}.get_bot_user_id", return_value="U_OWN_BOT")
+    @patch(f"{MODULE}.get_slack_client")
+    def test_member_event_skips_org_member(self, mock_get_client, _mock_bot_id, mock_resolve_user):
+        mock_resolve_user.return_value = {"name": "Teammate", "email": self.user.email, "avatar": None}
+
+        handle_member_joined_channel({"user": "U123", "channel": "C_SUPPORT"}, self.team, "T123")
+
+        mock_get_client.return_value.chat_postMessage.assert_not_called()
+
+    @patch(f"{MODULE}.resolve_slack_user")
+    @patch(f"{MODULE}.get_bot_user_id", return_value="U_OWN_BOT")
+    @patch(f"{MODULE}.get_slack_client")
+    def test_member_event_posts_for_external_user(self, mock_get_client, _mock_bot_id, mock_resolve_user):
+        mock_resolve_user.return_value = {"name": "External", "email": "external@example.com", "avatar": None}
+
+        handle_member_joined_channel({"user": "U123", "channel": "C_SUPPORT"}, self.team, "T123")
+
+        mock_get_client.return_value.chat_postMessage.assert_called_once()
+        kwargs = mock_get_client.return_value.chat_postMessage.call_args.kwargs
+        assert kwargs["text"] == "<@U123> joined <#C_SUPPORT>"

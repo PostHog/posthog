@@ -286,13 +286,16 @@ export enum AccessControlResourceType {
     Survey = 'survey',
     Logs = 'logs',
     Endpoint = 'endpoint',
+    EarlyAccessFeature = 'early_access_feature',
     ProductTour = 'product_tour',
     Experiment = 'experiment',
+    ExperimentHoldout = 'experiment_holdout',
     ExperimentSavedMetric = 'experiment_saved_metric',
     Export = 'export',
     ExternalDataSource = 'external_data_source',
     WarehouseObjects = 'warehouse_objects',
     WarehouseTable = 'warehouse_table',
+    WarehouseView = 'warehouse_view',
     WebAnalytics = 'web_analytics',
     ActivityLog = 'activity_log',
     ErrorTracking = 'error_tracking',
@@ -476,6 +479,21 @@ export interface InAppNotification {
     created_at: string
 }
 
+/**
+ * Transient realtime event signalling that a resource was edited through some channel
+ * (UI, MCP, or API). Rides the same notifications SSE transport as InAppNotification but is
+ * never persisted or shown in the inbox — an open editor uses it to refresh instead of
+ * clobbering edits made elsewhere. Discriminated by `notification_type === 'resource_edited'`.
+ */
+export interface ResourceEditedEvent {
+    notification_type: 'resource_edited'
+    team_id: number
+    resource_type: string
+    resource_id: string
+    updated_at: string
+    actor_user_id: number | null
+}
+
 export interface PluginAccess {
     view: boolean
     install: boolean
@@ -565,6 +583,8 @@ export interface OrganizationDomainType {
     id_jag_issuer_url?: string | null
     id_jag_jwks_url?: string | null
     id_jag_allowed_clients?: string[]
+    /** Linked IdP config (SAML/SCIM/XAA), the source of truth for those settings. */
+    identity_provider_config?: string | null
 }
 
 export interface SCIMRequestLogType {
@@ -750,6 +770,9 @@ export interface ConversationsSettings {
     github_integration_id?: number | null
     github_repos?: string[] | null
     ai_suggestions_enabled?: boolean
+    ai_diagnostics_enabled?: boolean
+    ai_resolution_channels?: string[] | null
+    ai_reply_modes?: Record<string, Record<string, 'private_note' | 'bot_reply'>> | null
 }
 
 export interface LogsSettings {
@@ -782,6 +805,10 @@ export interface TeamType extends TeamBasicType {
         | null
     session_recording_masking_config: SessionRecordingMaskingConfig | undefined | null
     session_recording_retention_period: SessionRecordingRetentionPeriod | null
+    /** Plan-derived events data retention window in months (synced from billing). */
+    event_retention_months: number
+    /** Whether events data retention is currently enforced for this team (cohort/flag gated). */
+    events_retention_enforced: boolean
     session_replay_config: { record_canvas?: boolean } | undefined | null
     survey_config?: TeamSurveyConfigType
     logs_settings?: LogsSettings | null
@@ -1082,6 +1109,8 @@ export enum PropertyFilterType {
     EventMetadata = 'event_metadata',
     /** Person properties */
     Person = 'person',
+    /** Top-level columns on the persons table (e.g. created_at), not properties JSON */
+    PersonMetadata = 'person_metadata',
     Element = 'element',
     /** Event property with "$feature/" prepended */
     Feature = 'feature',
@@ -1135,6 +1164,11 @@ export interface RevenueAnalyticsPropertyFilter extends BasePropertyFilter {
 /** Sync with nodejs/src/types.ts */
 export interface PersonPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Person
+    operator: PropertyOperator
+}
+
+export interface PersonMetadataPropertyFilter extends BasePropertyFilter {
+    type: PropertyFilterType.PersonMetadata
     operator: PropertyOperator
 }
 
@@ -1238,6 +1272,7 @@ export interface EmptyPropertyFilter {
 export type AnyPropertyFilter =
     | EventPropertyFilter
     | PersonPropertyFilter
+    | PersonMetadataPropertyFilter
     | ElementPropertyFilter
     | EventMetadataPropertyFilter
     | SessionPropertyFilter
@@ -1260,6 +1295,7 @@ export type AnyPropertyFilter =
 /** Any filter type supported by `property_to_expr(scope="person", ...)`. */
 export type AnyPersonScopeFilter =
     | PersonPropertyFilter
+    | PersonMetadataPropertyFilter
     | CohortPropertyFilter
     | HogQLPropertyFilter
     | EmptyPropertyFilter
@@ -1400,7 +1436,14 @@ export type ActionStepProperties =
 
 export interface RecordingPropertyFilter extends BasePropertyFilter {
     type: PropertyFilterType.Recording
-    key: DurationType | 'snapshot_source' | 'visited_page' | 'comment_text'
+    key:
+        | DurationType
+        | 'snapshot_source'
+        | 'visited_page'
+        | 'comment_text'
+        | 'click_count'
+        | 'keypress_count'
+        | 'mouse_activity_count'
     operator: PropertyOperator
 }
 
@@ -2862,6 +2905,8 @@ export interface RawAnnotationType {
     creation_type?: 'USR' | 'GIT'
     /** Optional emoji shown in place of the default badge when surfacing the annotation. */
     emoji?: string | null
+    /** When true, the annotation is hidden from the UI but still readable over the API and MCP. */
+    hidden_in_user_interface?: boolean | null
 }
 
 export interface AnnotationType extends Omit<RawAnnotationType, 'created_at' | 'date_marker'> {
@@ -3378,6 +3423,7 @@ export interface FunnelStep {
 export interface FunnelsTimeConversionBins {
     bins: [number, number][]
     average_conversion_time: number | null
+    median_conversion_time: number | null
 }
 
 export type FunnelResultType = FunnelStep[] | FunnelStep[][] | FunnelsTimeConversionBins
@@ -3394,7 +3440,8 @@ export interface FunnelStepWithNestedBreakdown extends FunnelStep {
 }
 
 export interface FunnelTimeConversionMetrics {
-    averageTime: number
+    /** Null when the result predates the median field (old cache) — the header hides the figure in that case. */
+    medianTime: number | null
     stepRate: number
     totalRate: number
 }
@@ -4345,6 +4392,8 @@ export interface EarlyAccessFeatureType {
     payload?: Record<string, any>
     created_at: string
     _create_in_folder?: string | null
+    /** The effective access level the user has for this early access feature. */
+    user_access_level?: AccessControlLevel
 }
 
 export interface NewEarlyAccessFeatureType extends Omit<EarlyAccessFeatureType, 'id' | 'created_at' | 'feature_flag'> {
@@ -4483,6 +4532,7 @@ export interface PreflightStatus {
     /** Public base URL of the LLM gateway, for per-gateway endpoint examples. Null until configured. */
     ai_gateway_url?: string | null
     object_storage: boolean
+    wizard_cloud_run_available: boolean
     public_egress_ip_addresses?: string[]
     dev_disable_navigation_hooks?: boolean
 }
@@ -4618,6 +4668,7 @@ export enum PropertyDefinitionType {
     EventMetadata = 'event_metadata',
     RevenueAnalytics = 'revenue_analytics',
     Person = 'person',
+    PersonMetadata = 'person_metadata',
     Group = 'group',
     Session = 'session',
     LogEntry = 'log_entry',
@@ -4720,6 +4771,8 @@ export interface ExperimentHoldoutType {
     created_by: UserBasicType | null
     created_at: string | null
     updated_at: string | null
+    /** Read-only, server-computed effective access level; absent on a not-yet-created holdout. */
+    user_access_level?: AccessControlLevel
 }
 
 export enum ExperimentStatsMethod {
@@ -4767,7 +4820,6 @@ export interface Experiment {
         variant_screenshot_media_ids?: Record<string, string[]>
         variant_notes?: Record<string, string>
         rollout_percentage?: number
-        excluded_variants?: string[]
         /** Present when the experiment was created from an LLM prompt via /create_from_prompt/. */
         prompt_metadata?: {
             name: string
@@ -4924,7 +4976,6 @@ export interface AppContext {
     effective_resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     resource_access_control: Record<AccessControlResourceType, AccessControlLevel>
     custom_products: UserProductListItem[]
-    promoted_product_intent?: string | null
     commit_sha?: string
     /** Whether the user was autoswitched to the current item's team. */
     switched_team: TeamType['id'] | null
@@ -5330,6 +5381,8 @@ export const INTEGRATION_KINDS = [
     'customerio-webhook',
     'customerio-track',
     'postgresql',
+    'aws-s3',
+    's3-compatible',
 ] as const
 
 export type IntegrationKind = (typeof INTEGRATION_KINDS)[number]
@@ -5370,6 +5423,7 @@ export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
 export enum SlackIntegrationScopeInReview {
     ASSISTANT_WRITE = 'assistant:write',
     CHANNELS_MANAGE = 'channels:manage',
+    COMMANDS = 'commands',
     IM_HISTORY = 'im:history',
     MPIM_READ = 'mpim:read',
 }
@@ -5565,13 +5619,13 @@ export type APIScopeObject =
     | 'clickhouse_test_cluster_perf'
     | 'cohort'
     | 'comment'
+    | 'conversation'
     | 'customer_analytics'
     | 'customer_journey'
     | 'customer_profile_config'
     | 'dashboard'
     | 'dashboard_template'
     | 'dataset'
-    | 'desktop_recording'
     | 'early_access_feature'
     | 'element'
     | 'endpoint'
@@ -5580,6 +5634,7 @@ export type APIScopeObject =
     | 'evaluation'
     | 'event_definition'
     | 'experiment'
+    | 'experiment_holdout'
     | 'experiment_saved_metric'
     | 'external_data_source'
     | 'export'
@@ -5610,8 +5665,8 @@ export type APIScopeObject =
     | 'organization_integration'
     | 'organization_member'
     | 'person'
-    | 'persisted_folder'
     | 'plugin'
+    | 'product_enablement'
     | 'product_tour'
     | 'project'
     | 'property_definition'
@@ -6037,7 +6092,7 @@ export interface ExternalDataSourceConnectionMetadata {
 export interface ExternalDataSourceConnectionOption {
     id: string
     prefix: string | null
-    engine?: 'duckdb' | 'postgres' | 'mysql' | null
+    engine?: 'duckdb' | 'postgres' | 'mysql' | 'snowflake' | null
 }
 
 export interface ExternalDataSource {
@@ -6820,7 +6875,8 @@ export type AvailableOnboardingProducts = Record<
     | ProductKey.ERROR_TRACKING
     | ProductKey.AI_OBSERVABILITY
     | ProductKey.WORKFLOWS
-    | ProductKey.LOGS,
+    | ProductKey.LOGS
+    | ProductKey.MCP_ANALYTICS,
     OnboardingProduct
 >
 
@@ -6858,6 +6914,7 @@ export type CyclotronJobInputSchemaType = {
         | 'posthog_ticket_tags'
         | 'posthog_business_hours'
         | 'non_failure_status_codes'
+        | 'customer_analytics_account_properties'
     key: string
     label: string
     choices?: { value: string; label: string }[]
@@ -7487,6 +7544,7 @@ export interface HeatmapScreenshotType {
     width: number
     status: HeatmapStatus
     has_content: boolean
+    block_consent_modals?: boolean
     created_at: string
     updated_at: string
     exception?: string

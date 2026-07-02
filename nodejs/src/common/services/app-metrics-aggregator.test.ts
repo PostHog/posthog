@@ -1,7 +1,7 @@
 import { APP_METRICS_OUTPUT, AppMetricsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
+import { parseJSON } from '~/common/utils/json-parse'
 
-import { parseJSON } from '../../utils/json-parse'
 import { AppMetricInput, AppMetricsAggregator } from './app-metrics-aggregator'
 
 function makeOutputs(): {

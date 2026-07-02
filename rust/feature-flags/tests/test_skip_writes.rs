@@ -35,6 +35,7 @@ async fn test_skip_writes_prevents_hash_key_override_write() -> Result<()> {
         evaluation_runtime: None,
         evaluation_tags: None,
         bucketing_identifier: None,
+        has_experiment: false,
     };
     context.insert_flag(team.id, Some(flag_row)).await?;
 
@@ -144,6 +145,7 @@ async fn test_skip_writes_still_evaluates_flags_correctly() -> Result<()> {
         evaluation_runtime: None,
         evaluation_tags: None,
         bucketing_identifier: None,
+        has_experiment: false,
     };
     context.insert_flag(team.id, Some(flag_row)).await?;
 

@@ -1349,3 +1349,99 @@ class TestHyperCacheSetCacheValueRedisOnly(BaseTest):
         expected = json.dumps(self.sample_data, sort_keys=True)
         assert caches["flags_dedicated"].get(cache_key) == expected
         assert caches["default"].get(cache_key) == expected
+
+
+@override_settings(
+    CACHES={
+        "default": {
+            "BACKEND": "django.core.cache.backends.locmem.LocMemCache",
+            "LOCATION": "skip-if-unchanged-test-cache",
+        },
+    }
+)
+class TestHyperCacheSkipIfUnchanged(BaseTest):
+    """set_cache_value(skip_if_unchanged=True) avoids redundant rewrites of unchanged content."""
+
+    @property
+    def sample_data(self) -> dict:
+        return {"key": "value", "nested": {"data": "test"}}
+
+    def _hypercache(self, enable_etag: bool = True) -> HyperCache:
+        return HyperCache(
+            namespace="skip_ns",
+            value="skip_value",
+            load_fn=lambda team: {"default": "data"},
+            enable_etag=enable_etag,
+            expiry_sorted_set_key="skip_ns_expiry",
+        )
+
+    def test_requires_expiry_tracking(self):
+        """skip_if_unchanged on a cache with no expiry tracking can't keep entries alive,
+        so it raises rather than silently letting them expire."""
+        hc = HyperCache(
+            namespace="skip_ns",
+            value="skip_value",
+            load_fn=lambda team: {"default": "data"},
+            enable_etag=True,
+        )
+        with pytest.raises(ValueError, match="expiry tracking"):
+            hc.set_cache_value(self.team.id, self.sample_data, skip_if_unchanged=True)
+
+    def setUp(self):
+        super().setUp()
+        cache.clear()
+
+    def test_skips_redundant_write_when_unchanged(self):
+        """An ETag-enabled signal write of byte-identical data skips the Redis and S3 rewrites."""
+        hc = self._hypercache()
+        with patch.object(hc, "_set_cache_value_s3") as s3_write:
+            hc.set_cache_value(self.team.id, self.sample_data, skip_if_unchanged=True)
+            etag_before = hc.get_etag(self.team.id)
+
+            with (
+                patch.object(hc, "_set_cache_value_redis", wraps=hc._set_cache_value_redis) as redis_write,
+                patch("posthog.storage.hypercache.HYPERCACHE_WRITE_SKIPPED_UNCHANGED_COUNTER") as skip_counter,
+            ):
+                size = hc.set_cache_value(self.team.id, self.sample_data, skip_if_unchanged=True)
+
+        redis_write.assert_not_called()
+        # The S3 PUT is the costlier write this optimization skips; only the first write reached it.
+        s3_write.assert_called_once()
+        # The skip counter is the only signal ops have that the optimization fired.
+        skip_counter.labels.assert_called_once_with(namespace="skip_ns", value="skip_value")
+        skip_counter.labels.return_value.inc.assert_called_once()
+        assert size == len(json.dumps(self.sample_data, sort_keys=True))
+        # The stored ETag is untouched, so readers comparing ETags won't refetch.
+        assert hc.get_etag(self.team.id) == etag_before
+
+    def test_changed_write_reuses_serialization_correctly(self):
+        """When the content changed, the skip path's serialization is threaded into the Redis
+        write instead of re-dumped; the stored value and ETag must still match the new payload."""
+        hc = self._hypercache()
+        changed = {"key": "changed", "extra": [3, 1, 2]}
+        with patch.object(hc, "_set_cache_value_s3"):
+            hc.set_cache_value(self.team.id, self.sample_data, skip_if_unchanged=True)
+            hc.set_cache_value(self.team.id, changed, skip_if_unchanged=True)
+
+        assert hc.get_from_cache(self.team.id) == changed
+        assert hc.get_etag(self.team.id) == hc._compute_etag(json.dumps(changed, sort_keys=True))
+
+    @parameterized.expand(
+        [
+            # Each case is a distinct way the skip guard fails to hold, so the write proceeds.
+            ("content_changed", True, True, {"key": "changed"}),
+            ("etag_disabled", False, True, None),
+            ("skip_flag_off", True, False, None),
+        ]
+    )
+    def test_write_proceeds(self, _name, enable_etag, skip_if_unchanged, second_data):
+        """The write proceeds whenever the skip guard doesn't hold: content changed, ETags
+        disabled, or skip_if_unchanged off (the refresh/backfill path, which rewrites
+        unchanged content to extend the TTL)."""
+        hc = self._hypercache(enable_etag=enable_etag)
+        second = self.sample_data if second_data is None else second_data
+        with patch.object(hc, "_set_cache_value_s3"):
+            hc.set_cache_value(self.team.id, self.sample_data, skip_if_unchanged=skip_if_unchanged)
+            with patch.object(hc, "_set_cache_value_redis", wraps=hc._set_cache_value_redis) as redis_write:
+                hc.set_cache_value(self.team.id, second, skip_if_unchanged=skip_if_unchanged)
+        redis_write.assert_called_once()

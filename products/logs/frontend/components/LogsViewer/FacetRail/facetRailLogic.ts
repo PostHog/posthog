@@ -32,9 +32,18 @@ export const facetRailLogic = kea<facetRailLogicType>([
         // filter field/group the facet's source maps to (see FacetConfig.source).
         toggleFacetValue: (source: FacetSource, value: string) => ({ source, value }),
         toggleFacetCollapsed: (facetKey: string) => ({ facetKey }),
+        // Free-text filter over the facet *fields* shown in the rail (not their values). URL-synced by
+        // logsSceneLogic on the main scene, so deliberately not persisted here.
+        setFacetNameSearch: (search: string) => ({ search }),
     }),
 
     reducers({
+        facetNameSearch: [
+            '',
+            {
+                setFacetNameSearch: (_, { search }) => search,
+            },
+        ],
         collapsedFacets: [
             [] as string[],
             { persist: true },

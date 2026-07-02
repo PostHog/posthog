@@ -2,7 +2,6 @@ import type { Meta, StoryObj } from '@storybook/react'
 
 import { SignalReportActionability, SignalReportPriority, SignalReportStatus } from '../../types'
 import { AnimatedEllipsis } from './AnimatedEllipsis'
-import { ForYouBadge } from './ForYouBadge'
 import { SignalReportActionabilityBadge } from './SignalReportActionabilityBadge'
 import { SignalReportPriorityBadge } from './SignalReportPriorityBadge'
 import { SignalReportStatusBadge } from './SignalReportStatusBadge'
@@ -49,9 +48,6 @@ export const AllBadges: Story = {
                 {ACTIONABILITIES.map((a) => (
                     <SignalReportActionabilityBadge key={a} actionability={a} />
                 ))}
-            </Row>
-            <Row label="For you">
-                <ForYouBadge />
             </Row>
             <Row label="Working">
                 <span className="text-sm text-secondary">

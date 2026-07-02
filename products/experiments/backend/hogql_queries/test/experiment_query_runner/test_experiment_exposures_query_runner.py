@@ -1674,28 +1674,49 @@ class TestExperimentExposuresQueryRunner(ExperimentQueryRunnerBaseTest):
 
         total_exposures = {"control": 800, "test": 200, MULTIPLE_VARIANT_KEY: 20}
 
-        ended_query = ExperimentExposureQuery(
-            kind="ExperimentExposureQuery",
-            experiment_id=experiment.id,
-            experiment_name=experiment.name,
-            feature_flag=model_to_dict(feature_flag),
-            start_date=experiment.start_date.isoformat(),
-            end_date=experiment.end_date.isoformat(),
-            exposure_criteria=experiment.exposure_criteria,
-        )
-        ended_runner = ExperimentExposuresQueryRunner(team=self.team, query=ended_query)
-        self.assertIsNone(ended_runner._evaluate_bias_risk(total_exposures))
+        def _runner(end_date: str | None) -> ExperimentExposuresQueryRunner:
+            query = ExperimentExposureQuery(
+                kind="ExperimentExposureQuery",
+                experiment_id=experiment.id,
+                experiment_name=experiment.name,
+                feature_flag=model_to_dict(feature_flag),
+                start_date=experiment.start_date.isoformat(),
+                end_date=end_date,
+                exposure_criteria=experiment.exposure_criteria,
+            )
+            return ExperimentExposuresQueryRunner(team=self.team, query=query)
 
-        running_query = ExperimentExposureQuery(
-            kind="ExperimentExposureQuery",
-            experiment_id=experiment.id,
-            experiment_name=experiment.name,
-            feature_flag=model_to_dict(feature_flag),
-            start_date=experiment.start_date.isoformat(),
-            end_date=None,
-            exposure_criteria=experiment.exposure_criteria,
-        )
-        running_runner = ExperimentExposuresQueryRunner(team=self.team, query=running_query)
-        risk = running_runner._evaluate_bias_risk(total_exposures)
+        # The running/stopped decision is read from the query, not the model — the experiment row is
+        # left ended throughout. Query end_date set -> reads as stopped, warning skipped.
+        self.assertIsNone(_runner(experiment.end_date.isoformat())._evaluate_bias_risk(total_exposures))
+
+        # Query end_date cleared -> reads as running, warning evaluated.
+        risk = _runner(None)._evaluate_bias_risk(total_exposures)
         assert risk is not None
         self.assertGreater(risk.multiple_variant_percentage, 0)
+
+    def test_date_range_follows_query_not_model(self):
+        # The result is cached under a key hashed from the query (see get_cache_payload), so the window
+        # must come from the query — not live model state. A query whose end_date differs from the
+        # model's must yield the query's window, or the cache key would describe a window the result
+        # wasn't computed for.
+        feature_flag = self.create_feature_flag(key="stateless-window")
+        experiment = self.create_experiment(
+            feature_flag=feature_flag,
+            start_date=datetime(2024, 1, 1),
+            end_date=datetime(2024, 1, 31),
+        )
+        query_end = datetime(2024, 1, 10).replace(tzinfo=ZoneInfo("UTC"))
+        query = ExperimentExposureQuery(
+            kind="ExperimentExposureQuery",
+            experiment_id=experiment.id,
+            experiment_name=experiment.name,
+            feature_flag=model_to_dict(feature_flag),
+            start_date=experiment.start_date.isoformat(),
+            end_date=query_end.isoformat(),
+            exposure_criteria=experiment.exposure_criteria,
+        )
+        runner = ExperimentExposuresQueryRunner(team=self.team, query=query)
+        date_to = runner._get_date_range().date_to
+        assert date_to is not None
+        assert datetime.fromisoformat(date_to) == query_end

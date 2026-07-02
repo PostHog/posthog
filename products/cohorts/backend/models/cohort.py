@@ -567,70 +567,14 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
         Returns:
             Number of batches processed.
         """
-        from posthog.personhog_client.gate import use_personhog
-
-        from products.cohorts.backend.models.util import count_cohort_members, insert_static_cohort
+        from products.cohorts.backend.models.util import count_cohort_members
 
         current_batch_index = -1
         processing_error = None
-        personhog = use_personhog()
         try:
-            from django.db import connections, router
-
-            if personhog:
-                for batch_index, batch in batch_iterator:
-                    current_batch_index = batch_index
-                    self._insert_batch_via_personhog(batch, insert_in_clickhouse, team_id=team_id)
-            else:
-                db_write = router.db_for_write(Person) or "default"
-                db_read = router.db_for_read(Person) or "default"
-                persons_connection = connections[db_write]
-                cursor = persons_connection.cursor()
-                cohort_people_table = CohortPeople._meta.db_table
-                for batch_index, batch in batch_iterator:
-                    current_batch_index = batch_index
-
-                    persons_query = (
-                        Person.objects.db_manager(db_read)  # nosemgrep: no-direct-persons-db-orm
-                        .filter(team_id=team_id)
-                        .filter(uuid__in=batch)  # nosemgrep: no-direct-persons-db-orm
-                    )
-                    if insert_in_clickhouse:
-                        # Both querysets must use db_write so Django can merge the
-                        # .exclude() into a single NOT IN subquery. Using db_read
-                        # for Person + db_write for CohortPeople causes a
-                        # "Subqueries aren't allowed across different databases"
-                        # ValueError when the aliases differ (production config).
-                        insert_uuids_query = (
-                            Person.objects.using(db_write)  # nosemgrep: no-direct-persons-db-orm
-                            .filter(team_id=team_id, uuid__in=batch)
-                            .exclude(
-                                id__in=CohortPeople.objects.using(db_write)  # nosemgrep: no-direct-persons-db-orm
-                                .filter(cohort_id=self.id)
-                                .values_list("person_id", flat=True)
-                            )
-                        )
-                        insert_static_cohort(
-                            list(insert_uuids_query.values_list("uuid", flat=True)),
-                            self.pk,
-                            team_id=team_id,
-                        )
-
-                    # Dedup via LEFT JOIN so the exclusion stays entirely in SQL,
-                    # avoiding the O(cohort_size) memory cost of loading all
-                    # existing member IDs into Python. Both tables live on the
-                    # persons DB so the join works on the db_write cursor.
-                    sql, params = persons_query.only("pk").query.sql_with_params()
-                    query = f"""
-                        INSERT INTO "{cohort_people_table}" ("person_id", "cohort_id", "version")
-                        SELECT p."id", {self.pk}, {self.version or "NULL"}
-                        FROM ({sql}) AS p
-                        LEFT JOIN "{cohort_people_table}" AS cp
-                            ON cp."person_id" = p."id" AND cp."cohort_id" = {self.pk}
-                        WHERE cp."person_id" IS NULL
-                        ON CONFLICT DO NOTHING
-                    """
-                    cursor.execute(query, params)
+            for batch_index, batch in batch_iterator:
+                current_batch_index = batch_index
+                self._insert_batch_via_personhog(batch, insert_in_clickhouse, team_id=team_id)
 
         except SoftTimeLimitExceeded as err:
             # Let a Celery soft-time-limit interruption propagate so the task's time limit
@@ -771,8 +715,7 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
             if person is None:
                 raise Person.DoesNotExist
 
-            # Check if person is in the cohort — routed through personhog when enabled,
-            # falling back to the persons-DB ORM query otherwise.
+            # Check if person is in the cohort via personhog.
             is_member = is_person_in_cohort(team_id=team_id, person_id=person.id, cohort_id=self.id)
 
             # Delete from PostgreSQL first (source of truth), then ClickHouse.

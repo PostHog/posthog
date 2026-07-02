@@ -7,6 +7,7 @@ from typing import Any, Union
 
 from django.conf import settings
 from django.core.cache import cache
+from django.utils import timezone
 
 from dateutil.parser import parse as parse_datetime
 from dateutil.relativedelta import MO, SU, relativedelta
@@ -28,6 +29,7 @@ from posthog.hogql.query import execute_hogql_query
 from posthog.clickhouse.query_tagging import Feature, Product, get_query_tags, tags_context
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models import Team
+from posthog.models.event import DEFAULT_EARLIEST_TIME_DELTA
 from posthog.models.team import WeekStartDay
 from posthog.utils import get_safe_cache
 
@@ -35,6 +37,8 @@ from products.actions.backend.models.action import Action
 
 EARLIEST_TIMESTAMP_CACHE_TTL = 24 * 60 * 60
 EARLIEST_EVENT_TIMESTAMP = datetime.fromisoformat("1980-01-01T00:00:00Z")
+# Floor for the team-wide unfiltered earliest timestamp: events before 2015 are treated as corrupt.
+UNFILTERED_EARLIEST_TIMESTAMP_FLOOR = datetime.fromisoformat("2015-01-01T00:00:00Z")
 
 
 def _get_data_warehouse_earliest_timestamp_query(
@@ -255,6 +259,43 @@ def get_earliest_timestamp_from_series(
             timestamps = [future.result() for future in futures]
 
     return min(timestamps)
+
+
+def get_earliest_timestamp_unfiltered(team: Team) -> datetime:
+    """
+    Get the team-wide, unfiltered earliest event timestamp (the earliest event of any kind).
+
+    Used for "all time" date filtering when no specific series is given. Mirrors the value of the
+    legacy raw-SQL earliest-timestamp helper: floored at 2015-01-01, falling back to
+    now - DEFAULT_EARLIEST_TIME_DELTA when the team has no events.
+    """
+    cache_key = f"earliest_timestamp_unfiltered_{team.pk}"
+    cached_result = get_safe_cache(cache_key)
+    if cached_result is not None:
+        return _coerce_to_datetime(cached_result, team.timezone_info)
+
+    query = ast.SelectQuery(
+        select=[ast.Field(chain=["timestamp"])],
+        select_from=ast.JoinExpr(table=ast.Field(chain=["events"])),
+        where=ast.CompareOperation(
+            op=ast.CompareOperationOp.Gt,
+            left=ast.Field(chain=["timestamp"]),
+            right=ast.Constant(value=UNFILTERED_EARLIEST_TIMESTAMP_FLOOR),
+        ),
+        order_by=[ast.OrderExpr(expr=ast.Field(chain=["timestamp"]), order="ASC")],
+        limit=ast.Constant(value=1),
+    )
+
+    with _earliest_timestamp_query_tags():
+        result = execute_hogql_query(query=query, team=team)
+    if result and len(result.results) > 0 and len(result.results[0]) > 0 and result.results[0][0] is not None:
+        earliest_timestamp = _coerce_to_datetime(result.results[0][0], team.timezone_info)
+        # Only cache real results: a team with no events yet should keep re-checking rather than
+        # pinning a "now - delta" fallback for the full TTL.
+        cache.set(cache_key, earliest_timestamp, timeout=EARLIEST_TIMESTAMP_CACHE_TTL)
+        return earliest_timestamp
+
+    return timezone.now() - DEFAULT_EARLIEST_TIME_DELTA
 
 
 def _get_week_boundaries(input_date: date, week_start_day: WeekStartDay) -> tuple[date, date]:

@@ -9,7 +9,7 @@ import { MathAvailability } from 'scenes/insights/filters/ActionFilter/ActionFil
 
 import { groupsModel } from '~/models/groupsModel'
 import { defaultDataTableColumns } from '~/queries/nodes/DataTable/utils'
-import { NodeKind } from '~/queries/schema/schema-general'
+import { DatabaseSchemaField, NodeKind } from '~/queries/schema/schema-general'
 import { FilterType, PropertyOperator } from '~/types'
 
 import { workflowLogic } from '../../workflowLogic'
@@ -44,6 +44,10 @@ export type HogFlowFiltersProps = {
     setFilters: (filters: HogFlowAction['filters']) => void
     typeKey?: string
     buttonCopy?: string
+    // When filtering rows of a data warehouse table, pass the selected table's columns so they appear
+    // as suggestions and resolve their distinct values.
+    schemaColumns?: DatabaseSchemaField[]
+    dataWarehouseTableName?: string
 }
 
 /**
@@ -102,7 +106,13 @@ export function HogFlowEventFilters({ filters, setFilters, typeKey, buttonCopy }
     )
 }
 
-export function HogFlowPropertyFilters({ filtersKey, filters, setFilters }: HogFlowFiltersProps): JSX.Element {
+export function HogFlowPropertyFilters({
+    filtersKey,
+    filters,
+    setFilters,
+    schemaColumns,
+    dataWarehouseTableName,
+}: HogFlowFiltersProps): JSX.Element {
     const sampleGlobals = useSampleGlobals()
     const { groupsTaxonomicTypes } = useValues(groupsModel)
     const { workflow } = useValues(workflowLogic)
@@ -113,6 +123,7 @@ export function HogFlowPropertyFilters({ filtersKey, filters, setFilters }: HogF
             name: variable.key,
         })),
     }
+    const isDataWarehouse = !!dataWarehouseTableName
     return (
         <PropertyFilters
             propertyFilters={filters?.properties}
@@ -120,16 +131,24 @@ export function HogFlowPropertyFilters({ filtersKey, filters, setFilters }: HogF
                 setFilters({ ...filters, properties: properties ?? [] } as HogFlowAction['filters'])
             }}
             pageKey={`HogFlowPropertyFilters.${filtersKey}`}
-            taxonomicGroupTypes={[
-                TaxonomicFilterGroupType.WorkflowVariables,
-                TaxonomicFilterGroupType.EventProperties,
-                TaxonomicFilterGroupType.EventFeatureFlags,
-                TaxonomicFilterGroupType.PersonProperties,
-                ...groupsTaxonomicTypes,
-                TaxonomicFilterGroupType.HogQLExpression,
-                TaxonomicFilterGroupType.EventMetadata,
-            ]}
+            taxonomicGroupTypes={
+                // Warehouse rows are row-scoped — only the synced row's columns make sense to filter on,
+                // so event/feature-flag/person/group properties don't apply here.
+                isDataWarehouse
+                    ? [TaxonomicFilterGroupType.DataWarehouseProperties, TaxonomicFilterGroupType.HogQLExpression]
+                    : [
+                          TaxonomicFilterGroupType.WorkflowVariables,
+                          TaxonomicFilterGroupType.EventProperties,
+                          TaxonomicFilterGroupType.EventFeatureFlags,
+                          TaxonomicFilterGroupType.PersonProperties,
+                          ...groupsTaxonomicTypes,
+                          TaxonomicFilterGroupType.HogQLExpression,
+                          TaxonomicFilterGroupType.EventMetadata,
+                      ]
+            }
             taxonomicFilterOptionsFromProp={taxonomicFilterOptionsFromProp}
+            schemaColumns={schemaColumns}
+            dataWarehouseTableName={dataWarehouseTableName}
             metadataSource={{
                 kind: NodeKind.EventsQuery,
                 select: defaultDataTableColumns(NodeKind.EventsQuery),

@@ -24,6 +24,12 @@ tools:
     vision-actions-retrieve:
         operation: vision_actions_retrieve
         enabled: false
+    vision-actions-runs-list:
+        operation: vision_actions_runs_list
+        enabled: false
+    vision-actions-runs-retrieve:
+        operation: vision_actions_runs_retrieve
+        enabled: false
     vision-observations-list:
         operation: vision_observations_list
         enabled: true
@@ -252,6 +258,9 @@ tools:
         feature_flag: replay-vision
     vision-scanners-stats-retrieve:
         operation: vision_scanners_stats_retrieve
+        enabled: false
+    vision-scanners-suggest-tags-create:
+        operation: vision_scanners_suggest_tags_create
         enabled: false
     vision-scanners-update:
         operation: vision_scanners_partial_update

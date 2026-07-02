@@ -39,7 +39,7 @@
                         "format": {
                             "default": "Parquet",
                             "description": "File format\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines",
-                            "enum": ["JSONLines", "Parquet"],
+                            "enum": ["Parquet", "JSONLines"],
                             "type": "string"
                         },
                         "max_size_mb": {
@@ -103,7 +103,7 @@
                         "format": {
                             "default": "Parquet",
                             "description": "File format\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines",
-                            "enum": ["JSONLines", "Parquet"],
+                            "enum": ["Parquet", "JSONLines"],
                             "type": "string"
                         },
                         "max_size_mb": {
@@ -161,7 +161,7 @@
                         "format": {
                             "default": "Parquet",
                             "description": "File format\n\n* `Parquet` - Parquet\n* `JSONLines` - JSONLines",
-                            "enum": ["JSONLines", "Parquet"],
+                            "enum": ["Parquet", "JSONLines"],
                             "type": "string"
                         },
                         "max_size_mb": {

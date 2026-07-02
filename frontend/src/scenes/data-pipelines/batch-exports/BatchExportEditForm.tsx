@@ -2,6 +2,7 @@ import { IconInfo } from '@posthog/icons'
 import { LemonCheckbox, LemonInput, Tooltip } from '@posthog/lemon-ui'
 
 import { DatePicker } from 'lib/components/DatePicker/DatePicker'
+import { dayjs } from 'lib/dayjs'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
 import { DESTINATIONS } from './destinations'
@@ -42,6 +43,7 @@ export function BatchExportGeneralEditFields({
                                 onChange={onChange}
                                 placeholder="Select end date (optional)"
                                 clearable
+                                maxDate={dayjs().add(5, 'year')}
                             />
                         )}
                     </LemonField>

@@ -1,3 +1,4 @@
+import { logger } from '~/common/utils/logger'
 import { ok } from '~/ingestion/framework/results'
 import { ProcessingStep } from '~/ingestion/framework/steps'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
@@ -5,7 +6,6 @@ import { SessionRecordingIngesterMetrics } from '~/ingestion/pipelines/sessionre
 import { SessionBatchManager } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-manager'
 import { MessageWithTeam, TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { ValueMatcher } from '~/types'
-import { logger } from '~/utils/logger'
 
 export interface RecordSessionEventStepInput {
     team: TeamForReplay

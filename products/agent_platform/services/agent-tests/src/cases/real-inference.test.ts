@@ -36,6 +36,7 @@ import request from 'supertest'
 
 import { type AuthProvider, publicVerifier, readBearer } from '@posthog/agent-ingress'
 import { posthogAiGatewayModel } from '@posthog/agent-runner'
+import { buildWebSearchProviders } from '@posthog/agent-tools'
 
 import { buildCluster, closeSharedPool, Cluster } from '../harness'
 
@@ -134,6 +135,23 @@ function discoverProviders(): ProviderSpec[] {
 const SKIP = process.env.AGENT_SKIP_REAL_INFERENCE === '1' || process.env.AGENT_SKIP_REAL_INFERENCE === 'true'
 const providers = SKIP ? [] : discoverProviders()
 
+// Web-search provider chain — built once at file load from the same env the
+// runner reads. Empty chain → the `@posthog/web-search` case below is skipped
+// (matches the prod-gating behaviour: tool is dropped from sessions when
+// nothing is keyed). Non-empty → the harness wires the chain into the Worker
+// so a real model can actually call the tool.
+const webSearchProviders = SKIP
+    ? []
+    : buildWebSearchProviders({
+          primary: process.env.AGENT_WEB_SEARCH_PROVIDER,
+          fallbacks: process.env.AGENT_WEB_SEARCH_FALLBACKS,
+          keys: {
+              exa: process.env.EXA_API_KEY,
+              tavily: process.env.TAVILY_API_KEY,
+              brave: process.env.BRAVE_API_KEY,
+          },
+      })
+
 if (!SKIP && providers.length === 0) {
     // Surface the missing-creds error at file load — vitest reports it as a
     // suite-level failure and the run exits non-zero. A skipped describe
@@ -184,7 +202,7 @@ maybeDescribe('real inference (via pi-ai): real e2e [%s]', (_label, real: Provid
 
     beforeEach(async () => {
         process.env.AGENT_TEST_API_KEY = real.apiKey
-        c = await buildCluster({ model: real.model, authProvider: posthogAuthProvider })
+        c = await buildCluster({ model: real.model, authProvider: posthogAuthProvider, webSearchProviders })
     })
 
     afterEach(async () => {
@@ -248,6 +266,48 @@ maybeDescribe('real inference (via pi-ai): real e2e [%s]', (_label, real: Provid
         const queryText = (queryResult!.content ?? []).map((b) => b.text ?? '').join(' ')
         expect(queryText).toContain('select 1')
     }, 90_000)
+
+    /**
+     * Real model → real `@posthog/web-search` provider chain → real vendor.
+     * Pinned by the presence of a vendor key in env (EXA / TAVILY / BRAVE);
+     * skipped (not failed) when none is set, so contributors without a key
+     * don't see a red suite. The chain is built once at file load and wired
+     * through `BuildClusterOpts.webSearchProviders`.
+     */
+    const webSearchIt = webSearchProviders.length > 0 ? it : it.skip
+    webSearchIt(
+        'dispatches @posthog/web-search end-to-end against a real vendor',
+        async () => {
+            await c.deployAgent({
+                slug: 'real-web-search',
+                spec: { tools: [{ kind: 'native', id: '@posthog/web-search' }] },
+                files: {
+                    'agent.md':
+                        'You must call @posthog/web-search exactly once with query="posthog feature flags", ' +
+                        'then summarize the first result in one short sentence.',
+                },
+            })
+            const res = await request(c.ingress).post('/agents/real-web-search/run').send({ message: 'go' })
+            await c.drain({ iterations: 100 })
+            const session = await c.queue.get(res.body.session_id)
+            expect(session!.state).toBe('completed')
+
+            const toolResult = session!.conversation.find(
+                (m) => m.role === 'toolResult' && (m as { toolName?: string }).toolName === '@posthog/web-search'
+            ) as { content?: Array<{ text?: string }>; isError?: boolean } | undefined
+            expect(toolResult).not.toBeUndefined()
+            // A vendor 401 / network failure would land as `isError: true`, which
+            // is the regression we'd want to catch (config plumbed wrong, key
+            // didn't reach the provider, smokescreen tripped).
+            expect(toolResult!.isError).not.toBe(true)
+            // The body is the stringified provider envelope: `{provider, results:[{url,title,snippet}]}`.
+            // Asserting on "posthog" as a substring is loose enough to survive
+            // vendor result-ordering churn while still proving real results came back.
+            const body = (toolResult!.content ?? []).map((b) => b.text ?? '').join(' ')
+            expect(body.toLowerCase()).toContain('posthog')
+        },
+        120_000
+    )
 
     it('dispatches a custom (sandboxed) tool end-to-end', async () => {
         const COMPILED = `

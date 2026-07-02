@@ -44,7 +44,7 @@ function makePair(): { app: AgentApplication; rev: AgentRevision } {
         state: 'live' as const,
         bundle_uri: 's3://x/',
         bundle_sha256: null,
-        spec: AgentSpecSchema.parse({ model: 'x' }),
+        spec: AgentSpecSchema.parse({ model: 'test/x' }),
         encrypted_env: null,
     }
     return { app, rev }
@@ -52,6 +52,10 @@ function makePair(): { app: AgentApplication; rev: AgentRevision } {
 
 const ALICE: SessionPrincipal = { kind: 'slack', workspace_id: 'T1', slack_user_id: 'user-alice' }
 const BOB: SessionPrincipal = { kind: 'slack', workspace_id: 'T1', slack_user_id: 'user-bob' }
+
+// Slack-trigger sessions must carry full metadata (workspace/channel/ts/thread_ts);
+// `bareTriggerMetadata` no longer accepts a bare `{ kind: 'slack' }`.
+const SLACK_META = { kind: 'slack' as const, workspace_id: 'T1', channel: 'C01', ts: '1', thread_ts: '4' }
 
 describe('enqueueOrResume', () => {
     it('creates a fresh session without externalKey', async () => {
@@ -177,6 +181,7 @@ describe('enqueueOrResume', () => {
                 seed: { role: 'user', content: 'alice opens thread', timestamp: Date.now() },
                 principal: ALICE,
                 trigger: 'slack',
+                triggerMetadata: SLACK_META,
             }
         )
         const second = await enqueueOrResume(
@@ -188,6 +193,7 @@ describe('enqueueOrResume', () => {
                 seed: { role: 'user', content: 'bob replies', timestamp: Date.now() },
                 principal: BOB,
                 trigger: 'slack',
+                triggerMetadata: SLACK_META,
             }
         )
         expect(second.kind).toBe('elevation_required')
@@ -213,13 +219,11 @@ describe('enqueueOrResume', () => {
         }
     })
 
-    it('isolates preview from live: a preview request does not resume a live session on the same external_key', async () => {
-        // Preview/live isolation contract. The runner reads suppression off
-        // the session row (`is_preview`), so a preview-authed request that
-        // resumed a live row would drive live secrets and un-suppressed
-        // external writes under preview auth. `findByExternalKey` is scoped to
-        // the request's preview/live boundary; a cross-scope match falls
-        // through to creating a new session.
+    it('isolates by revision: a request for a draft does not resume a session on another revision sharing the external_key', async () => {
+        // Resume is revision-scoped. `findByExternalKey` matches only sessions
+        // on the request's revision, so a draft-preview request can't resume a
+        // session created on the live (or a different draft) revision under the
+        // same external_key — it opens its own session instead.
         const queue = new PgSessionQueue(pool)
         const { app, rev } = makePair()
         const draftRev: AgentRevision = { ...rev, id: randomUUID(), state: 'draft' }
@@ -232,7 +236,7 @@ describe('enqueueOrResume', () => {
                 seed: { role: 'user', content: 'live opens thread', timestamp: Date.now() },
                 principal: ALICE,
                 trigger: 'slack',
-                isPreview: false,
+                triggerMetadata: SLACK_META,
             }
         )
         const preview = await enqueueOrResume(
@@ -244,21 +248,19 @@ describe('enqueueOrResume', () => {
                 seed: { role: 'user', content: 'preview author tests draft', timestamp: Date.now() },
                 principal: ALICE,
                 trigger: 'slack',
-                isPreview: true,
+                triggerMetadata: SLACK_META,
             }
         )
         expect(preview.kind).toBe('created')
         expect(preview.sessionId).not.toBe(live.sessionId)
-        // The new preview session is its own row with `is_preview = true` and
-        // the draft revision — the live session is untouched.
+        // The new session is its own row on the draft revision — the live
+        // session is untouched.
         const previewSession = await queue.get(preview.sessionId)
-        expect(previewSession!.is_preview).toBe(true)
         expect(previewSession!.revision_id).toBe(draftRev.id)
         const liveSession = await queue.get(live.sessionId)
-        expect(liveSession!.is_preview).toBe(false)
         expect(liveSession!.pending_inputs).toHaveLength(0)
-        // A second live request on the same key still resumes the live row —
-        // the new preview row doesn't poach it.
+        // A second request on the same key + same (live) revision resumes the
+        // live row — the draft row doesn't poach it.
         const liveAgain = await enqueueOrResume(
             { queue },
             {
@@ -268,13 +270,13 @@ describe('enqueueOrResume', () => {
                 seed: { role: 'user', content: 'live follow-up', timestamp: Date.now() },
                 principal: ALICE,
                 trigger: 'slack',
-                isPreview: false,
+                triggerMetadata: SLACK_META,
             }
         )
         expect(liveAgain.kind).toBe('resumed')
         expect(liveAgain.sessionId).toBe(live.sessionId)
-        // Two different draft revisions previewing the same external_key get
-        // distinct sessions — their conversation histories don't bleed.
+        // Two different draft revisions on the same external_key get distinct
+        // sessions — their conversation histories don't bleed.
         const secondDraftRev: AgentRevision = { ...rev, id: randomUUID(), state: 'draft' }
         const otherPreview = await enqueueOrResume(
             { queue },
@@ -285,7 +287,7 @@ describe('enqueueOrResume', () => {
                 seed: { role: 'user', content: 'other draft', timestamp: Date.now() },
                 principal: ALICE,
                 trigger: 'slack',
-                isPreview: true,
+                triggerMetadata: SLACK_META,
             }
         )
         expect(otherPreview.kind).toBe('created')
@@ -304,6 +306,7 @@ describe('enqueueOrResume', () => {
                 seed: { role: 'user', content: 'alice opens', timestamp: Date.now() },
                 principal: ALICE,
                 trigger: 'slack',
+                triggerMetadata: SLACK_META,
             }
         )
         // Six denials — the seventh would also fit if we ever lift the cap,
@@ -318,12 +321,11 @@ describe('enqueueOrResume', () => {
                     seed: { role: 'user', content: `bob #${i}`, timestamp: Date.now() + i },
                     principal: { ...BOB, slack_user_id: `bob-${i}` },
                     trigger: 'slack',
+                    triggerMetadata: SLACK_META,
                 }
             )
         }
-        const session = await queue.get(
-            (await queue.findByExternalKey(app.id, 'slack:C01:thread5', { isPreview: false, revisionId: rev.id }))!.id
-        )
+        const session = await queue.get((await queue.findByExternalKey(app.id, 'slack:C01:thread5', rev.id))!.id)
         const pendings = session!.pending_elevation_requests.filter((r) => r.state === 'pending')
         expect(pendings).toHaveLength(5)
         const expired = session!.pending_elevation_requests.filter((r) => r.state === 'expired')
@@ -574,6 +576,47 @@ describe('enqueueOrResume', () => {
                     }
                 )
             ).rejects.toThrow('boom')
+        })
+    })
+
+    describe('bareTriggerMetadata exhaustiveness', () => {
+        it('throws if a slack trigger is enqueued without triggerMetadata', async () => {
+            const queue = new PgSessionQueue(pool)
+            const { app, rev } = makePair()
+            await expect(
+                enqueueOrResume(
+                    { queue },
+                    {
+                        application: app,
+                        revision: rev,
+                        externalKey: null,
+                        trigger: 'slack',
+                        seed: { role: 'user', content: 'hi', timestamp: Date.now() },
+                    }
+                )
+            ).rejects.toThrow(/slack trigger requires explicit triggerMetadata/)
+        })
+
+        it.each([
+            ['webhook', 'webhook'],
+            ['mcp', 'mcp'],
+            ['chat', 'chat'],
+        ] as const)('stamps bare {kind:%s} when trigger=%s and no triggerMetadata', async (kind, trigger) => {
+            const queue = new PgSessionQueue(pool)
+            const { app, rev } = makePair()
+            const out = await enqueueOrResume(
+                { queue },
+                {
+                    application: app,
+                    revision: rev,
+                    externalKey: null,
+                    trigger,
+                    seed: { role: 'user', content: 'hi', timestamp: Date.now() },
+                }
+            )
+            expect(out.kind).toBe('created')
+            const session = await queue.get(out.sessionId)
+            expect(session!.trigger_metadata).toEqual({ kind })
         })
     })
 })

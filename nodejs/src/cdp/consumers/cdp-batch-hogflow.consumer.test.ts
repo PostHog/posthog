@@ -1,12 +1,12 @@
 import { createMockJobQueue } from '../../../tests/helpers/mocks/job-queue.mock'
 
-import { HogFlow } from '~/schema/hogflow'
-import { UUIDT } from '~/utils/utils'
+import { HogFlow } from '~/cdp/schema/hogflow'
+import { closeHub, createHub } from '~/common/utils/db/hub'
+import { UUIDT } from '~/common/utils/utils'
 
 import { createCdpConsumerDeps } from '../../../tests/helpers/cdp'
 import { getFirstTeam, resetTestDatabase } from '../../../tests/helpers/sql'
 import { Hub, Team } from '../../types'
-import { closeHub, createHub } from '../../utils/db/hub'
 import { FixtureHogFlowBuilder } from '../_tests/builders/hogflow.builder'
 import { createKafkaMessage } from '../_tests/fixtures'
 import { insertHogFlow as _insertHogFlow } from '../_tests/fixtures-hogflows'
@@ -434,6 +434,121 @@ describe('CdpBatchHogFlowRequestsConsumer', () => {
             // Should have stopped after 2nd batch (4 total > 3 limit), not fetching the 3rd
             expect(mockGetBlastRadiusPersons).toHaveBeenCalledTimes(2)
             // Only invocations from the first batch (before exceeding limit) should be included
+            expect(result).toHaveLength(2)
+            expect(result.map((item) => (item as any).person?.id)).toEqual(['person-1', 'person-2'])
+        })
+
+        it('should let a request-level maxAudienceSize override the global config cap', async () => {
+            const hogFlow = await insertHogFlow(
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withSimpleWorkflow({
+                        trigger: {
+                            type: 'batch',
+                            filters: { properties: [] },
+                        },
+                    })
+                    .build()
+            )
+
+            // Global cap is low, but this team's elevated per-team limit rides on the request.
+            processor['config'] = { ...processor['config'], CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: 3 }
+
+            const mockGetBlastRadiusPersons = jest
+                .fn()
+                .mockResolvedValueOnce({
+                    users_affected: ['person-1', 'person-2'],
+                    cursor: 'cursor-1',
+                    has_more: true,
+                })
+                .mockResolvedValueOnce({
+                    users_affected: ['person-3', 'person-4'],
+                    cursor: 'cursor-2',
+                    has_more: true,
+                })
+                .mockResolvedValueOnce({
+                    users_affected: ['person-5'],
+                    cursor: null,
+                    has_more: false,
+                })
+
+            processor['hogFlowBatchPersonQueryService'].getBlastRadiusPersons = mockGetBlastRadiusPersons
+
+            const batchRequest: BatchHogFlowRequest = {
+                teamId: team.id,
+                hogFlowId: hogFlow.id,
+                parentRunId: new UUIDT().toString(),
+                maxAudienceSize: 50000,
+                filters: {
+                    properties: [{ key: 'email', value: 'test@example.com', operator: 'exact', type: 'person' }],
+                },
+            }
+
+            const result = await processor['createHogFlowInvocations']({
+                batchHogFlowRequest: batchRequest,
+                team,
+                hogFlow,
+            })
+
+            // All three pages are consumed despite the global cap of 3, and every person is queued.
+            expect(mockGetBlastRadiusPersons).toHaveBeenCalledTimes(3)
+            expect(result).toHaveLength(5)
+            expect(result.map((item) => (item as any).person?.id)).toEqual([
+                'person-1',
+                'person-2',
+                'person-3',
+                'person-4',
+                'person-5',
+            ])
+        })
+
+        it('should fall back to the global config cap when the request has no maxAudienceSize', async () => {
+            const hogFlow = await insertHogFlow(
+                new FixtureHogFlowBuilder()
+                    .withTeamId(team.id)
+                    .withSimpleWorkflow({
+                        trigger: {
+                            type: 'batch',
+                            filters: { properties: [] },
+                        },
+                    })
+                    .build()
+            )
+
+            processor['config'] = { ...processor['config'], CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE: 3 }
+
+            const mockGetBlastRadiusPersons = jest
+                .fn()
+                .mockResolvedValueOnce({
+                    users_affected: ['person-1', 'person-2'],
+                    cursor: 'cursor-1',
+                    has_more: true,
+                })
+                .mockResolvedValueOnce({
+                    users_affected: ['person-3', 'person-4'],
+                    cursor: 'cursor-2',
+                    has_more: true,
+                })
+
+            processor['hogFlowBatchPersonQueryService'].getBlastRadiusPersons = mockGetBlastRadiusPersons
+
+            const batchRequest: BatchHogFlowRequest = {
+                teamId: team.id,
+                hogFlowId: hogFlow.id,
+                parentRunId: new UUIDT().toString(),
+                filters: {
+                    properties: [{ key: 'email', value: 'test@example.com', operator: 'exact', type: 'person' }],
+                },
+            }
+
+            const result = await processor['createHogFlowInvocations']({
+                batchHogFlowRequest: batchRequest,
+                team,
+                hogFlow,
+            })
+
+            // Stops after the 2nd page (4 > 3), same as the global-cap behavior.
+            expect(mockGetBlastRadiusPersons).toHaveBeenCalledTimes(2)
             expect(result).toHaveLength(2)
             expect(result.map((item) => (item as any).person?.id)).toEqual(['person-1', 'person-2'])
         })

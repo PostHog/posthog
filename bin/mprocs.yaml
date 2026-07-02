@@ -100,6 +100,9 @@ procs:
         shell: 'bin/wait-for-docker && PLUGIN_SERVER_MODE=ingestion-metrics HTTP_SERVER_PORT=6744 ./bin/posthog-node'
         capability: nodejs_metrics
         ready_pattern: 'All systems go'
+        groups:
+            layer: Ingestion pipeline
+            tech: Node
 
     ingestion-traces:
         sandbox: true
@@ -306,6 +309,16 @@ procs:
             layer: Product services
             tech: Rust
 
+    cymbal-notifications:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service cymbal-notifications
+        capability: error_notifications
+        ready_pattern: 'Starting cymbal-notifications consumer'
+        groups:
+            layer: Product services
+            tech: Rust
+
     embedding-worker:
         shell: |-
             bin/wait-for-docker && \
@@ -341,7 +354,7 @@ procs:
         shell: |-
             bin/wait-for-docker && \
             bin/start-rust-service hypercache-server
-        capability: hypercache
+        # no capability: always_required via intent-map.yaml
         ready_pattern: 'listening on *'
         groups:
             layer: Product services
@@ -412,6 +425,9 @@ procs:
             bin/wait-for-docker && \
             bin/start-rust-service capture-logs
         capability: logs_ingestion
+        groups:
+            layer: Ingestion pipeline
+            tech: Rust
 
     batch-import-worker:
         shell: |-
@@ -450,6 +466,9 @@ procs:
         capability: personhog
         ready_pattern: 'etcd init complete'
         autostart: true
+        groups:
+            layer: Product services
+            tech: Rust
 
     personhog-router-leader:
         shell: |-
@@ -457,6 +476,9 @@ procs:
             bin/start-rust-service personhog-router-leader
         capability: personhog
         ready_pattern: 'Metrics server listening on *'
+        groups:
+            layer: Product services
+            tech: Rust
 
     personhog-leader:
         shell: |-
@@ -474,6 +496,32 @@ procs:
             bin/start-rust-service personhog-writer
         capability: personhog
         ready_pattern: 'Metrics server listening on *'
+        groups:
+            layer: Product services
+            tech: Rust
+
+    # Behavioral Cohorts stream rebuild (Rust). The shuffler keys clickhouse_events_json into
+    # cohort_stream_events; the processor consumes that and emits membership changes. Opt-in
+    # (autostart: false).
+    cohort-event-shuffler:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service cohort-event-shuffler
+        autostart: false
+        ready_pattern: 'observability server starting'
+        groups:
+            layer: Product services
+            tech: Rust
+
+    cohort-stream-processor:
+        shell: |-
+            bin/wait-for-docker && \
+            bin/start-rust-service cohort-stream-processor
+        autostart: false
+        ready_pattern: 'observability server starting'
+        groups:
+            layer: Product services
+            tech: Rust
 
     llm-gateway:
         sandbox: true
@@ -540,6 +588,20 @@ procs:
         groups:
             layer: Infrastructure
             tech: Migrations
+
+    ensure-local-setup:
+        # Idempotent local-dev bootstrap (feature flags, dev API key, wizard OAuth app). phrocs has no
+        # depends_on, so wait for the tables it touches before running (same approach as
+        # migrate-clickhouse waiting on posthog_instancesetting).
+        shell: 'bin/wait-for-docker && bin/wait-for-postgres-tables posthog_featureflag posthog_personalapikey posthog_oauthapplication && bin/ensure-local-setup'
+        capability: core_infra
+        ready_pattern: 'Local setup complete'
+        # Unlike the other Tools-layer entries (manual `autostart: false` utilities), this one
+        # must run automatically every startup to keep local dev bootstrapped.
+        autostart: true
+        groups:
+            layer: Tools
+            tech: Setup
 
     migrate-clickhouse:
         # Wait on posthog_instancesetting because Django queries that table at
@@ -671,6 +733,9 @@ procs:
             layer: Tools
             tech: Python
         # no capability - manual start
+
+# Grouping dimension the sidebar starts grouped by (press `g` to cycle/disable).
+default_group: layer
 
 group_order:
     layer: [Application, Processing, Ingestion pipeline, Infrastructure, Product services, Tools]

@@ -13,6 +13,7 @@ from posthog.models import Team
 from products.metrics.backend.anomaly import characterize_anomaly as _characterize_anomaly
 from products.metrics.backend.facade.contracts import (
     MetricAnomalyReport,
+    MetricEventSample,
     MetricFilter,
     MetricPoint,
     MetricQueryClause,
@@ -22,6 +23,7 @@ from products.metrics.backend.facade.contracts import (
 from products.metrics.backend.facade.enums import MetricAggregation
 from products.metrics.backend.formula import evaluate, parse_formula
 from products.metrics.backend.has_metrics_query_runner import team_has_metrics as _team_has_metrics
+from products.metrics.backend.metric_event_samples_query_runner import MetricEventSamplesQueryRunner
 from products.metrics.backend.metric_names_query_runner import MetricNamesQueryRunner
 from products.metrics.backend.metric_query_runner import MetricQueryRunner
 
@@ -57,17 +59,20 @@ def _assemble_series(
         key = tuple(sorted(row["labels"].items()))
         by_labels.setdefault(key, {})[row["time"]] = row["value"]
 
-    series = [
+    # Rank and truncate on the sparse values BEFORE zero-filling, so a
+    # high-cardinality group-by never materializes label_sets x grid points
+    # only to throw most of them away. Zero-filled points contribute nothing
+    # to the magnitude, so the ranking is identical either way.
+    ranked = sorted(by_labels.items(), key=lambda item: (-sum(abs(v) for v in item[1].values()), item[0]))
+    return [
         MetricSeries(
             labels=dict(key),
             points=tuple(MetricPoint(time=time, value=values.get(time, 0.0)) for time in grid),
             metric_name=metric_name,
             clause=clause_name,
         )
-        for key, values in by_labels.items()
+        for key, values in ranked[:MAX_SERIES_PER_CLAUSE]
     ]
-    series.sort(key=lambda s: (-sum(abs(p.value) for p in s.points), tuple(sorted(s.labels.items()))))
-    return series[:MAX_SERIES_PER_CLAUSE]
 
 
 def _resolve_runner_aggregation(clause: MetricQueryClause) -> str:
@@ -192,6 +197,35 @@ def list_metric_names(
     """
     runner = MetricNamesQueryRunner(team=team, search=search, limit=limit)
     return runner.run()
+
+
+def list_metric_event_samples(
+    *,
+    team: Team,
+    metric_name: str,
+    date_from: dt.datetime,
+    date_to: dt.datetime,
+    trace_id: str | None = None,
+    limit: int = 100,
+) -> list[MetricEventSample]:
+    """List individual metric emissions (the events model) for a metric,
+    newest first.
+
+    Each sample carries its value, attributes, and trace linkage, so the
+    Samples view can render raw rows and pivot to the trace behind any one.
+    Pass `trace_id` for the reverse pivot — every emission on a given trace.
+    Raises `ValueError` for an empty metric name, an inverted window, or an
+    out-of-range limit; the presentation layer surfaces these as 400s.
+    """
+    runner = MetricEventSamplesQueryRunner(
+        team=team,
+        metric_name=metric_name,
+        date_from=date_from,
+        date_to=date_to,
+        trace_id=trace_id,
+        limit=limit,
+    )
+    return [MetricEventSample(**row) for row in runner.run()]
 
 
 def characterize_metric_anomaly(

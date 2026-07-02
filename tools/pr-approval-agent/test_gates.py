@@ -197,19 +197,19 @@ def test_ignored_files_does_not_bypass_other_deny_list_files() -> None:
     "files, subject",
     [
         pytest.param(
-            ["posthog/temporal/data_imports/sources/stripe/auth.py"],
+            ["products/warehouse_sources/backend/temporal/data_imports/sources/stripe/auth.py"],
             "fix(stripe): refresh oauth token before sync",
             id="dwh-source-auth-file-and-title",
         ),
         pytest.param(
-            ["posthog/temporal/data_imports/sources/postgres/source.py"],
+            ["products/warehouse_sources/backend/temporal/data_imports/sources/postgres/source.py"],
             "fix(postgres): treat invalid SSH tunnel auth as non-retryable",
             id="dwh-source-auth-in-title-only",
         ),
         pytest.param(
             [
-                "posthog/temporal/data_imports/sources/salesforce/source.py",
-                "posthog/temporal/data_imports/sources/salesforce/settings.py",
+                "products/warehouse_sources/backend/temporal/data_imports/sources/salesforce/source.py",
+                "products/warehouse_sources/backend/temporal/data_imports/sources/salesforce/settings.py",
             ],
             "fix(salesforce): treat deleted oauth credential as non-retryable",
             id="dwh-source-multi-file-oauth-credential",
@@ -222,7 +222,7 @@ def test_dwh_source_auth_exempt(files: list[str], subject: str) -> None:
 
 def test_dwh_source_still_denies_non_auth_categories() -> None:
     # Only `auth` is exempted — crypto/secrets still applies to source files.
-    files = ["posthog/temporal/data_imports/sources/stripe/api_key_store.py"]
+    files = ["products/warehouse_sources/backend/temporal/data_imports/sources/stripe/api_key_store.py"]
     result = detect_deny_categories(files, "feat(stripe): rotate api key")
     assert "auth" not in result
     assert "crypto_secrets" in result
@@ -233,7 +233,7 @@ def test_dwh_source_still_denies_non_auth_categories() -> None:
     [
         pytest.param(
             [
-                "posthog/temporal/data_imports/sources/stripe/source.py",
+                "products/warehouse_sources/backend/temporal/data_imports/sources/stripe/source.py",
                 "posthog/api/authentication.py",
             ],
             "fix: stripe auth and login flow",
@@ -241,7 +241,7 @@ def test_dwh_source_still_denies_non_auth_categories() -> None:
         ),
         pytest.param(
             [
-                "posthog/temporal/data_imports/sources/stripe/source.py",
+                "products/warehouse_sources/backend/temporal/data_imports/sources/stripe/source.py",
                 "posthog/api/foo.py",
             ],
             "fix: oauth login redirect",

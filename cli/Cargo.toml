@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "posthog-cli"
-version = "0.7.30"
+version = "0.7.34"
 authors = [
     "David <david@posthog.com>",
     "Olly <oliver@posthog.com>",
@@ -26,7 +26,7 @@ clap = { version = "4.5.31", features = ["derive", "env"] }
 dirs = "6.0.0"
 inquire = "0.7.5"
 chrono = "0.4.42"
-posthog-symbol-data = "0.4.0"
+posthog-symbol-data = "0.5.0"
 walkdir = "2.5.0"
 globset = "0.4"
 ratatui = "0.29.0"

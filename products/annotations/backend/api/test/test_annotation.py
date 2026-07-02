@@ -263,6 +263,64 @@ class TestAnnotation(APIBaseTest, QueryMatchingTest):
         test_annotation.refresh_from_db()
         assert test_annotation.emoji is None
 
+    def test_creating_annotation_defaults_hidden_in_user_interface_to_null(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/annotations/",
+            {"content": "Release shipped", "scope": "project", "date_marker": "2020-01-01T00:00:00.000000Z"},
+        )
+        assert response.status_code == status.HTTP_201_CREATED
+        assert response.json()["hidden_in_user_interface"] is None
+        instance = Annotation.objects.get(pk=response.json()["id"])
+        assert instance.hidden_in_user_interface is None
+
+    def test_creating_and_clearing_hidden_in_user_interface(self) -> None:
+        create_response = self.client.post(
+            f"/api/projects/{self.team.id}/annotations/",
+            {
+                "content": "Deployment",
+                "scope": "project",
+                "date_marker": "2020-01-01T00:00:00.000000Z",
+                "hidden_in_user_interface": True,
+            },
+        )
+        assert create_response.status_code == status.HTTP_201_CREATED
+        assert create_response.json()["hidden_in_user_interface"] is True
+
+        annotation_id = create_response.json()["id"]
+        clear_response = self.client.patch(
+            f"/api/projects/{self.team.id}/annotations/{annotation_id}/",
+            {"hidden_in_user_interface": None},
+        )
+        assert clear_response.status_code == status.HTTP_200_OK
+        assert clear_response.json()["hidden_in_user_interface"] is None
+
+    @parameterized.expand(
+        [
+            (None, {"hidden", "visible", "unset"}),
+            ("false", {"visible", "unset"}),
+            ("0", {"visible", "unset"}),
+            ("banana", {"visible", "unset"}),
+            ("true", {"hidden"}),
+            ("1", {"hidden"}),
+        ]
+    )
+    def test_filter_annotations_by_hidden_in_user_interface(
+        self, query_value: Optional[str], expected_contents: set[str]
+    ) -> None:
+        for content, hidden in (("hidden", True), ("visible", False), ("unset", None)):
+            Annotation.objects.create(
+                organization=self.organization,
+                team=self.team,
+                content=content,
+                scope=Annotation.Scope.PROJECT,
+                hidden_in_user_interface=hidden,
+            )
+
+        query = f"?hidden_in_user_interface={query_value}" if query_value is not None else ""
+        response = self.client.get(f"/api/projects/{self.team.id}/annotations/{query}")
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert {result["content"] for result in response.json()["results"]} == expected_contents
+
     def test_deleting_annotation(self) -> None:
         new_user = User.objects.create_and_join(self.organization, "new_annotations@posthog.com", None)
 

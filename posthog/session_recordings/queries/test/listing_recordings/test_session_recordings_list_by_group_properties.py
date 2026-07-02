@@ -7,11 +7,11 @@ from dateutil.relativedelta import relativedelta
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.log_entries import TRUNCATE_LOG_ENTRIES_TABLE_SQL
-from posthog.models import Person
 from posthog.models.group.util import create_group
 from posthog.session_recordings.queries.test.listing_recordings.test_utils import assert_query_matches_session_ids
 from posthog.session_recordings.queries.test.session_replay_sql import produce_replay_summary
 from posthog.session_recordings.sql.session_replay_event_sql import TRUNCATE_SESSION_REPLAY_EVENTS_TABLE_SQL
+from posthog.test.persons import create_person
 from posthog.test.test_utils import create_group_type_mapping_without_created_at
 
 
@@ -37,7 +37,7 @@ class TestSessionRecordingsListByGroupProperties(ClickhouseTestMixin, APIBaseTes
     @snapshot_clickhouse_queries
     def test_filter_with_group_properties(self) -> None:
         # there is one person
-        Person.objects.create(team_id=self.team.pk, distinct_ids=["p1"], properties={"$browser": "test"})
+        create_person(team_id=self.team.pk, distinct_ids=["p1"], properties={"$browser": "test"})
 
         # there are two groups
         create_group_type_mapping_without_created_at(

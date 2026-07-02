@@ -21,7 +21,6 @@ import { InsightLogicProps } from '~/types'
 import type { aiObservabilityTraceDataLogicType } from './aiObservabilityTraceDataLogicType'
 import { aiObservabilityTraceLogic } from './aiObservabilityTraceLogic'
 import { llmPersonsLazyLoaderLogic } from './llmPersonsLazyLoaderLogic'
-import { llmSentimentLazyLoaderLogic } from './llmSentimentLazyLoaderLogic'
 import { captureNormalizationFailure, normalizeMessages } from './messageNormalization'
 import {
     SearchOccurrence,
@@ -30,7 +29,6 @@ import {
     findSidebarOccurrences,
     findTraceOccurrences,
 } from './searchUtils'
-import { SENTIMENT_DATE_WINDOW_DAYS } from './sentimentUtils'
 import { formatLLMUsage, getEventType, getSessionID, isLLMEvent } from './utils'
 
 export interface TraceDataLogicProps {
@@ -44,6 +42,7 @@ function getDataNodeLogicProps({ traceId, query, cachedResults }: TraceDataLogic
     const fallbackTraceQuery: TraceQuery = {
         kind: NodeKind.TraceQuery,
         traceId,
+        includeSentiment: true,
         // Match trace logic defaults so we still fetch data if query is briefly undefined.
         dateRange: {
             date_from: dayjs.utc().subtract(1, 'year').startOf('day').toISOString(),
@@ -502,13 +501,6 @@ export const aiObservabilityTraceDataLogic = kea<aiObservabilityTraceDataLogicTy
 
             if (trace?.distinctId) {
                 llmPersonsLazyLoaderLogic.actions.ensurePersonLoaded(trace.distinctId)
-            }
-
-            if (trace?.id) {
-                llmSentimentLazyLoaderLogic.actions.ensureSentimentLoaded(trace.id, {
-                    dateFrom: trace.createdAt,
-                    dateTo: dayjs(trace.createdAt).add(SENTIMENT_DATE_WINDOW_DAYS, 'day').toISOString(),
-                })
             }
 
             actions.reportSingleTraceLoadIfReady()

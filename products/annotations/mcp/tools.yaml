@@ -29,6 +29,7 @@ tools:
             - date_marker
             - scope
             - emoji
+            - hidden_in_user_interface
     annotation-delete:
         operation: annotations_destroy
         enabled: true
@@ -92,6 +93,7 @@ tools:
             - date_marker
             - scope
             - emoji
+            - hidden_in_user_interface
     annotations-update:
         operation: annotations_update
         enabled: false

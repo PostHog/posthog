@@ -1,16 +1,32 @@
-import { actions, afterMount, connect, kea, key, listeners, path, props, propsChanged, reducers, selectors } from 'kea'
+import {
+    actions,
+    afterMount,
+    connect,
+    isBreakpoint,
+    kea,
+    key,
+    listeners,
+    path,
+    props,
+    propsChanged,
+    reducers,
+    selectors,
+} from 'kea'
 import { loaders } from 'kea-loaders'
 import { actionToUrl, router } from 'kea-router'
 
 import api from 'lib/api'
+import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { eventUsageLogic } from 'lib/utils/eventUsageLogic'
 import { objectsEqual } from 'lib/utils/objects'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
+import { insightsApi } from 'scenes/insights/utils/api'
 import { sceneLogic } from 'scenes/sceneLogic'
 import { Scene } from 'scenes/sceneTypes'
 import { filterTestAccountsDefaultsLogic } from 'scenes/settings/environment/filterTestAccountDefaultsLogic'
 
 import { sceneLayoutLogic } from '~/layout/scenes/sceneLayoutLogic'
+import { insightsModel } from '~/models/insightsModel'
 import { examples } from '~/queries/examples'
 import { DataNodeLogicProps, dataNodeLogic } from '~/queries/nodes/DataNode/dataNodeLogic'
 import { nodeKindToInsightType } from '~/queries/nodes/InsightQuery/utils/queryNodeToFilter'
@@ -80,6 +96,8 @@ export const insightDataLogic = kea<insightDataLogicType>([
             ['setInsight', 'setInsightMetadata', 'loadInsightSuccess'],
             dataNodeLogic({ key: insightVizDataNodeKey(props) } as DataNodeLogicProps),
             ['loadData', 'loadDataSuccess', 'loadDataFailure', 'setResponse as setInsightData'],
+            insightsModel,
+            ['renameInsightSuccess'],
         ],
         logic: [insightDataTimingLogic(props), insightUsageLogic(props)],
     })),
@@ -90,6 +108,7 @@ export const insightDataLogic = kea<insightDataLogicType>([
         toggleQueryEditorPanel: true,
         toggleDebugPanel: true,
         cancelChanges: true,
+        persistDisplayOptions: (query: Node) => ({ query }),
     }),
 
     reducers({
@@ -274,6 +293,43 @@ export const insightDataLogic = kea<insightDataLogicType>([
     }),
 
     listeners(({ actions, values, props }) => ({
+        persistDisplayOptions: async ({ query }, breakpoint) => {
+            // Never auto-persist while the user is editing this insight in the insight scene.
+            // insightDataLogic is keyed `${shortId}/on-dashboard-${dashboardId}`, so an insight
+            // opened from a dashboard shares its instance with the dashboard tile — which wired
+            // props.setQuery to persistDisplayOptions. Without this guard, any edit in the scene
+            // (a display toggle or removing a filter) would PATCH the insight before the user
+            // clicks Save. Edits there must persist only through an explicit save.
+            if (isInsightSceneInstance(props)) {
+                return
+            }
+            // Debounce rapid clicks. insightDataLogic is keyed per insight, so breakpoint
+            // only cancels concurrent saves for THIS insight — not unrelated tiles.
+            await breakpoint(700)
+            const insightId = values.insight.id
+            if (!insightId) {
+                return
+            }
+            // Only persist when the query actually differs from what's saved. The setQuery →
+            // props.setQuery path fires for any InsightVizNode change, including programmatic
+            // re-syncs (tile re-renders, results refreshes) that carry an unchanged query —
+            // persisting those produces spurious saves and activity-log churn.
+            if (objectsEqual(query, values.savedInsight.query)) {
+                return
+            }
+            try {
+                const updatedItem = await insightsApi.update(insightId, { query })
+                // Drop the response if a newer save started while this request was in flight.
+                await breakpoint(0)
+                actions.renameInsightSuccess(updatedItem)
+                lemonToast.success('Insight updated')
+            } catch (e) {
+                if (!isBreakpoint(e as Error)) {
+                    lemonToast.error('Failed to update insight')
+                }
+            }
+        },
+
         generateInsightMetadataSuccess: ({ generatedInsightMetadata }) => {
             if (generatedInsightMetadata) {
                 actions.setInsightMetadata({
@@ -383,14 +439,20 @@ export const insightDataLogic = kea<insightDataLogicType>([
         if (!cachedQueryChanged) {
             return
         }
+        // On dashboard tiles props.setQuery persists edits, and `setQuery` is shared with
+        // insightVizDataLogic whose listener calls props.setQuery — so re-syncing a stale incoming
+        // cached query (e.g. from a tile results refresh) via setQuery loops back and PATCHes it,
+        // reverting a just-saved display option. syncQueryFromProps updates local state without the
+        // loop. The insight scene keeps setQuery for its URL/draft sync.
+        const syncCachedQuery = props.dashboardId != null ? actions.syncQueryFromProps : actions.setQuery
         try {
             if (!objectsEqual(props.cachedInsight.query, values.query)) {
-                actions.setQuery(props.cachedInsight.query)
+                syncCachedQuery(props.cachedInsight.query)
             }
         } catch {
             // values.query can throw if the logic's state isn't in the store yet
             // (e.g. when InsightCard rebuilds the logic during navigation)
-            actions.setQuery(props.cachedInsight.query)
+            syncCachedQuery(props.cachedInsight.query)
         }
     }),
     afterMount(({ actions, props }) => {

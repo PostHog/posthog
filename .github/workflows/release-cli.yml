@@ -437,6 +437,10 @@ jobs:
             - name: Setup pnpm
               uses: pnpm/action-setup@0e279bb959325dab635dd2c09392533439d90093 # v6.0.8
             - name: Fix node-gyp permissions
+              # This job also runs on the Windows runner, where the default
+              # shell is PowerShell and `find` resolves to Windows FIND.exe.
+              # Force bash (git-bash) so find/chmod are the Unix tools.
+              shell: bash
               run: find ~/setup-pnpm -name gyp_main.py -exec chmod +x {} +
             - name: Setup Node.js
               uses: actions/setup-node@6044e13b5dc448c55e2357c09f80417699197238 # v6.2.0

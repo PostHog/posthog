@@ -61,6 +61,7 @@ lz4 = { workspace = true }
 multer = "3.0"
 futures = { workspace = true }
 sha2 = { workspace = true }
+hmac = { workspace = true }
 
 [dev-dependencies]
 capture = { path = ".", features = ["test-utils"] }

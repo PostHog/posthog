@@ -1,14 +1,21 @@
 import { useActions, useValues } from 'kea'
 
-import { IconBolt, IconClock, IconGraph, IconInfo, IconPencil } from '@posthog/icons'
+import { IconBolt, IconClock, IconGraph, IconInfo, IconPencil, IconPeople } from '@posthog/icons'
 import { LemonCard, LemonSwitch, LemonTag } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
-import { PropertyFilterButton } from 'lib/components/PropertyFilters/components/PropertyFilterButton'
 import { TZLabel } from 'lib/components/TZLabel'
+import { UniversalFilterButton } from 'lib/components/UniversalFilters/UniversalFilterButton'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
+import { humanFriendlyDurationFilter } from 'scenes/session-recordings/filters/DurationFilter'
+import {
+    deriveOperand,
+    recordingsQueryToUniversalFilters,
+} from 'scenes/session-recordings/filters/recordingsQueryConversions'
+import { filtersFromUniversalFilterGroups } from 'scenes/session-recordings/utils'
 
-import { AccessControlLevel, AccessControlResourceType, AnyPropertyFilter } from '~/types'
+import { RecordingsQuery } from '~/queries/schema/schema-general'
+import { AccessControlLevel, AccessControlResourceType, FilterLogicalOperator } from '~/types'
 
 import { BooleanTag } from '../../components/BooleanTag'
 import { CardHeader } from '../../components/CardHeader'
@@ -126,7 +133,11 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
     const { observationStats, togglingEnabled } = useValues(replayScannerLogic({ id: scanner.id }))
     const { toggleEnabled } = useActions(replayScannerLogic({ id: scanner.id }))
     const samplingPercent = Math.round((scanner.sampling_rate ?? 0) * 1000) / 10
-    const filters = (scanner.query?.properties ?? []) as AnyPropertyFilter[]
+    // Read every filter dimension (events, actions, properties, console logs, …), not just top-level properties.
+    const universal = recordingsQueryToUniversalFilters((scanner.query ?? null) as RecordingsQuery | null)
+    const filters = filtersFromUniversalFilterGroups(universal)
+    const hasTriggers = filters.length > 0 || universal.duration.length > 0 || universal.filter_test_accounts
+    const matchWord = deriveOperand(universal.filter_group) === FilterLogicalOperator.Or ? 'any' : 'all'
 
     return (
         <div className="flex flex-col gap-4">
@@ -188,13 +199,34 @@ export function ScannerConfigReadonly({ scanner }: { scanner: ReplayScanner }): 
                     <div className="flex flex-col gap-3">
                         <Row label="Sampling">{samplingPercent}%</Row>
                         <Row label="Recording filters">
-                            {filters.length === 0 ? (
-                                <span>No filters</span>
+                            {!hasTriggers ? (
+                                <span className="text-muted">No filters</span>
                             ) : (
-                                <div className="flex flex-wrap gap-1">
-                                    {filters.map((filter, i) => (
-                                        <PropertyFilterButton key={i} item={filter} />
-                                    ))}
+                                <div className="flex flex-col gap-2">
+                                    {filters.length > 0 && (
+                                        <div className="flex flex-wrap items-center gap-1.5">
+                                            {filters.length > 1 && (
+                                                <span className="text-xs">Match {matchWord} of</span>
+                                            )}
+                                            {filters.map((filter, i) => (
+                                                <UniversalFilterButton key={i} filter={filter} />
+                                            ))}
+                                        </div>
+                                    )}
+                                    {(universal.duration.length > 0 || universal.filter_test_accounts) && (
+                                        <div className="flex flex-wrap items-center gap-1.5">
+                                            {universal.duration.map((duration, i) => (
+                                                <LemonTag key={i} type="default" icon={<IconClock />}>
+                                                    {humanFriendlyDurationFilter(duration, duration.key)}
+                                                </LemonTag>
+                                            ))}
+                                            {universal.filter_test_accounts && (
+                                                <LemonTag type="default" icon={<IconPeople />}>
+                                                    No internal/test users
+                                                </LemonTag>
+                                            )}
+                                        </div>
+                                    )}
                                 </div>
                             )}
                         </Row>

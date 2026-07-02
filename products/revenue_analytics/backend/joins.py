@@ -1,8 +1,8 @@
 from django.db.models import QuerySet
 
 from products.data_tools.backend.models.join import DataWarehouseJoin
-from products.data_warehouse.backend.types import ExternalDataSourceType
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
+from products.warehouse_sources.backend.facade.types import ExternalDataSourceType
 
 
 def get_customer_revenue_view_name(table_prefix: str | None = None) -> str:

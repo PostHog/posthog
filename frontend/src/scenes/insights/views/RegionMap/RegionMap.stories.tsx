@@ -6,6 +6,8 @@ import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene
 
 import { mswDecorator } from '~/mocks/browser'
 
+import __trendsRegionMap from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsRegionMap.json'
+
 type Story = StoryObj<{}>
 const meta: Meta = {
     title: 'Scenes-App/Insights/RegionMap',
@@ -36,7 +38,5 @@ const meta: Meta = {
 }
 export default meta
 
-export const Default: Story = createInsightStory(
-    require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsRegionMap.json')
-)
+export const Default: Story = createInsightStory(__trendsRegionMap as any)
 Default.parameters = { testOptions: { waitForSelector: '.RegionMap' } }

@@ -8,8 +8,8 @@ import {
     KAFKA_TRACES_INGESTION,
     KAFKA_TRACES_INGESTION_DLQ,
     KAFKA_TRACES_INGESTION_OVERFLOW,
-} from '~/config/kafka-topics'
-import { isProdEnv } from '~/utils/env-utils'
+} from '~/common/config/kafka-topics'
+import { isProdEnv } from '~/common/utils/env-utils'
 
 import { LogsProducerName, WARPSTREAM_INGESTION_PRODUCER, WARPSTREAM_LOGS_PRODUCER } from './outputs/producers'
 

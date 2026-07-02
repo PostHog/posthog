@@ -105,7 +105,6 @@ flowchart LR
     spec --> tools["tools[]<br/>native·custom·client"]
     spec --> mcps["mcps[]<br/>external MCP servers"]
     spec --> skills["skills[]"]
-    spec --> integ["integrations[]"]
     spec --> idp["identity_providers[]<br/>posthog·oauth2"]
     spec --> secrets["secrets[]"]
     spec --> limits["limits<br/>turns·tools·wall·mem·cpu"]

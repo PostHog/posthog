@@ -3,6 +3,21 @@ import { useEffect } from 'react'
 
 import { ExportType, ExportedData } from '~/exporter/types'
 
+import __trendsArea from '../../mocks/fixtures/api/projects/team_id/insights/trendsArea.json'
+import __trendsAreaBreakdown from '../../mocks/fixtures/api/projects/team_id/insights/trendsAreaBreakdown.json'
+import __trendsBar from '../../mocks/fixtures/api/projects/team_id/insights/trendsBar.json'
+import __trendsBarBreakdown from '../../mocks/fixtures/api/projects/team_id/insights/trendsBarBreakdown.json'
+import __trendsLine from '../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'
+import __trendsLineBreakdown from '../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json'
+import __trendsLineMulti from '../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json'
+import __trendsNumber from '../../mocks/fixtures/api/projects/team_id/insights/trendsNumber.json'
+import __trendsPie from '../../mocks/fixtures/api/projects/team_id/insights/trendsPie.json'
+import __trendsPieBreakdown from '../../mocks/fixtures/api/projects/team_id/insights/trendsPieBreakdown.json'
+import __trendsTable from '../../mocks/fixtures/api/projects/team_id/insights/trendsTable.json'
+import __trendsTableBreakdown from '../../mocks/fixtures/api/projects/team_id/insights/trendsTableBreakdown.json'
+import __trendsValue from '../../mocks/fixtures/api/projects/team_id/insights/trendsValue.json'
+import __trendsValueBreakdown from '../../mocks/fixtures/api/projects/team_id/insights/trendsValueBreakdown.json'
+import __trendsWorldMap from '../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json'
 import { Exporter } from '../Exporter'
 
 type Story = StoryObj<ExportedData>
@@ -40,13 +55,13 @@ const meta: Meta<ExportedData> = {
 export default meta
 
 export const TrendsLineInsight: Story = {
-    args: { insight: require('../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json') },
+    args: { insight: __trendsLine as any },
     tags: ['test-skip'], // doesn't produce a helpful reference image, as canvas can't be captured
 }
 
 export const TrendsLineInsightLegend: Story = {
     args: {
-        insight: require('../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'),
+        insight: __trendsLine as any,
         legend: true,
     },
     tags: ['test-skip'], // doesn't produce a helpful reference image, as canvas can't be captured
@@ -54,7 +69,7 @@ export const TrendsLineInsightLegend: Story = {
 
 export const TrendsLineInsightDetailed: Story = {
     args: {
-        insight: require('../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'),
+        insight: __trendsLine as any,
         detailed: true,
     },
     tags: ['test-skip'], // doesn't produce a helpful reference image, as canvas can't be captured
@@ -64,7 +79,7 @@ export const TrendsLineInsightDetailed: Story = {
 export const TrendsLineInsightNoResults: Story = {
     args: {
         insight: {
-            ...require('../../mocks/fixtures/api/projects/team_id/insights/trendsLine.json'),
+            ...(__trendsLine as any),
             result: null,
         },
     },
@@ -73,7 +88,7 @@ export const TrendsLineInsightNoResults: Story = {
 
 export const TrendsLineMultiInsight: Story = {
     args: {
-        insight: require('../../mocks/fixtures/api/projects/team_id/insights/trendsLineMulti.json'),
+        insight: __trendsLineMulti as any,
     },
     parameters: {
         mockDate: '2023-07-10',
@@ -83,88 +98,88 @@ export const TrendsLineMultiInsight: Story = {
 
 export const TrendsLineBreakdownInsight: Story = {
     args: {
-        insight: require('../../mocks/fixtures/api/projects/team_id/insights/trendsLineBreakdown.json'),
+        insight: __trendsLineBreakdown as any,
     },
     tags: ['test-skip'], // doesn't produce a helpful reference image, as canvas can't be captured
 }
 
 export const TrendsBarInsight: Story = {
-    args: { insight: require('../../mocks/fixtures/api/projects/team_id/insights/trendsBar.json') },
+    args: { insight: __trendsBar as any },
     tags: ['test-skip'], // doesn't produce a helpful reference image, as canvas can't be captured
 }
 
 export const TrendsBarBreakdownInsight: Story = {
     args: {
-        insight: require('../../mocks/fixtures/api/projects/team_id/insights/trendsBarBreakdown.json'),
+        insight: __trendsBarBreakdown as any,
     },
     tags: ['test-skip'], // doesn't produce a helpful reference image, as canvas can't be captured
 }
 
 export const TrendsValueInsight: Story = {
-    args: { insight: require('../../mocks/fixtures/api/projects/team_id/insights/trendsValue.json') },
+    args: { insight: __trendsValue as any },
     tags: ['test-skip'], // doesn't produce a helpful reference image, as canvas can't be captured
 }
 
 export const TrendsValueBreakdownInsight: Story = {
     args: {
-        insight: require('../../mocks/fixtures/api/projects/team_id/insights/trendsValueBreakdown.json'),
+        insight: __trendsValueBreakdown as any,
     },
     tags: ['test-skip'], // doesn't produce a helpful reference image, as canvas can't be captured
 }
 
 export const TrendsAreaInsight: Story = {
-    args: { insight: require('../../mocks/fixtures/api/projects/team_id/insights/trendsArea.json') },
+    args: { insight: __trendsArea as any },
     tags: ['test-skip'], // doesn't produce a helpful reference image, as canvas can't be captured
 }
 
 export const TrendsAreaBreakdownInsight: Story = {
     args: {
-        insight: require('../../mocks/fixtures/api/projects/team_id/insights/trendsAreaBreakdown.json'),
+        insight: __trendsAreaBreakdown as any,
     },
     tags: ['test-skip'], // doesn't produce a helpful reference image, as canvas can't be captured
 }
 
 export const TrendsNumberInsight: Story = {
-    args: { insight: require('../../mocks/fixtures/api/projects/team_id/insights/trendsNumber.json') },
+    args: { insight: __trendsNumber as any },
     tags: ['test-skip'], // doesn't produce a helpful reference image, as canvas can't be captured
 }
 
 export const TrendsTableInsight: Story = {
-    args: { insight: require('../../mocks/fixtures/api/projects/team_id/insights/trendsTable.json') },
+    args: { insight: __trendsTable as any },
 }
 
 export const TrendsTableBreakdownInsight: Story = {
     args: {
-        insight: require('../../mocks/fixtures/api/projects/team_id/insights/trendsTableBreakdown.json'),
+        insight: __trendsTableBreakdown as any,
     },
 }
 
 export const TrendsPieInsight: Story = {
-    args: { insight: require('../../mocks/fixtures/api/projects/team_id/insights/trendsPie.json') },
+    args: { insight: __trendsPie as any },
 }
 
 export const TrendsPieInsightLegend: Story = {
     args: {
-        insight: require('../../mocks/fixtures/api/projects/team_id/insights/trendsPie.json'),
+        insight: __trendsPie as any,
         legend: true,
     },
 }
 
 export const TrendsPieInsightDetailed: Story = {
     args: {
-        insight: require('../../mocks/fixtures/api/projects/team_id/insights/trendsPie.json'),
+        insight: __trendsPie as any,
         detailed: true,
     },
 }
 
 export const TrendsPieBreakdownInsight: Story = {
     args: {
-        insight: require('../../mocks/fixtures/api/projects/team_id/insights/trendsPieBreakdown.json'),
+        insight: __trendsPieBreakdown as any,
     },
 }
 
 export const TrendsWorldMapInsight: Story = {
     args: {
-        insight: require('../../mocks/fixtures/api/projects/team_id/insights/trendsWorldMap.json'),
+        insight: __trendsWorldMap as any,
     },
 }

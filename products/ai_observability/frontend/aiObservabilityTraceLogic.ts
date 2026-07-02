@@ -186,8 +186,8 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
             {
                 initializeMessageStates: (_, { inputCount, outputCount }) => {
                     // Will be initialized based on display option in listener
-                    const inputStates = new Array(inputCount).fill(false)
-                    const outputStates = new Array(outputCount).fill(true)
+                    const inputStates = Array.from({ length: inputCount }, () => false)
+                    const outputStates = Array.from({ length: outputCount }, () => true)
                     return { input: inputStates, output: outputStates }
                 },
                 toggleMessage: (state, { type, index }) => {
@@ -324,6 +324,7 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
                 const traceQuery: TraceQuery = {
                     kind: NodeKind.TraceQuery,
                     traceId,
+                    includeSentiment: true,
                     dateRange: dateRange?.dateFrom
                         ? // dateFrom is a minimum timestamp of an event for a trace.
                           {
@@ -396,14 +397,14 @@ export const aiObservabilityTraceLogic = kea<aiObservabilityTraceLogicType>([
         initializeMessageStates: ({ inputCount, outputCount }) => {
             // Apply display option when initializing
             const displayOption = values.displayOption
-            const inputStates = new Array(inputCount).fill(false).map((_, i) => {
+            const inputStates = Array.from({ length: inputCount }, (_, i) => {
                 if (displayOption === DisplayOption.ExpandAll) {
                     return true
                 }
                 // For collapse except output and last input, only show last input
                 return i === inputCount - 1
             })
-            const outputStates = new Array(outputCount).fill(true)
+            const outputStates = Array.from({ length: outputCount }, () => true)
 
             // Update the states directly
             actions.applySearchResults(inputStates, outputStates)

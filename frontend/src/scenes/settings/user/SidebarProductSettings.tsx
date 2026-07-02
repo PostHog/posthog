@@ -15,7 +15,7 @@ export function SidebarAutoSuggestSetting(): JSX.Element {
             }}
             checked={user?.allow_sidebar_suggestions ?? false}
             loading={userLoading}
-            label="Automatically suggest new apps"
+            label="Automatically suggest new tools"
             bordered
         />
     )

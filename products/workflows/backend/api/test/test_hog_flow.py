@@ -22,6 +22,7 @@ from products.cdp.backend.api.test.test_hog_function_templates import MOCK_NODE_
 from products.cohorts.backend.models.cohort import Cohort
 from products.workflows.backend.api.hog_flow import _should_validate_strictly
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
+from products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job import HogFlowBatchJob
 
 webhook_template = MOCK_NODE_TEMPLATES[0]
 
@@ -58,6 +59,91 @@ class TestHogFlowAPI(APIBaseTest):
         }
 
         return hog_flow, action
+
+    @patch("products.workflows.backend.api.hog_flow.publish_resource_edited")
+    def test_emits_resource_edited_on_create_and_update(self, mock_emit):
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+
+        create_response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert create_response.status_code == 201, create_response.json()
+        flow_id = create_response.json()["id"]
+
+        assert mock_emit.call_count == 1
+        create_kwargs = mock_emit.call_args.kwargs
+        assert create_kwargs["resource_type"] == "HogFlow"
+        assert create_kwargs["resource_id"] == str(flow_id)
+        assert create_kwargs["updated_at"]
+
+        mock_emit.reset_mock()
+        update_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"name": "Renamed"},
+        )
+        assert update_response.status_code == 200, update_response.json()
+
+        assert mock_emit.call_count == 1
+        assert mock_emit.call_args.kwargs["resource_id"] == str(flow_id)
+
+    def _create_simple_flow(self) -> str:
+        hog_flow, _ = self._create_hog_flow_with_action(
+            {"template_id": "template-webhook", "inputs": {"url": {"value": "https://example.com"}}}
+        )
+        response = self.client.post(f"/api/projects/{self.team.id}/hog_flows", hog_flow)
+        assert response.status_code == 201, response.json()
+        return response.json()["id"]
+
+    def test_stale_update_is_rejected_with_409(self):
+        flow_id = self._create_simple_flow()
+        flow = HogFlow.objects.get(pk=flow_id)
+        current = flow.updated_at.isoformat()
+        stale = (flow.updated_at - timedelta(seconds=1)).isoformat()
+
+        # A client that based its edit on an older copy is rejected rather than clobbering the newer one.
+        stale_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"name": "Stale edit", "base_updated_at": stale},
+        )
+        assert stale_response.status_code == 409, stale_response.json()
+        assert HogFlow.objects.get(pk=flow_id).name != "Stale edit"
+
+        # A client whose base matches the current server copy proceeds.
+        fresh_response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"name": "Fresh edit", "base_updated_at": current},
+        )
+        assert fresh_response.status_code == 200, fresh_response.json()
+        assert HogFlow.objects.get(pk=flow_id).name == "Fresh edit"
+
+    def test_update_without_base_updated_at_is_not_gated(self):
+        # Backwards compatible: callers that don't opt in to the base timestamp keep last-writer-wins.
+        flow_id = self._create_simple_flow()
+        flow = HogFlow.objects.get(pk=flow_id)
+        stale = (flow.updated_at - timedelta(seconds=10)).isoformat()
+        assert stale  # we hold a stale view but send no base
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"name": "Ungated edit"},
+        )
+        assert response.status_code == 200, response.json()
+        assert HogFlow.objects.get(pk=flow_id).name == "Ungated edit"
+
+    def test_timezone_naive_base_updated_at_is_handled(self):
+        # A base_updated_at with no timezone designator parses naive; it must be coerced to aware
+        # (assumed UTC) rather than raising TypeError when compared to the tz-aware stored updated_at.
+        flow_id = self._create_simple_flow()
+        flow = HogFlow.objects.get(pk=flow_id)
+        naive = flow.updated_at.replace(tzinfo=None).isoformat()
+        assert "+" not in naive and not naive.endswith("Z")
+
+        response = self.client.patch(
+            f"/api/projects/{self.team.id}/hog_flows/{flow_id}",
+            {"name": "Naive base edit", "base_updated_at": naive},
+        )
+        assert response.status_code == 200, response.json()
+        assert HogFlow.objects.get(pk=flow_id).name == "Naive base edit"
 
     def test_hog_flow_function_trigger_check(self):
         hog_flow = {
@@ -1168,6 +1254,23 @@ class TestHogFlowAPI(APIBaseTest):
         assert actions["trigger_node"]["type"] == "trigger"
         assert "exit_1" in actions
 
+    @patch("products.workflows.backend.api.hog_flow.publish_resource_edited")
+    def test_graph_update_emits_resource_edited(self, mock_emit):
+        # The surgical /graph path is the primary MCP edit route, so it must emit the same
+        # "edited elsewhere" signal as the full update path — otherwise an open builder never
+        # learns about MCP graph edits and the cross-channel awareness has a hole.
+        flow_id = self._create_draft_flow_with_graph()
+        mock_emit.reset_mock()
+
+        response = self._patch_graph(flow_id, [{"op": "update_action", "id": "action_1", "patch": {"name": "renamed"}}])
+        assert response.status_code == 200, response.json()
+
+        assert mock_emit.call_count == 1
+        kwargs = mock_emit.call_args.kwargs
+        assert kwargs["resource_type"] == "HogFlow"
+        assert kwargs["resource_id"] == str(flow_id)
+        assert kwargs["updated_at"]
+
     def test_graph_response_echoes_full_graph(self):
         flow_id = self._create_draft_flow_with_graph()
         response = self._patch_graph(flow_id, [{"op": "update_action", "id": "action_1", "patch": {"name": "renamed"}}])
@@ -2037,6 +2140,108 @@ class TestHogFlowAPI(APIBaseTest):
         assert "Feature flags can't be used as a batch audience condition" in response.json().get("error", "")
         mock_get_user_blast_radius_persons.assert_not_called()
 
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_internal_update_batch_job_status_marks_completed(self, _mock_dispatch):
+        hog_flow = HogFlow.objects.create(team=self.team, name="Test", trigger={}, actions=[], edges=[])
+        batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow, status="active")
+
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/{batch_job.id}/status",
+            {"status": "completed"},
+            content_type="application/json",
+            headers={"x-internal-api-secret": "test-secret-123"},
+        )
+
+        assert response.status_code == 200, response.json()
+        assert response.json()["status"] == "completed"
+        assert response.json()["no_op"] is False
+        batch_job.refresh_from_db()
+        assert batch_job.status == "completed"
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_internal_update_batch_job_status_is_idempotent_when_already_terminal(self, _mock_dispatch):
+        hog_flow = HogFlow.objects.create(team=self.team, name="Test", trigger={}, actions=[], edges=[])
+        batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow, status="completed")
+
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/{batch_job.id}/status",
+            {"status": "failed"},
+            content_type="application/json",
+            headers={"x-internal-api-secret": "test-secret-123"},
+        )
+
+        # Already terminal → no-op, original status preserved
+        assert response.status_code == 200, response.json()
+        assert response.json()["no_op"] is True
+        assert response.json()["status"] == "completed"
+        batch_job.refresh_from_db()
+        assert batch_job.status == "completed"
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_internal_update_batch_job_status_rejects_invalid_status(self, _mock_dispatch):
+        hog_flow = HogFlow.objects.create(team=self.team, name="Test", trigger={}, actions=[], edges=[])
+        batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow, status="active")
+
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/{batch_job.id}/status",
+            {"status": "active"},  # not a terminal state
+            content_type="application/json",
+            headers={"x-internal-api-secret": "test-secret-123"},
+        )
+
+        assert response.status_code == 400, response.json()
+        batch_job.refresh_from_db()
+        assert batch_job.status == "active"  # unchanged
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_update_batch_job_status_returns_404_for_missing_job(self):
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/00000000-0000-0000-0000-000000000000/status",
+            {"status": "completed"},
+            content_type="application/json",
+            headers={"x-internal-api-secret": "test-secret-123"},
+        )
+
+        assert response.status_code == 404, response.json()
+
+    @override_settings(INTERNAL_API_SECRET="test-secret-123")
+    def test_internal_update_batch_job_status_returns_404_for_invalid_uuid(self):
+        # `not-a-uuid` reaches UUIDField → ValidationError, must surface as 404 not 500.
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/not-a-uuid/status",
+            {"status": "completed"},
+            content_type="application/json",
+            headers={"x-internal-api-secret": "test-secret-123"},
+        )
+
+        assert response.status_code == 404, response.json()
+
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_internal_update_batch_job_status_requires_internal_api_secret(self, _mock_dispatch):
+        hog_flow = HogFlow.objects.create(team=self.team, name="Test", trigger={}, actions=[], edges=[])
+        batch_job = HogFlowBatchJob.objects.create(team=self.team, hog_flow=hog_flow, status="active")
+
+        # No INTERNAL_API_SECRET header → unauthenticated
+        response = self.client.put(
+            f"/api/projects/{self.team.id}/internal/hog_flows/batch_jobs/{batch_job.id}/status",
+            {"status": "completed"},
+            content_type="application/json",
+        )
+
+        # Endpoint requires internal auth — anything other than 200 is acceptable
+        assert response.status_code in (401, 403), response.json()
+
     def test_billable_action_types_computed_correctly(self):
         """Test that billable_action_types is computed correctly and cannot be overridden by clients"""
         trigger_action = {
@@ -2181,6 +2386,7 @@ class TestHogFlowAPI(APIBaseTest):
         assert "delay" in action_types  # Delay is present
         assert action_types.count("function") == 2  # Two function actions
 
+    @override_settings(HOGFLOW_BATCH_TRIGGER_LIMIT=5000, HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS=set())
     @patch(
         "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
     )
@@ -2198,6 +2404,27 @@ class TestHogFlowAPI(APIBaseTest):
         assert response.json()["variables"] == batch_job_data["variables"]
         assert response.json()["status"] == "queued"
         mock_create_invocation.assert_called_once()
+        # The per-team audience cap must ride on the invocation so the consumer enforces the team's limit.
+        assert mock_create_invocation.call_args.kwargs["max_audience_size"] == 5000
+
+    @patch(
+        "products.workflows.backend.models.hog_flow_batch_job.hog_flow_batch_job.create_batch_hog_flow_job_invocation"
+    )
+    def test_post_hog_flow_batch_jobs_passes_elevated_audience_size(self, mock_create_invocation):
+        flow_id = self._create_active_hog_flow()
+
+        with override_settings(
+            HOGFLOW_BATCH_TRIGGER_LIMIT_ELEVATED=50000,
+            HOGFLOW_BATCH_TRIGGER_ELEVATED_TEAM_IDS={self.team.id},
+        ):
+            response = self.client.post(
+                f"/api/projects/{self.team.id}/hog_flows/{flow_id}/batch_jobs",
+                {"variables": [{"key": "first_name", "value": "Test"}]},
+            )
+
+        assert response.status_code == 200, response.json()
+        mock_create_invocation.assert_called_once()
+        assert mock_create_invocation.call_args.kwargs["max_audience_size"] == 50000
 
     def test_post_hog_flow_batch_jobs_endpoint_rejects_non_active_workflow(self):
         # A batch run is gated on an enabled workflow — a draft (or archived) one can't start a broadcast.

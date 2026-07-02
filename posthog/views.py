@@ -220,6 +220,7 @@ def preflight_check(request: HttpRequest) -> JsonResponse:
         },
         "object_storage": in_cloud or _traced("preflight.is_object_storage_available", is_object_storage_available),
         "public_egress_ip_addresses": settings.PUBLIC_EGRESS_IP_ADDRESSES,
+        "wizard_cloud_run_available": bool(settings.WIZARD_CLOUD_RUN_OAUTH_CLIENT_ID),
     }
     auth_brand = normalize_auth_brand(request.COOKIES.get(AUTH_BRAND_COOKIE))
     if auth_brand:

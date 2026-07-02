@@ -341,16 +341,6 @@ export function buildInsertCommands(
         },
     ]
 
-    const experimentCommands: InsertCommand[] = [
-        {
-            key: 'experiment',
-            label: 'Experiment',
-            category: 'Experiment',
-            icon: <IconGraph />,
-            run: (targetNodeId) => insertRegisteredComponent(targetNodeId, 'Experiment'),
-        },
-    ]
-
     const mediaCommands: InsertCommand[] = [
         {
             key: 'media-image',
@@ -496,7 +486,6 @@ export function buildInsertCommands(
         ...sqlCommands,
         ...queryCommands,
         ...dataCommands,
-        ...experimentCommands,
         ...mediaCommands,
         ...componentCommands,
         ...textStyleCommands,

@@ -15,7 +15,7 @@ from products.event_definitions.backend.models.event_definition import EventDefi
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.surveys.backend.models import Survey
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 
 def query_teams_for_digest() -> QuerySet:

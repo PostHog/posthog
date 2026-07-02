@@ -2,8 +2,8 @@ import { register } from 'prom-client'
 
 import { deleteKeysWithPrefix } from '~/common/redis/_tests/redis'
 import { RedisV2, createRedisV2PoolFromConfig } from '~/common/redis/redis-v2'
+import { closeHub, createHub } from '~/common/utils/db/hub'
 import { Hub } from '~/types'
-import { closeHub, createHub } from '~/utils/db/hub'
 
 import { RateLimiterService } from './rate-limiter.service'
 

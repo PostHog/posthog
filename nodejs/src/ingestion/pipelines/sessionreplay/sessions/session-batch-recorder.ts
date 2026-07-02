@@ -1,16 +1,16 @@
 import { v7 as uuidv7 } from 'uuid'
 
+import { logger } from '~/common/utils/logger'
+import { captureException } from '~/common/utils/posthog'
 import { KafkaOffsetManager } from '~/ingestion/pipelines/sessionreplay/kafka/offset-manager'
 import {
     SessionFeatureBlock,
     SessionFeatureStore,
 } from '~/ingestion/pipelines/sessionreplay/shared/features/session-feature-store'
 import { SessionBlockMetadata } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-block-metadata'
-import { SessionMetadataStore } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
+import { SessionMetadataSink } from '~/ingestion/pipelines/sessionreplay/shared/metadata/session-metadata-store'
 import { KeyStore, RecordingEncryptor, SessionKey } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { MessageWithTeam } from '~/ingestion/pipelines/sessionreplay/teams/types'
-import { logger } from '~/utils/logger'
-import { captureException } from '~/utils/posthog'
 
 import { SessionBatchMetrics } from './metrics'
 import { SessionBatchFileStorage } from './session-batch-file-storage'
@@ -78,14 +78,15 @@ export class SessionBatchRecorder {
     constructor(
         private readonly offsetManager: KafkaOffsetManager,
         private readonly storage: SessionBatchFileStorage,
-        private readonly metadataStore: SessionMetadataStore,
+        private readonly metadataStore: SessionMetadataSink,
         private readonly consoleLogStore: SessionConsoleLogStore,
         private readonly featureStore: SessionFeatureStore,
         private readonly sessionTracker: SessionTracker,
         private readonly sessionFilter: SessionFilter,
         private readonly keyStore: KeyStore,
         private readonly encryptor: RecordingEncryptor,
-        maxEventsPerSessionPerBatch: number = Number.MAX_SAFE_INTEGER
+        maxEventsPerSessionPerBatch: number = Number.MAX_SAFE_INTEGER,
+        private readonly featuresRolloutPercentage: number = 100
     ) {
         this.batchId = uuidv7()
         this.rateLimiter = new SessionRateLimiter(maxEventsPerSessionPerBatch)
@@ -118,7 +119,7 @@ export class SessionBatchRecorder {
                 teamId,
                 batchId: this.batchId,
             })
-            return this.ignoreMessage(message)
+            return 0
         }
 
         const sessionKey = isNewSession
@@ -132,7 +133,7 @@ export class SessionBatchRecorder {
                 teamId,
                 batchId: this.batchId,
             })
-            return this.ignoreMessage(message)
+            return 0
         }
 
         const isEventAllowed = this.rateLimiter.handleMessage(teamSessionKey, partition, message.message)
@@ -147,7 +148,7 @@ export class SessionBatchRecorder {
             })
 
             if (!this.partitionSessions.has(partition)) {
-                return this.ignoreMessage(message)
+                return 0
             }
 
             const sessions = this.partitionSessions.get(partition)!
@@ -161,7 +162,7 @@ export class SessionBatchRecorder {
                 })
             }
 
-            return this.ignoreMessage(message)
+            return 0
         }
 
         if (!this.partitionSessions.has(partition)) {
@@ -181,7 +182,7 @@ export class SessionBatchRecorder {
                     newTeamId: teamId,
                     batchId: this.batchId,
                 })
-                return this.ignoreMessage(message)
+                return 0
             }
 
             if (!existingSessionKey.encryptedKey.equals(sessionKey.encryptedKey)) {
@@ -190,13 +191,13 @@ export class SessionBatchRecorder {
                     teamId,
                     batchId: this.batchId,
                 })
-                return this.ignoreMessage(message)
+                return 0
             }
         } else {
             sessions.set(teamSessionKey, [
                 new SnappySessionRecorder(sessionId, teamId, this.batchId),
                 new SessionConsoleLogRecorder(sessionId, teamId, this.batchId, this.consoleLogStore),
-                new SessionFeatureRecorder(sessionId, teamId, this.batchId),
+                new SessionFeatureRecorder(sessionId, teamId, this.batchId, this.featuresRolloutPercentage),
                 sessionKey,
             ])
         }
@@ -221,29 +222,10 @@ export class SessionBatchRecorder {
         this.partitionSizes.set(partition, currentPartitionSize + bytesWritten)
         this._size += bytesWritten
 
-        return this.ackMessage(message, bytesWritten)
-    }
-
-    private ignoreMessage(message: MessageWithTeam): 0 {
-        this.offsetManager.trackOffset({
-            partition: message.message.metadata.partition,
-            offset: message.message.metadata.offset,
-        })
-        return 0
-    }
-
-    private ackMessage(message: MessageWithTeam, bytesWritten: number): number {
-        const { partition } = message.message.metadata
-
-        this.offsetManager.trackOffset({
-            partition: message.message.metadata.partition,
-            offset: message.message.metadata.offset,
-        })
-
         logger.debug('🔁', 'session_batch_recorder_recorded_message', {
             partition,
-            sessionId: message.message.session_id,
-            teamId: message.team.teamId,
+            sessionId,
+            teamId,
             bytesWritten,
             totalSize: this._size,
         })

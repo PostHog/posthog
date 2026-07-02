@@ -11,14 +11,12 @@ from django.utils.dateparse import parse_datetime
 import requests
 from temporalio import activity
 
-from posthog.models import Integration
 from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
-from posthog.models.integration import GitHubIntegration
 from posthog.models.scoping import team_scope
-from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.temporal.common.utils import close_db_connections
 
 from products.tasks.backend.models import CodePrSnapshot
+from products.tasks.backend.temporal.code_workstreams.activities.github_resolution import resolve_github_integration
 from products.tasks.backend.temporal.code_workstreams.activities.load_pr_urls import PrRef
 
 
@@ -40,17 +38,7 @@ def _fingerprint(url: str, updated_at: str | None) -> str:
 
 
 def _resolve_integration(ref: PrRef) -> GitHubIntegrationBase | None:
-    if ref.github_integration_id is not None:
-        integration = GitHubIntegration(Integration.objects.get(id=ref.github_integration_id))
-        if integration.access_token_expired():
-            integration.refresh_access_token()
-        return integration
-    if ref.github_user_integration_id is not None:
-        user_integration = UserGitHubIntegration(UserIntegration.objects.get(id=ref.github_user_integration_id))
-        if user_integration.access_token_expired():
-            user_integration.refresh_access_token()
-        return user_integration
-    return None
+    return resolve_github_integration(ref.github_integration_id, ref.github_user_integration_id)
 
 
 @activity.defn

@@ -32,8 +32,9 @@ jobs:
               run: |
                   set -euo pipefail
                   mkdir -p ./.bin
-                  curl -fsSL "https://raw.githubusercontent.com/rhysd/actionlint/${ACTIONLINT_SCRIPT_REF}/scripts/download-actionlint.bash" \
-                      | bash -s -- "${ACTIONLINT_VERSION}" ./.bin
+                  curl -fsSL -o ./download-actionlint.bash \
+                      "https://raw.githubusercontent.com/rhysd/actionlint/${ACTIONLINT_SCRIPT_REF}/scripts/download-actionlint.bash"
+                  bash ./download-actionlint.bash "${ACTIONLINT_VERSION}" ./.bin
                   ./.bin/actionlint -version
 
             - name: Run actionlint

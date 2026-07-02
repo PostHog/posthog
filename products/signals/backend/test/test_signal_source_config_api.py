@@ -484,3 +484,21 @@ class TestIsSourceEnabledGating(APIBaseTest):
     def test_replay_vision_scanner_finding_is_self_authorizing(self):
         # The scanner's `emits_signals` flag is the config — no SignalSourceConfig row exists.
         assert SignalSourceConfig.is_source_enabled(self.team.id, "replay_vision", "scanner_finding") is True
+
+    @parameterized.expand(
+        [
+            ("no_row_defaults_on", None, True),
+            ("explicit_disabled_opts_out", False, False),
+            ("explicit_enabled_on", True, True),
+        ]
+    )
+    def test_scout_source_on_by_default(self, _name, existing_enabled, expected):
+        if existing_enabled is not None:
+            SignalSourceConfig.objects.create(
+                team=self.team,
+                source_product=SignalSourceConfig.SourceProduct.SIGNALS_SCOUT,
+                source_type=SignalSourceConfig.SourceType.CROSS_SOURCE_ISSUE,
+                enabled=existing_enabled,
+            )
+
+        assert SignalSourceConfig.is_source_enabled(self.team.id, "signals_scout", "cross_source_issue") is expected

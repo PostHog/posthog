@@ -5,7 +5,7 @@ import pytest
 
 from django.apps import apps
 
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 
 migration_module = importlib.import_module(
     "products.data_warehouse.backend.migrations.0046_fix_vitally_region_job_inputs"

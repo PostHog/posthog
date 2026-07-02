@@ -119,6 +119,7 @@ export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicTy
                         personId: personId ?? undefined,
                         groupKey: group?.groupKey,
                         groupTypeIndex: group?.groupTypeIndex,
+                        includeSentiment: showSentimentColumn,
                     },
                     columns: [
                         'id',
@@ -130,6 +131,7 @@ export const aiObservabilityTracesTabLogic = kea<aiObservabilityTracesTabLogicTy
                         ...(showSentimentColumn ? ['__llm_sentiment'] : []),
                         '__llm_tools',
                         'errorCount',
+                        'stepCount',
                         'totalLatency',
                         'usage',
                         'totalCost',

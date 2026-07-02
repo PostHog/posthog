@@ -1,6 +1,6 @@
 from parameterized import parameterized
 
-from products.slack_app.backend.api import RulesCommand, _parse_rules_command
+from products.slack_app.backend.api import RulesCommand, parse_rules_command
 
 
 class TestParseProjectCommand:
@@ -78,7 +78,7 @@ class TestParseProjectCommand:
         ]
     )
     def test_recognized(self, _name: str, text: str, expected: RulesCommand) -> None:
-        assert _parse_rules_command(text) == expected
+        assert parse_rules_command(text) == expected
 
     @parameterized.expand(
         [
@@ -95,6 +95,6 @@ class TestParseProjectCommand:
     def test_not_a_project_command(self, _name: str, text: str) -> None:
         # The unified parser may still recognize other commands (e.g. "rules list");
         # we only assert no `project_*` match comes back.
-        result = _parse_rules_command(text)
+        result = parse_rules_command(text)
         if result is not None:
             assert result.action not in {"project_show", "project_set", "project_set_workspace"}

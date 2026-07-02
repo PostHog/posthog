@@ -385,42 +385,42 @@
                           ],
                           hidden: False,
                           join_table: {
-                            description: None,
+                            description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                             fields: {
                               assigned_role_id: {
-                                description: None,
+                                description: "Role the issue is assigned to, if any.",
                                 hidden: False
                               },
                               assigned_user_id: {
-                                description: None,
+                                description: "User the issue is assigned to, if any.",
                                 hidden: False
                               },
                               fingerprint: {
-                                description: None,
+                                description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                                 hidden: False
                               },
                               first_seen: {
-                                description: None,
+                                description: "When the issue was first observed (in UTC).",
                                 hidden: False
                               },
                               fp_hash: {
-                                description: None,
+                                description: "cityHash64 of the fingerprint, used as the join/group key.",
                                 hidden: False
                               },
                               issue_description: {
-                                description: None,
+                                description: "Description of the issue (latest version).",
                                 hidden: False
                               },
                               issue_id: {
-                                description: None,
+                                description: "Identifier of the error tracking issue this fingerprint belongs to.",
                                 hidden: False
                               },
                               issue_name: {
-                                description: None,
+                                description: "Display name of the issue (latest version).",
                                 hidden: False
                               },
                               issue_status: {
-                                description: None,
+                                description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                 hidden: False
                               },
                               team_id: {
@@ -457,42 +457,42 @@
                           ],
                           hidden: False,
                           join_table: {
-                            description: None,
+                            description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                             fields: {
                               assigned_role_id: {
-                                description: None,
+                                description: "Role the issue is assigned to, if any.",
                                 hidden: False
                               },
                               assigned_user_id: {
-                                description: None,
+                                description: "User the issue is assigned to, if any.",
                                 hidden: False
                               },
                               fingerprint: {
-                                description: None,
+                                description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                                 hidden: False
                               },
                               first_seen: {
-                                description: None,
+                                description: "When the issue was first observed (in UTC).",
                                 hidden: False
                               },
                               fp_hash: {
-                                description: None,
+                                description: "cityHash64 of the fingerprint, used as the join/group key.",
                                 hidden: False
                               },
                               issue_description: {
-                                description: None,
+                                description: "Description of the issue (latest version).",
                                 hidden: False
                               },
                               issue_id: {
-                                description: None,
+                                description: "Identifier of the error tracking issue this fingerprint belongs to.",
                                 hidden: False
                               },
                               issue_name: {
-                                description: None,
+                                description: "Display name of the issue (latest version).",
                                 hidden: False
                               },
                               issue_status: {
-                                description: None,
+                                description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                 hidden: False
                               },
                               team_id: {
@@ -529,42 +529,42 @@
                           ],
                           hidden: False,
                           join_table: {
-                            description: None,
+                            description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                             fields: {
                               assigned_role_id: {
-                                description: None,
+                                description: "Role the issue is assigned to, if any.",
                                 hidden: False
                               },
                               assigned_user_id: {
-                                description: None,
+                                description: "User the issue is assigned to, if any.",
                                 hidden: False
                               },
                               fingerprint: {
-                                description: None,
+                                description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                                 hidden: False
                               },
                               first_seen: {
-                                description: None,
+                                description: "When the issue was first observed (in UTC).",
                                 hidden: False
                               },
                               fp_hash: {
-                                description: None,
+                                description: "cityHash64 of the fingerprint, used as the join/group key.",
                                 hidden: False
                               },
                               issue_description: {
-                                description: None,
+                                description: "Description of the issue (latest version).",
                                 hidden: False
                               },
                               issue_id: {
-                                description: None,
+                                description: "Identifier of the error tracking issue this fingerprint belongs to.",
                                 hidden: False
                               },
                               issue_name: {
-                                description: None,
+                                description: "Display name of the issue (latest version).",
                                 hidden: False
                               },
                               issue_status: {
-                                description: None,
+                                description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                 hidden: False
                               },
                               team_id: {
@@ -601,42 +601,42 @@
                           ],
                           hidden: False,
                           join_table: {
-                            description: None,
+                            description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                             fields: {
                               assigned_role_id: {
-                                description: None,
+                                description: "Role the issue is assigned to, if any.",
                                 hidden: False
                               },
                               assigned_user_id: {
-                                description: None,
+                                description: "User the issue is assigned to, if any.",
                                 hidden: False
                               },
                               fingerprint: {
-                                description: None,
+                                description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                                 hidden: False
                               },
                               first_seen: {
-                                description: None,
+                                description: "When the issue was first observed (in UTC).",
                                 hidden: False
                               },
                               fp_hash: {
-                                description: None,
+                                description: "cityHash64 of the fingerprint, used as the join/group key.",
                                 hidden: False
                               },
                               issue_description: {
-                                description: None,
+                                description: "Description of the issue (latest version).",
                                 hidden: False
                               },
                               issue_id: {
-                                description: None,
+                                description: "Identifier of the error tracking issue this fingerprint belongs to.",
                                 hidden: False
                               },
                               issue_name: {
-                                description: None,
+                                description: "Display name of the issue (latest version).",
                                 hidden: False
                               },
                               issue_status: {
-                                description: None,
+                                description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                 hidden: False
                               },
                               team_id: {
@@ -697,42 +697,42 @@
                           ],
                           hidden: False,
                           join_table: {
-                            description: None,
+                            description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                             fields: {
                               assigned_role_id: {
-                                description: None,
+                                description: "Role the issue is assigned to, if any.",
                                 hidden: False
                               },
                               assigned_user_id: {
-                                description: None,
+                                description: "User the issue is assigned to, if any.",
                                 hidden: False
                               },
                               fingerprint: {
-                                description: None,
+                                description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                                 hidden: False
                               },
                               first_seen: {
-                                description: None,
+                                description: "When the issue was first observed (in UTC).",
                                 hidden: False
                               },
                               fp_hash: {
-                                description: None,
+                                description: "cityHash64 of the fingerprint, used as the join/group key.",
                                 hidden: False
                               },
                               issue_description: {
-                                description: None,
+                                description: "Description of the issue (latest version).",
                                 hidden: False
                               },
                               issue_id: {
-                                description: None,
+                                description: "Identifier of the error tracking issue this fingerprint belongs to.",
                                 hidden: False
                               },
                               issue_name: {
-                                description: None,
+                                description: "Display name of the issue (latest version).",
                                 hidden: False
                               },
                               issue_status: {
-                                description: None,
+                                description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                 hidden: False
                               },
                               team_id: {
@@ -769,42 +769,42 @@
                           ],
                           hidden: False,
                           join_table: {
-                            description: None,
+                            description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                             fields: {
                               assigned_role_id: {
-                                description: None,
+                                description: "Role the issue is assigned to, if any.",
                                 hidden: False
                               },
                               assigned_user_id: {
-                                description: None,
+                                description: "User the issue is assigned to, if any.",
                                 hidden: False
                               },
                               fingerprint: {
-                                description: None,
+                                description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                                 hidden: False
                               },
                               first_seen: {
-                                description: None,
+                                description: "When the issue was first observed (in UTC).",
                                 hidden: False
                               },
                               fp_hash: {
-                                description: None,
+                                description: "cityHash64 of the fingerprint, used as the join/group key.",
                                 hidden: False
                               },
                               issue_description: {
-                                description: None,
+                                description: "Description of the issue (latest version).",
                                 hidden: False
                               },
                               issue_id: {
-                                description: None,
+                                description: "Identifier of the error tracking issue this fingerprint belongs to.",
                                 hidden: False
                               },
                               issue_name: {
-                                description: None,
+                                description: "Display name of the issue (latest version).",
                                 hidden: False
                               },
                               issue_status: {
-                                description: None,
+                                description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                 hidden: False
                               },
                               team_id: {
@@ -841,42 +841,42 @@
                           ],
                           hidden: False,
                           join_table: {
-                            description: None,
+                            description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                             fields: {
                               assigned_role_id: {
-                                description: None,
+                                description: "Role the issue is assigned to, if any.",
                                 hidden: False
                               },
                               assigned_user_id: {
-                                description: None,
+                                description: "User the issue is assigned to, if any.",
                                 hidden: False
                               },
                               fingerprint: {
-                                description: None,
+                                description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                                 hidden: False
                               },
                               first_seen: {
-                                description: None,
+                                description: "When the issue was first observed (in UTC).",
                                 hidden: False
                               },
                               fp_hash: {
-                                description: None,
+                                description: "cityHash64 of the fingerprint, used as the join/group key.",
                                 hidden: False
                               },
                               issue_description: {
-                                description: None,
+                                description: "Description of the issue (latest version).",
                                 hidden: False
                               },
                               issue_id: {
-                                description: None,
+                                description: "Identifier of the error tracking issue this fingerprint belongs to.",
                                 hidden: False
                               },
                               issue_name: {
-                                description: None,
+                                description: "Display name of the issue (latest version).",
                                 hidden: False
                               },
                               issue_status: {
-                                description: None,
+                                description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                 hidden: False
                               },
                               team_id: {
@@ -1678,10 +1678,10 @@
                                   ],
                                   hidden: False,
                                   join_table: {
-                                    description: None,
+                                    description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
                                     fields: {
                                       distinct_id: {
-                                        description: None,
+                                        description: "Distinct_id whose person mapping was overridden (e.g. after an identify or merge).",
                                         hidden: False
                                       },
                                       person: {
@@ -1689,7 +1689,7 @@
                                         hidden: False
                                       },
                                       person_id: {
-                                        description: None,
+                                        description: "Corrected person this distinct_id now resolves to; matches `persons.id`.",
                                         hidden: False
                                       },
                                       team_id: {
@@ -1764,10 +1764,10 @@
                           ],
                           hidden: False,
                           join_table: {
-                            description: None,
+                            description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
                             fields: {
                               distinct_id: {
-                                description: None,
+                                description: "Distinct_id whose person mapping was overridden (e.g. after an identify or merge).",
                                 hidden: False
                               },
                               person: {
@@ -1775,7 +1775,7 @@
                                 hidden: False
                               },
                               person_id: {
-                                description: None,
+                                description: "Corrected person this distinct_id now resolves to; matches `persons.id`.",
                                 hidden: False
                               },
                               team_id: {
@@ -2030,14 +2030,14 @@
                                   ],
                                   hidden: False,
                                   join_table: {
-                                    description: None,
+                                    description: "Deduplicated mapping of exception fingerprints to the issue they were reassigned to, overriding default grouping. One row per fingerprint.",
                                     fields: {
                                       fingerprint: {
-                                        description: None,
+                                        description: "Exception fingerprint; matches `events.properties.$exception_fingerprint`.",
                                         hidden: False
                                       },
                                       issue_id: {
-                                        description: None,
+                                        description: "Identifier of the error tracking issue this fingerprint maps to.",
                                         hidden: False
                                       },
                                       team_id: {
@@ -2112,14 +2112,14 @@
                           ],
                           hidden: False,
                           join_table: {
-                            description: None,
+                            description: "Deduplicated mapping of exception fingerprints to the issue they were reassigned to, overriding default grouping. One row per fingerprint.",
                             fields: {
                               fingerprint: {
-                                description: None,
+                                description: "Exception fingerprint; matches `events.properties.$exception_fingerprint`.",
                                 hidden: False
                               },
                               issue_id: {
-                                description: None,
+                                description: "Identifier of the error tracking issue this fingerprint maps to.",
                                 hidden: False
                               },
                               team_id: {
@@ -2860,10 +2860,10 @@
                               ],
                               hidden: False,
                               join_table: {
-                                description: None,
+                                description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
                                 fields: {
                                   distinct_id: {
-                                    description: None,
+                                    description: "Distinct_id whose person mapping was overridden (e.g. after an identify or merge).",
                                     hidden: False
                                   },
                                   person: {
@@ -2871,7 +2871,7 @@
                                     hidden: False
                                   },
                                   person_id: {
-                                    description: None,
+                                    description: "Corrected person this distinct_id now resolves to; matches `persons.id`.",
                                     hidden: False
                                   },
                                   team_id: {
@@ -2949,10 +2949,10 @@
                       ],
                       hidden: False,
                       join_table: {
-                        description: None,
+                        description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
                         fields: {
                           distinct_id: {
-                            description: None,
+                            description: "Distinct_id whose person mapping was overridden (e.g. after an identify or merge).",
                             hidden: False
                           },
                           person: {
@@ -2960,7 +2960,7 @@
                             hidden: False
                           },
                           person_id: {
-                            description: None,
+                            description: "Corrected person this distinct_id now resolves to; matches `persons.id`.",
                             hidden: False
                           },
                           team_id: {
@@ -3310,14 +3310,14 @@
                               ],
                               hidden: False,
                               join_table: {
-                                description: None,
+                                description: "Deduplicated mapping of exception fingerprints to the issue they were reassigned to, overriding default grouping. One row per fingerprint.",
                                 fields: {
                                   fingerprint: {
-                                    description: None,
+                                    description: "Exception fingerprint; matches `events.properties.$exception_fingerprint`.",
                                     hidden: False
                                   },
                                   issue_id: {
-                                    description: None,
+                                    description: "Identifier of the error tracking issue this fingerprint maps to.",
                                     hidden: False
                                   },
                                   team_id: {
@@ -3395,14 +3395,14 @@
                       ],
                       hidden: False,
                       join_table: {
-                        description: None,
+                        description: "Deduplicated mapping of exception fingerprints to the issue they were reassigned to, overriding default grouping. One row per fingerprint.",
                         fields: {
                           fingerprint: {
-                            description: None,
+                            description: "Exception fingerprint; matches `events.properties.$exception_fingerprint`.",
                             hidden: False
                           },
                           issue_id: {
-                            description: None,
+                            description: "Identifier of the error tracking issue this fingerprint maps to.",
                             hidden: False
                           },
                           team_id: {
@@ -3534,42 +3534,42 @@
                   ],
                   hidden: False,
                   join_table: {
-                    description: None,
+                    description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
-                        description: None,
+                        description: "Role the issue is assigned to, if any.",
                         hidden: False
                       },
                       assigned_user_id: {
-                        description: None,
+                        description: "User the issue is assigned to, if any.",
                         hidden: False
                       },
                       fingerprint: {
-                        description: None,
+                        description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                         hidden: False
                       },
                       first_seen: {
-                        description: None,
+                        description: "When the issue was first observed (in UTC).",
                         hidden: False
                       },
                       fp_hash: {
-                        description: None,
+                        description: "cityHash64 of the fingerprint, used as the join/group key.",
                         hidden: False
                       },
                       issue_description: {
-                        description: None,
+                        description: "Description of the issue (latest version).",
                         hidden: False
                       },
                       issue_id: {
-                        description: None,
+                        description: "Identifier of the error tracking issue this fingerprint belongs to.",
                         hidden: False
                       },
                       issue_name: {
-                        description: None,
+                        description: "Display name of the issue (latest version).",
                         hidden: False
                       },
                       issue_status: {
-                        description: None,
+                        description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
                       },
                       team_id: {
@@ -3625,42 +3625,42 @@
                   ],
                   hidden: False,
                   join_table: {
-                    description: None,
+                    description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
-                        description: None,
+                        description: "Role the issue is assigned to, if any.",
                         hidden: False
                       },
                       assigned_user_id: {
-                        description: None,
+                        description: "User the issue is assigned to, if any.",
                         hidden: False
                       },
                       fingerprint: {
-                        description: None,
+                        description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                         hidden: False
                       },
                       first_seen: {
-                        description: None,
+                        description: "When the issue was first observed (in UTC).",
                         hidden: False
                       },
                       fp_hash: {
-                        description: None,
+                        description: "cityHash64 of the fingerprint, used as the join/group key.",
                         hidden: False
                       },
                       issue_description: {
-                        description: None,
+                        description: "Description of the issue (latest version).",
                         hidden: False
                       },
                       issue_id: {
-                        description: None,
+                        description: "Identifier of the error tracking issue this fingerprint belongs to.",
                         hidden: False
                       },
                       issue_name: {
-                        description: None,
+                        description: "Display name of the issue (latest version).",
                         hidden: False
                       },
                       issue_status: {
-                        description: None,
+                        description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
                       },
                       team_id: {
@@ -3716,42 +3716,42 @@
                   ],
                   hidden: False,
                   join_table: {
-                    description: None,
+                    description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
-                        description: None,
+                        description: "Role the issue is assigned to, if any.",
                         hidden: False
                       },
                       assigned_user_id: {
-                        description: None,
+                        description: "User the issue is assigned to, if any.",
                         hidden: False
                       },
                       fingerprint: {
-                        description: None,
+                        description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                         hidden: False
                       },
                       first_seen: {
-                        description: None,
+                        description: "When the issue was first observed (in UTC).",
                         hidden: False
                       },
                       fp_hash: {
-                        description: None,
+                        description: "cityHash64 of the fingerprint, used as the join/group key.",
                         hidden: False
                       },
                       issue_description: {
-                        description: None,
+                        description: "Description of the issue (latest version).",
                         hidden: False
                       },
                       issue_id: {
-                        description: None,
+                        description: "Identifier of the error tracking issue this fingerprint belongs to.",
                         hidden: False
                       },
                       issue_name: {
-                        description: None,
+                        description: "Display name of the issue (latest version).",
                         hidden: False
                       },
                       issue_status: {
-                        description: None,
+                        description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
                       },
                       team_id: {
@@ -3807,42 +3807,42 @@
                   ],
                   hidden: False,
                   join_table: {
-                    description: None,
+                    description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
-                        description: None,
+                        description: "Role the issue is assigned to, if any.",
                         hidden: False
                       },
                       assigned_user_id: {
-                        description: None,
+                        description: "User the issue is assigned to, if any.",
                         hidden: False
                       },
                       fingerprint: {
-                        description: None,
+                        description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                         hidden: False
                       },
                       first_seen: {
-                        description: None,
+                        description: "When the issue was first observed (in UTC).",
                         hidden: False
                       },
                       fp_hash: {
-                        description: None,
+                        description: "cityHash64 of the fingerprint, used as the join/group key.",
                         hidden: False
                       },
                       issue_description: {
-                        description: None,
+                        description: "Description of the issue (latest version).",
                         hidden: False
                       },
                       issue_id: {
-                        description: None,
+                        description: "Identifier of the error tracking issue this fingerprint belongs to.",
                         hidden: False
                       },
                       issue_name: {
-                        description: None,
+                        description: "Display name of the issue (latest version).",
                         hidden: False
                       },
                       issue_status: {
-                        description: None,
+                        description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
                       },
                       team_id: {
@@ -3898,42 +3898,42 @@
                   ],
                   hidden: False,
                   join_table: {
-                    description: None,
+                    description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
-                        description: None,
+                        description: "Role the issue is assigned to, if any.",
                         hidden: False
                       },
                       assigned_user_id: {
-                        description: None,
+                        description: "User the issue is assigned to, if any.",
                         hidden: False
                       },
                       fingerprint: {
-                        description: None,
+                        description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                         hidden: False
                       },
                       first_seen: {
-                        description: None,
+                        description: "When the issue was first observed (in UTC).",
                         hidden: False
                       },
                       fp_hash: {
-                        description: None,
+                        description: "cityHash64 of the fingerprint, used as the join/group key.",
                         hidden: False
                       },
                       issue_description: {
-                        description: None,
+                        description: "Description of the issue (latest version).",
                         hidden: False
                       },
                       issue_id: {
-                        description: None,
+                        description: "Identifier of the error tracking issue this fingerprint belongs to.",
                         hidden: False
                       },
                       issue_name: {
-                        description: None,
+                        description: "Display name of the issue (latest version).",
                         hidden: False
                       },
                       issue_status: {
-                        description: None,
+                        description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
                       },
                       team_id: {
@@ -3989,42 +3989,42 @@
                   ],
                   hidden: False,
                   join_table: {
-                    description: None,
+                    description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
-                        description: None,
+                        description: "Role the issue is assigned to, if any.",
                         hidden: False
                       },
                       assigned_user_id: {
-                        description: None,
+                        description: "User the issue is assigned to, if any.",
                         hidden: False
                       },
                       fingerprint: {
-                        description: None,
+                        description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                         hidden: False
                       },
                       first_seen: {
-                        description: None,
+                        description: "When the issue was first observed (in UTC).",
                         hidden: False
                       },
                       fp_hash: {
-                        description: None,
+                        description: "cityHash64 of the fingerprint, used as the join/group key.",
                         hidden: False
                       },
                       issue_description: {
-                        description: None,
+                        description: "Description of the issue (latest version).",
                         hidden: False
                       },
                       issue_id: {
-                        description: None,
+                        description: "Identifier of the error tracking issue this fingerprint belongs to.",
                         hidden: False
                       },
                       issue_name: {
-                        description: None,
+                        description: "Display name of the issue (latest version).",
                         hidden: False
                       },
                       issue_status: {
-                        description: None,
+                        description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
                       },
                       team_id: {
@@ -4080,42 +4080,42 @@
                   ],
                   hidden: False,
                   join_table: {
-                    description: None,
+                    description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
-                        description: None,
+                        description: "Role the issue is assigned to, if any.",
                         hidden: False
                       },
                       assigned_user_id: {
-                        description: None,
+                        description: "User the issue is assigned to, if any.",
                         hidden: False
                       },
                       fingerprint: {
-                        description: None,
+                        description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                         hidden: False
                       },
                       first_seen: {
-                        description: None,
+                        description: "When the issue was first observed (in UTC).",
                         hidden: False
                       },
                       fp_hash: {
-                        description: None,
+                        description: "cityHash64 of the fingerprint, used as the join/group key.",
                         hidden: False
                       },
                       issue_description: {
-                        description: None,
+                        description: "Description of the issue (latest version).",
                         hidden: False
                       },
                       issue_id: {
-                        description: None,
+                        description: "Identifier of the error tracking issue this fingerprint belongs to.",
                         hidden: False
                       },
                       issue_name: {
-                        description: None,
+                        description: "Display name of the issue (latest version).",
                         hidden: False
                       },
                       issue_status: {
-                        description: None,
+                        description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
                       },
                       team_id: {
@@ -4223,38 +4223,38 @@
               alias: "e"
               table_type: {
                 table: {
-                  description: None,
+                  description: "Aggregated metadata for session recordings (counts, URLs, console/activity stats); one row per session. Holds metadata only, not the recording snapshots. Join to events/persons via `session_id`/`distinct_id`.",
                   fields: {
                     active_milliseconds: {
-                      description: None,
+                      description: "Time the user was actively interacting, in milliseconds (subset of total duration).",
                       hidden: False
                     },
                     ai_highlighted: {
-                      description: None,
+                      description: "Whether AI flagged this recording as noteworthy (1) or not (0).",
                       hidden: False
                     },
                     ai_tags_fixed: {
-                      description: None,
+                      description: "AI-assigned tags from a fixed taxonomy.",
                       hidden: False
                     },
                     ai_tags_freeform: {
-                      description: None,
+                      description: "AI-assigned freeform tags.",
                       hidden: False
                     },
                     all_urls: {
-                      description: None,
+                      description: "Distinct set of URLs visited during the session.",
                       hidden: False
                     },
                     click_count: {
-                      description: None,
+                      description: "Total number of clicks in the session.",
                       hidden: False
                     },
                     console_error_count: {
-                      description: None,
+                      description: "Number of console.error messages captured.",
                       hidden: False
                     },
                     console_log_count: {
-                      description: None,
+                      description: "Number of console.log messages captured.",
                       hidden: False
                     },
                     console_logs: {
@@ -4262,19 +4262,19 @@
                       hidden: False
                     },
                     console_warn_count: {
-                      description: None,
+                      description: "Number of console.warn messages captured.",
                       hidden: False
                     },
                     distinct_id: {
-                      description: None,
+                      description: "Identifier of the user/device for the recording.",
                       hidden: False
                     },
                     end_time: {
-                      description: None,
+                      description: "Latest snapshot timestamp across the session (in UTC).",
                       hidden: False
                     },
                     event_count: {
-                      description: None,
+                      description: "Number of rrweb snapshot events in the recording.",
                       hidden: False
                     },
                     events: {
@@ -4282,23 +4282,23 @@
                       hidden: False
                     },
                     first_url: {
-                      description: None,
+                      description: "URL of the first page viewed in the session.",
                       hidden: False
                     },
                     is_deleted: {
-                      description: None,
+                      description: "Whether the recording has been deleted (1) or not (0).",
                       hidden: False
                     },
                     keypress_count: {
-                      description: None,
+                      description: "Total number of keypresses in the session.",
                       hidden: False
                     },
                     message_count: {
-                      description: None,
+                      description: "Number of ingestion messages that made up this recording.",
                       hidden: False
                     },
                     mouse_activity_count: {
-                      description: None,
+                      description: "Number of mouse activity events in the session.",
                       hidden: False
                     },
                     pdi: {
@@ -4318,7 +4318,7 @@
                       hidden: False
                     },
                     retention_period_days: {
-                      description: None,
+                      description: "Number of days the recording is retained.",
                       hidden: False
                     },
                     session: {
@@ -4326,27 +4326,27 @@
                       hidden: False
                     },
                     session_id: {
-                      description: None,
+                      description: "Recording session identifier; matches `events.$session_id` and `sessions.session_id`.",
                       hidden: False
                     },
                     size: {
-                      description: None,
+                      description: "Size of the recording snapshot data in bytes.",
                       hidden: False
                     },
                     snapshot_library: {
-                      description: None,
+                      description: "SDK/library that produced the recording snapshots.",
                       hidden: False
                     },
                     snapshot_source: {
-                      description: None,
+                      description: "Capture source of the recording, e.g. 'web' or 'mobile'.",
                       hidden: False
                     },
                     start_time: {
-                      description: None,
+                      description: "Earliest snapshot timestamp across the session (in UTC).",
                       hidden: False
                     },
                     surfacing_score: {
-                      description: None,
+                      description: "AI-computed score ranking how worth surfacing the recording is.",
                       hidden: False
                     },
                     team_id: {
@@ -5901,42 +5901,42 @@
                               ],
                               hidden: False,
                               join_table: {
-                                description: None,
+                                description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                                 fields: {
                                   assigned_role_id: {
-                                    description: None,
+                                    description: "Role the issue is assigned to, if any.",
                                     hidden: False
                                   },
                                   assigned_user_id: {
-                                    description: None,
+                                    description: "User the issue is assigned to, if any.",
                                     hidden: False
                                   },
                                   fingerprint: {
-                                    description: None,
+                                    description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                                     hidden: False
                                   },
                                   first_seen: {
-                                    description: None,
+                                    description: "When the issue was first observed (in UTC).",
                                     hidden: False
                                   },
                                   fp_hash: {
-                                    description: None,
+                                    description: "cityHash64 of the fingerprint, used as the join/group key.",
                                     hidden: False
                                   },
                                   issue_description: {
-                                    description: None,
+                                    description: "Description of the issue (latest version).",
                                     hidden: False
                                   },
                                   issue_id: {
-                                    description: None,
+                                    description: "Identifier of the error tracking issue this fingerprint belongs to.",
                                     hidden: False
                                   },
                                   issue_name: {
-                                    description: None,
+                                    description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
                                   issue_status: {
-                                    description: None,
+                                    description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
                                   },
                                   team_id: {
@@ -5973,42 +5973,42 @@
                               ],
                               hidden: False,
                               join_table: {
-                                description: None,
+                                description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                                 fields: {
                                   assigned_role_id: {
-                                    description: None,
+                                    description: "Role the issue is assigned to, if any.",
                                     hidden: False
                                   },
                                   assigned_user_id: {
-                                    description: None,
+                                    description: "User the issue is assigned to, if any.",
                                     hidden: False
                                   },
                                   fingerprint: {
-                                    description: None,
+                                    description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                                     hidden: False
                                   },
                                   first_seen: {
-                                    description: None,
+                                    description: "When the issue was first observed (in UTC).",
                                     hidden: False
                                   },
                                   fp_hash: {
-                                    description: None,
+                                    description: "cityHash64 of the fingerprint, used as the join/group key.",
                                     hidden: False
                                   },
                                   issue_description: {
-                                    description: None,
+                                    description: "Description of the issue (latest version).",
                                     hidden: False
                                   },
                                   issue_id: {
-                                    description: None,
+                                    description: "Identifier of the error tracking issue this fingerprint belongs to.",
                                     hidden: False
                                   },
                                   issue_name: {
-                                    description: None,
+                                    description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
                                   issue_status: {
-                                    description: None,
+                                    description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
                                   },
                                   team_id: {
@@ -6045,42 +6045,42 @@
                               ],
                               hidden: False,
                               join_table: {
-                                description: None,
+                                description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                                 fields: {
                                   assigned_role_id: {
-                                    description: None,
+                                    description: "Role the issue is assigned to, if any.",
                                     hidden: False
                                   },
                                   assigned_user_id: {
-                                    description: None,
+                                    description: "User the issue is assigned to, if any.",
                                     hidden: False
                                   },
                                   fingerprint: {
-                                    description: None,
+                                    description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                                     hidden: False
                                   },
                                   first_seen: {
-                                    description: None,
+                                    description: "When the issue was first observed (in UTC).",
                                     hidden: False
                                   },
                                   fp_hash: {
-                                    description: None,
+                                    description: "cityHash64 of the fingerprint, used as the join/group key.",
                                     hidden: False
                                   },
                                   issue_description: {
-                                    description: None,
+                                    description: "Description of the issue (latest version).",
                                     hidden: False
                                   },
                                   issue_id: {
-                                    description: None,
+                                    description: "Identifier of the error tracking issue this fingerprint belongs to.",
                                     hidden: False
                                   },
                                   issue_name: {
-                                    description: None,
+                                    description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
                                   issue_status: {
-                                    description: None,
+                                    description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
                                   },
                                   team_id: {
@@ -6117,42 +6117,42 @@
                               ],
                               hidden: False,
                               join_table: {
-                                description: None,
+                                description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                                 fields: {
                                   assigned_role_id: {
-                                    description: None,
+                                    description: "Role the issue is assigned to, if any.",
                                     hidden: False
                                   },
                                   assigned_user_id: {
-                                    description: None,
+                                    description: "User the issue is assigned to, if any.",
                                     hidden: False
                                   },
                                   fingerprint: {
-                                    description: None,
+                                    description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                                     hidden: False
                                   },
                                   first_seen: {
-                                    description: None,
+                                    description: "When the issue was first observed (in UTC).",
                                     hidden: False
                                   },
                                   fp_hash: {
-                                    description: None,
+                                    description: "cityHash64 of the fingerprint, used as the join/group key.",
                                     hidden: False
                                   },
                                   issue_description: {
-                                    description: None,
+                                    description: "Description of the issue (latest version).",
                                     hidden: False
                                   },
                                   issue_id: {
-                                    description: None,
+                                    description: "Identifier of the error tracking issue this fingerprint belongs to.",
                                     hidden: False
                                   },
                                   issue_name: {
-                                    description: None,
+                                    description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
                                   issue_status: {
-                                    description: None,
+                                    description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
                                   },
                                   team_id: {
@@ -6213,42 +6213,42 @@
                               ],
                               hidden: False,
                               join_table: {
-                                description: None,
+                                description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                                 fields: {
                                   assigned_role_id: {
-                                    description: None,
+                                    description: "Role the issue is assigned to, if any.",
                                     hidden: False
                                   },
                                   assigned_user_id: {
-                                    description: None,
+                                    description: "User the issue is assigned to, if any.",
                                     hidden: False
                                   },
                                   fingerprint: {
-                                    description: None,
+                                    description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                                     hidden: False
                                   },
                                   first_seen: {
-                                    description: None,
+                                    description: "When the issue was first observed (in UTC).",
                                     hidden: False
                                   },
                                   fp_hash: {
-                                    description: None,
+                                    description: "cityHash64 of the fingerprint, used as the join/group key.",
                                     hidden: False
                                   },
                                   issue_description: {
-                                    description: None,
+                                    description: "Description of the issue (latest version).",
                                     hidden: False
                                   },
                                   issue_id: {
-                                    description: None,
+                                    description: "Identifier of the error tracking issue this fingerprint belongs to.",
                                     hidden: False
                                   },
                                   issue_name: {
-                                    description: None,
+                                    description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
                                   issue_status: {
-                                    description: None,
+                                    description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
                                   },
                                   team_id: {
@@ -6285,42 +6285,42 @@
                               ],
                               hidden: False,
                               join_table: {
-                                description: None,
+                                description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                                 fields: {
                                   assigned_role_id: {
-                                    description: None,
+                                    description: "Role the issue is assigned to, if any.",
                                     hidden: False
                                   },
                                   assigned_user_id: {
-                                    description: None,
+                                    description: "User the issue is assigned to, if any.",
                                     hidden: False
                                   },
                                   fingerprint: {
-                                    description: None,
+                                    description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                                     hidden: False
                                   },
                                   first_seen: {
-                                    description: None,
+                                    description: "When the issue was first observed (in UTC).",
                                     hidden: False
                                   },
                                   fp_hash: {
-                                    description: None,
+                                    description: "cityHash64 of the fingerprint, used as the join/group key.",
                                     hidden: False
                                   },
                                   issue_description: {
-                                    description: None,
+                                    description: "Description of the issue (latest version).",
                                     hidden: False
                                   },
                                   issue_id: {
-                                    description: None,
+                                    description: "Identifier of the error tracking issue this fingerprint belongs to.",
                                     hidden: False
                                   },
                                   issue_name: {
-                                    description: None,
+                                    description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
                                   issue_status: {
-                                    description: None,
+                                    description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
                                   },
                                   team_id: {
@@ -6357,42 +6357,42 @@
                               ],
                               hidden: False,
                               join_table: {
-                                description: None,
+                                description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                                 fields: {
                                   assigned_role_id: {
-                                    description: None,
+                                    description: "Role the issue is assigned to, if any.",
                                     hidden: False
                                   },
                                   assigned_user_id: {
-                                    description: None,
+                                    description: "User the issue is assigned to, if any.",
                                     hidden: False
                                   },
                                   fingerprint: {
-                                    description: None,
+                                    description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                                     hidden: False
                                   },
                                   first_seen: {
-                                    description: None,
+                                    description: "When the issue was first observed (in UTC).",
                                     hidden: False
                                   },
                                   fp_hash: {
-                                    description: None,
+                                    description: "cityHash64 of the fingerprint, used as the join/group key.",
                                     hidden: False
                                   },
                                   issue_description: {
-                                    description: None,
+                                    description: "Description of the issue (latest version).",
                                     hidden: False
                                   },
                                   issue_id: {
-                                    description: None,
+                                    description: "Identifier of the error tracking issue this fingerprint belongs to.",
                                     hidden: False
                                   },
                                   issue_name: {
-                                    description: None,
+                                    description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
                                   issue_status: {
-                                    description: None,
+                                    description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
                                   },
                                   team_id: {
@@ -6846,42 +6846,42 @@
                               ],
                               hidden: False,
                               join_table: {
-                                description: None,
+                                description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                                 fields: {
                                   assigned_role_id: {
-                                    description: None,
+                                    description: "Role the issue is assigned to, if any.",
                                     hidden: False
                                   },
                                   assigned_user_id: {
-                                    description: None,
+                                    description: "User the issue is assigned to, if any.",
                                     hidden: False
                                   },
                                   fingerprint: {
-                                    description: None,
+                                    description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                                     hidden: False
                                   },
                                   first_seen: {
-                                    description: None,
+                                    description: "When the issue was first observed (in UTC).",
                                     hidden: False
                                   },
                                   fp_hash: {
-                                    description: None,
+                                    description: "cityHash64 of the fingerprint, used as the join/group key.",
                                     hidden: False
                                   },
                                   issue_description: {
-                                    description: None,
+                                    description: "Description of the issue (latest version).",
                                     hidden: False
                                   },
                                   issue_id: {
-                                    description: None,
+                                    description: "Identifier of the error tracking issue this fingerprint belongs to.",
                                     hidden: False
                                   },
                                   issue_name: {
-                                    description: None,
+                                    description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
                                   issue_status: {
-                                    description: None,
+                                    description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
                                   },
                                   team_id: {
@@ -6918,42 +6918,42 @@
                               ],
                               hidden: False,
                               join_table: {
-                                description: None,
+                                description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                                 fields: {
                                   assigned_role_id: {
-                                    description: None,
+                                    description: "Role the issue is assigned to, if any.",
                                     hidden: False
                                   },
                                   assigned_user_id: {
-                                    description: None,
+                                    description: "User the issue is assigned to, if any.",
                                     hidden: False
                                   },
                                   fingerprint: {
-                                    description: None,
+                                    description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                                     hidden: False
                                   },
                                   first_seen: {
-                                    description: None,
+                                    description: "When the issue was first observed (in UTC).",
                                     hidden: False
                                   },
                                   fp_hash: {
-                                    description: None,
+                                    description: "cityHash64 of the fingerprint, used as the join/group key.",
                                     hidden: False
                                   },
                                   issue_description: {
-                                    description: None,
+                                    description: "Description of the issue (latest version).",
                                     hidden: False
                                   },
                                   issue_id: {
-                                    description: None,
+                                    description: "Identifier of the error tracking issue this fingerprint belongs to.",
                                     hidden: False
                                   },
                                   issue_name: {
-                                    description: None,
+                                    description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
                                   issue_status: {
-                                    description: None,
+                                    description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
                                   },
                                   team_id: {
@@ -6990,42 +6990,42 @@
                               ],
                               hidden: False,
                               join_table: {
-                                description: None,
+                                description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                                 fields: {
                                   assigned_role_id: {
-                                    description: None,
+                                    description: "Role the issue is assigned to, if any.",
                                     hidden: False
                                   },
                                   assigned_user_id: {
-                                    description: None,
+                                    description: "User the issue is assigned to, if any.",
                                     hidden: False
                                   },
                                   fingerprint: {
-                                    description: None,
+                                    description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                                     hidden: False
                                   },
                                   first_seen: {
-                                    description: None,
+                                    description: "When the issue was first observed (in UTC).",
                                     hidden: False
                                   },
                                   fp_hash: {
-                                    description: None,
+                                    description: "cityHash64 of the fingerprint, used as the join/group key.",
                                     hidden: False
                                   },
                                   issue_description: {
-                                    description: None,
+                                    description: "Description of the issue (latest version).",
                                     hidden: False
                                   },
                                   issue_id: {
-                                    description: None,
+                                    description: "Identifier of the error tracking issue this fingerprint belongs to.",
                                     hidden: False
                                   },
                                   issue_name: {
-                                    description: None,
+                                    description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
                                   issue_status: {
-                                    description: None,
+                                    description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
                                   },
                                   team_id: {
@@ -7062,42 +7062,42 @@
                               ],
                               hidden: False,
                               join_table: {
-                                description: None,
+                                description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                                 fields: {
                                   assigned_role_id: {
-                                    description: None,
+                                    description: "Role the issue is assigned to, if any.",
                                     hidden: False
                                   },
                                   assigned_user_id: {
-                                    description: None,
+                                    description: "User the issue is assigned to, if any.",
                                     hidden: False
                                   },
                                   fingerprint: {
-                                    description: None,
+                                    description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                                     hidden: False
                                   },
                                   first_seen: {
-                                    description: None,
+                                    description: "When the issue was first observed (in UTC).",
                                     hidden: False
                                   },
                                   fp_hash: {
-                                    description: None,
+                                    description: "cityHash64 of the fingerprint, used as the join/group key.",
                                     hidden: False
                                   },
                                   issue_description: {
-                                    description: None,
+                                    description: "Description of the issue (latest version).",
                                     hidden: False
                                   },
                                   issue_id: {
-                                    description: None,
+                                    description: "Identifier of the error tracking issue this fingerprint belongs to.",
                                     hidden: False
                                   },
                                   issue_name: {
-                                    description: None,
+                                    description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
                                   issue_status: {
-                                    description: None,
+                                    description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
                                   },
                                   team_id: {
@@ -7158,42 +7158,42 @@
                               ],
                               hidden: False,
                               join_table: {
-                                description: None,
+                                description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                                 fields: {
                                   assigned_role_id: {
-                                    description: None,
+                                    description: "Role the issue is assigned to, if any.",
                                     hidden: False
                                   },
                                   assigned_user_id: {
-                                    description: None,
+                                    description: "User the issue is assigned to, if any.",
                                     hidden: False
                                   },
                                   fingerprint: {
-                                    description: None,
+                                    description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                                     hidden: False
                                   },
                                   first_seen: {
-                                    description: None,
+                                    description: "When the issue was first observed (in UTC).",
                                     hidden: False
                                   },
                                   fp_hash: {
-                                    description: None,
+                                    description: "cityHash64 of the fingerprint, used as the join/group key.",
                                     hidden: False
                                   },
                                   issue_description: {
-                                    description: None,
+                                    description: "Description of the issue (latest version).",
                                     hidden: False
                                   },
                                   issue_id: {
-                                    description: None,
+                                    description: "Identifier of the error tracking issue this fingerprint belongs to.",
                                     hidden: False
                                   },
                                   issue_name: {
-                                    description: None,
+                                    description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
                                   issue_status: {
-                                    description: None,
+                                    description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
                                   },
                                   team_id: {
@@ -7230,42 +7230,42 @@
                               ],
                               hidden: False,
                               join_table: {
-                                description: None,
+                                description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                                 fields: {
                                   assigned_role_id: {
-                                    description: None,
+                                    description: "Role the issue is assigned to, if any.",
                                     hidden: False
                                   },
                                   assigned_user_id: {
-                                    description: None,
+                                    description: "User the issue is assigned to, if any.",
                                     hidden: False
                                   },
                                   fingerprint: {
-                                    description: None,
+                                    description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                                     hidden: False
                                   },
                                   first_seen: {
-                                    description: None,
+                                    description: "When the issue was first observed (in UTC).",
                                     hidden: False
                                   },
                                   fp_hash: {
-                                    description: None,
+                                    description: "cityHash64 of the fingerprint, used as the join/group key.",
                                     hidden: False
                                   },
                                   issue_description: {
-                                    description: None,
+                                    description: "Description of the issue (latest version).",
                                     hidden: False
                                   },
                                   issue_id: {
-                                    description: None,
+                                    description: "Identifier of the error tracking issue this fingerprint belongs to.",
                                     hidden: False
                                   },
                                   issue_name: {
-                                    description: None,
+                                    description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
                                   issue_status: {
-                                    description: None,
+                                    description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
                                   },
                                   team_id: {
@@ -7302,42 +7302,42 @@
                               ],
                               hidden: False,
                               join_table: {
-                                description: None,
+                                description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                                 fields: {
                                   assigned_role_id: {
-                                    description: None,
+                                    description: "Role the issue is assigned to, if any.",
                                     hidden: False
                                   },
                                   assigned_user_id: {
-                                    description: None,
+                                    description: "User the issue is assigned to, if any.",
                                     hidden: False
                                   },
                                   fingerprint: {
-                                    description: None,
+                                    description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                                     hidden: False
                                   },
                                   first_seen: {
-                                    description: None,
+                                    description: "When the issue was first observed (in UTC).",
                                     hidden: False
                                   },
                                   fp_hash: {
-                                    description: None,
+                                    description: "cityHash64 of the fingerprint, used as the join/group key.",
                                     hidden: False
                                   },
                                   issue_description: {
-                                    description: None,
+                                    description: "Description of the issue (latest version).",
                                     hidden: False
                                   },
                                   issue_id: {
-                                    description: None,
+                                    description: "Identifier of the error tracking issue this fingerprint belongs to.",
                                     hidden: False
                                   },
                                   issue_name: {
-                                    description: None,
+                                    description: "Display name of the issue (latest version).",
                                     hidden: False
                                   },
                                   issue_status: {
-                                    description: None,
+                                    description: "Current status of the issue, e.g. 'active', 'resolved'.",
                                     hidden: False
                                   },
                                   team_id: {
@@ -8142,10 +8142,10 @@
                                     ],
                                     hidden: False,
                                     join_table: {
-                                      description: None,
+                                      description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
                                       fields: {
                                         distinct_id: {
-                                          description: None,
+                                          description: "Distinct_id whose person mapping was overridden (e.g. after an identify or merge).",
                                           hidden: False
                                         },
                                         person: {
@@ -8153,7 +8153,7 @@
                                           hidden: False
                                         },
                                         person_id: {
-                                          description: None,
+                                          description: "Corrected person this distinct_id now resolves to; matches `persons.id`.",
                                           hidden: False
                                         },
                                         team_id: {
@@ -8228,10 +8228,10 @@
                             ],
                             hidden: False,
                             join_table: {
-                              description: None,
+                              description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
                               fields: {
                                 distinct_id: {
-                                  description: None,
+                                  description: "Distinct_id whose person mapping was overridden (e.g. after an identify or merge).",
                                   hidden: False
                                 },
                                 person: {
@@ -8239,7 +8239,7 @@
                                   hidden: False
                                 },
                                 person_id: {
-                                  description: None,
+                                  description: "Corrected person this distinct_id now resolves to; matches `persons.id`.",
                                   hidden: False
                                 },
                                 team_id: {
@@ -8494,14 +8494,14 @@
                                     ],
                                     hidden: False,
                                     join_table: {
-                                      description: None,
+                                      description: "Deduplicated mapping of exception fingerprints to the issue they were reassigned to, overriding default grouping. One row per fingerprint.",
                                       fields: {
                                         fingerprint: {
-                                          description: None,
+                                          description: "Exception fingerprint; matches `events.properties.$exception_fingerprint`.",
                                           hidden: False
                                         },
                                         issue_id: {
-                                          description: None,
+                                          description: "Identifier of the error tracking issue this fingerprint maps to.",
                                           hidden: False
                                         },
                                         team_id: {
@@ -8576,14 +8576,14 @@
                             ],
                             hidden: False,
                             join_table: {
-                              description: None,
+                              description: "Deduplicated mapping of exception fingerprints to the issue they were reassigned to, overriding default grouping. One row per fingerprint.",
                               fields: {
                                 fingerprint: {
-                                  description: None,
+                                  description: "Exception fingerprint; matches `events.properties.$exception_fingerprint`.",
                                   hidden: False
                                 },
                                 issue_id: {
-                                  description: None,
+                                  description: "Identifier of the error tracking issue this fingerprint maps to.",
                                   hidden: False
                                 },
                                 team_id: {
@@ -8988,10 +8988,10 @@
                                         ],
                                         hidden: False,
                                         join_table: {
-                                          description: None,
+                                          description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
                                           fields: {
                                             distinct_id: {
-                                              description: None,
+                                              description: "Distinct_id whose person mapping was overridden (e.g. after an identify or merge).",
                                               hidden: False
                                             },
                                             person: {
@@ -8999,7 +8999,7 @@
                                               hidden: False
                                             },
                                             person_id: {
-                                              description: None,
+                                              description: "Corrected person this distinct_id now resolves to; matches `persons.id`.",
                                               hidden: False
                                             },
                                             team_id: {
@@ -9074,10 +9074,10 @@
                                 ],
                                 hidden: False,
                                 join_table: {
-                                  description: None,
+                                  description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
                                   fields: {
                                     distinct_id: {
-                                      description: None,
+                                      description: "Distinct_id whose person mapping was overridden (e.g. after an identify or merge).",
                                       hidden: False
                                     },
                                     person: {
@@ -9085,7 +9085,7 @@
                                       hidden: False
                                     },
                                     person_id: {
-                                      description: None,
+                                      description: "Corrected person this distinct_id now resolves to; matches `persons.id`.",
                                       hidden: False
                                     },
                                     team_id: {
@@ -9340,14 +9340,14 @@
                                         ],
                                         hidden: False,
                                         join_table: {
-                                          description: None,
+                                          description: "Deduplicated mapping of exception fingerprints to the issue they were reassigned to, overriding default grouping. One row per fingerprint.",
                                           fields: {
                                             fingerprint: {
-                                              description: None,
+                                              description: "Exception fingerprint; matches `events.properties.$exception_fingerprint`.",
                                               hidden: False
                                             },
                                             issue_id: {
-                                              description: None,
+                                              description: "Identifier of the error tracking issue this fingerprint maps to.",
                                               hidden: False
                                             },
                                             team_id: {
@@ -9422,14 +9422,14 @@
                                 ],
                                 hidden: False,
                                 join_table: {
-                                  description: None,
+                                  description: "Deduplicated mapping of exception fingerprints to the issue they were reassigned to, overriding default grouping. One row per fingerprint.",
                                   fields: {
                                     fingerprint: {
-                                      description: None,
+                                      description: "Exception fingerprint; matches `events.properties.$exception_fingerprint`.",
                                       hidden: False
                                     },
                                     issue_id: {
-                                      description: None,
+                                      description: "Identifier of the error tracking issue this fingerprint maps to.",
                                       hidden: False
                                     },
                                     team_id: {
@@ -10401,10 +10401,10 @@
                               ],
                               hidden: False,
                               join_table: {
-                                description: None,
+                                description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
                                 fields: {
                                   distinct_id: {
-                                    description: None,
+                                    description: "Distinct_id whose person mapping was overridden (e.g. after an identify or merge).",
                                     hidden: False
                                   },
                                   person: {
@@ -10412,7 +10412,7 @@
                                     hidden: False
                                   },
                                   person_id: {
-                                    description: None,
+                                    description: "Corrected person this distinct_id now resolves to; matches `persons.id`.",
                                     hidden: False
                                   },
                                   team_id: {
@@ -10490,10 +10490,10 @@
                       ],
                       hidden: False,
                       join_table: {
-                        description: None,
+                        description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
                         fields: {
                           distinct_id: {
-                            description: None,
+                            description: "Distinct_id whose person mapping was overridden (e.g. after an identify or merge).",
                             hidden: False
                           },
                           person: {
@@ -10501,7 +10501,7 @@
                             hidden: False
                           },
                           person_id: {
-                            description: None,
+                            description: "Corrected person this distinct_id now resolves to; matches `persons.id`.",
                             hidden: False
                           },
                           team_id: {
@@ -10851,14 +10851,14 @@
                               ],
                               hidden: False,
                               join_table: {
-                                description: None,
+                                description: "Deduplicated mapping of exception fingerprints to the issue they were reassigned to, overriding default grouping. One row per fingerprint.",
                                 fields: {
                                   fingerprint: {
-                                    description: None,
+                                    description: "Exception fingerprint; matches `events.properties.$exception_fingerprint`.",
                                     hidden: False
                                   },
                                   issue_id: {
-                                    description: None,
+                                    description: "Identifier of the error tracking issue this fingerprint maps to.",
                                     hidden: False
                                   },
                                   team_id: {
@@ -10936,14 +10936,14 @@
                       ],
                       hidden: False,
                       join_table: {
-                        description: None,
+                        description: "Deduplicated mapping of exception fingerprints to the issue they were reassigned to, overriding default grouping. One row per fingerprint.",
                         fields: {
                           fingerprint: {
-                            description: None,
+                            description: "Exception fingerprint; matches `events.properties.$exception_fingerprint`.",
                             hidden: False
                           },
                           issue_id: {
-                            description: None,
+                            description: "Identifier of the error tracking issue this fingerprint maps to.",
                             hidden: False
                           },
                           team_id: {
@@ -11075,42 +11075,42 @@
                   ],
                   hidden: False,
                   join_table: {
-                    description: None,
+                    description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
-                        description: None,
+                        description: "Role the issue is assigned to, if any.",
                         hidden: False
                       },
                       assigned_user_id: {
-                        description: None,
+                        description: "User the issue is assigned to, if any.",
                         hidden: False
                       },
                       fingerprint: {
-                        description: None,
+                        description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                         hidden: False
                       },
                       first_seen: {
-                        description: None,
+                        description: "When the issue was first observed (in UTC).",
                         hidden: False
                       },
                       fp_hash: {
-                        description: None,
+                        description: "cityHash64 of the fingerprint, used as the join/group key.",
                         hidden: False
                       },
                       issue_description: {
-                        description: None,
+                        description: "Description of the issue (latest version).",
                         hidden: False
                       },
                       issue_id: {
-                        description: None,
+                        description: "Identifier of the error tracking issue this fingerprint belongs to.",
                         hidden: False
                       },
                       issue_name: {
-                        description: None,
+                        description: "Display name of the issue (latest version).",
                         hidden: False
                       },
                       issue_status: {
-                        description: None,
+                        description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
                       },
                       team_id: {
@@ -11166,42 +11166,42 @@
                   ],
                   hidden: False,
                   join_table: {
-                    description: None,
+                    description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
-                        description: None,
+                        description: "Role the issue is assigned to, if any.",
                         hidden: False
                       },
                       assigned_user_id: {
-                        description: None,
+                        description: "User the issue is assigned to, if any.",
                         hidden: False
                       },
                       fingerprint: {
-                        description: None,
+                        description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                         hidden: False
                       },
                       first_seen: {
-                        description: None,
+                        description: "When the issue was first observed (in UTC).",
                         hidden: False
                       },
                       fp_hash: {
-                        description: None,
+                        description: "cityHash64 of the fingerprint, used as the join/group key.",
                         hidden: False
                       },
                       issue_description: {
-                        description: None,
+                        description: "Description of the issue (latest version).",
                         hidden: False
                       },
                       issue_id: {
-                        description: None,
+                        description: "Identifier of the error tracking issue this fingerprint belongs to.",
                         hidden: False
                       },
                       issue_name: {
-                        description: None,
+                        description: "Display name of the issue (latest version).",
                         hidden: False
                       },
                       issue_status: {
-                        description: None,
+                        description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
                       },
                       team_id: {
@@ -11257,42 +11257,42 @@
                   ],
                   hidden: False,
                   join_table: {
-                    description: None,
+                    description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
-                        description: None,
+                        description: "Role the issue is assigned to, if any.",
                         hidden: False
                       },
                       assigned_user_id: {
-                        description: None,
+                        description: "User the issue is assigned to, if any.",
                         hidden: False
                       },
                       fingerprint: {
-                        description: None,
+                        description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                         hidden: False
                       },
                       first_seen: {
-                        description: None,
+                        description: "When the issue was first observed (in UTC).",
                         hidden: False
                       },
                       fp_hash: {
-                        description: None,
+                        description: "cityHash64 of the fingerprint, used as the join/group key.",
                         hidden: False
                       },
                       issue_description: {
-                        description: None,
+                        description: "Description of the issue (latest version).",
                         hidden: False
                       },
                       issue_id: {
-                        description: None,
+                        description: "Identifier of the error tracking issue this fingerprint belongs to.",
                         hidden: False
                       },
                       issue_name: {
-                        description: None,
+                        description: "Display name of the issue (latest version).",
                         hidden: False
                       },
                       issue_status: {
-                        description: None,
+                        description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
                       },
                       team_id: {
@@ -11348,42 +11348,42 @@
                   ],
                   hidden: False,
                   join_table: {
-                    description: None,
+                    description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
-                        description: None,
+                        description: "Role the issue is assigned to, if any.",
                         hidden: False
                       },
                       assigned_user_id: {
-                        description: None,
+                        description: "User the issue is assigned to, if any.",
                         hidden: False
                       },
                       fingerprint: {
-                        description: None,
+                        description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                         hidden: False
                       },
                       first_seen: {
-                        description: None,
+                        description: "When the issue was first observed (in UTC).",
                         hidden: False
                       },
                       fp_hash: {
-                        description: None,
+                        description: "cityHash64 of the fingerprint, used as the join/group key.",
                         hidden: False
                       },
                       issue_description: {
-                        description: None,
+                        description: "Description of the issue (latest version).",
                         hidden: False
                       },
                       issue_id: {
-                        description: None,
+                        description: "Identifier of the error tracking issue this fingerprint belongs to.",
                         hidden: False
                       },
                       issue_name: {
-                        description: None,
+                        description: "Display name of the issue (latest version).",
                         hidden: False
                       },
                       issue_status: {
-                        description: None,
+                        description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
                       },
                       team_id: {
@@ -11439,42 +11439,42 @@
                   ],
                   hidden: False,
                   join_table: {
-                    description: None,
+                    description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
-                        description: None,
+                        description: "Role the issue is assigned to, if any.",
                         hidden: False
                       },
                       assigned_user_id: {
-                        description: None,
+                        description: "User the issue is assigned to, if any.",
                         hidden: False
                       },
                       fingerprint: {
-                        description: None,
+                        description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                         hidden: False
                       },
                       first_seen: {
-                        description: None,
+                        description: "When the issue was first observed (in UTC).",
                         hidden: False
                       },
                       fp_hash: {
-                        description: None,
+                        description: "cityHash64 of the fingerprint, used as the join/group key.",
                         hidden: False
                       },
                       issue_description: {
-                        description: None,
+                        description: "Description of the issue (latest version).",
                         hidden: False
                       },
                       issue_id: {
-                        description: None,
+                        description: "Identifier of the error tracking issue this fingerprint belongs to.",
                         hidden: False
                       },
                       issue_name: {
-                        description: None,
+                        description: "Display name of the issue (latest version).",
                         hidden: False
                       },
                       issue_status: {
-                        description: None,
+                        description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
                       },
                       team_id: {
@@ -11530,42 +11530,42 @@
                   ],
                   hidden: False,
                   join_table: {
-                    description: None,
+                    description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
-                        description: None,
+                        description: "Role the issue is assigned to, if any.",
                         hidden: False
                       },
                       assigned_user_id: {
-                        description: None,
+                        description: "User the issue is assigned to, if any.",
                         hidden: False
                       },
                       fingerprint: {
-                        description: None,
+                        description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                         hidden: False
                       },
                       first_seen: {
-                        description: None,
+                        description: "When the issue was first observed (in UTC).",
                         hidden: False
                       },
                       fp_hash: {
-                        description: None,
+                        description: "cityHash64 of the fingerprint, used as the join/group key.",
                         hidden: False
                       },
                       issue_description: {
-                        description: None,
+                        description: "Description of the issue (latest version).",
                         hidden: False
                       },
                       issue_id: {
-                        description: None,
+                        description: "Identifier of the error tracking issue this fingerprint belongs to.",
                         hidden: False
                       },
                       issue_name: {
-                        description: None,
+                        description: "Display name of the issue (latest version).",
                         hidden: False
                       },
                       issue_status: {
-                        description: None,
+                        description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
                       },
                       team_id: {
@@ -11621,42 +11621,42 @@
                   ],
                   hidden: False,
                   join_table: {
-                    description: None,
+                    description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
-                        description: None,
+                        description: "Role the issue is assigned to, if any.",
                         hidden: False
                       },
                       assigned_user_id: {
-                        description: None,
+                        description: "User the issue is assigned to, if any.",
                         hidden: False
                       },
                       fingerprint: {
-                        description: None,
+                        description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                         hidden: False
                       },
                       first_seen: {
-                        description: None,
+                        description: "When the issue was first observed (in UTC).",
                         hidden: False
                       },
                       fp_hash: {
-                        description: None,
+                        description: "cityHash64 of the fingerprint, used as the join/group key.",
                         hidden: False
                       },
                       issue_description: {
-                        description: None,
+                        description: "Description of the issue (latest version).",
                         hidden: False
                       },
                       issue_id: {
-                        description: None,
+                        description: "Identifier of the error tracking issue this fingerprint belongs to.",
                         hidden: False
                       },
                       issue_name: {
-                        description: None,
+                        description: "Display name of the issue (latest version).",
                         hidden: False
                       },
                       issue_status: {
-                        description: None,
+                        description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
                       },
                       team_id: {
@@ -12196,10 +12196,10 @@
                               ],
                               hidden: False,
                               join_table: {
-                                description: None,
+                                description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
                                 fields: {
                                   distinct_id: {
-                                    description: None,
+                                    description: "Distinct_id whose person mapping was overridden (e.g. after an identify or merge).",
                                     hidden: False
                                   },
                                   person: {
@@ -12207,7 +12207,7 @@
                                     hidden: False
                                   },
                                   person_id: {
-                                    description: None,
+                                    description: "Corrected person this distinct_id now resolves to; matches `persons.id`.",
                                     hidden: False
                                   },
                                   team_id: {
@@ -12285,10 +12285,10 @@
                       ],
                       hidden: False,
                       join_table: {
-                        description: None,
+                        description: "Records distinct IDs whose person mapping was corrected after ingestion (e.g. identify or person merges). One row per overridden distinct_id; used to remap events to the right person at query time.",
                         fields: {
                           distinct_id: {
-                            description: None,
+                            description: "Distinct_id whose person mapping was overridden (e.g. after an identify or merge).",
                             hidden: False
                           },
                           person: {
@@ -12296,7 +12296,7 @@
                             hidden: False
                           },
                           person_id: {
-                            description: None,
+                            description: "Corrected person this distinct_id now resolves to; matches `persons.id`.",
                             hidden: False
                           },
                           team_id: {
@@ -12646,14 +12646,14 @@
                               ],
                               hidden: False,
                               join_table: {
-                                description: None,
+                                description: "Deduplicated mapping of exception fingerprints to the issue they were reassigned to, overriding default grouping. One row per fingerprint.",
                                 fields: {
                                   fingerprint: {
-                                    description: None,
+                                    description: "Exception fingerprint; matches `events.properties.$exception_fingerprint`.",
                                     hidden: False
                                   },
                                   issue_id: {
-                                    description: None,
+                                    description: "Identifier of the error tracking issue this fingerprint maps to.",
                                     hidden: False
                                   },
                                   team_id: {
@@ -12731,14 +12731,14 @@
                       ],
                       hidden: False,
                       join_table: {
-                        description: None,
+                        description: "Deduplicated mapping of exception fingerprints to the issue they were reassigned to, overriding default grouping. One row per fingerprint.",
                         fields: {
                           fingerprint: {
-                            description: None,
+                            description: "Exception fingerprint; matches `events.properties.$exception_fingerprint`.",
                             hidden: False
                           },
                           issue_id: {
-                            description: None,
+                            description: "Identifier of the error tracking issue this fingerprint maps to.",
                             hidden: False
                           },
                           team_id: {
@@ -12870,42 +12870,42 @@
                   ],
                   hidden: False,
                   join_table: {
-                    description: None,
+                    description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
-                        description: None,
+                        description: "Role the issue is assigned to, if any.",
                         hidden: False
                       },
                       assigned_user_id: {
-                        description: None,
+                        description: "User the issue is assigned to, if any.",
                         hidden: False
                       },
                       fingerprint: {
-                        description: None,
+                        description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                         hidden: False
                       },
                       first_seen: {
-                        description: None,
+                        description: "When the issue was first observed (in UTC).",
                         hidden: False
                       },
                       fp_hash: {
-                        description: None,
+                        description: "cityHash64 of the fingerprint, used as the join/group key.",
                         hidden: False
                       },
                       issue_description: {
-                        description: None,
+                        description: "Description of the issue (latest version).",
                         hidden: False
                       },
                       issue_id: {
-                        description: None,
+                        description: "Identifier of the error tracking issue this fingerprint belongs to.",
                         hidden: False
                       },
                       issue_name: {
-                        description: None,
+                        description: "Display name of the issue (latest version).",
                         hidden: False
                       },
                       issue_status: {
-                        description: None,
+                        description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
                       },
                       team_id: {
@@ -12961,42 +12961,42 @@
                   ],
                   hidden: False,
                   join_table: {
-                    description: None,
+                    description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
-                        description: None,
+                        description: "Role the issue is assigned to, if any.",
                         hidden: False
                       },
                       assigned_user_id: {
-                        description: None,
+                        description: "User the issue is assigned to, if any.",
                         hidden: False
                       },
                       fingerprint: {
-                        description: None,
+                        description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                         hidden: False
                       },
                       first_seen: {
-                        description: None,
+                        description: "When the issue was first observed (in UTC).",
                         hidden: False
                       },
                       fp_hash: {
-                        description: None,
+                        description: "cityHash64 of the fingerprint, used as the join/group key.",
                         hidden: False
                       },
                       issue_description: {
-                        description: None,
+                        description: "Description of the issue (latest version).",
                         hidden: False
                       },
                       issue_id: {
-                        description: None,
+                        description: "Identifier of the error tracking issue this fingerprint belongs to.",
                         hidden: False
                       },
                       issue_name: {
-                        description: None,
+                        description: "Display name of the issue (latest version).",
                         hidden: False
                       },
                       issue_status: {
-                        description: None,
+                        description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
                       },
                       team_id: {
@@ -13052,42 +13052,42 @@
                   ],
                   hidden: False,
                   join_table: {
-                    description: None,
+                    description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
-                        description: None,
+                        description: "Role the issue is assigned to, if any.",
                         hidden: False
                       },
                       assigned_user_id: {
-                        description: None,
+                        description: "User the issue is assigned to, if any.",
                         hidden: False
                       },
                       fingerprint: {
-                        description: None,
+                        description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                         hidden: False
                       },
                       first_seen: {
-                        description: None,
+                        description: "When the issue was first observed (in UTC).",
                         hidden: False
                       },
                       fp_hash: {
-                        description: None,
+                        description: "cityHash64 of the fingerprint, used as the join/group key.",
                         hidden: False
                       },
                       issue_description: {
-                        description: None,
+                        description: "Description of the issue (latest version).",
                         hidden: False
                       },
                       issue_id: {
-                        description: None,
+                        description: "Identifier of the error tracking issue this fingerprint belongs to.",
                         hidden: False
                       },
                       issue_name: {
-                        description: None,
+                        description: "Display name of the issue (latest version).",
                         hidden: False
                       },
                       issue_status: {
-                        description: None,
+                        description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
                       },
                       team_id: {
@@ -13143,42 +13143,42 @@
                   ],
                   hidden: False,
                   join_table: {
-                    description: None,
+                    description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
-                        description: None,
+                        description: "Role the issue is assigned to, if any.",
                         hidden: False
                       },
                       assigned_user_id: {
-                        description: None,
+                        description: "User the issue is assigned to, if any.",
                         hidden: False
                       },
                       fingerprint: {
-                        description: None,
+                        description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                         hidden: False
                       },
                       first_seen: {
-                        description: None,
+                        description: "When the issue was first observed (in UTC).",
                         hidden: False
                       },
                       fp_hash: {
-                        description: None,
+                        description: "cityHash64 of the fingerprint, used as the join/group key.",
                         hidden: False
                       },
                       issue_description: {
-                        description: None,
+                        description: "Description of the issue (latest version).",
                         hidden: False
                       },
                       issue_id: {
-                        description: None,
+                        description: "Identifier of the error tracking issue this fingerprint belongs to.",
                         hidden: False
                       },
                       issue_name: {
-                        description: None,
+                        description: "Display name of the issue (latest version).",
                         hidden: False
                       },
                       issue_status: {
-                        description: None,
+                        description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
                       },
                       team_id: {
@@ -13234,42 +13234,42 @@
                   ],
                   hidden: False,
                   join_table: {
-                    description: None,
+                    description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
-                        description: None,
+                        description: "Role the issue is assigned to, if any.",
                         hidden: False
                       },
                       assigned_user_id: {
-                        description: None,
+                        description: "User the issue is assigned to, if any.",
                         hidden: False
                       },
                       fingerprint: {
-                        description: None,
+                        description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                         hidden: False
                       },
                       first_seen: {
-                        description: None,
+                        description: "When the issue was first observed (in UTC).",
                         hidden: False
                       },
                       fp_hash: {
-                        description: None,
+                        description: "cityHash64 of the fingerprint, used as the join/group key.",
                         hidden: False
                       },
                       issue_description: {
-                        description: None,
+                        description: "Description of the issue (latest version).",
                         hidden: False
                       },
                       issue_id: {
-                        description: None,
+                        description: "Identifier of the error tracking issue this fingerprint belongs to.",
                         hidden: False
                       },
                       issue_name: {
-                        description: None,
+                        description: "Display name of the issue (latest version).",
                         hidden: False
                       },
                       issue_status: {
-                        description: None,
+                        description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
                       },
                       team_id: {
@@ -13325,42 +13325,42 @@
                   ],
                   hidden: False,
                   join_table: {
-                    description: None,
+                    description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
-                        description: None,
+                        description: "Role the issue is assigned to, if any.",
                         hidden: False
                       },
                       assigned_user_id: {
-                        description: None,
+                        description: "User the issue is assigned to, if any.",
                         hidden: False
                       },
                       fingerprint: {
-                        description: None,
+                        description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                         hidden: False
                       },
                       first_seen: {
-                        description: None,
+                        description: "When the issue was first observed (in UTC).",
                         hidden: False
                       },
                       fp_hash: {
-                        description: None,
+                        description: "cityHash64 of the fingerprint, used as the join/group key.",
                         hidden: False
                       },
                       issue_description: {
-                        description: None,
+                        description: "Description of the issue (latest version).",
                         hidden: False
                       },
                       issue_id: {
-                        description: None,
+                        description: "Identifier of the error tracking issue this fingerprint belongs to.",
                         hidden: False
                       },
                       issue_name: {
-                        description: None,
+                        description: "Display name of the issue (latest version).",
                         hidden: False
                       },
                       issue_status: {
-                        description: None,
+                        description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
                       },
                       team_id: {
@@ -13416,42 +13416,42 @@
                   ],
                   hidden: False,
                   join_table: {
-                    description: None,
+                    description: "Deduplicated latest issue state for each exception fingerprint; join exception events to their issue via `events.properties.$exception_fingerprint`. One row per fingerprint.",
                     fields: {
                       assigned_role_id: {
-                        description: None,
+                        description: "Role the issue is assigned to, if any.",
                         hidden: False
                       },
                       assigned_user_id: {
-                        description: None,
+                        description: "User the issue is assigned to, if any.",
                         hidden: False
                       },
                       fingerprint: {
-                        description: None,
+                        description: "Exception fingerprint that groups matching errors; matches `events.properties.$exception_fingerprint`.",
                         hidden: False
                       },
                       first_seen: {
-                        description: None,
+                        description: "When the issue was first observed (in UTC).",
                         hidden: False
                       },
                       fp_hash: {
-                        description: None,
+                        description: "cityHash64 of the fingerprint, used as the join/group key.",
                         hidden: False
                       },
                       issue_description: {
-                        description: None,
+                        description: "Description of the issue (latest version).",
                         hidden: False
                       },
                       issue_id: {
-                        description: None,
+                        description: "Identifier of the error tracking issue this fingerprint belongs to.",
                         hidden: False
                       },
                       issue_name: {
-                        description: None,
+                        description: "Display name of the issue (latest version).",
                         hidden: False
                       },
                       issue_status: {
-                        description: None,
+                        description: "Current status of the issue, e.g. 'active', 'resolved'.",
                         hidden: False
                       },
                       team_id: {
@@ -16191,10 +16191,10 @@
                   ],
                   hidden: False,
                   join_table: {
-                    description: None,
+                    description: "Maps client-side distinct IDs to resolved person IDs. One row per distinct_id; join to `persons` via the `person` field or `person_id`.",
                     fields: {
                       distinct_id: {
-                        description: None,
+                        description: "Client-side distinct_id sent with events; multiple distinct_ids can map to one person.",
                         hidden: False
                       },
                       person: {
@@ -16202,7 +16202,7 @@
                         hidden: False
                       },
                       person_id: {
-                        description: None,
+                        description: "Resolved person this distinct_id belongs to; matches `persons.id`.",
                         hidden: False
                       },
                       team_id: {
@@ -16544,10 +16544,10 @@
                   ],
                   hidden: False,
                   join_table: {
-                    description: None,
+                    description: "Maps client-side distinct IDs to resolved person IDs. One row per distinct_id; join to `persons` via the `person` field or `person_id`.",
                     fields: {
                       distinct_id: {
-                        description: None,
+                        description: "Client-side distinct_id sent with events; multiple distinct_ids can map to one person.",
                         hidden: False
                       },
                       person: {
@@ -16555,7 +16555,7 @@
                         hidden: False
                       },
                       person_id: {
-                        description: None,
+                        description: "Resolved person this distinct_id belongs to; matches `persons.id`.",
                         hidden: False
                       },
                       team_id: {
@@ -16880,10 +16880,10 @@
                 ],
                 hidden: False,
                 join_table: {
-                  description: None,
+                  description: "Maps client-side distinct IDs to resolved person IDs. One row per distinct_id; join to `persons` via the `person` field or `person_id`.",
                   fields: {
                     distinct_id: {
-                      description: None,
+                      description: "Client-side distinct_id sent with events; multiple distinct_ids can map to one person.",
                       hidden: False
                     },
                     person: {
@@ -16891,7 +16891,7 @@
                       hidden: False
                     },
                     person_id: {
-                      description: None,
+                      description: "Resolved person this distinct_id belongs to; matches `persons.id`.",
                       hidden: False
                     },
                     team_id: {
@@ -17218,10 +17218,10 @@
                 ],
                 hidden: False,
                 join_table: {
-                  description: None,
+                  description: "Maps client-side distinct IDs to resolved person IDs. One row per distinct_id; join to `persons` via the `person` field or `person_id`.",
                   fields: {
                     distinct_id: {
-                      description: None,
+                      description: "Client-side distinct_id sent with events; multiple distinct_ids can map to one person.",
                       hidden: False
                     },
                     person: {
@@ -17229,7 +17229,7 @@
                       hidden: False
                     },
                     person_id: {
-                      description: None,
+                      description: "Resolved person this distinct_id belongs to; matches `persons.id`.",
                       hidden: False
                     },
                     team_id: {
@@ -17300,10 +17300,10 @@
             name: "distinct_id"
             table_type: {
               table: {
-                description: None,
+                description: "Maps client-side distinct IDs to resolved person IDs. One row per distinct_id; join to `persons` via the `person` field or `person_id`.",
                 fields: {
                   distinct_id: {
-                    description: None,
+                    description: "Client-side distinct_id sent with events; multiple distinct_ids can map to one person.",
                     hidden: False
                   },
                   person: {
@@ -17311,7 +17311,7 @@
                     hidden: False
                   },
                   person_id: {
-                    description: None,
+                    description: "Resolved person this distinct_id belongs to; matches `persons.id`.",
                     hidden: False
                   },
                   team_id: {

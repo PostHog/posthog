@@ -529,6 +529,9 @@ describe('TrendsBarChart (ActionsBarValue)', () => {
         }
         renderInsight({
             query: aggregatedBar({ compareFilter: { compare: true } }),
+            // Pin to the legacy InsightTooltip path — the glyph/ribbon assertions are specific
+            // to that rendering and will get a quill-flavoured equivalent when the flag ships.
+            featureFlags: { [FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]: false },
             mocks: {
                 additionalMockResponses: [{ match: (q) => q.kind === NodeKind.TrendsQuery, response: compareResults }],
             },
@@ -719,7 +722,7 @@ describe('TrendsBarChart overlays', () => {
             })
 
             const legendEl = getInChartLegend(container)
-            expect(legendEl.textContent).toContain('$pageview')
+            expect(legendEl.textContent).toContain('Pageview')
             expect(legendEl.textContent).toContain('Napped')
         })
     })

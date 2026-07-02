@@ -4,9 +4,9 @@ import { combineUrl, router } from 'kea-router'
 import { IconGear } from '@posthog/icons'
 import { LemonButton, LemonTab, LemonTabs } from '@posthog/lemon-ui'
 
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { NotFound } from 'lib/components/NotFound'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { groupsAccessLogic } from 'lib/introductions/groupsAccessLogic'
@@ -192,7 +192,7 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
                                     <DeleteJourneyButton />
                                 </>
                             ) : (
-                                <AppShortcut
+                                <Shortcut
                                     name="CustomerAnalyticsSettings"
                                     keybind={[keyBinds.settings]}
                                     intent="Configure customer analytics"
@@ -220,7 +220,7 @@ function CustomerAnalyticsSceneContent(): JSX.Element {
                                         children="Configure"
                                         data-attr="customer-analytics-config"
                                     />
-                                </AppShortcut>
+                                </Shortcut>
                             )}
                         </>
                     }

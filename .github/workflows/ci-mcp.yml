@@ -22,10 +22,6 @@ permissions:
     contents: read
     pull-requests: read
 
-env:
-    DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
-    DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
-
 jobs:
     changes:
         runs-on: ubuntu-24.04
@@ -246,10 +242,14 @@ jobs:
         # skipped as success, and the ready-for-review run is the merge gate.
         if: needs.changes.outputs.mcp == 'true' && github.event.pull_request.draft != true
         env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
             OPT_OUT_CAPTURE: 1
             SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da'
             DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
             PERSONS_DB_WRITER_URL: 'postgres://posthog:posthog@localhost:5432/posthog_persons'
+            PERSONHOG_ADDR: 'localhost:50052'
+            POSTHOG_PERSONS_DB_NAME: 'posthog_persons'
             REDIS_URL: 'redis://localhost'
             CLICKHOUSE_HOST: 'localhost'
             CLICKHOUSE_SECURE: 'False'
@@ -285,40 +285,13 @@ jobs:
                   [ -d "data" ] && docker run --rm -v "$(pwd)/data:/data" alpine sh -c "rm -rf /data/seaweedfs /data/minio" || true
               continue-on-error: true
 
-            - name: Stop/Start stack with Docker Compose
+            - name: Pull Docker images
               shell: bash
               env:
                   COMPOSE_PROFILES: temporal
               run: |
                   cp posthog/user_scripts/latest_user_defined_function.xml docker/clickhouse/user_defined_function.xml
-                  (
-                      max_attempts=3
-                      attempt=1
-                      delay=5
-
-                      while [ $attempt -le $max_attempts ]; do
-                          echo "Attempt $attempt of $max_attempts to start stack..."
-
-                          if docker compose -f docker-compose.dev.yml down && \
-                            docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml up -d; then
-                              echo "Stack started successfully"
-                              exit 0
-                          fi
-
-                          echo "Failed to start stack on attempt $attempt"
-
-                          if [ $attempt -lt $max_attempts ]; then
-                              sleep_time=$((delay * 2 ** (attempt - 1)))
-                              echo "Waiting ${sleep_time} seconds before retry..."
-                              sleep $sleep_time
-                          fi
-
-                          attempt=$((attempt + 1))
-                      done
-
-                      echo "Failed to start stack after $max_attempts attempts"
-                      exit 1
-                  ) &
+                  docker compose -f docker-compose.dev.yml -f docker-compose.profiles.yml pull --quiet &
 
             - name: Add service hostnames to /etc/hosts
               shell: bash
@@ -522,6 +495,13 @@ jobs:
                       cat /tmp/rust-flags.log || true
                       exit 1
                   fi
+
+            - name: Start personhog services
+              shell: bash
+              env:
+                  COMPOSE_FILE: docker-compose.dev.yml
+                  COMPOSE_PROFILES: ingestion
+              run: bin/ci-wait-for-docker launch personhog-replica personhog-router
 
             - name: Seed test data
               run: python manage.py generate_demo_data --n-clusters 10 --days-past 7 --days-future 0 --skip-materialization --skip-flag-sync --skip-user-product-list

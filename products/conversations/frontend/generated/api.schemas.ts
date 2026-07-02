@@ -614,9 +614,9 @@ export const TicketStatusEnumApi = {
  * * `medium` - Medium
  * * `high` - High
  */
-export type PriorityEnumApi = (typeof PriorityEnumApi)[keyof typeof PriorityEnumApi]
+export type TicketPriorityEnumApi = (typeof TicketPriorityEnumApi)[keyof typeof TicketPriorityEnumApi]
 
-export const PriorityEnumApi = {
+export const TicketPriorityEnumApi = {
     Low: 'low',
     Medium: 'medium',
     High: 'high',
@@ -681,13 +681,15 @@ export interface TicketApi {
      * * `low` - Low
      * * `medium` - Medium
      * * `high` - High */
-    priority?: PriorityEnumApi | BlankEnumApi | null
+    priority?: TicketPriorityEnumApi | BlankEnumApi | null
     readonly assignee: TicketAssignmentApi
     /** Customer-provided traits such as name and email */
     anonymous_traits?: unknown
     ai_resolved?: boolean
     /** @nullable */
     escalation_reason?: string | null
+    /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, etc.). */
+    readonly ai_triage: unknown
     readonly created_at: string
     readonly updated_at: string
     readonly message_count: number
@@ -724,6 +726,11 @@ export interface TicketApi {
     readonly github_repo: string | null
     /** @nullable */
     readonly github_issue_number: number | null
+    /**
+     * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
+     * @nullable
+     */
+    readonly organization_id: string | null
     readonly person: TicketPersonApi | null
     tags?: unknown[]
 }
@@ -759,13 +766,15 @@ export interface PatchedTicketApi {
      * * `low` - Low
      * * `medium` - Medium
      * * `high` - High */
-    priority?: PriorityEnumApi | BlankEnumApi | null
+    priority?: TicketPriorityEnumApi | BlankEnumApi | null
     readonly assignee?: TicketAssignmentApi
     /** Customer-provided traits such as name and email */
     anonymous_traits?: unknown
     ai_resolved?: boolean
     /** @nullable */
     escalation_reason?: string | null
+    /** AI support pipeline triage and outcome (status, result, ticket_type, confidence, attempts, etc.). */
+    readonly ai_triage?: unknown
     readonly created_at?: string
     readonly updated_at?: string
     readonly message_count?: number
@@ -802,6 +811,11 @@ export interface PatchedTicketApi {
     readonly github_repo?: string | null
     /** @nullable */
     readonly github_issue_number?: number | null
+    /**
+     * Customer's PostHog organization group key, resolved at ticket creation. Null when unknown.
+     * @nullable
+     */
+    readonly organization_id?: string | null
     readonly person?: TicketPersonApi | null
     tags?: unknown[]
 }
