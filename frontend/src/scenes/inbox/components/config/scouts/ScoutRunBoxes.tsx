@@ -18,6 +18,8 @@ import {
 // (not the orange brand primary) keeps this in step with the desktop Code app.
 const OUTCOME_BOX_CLASS: Record<ScoutRunOutcome, string> = {
     emitted: 'bg-brand-blue',
+    // A report-channel run produced output too — same payoff blue as an emitting run.
+    reported: 'bg-brand-blue',
     quiet: 'bg-border-bold',
     error: 'bg-danger',
     timed_out: 'bg-warning',

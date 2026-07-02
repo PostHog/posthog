@@ -21,6 +21,8 @@ export const metricsCharacterizeCreateBodyQueryOneQuantileMax = 1
 export const metricsCharacterizeCreateBodyQueryOneFiltersItemKeyMax = 255
 
 export const metricsCharacterizeCreateBodyQueryOneFiltersItemOpDefault = `eq`
+export const metricsCharacterizeCreateBodyQueryOneFiltersItemValueMax = 1024
+
 export const metricsCharacterizeCreateBodyQueryOneFiltersItemScopeDefault = `auto`
 export const metricsCharacterizeCreateBodyQueryOneCandidateKeysItemMax = 255
 
@@ -89,6 +91,7 @@ export const MetricsCharacterizeCreateBody = /* @__PURE__ */ zod.object({
                             ),
                         value: zod
                             .string()
+                            .max(metricsCharacterizeCreateBodyQueryOneFiltersItemValueMax)
                             .describe('Value to compare against. For regex operators this is the pattern.'),
                         scope: zod
                             .enum(['resource', 'attribute', 'auto'])
@@ -120,6 +123,8 @@ export const metricsQueryCreateBodyQueryOneQuantileMax = 1
 export const metricsQueryCreateBodyQueryOneFiltersItemKeyMax = 255
 
 export const metricsQueryCreateBodyQueryOneFiltersItemOpDefault = `eq`
+export const metricsQueryCreateBodyQueryOneFiltersItemValueMax = 1024
+
 export const metricsQueryCreateBodyQueryOneFiltersItemScopeDefault = `auto`
 export const metricsQueryCreateBodyQueryOneGroupByItemKeyMax = 255
 
@@ -135,6 +140,8 @@ export const metricsQueryCreateBodyQueryOneClausesItemQuantileMax = 1
 export const metricsQueryCreateBodyQueryOneClausesItemFiltersItemKeyMax = 255
 
 export const metricsQueryCreateBodyQueryOneClausesItemFiltersItemOpDefault = `eq`
+export const metricsQueryCreateBodyQueryOneClausesItemFiltersItemValueMax = 1024
+
 export const metricsQueryCreateBodyQueryOneClausesItemFiltersItemScopeDefault = `auto`
 export const metricsQueryCreateBodyQueryOneClausesItemGroupByItemKeyMax = 255
 
@@ -184,6 +191,7 @@ export const MetricsQueryCreateBody = /* @__PURE__ */ zod.object({
                             ),
                         value: zod
                             .string()
+                            .max(metricsQueryCreateBodyQueryOneFiltersItemValueMax)
                             .describe('Value to compare against. For regex operators this is the pattern.'),
                         scope: zod
                             .enum(['resource', 'attribute', 'auto'])
@@ -275,6 +283,7 @@ export const MetricsQueryCreateBody = /* @__PURE__ */ zod.object({
                                         ),
                                     value: zod
                                         .string()
+                                        .max(metricsQueryCreateBodyQueryOneClausesItemFiltersItemValueMax)
                                         .describe('Value to compare against. For regex operators this is the pattern.'),
                                     scope: zod
                                         .enum(['resource', 'attribute', 'auto'])
@@ -313,7 +322,7 @@ export const MetricsQueryCreateBody = /* @__PURE__ */ zod.object({
                 )
                 .optional()
                 .describe(
-                    "Full multi-clause form: each clause is an independent metric selection sharing the request's time grid. Mutually exclusive with 'metricName'."
+                    "Full multi-clause form: each clause is an independent metric selection sharing the request's time grid (maximum 10). Mutually exclusive with 'metricName'."
                 ),
             formula: zod
                 .string()
@@ -331,4 +340,46 @@ export const MetricsQueryCreateBody = /* @__PURE__ */ zod.object({
                 .describe('Upper bound (exclusive) for the query range. Defaults to now if omitted.'),
         })
         .describe('The metric query to execute.'),
+})
+
+/**
+ * Raw individual emissions for a metric (the events model), newest
+ * first — backs the Samples view and the metric->trace pivot.
+ */
+export const metricsSamplesCreateBodyQueryOneMetricNameMax = 255
+
+export const metricsSamplesCreateBodyQueryOneTraceIdMax = 255
+
+export const metricsSamplesCreateBodyQueryOneLimitDefault = 100
+export const metricsSamplesCreateBodyQueryOneLimitMax = 1000
+
+export const MetricsSamplesCreateBody = /* @__PURE__ */ zod.object({
+    query: zod
+        .object({
+            metricName: zod
+                .string()
+                .max(metricsSamplesCreateBodyQueryOneMetricNameMax)
+                .describe("Exact metric name to list raw emissions for (e.g. 'http.server.duration')."),
+            dateFrom: zod.iso
+                .datetime({ offset: true })
+                .describe('Lower bound (inclusive) for the sample window. ISO 8601.'),
+            dateTo: zod.iso
+                .datetime({ offset: true })
+                .optional()
+                .describe('Upper bound (exclusive) for the sample window. Defaults to now if omitted.'),
+            traceId: zod
+                .string()
+                .max(metricsSamplesCreateBodyQueryOneTraceIdMax)
+                .optional()
+                .describe(
+                    'Restrict to emissions on this trace — the reverse metric->trace pivot. Omit for all traces.'
+                ),
+            limit: zod
+                .number()
+                .min(1)
+                .max(metricsSamplesCreateBodyQueryOneLimitMax)
+                .default(metricsSamplesCreateBodyQueryOneLimitDefault)
+                .describe('Max emissions to return, newest first. Defaults to 100, capped at 1000.'),
+        })
+        .describe('The raw-emissions query to execute.'),
 })

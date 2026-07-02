@@ -12,6 +12,7 @@ dropped (none were earning their keep on the stack). Retrieval is ILIKE on
 from __future__ import annotations
 
 from dataclasses import asdict, dataclass
+from datetime import datetime
 from typing import Any
 
 from django.db import IntegrityError, transaction
@@ -21,7 +22,7 @@ from products.signals.backend.scout_harness.tools.runs import _build_task_url
 
 # Defensive cap on search results.
 DEFAULT_SCRATCHPAD_SEARCH_LIMIT = 20
-MAX_SCRATCHPAD_SEARCH_LIMIT = 100
+MAX_SCRATCHPAD_SEARCH_LIMIT = 500
 
 # Keys/content are agent-chosen prose. Match the model's column lengths so callers
 # get a clean error before hitting the DB.
@@ -55,14 +56,21 @@ def search_scratchpad(
     *,
     team_id: int,
     text: str | None = None,
+    date_from: datetime | None = None,
+    date_to: datetime | None = None,
     limit: int = DEFAULT_SCRATCHPAD_SEARCH_LIMIT,
     keys_only: bool = False,
     content_max_chars: int | None = None,
 ) -> list[ScratchpadEntry]:
-    """Return memories the agent should consider when planning a run.
+    """Return memories the agent should consider when planning a run, newest first.
 
     `text` matches ILIKE against `content` and `key`. The previous `tags` filter
     + GIN index were dropped in PR 2 review.
+
+    `date_from` / `date_to` are a half-open window on `updated_at` (the entry's
+    sort key) — `updated_at >= date_from` and `updated_at < date_to`. Pass `date_to`
+    (the `updated_at` of the oldest entry seen) to walk backwards past the result
+    cap on subsequent calls (cursor-style iteration), mirroring `search_recent_runs`.
 
     Result-scoping projections keep an orientation/dedupe scan from pulling every
     entry's full body — `content` is an unbounded TextField, so a wide scan can
@@ -81,6 +89,10 @@ def search_scratchpad(
         from django.db.models import Q
 
         qs = qs.filter(Q(content__icontains=text) | Q(key__icontains=text))
+    if date_from is not None:
+        qs = qs.filter(updated_at__gte=date_from)
+    if date_to is not None:
+        qs = qs.filter(updated_at__lt=date_to)
     qs = qs.order_by("-updated_at", "-id")[:clamped_limit]
     return [_to_entry(row, keys_only=keys_only, content_max_chars=content_max_chars) for row in qs]
 

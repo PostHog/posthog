@@ -40,6 +40,7 @@ import type {
     DashboardsStreamTilesRetrieveParams,
     DashboardsUpdateParams,
     DashboardsUpdateTextTileCreateParams,
+    DashboardsUpdateWidgetsBatchParams,
     DashboardsWidgetCatalogRetrieveParams,
     DashboardsWidgetsBatchCreateParams,
     DataColorThemeApi,
@@ -53,9 +54,11 @@ import type {
     PatchedDataColorThemeApi,
     PatchedMoveTileRequestApi,
     PatchedPatchedDashboardOpenApiApi,
+    PatchedUpdateDashboardWidgetsBatchRequestOpenApiApi,
     ReorderTilesRequestApi,
     RunInsightsResponseApi,
     RunWidgetsResponseApi,
+    UpdateDashboardWidgetsBatchResponseApi,
     UpdateTextTileRequestApi,
     WidgetCatalogResponseApi,
 } from './api.schemas'
@@ -851,6 +854,53 @@ export const dashboardsWidgetsBatchCreate = async (
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(addDashboardWidgetsBatchRequestOpenApiApi),
     })
+}
+
+export const getDashboardsUpdateWidgetsBatchUrl = (
+    projectId: string,
+    id: number,
+    params?: DashboardsUpdateWidgetsBatchParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/dashboards/${id}/widgets/batch_update/?${stringifiedParams}`
+        : `/api/projects/${projectId}/dashboards/${id}/widgets/batch_update/`
+}
+
+/**
+ * Update the settings of existing widgets in place, atomically — config, name, and description.
+ *
+ * Each entry targets a widget by its tile_id and reuses the same write path as the dashboard PATCH endpoint.
+ * The widget_type is immutable. This edits widget settings only (config, name, description); tile placement
+ * (layouts, show_description) is a dashboard concern — use the dashboard PATCH endpoint or reorder_tiles for
+ * that. All updates succeed or fail together. To add new widgets, use the widgets/batch POST endpoint; to
+ * remove one, use delete_tile.
+ */
+export const dashboardsUpdateWidgetsBatch = async (
+    projectId: string,
+    id: number,
+    patchedUpdateDashboardWidgetsBatchRequestOpenApiApi?: PatchedUpdateDashboardWidgetsBatchRequestOpenApiApi,
+    params?: DashboardsUpdateWidgetsBatchParams,
+    options?: RequestInit
+): Promise<UpdateDashboardWidgetsBatchResponseApi> => {
+    return apiMutator<UpdateDashboardWidgetsBatchResponseApi>(
+        getDashboardsUpdateWidgetsBatchUrl(projectId, id, params),
+        {
+            ...options,
+            method: 'PATCH',
+            headers: { 'Content-Type': 'application/json', ...options?.headers },
+            body: JSON.stringify(patchedUpdateDashboardWidgetsBatchRequestOpenApiApi),
+        }
+    )
 }
 
 export const getDashboardsBulkUpdateTagsCreateUrl = (

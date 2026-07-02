@@ -42,6 +42,7 @@ from posthog.api.monitoring import (
 from posthog.api.query_coalescer import QueryCoalescingMixin
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.services.query import process_query_model
+from posthog.api.streaming import sse_streaming_response
 from posthog.api.utils import action, is_async_query, is_insight_actors_options_query, is_insight_actors_query
 from posthog.clickhouse.client.execute_async import cancel_query, get_query_status
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
@@ -442,13 +443,4 @@ MAX_QUERY_TIMEOUT = 600
 async def progress(request: Request, *args, **kwargs) -> StreamingHttpResponse:
     # TEMPORARY endpoint to avoid breaking changes
 
-    return StreamingHttpResponse(
-        [],
-        status=status.HTTP_200_OK,
-        content_type="text/event-stream",
-        headers={
-            "Cache-Control": "no-cache",
-            "X-Accel-Buffering": "no",
-            "Connection": "keep-alive",
-        },
-    )
+    return sse_streaming_response([], status=status.HTTP_200_OK, headers={"Connection": "keep-alive"})

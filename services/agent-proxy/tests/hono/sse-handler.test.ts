@@ -633,6 +633,28 @@ describe('sse-handler', () => {
             expect(body).toContain('"new"')
             expect(body).toContain(SSE_EVENT_STREAM_END)
         })
+
+        it('with startLatest=true reads from the beginning when the stream appears after connect', async () => {
+            vi.useFakeTimers()
+
+            const runId = uniqueRunId()
+            const streamKey = makeStreamKey(runId)
+
+            const bodyPromise = collect(
+                streamTaskRunEvents(streamKey, redis as unknown as Redis, { startLatest: true })
+            )
+
+            await Promise.resolve()
+            await Promise.resolve()
+            xaddData(redis, streamKey, { type: 'notification', msg: 'first-after-wait' })
+            xaddComplete(redis, streamKey)
+            await vi.advanceTimersByTimeAsync(100)
+
+            const body = await bodyPromise
+
+            expect(body).toContain('"first-after-wait"')
+            expect(body).toContain(SSE_EVENT_STREAM_END)
+        })
     })
 
     // -------------------------------------------------------------------------

@@ -1,9 +1,12 @@
 import type { Meta, StoryObj } from '@storybook/react'
 import { useState } from 'react'
 
+import { FEATURE_FLAGS } from 'lib/constants'
 import { dayjs } from 'lib/dayjs'
 
 import { DatePicker, DatePickerProps } from './DatePicker'
+
+const quillEnabled = { mockDate: '2023-01-26', featureFlags: [FEATURE_FLAGS.QUILL_DATE_PICKER] }
 
 type Story = StoryObj<typeof DatePicker>
 const meta: Meta<typeof DatePicker> = {
@@ -36,3 +39,18 @@ export const WithTime: Story = {
 }
 
 export const PastOnly: Story = { render: () => <Template placeholder="Select a past date" selectionPeriod="past" /> }
+
+export const QuillEmpty: Story = {
+    render: () => <Template placeholder="Select a date" />,
+    parameters: quillEnabled,
+}
+
+export const QuillWithValue: Story = {
+    render: () => <Template value={dayjs('2023-01-15')} clearable />,
+    parameters: quillEnabled,
+}
+
+export const QuillWithTime: Story = {
+    render: () => <Template value={dayjs('2023-01-15T09:30')} granularity="minute" showTimeToggle />,
+    parameters: quillEnabled,
+}

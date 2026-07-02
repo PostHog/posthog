@@ -7,6 +7,7 @@ import { now } from 'lib/dayjs'
 import { TimeToSeeDataPayload } from 'lib/internalMetrics'
 import { objectClean } from 'lib/utils/objects'
 import { BillingUsageInteractionProps } from 'scenes/billing/types'
+import type { DashboardAddTileType } from 'scenes/dashboard/dashboardAddTileTypes'
 import { SharedMetric } from 'scenes/experiments/SharedMetrics/sharedMetricLogic'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
 import { ProductTourEvent } from 'scenes/product-tours/constants'
@@ -528,6 +529,15 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             pinned,
             source,
         }),
+        reportDashboardMovedToFolder: (props: {
+            fromDepth: number
+            toDepth: number
+            fromUnfiled: boolean
+            toUnfiled: boolean
+        }) => props,
+        reportDashboardListSearched: (searchLength: number, resultsCount: number) => ({ searchLength, resultsCount }),
+        reportDashboardsTreeFolderNavigated: (depth: number, hasSubfolders: boolean) => ({ depth, hasSubfolders }),
+        reportDashboardMoveInitiated: (method: 'single' | 'bulk', count: number) => ({ method, count }),
         reportDashboardFrontEndUpdate: (
             dashboardId: number | undefined,
             attribute: 'name' | 'description' | 'tags',
@@ -586,6 +596,12 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         reportCustomChannelTypeRulesUpdated: (numRules: number) => ({ numRules }),
         reportPropertySelectOpened: true,
         reportCreatedDashboardFromModal: true,
+        reportDashboardTileInsertedInline: (
+            tileType: DashboardAddTileType,
+            column: number,
+            row: number,
+            fullWidth: boolean
+        ) => ({ tileType, column, row, fullWidth }),
         /** Dashboard created via PostHog web app from a template (new dashboard modal / template chooser). */
         reportWebDashboardCreatedFromTemplate: (payload: {
             dashboard_id: number
@@ -721,40 +737,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 refresh_id: string
                 metric_kind: string
                 execution_mode: 'sync' | 'async'
-            }
-        ) => ({
-            experimentId,
-            metric,
-            teamId,
-            queryId,
-            context,
-        }),
-        reportExperimentMetricError: (
-            experimentId: ExperimentIdType,
-            metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
-            teamId: number | null | undefined,
-            queryId: string | null,
-            context: {
-                duration_ms: number
-                metric_index: number
-                is_primary: boolean
-                is_retry: boolean
-                refresh_id: string
-                metric_kind: string
-                error_type:
-                    | 'timeout'
-                    | 'out_of_memory'
-                    | 'server_error'
-                    | 'network_error'
-                    | 'not_found'
-                    | 'authentication'
-                    | 'authorization'
-                    | 'validation_error'
-                    | 'unknown'
-                error_code: string | null
-                error_message: string | null
-                error_detail: string | null
-                status_code: number | null
             }
         ) => ({
             experimentId,
@@ -1515,6 +1497,28 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 source,
             })
         },
+        reportDashboardMovedToFolder: async ({ fromDepth, toDepth, fromUnfiled, toUnfiled }) => {
+            // Coarse fields only — never folder/dashboard names (customer-controlled).
+            posthog.capture('dashboard moved to folder', {
+                from_depth: fromDepth,
+                to_depth: toDepth,
+                moved_from_unfiled: fromUnfiled,
+                moved_to_unfiled: toUnfiled,
+            })
+        },
+        reportDashboardListSearched: async ({ searchLength, resultsCount }) => {
+            // Length + count only, never the query text (can contain sensitive names).
+            posthog.capture('dashboard list searched', {
+                search_length: searchLength,
+                results_count: resultsCount,
+            })
+        },
+        reportDashboardsTreeFolderNavigated: async ({ depth, hasSubfolders }) => {
+            posthog.capture('dashboards tree folder navigated', { depth, has_subfolders: hasSubfolders })
+        },
+        reportDashboardMoveInitiated: async ({ method, count }) => {
+            posthog.capture('dashboard move initiated', { method, count })
+        },
         reportDashboardFrontEndUpdate: async ({ dashboardId, attribute, originalLength, newLength }) => {
             posthog.capture(`dashboard frontend updated`, {
                 dashboard_id: dashboardId,
@@ -1624,6 +1628,14 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
         },
         reportCreatedDashboardFromModal: async () => {
             posthog.capture('created new dashboard from modal')
+        },
+        reportDashboardTileInsertedInline: async ({ tileType, column, row, fullWidth }) => {
+            posthog.capture('dashboard tile inserted inline', {
+                tile_type: tileType,
+                column,
+                row,
+                full_width: fullWidth,
+            })
         },
         reportWebDashboardCreatedFromTemplate: async (payload) => {
             posthog.capture('dashboard created from template', {
@@ -1857,15 +1869,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 query_id: queryId,
                 ...getEventPropertiesForMetric(metric),
                 metric,
-                ...context,
-            })
-        },
-        reportExperimentMetricError: ({ experimentId, metric, teamId, queryId, context }) => {
-            posthog.capture('experiment metric error', {
-                experiment_id: experimentId,
-                team_id: teamId,
-                query_id: queryId,
-                ...getEventPropertiesForMetric(metric),
                 ...context,
             })
         },

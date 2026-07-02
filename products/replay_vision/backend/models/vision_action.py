@@ -180,6 +180,9 @@ class VisionActionRun(TeamScopedRootMixin, UUIDModel):
     # generic so new channels don't each add a column. synthesized_markdown stays the canonical report.
     output = models.JSONField(default=dict)
     observation_count = models.PositiveIntegerField(default=0)
+    # UUIDs of the ReplayObservations this run's summary actually included, in summary order. Empty for
+    # runs created before this was tracked (and for skipped/failed runs that summarized nothing).
+    observation_ids = models.JSONField(default=list)
     error = models.JSONField(null=True, blank=True)
 
     created_at = models.DateTimeField(auto_now_add=True)

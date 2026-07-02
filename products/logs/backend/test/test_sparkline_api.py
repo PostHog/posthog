@@ -1,5 +1,6 @@
 import os
 import json
+from datetime import datetime
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -47,3 +48,7 @@ class TestSparklineApi(ClickhouseTestMixin, APIBaseTest):
     def test_sparkline(self, _name, query_params, expected_count):
         buckets = self._sparkline(query_params)
         self.assertEqual(sum(bucket["count"] for bucket in buckets), expected_count)
+        # Bucket times must serialize timezone-aware so the frontend doesn't misparse them as
+        # local time when comparing against the (UTC) live_logs_checkpoint.
+        for bucket in buckets:
+            self.assertIsNotNone(datetime.fromisoformat(bucket["time"]).tzinfo)

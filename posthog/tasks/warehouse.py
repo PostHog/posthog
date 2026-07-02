@@ -10,7 +10,7 @@ logger = structlog.get_logger(__name__)
 @shared_task(ignore_result=True)
 @skip_team_scope_audit
 def validate_data_warehouse_table_columns(team_id: int, table_id: str) -> None:
-    from products.warehouse_sources.backend.models.table import DataWarehouseTable
+    from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
     ph_client = get_client()
 
@@ -18,7 +18,8 @@ def validate_data_warehouse_table_columns(team_id: int, table_id: str) -> None:
         table = DataWarehouseTable.objects.get(team_id=team_id, id=table_id)
         columns = table.columns or {}
         for column in columns.keys():
-            columns[column]["valid"] = table.validate_column_type(column)
+            # Background validation is userless; validate table schema, not requester permissions.
+            columns[column]["valid"] = table.validate_column_type(column, bypass_warehouse_access_control=True)
         table.columns = columns
         table.save()
 

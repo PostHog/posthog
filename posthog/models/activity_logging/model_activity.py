@@ -131,7 +131,10 @@ class ImpersonatedContext:
     # info from the request if you have a request available. This is pretty much a no-op if you
     # don't have a request available.
     def __init__(self, request):
-        self.was_impersonated = is_impersonated_session(request) if request else False
+        # Local import breaks a cycle: models.oauth -> model_activity -> impersonation -> auth -> models.oauth
+        from posthog.helpers.impersonation import is_impersonated  # noqa: PLC0415
+
+        self.was_impersonated = is_impersonated(request)
 
     def __enter__(self):
         if self.was_impersonated:

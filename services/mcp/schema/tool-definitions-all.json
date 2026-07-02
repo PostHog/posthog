@@ -14,6 +14,36 @@
         },
         "feature_flag": "customer-analytics-csp"
     },
+    "accounts-custom-property-values-create": {
+        "description": "Set the value of a custom property for a Customer Analytics account. This is an upsert: it replaces the account's current value for the given `definition`, keeping at most one active value per account and definition. Pass `definition` (the custom property definition UUID) and `value` matching the definition's type — a number for number/currency/percent, a boolean for boolean, an ISO-8601 string for date/datetime, or text for text. List or create definitions with `custom-property-definitions-list` and `custom-property-definitions-create`.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Set account custom property value",
+        "title": "Set account custom property value",
+        "required_scopes": ["account:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "accounts-custom-property-values-list": {
+        "description": "List the current custom property values for a single Customer Analytics account. Each result pairs a custom property definition (via `definition_id`) with the account's `value` for it — typed per the definition's display_type (string, number, boolean, or ISO-8601 datetime) — plus `created_at` and who set it. Only current values are returned; superseded history is not. Resolve a `definition_id` to its name and type with `custom-property-definitions-list` or `custom-property-definitions-retrieve`.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List account custom property values",
+        "title": "List account custom property values",
+        "required_scopes": ["account:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
     "accounts-destroy": {
         "description": "Permanently delete a Customer Analytics account by id.",
         "category": "Customer analytics",
@@ -336,6 +366,21 @@
         },
         "feature_flag": "agent-platform"
     },
+    "agent-applications-models": {
+        "description": "Read-only model catalog for `spec.models`. Returns every model the gateway serves (id, provider, display name, per-Mtok input/output cost) plus `levels` — the concrete, priority-ordered model list each `auto` level (`low` / `medium` / `high`) currently resolves to. Use this to answer \"what will auto/medium actually run?\" and to pick ids for a `manual` policy instead of guessing. The level membership is resolved live against the catalog, so it reflects what the runner picks today, not a hardcoded list.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "List models + what each auto level resolves to",
+        "title": "List models + what each auto level resolves to",
+        "required_scopes": ["agents:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "agent-platform"
+    },
     "agent-applications-partial-update": {
         "description": "Edit `name` / `description`. The env block is managed separately (raw secret entry goes through the agent console's secret editor, not MCP), and `live_revision` is set by promoting a revision.",
         "category": "Agent stack",
@@ -427,7 +472,7 @@
         "feature_flag": "agent-platform"
     },
     "agent-applications-revisions-bundle-update": {
-        "description": "Body shape matches the GET response: `{ agent_md, skills, tools, spec }`. **Full replace** — anything not in the payload is deleted. For incremental edits use the single-resource PUTs (`agent-applications-revisions-skills-update`, etc.). Each tool source is AST-checked + esbuild-compiled synchronously; a bad shape returns 422 before any S3 writes. Only `state=draft` revisions accept this. Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate → freeze → promote workflow.",
+        "description": "Body shape is `{ agent_md, tools, spec }` — **full replace**, anything not in the payload is deleted. Skills are NOT authored here: they come from the llma-skill store via `skill_refs` and are materialized at freeze (set them with `agent-applications-revisions-skill-refs-update`). For incremental edits use the single-resource PUTs (`agent-applications-revisions-agent-md-update`, `agent-applications-revisions-tools-update`). Each tool source is AST-checked + esbuild-compiled synchronously; a bad shape returns 422 before any S3 writes. Only `state=draft` revisions accept this. Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate → freeze → promote workflow.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Full-replace the typed bundle",
@@ -591,30 +636,15 @@
         },
         "feature_flag": "agent-platform"
     },
-    "agent-applications-revisions-skills-destroy": {
-        "description": "Removes the skill folder (`skills/<id>/`, holding its `SKILL.md`). Returns 404 if the skill doesn't exist. Draft-only. Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate → freeze → promote workflow.",
+    "agent-applications-revisions-skill-refs-update": {
+        "description": "Full-replace the draft revision's store-skill references (`skill_refs`). Each ref is `{ from_template, alias, version? }`: `from_template` is the skill NAME in the llma-skill store, `alias` is the folder it's materialized under in the bundle (`skills/<alias>/`, lowercase letters/digits/hyphens/underscores, unique within the revision), and optional `version` pins a published version (omit to pin the latest at freeze). At freeze each referenced skill is resolved and baked into the immutable bundle, so a frozen agent never re-resolves a changed skill. Find skills with `skill-list`; author a new one with `skill-create`. Not destructive — it only changes which skills the draft pins, never deletes skill content. Draft-only. Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource`.",
         "category": "Agent stack",
         "feature": "agent_platform",
-        "summary": "Delete one skill",
-        "title": "Delete one skill",
+        "summary": "Set a draft's store-skill references",
+        "title": "Set a draft's store-skill references",
         "required_scopes": ["agents:write"],
         "annotations": {
-            "destructiveHint": true,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        },
-        "feature_flag": "agent-platform"
-    },
-    "agent-applications-revisions-skills-update": {
-        "description": "Body `{ description, body }`. Creates the skill if it doesn't exist, replaces it if it does. The `body` is stored at `skills/<skill_id>/SKILL.md`. Skill id comes from the URL. Draft-only. Playbook: read the `editing-agents-safely` playbook via `agent-resolve-resource` for the branch → validate → freeze → promote workflow.",
-        "category": "Agent stack",
-        "feature": "agent_platform",
-        "summary": "Upsert one skill",
-        "title": "Upsert one skill",
-        "required_scopes": ["agents:write"],
-        "annotations": {
-            "destructiveHint": true,
+            "destructiveHint": false,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
@@ -756,6 +786,21 @@
         },
         "feature_flag": "agent-platform"
     },
+    "agent-applications-spec-schema": {
+        "description": "The canonical JSON Schema for an agent `spec` — every field, type, enum, default, and the discriminated unions for `models` / `triggers[]` / `tools[]`, each with an inline description. Emitted from the same source the runner validates against, so fields with a default are optional on write. Read this BEFORE composing a spec for `agent-applications-revisions-spec-update` (or create) instead of guessing the shape. Pass `section` (e.g. `models`, `triggers`, `tools`, `limits`) to fetch just one slice and save tokens.",
+        "category": "Agent stack",
+        "feature": "agent_platform",
+        "summary": "Get the agent spec JSON schema",
+        "title": "Get the agent spec JSON schema",
+        "required_scopes": ["agents:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "agent-platform"
+    },
     "agent-feedback": {
         "description": "Send feedback about anything PostHog to the PostHog team. Set `feedback_type` to route it: `product` (any PostHog product or feature — insights, session replay, feature flags, the data warehouse, web analytics, error tracking, etc.; put the area in `product_area`), `mcp` (this MCP server itself — a tool, input schema, response format, error, or these instructions; set `category`), `docs`, or `other`. ALL sentiments are welcome via `sentiment` (`positive`/`neutral`/`negative`/`mixed`) — praise and feature requests are useful signal, not just problems. Good triggers: a confusing or broken product experience, a papercut that slowed the task down, a missing capability you worked around, a feature request, an unhelpful error, or something that worked really well. Keep `summary` to one sentence and write the free-text fields as clear, concise bullet points, quoting the product surface, tool name, parameter, or error text where possible. Include a concrete `suggested_improvement` whenever you can name one. Do not include user PII or sensitive query content. The user can also ask you to send feedback directly (e.g. 'make a PostHog feedback for this'). IMPORTANT: submitting feedback does NOT mean your work is done — keep going and finish the user's task using the other available tools. This tool is a side channel to the PostHog team, not a way to end the conversation.",
         "category": "Feedback",
@@ -788,7 +833,7 @@
         "feature_flag": "agent-platform"
     },
     "agent-resolve-resource": {
-        "description": "Fetch an operator playbook — a markdown guide for doing a class of agent-platform operations well. These are the same skills the agent concierge loads; resolve the relevant one BEFORE a non-trivial operation (editing/promoting a revision, wiring secrets, authoring an agent, debugging a session). Many `agent-applications-*` tool descriptions name the playbook to read first. Pass either a bare id or its `posthog://agent-platform/playbooks/<id>` URI — the `resource` parameter enumerates the available playbooks. Returns `{ id, uri, title, content }` where `content` is the full markdown.",
+        "description": "Fetch a builder playbook — a markdown guide for using the agent-platform authoring tools well, returned with the live, scope-aware tool surface for the operation. Resolve the relevant one BEFORE a non-trivial operation (editing/promoting a revision, wiring secrets, authoring an agent, debugging a session). Many `agent-applications-*` tool descriptions name the playbook to read first. Pass either a bare id or its `posthog://agent-platform/playbooks/<id>` URI — the `resource` parameter enumerates the available playbooks. Returns `{ id, uri, title, content }` where `content` is the full markdown plus the tool surface.",
         "category": "Agent stack",
         "feature": "agent_platform",
         "summary": "Fetch an agent-platform operator playbook (markdown).",
@@ -802,7 +847,7 @@
         }
     },
     "alert-create": {
-        "description": "Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection. For threshold alerts: set condition (absolute_value, relative_increase, relative_decrease) and threshold configuration with bounds — at least one of lower or upper is required (omit detector_config). For anomaly detection: set detector_config with a detector type (zscore, mad, iqr, threshold, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR logic. Requires an insight ID and at least one subscribed user.\nThe config type must match the insight kind. Trends insights: TrendsAlertConfig (series_index, check_ongoing_interval). SQL/HogQL insights: HogQLAlertConfig — column picks which result column to evaluate (defaults to the single numeric column), evaluation is required and selects how rows are read: 'last_row' (query ordered oldest->newest, the last row is the current value), 'first_row' (query ordered newest->oldest, the first row is the current value — pair with a LIMIT, and it is unaffected by result truncation), or 'any_row' (every row is checked and the alert fires if any value breaches; absolute_value condition only). label_column names the evaluated row(s) in breach messages in every evaluation mode (defaults to the first non-evaluated column). Label values appear in delivered notifications — avoid label columns containing PII. Anomaly detection (detector_config) is only supported for trends insights.\nNote: subscribed_users only controls email recipients. For Slack, HTTPS webhook, or Discord delivery, see the recipe on cdp-functions-create — it covers integration lookup (integrations-channels-retrieve), dedupe (cdp-functions-list filtered by alert id, limit=1000), and the exact filters/inputs shape to pass.",
+        "description": "Create a new alert on an insight. Alerts can use either threshold-based conditions or anomaly detection. For threshold alerts: set condition (absolute_value, relative_increase, relative_decrease) and threshold configuration with bounds — at least one of lower or upper is required (omit detector_config). For anomaly detection: set detector_config with a detector type (zscore, mad, iqr, threshold, copod, ecod, hbos, isolation_forest, knn, lof, ocsvm, pca) and parameters like threshold (sensitivity 0-1, default 0.9) and window size. Ensemble detectors combine 2+ sub-detectors with AND/OR logic. Requires an insight ID and at least one subscribed user.\nThe config type must match the insight kind. Trends insights: TrendsAlertConfig (series_index, check_ongoing_interval). SQL/HogQL insights: HogQLAlertConfig — column picks which result column to evaluate (defaults to the single numeric column), evaluation is required and selects how rows are read: 'last_row' (query ordered oldest->newest, the last row is the current value), 'first_row' (query ordered newest->oldest, the first row is the current value — pair with a LIMIT, and it is unaffected by result truncation), or 'any_row' (every row is checked and the alert fires if any value breaches; absolute_value condition only). label_column names the evaluated row(s) in breach messages in every evaluation mode (defaults to the first non-evaluated column). Label values appear in delivered notifications — avoid label columns containing PII. Funnel insights: FunnelsAlertConfig — funnel_step picks the step to monitor (null for the overall last step), metric is 'conversion_from_start' or 'conversion_from_previous', and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease. Anomaly detection (detector_config) is supported for trends and SQL insights (not funnels).\nNote: subscribed_users only controls email recipients. For Slack, HTTPS webhook, or Discord delivery, see the recipe on cdp-functions-create — it covers integration lookup (integrations-channels-retrieve), dedupe (cdp-functions-list filtered by alert id, limit=1000), and the exact filters/inputs shape to pass.",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "Create alert",
@@ -858,7 +903,7 @@
         }
     },
     "alert-update": {
-        "description": "Update an existing alert by ID. Can update name, threshold, condition, config, detector_config, subscribed users, enabled state, calculation interval, and weekend skipping. Set detector_config to switch to anomaly detection (trends insights only), or set it to null to switch back to threshold mode (threshold mode requires at least one of lower or upper in threshold.configuration.bounds). For SQL-insight alerts the config is HogQLAlertConfig (column, evaluation 'last_row'/'first_row'/'any_row', label_column). To snooze an alert, set snoozed_until to a relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.\nNote: Slack/webhook/Discord delivery for this alert lives as a HogFunction. See the recipe on cdp-functions-create for the dedupe-and-create flow; to change or remove an existing destination, find it via cdp-functions-list (type=internal_destination, limit=1000) by matching filters.properties value against this alert's id, then use cdp-functions-partial-update or cdp-functions-delete.",
+        "description": "Update an existing alert by ID. Can update name, threshold, condition, config, detector_config, subscribed users, enabled state, calculation interval, and weekend skipping. Set detector_config to switch to anomaly detection (trends and SQL insights), or set it to null to switch back to threshold mode (threshold mode requires at least one of lower or upper in threshold.configuration.bounds). For SQL-insight alerts the config is HogQLAlertConfig (column, evaluation 'last_row'/'first_row'/'any_row', label_column). To snooze an alert, set snoozed_until to a relative date string (e.g. '2h', '1d'). To unsnooze, set snoozed_until to null.\nNote: Slack/webhook/Discord delivery for this alert lives as a HogFunction. See the recipe on cdp-functions-create for the dedupe-and-create flow; to change or remove an existing destination, find it via cdp-functions-list (type=internal_destination, limit=1000) by matching filters.properties value against this alert's id, then use cdp-functions-partial-update or cdp-functions-delete.",
         "category": "Alerts",
         "feature": "alerts",
         "summary": "Update alert",
@@ -1535,7 +1580,7 @@
         }
     },
     "cohorts-list": {
-        "description": "List all cohorts in the project. Returns a summary of each cohort including  id, name, description, count (person count), is_static (cohort type), and created_at timestamp. Use 'cohorts-retrieve' with the cohort ID to get full details including filters, calculation status,\nand query definition.",
+        "description": "List all cohorts in the project. Returns a summary of each cohort including  id, name, description, count (person count), is_static (cohort type), and created_at timestamp. To find a cohort by name, pass 'search' rather than listing everything and filtering client-side — it matches the cohort name with fuzzy trigram search (tolerates typos and partial words) and orders exact matches first. Use 'cohorts-retrieve' with the cohort ID to get full details including filters, calculation status,\nand query definition.",
         "category": "Cohorts",
         "feature": "cohorts",
         "summary": "List all cohorts",
@@ -1730,6 +1775,81 @@
             "readOnlyHint": false
         }
     },
+    "custom-property-definitions-create": {
+        "description": "Create a Customer Analytics custom property definition — the shape of a custom account attribute. Provide `name` (required, unique within the team), optional `description`, `display_type` (required; one of text, number, currency, percent, date, datetime, boolean), and optional `is_big_number` to abbreviate large numeric values (e.g. 10,000 → 10K; only valid for numeric display types). Definitions are team-scoped and shared across all accounts; set the value a specific account holds via the account custom property value tools.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Create custom property definition",
+        "title": "Create custom property definition",
+        "required_scopes": ["account:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "custom-property-definitions-destroy": {
+        "description": "Permanently delete a Customer Analytics custom property definition by id. Because values reference the definition, deleting it also removes the value every account holds for that property. The definition is team-scoped, so this affects all accounts.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Delete custom property definition",
+        "title": "Delete custom property definition",
+        "required_scopes": ["account:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "custom-property-definitions-list": {
+        "description": "List Customer Analytics custom property definitions for the project. A definition is the shape of a custom account attribute — its `name`, optional `description`, `display_type` (one of text, number, currency, percent, date, datetime, boolean), and `is_big_number` flag. Definitions are team-scoped and shared across all accounts; the value a specific account holds for a definition is managed separately via the account custom property value tools. Use `custom-property-definitions-retrieve` to fetch a single definition by id. To list or filter accounts by a custom property value in bulk, take a definition `id` from this tool and query it via HogQL against `system.accounts`, selecting ``custom_properties.values.`<definition_id>` `` (backtick-quote the id) and filtering it `IS NOT NULL`. The per-account value tools return one account at a time; this HogQL path scales to all accounts.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "List custom property definitions",
+        "title": "List custom property definitions",
+        "required_scopes": ["account:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "custom-property-definitions-partial-update": {
+        "description": "Update fields on an existing Customer Analytics custom property definition. Accepts a subset of fields; unspecified fields are left unchanged. Updatable fields: `name` (must remain unique within the team), `description`, `display_type` (one of text, number, currency, percent, date, datetime, boolean), and `is_big_number` (only valid for numeric display types).",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Update custom property definition",
+        "title": "Update custom property definition",
+        "required_scopes": ["account:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
+    "custom-property-definitions-retrieve": {
+        "description": "Fetch a single Customer Analytics custom property definition by id. Returns its `name`, optional `description`, `display_type` (one of text, number, currency, percent, date, datetime, boolean), and `is_big_number` flag. A definition is the shape of a custom account attribute; the value a specific account holds for it is managed separately via the account custom property value tools.",
+        "category": "Customer analytics",
+        "feature": "customer_analytics",
+        "summary": "Get custom property definition",
+        "title": "Get custom property definition",
+        "required_scopes": ["account:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "customer-analytics-csp"
+    },
     "dashboard-create": {
         "description": "Create a new dashboard. Provide a name and optional description, tags, and pinned status. Can also create from a template or duplicate an existing dashboard. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight. To add widget tiles after creation, see dashboard-widget-catalog-list for available widget types and dashboard-widgets-batch-add to add them.",
         "category": "Dashboards",
@@ -1843,7 +1963,7 @@
         }
     },
     "dashboard-update": {
-        "description": "Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and restriction level. To update widget tiles, pass `tiles` with each tile's `id` and nested `widget.id` plus fields to change (`config`, `name`, `description`) from dashboard-get — the same PATCH path the UI uses. There is no separate PATCH .../widgets/:tile_id/ endpoint. To add new widget tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
+        "description": "Update an existing dashboard by ID. Can update name, description, pinned status, tags, filters, and restriction level, and widget tile placement (layouts, show_description). To change a widget's own settings (config, name, description), prefer dashboard-widgets-batch-update, which takes just a tile_id per widget. You can also update widget tiles here by passing `tiles` with each tile's `id` and nested `widget.id` plus fields to change (`config`, `name`, `description`) from dashboard-get — the same PATCH path the UI uses. To add new widget tiles to this dashboard, use dashboard-widgets-batch-add instead. The returned tiles omit insight results to save context — use dashboard-insights-run to fetch the actual data for each insight.",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Update dashboard",
@@ -1885,7 +2005,7 @@
         }
     },
     "dashboard-widgets-batch-add": {
-        "description": "Add widget tiles to a dashboard atomically via POST .../widgets/batch/ (1–10 tiles). Call dashboard-widget-catalog-list first for valid widget_type values and config_schema. Pass `widgets` as an array of payloads (widget_type, config, optional name, description, layouts). Config shape is per widget_type (see catalog hints); widgetFilters when supported is a map of filter id to property filter entries. For a single tile, pass a one-element `widgets` array. Tiles stack at the bottom when layouts are omitted. Returns all created tiles; use dashboard-widgets-run to fetch live data.",
+        "description": "Add widget tiles to a dashboard atomically via POST .../widgets/batch/ (1–10 tiles). Call dashboard-widget-catalog-list first for valid widget_type values and config_schema. Pass `widgets` as an array of payloads (widget_type, config, optional name, description, layouts). Config shape is per widget_type (see catalog hints); widgetFilters when supported is a map of filter id to property filter entries. For a single tile, pass a one-element `widgets` array. Tiles stack at the bottom when layouts are omitted. Returns all created tiles; use dashboard-widgets-run to fetch live data. This only adds new tiles — to edit existing widget tiles, use dashboard-widgets-batch-update (no delete-and-re-add needed).",
         "category": "Dashboards",
         "feature": "dashboards",
         "summary": "Add dashboard widgets",
@@ -1894,6 +2014,21 @@
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        },
+        "feature_flag": "dashboard-widgets"
+    },
+    "dashboard-widgets-batch-update": {
+        "description": "Update the settings of existing widgets in place atomically (1–10), without delete-and-re-add. Edits widget settings only — `config`, `name`, and `description`. Pass `widgets` as an array of payloads, each identified by its DashboardTile `tile_id` (use dashboard-get to look up widget tile IDs) plus the settings to change. Only the fields you provide per widget are updated; omitted fields are left unchanged. Optionally pass `widget_type` to get the typed config shape; widget_type is immutable. Config shape is per widget_type — see dashboard-widget-catalog-list. All updates succeed or fail together. Tile placement (layout, show_description) is not changed here — use dashboard-update or dashboard-reorder-tiles for that. To add new widgets, use dashboard-widgets-batch-add; to remove one, use dashboard-delete-tile.",
+        "category": "Dashboards",
+        "feature": "dashboards",
+        "summary": "Update dashboard widget settings",
+        "title": "Update dashboard widget settings",
+        "required_scopes": ["dashboard:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
         },
@@ -1942,20 +2077,6 @@
             "readOnlyHint": false
         }
     },
-    "data-warehouse-data-health-issues-retrieve": {
-        "description": "Return all failed or degraded items across the data pipeline: materialized saved queries that failed, external data schemas in Failed or BillingLimitReached state, sources in Error state, failed batch exports, and disabled/degraded transformations. Each entry includes id, name, type (materialized_view, external_data_sync, source, destination, transformation), status, error message, failed_at, and url. Use this for a one-shot audit of what's broken in a project's data warehouse.",
-        "category": "Data warehouse",
-        "feature": "data_warehouse",
-        "summary": "List data pipeline health issues",
-        "title": "List data pipeline health issues",
-        "required_scopes": ["warehouse_view:read", "external_data_source:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        }
-    },
     "data-warehouse-source-connect-link": {
         "description": "Return a secure browser link to connect a data warehouse source WITHOUT the user pasting secrets into the chat. The link opens a minimal page rendering the source's full connection form — the user authorizes via OAuth or enters credentials there, whichever the source offers — and the page stores the connection details encrypted and temporarily; it does NOT create the source. This is the preferred, secure way to collect credentials: share the returned connect_url with the user, wait for them to confirm they're done, then find the stored credential via 'data-warehouse-stored-credentials-list' (filter by source_type, newest first) and call 'data-warehouse-source-setup' with {'credential_id': '<uuid>'} in the payload. Stored credentials are single-use and expire after 24 hours. Never ask the user to paste raw database passwords, API keys, or OAuth tokens into the chat.",
         "category": "Warehouse sources",
@@ -1971,7 +2092,7 @@
         }
     },
     "data-warehouse-source-setup": {
-        "description": "Connect an external data source and start importing it into queryable warehouse tables in a single call. Validates credentials, discovers all available tables, enables them with sensible sync defaults (incremental where supported to keep ongoing cost low), and creates the source — no 'schemas' array required. For webhook-capable sources (e.g. Stripe) a webhook is auto-registered after creation: check the 'webhook' key in the response — on success webhook-capable tables sync in real time (including webhook-only tables like Stripe Discount); on failure (e.g. the API key can't create webhooks) tables keep the polling defaults and webhook-only tables stay disabled. If 'webhook.pending_inputs' is non-empty, ask the user for those values and submit them via 'external-data-sources-update-webhook-inputs-create'. Use this for revenue (Stripe), CRM (Hubspot, Salesforce), support tickets (Zendesk), e-commerce (Shopify), and your own databases (Postgres, MySQL, BigQuery, Snowflake). Discover required credential fields per source_type with 'external-data-sources-wizard'. Prefer references over raw secrets in the payload: pass {'credential_id': '<uuid>'} referencing the connection details the user stored via the 'data-warehouse-source-connect-link' page (discover ids with 'data-warehouse-stored-credentials-list'); stored credentials are deleted once the source is created. For an already-connected OAuth integration you can instead pass its integration id key (e.g. {'hubspot_integration_id': 123}). For fine-grained per-table control, use 'external-data-sources-create' instead.",
+        "description": "Reach for this the moment a user wants to analyze data PostHog doesn't store — Stripe revenue, Hubspot or Salesforce CRM, Zendesk tickets, Shopify orders, or their own Postgres/MySQL/BigQuery/Snowflake database. Connect an external data source and start importing it into queryable warehouse tables in a single call. Validates credentials, discovers all available tables, enables them with sensible sync defaults (incremental where supported to keep ongoing cost low), and creates the source — no 'schemas' array required. For webhook-capable sources (e.g. Stripe) a webhook is auto-registered after creation: check the 'webhook' key in the response — on success webhook-capable tables sync in real time (including webhook-only tables like Stripe Discount); on failure (e.g. the API key can't create webhooks) tables keep the polling defaults and webhook-only tables stay disabled. If 'webhook.pending_inputs' is non-empty, ask the user for those values and submit them via 'external-data-sources-update-webhook-inputs-create'. Use this for revenue (Stripe), CRM (Hubspot, Salesforce), support tickets (Zendesk), e-commerce (Shopify), and your own databases (Postgres, MySQL, BigQuery, Snowflake). Discover required credential fields per source_type with 'external-data-sources-wizard'. Prefer references over raw secrets in the payload: pass {'credential_id': '<uuid>'} referencing the connection details the user stored via the 'data-warehouse-source-connect-link' page (discover ids with 'data-warehouse-stored-credentials-list'); stored credentials are deleted once the source is created. For an already-connected OAuth integration you can instead pass its integration id key (e.g. {'hubspot_integration_id': 123}). NOTE: this enables EVERY discovered table — ideal for small fixed schemas (Stripe, Zendesk) but on a large production database (a Postgres/MySQL/BigQuery/Snowflake with many tables) it syncs them all, which can be costly and noisy. When the user wants only specific tables, or non-default sync types per table, use 'external-data-sources-create' instead.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "Set up a data warehouse source (one step)",
@@ -2362,12 +2483,68 @@
             "readOnlyHint": true
         }
     },
+    "engineering-analytics-ci-failure-logs": {
+        "description": "The thinned CI failure logs for a pull request, grouped by failed job — reach for this to answer \"why did this PR's CI fail\". Each failed job returns its failure region (the error lines plus surrounding context, with \"... N lines omitted ...\" markers) as ordered lines, and every line carries its original 1-based line number in the full pre-thinning log so you can locate it in the raw GitHub log. The PR is resolved to ALL its workflow runs across every push (via the pull_requests association, not the latest commit), so earlier pushes' failures are included too. logs_available is false when CI hasn't failed, the logs aged out of the short Logs retention, or a fork PR has no run association to resolve. Use pr-runs or workflow-jobs for the run/job metadata behind these logs.",
+        "category": "Engineering analytics",
+        "feature": "engineering_analytics",
+        "summary": "CI failure logs for a PR",
+        "title": "CI failure logs for a PR",
+        "required_scopes": ["engineering_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "engineering-analytics-pr-cost": {
+        "description": "Estimated CI dollar cost of one pull request, summed over the jobs of all its workflow runs, with breakdowns per workflow (by_workflow) and per run (by_run). Reach for this instead of summing runner minutes by hand: the estimate already classifies runners (billable self-hosted Linux vs free GitHub-hosted), applies the per-vCPU price ladder, and excludes non-Linux and provider-hosted jobs. jobs_available is false when the job-level source isn't synced yet — every figure is then zero/null, so check it before trusting a $0.00. estimated_cost_usd is null (not zero) when nothing was costable, and unsettled_jobs counts billable jobs still running that are left out of the estimate.",
+        "category": "Engineering analytics",
+        "feature": "engineering_analytics",
+        "summary": "Estimated CI cost of a PR",
+        "title": "Estimated CI cost of a PR",
+        "required_scopes": ["engineering_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "engineering-analytics-sources": {
         "description": "The team's connected GitHub data warehouse sources, oldest first, each with its id, repo (owner/name), and table prefix. Call this first when a team may have more than one GitHub source, then pass a chosen id as source_id to the pull-requests, workflow-health, ci-cards, or pr-lifecycle tools to read that specific source. With a single source you can skip it — the other tools default to the oldest connected source.",
         "category": "Engineering analytics",
         "feature": "engineering_analytics",
         "summary": "List connected GitHub sources",
         "title": "List connected GitHub sources",
+        "required_scopes": ["engineering_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "engineering-analytics-workflow-jobs": {
+        "description": "The jobs of a single workflow run attempt, each with its status, conclusion, wall-clock duration_seconds, runner tier (runner_provider / runner_label), and estimated_cost_usd. Use this to see where a run spent its time and money job-by-job, or to find the slow or expensive job in a run. Scoped to one run_attempt (the latest unless you pass run_attempt) so a re-run's attempts don't merge. estimated_cost_usd is null for free GitHub-hosted, non-Linux, or unfinished jobs. Returns an empty list when the job-level source isn't synced yet.",
+        "category": "Engineering analytics",
+        "feature": "engineering_analytics",
+        "summary": "Jobs of a workflow run",
+        "title": "Jobs of a workflow run",
+        "required_scopes": ["engineering_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "engineering-analytics-workflow-runner-costs": {
+        "description": "One workflow's estimated CI cost broken down by runner tier over a window (date_from default -30d), highest spend first. Each row is a tier (provider + runner_label) with its job_count, billable_minutes, and estimated_cost_usd. Use this for \"which runner tier drives this workflow's CI bill\" and to spot oversized runners. Billable self-hosted Linux tiers carry a cost; github-hosted and non-Linux rows are null. Returns an empty list when the job-level source isn't synced yet.",
+        "category": "Engineering analytics",
+        "feature": "engineering_analytics",
+        "summary": "Workflow cost by runner tier",
+        "title": "Workflow cost by runner tier",
         "required_scopes": ["engineering_analytics:read"],
         "annotations": {
             "destructiveHint": false,
@@ -2458,6 +2635,20 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "error-tracking-external-references-create": {
+        "description": "Create a new external issue in GitHub, GitLab, Linear, or Jira, then link it to a PostHog error tracking issue as an external reference. This tool does not link an existing external issue by URL or key. Provide the error tracking issue id as `issue`, the connected integration as `integration_id`, and a `config` object with provider-specific fields. Examples: Jira config {\"project_key\":\"ENG\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace and reproduction details\"}; Linear config {\"team_id\":\"team-id\",\"title\":\"Checkout TypeError\",\"description\":\"Stack trace and reproduction details\"}; GitHub config {\"repository\":\"posthog\",\"title\":\"Checkout TypeError\",\"body\":\"Stack trace and reproduction details\"}; GitLab config {\"title\":\"Checkout TypeError\",\"body\":\"Stack trace and reproduction details\"}. Required `config` keys by integration kind: github -> {repository, title, body}; gitlab -> {title, body}; linear -> {team_id, title, description}; jira -> {project_key, title, description}. Use integrations-list first to find the `integration_id` and kind; use integrations-jira-projects-retrieve, integrations-linear-teams-retrieve, or integrations-github-repos-retrieve when you need provider-specific IDs.",
+        "category": "Error tracking",
+        "feature": "error_tracking",
+        "summary": "Create error tracking external reference",
+        "title": "Create error tracking external reference",
+        "required_scopes": ["error_tracking:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "error-tracking-grouping-rules-create": {
@@ -2784,7 +2975,7 @@
         }
     },
     "execute-sql": {
-        "description": "Use this tool to execute an SQL query (or HogQL, which is PostHog's variant of SQL that supports most of ClickHouse SQL). We're going to use terms \"HogQL\" and \"SQL\" interchangeably. For more information, see the querying-posthog-data skill.\nBEFORE writing any query, you should follow these steps:\n1. Call posthog:read-data-warehouse-schema to discover available tables, views, columns, and their types. Do NOT guess table or column names.\n2. Call posthog:read-data-schema to discover available events, properties, and property values. Do NOT rely on training data or PostHog defaults.\n3. Only after completing steps 1 and 2, write and execute your SQL query using verified table and column names.\nUse system tables with the system. prefix for PostHog-created data. For example, count SQL insight variables with:\n```sql\nSELECT count() AS total FROM system.insight_variables\n```\nAn example query to retrieve columns of a custom data warehouse table:\n```sql\nSELECT columns FROM system.data_warehouse_tables WHERE name = 'my_table'\n```\nIMPORTANT: By default, large JSON values in results (like full `properties` objects) are truncated. If you anticipate that results might be large or you are selecting the full `properties` object (e.g., `SELECT properties FROM events`), you should dump the results to a file instead of outputting them directly. Use bash commands to process the file. Alternatively, cherry-pick only the specific properties you need (e.g., `properties.$browser`) instead of selecting the entire object.\nPROPERTY ACCESS: dot notation (`properties.$browser`) only works for keys that are valid identifiers — they must start with a letter, underscore, or `$` and contain only letters, digits, underscores, and `$` (`^[A-Za-z_$][A-Za-z0-9_$]*$`). Keys that break this rule (hyphens, dots, spaces, or a leading digit) cannot use dot notation; for example `properties.$survey_response_0196e96d-7705-7d32` is parsed as a subtraction and fails. Use bracket notation with a quoted string for those keys: `properties['$survey_response_0196e96d-7705-7d32']`. This applies to all JSON columns (e.g. `person.properties[...]`).",
+        "description": "Use this tool to execute an SQL query (or HogQL, which is PostHog's variant of SQL that supports most of ClickHouse SQL). We're going to use terms \"HogQL\" and \"SQL\" interchangeably. For more information, see the querying-posthog-data skill.\nBEFORE writing any query, you should follow these steps:\n1. Discover the available tables, views, columns, and their types before querying. Do NOT guess table or column names.\n2. Call posthog:read-data-schema to discover available events, properties, and property values. Do NOT rely on training data or PostHog defaults.\n3. Only after completing steps 1 and 2, write and execute your SQL query using verified table and column names.\nUse system tables with the system. prefix for PostHog-created data. For example, count SQL insight variables with:\n```sql\nSELECT count() AS total FROM system.insight_variables\n```\nAn example query to retrieve columns of a custom data warehouse table:\n```sql\nSELECT columns FROM system.data_warehouse_tables WHERE name = 'my_table'\n```\nIMPORTANT: By default, large JSON values in results (like full `properties` objects) are truncated. If you anticipate that results might be large or you are selecting the full `properties` object (e.g., `SELECT properties FROM events`), you should dump the results to a file instead of outputting them directly. Use bash commands to process the file. Alternatively, cherry-pick only the specific properties you need (e.g., `properties.$browser`) instead of selecting the entire object.\nPROPERTY ACCESS: dot notation (`properties.$browser`) only works for keys that are valid identifiers — they must start with a letter, underscore, or `$` and contain only letters, digits, underscores, and `$` (`^[A-Za-z_$][A-Za-z0-9_$]*$`). Keys that break this rule (hyphens, dots, spaces, or a leading digit) cannot use dot notation; for example `properties.$survey_response_0196e96d-7705-7d32` is parsed as a subtraction and fails. Use bracket notation with a quoted string for those keys: `properties['$survey_response_0196e96d-7705-7d32']`. This applies to all JSON columns (e.g. `person.properties[...]`).",
         "category": "SQL",
         "feature": "sql",
         "summary": "Execute an SQL query.",
@@ -2923,6 +3114,76 @@
             "readOnlyHint": true
         }
     },
+    "experiment-holdouts-create": {
+        "description": "Create a holdout group — a reserved slice of users excluded from experiment exposure, used as a held-back baseline. Requires name and a non-empty filters array. Link experiments to it afterwards by passing the returned id as holdout_id on experiment-create or experiment-update. Note that you can't change which holdout an experiment points to once that experiment is running; the holdout itself stays editable (see experiment-holdouts-partial-update, whose edits cascade to all linked experiments).",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Create experiment holdout",
+        "title": "Create experiment holdout",
+        "required_scopes": ["experiment_holdout:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-holdouts-destroy": {
+        "description": "Delete a holdout group by ID. Use experiment-holdouts-list first if you don't have the ID, and always confirm by name before deleting.\n\nThis clears the holdout reference from every linked experiment and feature flag (sets the flag's holdout to null and nulls Experiment.holdout) — the affected experiments stop holding back any users. Returns 204 on success.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Delete experiment holdout",
+        "title": "Delete experiment holdout",
+        "required_scopes": ["experiment_holdout:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-holdouts-list": {
+        "description": "List the experiment holdout groups in the current project. A holdout reserves a stable slice of users who are excluded from experiment exposure, so you can measure the long-term effect of all experiments against a held-back baseline. A holdout is NOT a feature flag — it is a separate object that experiments reference via holdout_id.\n\nEach holdout has a name, optional description, and a filters array (the held-out population definition). Holdouts are project-scoped. Use the returned id with experiment-create / experiment-update's holdout_id to link an experiment to a holdout.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "List experiment holdouts",
+        "title": "List experiment holdouts",
+        "required_scopes": ["experiment_holdout:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "experiment-holdouts-partial-update": {
+        "description": "Update a holdout group's name, description, or filters by ID. Use experiment-holdouts-list first if you don't have the ID.\n\nCAUTION: editing the filters (e.g. the rollout/exclusion percentage) cascades atomically to EVERY experiment linked to this holdout — it rewrites the exclusion_percentage on each linked feature flag, silently re-assigning the held-out population for all of those experiments at once. Confirm with the user before changing filters on a holdout that experiments depend on.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Update experiment holdout",
+        "title": "Update experiment holdout",
+        "required_scopes": ["experiment_holdout:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "experiment-holdouts-retrieve": {
+        "description": "Get a single experiment holdout group by ID, including its name, description, and filters array (the held-out population definition). Use experiment-holdouts-list first if you don't have the ID.",
+        "category": "Experiments",
+        "feature": "experiments",
+        "summary": "Get experiment holdout details",
+        "title": "Get experiment holdout details",
+        "required_scopes": ["experiment_holdout:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "experiment-launch": {
         "description": "Requires an experiment ID. If you don't have the ID, load the finding-experiments skill to resolve the user's reference first. Load the managing-experiment-lifecycle skill for preconditions and side effects.\n\nLaunch a draft experiment. Validates the feature flag has at least 2 multivariate variants with \"control\" as the first variant. Activates the feature flag (sets active=true), sets start_date to the current server time, recomputes metric fingerprints, and transitions status from draft to running.\n\nReturns 400 if the experiment has already been launched (\"Experiment has already been launched.\") or if the flag configuration is invalid.\n\nNo request body needed.",
         "category": "Experiments",
@@ -3036,7 +3297,7 @@
         }
     },
     "experiment-saved-metrics-list": {
-        "description": "List shared metrics in the current project. Returns paginated results with id, name, description, query, created_at, updated_at, tags. Use experiment-saved-metrics-retrieve for a single metric by ID, or this listing to resolve by name.",
+        "description": "List shared metrics in the current project. Returns paginated results with id, name, description, query, created_at, updated_at, tags.\n\nTo REUSE a metric by what it measures (rather than by its name): pass ?event=<the event you're measuring> to find metrics that reference it — directly or via an action — then compare each candidate's 'query' (metric_type + math) against the metric you'd otherwise build. Use 'search' (name/description/tags) only when the user named a specific metric to attach.",
         "category": "Experiments",
         "feature": "experiments",
         "summary": "List shared experiment metrics",
@@ -3288,7 +3549,7 @@
         }
     },
     "external-data-sources-create": {
-        "description": "Low-level create for a data warehouse import source when you need to hand-pick tables and sync types. For most cases prefer 'data-warehouse-source-setup', which validates credentials, discovers tables, applies sensible sync defaults, and creates the source in one call. Use this advanced path only for fine-grained control. The payload must include a 'schemas' array where each entry has: name, should_sync (bool), sync_type (incremental/full_refresh/append), and optionally incremental_field, incremental_field_type, and primary_key_columns. Discover tables and their available sync methods with 'external-data-sources-wizard' (source types and required fields) first. Sources back queryable warehouse tables for revenue (Stripe), CRM (Hubspot, Salesforce), support (Zendesk), and your own databases (Postgres, MySQL, BigQuery).",
+        "description": "Low-level create for a data warehouse import source when you need to hand-pick tables and sync types. For most cases prefer 'data-warehouse-source-setup', which validates credentials, discovers tables, applies sensible sync defaults, and creates the source in one call. Use this advanced path only for fine-grained control. The 'schemas' array is NOT a top-level argument — it goes INSIDE 'payload', alongside the credential fields: payload = {<credential fields…>, \"schemas\": [...]}. Each schemas entry has: name, should_sync (bool), sync_type (incremental/full_refresh/append), and optionally incremental_field, incremental_field_type, and primary_key_columns. Build the entries from the rows returned by 'external-data-sources-db-schema' first. Sources back queryable warehouse tables for revenue (Stripe), CRM (Hubspot, Salesforce), support (Zendesk), and your own databases (Postgres, MySQL, BigQuery).",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "Create data warehouse source (advanced; prefer source setup)",
@@ -3372,7 +3633,7 @@
         }
     },
     "external-data-sources-list": {
-        "description": "List all configured data warehouse import sources in the project. Returns each source's type (Postgres, Stripe, Hubspot, etc.), connection status, prefix, schemas, latest error, and last sync timestamp. Use this to discover what external data sources are connected. Per-schema column definitions are omitted to keep the payload small — to look up a single table's sync status by name use external-data-schemas-list with a search, and to see a table's columns use external-data-schemas-retrieve.",
+        "description": "Check what external data is already connected before answering any revenue, billing, subscription, CRM, support-ticket, or product-database question — call this first so you JOIN against an existing source instead of telling the user the data isn't available. Lists every configured import source with its type (Postgres, Stripe, Hubspot, etc.), connection status, prefix, schemas, latest error, and last sync timestamp. If nothing relevant is connected, offer to set one up with 'data-warehouse-source-setup'. Per-schema column definitions are omitted to keep the payload small — to look up a single table's sync status by name use external-data-schemas-list with a search, and to see a table's columns use external-data-schemas-retrieve.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "List data warehouse sources",
@@ -3399,12 +3660,26 @@
             "readOnlyHint": false
         }
     },
+    "external-data-sources-preview-resource": {
+        "description": "Read a small live sample of rows for one resource (table) of a Custom REST source, so you can verify the manifest's data_selector, primary_key, and incremental cursor_path against real data BEFORE creating the source. Only source_type 'Custom' is supported. Pass source_type, a payload object ({manifest_json, plus the credential for the manifest's auth type — auth_token | auth_api_key | auth_password}), the resource_name to sample, and an optional limit (1–50, default 10). Returns {rows, row_count, columns (name + inferred JSON type), error}. Manifest, validation, and SSRF problems return 400; a live fetch failure returns 200 with `error` set and empty rows. Use external-data-sources-db-schema first to list the resource names and detected cursors.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Preview sample rows for a Custom REST source resource",
+        "title": "Preview rows for a Custom REST source resource",
+        "required_scopes": ["external_data_source:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "external-data-sources-refresh-schemas": {
-        "description": "Fetch the latest table list from the remote database and create schema entries for any new tables found. Does not trigger a data sync. Use this after adding new tables to a source database to make them available for syncing.",
+        "description": "Fetch the latest table list from the remote database and create schema entries for any new tables found. This is a metadata refresh — it does NOT move or sync any data (use 'external-data-sources-reload' for that). Use this after adding new tables to a source database to make them available for syncing.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
-        "summary": "Refresh available schemas",
-        "title": "Refresh available schemas",
+        "summary": "Discover new tables in source",
+        "title": "Discover new tables in source",
         "required_scopes": ["external_data_source:write"],
         "annotations": {
             "destructiveHint": false,
@@ -3470,7 +3745,7 @@
         }
     },
     "external-data-sources-wizard": {
-        "description": "Return the configuration metadata for all supported data warehouse source types you can import data from — revenue/payments (Stripe, Chargebee), CRM (Hubspot, Salesforce), support tickets (Zendesk), product databases (Postgres, MySQL, BigQuery, Snowflake), ads, and more. Each entry describes the required fields (host, port, database, credentials, etc.), field types, and OAuth flows. Use this to discover what external data can be imported into queryable warehouse tables and what parameters a source needs. To actually connect a source, prefer 'data-warehouse-source-setup'.",
+        "description": "Use this whenever the user needs data PostHog doesn't capture natively — revenue and payments (Stripe, Chargebee), CRM contacts and deals (Hubspot, Salesforce), support tickets (Zendesk), e-commerce orders (Shopify), ad spend, or their own application/production database (Postgres, MySQL, BigQuery, Snowflake) — or when a HogQL query fails because the table doesn't exist yet. Importing turns that data into queryable warehouse tables you can JOIN against product events. Returns the configuration metadata for every supported source type: the required fields (host, port, database, credentials, etc.), field types, and OAuth flows, so you know what a connection needs. ALWAYS pass 'source_type' with the specific kind(s) you need (comma-separated, e.g. 'Postgres,Stripe') — the unfiltered response describes every source and is very large (hundreds of KB). Only omit 'source_type' if you genuinely need to enumerate every available type. To actually connect a source, prefer 'data-warehouse-source-setup'.",
         "category": "Warehouse sources",
         "feature": "warehouse_sources",
         "summary": "List data warehouse source types you can import",
@@ -4067,6 +4342,20 @@
             "readOnlyHint": false
         }
     },
+    "inbox-reports-update": {
+        "description": "Edit the human-facing title and/or summary (description) of a signal report, addressed by id. Both fields are optional — pass only the ones you want to change, but supply at least one. Use this to clarify a report's title or rewrite its summary when you understand the underlying issue better than the auto-generated text does. Every other field (status, weights, priority/actionability judgments) is managed by the signals pipeline and cannot be set here — change a report's state with inbox-reports-set-state and its judgments by appending artefacts with inbox-report-artefacts-create. Returns the full updated report.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Edit a signal report's title or summary",
+        "title": "Edit a signal report's title or summary",
+        "required_scopes": ["task:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "inbox-source-configs-create": {
         "description": "Create a signal source config for the current project, switching an inbox signal source on. A source ties a `source_product` to a `source_type` and an `enabled` flag. Valid `source_product` values: session_replay, llm_analytics, github, linear, zendesk, conversations, error_tracking, pganalyze, signals_scout, logs. Valid `source_type` values: session_analysis_cluster, evaluation, issue, ticket, issue_created, issue_reopened, issue_spiking, cross_source_issue, alert_state_change. The Signals scout source is ON BY DEFAULT — scout findings reach the inbox with no config row needed. The only reason to create a `source_product=signals_scout`, `source_type=cross_source_issue` row is to OPT OUT: create it with `enabled=false` (the per-scout `emit` flag is set separately via `signals-scout-config-update`). There is at most one config per (source_product, source_type) per project; if one already exists, update it instead. Enabling the session_analysis_cluster source requires the organization to have approved AI data processing.",
         "category": "Signals",
@@ -4319,6 +4608,34 @@
             "readOnlyHint": true
         }
     },
+    "integrations-jira-projects-retrieve": {
+        "description": "List Jira projects available through a connected Jira integration. Use integrations-list with kind=jira first to find the integration id, then pass a returned project key as `config.project_key` when creating an error tracking external reference.",
+        "category": "Integrations",
+        "feature": "integrations",
+        "summary": "List Jira projects",
+        "title": "List Jira projects",
+        "required_scopes": ["integration:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "integrations-linear-teams-retrieve": {
+        "description": "List Linear teams available through a connected Linear integration. Use integrations-list with kind=linear first to find the integration id, then pass a returned team id as `config.team_id` when creating an error tracking external reference.",
+        "category": "Integrations",
+        "feature": "integrations",
+        "summary": "List Linear teams",
+        "title": "List Linear teams",
+        "required_scopes": ["integration:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "integrations-list": {
         "description": "List all third-party integrations configured in the current project. Returns each integration's type (kind), display name, non-sensitive configuration, error status, and creation metadata. Common kinds include slack, github, hubspot, salesforce, and various ad platforms. Sensitive credentials (access tokens, secrets) are never serialized.",
         "category": "Integrations",
@@ -4333,8 +4650,64 @@
             "readOnlyHint": true
         }
     },
+    "llma-clustering-config-get": {
+        "description": "Retrieve the team's clustering event-filter configuration for automated AI observability clustering. New scheduled clustering should usually use clustering jobs, but this remains useful when auditing existing automation.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Get clustering config",
+        "title": "Get clustering config",
+        "required_scopes": ["llm_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-clustering-config-set-event-filters": {
+        "description": "Replace the team's clustering event filters. Pass event_filters as a PostHog property-filter array, or an empty array to clear the filters. Prefer clustering jobs for new trace, generation, or evaluation clustering automation.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Set clustering config filters",
+        "title": "Set clustering config filters",
+        "required_scopes": ["llm_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-clustering-job-create": {
+        "description": "Create a scheduled AI observability clustering job for the current team. Jobs define the analysis level (trace, generation, or evaluation), event filters that scope included items, and whether the job is enabled. Creating a custom job disables the migration-created default job for the same analysis level.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Create clustering job",
+        "title": "Create clustering job",
+        "required_scopes": ["llm_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "llma-clustering-job-delete": {
+        "description": "Delete a scheduled AI observability clustering job by ID. This removes future scheduled clustering for that job but does not delete historical $ai_trace_clusters, $ai_generation_clusters, or $ai_evaluation_clusters events already emitted by previous runs.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Delete clustering job",
+        "title": "Delete clustering job",
+        "required_scopes": ["llm_analytics:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "llma-clustering-job-get": {
-        "description": "Retrieve a specific clustering job configuration by ID. Returns the job name, analysis level (trace or generation), event filters, enabled status, and timestamps.",
+        "description": "Retrieve a specific clustering job configuration by ID. Returns the job name, analysis level (trace, generation, or evaluation), event filters, enabled status, and timestamps.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get clustering job",
@@ -4348,7 +4721,7 @@
         }
     },
     "llma-clustering-job-list": {
-        "description": "List all clustering job configurations for the current team (max 5 per team). Each job defines an analysis level (trace or generation) and event filters that scope which traces are included in clustering runs. Cluster results are stored as $ai_trace_clusters and $ai_generation_clusters events — use docs-search or execute-sql to query them.",
+        "description": "List all clustering job configurations for the current team (max 10 per team). Each job defines an analysis level (trace, generation, or evaluation) and event filters that scope which items are included in clustering runs. To inspect emitted cluster results, use the exploring LLM clusters skill and query the cluster events with execute-sql.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List clustering jobs",
@@ -4361,8 +4734,22 @@
             "readOnlyHint": true
         }
     },
+    "llma-clustering-job-update": {
+        "description": "Partially update a scheduled AI observability clustering job. Use this to rename a job, switch enabled status, adjust event_filters, or change the analysis level (trace, generation, or evaluation).",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Update clustering job",
+        "title": "Update clustering job",
+        "required_scopes": ["llm_analytics:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "llma-evaluation-config-get": {
-        "description": "Retrieve the team's evaluation configuration, including the active LLM provider key used to run llm_judge evaluations and remaining trial credits. Call this before creating an llm_judge evaluation to verify the team has either trial credits available or an active provider key configured — without one, llm_judge runs will fail. Returns trial limits, the active provider key (or null if on trial credits), and timestamps.",
+        "description": "Retrieve the team's evaluation config and active provider key. Call before creating an llm_judge eval to confirm a provider key is configured — evals should run on the team's own key. Returns the active key and timestamps.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Get evaluation config",
@@ -4390,7 +4777,7 @@
         }
     },
     "llma-evaluation-create": {
-        "description": "Create a new AI observability evaluation. For 'llm_judge' type, provide evaluation_config.prompt and model_configuration (provider + model). For 'hog' type, provide evaluation_config.source (Hog code returning a boolean). For 'sentiment' type, use output_type='sentiment', omit model_configuration, and optionally set evaluation_config.source='user_messages'. When enabled, the evaluation runs automatically on new $ai_generation events. Results appear as '$ai_evaluation' events.",
+        "description": "Create an evaluation. 'llm_judge': set evaluation_config.prompt and model_configuration (provider + model + provider_key_id from llma-provider-key-list, preferring a provider the team already has a key for). 'hog': evaluation_config.source (Hog returning a boolean). 'sentiment': output_type='sentiment', omit model_configuration, optional evaluation_config.source='user_messages'. When enabled, runs on new $ai_generation events; results are '$ai_evaluation' events.",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "Create evaluation",
@@ -4432,7 +4819,7 @@
         }
     },
     "llma-evaluation-judge-models": {
-        "description": "List the provider+model combinations supported for llm_judge evaluations. Pass a `provider` query parameter (one of openai, anthropic, gemini, openrouter, fireworks, azure_openai) and optionally `key_id` to scope the list to deployments reachable with a specific provider key (mainly relevant for azure_openai). Each entry returns the model id and whether it is available on PostHog trial credits. Call this before creating an llm_judge evaluation when the user has not specified a model, so a valid provider+model combination is chosen.",
+        "description": "List provider+model combinations supported for llm_judge. Pass `provider` (openai, anthropic, gemini, openrouter, fireworks, azure_openai, together_ai, minimax); optional `key_id` scopes to a key's reachable deployments (mainly azure_openai). Call before creating an llm_judge eval to pick a valid combo — prefer a provider the team already has a key for (see llma-provider-key-list).",
         "category": "AI observability",
         "feature": "llm_analytics",
         "summary": "List supported llm_judge models",
@@ -4698,6 +5085,34 @@
             "readOnlyHint": false
         }
     },
+    "llma-provider-key-get": {
+        "description": "Fetch one LLM provider key by ID — its provider, name, and validation state, with a masked preview (never the secret). Use when you have a key ID to resolve, e.g. the key an evaluation references.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "Get LLM provider key",
+        "title": "Get LLM provider key",
+        "required_scopes": ["llm_provider_key:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "llma-provider-key-list": {
+        "description": "List the team's configured LLM provider keys (OpenAI, Anthropic, Azure, etc.). Returns each key's provider, name, validation state, and a masked preview — never the secret itself. Call this before creating an llm_judge evaluation to discover which providers have a usable ('ok' state) key available. Creating, updating, and deleting keys are intentionally UI-only.",
+        "category": "AI observability",
+        "feature": "llm_analytics",
+        "summary": "List LLM provider keys",
+        "title": "List LLM provider keys",
+        "required_scopes": ["llm_provider_key:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "llma-review-queue-create": {
         "description": "Create a review queue for routing traces that still need review. Queue names must be unique among active queues in the current project.",
         "category": "AI observability",
@@ -4900,20 +5315,6 @@
         "feature": "llm_analytics",
         "summary": "Update scorer metadata",
         "title": "Update scorer metadata",
-        "required_scopes": ["llm_analytics:write"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": false
-        }
-    },
-    "llma-sentiment-create": {
-        "description": "Classify sentiment of LLM trace or generation user messages as positive, neutral, or negative. Pass a list of trace or generation IDs and an analysis_level (\"trace\" or \"generation\"). Returns per-ID sentiment labels with confidence scores and per-message breakdowns. Results are cached — use force_refresh to recompute. Rate-limited.",
-        "category": "AI observability",
-        "feature": "llm_analytics",
-        "summary": "Analyze sentiment",
-        "title": "Analyze sentiment",
         "required_scopes": ["llm_analytics:write"],
         "annotations": {
             "destructiveHint": false,
@@ -5380,6 +5781,20 @@
             "readOnlyHint": true
         }
     },
+    "logs-facet-values-create": {
+        "description": "Return per-value counts for a single facet — the distribution of a log dimension across a filter set, ordered by count descending. This is the cheap way to see the _shape_ of a log stream (e.g. \"which services produce the errors?\") without pulling raw rows.\n\nCounts are cross-filtered: every active filter is applied _except the faceted field's own filter_, so you see the full distribution rather than collapsing to your own selection. Faceting `service_name` with `serviceNames: [\"api\"]` still returns every service, not just `api`.\n\nAll parameters must be nested inside a `query` object. You must provide **exactly one** of `query.facetField` or `query.facetResourceAttribute` — not both, not neither.\n\n# When to use\n\n- To find how log volume is distributed across severity or service under a filter — e.g. \"of the logs matching 'timeout', which services emit them?\" Facet `service_name` with `searchTerm: \"timeout\"`.\n- As the drill-down loop for an investigation: facet `service_name` filtered to `severity=error` → find the hot service → add it to `serviceNames` → facet a resource attribute like `k8s.pod.name` → find the bad pod. Each call is one cheap aggregation that narrows the search space before you pull raw rows with `query-logs`.\n- To confirm the severity mix in a window before committing to a query: facet `severity_text`.\n\n## Pick the right tool\n\n- Counts for an arbitrary **attribute** value (any log or resource attribute key) → use `logs-attribute-values-list`. It returns `{value, count}` for any key and is the general-purpose choice for attributes.\n- Per-service log/error counts and error rates with a sparkline → use `logs-services-create`.\n- Use **this** tool for `severity_text` / `service_name` distribution cross-filtered by the full query (severity + body `searchTerm` + `filterGroup`) — the one thing the tools above can't do.\n\n# Parameters\n\n## query.facetField\n\nTop-level column to facet on: `severity_text` or `service_name`. Provide this OR `facetResourceAttribute`, not both. Counts are grouped on the raw logs table with all _other_ filters applied — so this path honors `severityLevels`, `serviceNames`, `searchTerm`, and `filterGroup`.\n\n## query.facetResourceAttribute\n\nResource attribute key to facet on, e.g. `k8s.namespace.name`, `k8s.pod.name`, `host.name`. Provide this OR `facetField`, not both.\n\n**Limitation:** this path is served from a pre-aggregated rollup that has no severity or body dimension. It honors only `serviceNames` and other resource-attribute filters — `severityLevels`, `searchTerm`, and log-attribute filters are **ignored**. If you need those applied, facet a column instead, or narrow with `logs-attribute-values-list`.\n\n## query.facetSearch\n\nCase-insensitive substring match over the faceted field's _own_ values (e.g. return only service names containing `kafka`). Distinct from `searchTerm`, which searches log bodies. Use it to search past the 100-value result cap.\n\n## query.dateRange\n\nDate range for the counts. Defaults to the last hour (`-1h`).\n\n- `date_from`: Start of the range. ISO 8601 timestamps or relative formats: `-1h`, `-6h`, `-1d`, `-7d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.severityLevels\n\nFilter by log severity: `trace`, `debug`, `info`, `warn`, `error`, `fatal`. Omit to include all levels. Ignored when faceting on `severity_text` (that field's own filter is excluded) and when faceting a resource attribute (rollup has no severity dimension).\n\n## query.serviceNames\n\nFilter by service names. Ignored when faceting on `service_name` (that field's own filter is excluded).\n\n## query.searchTerm\n\nFull-text search across log bodies. Ignored when faceting a resource attribute.\n\n## query.filterGroup\n\nProperty filters to narrow results. Same format as `query-logs` filters.\n\n# Examples\n\n## Severity distribution in the last hour\n\n```json\n{\n  \"query\": {\n    \"facetField\": \"severity_text\",\n    \"dateRange\": { \"date_from\": \"-1h\" }\n  }\n}\n```\n\n## Which services produce errors over the last day\n\n```json\n{\n  \"query\": {\n    \"facetField\": \"service_name\",\n    \"severityLevels\": [\"error\", \"fatal\"],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Which pods a service's logs come from\n\n```json\n{\n  \"query\": {\n    \"facetResourceAttribute\": \"k8s.pod.name\",\n    \"serviceNames\": [\"checkout\"],\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n## Which services emit a specific error message\n\n```json\n{\n  \"query\": {\n    \"facetField\": \"service_name\",\n    \"searchTerm\": \"connection reset\",\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```",
+        "category": "Logs",
+        "feature": "logs",
+        "summary": "Facet log counts",
+        "title": "Facet log counts",
+        "required_scopes": ["logs:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "logs-services-create": {
         "description": "Return the top-25 services by log volume in the window, each with log_count, error_count, and error_rate, plus a per-service sparkline. Use this as the entry point when triaging which services are worth alerting on — high volume × non-zero error_rate is the natural alert candidate. Far cheaper than walking attribute-values + per-service counts.",
         "category": "Logs",
@@ -5560,6 +5975,49 @@
         "requires_ai_consent": true,
         "feature_flag": "mcp-analytics"
     },
+    "mcp-analytics-sessions-list": {
+        "description": "List an MCP project's agent sessions — one row per $mcp_session_id, aggregated from that session's $mcp_tool_call events. Use it to see who is connecting and how active, long-lived, and tool-heavy sessions are: \"which clients are most active this week?\", \"which sessions called tool X?\", \"how long do sessions usually run?\", \"which person's sessions made the most calls?\". Each row has session_id, tool_calls, session_start, session_end, tools_used, mcp_client_name, distinct_id (plus the resolved person_email / person_name when the distinct_id maps to a Person), distinct_id_count, and intent (empty until generated), newest session first. Sort with `order_by`, but note its keys are the underlying column names: sort tool_calls as `tool_call_count`, and `duration_seconds` (session length) is sortable even though it is not returned as a field; an unrecognised key silently falls back to newest-first. Also supports a case-insensitive `search`, a `date_from`/`date_to` window (default last 7 days), and `limit`/`offset` paging — see each parameter for the specifics. To then summarise a single session's goal, follow up with mcp-analytics-sessions-generate-intent.",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "List MCP sessions",
+        "title": "List MCP sessions",
+        "required_scopes": ["mcp_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "mcp-analytics"
+    },
+    "mcp-connection-tools-list": {
+        "description": "Load a connected MCP server's live tool catalog by connection `id` (from mcp-connections-list). Returns each tool's `tool_name`, `description`, `input_schema`, and `approval_state`. ALWAYS call this to load a connection's REAL tool names before curating per-agent MCP tool permissions (an agent's `spec.mcps[].tools[]` with `level` / `default_tool_approval`) — never invent or guess tool names from past sessions or skill prose.",
+        "category": "MCP Store",
+        "feature": "mcp_store",
+        "summary": "List a connection's tools",
+        "title": "List a connection's tools",
+        "required_scopes": ["project:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "mcp-connections-list": {
+        "description": "List the MCP servers connected to this project (the \"connections\"). Each entry returns its `id` (the connection id you pass to mcp-connection-tools-list), `display_name`, `url`, and status fields (`is_enabled`, `needs_reauth`, `pending_oauth`) plus `tool_count`. Use this to discover which connections exist before loading a connection's live tool catalog with mcp-connection-tools-list.",
+        "category": "MCP Store",
+        "feature": "mcp_store",
+        "summary": "List MCP connections",
+        "title": "List MCP connections",
+        "required_scopes": ["project:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "mcp-feedback-submit": {
         "description": "Submit qualitative feedback about the current MCP workflow, tool result, or product experience. Use this when the available tools worked but the experience was confusing, incomplete, or could be improved.",
         "category": "MCP analytics",
@@ -5686,6 +6144,20 @@
         "summary": "Get notebook",
         "title": "Get notebook",
         "required_scopes": ["notebook:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "org-member-get-github-login": {
+        "description": "Resolve the GitHub username (login) for a single organization member, given their PostHog user UUID (obtainable from org-members-list, or \"@me\" for the current user). Returns null if the member has no GitHub identity linked. Use this when you know which member you want and need their GitHub handle — for example to set suggested reviewers.",
+        "category": "Platform Features",
+        "feature": "platform_features",
+        "summary": "Get an organization member's GitHub username.",
+        "title": "Get an organization member's GitHub username.",
+        "required_scopes": ["organization_member:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -5848,7 +6320,7 @@
         }
     },
     "project-get": {
-        "description": "Retrieve a project and its settings. Pass `@current` as the ID to fetch the caller's active project.",
+        "description": "Retrieve a project and its settings. Omit the ID to get the caller's active project.",
         "category": "Core",
         "feature": "core",
         "summary": "Get project",
@@ -5888,22 +6360,6 @@
             "openWorldHint": true,
             "readOnlyHint": true
         }
-    },
-    "promoted-product-intent-get": {
-        "description": "Get the product key the team selected as their primary product during onboarding (e.g. `session_replay`, `web_analytics`, `product_analytics`), or `null` if no primary onboarding product intent has been captured. Use this to bias disambiguation when the user's request is ambiguous about which PostHog product they mean — for example, if their primary product is `session_replay`, treat a vague reference to \"watch a session\" as referring to a session recording rather than a survey response.",
-        "category": "Platform Features",
-        "feature": "platform_features",
-        "summary": "Get the team's promoted product.",
-        "title": "Get the team's promoted product.",
-        "required_scopes": ["project:read"],
-        "annotations": {
-            "destructiveHint": false,
-            "idempotentHint": true,
-            "openWorldHint": true,
-            "readOnlyHint": true
-        },
-        "feature_flag": "promoted-product",
-        "feature_flag_variant": "intent_plus"
     },
     "proxy-create": {
         "description": "Create a new managed reverse proxy for a custom domain. Provide the domain (e.g. 'e.example.com') that will proxy requests to PostHog. The response includes the CNAME target — the user must add a CNAME DNS record pointing their domain to this target. Once DNS propagates, the proxy is automatically verified and an SSL certificate is issued. The proxy starts in 'waiting' status until DNS is verified.",
@@ -6184,6 +6640,118 @@
         "feature_flag": "mcp-analytics",
         "system_prompt_hint": "MCP client/harness breakdown — calls, error rate, sessions per harness"
     },
+    "query-mcp-tool-daily-stats": {
+        "description": "Return a day-by-day time series for a single MCP tool: calls, errors, p50/p95 latency, unique users, and unique sessions per day. Pass toolName (effective tool name, resolved server-side) and a dateRange. Use to answer \"how has tool X trended?\" — spotting error spikes, latency regressions, or adoption changes over time.",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "Daily trend for one MCP tool",
+        "title": "Daily trend for one MCP tool",
+        "required_scopes": ["query:read", "mcp_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "mcp-analytics",
+        "system_prompt_hint": "One MCP tool's day-by-day series — calls, errors, p50/p95, users, sessions"
+    },
+    "query-mcp-tool-descriptions": {
+        "description": "Return the distinct effective tool-description strings seen for a single MCP tool over the window. Pass toolName (effective tool name, resolved server-side) and a dateRange. Use to spot description drift or a tool registered with more than one description across clients or versions.",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "Descriptions seen for one MCP tool",
+        "title": "Descriptions seen for one MCP tool",
+        "required_scopes": ["query:read", "mcp_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "mcp-analytics",
+        "system_prompt_hint": "Distinct effective descriptions seen for one MCP tool"
+    },
+    "query-mcp-tool-failures": {
+        "description": "Return the most common error messages for a single MCP tool, each with the resolved client harness it came from. Pass toolName as the raw $mcp_tool_name (the registered tool name) — failures are matched on $exception events, which don't carry the new-SDK effective-tool markers, so unlike the other tool-detail tools this one does NOT resolve the inner tool of a single-exec wrapper call. Also pass a dateRange. Use to answer \"why is tool X failing?\" or \"what errors does tool X throw, and on which clients?\".",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "Top errors for one MCP tool",
+        "title": "Top errors for one MCP tool",
+        "required_scopes": ["query:read", "mcp_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "mcp-analytics",
+        "system_prompt_hint": "One MCP tool's top error messages, by harness (scoped by raw tool name)"
+    },
+    "query-mcp-tool-neighbors": {
+        "description": "Return the tools most often called immediately before or after a single MCP tool within the same conversation. Pass toolName (effective tool name, resolved server-side), a dateRange, and neighborDirection ('before' or 'after'). Use to answer \"what does an agent call around tool X?\" — revealing common tool sequences and which tools pair up.",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "Tools called alongside one MCP tool",
+        "title": "Tools called alongside one MCP tool",
+        "required_scopes": ["query:read", "mcp_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "mcp-analytics",
+        "system_prompt_hint": "Tools co-occurring before/after one MCP tool in a conversation"
+    },
+    "query-mcp-tool-sample-intents": {
+        "description": "Return recent sample agent intents recorded for a single MCP tool, each with its resolved client harness. Pass toolName (effective tool name, resolved server-side) and a dateRange. Use to answer \"what are agents actually trying to do when they call tool X?\" — qualitative context behind the usage numbers.",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "Sample intents for one MCP tool",
+        "title": "Sample intents for one MCP tool",
+        "required_scopes": ["query:read", "mcp_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "mcp-analytics",
+        "system_prompt_hint": "Recent sample agent intents for one MCP tool, with harness"
+    },
+    "query-mcp-tool-stats": {
+        "description": "Return the headline numbers for a single MCP tool over the window: total calls, error count, p50 and p95 latency, unique users, unique sessions, and how many calls carried an intent. Pass toolName (the effective tool name — the inner tool is resolved server-side for single-exec wrapper calls, matching the tool-detail UI). Use to answer \"how is tool X doing overall?\" before drilling into failures, users, or neighbours.",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "Summarise one MCP tool",
+        "title": "Summarise one MCP tool",
+        "required_scopes": ["query:read", "mcp_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "mcp-analytics",
+        "system_prompt_hint": "One MCP tool's headline stats — calls, errors, p50/p95, users, sessions, intents"
+    },
+    "query-mcp-tool-top-users": {
+        "description": "Return the top callers of a single MCP tool: per caller, the call count, error rate, resolved harness labels, last-seen time, and the caller's display name and email. Pass toolName (effective tool name, resolved server-side) and a dateRange. Use to answer \"who uses tool X the most, and how reliably for them?\".",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "Top callers of one MCP tool",
+        "title": "Top callers of one MCP tool",
+        "required_scopes": ["query:read", "mcp_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "feature_flag": "mcp-analytics",
+        "system_prompt_hint": "One MCP tool's top callers — calls, error rate, harnesses, person email/name"
+    },
     "query-metrics": {
         "description": "Query server/infrastructure metrics (OTel- or Prometheus-ingested) as bucketed time series. The response is a list of series — `{labels, points: [{time, value}], metric_name, clause}` — where every series shares one time grid (missing buckets are zero-filled). A single ungrouped query returns exactly one series with empty labels.\n\nAll parameters are nested inside a `query` object. Two request forms:\n\n- **Single metric (shorthand):** set `metricName` (+ `aggregation`, `filters`, `groupBy`).\n- **Multi-clause / formula:** set `clauses: [{name, metricName, aggregation, quantile?, filters?, groupBy?}, ...]` and optionally `formula` (e.g. `\"(a - b) / a\"` over clause names; `+ - * /` and parentheses; division by zero yields 0). With a formula set, only the formula result series are returned.\n\n# Workflow — follow this order every time\n\n1. **Discover names first.** Call `metric-names-list` with a substring (`value`) before querying — metric names must match exactly, and the returned `metric_type` tells you the right aggregation.\n2. **Pick the aggregation by metric type:**\n   - `sum` counters (usually `_total`): use `rate` (per-second) or `increase` — both are counter-reset safe and temporality-aware. Do NOT use `sum`/`avg` on cumulative counters; absolute counter values are meaningless.\n   - `gauge`: `avg` (typical), `p95`, `sum`.\n   - `histogram`: `histogram_quantile` with `quantile` (e.g. 0.95). All selected series must share one bucket layout — narrow with `filters` if you get a bounds-mismatch error.\n3. **Narrow with filters.** `filters: [{key, op, value, scope?}]`, ANDed. Ops: `eq`, `neq`, `regex`, `not_regex` (RE2). Leave `scope` at its default `auto` unless you know whether the attribute is per-target (`resource`) or per-datapoint (`attribute`). Negative ops also match rows lacking the key, like Prometheus negative matchers.\n4. **Split with groupBy.** `groupBy: [{key}]` returns one series per label value (capped at the 100 largest). `service_name` is always available; discover other keys from a sample query's labels or ask the user.\n5. **Control the grid with `interval`.** One of `second, minute, minute_5, minute_15, hour, hour_6, day, week`. Omit to auto-pick (~60 buckets across the range). Use the same interval when comparing windows.\n\n# Investigating an anomaly (\"metric X is rising — why?\")\n\n1. Query the metric over a window that includes the anomaly AND an equal-length healthy baseline before it (one call, auto interval).\n2. Find the onset: the first bucket where the value clearly departs from the baseline range.\n3. Re-query grouped by `service_name` (then by other candidate keys) over the same window to see WHICH series moved — a single label value moving points at the culprit; all moving together points at something shared (upstream dependency, infra).\n4. Use `formula` for normalized comparisons, e.g. error ratio `errors / requests` instead of raw error counts.\n5. Correlate the onset window across signals: query logs (`query-logs`, filtered to the same `service.name` and time window, severity error) and traces (APM span tools, same service/window) to find the cause and its blast radius.\n\nCRITICAL: be minimalist — only include filters/settings essential to the question. Time ranges: `dateFrom` is required, ISO 8601; `dateTo` defaults to now.",
         "category": "Metrics",
@@ -6201,7 +6769,7 @@
         "system_prompt_hint": "Server/infrastructure metrics (OTel/Prometheus) — time series, rates, quantiles, formulas"
     },
     "query-paths": {
-        "description": "Run a paths query to analyze the most common sequences of events or pages that users navigate through. Paths insights visualize user flows as a directed graph, showing how users move between steps and where they drop off.\n\nUse 'read-data-schema' to discover available events, actions, and properties for filters.\n\nExamples of use cases include:\n\n- What do users do after signing up?\n- What pages do users visit before making a purchase?\n- What are the most common navigation flows on your website?\n- Where do users drop off in a particular flow?\n- What custom events lead to a conversion?\n\nCRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.\n\n# Data narrowing\n\n## Property filters\n\nUse property filters to narrow results. Only include property filters when they are essential to directly answer the user's question. Avoid adding them if the question can be addressed without additional segmentation and always use the minimum set of property filters needed.\n\nIMPORTANT: Do not check if a property is set unless the user explicitly asks for it.\n\nWhen using a property filter, you should:\n\n- **Prioritize properties directly related to the context or objective of the user's query.** Avoid using properties for identification like IDs. Instead, prioritize filtering based on general properties like `paidCustomer` or `icp_score`.\n- **Ensure that you find both the property group and name.** Property groups should be one of the following: event, person, session, group.\n- After selecting a property, **validate that the property value accurately reflects the intended criteria**.\n- **Find the suitable operator for type** (e.g., `contains`, `is set`).\n- If the operator requires a value, use the `read-data-schema` tool to find the property values.\n- You set logical operators to combine multiple properties of a single series: AND or OR.\n\nInfer the property groups from the user's request. If your first guess doesn't yield any results, try to adjust the property group.\n\nSupported operators for the String type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- contains (icontains)\n- doesn't contain (not_icontains)\n- matches regex (regex)\n- doesn't match regex (not_regex)\n- is set\n- is not set\n\nSupported operators for the Numeric type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- greater than (gt)\n- less than (lt)\n- is set\n- is not set\n\nSupported operators for the DateTime type are:\n\n- equals (is_date_exact)\n- doesn't equal (is_not for existence check)\n- before (is_date_before)\n- after (is_date_after)\n- is set\n- is not set\n\nSupported operators for the Boolean type are:\n\n- equals\n- doesn't equal\n- is set\n- is not set\n\nAll operators take a single value except for `equals` and `doesn't equal` which can take one or more values (as an array).\n\n## Time period\n\nYou should not filter events by time using property filters. Instead, use the `dateRange` field. If the question doesn't mention time, use last 30 days as a default time period.\n\n# Paths guidelines\n\n## Event types\n\nPaths analyze sequences of events. Specify which event types to include using `includeEventTypes`. If omitted, all events are included without type filtering.\n\n- `$pageview` - web page views. Path values come from `$current_url`, with trailing slashes stripped, so they must match your stored URL format. This is often a path like `/login`, but may also be a full URL like `https://example.com/login`. Best for analyzing website navigation flows. This is the most common choice.\n- `$screen` - mobile screen views. Path values are screen names (from `$screen_name`). Use for mobile app navigation analysis.\n- `custom_event` - custom events (any event whose name does not start with `$`). Path values are event names. Use for analyzing flows of custom-tracked events like button clicks, form submissions, or feature usage.\n- `hogql` - custom HogQL expression. Use with `pathsHogQLExpression` for advanced path definitions.\n\nYou can combine multiple types. For example, include both `$pageview` and `custom_event` to see how page views and custom events interleave.\n\n## Start and end points\n\nUse `startPoint` to filter paths that begin at a specific step, or `endPoint` to filter paths that end at a specific step. The value format depends on the event type:\n\n- For `$pageview`: use the same URL format as your `$current_url` values, often paths like `/login`, `/dashboard`, `/settings`, but sometimes full URLs\n- For `$screen`: use screen names\n- For `custom_event`: use event names like `user signed up`, `purchase completed`\n\n## Path cleaning\n\nUse `localPathCleaningFilters` to normalize dynamic URLs. Each filter has a `regex` pattern (ClickHouse regex syntax) and an `alias` replacement. Filters are applied in sequence using `replaceRegexpAll(path, regex, alias)`. For example, to normalize product URLs: `{ \"regex\": \"\\\\/product\\\\/\\\\d+\", \"alias\": \"/product/:id\" }`.\n\nUse `pathGroupings` for simpler glob-like grouping of paths into single nodes. Use `*` as a wildcard — the patterns are auto-escaped so only `*` has special meaning. For example, `/product/*` groups all product sub-pages into one node.\n\n## Exclusions\n\nUse `excludeEvents` to remove specific path items that clutter the visualization. The values must match path item values, not event types: for `$pageview` paths these must match your stored `$current_url` format (e.g., `/health-check` or `https://example.com/health-check`), for `custom_event` paths these are event names (e.g., `heartbeat`). To control which event types are included, use `includeEventTypes` instead.\n\n# Examples\n\n## What pages do users visit after the homepage?\n\n```json\n{\n  \"kind\": \"PathsQuery\",\n  \"pathsFilter\": {\n    \"includeEventTypes\": [\"$pageview\"],\n    \"startPoint\": \"/\",\n    \"stepLimit\": 5\n  },\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"filterTestAccounts\": true\n}\n```\n\n## What do users do after signing up?\n\n```json\n{\n  \"kind\": \"PathsQuery\",\n  \"pathsFilter\": {\n    \"includeEventTypes\": [\"custom_event\"],\n    \"startPoint\": \"user signed up\",\n    \"stepLimit\": 5\n  },\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"filterTestAccounts\": true\n}\n```\n\n## Navigation paths excluding noisy URLs\n\n```json\n{\n  \"kind\": \"PathsQuery\",\n  \"pathsFilter\": {\n    \"includeEventTypes\": [\"$pageview\"],\n    \"excludeEvents\": [\"/health-check\", \"/ping\"],\n    \"stepLimit\": 5,\n    \"edgeLimit\": 30\n  },\n  \"dateRange\": { \"date_from\": \"-14d\" },\n  \"filterTestAccounts\": true\n}\n```\n\n## Custom event paths excluding noisy events\n\n```json\n{\n  \"kind\": \"PathsQuery\",\n  \"pathsFilter\": {\n    \"includeEventTypes\": [\"custom_event\"],\n    \"excludeEvents\": [\"heartbeat\"],\n    \"stepLimit\": 5\n  },\n  \"dateRange\": { \"date_from\": \"-14d\" },\n  \"filterTestAccounts\": true\n}\n```\n\n## Paths with URL cleaning for dynamic segments\n\n```json\n{\n  \"kind\": \"PathsQuery\",\n  \"pathsFilter\": {\n    \"includeEventTypes\": [\"$pageview\"],\n    \"stepLimit\": 5,\n    \"localPathCleaningFilters\": [\n      { \"regex\": \"\\\\/user\\\\/\\\\d+\", \"alias\": \"/user/:id\" },\n      { \"regex\": \"\\\\/project\\\\/[a-f0-9-]+\", \"alias\": \"/project/:id\" }\n    ]\n  },\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"filterTestAccounts\": true\n}\n```\n\n## What paths lead to the pricing page for mobile users?\n\n```json\n{\n  \"kind\": \"PathsQuery\",\n  \"pathsFilter\": {\n    \"includeEventTypes\": [\"$pageview\"],\n    \"endPoint\": \"/pricing\",\n    \"stepLimit\": 5\n  },\n  \"properties\": [{ \"key\": \"$os\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"iOS\", \"Android\"] }],\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"filterTestAccounts\": true\n}\n```\n\n# Reminders\n\n- Ensure that any properties included are directly relevant to the context and objectives of the user's question. Avoid unnecessary or unrelated details.\n- Avoid overcomplicating the response with excessive property filters. Focus on the simplest solution.\n- Always specify `includeEventTypes` to scope the analysis to relevant event types. If omitted, all events are included which may produce noisy results.\n- Use `$pageview` as the default event type for web navigation questions.\n- Path cleaning filters (`localPathCleaningFilters`) use ClickHouse regex and are only needed when dynamic URL segments would fragment the visualization. Path groupings (`pathGroupings`) use glob-like patterns with `*` wildcards for simpler cases.\n- Paths group events into sessions with a 30-minute inactivity threshold — events more than 30 minutes apart start a new path session.",
+        "description": "Run a paths query to analyze the most common sequences of events or pages that users navigate through. Paths insights visualize user flows as a directed graph, showing how users move between steps and where they drop off.\n\nUse 'read-data-schema' to discover available events, actions, and properties for filters.\n\nExamples of use cases include:\n\n- What do users do after signing up?\n- What pages do users visit before making a purchase?\n- What are the most common navigation flows on your website?\n- Where do users drop off in a particular flow?\n- What custom events lead to a conversion?\n\nCRITICAL: Be minimalist. Only include filters and settings that are essential to answer the user's specific question. Default settings are usually sufficient unless the user explicitly requests customization.\n\n# Data narrowing\n\n## Property filters\n\nUse property filters to narrow results. Only include property filters when they are essential to directly answer the user's question. Avoid adding them if the question can be addressed without additional segmentation and always use the minimum set of property filters needed.\n\nIMPORTANT: Do not check if a property is set unless the user explicitly asks for it.\n\nWhen using a property filter, you should:\n\n- **Prioritize properties directly related to the context or objective of the user's query.** Avoid using properties for identification like IDs. Instead, prioritize filtering based on general properties like `paidCustomer` or `icp_score`.\n- **Ensure that you find both the property group and name.** Property groups should be one of the following: event, person, session, group.\n- After selecting a property, **validate that the property value accurately reflects the intended criteria**.\n- **Find the suitable operator for type** (e.g., `contains`, `is set`).\n- If the operator requires a value, use the `read-data-schema` tool to find the property values.\n- You set logical operators to combine multiple properties of a single series: AND or OR.\n\nInfer the property groups from the user's request. If your first guess doesn't yield any results, try to adjust the property group.\n\nSupported operators for the String type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- contains (icontains)\n- doesn't contain (not_icontains)\n- matches regex (regex)\n- doesn't match regex (not_regex)\n- is set\n- is not set\n\nSupported operators for the Numeric type are:\n\n- equals (exact)\n- doesn't equal (is_not)\n- greater than (gt)\n- less than (lt)\n- is set\n- is not set\n\nSupported operators for the DateTime type are:\n\n- equals (is_date_exact)\n- doesn't equal (is_not for existence check)\n- before (is_date_before)\n- after (is_date_after)\n- is set\n- is not set\n\nSupported operators for the Boolean type are:\n\n- equals\n- doesn't equal\n- is set\n- is not set\n\nAll operators take a single value except for `equals` and `doesn't equal` which can take one or more values (as an array).\n\n## Time period\n\nYou should not filter events by time using property filters. Instead, use the `dateRange` field. If the question doesn't mention time, use last 30 days as a default time period.\n\n# Paths guidelines\n\n## Event types\n\nPaths analyze sequences of events. Specify which event types to include using `includeEventTypes`. If omitted, all events are included without type filtering.\n\n- `$pageview` - web page views. Path values come from `$current_url`, with trailing slashes stripped, so they must match your stored URL format. This is often a path like `/login`, but may also be a full URL like `https://example.com/login`. Best for analyzing website navigation flows. This is the most common choice.\n- `$screen` - mobile screen views. Path values are screen names (from `$screen_name`). Use for mobile app navigation analysis.\n- `custom_event` - custom events (any event whose name does not start with `$`). Path values are event names. Use for analyzing flows of custom-tracked events like button clicks, form submissions, or feature usage.\n- `hogql` - custom HogQL expression. Use with `pathsHogQLExpression` for advanced path definitions.\n\nYou can combine multiple types. For example, include both `$pageview` and `custom_event` to see how page views and custom events interleave.\n\n## Start and end points\n\nUse `startPoint` to filter paths that begin at a specific step, or `endPoint` to filter paths that end at a specific step. The value format depends on the event type:\n\n- For `$pageview`: use the same URL format as your `$current_url` values, often paths like `/login`, `/dashboard`, `/settings`, but sometimes full URLs\n- For `$screen`: use screen names\n- For `custom_event`: use event names like `user signed up`, `purchase completed`\n\n## Path cleaning\n\nUse `localPathCleaningFilters` to normalize dynamic URLs. Each filter has a `regex` pattern (ClickHouse regex syntax) and an `alias` replacement. Filters are applied in sequence using `replaceRegexpAll(path, regex, alias)`. For example, to normalize product URLs: `{ \"regex\": \"\\\\/product\\\\/\\\\d+\", \"alias\": \"/product/:id\" }`.\n\nUse `pathGroupings` for simpler glob-like grouping of paths into single nodes. Use `*` as a wildcard — the patterns are auto-escaped so only `*` has special meaning. For example, `/product/*` groups all product sub-pages into one node.\n\nNote: `pathGroupings` (wildcard groups) are part of \"Advanced paths\", which is only available on paid plans. On the free plan this option — including using wildcard groups in exclusions — is hidden or disabled in the paths UI. If a user is on the free plan, explain that wildcard groups require upgrading to a paid plan rather than suggesting workarounds.\n\n## Exclusions\n\nUse `excludeEvents` to remove specific path items that clutter the visualization. The values must match path item values, not event types: for `$pageview` paths these must match your stored `$current_url` format (e.g., `/health-check` or `https://example.com/health-check`), for `custom_event` paths these are event names (e.g., `heartbeat`). To control which event types are included, use `includeEventTypes` instead.\n\n# Examples\n\n## What pages do users visit after the homepage?\n\n```json\n{\n  \"kind\": \"PathsQuery\",\n  \"pathsFilter\": {\n    \"includeEventTypes\": [\"$pageview\"],\n    \"startPoint\": \"/\",\n    \"stepLimit\": 5\n  },\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"filterTestAccounts\": true\n}\n```\n\n## What do users do after signing up?\n\n```json\n{\n  \"kind\": \"PathsQuery\",\n  \"pathsFilter\": {\n    \"includeEventTypes\": [\"custom_event\"],\n    \"startPoint\": \"user signed up\",\n    \"stepLimit\": 5\n  },\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"filterTestAccounts\": true\n}\n```\n\n## Navigation paths excluding noisy URLs\n\n```json\n{\n  \"kind\": \"PathsQuery\",\n  \"pathsFilter\": {\n    \"includeEventTypes\": [\"$pageview\"],\n    \"excludeEvents\": [\"/health-check\", \"/ping\"],\n    \"stepLimit\": 5,\n    \"edgeLimit\": 30\n  },\n  \"dateRange\": { \"date_from\": \"-14d\" },\n  \"filterTestAccounts\": true\n}\n```\n\n## Custom event paths excluding noisy events\n\n```json\n{\n  \"kind\": \"PathsQuery\",\n  \"pathsFilter\": {\n    \"includeEventTypes\": [\"custom_event\"],\n    \"excludeEvents\": [\"heartbeat\"],\n    \"stepLimit\": 5\n  },\n  \"dateRange\": { \"date_from\": \"-14d\" },\n  \"filterTestAccounts\": true\n}\n```\n\n## Paths with URL cleaning for dynamic segments\n\n```json\n{\n  \"kind\": \"PathsQuery\",\n  \"pathsFilter\": {\n    \"includeEventTypes\": [\"$pageview\"],\n    \"stepLimit\": 5,\n    \"localPathCleaningFilters\": [\n      { \"regex\": \"\\\\/user\\\\/\\\\d+\", \"alias\": \"/user/:id\" },\n      { \"regex\": \"\\\\/project\\\\/[a-f0-9-]+\", \"alias\": \"/project/:id\" }\n    ]\n  },\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"filterTestAccounts\": true\n}\n```\n\n## What paths lead to the pricing page for mobile users?\n\n```json\n{\n  \"kind\": \"PathsQuery\",\n  \"pathsFilter\": {\n    \"includeEventTypes\": [\"$pageview\"],\n    \"endPoint\": \"/pricing\",\n    \"stepLimit\": 5\n  },\n  \"properties\": [{ \"key\": \"$os\", \"operator\": \"exact\", \"type\": \"event\", \"value\": [\"iOS\", \"Android\"] }],\n  \"dateRange\": { \"date_from\": \"-30d\" },\n  \"filterTestAccounts\": true\n}\n```\n\n# Reminders\n\n- Ensure that any properties included are directly relevant to the context and objectives of the user's question. Avoid unnecessary or unrelated details.\n- Avoid overcomplicating the response with excessive property filters. Focus on the simplest solution.\n- Always specify `includeEventTypes` to scope the analysis to relevant event types. If omitted, all events are included which may produce noisy results.\n- Use `$pageview` as the default event type for web navigation questions.\n- Path cleaning filters (`localPathCleaningFilters`) use ClickHouse regex and are only needed when dynamic URL segments would fragment the visualization. Path groupings (`pathGroupings`) use glob-like patterns with `*` wildcards for simpler cases.\n- Paths group events into sessions with a 30-minute inactivity threshold — events more than 30 minutes apart start a new path session.",
         "category": "Query wrappers",
         "feature": "insights",
         "summary": "Run a paths query",
@@ -6335,6 +6903,36 @@
         },
         "system_prompt_hint": "List persons behind a trends data point"
     },
+    "query-web-overview": {
+        "description": "Run a web analytics overview query — high-level KPIs over a period: visitors, pageviews, sessions, average session duration, and bounce rate. Returns a small list of metric tuples with optional period-over-period comparison. Mirrors the in-product **Web analytics** scene.\n\n# When to use this vs `query-trends`\n\nPick this tool only when the answer needs **session-level math**. Session aggregation is more expensive than per-event queries — only pay for it when needed.\n\nUse `query-web-overview` when the question references just the aggregate values across the period instead of time series for those session-level values: bounce rate, session duration, sessions as a count, or entry/initial values (entry page, initial channel, initial UTM).\n\nUse `query-trends` instead for per-event counts — pageviews, sign-ups, button clicks. Faster.\n\n# Inputs\n\n- `dateRange` — defaults to last 7 days when omitted. Keep ranges short — there is no enforced upper bound and large windows on the slow path can be expensive.\n- `compareFilter: { compare: true }` — return prior-period values for change %. **Roughly doubles query cost** because it runs the same aggregation over the previous period — leave it off unless the user explicitly asks for a comparison.\n- `properties` — event/person/session/cohort filters. Same operator semantics as `query-trends` — see that prompt. Defaults to `[]`.\n- `filterTestAccounts` — exclude internal/test users.\n- `doPathCleaning` — apply team's path-cleaning rules.\n- `conversionGoal` — pass an `actionId` (must belong to the current project) or a `customEventName`. Only set when the user asks about a conversion.\n\nUse `read-data-schema` to validate property names/values when needed.\n\n# Example\n\n```json\n{\n  \"kind\": \"WebOverviewQuery\",\n  \"dateRange\": { \"date_from\": \"-7d\" }\n}\n```\n\n# Out of scope\n\n`conversionGoal` is supported as an input on this tool. Goal-funnel breakdowns (`WebGoalsQuery`), web vitals, and external clicks aren't exposed as separate query modes — fall back to `execute-sql` for those.",
+        "category": "Query wrappers",
+        "feature": "insights",
+        "summary": "Run a web analytics overview query",
+        "title": "Run a web analytics overview query",
+        "required_scopes": ["query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "system_prompt_hint": "Web analytics KPIs — visitors, sessions, bounce rate, session duration"
+    },
+    "query-web-stats": {
+        "description": "Run a web analytics breakdown table query — top pages, UTMs, devices, browsers, countries, etc. — with visitors and pageviews per row, plus optional bounce rate / average time on page. Mirrors the in-product **Web analytics** scene's table tiles.\n\n# When to use this vs `query-trends` / `query-paths`\n\nPick this tool only when the answer needs **session-level math**. Session aggregation is more expensive than per-event queries — only pay for it when needed.\n\nUse `query-web-stats` when the breakdown or metric is session-derived:\n\n- `includeBounceRate=true` or `includeAvgTimeOnPage=true` (per-session metrics)\n- Initial / first-touch breakdowns: `InitialPage`, `InitialChannelType`, `InitialReferringDomain`, `InitialUTMSource`/`Medium`/`Campaign`/`Term`/`Content`\n- `ExitPage` (last event in a session)\n\nUse `query-trends` (with a breakdown) for per-event counts by an event property — no session boundaries needed. Faster.\n\nUse `query-paths` for navigation between arbitrary events when you don't need bounce rate or session-level metrics.\n\n# `breakdownBy` cheat-sheet\n\n- **Path-style** (pair with `includeBounceRate`/`includeAvgTimeOnPage`): `Page`, `InitialPage`, `ExitPage`, `PreviousPage`\n- **Marketing**: `InitialChannelType`, `InitialReferringDomain`, `InitialReferringURL`, `InitialUTMSource`, `InitialUTMMedium`, `InitialUTMCampaign`, `InitialUTMTerm`, `InitialUTMContent`, `InitialUTMSourceMediumCampaign`\n- **Audience / device**: `Browser`, `OS`, `Viewport`, `DeviceType`, `Country`, `Region`, `City`, `Timezone`, `Language`\n- **Other**: `ScreenName`, `ExitClick`, `FrustrationMetrics` (these don't combine with `includeBounceRate` / `includeAvgTimeOnPage`)\n\n# Inputs\n\nSame filter set as `query-web-overview` (`dateRange`, `compareFilter`, `properties`, `filterTestAccounts`, `doPathCleaning`, `conversionGoal`). Plus `breakdownBy` (required), `includeBounceRate`, `includeAvgTimeOnPage`, `includeHost`, `limit`, `offset`. Default `dateRange` is last 7 days.\n\nPerformance hints:\n\n- Leave `compareFilter` off unless the user asks for period-over-period — enabling it roughly doubles query cost.\n- `limit` is capped at 200 by the wrapper. Prefer 10–25 unless the user explicitly asks for more.\n\nUse `read-data-schema` to validate property names/values when needed.\n\n# Example\n\nTop 20 pages by bounce rate, last 7 days:\n\n```json\n{\n  \"kind\": \"WebStatsTableQuery\",\n  \"breakdownBy\": \"Page\",\n  \"includeBounceRate\": true,\n  \"limit\": 20,\n  \"dateRange\": { \"date_from\": \"-7d\" }\n}\n```\n\n# Out of scope\n\n`conversionGoal` is supported as an input on this tool. Goal-funnel breakdowns (`WebGoalsQuery`), web vitals, and external clicks aren't exposed as separate query modes — fall back to `execute-sql` for those.",
+        "category": "Query wrappers",
+        "feature": "insights",
+        "summary": "Run a web analytics breakdown table query",
+        "title": "Run a web analytics breakdown table query",
+        "required_scopes": ["query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "system_prompt_hint": "Web analytics breakdowns — top pages, UTMs, devices, countries, with bounce rate"
+    },
     "read-data-schema": {
         "description": "Use this tool to explore the user's data schema. The user implements PostHog SDKs to collect events, properties, and property values. They are used by users to create insights with visualizations, SQL queries, watch session recordings, filter data, target particular users or groups by traits or behavior, etc. Each event, action, and entity has its own data schema. You must verify that specific combinations exist before using it anywhere else. Events or properties starting from \"$\" are system properties automatically captured by SDKs. Do not rely on your training data or PostHog defaults for events or properties. Always use this tool to confirm what actually exists in the user's project before referencing any event, property, or property value.",
         "category": "Data schema",
@@ -6356,6 +6954,8 @@
         "summary": "Read core data warehouse schemas and table lists.",
         "title": "Read data warehouse schema",
         "required_scopes": ["warehouse_table:read", "warehouse_view:read"],
+        "feature_flag": "mcp-sql-schema-discovery",
+        "feature_flag_behavior": "disable",
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -6468,6 +7068,34 @@
         "summary": "List organization roles.",
         "title": "List organization roles.",
         "required_scopes": ["organization:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "saved-query-column-annotations-create": {
+        "description": "Add or replace a semantic description for a data-modelling view (saved query) or one of its columns. Use this ONLY for views — rows where table_type = 'view' in system.information_schema.tables. For imported/physical warehouse tables (table_type = 'data_warehouse') use warehouse-column-annotations-create instead. Core PostHog tables (events, persons, groups, sessions; table_type = 'posthog') cannot be described. Provide the saved_query id, the column_name (empty string for a view-level description), and the description. The annotation is recorded as user-edited, which prevents automatic enrichment from overwriting it. Calling this again for the same column replaces the existing description.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Add a view column description",
+        "title": "Add a view column description",
+        "required_scopes": ["warehouse_view:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "saved-query-column-annotations-list": {
+        "description": "List semantic descriptions of data-modelling views (saved queries) and their columns. Use this for views (table_type = 'view' in system.information_schema.tables); for physical warehouse tables use warehouse-column-annotations-list. Pass ?saved_query_id=<uuid> to scope to one view. Each entry has the column_name (empty string = view-level description), the description, and its source (ai_generated or user_edited). Use this to see what a view's columns mean before writing SQL against it.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "List view column descriptions",
+        "title": "List view column descriptions",
+        "required_scopes": ["warehouse_view:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
@@ -6674,7 +7302,7 @@
         }
     },
     "signals-scout-config-create": {
-        "description": "Register the config for a freshly authored `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it — optionally setting its schedule (`run_interval_minutes`, 10–43200), `enabled`, and `emit` (false = dry-run) in the same call. The skill must already exist on the project (author it via the skills store first). Upsert: if a config already exists for the skill, the provided fields are applied to it. Creating an enabled config is activity-logged, since running a scout drives spend.",
+        "description": "Register the config for a freshly authored `signals-scout-*` skill immediately, without waiting for the coordinator to auto-register it — optionally setting its schedule (`run_interval_minutes`, 30–43200), `enabled`, and `emit` (false = dry-run) in the same call. The skill must already exist on the project (author it via the skills store first). Upsert: if a config already exists for the skill, the provided fields are applied to it. Creating an enabled config is activity-logged, since running a scout drives spend.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Create a scout config",
@@ -6682,6 +7310,20 @@
         "required_scopes": ["signal_scout:write"],
         "annotations": {
             "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "signals-scout-config-delete": {
+        "description": "Delete one scout config by its `id`, removing the per-scout schedule/emit row outright. Use it to clean up an orphaned config whose `signals-scout-*` skill was archived or deleted — it lingers in `signals-scout-config-list` with an empty description and never runs, but can't otherwise be removed. Deletion is activity-logged. Note: if the skill still exists the coordinator re-creates a default-schedule config on its next tick — to retire a live scout, archive its skill (or set `enabled=false` via `signals-scout-config-update` to make it inert) rather than deleting the config.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Delete a scout config",
+        "title": "Delete a scout config",
+        "required_scopes": ["signal_scout:write"],
+        "annotations": {
+            "destructiveHint": true,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
@@ -6716,7 +7358,7 @@
         }
     },
     "signals-scout-config-update": {
-        "description": "Tune one scout by its config `id`: change its schedule (`run_interval_minutes`, 10–43200), `enabled`, or `emit` (false = dry-run: the scout runs and logs but writes nothing to the inbox). `skill_name` is fixed. Enabling records who flipped it on and is activity-logged, since running a scout drives spend.",
+        "description": "Tune one scout by its config `id`: change its schedule (`run_interval_minutes`, 30–43200), `enabled`, or `emit` (false = dry-run: the scout runs and logs but writes nothing to the inbox). `skill_name` is fixed. Enabling records who flipped it on and is activity-logged, since running a scout drives spend.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Update a scout config",
@@ -6725,6 +7367,34 @@
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "signals-scout-edit-report": {
+        "description": "The report channel's edit half: rewrite a report's `title`/`summary`, append a note, and/or set its `suggested_reviewers`. Can target ANY of the project's inbox reports, not just scout-authored ones — the edit is attributed to this scout. Setting reviewers is how you rescue a report that surfaced routed to no one: it replaces the reviewer list and re-runs autostart, so a report missing a qualifying reviewer can open a draft PR. Each reviewer is a `github_login` and/or a PostHog `user_uuid` (resolved server-side to the linked GitHub login). Prefer `append_note` over rewriting a report you didn't author (additive and audit-friendly); title/summary edits are best-effort, since the pipeline may later re-research and overwrite them. NOT idempotent — a retried `append_note` appends a second note. Opt-in: only available to scouts that list `edit_report` in their skill's `allowed_tools`.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Edit an existing report for a run",
+        "title": "Edit an existing report for a run",
+        "required_scopes": ["signal_scout_report:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "signals-scout-emit-report": {
+        "description": "The report channel: author a complete `SignalReport` directly instead of emitting a weak signal, when you've already done the research and want 1:1 control over the report rather than letting the pipeline cluster it. The report passes the safety judge, then surfaces at the status your `actionability` call implies (`immediately_actionable` → READY, `requires_human_input` → PENDING_INPUT, `not_actionable` → suppressed); an unsafe report is suppressed regardless. Backing `evidence` is written as bound signals so the report behaves like a pipeline report. NOT idempotent — a retry authors a second report; use `inbox-reports-list` to find a prior report and `signals-scout-edit-report` to update it instead. `suggested_reviewers` is the primary way a report reaches a human (each a `github_login` and/or a PostHog `user_uuid` resolved server-side); for a concrete, fixable issue, passing `repository` + `priority` + `suggested_reviewers` also opens a draft PR automatically (autostart, custom_agent parity); omit them to just surface the report. Opt-in: only available to scouts that list `emit_report` in their skill's `allowed_tools`.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Author a full report for a run",
+        "title": "Author a full report for a run",
+        "required_scopes": ["signal_scout_report:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
         }
@@ -6743,6 +7413,20 @@
             "readOnlyHint": false
         }
     },
+    "signals-scout-members-list": {
+        "description": "Return the people who can review work on this project — one row per member with access to it, each with their `user_uuid`, `email`, `first_name`/`last_name`, and resolved GitHub `login` (null when they have no linked GitHub identity). The cold-start reviewer-routing path: when a finding's owner can't be read off a fetched entity's `created_by` and there's no cached `reviewer:<area>` memory or inbox precedent, list members, match the owner by email/name, then put their resolved `github_login` in `suggested_reviewers` on `signals-scout-emit-report` / `signals-scout-edit-report` (a member with a null `github_login` can't be routed to — pick another owner). Pass `search` to narrow a large roster. Strictly team-scoped.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List project members for reviewer routing",
+        "title": "List project members for reviewer routing",
+        "required_scopes": ["signal_scout_internal:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "signals-scout-project-profile-get": {
         "description": "Return a deterministic snapshot of \"what's true about this project\" — products in use, product intents (stuck onboardings), connected integrations, warehouse sources, signal source configs (split enabled/disabled), and existing inbox report counts. Singleton per team; the response reflects either the newest non-expired cached profile or a freshly-built one. Read this once at the start of a run (right after `skill-get`) to orient on the team in one tool call instead of paginating through `inbox-source-configs-list` / `inbox-reports-list` / `read-data-schema` / `activity-log-list`. Distinct from `signals-scout-scratchpad-list`: profile is ground truth from authoritative tables; scratchpad is the scout's inferred learnings.",
         "category": "Signals",
@@ -6755,6 +7439,20 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "signals-scout-run-now": {
+        "description": "Dispatch one on-demand run of a scout by its config `id`, regardless of its schedule — useful to test a scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously and inherits the scheduled path's guards: it returns 429 if the project is over its Signals credits quota or its daily scout-run budget, and 409 if a run for this scout is already in progress. A manual run counts against the same daily run budget the scheduled runs draw from, so avoid triggering repeated runs of the same scout in a short window — each one consumes the project's scout-run allowance for the day. A manual run does not change the scout's schedule, and a disabled scout can still be run this way (to test before enabling). Returns the workflow id immediately — poll `signals-scout-runs-list` for the resulting run and its findings.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "Run a scout now",
+        "title": "Run a scout now",
+        "required_scopes": ["signal_scout:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": false,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "signals-scout-runs-emission-reports": {
@@ -6786,11 +7484,25 @@
         }
     },
     "signals-scout-runs-list": {
-        "description": "Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. Each row carries `emitted_count` (how many findings the run surfaced to the inbox), `emitted_finding_ids`, and — for runs that didn't complete cleanly — `error` (full TaskRun error) plus `failure_reason` (a concise derived one-liner). Pass `skill_name` (optionally with `skill_version`) to scope the dump to a single scout instead of every scout on the team — the primary scoping path when a specialist dedupes against its own past runs. Pass `emitted=true` to return only runs that emitted at least one finding (or `emitted=false` for runs that surfaced nothing). Pass `text` for a case-insensitive substring match on the run's `summary` (the primary dedupe key for runs that didn't emit findings). Pass `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `created_at`) to scope to a window. Results capped at 100.",
+        "description": "Return the most recent `SignalScoutRun` summaries for this project, newest first. Used by the headless scout to dedupe against work other runs already covered. Each row carries `emitted_count` (how many findings the run surfaced to the inbox) and `emitted_finding_ids`; `emitted_report_ids` (reports the run authored directly via `emit_report`) and `edited_report_ids` (reports the run mutated via `edit_report`) for the report channel; and — for runs that didn't complete cleanly — `error` (full TaskRun error) plus `failure_reason` (a concise derived one-liner). Pass `skill_name` (optionally with `skill_version`) to scope the dump to a single scout instead of every scout on the team — the primary scoping path when a specialist dedupes against its own past runs. Pass `emitted=true` to return only runs that emitted at least one finding (or `emitted=false` for runs that surfaced nothing). Pass `text` for a case-insensitive substring match on the run's `summary` (the primary dedupe key for runs that didn't emit findings). Pass `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `created_at`) to scope to a window. Results capped at 100.",
         "category": "Signals",
         "feature": "signals",
         "summary": "List recent scout runs",
         "title": "List recent scout runs",
+        "required_scopes": ["signal_scout:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "signals-scout-runs-recent-emissions": {
+        "description": "Return the team's recently emitted scout findings across *every* `SignalScoutRun`, newest first — the cross-run counterpart to `signals-scout-runs-emissions-list` (which is scoped to one run). Each row carries its `run_id`, `description` (the finding text as surfaced), `weight`, `confidence`, `severity`, `tags`, and the deterministic `source_id` (`run:<run_id>:finding:<finding_id>`). Use this to answer \"what has the fleet surfaced lately?\" in one call instead of listing runs and fanning out an emissions request per run. Pass `skill_name` to scope to a single scout, and `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `emitted_at`) to bound or paginate — set `date_to` to the oldest emission's `emitted_at` to walk back past the cap. Capped at 200 rows (default 50). Strictly team-scoped.",
+        "category": "Signals",
+        "feature": "signals",
+        "summary": "List recent emitted findings across all scout runs",
+        "title": "List recent emitted findings across all scout runs",
         "required_scopes": ["signal_scout:read"],
         "annotations": {
             "destructiveHint": false,
@@ -6828,7 +7540,7 @@
         }
     },
     "signals-scout-scratchpad-remember": {
-        "description": "Upsert a scratchpad entry keyed on `(team, key)` — re-using a key updates the existing entry in place, so this is an upsert rather than a strict create. Optionally pass `run_id` to record which run wrote it.",
+        "description": "Upsert a scratchpad entry keyed on `(team, key)` — re-using a key updates the existing entry in place, so this is an upsert rather than a strict create. Keys are stable identities: key off *what* you're tracking, not *when* you saw it — never embed dates, timestamps, or run ids (that mints a new row every run and defeats dedupe). For run state, use one fixed key and keep the timestamp in `content`. Write `content` as Markdown — humans read these entries directly, so structured Markdown (headings, bullets, inline code for ids) is far easier to skim than a wall of prose. Optionally pass `run_id` to record which run wrote it.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Remember a scratchpad entry",
@@ -6842,7 +7554,7 @@
         }
     },
     "signals-scout-scratchpad-search": {
-        "description": "Return `SignalScratchpad` entries for this project, newest first. Pass `text` for a case-insensitive substring match on the entry's `content` and `key`. Pass `keys_only=true` to scan which memories exist without pulling their (potentially large) bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation/dedupe scan from returning every entry's full prose. Results capped at 100.",
+        "description": "Return `SignalScratchpad` entries for this project, newest first. Pass `text` for a case-insensitive substring match on the entry's `content` and `key`. Pass `date_from` / `date_to` (ISO-8601, inclusive lower / exclusive upper bound on `updated_at`) to scope to a window — set `date_to` to the `updated_at` of the oldest entry from the prior page to walk past the cap. Pass `keys_only=true` to scan which memories exist without pulling their (potentially large) bodies, or `content_max_chars` to cap each `content` to a preview — both keep a wide orientation/dedupe scan from returning every entry's full prose. Results capped at 500.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Search the scout scratchpad",
@@ -7562,7 +8274,7 @@
         "feature_flag": "user-interviews"
     },
     "user-interview-topics-create": {
-        "description": "Plan a user interview by recording who you want to target and what product or idea you want to ask them about. `topic` is the free-text description of the question or product area. Targets are specified as a combination of `interviewee_emails` (list of email addresses) and `interviewee_distinct_ids` (list of PostHog distinct IDs) — at least one of the two must be provided. To target a cohort, resolve cohort members to emails/distinct_ids in the calling agent first (see the planning-user-interviews skill) and pass them explicitly here — topics snapshot their audience at creation time. Pass `agent_context` (free text) to give the voice agent extra background or instructions, and `questions` (list of strings) for the ordered set of questions the agent should work through.",
+        "description": "Plan a user interview by recording who you want to target and what product or idea you want to ask them about. `topic` is the free-text description of the question or product area. Targets are specified as a combination of `interviewee_emails` (list of email addresses) and `interviewee_distinct_ids` (list of PostHog distinct IDs) — at least one of the two must be provided. To target a cohort, resolve cohort members to emails/distinct_ids in the calling agent first (see the planning-voice-agent-user-interviews skill) and pass them explicitly here — topics snapshot their audience at creation time. Pass `agent_context` (free text) to give the voice agent extra background or instructions, and `questions` (list of strings) for the ordered set of questions the agent should work through.",
         "category": "User interview topics",
         "feature": "user_interviews",
         "summary": "Create user interview topic",

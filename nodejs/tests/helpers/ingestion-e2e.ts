@@ -2,32 +2,47 @@ import { DateTime } from 'luxon'
 import { Message } from 'node-rdkafka'
 import { v4 } from 'uuid'
 
-import { GroupTypeManager } from '~/common/groups/group-type-manager'
-import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
-import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
-import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
-import { PersonRepository } from '~/common/persons/repositories/person-repository'
-import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
-import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
-
-import { IntegrationManagerService } from '../../src/cdp/services/managers/integration-manager.service'
-import { EncryptedFields } from '../../src/cdp/utils/encryption-utils'
-import { defaultConfig } from '../../src/config/config'
-import { KAFKA_INGESTION_WARNINGS } from '../../src/config/kafka-topics'
+import { defaultConfig } from '~/common/config/config'
+import { KAFKA_INGESTION_WARNINGS } from '~/common/config/kafka-topics'
 import {
     createCookielessRedisConnectionConfig,
     createIngestionRedisConnectionConfig,
-} from '../../src/config/redis-pools'
-import { KafkaProducerWrapper } from '../../src/kafka/producer'
+} from '~/common/config/redis-pools'
+import { GroupTypeManager } from '~/common/groups/group-type-manager'
+import { GroupRepository } from '~/common/groups/repositories/group-repository.interface'
+import { PostgresGroupRepository } from '~/common/groups/repositories/postgres-group-repository'
+import { KafkaProducerWrapper } from '~/common/kafka/producer'
+import { buildGroupRepository, buildPersonRepository, createPersonHogClient } from '~/common/personhog'
+import { PersonRepository } from '~/common/persons/repositories/person-repository'
+import { PostgresPersonRepository } from '~/common/persons/repositories/postgres-person-repository'
+import { PostgresRouter } from '~/common/utils/db/postgres'
+import { createRedisPoolFromConfig } from '~/common/utils/db/redis'
+import { parseRawClickHouseEvent } from '~/common/utils/event'
+import { GeoIPService } from '~/common/utils/geoip'
+import { parseJSON } from '~/common/utils/json-parse'
+import { PubSub } from '~/common/utils/pubsub'
+import { TeamManager } from '~/common/utils/team-manager'
+import { UUIDT } from '~/common/utils/utils'
+import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
+import { IngestionConsumerConfig, getDefaultIngestionConsumerConfig } from '~/ingestion/config'
+import {
+    ErrorTrackingConsumerConfig,
+    getDefaultErrorTrackingConsumerConfig,
+} from '~/ingestion/pipelines/errortracking/config'
+import {
+    MetricsIngestionConsumerConfig,
+    getDefaultMetricsIngestionConsumerConfig,
+} from '~/ingestion/pipelines/metrics/config'
+import {
+    SessionRecordingApiConfig,
+    SessionRecordingConfig,
+    getDefaultSessionRecordingApiConfig,
+    getDefaultSessionRecordingConfig,
+} from '~/ingestion/pipelines/sessionreplay/config'
+
+import { IntegrationManagerService } from '../../src/cdp/services/managers/integration-manager.service'
+import { EncryptedFields } from '../../src/cdp/utils/encryption-utils'
 import { PipelineEvent, PluginsServerConfig, ProjectId, RawClickHouseEvent, RedisPool, Team } from '../../src/types'
-import { PostgresRouter } from '../../src/utils/db/postgres'
-import { createRedisPoolFromConfig } from '../../src/utils/db/redis'
-import { parseRawClickHouseEvent } from '../../src/utils/event'
-import { GeoIPService } from '../../src/utils/geoip'
-import { parseJSON } from '../../src/utils/json-parse'
-import { PubSub } from '../../src/utils/pubsub'
-import { TeamManager } from '../../src/utils/team-manager'
-import { UUIDT } from '../../src/utils/utils'
 import { Clickhouse } from './clickhouse'
 import { waitForExpect } from './expectations'
 import { ensureKafkaTopics } from './kafka'
@@ -315,12 +330,20 @@ export interface IngesterLike {
     stop(): Promise<void>
 }
 
+/** The full config an ingestion test sees — PluginsServerConfig plus every ingestion domain's config. */
+export type IngestionTestConfig = PluginsServerConfig &
+    IngestionConsumerConfig &
+    ErrorTrackingConsumerConfig &
+    MetricsIngestionConsumerConfig &
+    SessionRecordingConfig &
+    SessionRecordingApiConfig
+
 /**
  * Set of primitives the test harness exposes to an ingester builder. Built
  * directly from primitive Manager/factory calls — no hub involved.
  */
 export interface IngestionTestInfra {
-    config: PluginsServerConfig
+    config: IngestionTestConfig
     postgres: PostgresRouter
     redisPool: RedisPool
     teamManager: TeamManager
@@ -346,7 +369,7 @@ export interface TeamIngesterTestContext<T extends IngesterLike> {
 
 export interface TeamIngesterTestConfig {
     teamOverrides?: Partial<Team>
-    pluginServerConfig?: Partial<PluginsServerConfig>
+    pluginServerConfig?: Partial<IngestionTestConfig>
 }
 
 export type BuildIngester<T extends IngesterLike> = (
@@ -360,10 +383,15 @@ export type BuildIngester<T extends IngesterLike> = (
  * the infra plus a `close` that tears down every resource it owns.
  */
 export async function createIngestionTestInfra(
-    configOverrides: Partial<PluginsServerConfig> = {}
+    configOverrides: Partial<IngestionTestConfig> = {}
 ): Promise<IngestionTestInfra> {
-    const serverConfig: PluginsServerConfig = {
+    const serverConfig: IngestionTestConfig = {
         ...defaultConfig,
+        ...getDefaultIngestionConsumerConfig(),
+        ...getDefaultErrorTrackingConsumerConfig(),
+        ...getDefaultMetricsIngestionConsumerConfig(),
+        ...getDefaultSessionRecordingConfig(),
+        ...getDefaultSessionRecordingApiConfig(),
         ...configOverrides,
     }
 
@@ -442,7 +470,7 @@ export async function createIngestionTestInfra(
  * consumer under test — different pipelines have different deps.
  */
 export function createTestWithTeamIngester<T extends IngesterLike>(
-    baseConfig: Partial<PluginsServerConfig>,
+    baseConfig: Partial<IngestionTestConfig>,
     buildIngester: BuildIngester<T>
 ) {
     return (

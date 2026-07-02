@@ -1,8 +1,11 @@
 import uuid
+from importlib import import_module
 
 from posthog.test.base import APIBaseTest
 from unittest.mock import MagicMock, patch
 
+from django.conf import settings
+from django.contrib.auth import SESSION_KEY
 from django.utils import timezone
 
 from parameterized import parameterized
@@ -12,6 +15,7 @@ from posthog.api.webauthn import WEBAUTHN_REGISTRATION_CHALLENGE_KEY, WebAuthnLo
 from posthog.models import User
 from posthog.models.organization_domain import OrganizationDomain
 from posthog.models.webauthn_credential import WebauthnCredential
+from posthog.session.models import Session
 
 
 class TestWebAuthnRegistration(APIBaseTest):
@@ -652,6 +656,36 @@ class TestWebAuthnCredentialManagement(APIBaseTest):
         self.assertTrue(verify_complete_response.json()["verified"])
 
         mock_send_email.delay.assert_called_once_with(self.user.id)
+
+    @patch("posthog.api.webauthn.send_passkey_added_email")
+    @patch("posthog.api.webauthn.verify_passkey_authentication_response")
+    def test_verify_complete_first_passkey_revokes_other_sessions(self, mock_verify, _mock_send_email):
+        # Only the FIRST verified passkey (a new login factor) revokes other sessions.
+        WebauthnCredential.objects.filter(user=self.user).delete()
+        engine = import_module(settings.SESSION_ENGINE)
+        other = engine.SessionStore()
+        other[SESSION_KEY] = str(self.user.pk)
+        other.create()
+
+        unverified = WebauthnCredential.objects.create(
+            user=self.user,
+            credential_id=b"first-passkey-id",
+            label="First",
+            public_key=b"public-key",
+            algorithm=-7,
+            counter=0,
+            transports=["internal"],
+            verified=False,
+        )
+        self.client.post(f"/api/webauthn/credentials/{unverified.pk}/verify/")
+        mock_verify.return_value = MagicMock(new_sign_count=1)
+
+        response = self.client.post(f"/api/webauthn/credentials/{unverified.pk}/verify_complete/", {}, format="json")
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.content)
+        self.assertFalse(Session.objects.filter(session_key=other.session_key).exists())
+        # The current session is kept — only OTHER sessions are revoked.
+        self.assertTrue(Session.objects.filter(session_key=self.client.session.session_key).exists())
 
     @parameterized.expand(
         [

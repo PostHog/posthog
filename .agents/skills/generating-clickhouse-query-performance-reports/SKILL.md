@@ -111,7 +111,7 @@ mentioned. Diff against history only after the independent pass is done.
    check whether one team or one API key dominates a metric: a single integration querying via a
    `personal_api_key` can account for the large majority of cluster OOMs, and the "incident" is then
    really one tenant. Attribute by `team_id` + `lc_api_key_label` first. Then add a **top-consumers view
-   over all queries** (not just the slow set): top teams, top API keys (`lc_api_key_label`), and top apps
+   over all queries** (not just the slow set): top teams, top API keys (`lc_api_key_label`), and top tools
    (`lc_product`) ranked by **bytes, CPU-seconds, and wall-time** (`references/query-patterns.md` §4c).
    This is where the heavy-but-fast consumers show up: a tenant or integration can dominate cluster CPU
    or bytes through millions of cheap queries while never crossing the slow threshold, so it is invisible
@@ -219,7 +219,7 @@ A report should contain, in order:
    skill's investigation playbook). Group findings by what they are: a per-tenant incident, the
    heaviest cluster-time consumers, user-facing insight slowness, and tight-timeout API noise.
 5. A **top-consumers-by-resource section** (all queries, not just slow): top teams, top API keys, and
-   top apps (`lc_product`) ranked by bytes / CPU / wall-time (`references/query-patterns.md` §4c), calling
+   top tools (`lc_product`) ranked by bytes / CPU / wall-time (`references/query-patterns.md` §4c), calling
    out consumers that never trip the slow threshold and the compute-bound vs wait-bound split.
 6. A **JSON-extracted property table**: the top event and person property names pulled from JSON blobs
    in the slow set, with the teams using each (`references/query-patterns.md` §7). These are the

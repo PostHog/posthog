@@ -1,5 +1,11 @@
+from uuid import uuid4
+
 import pytest
+from freezegun import freeze_time
 from posthog.test.base import APIBaseTest
+from unittest.mock import patch
+
+from django.apps import apps
 
 from parameterized import parameterized
 from rest_framework import status
@@ -17,8 +23,11 @@ from products.customer_analytics.backend.models import (
     CustomerJourney,
     CustomerProfileConfig,
     CustomPropertyDefinition,
+    CustomPropertySource,
+    DisplayType,
 )
 from products.customer_analytics.backend.models.account import AccountAssignment
+from products.customer_analytics.backend.test.factories import create_account, create_custom_property_definition
 from products.notebooks.backend.models import Notebook, ResourceNotebook
 from products.product_analytics.backend.models.insight import Insight
 
@@ -1031,6 +1040,36 @@ class TestAccountNotebookViewSet(APIBaseTest):
         short_ids = [n["short_id"] for n in response.json()["results"]]
         self.assertEqual(short_ids, [account_notebook.short_id])
 
+    def _link_internal_notebook(self, **kwargs) -> Notebook:
+        notebook = Notebook.objects.create(team=self.team, visibility=Notebook.Visibility.INTERNAL, **kwargs)
+        ResourceNotebook.objects.create(notebook=notebook, account=self.account)
+        return notebook
+
+    def test_list_search_matches_title_and_content(self):
+        by_title = self._link_internal_notebook(title="Renewal planning", text_content="")
+        by_content = self._link_internal_notebook(title="Untitled", text_content="discuss renewal terms")
+        self._link_internal_notebook(title="Onboarding", text_content="kickoff call")
+
+        response = self.client.get(f"{self.endpoint_base}?search=renewal")
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        short_ids = {n["short_id"] for n in response.json()["results"]}
+        self.assertEqual(short_ids, {by_title.short_id, by_content.short_id})
+
+    def test_list_orders_by_created_at(self):
+        with freeze_time("2024-01-01"):
+            older = self._link_internal_notebook(title="Older", content={})
+        with freeze_time("2024-01-02"):
+            newer = self._link_internal_notebook(title="Newer", content={})
+
+        default_order = [n["short_id"] for n in self.client.get(self.endpoint_base).json()["results"]]
+        self.assertEqual(default_order, [newer.short_id, older.short_id])
+
+        ascending = [
+            n["short_id"] for n in self.client.get(f"{self.endpoint_base}?ordering=created_at").json()["results"]
+        ]
+        self.assertEqual(ascending, [older.short_id, newer.short_id])
+
     def test_retrieve_returns_notebook_for_account(self):
         notebook = Notebook.objects.create(
             team=self.team, title="Note", content={"foo": "bar"}, visibility=Notebook.Visibility.INTERNAL
@@ -1724,3 +1763,142 @@ class TestCustomPropertyDefinitionAccessControl(APIBaseTest):
         self.client.force_login(self.editor_user)
         response = self.client.post(self.endpoint_base, {"name": "Admin Prop", "display_type": "text"}, format="json")
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+
+
+class TestCustomPropertyValueViewSet(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.account = create_account(team_id=self.team.id)
+        self.text_def = create_custom_property_definition(
+            team_id=self.team.id, name="Plan", display_type=DisplayType.TEXT
+        )
+        self.number_def = create_custom_property_definition(
+            team_id=self.team.id, name="Seats", display_type=DisplayType.NUMBER
+        )
+        self.endpoint = f"/api/projects/{self.team.id}/accounts/{self.account.id}/custom_property_values/"
+
+    def _set(self, definition_id, value, endpoint=None):
+        return self.client.post(
+            endpoint or self.endpoint, {"definition": str(definition_id), "value": value}, format="json"
+        )
+
+    def test_create_value_success(self):
+        response = self._set(self.text_def.id, "enterprise")
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        data = response.json()
+        self.assertEqual("enterprise", data["value"])
+        self.assertEqual(str(self.text_def.id), data["definition_id"])
+        self.assertEqual(str(self.account.id), data["account_id"])
+
+    def test_create_numeric_value(self):
+        response = self._set(self.number_def.id, 1234.5)
+
+        self.assertEqual(status.HTTP_201_CREATED, response.status_code, response.json())
+        self.assertEqual(1234.5, response.json()["value"])
+
+    def test_wrong_type_value_is_rejected(self):
+        response = self._set(self.number_def.id, "abc")
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+        self.assertEqual("value", response.json()["attr"])
+
+    def test_unknown_definition_is_rejected(self):
+        response = self._set(uuid4(), "x")
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+        self.assertEqual("definition", response.json()["attr"])
+
+    def test_resetting_a_value_supersedes_the_previous_one(self):
+        self._set(self.text_def.id, "starter")
+        self._set(self.text_def.id, "enterprise")
+
+        values = self.client.get(self.endpoint).json()
+        plan_values = [v for v in values if v["definition_id"] == str(self.text_def.id)]
+        self.assertEqual(1, len(plan_values))
+        self.assertEqual("enterprise", plan_values[0]["value"])
+
+    def test_list_returns_active_values(self):
+        self._set(self.text_def.id, "enterprise")
+        self._set(self.number_def.id, 42)
+
+        response = self.client.get(self.endpoint)
+
+        self.assertEqual(status.HTTP_200_OK, response.status_code)
+        values = {v["definition_id"]: v["value"] for v in response.json()}
+        self.assertEqual({str(self.text_def.id): "enterprise", str(self.number_def.id): 42}, values)
+
+    def test_account_from_another_team_returns_404(self):
+        other_team = Team.objects.create(organization=self.organization)
+        other_account = create_account(team_id=other_team.id)
+        endpoint = f"/api/projects/{self.team.id}/accounts/{other_account.id}/custom_property_values/"
+
+        response = self._set(self.text_def.id, "x", endpoint=endpoint)
+
+        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+
+    @patch("products.customer_analytics.backend.facade.api.get_accessible_account_id")
+    def test_account_deleted_after_access_check_returns_404(self, mock_access):
+        # Account passes the access pre-check but is gone by the time the write commits.
+        mock_access.return_value = str(uuid4())
+
+        response = self._set(self.text_def.id, "x")
+
+        self.assertEqual(status.HTTP_404_NOT_FOUND, response.status_code)
+
+    def test_unauthenticated_is_rejected(self):
+        self.client.logout()
+
+        response = self.client.get(self.endpoint)
+
+        self.assertIn(response.status_code, [status.HTTP_401_UNAUTHORIZED, status.HTTP_403_FORBIDDEN])
+
+    def test_source_backed_definition_rejects_manual_write(self):
+        saved_query_model = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
+        view = saved_query_model.objects.create(team=self.team, name="v", columns={"k": {}, "c": {}})
+        CustomPropertySource.objects.unscoped().create(
+            team_id=self.team.id,
+            definition_id=self.text_def.id,
+            saved_query=view,
+            source_column="c",
+            key_column="k",
+        )
+
+        response = self._set(self.text_def.id, "manual")
+
+        self.assertEqual(status.HTTP_400_BAD_REQUEST, response.status_code)
+        self.assertEqual("definition", response.json()["attr"])
+
+
+class TestCustomPropertySourceViewSet(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.endpoint = f"/api/projects/{self.team.id}/custom_property_sources/"
+        saved_query_model = apps.get_model("data_modeling", "DataWarehouseSavedQuery")
+        self.view = saved_query_model.objects.create(
+            team=self.team, name="billing_view", columns={"org_id": {}, "mrr": {}}
+        )
+        self.definition = create_custom_property_definition(team_id=self.team.id, name="MRR")
+
+    def test_create_list_and_toggle_round_trip(self):
+        created = self.client.post(
+            self.endpoint,
+            {
+                "definition": str(self.definition.id),
+                "saved_query": str(self.view.id),
+                "source_column": "mrr",
+                "key_column": "org_id",
+            },
+            format="json",
+        )
+        assert created.status_code == status.HTTP_201_CREATED, created.content
+        source_id = created.json()["id"]
+        assert created.json()["is_enabled"] is True
+
+        listed = self.client.get(self.endpoint)
+        assert listed.status_code == status.HTTP_200_OK
+        assert [s["id"] for s in listed.json()["results"]] == [source_id]
+
+        toggled = self.client.patch(f"{self.endpoint}{source_id}/", {"is_enabled": False}, format="json")
+        assert toggled.status_code == status.HTTP_200_OK
+        assert toggled.json()["is_enabled"] is False

@@ -36,13 +36,6 @@ interface OnboardingInstallStepProps {
 /**
  * Onboarding install step — wizard-centered layout for non-Logs products, bare
  * SDK grid for Logs (which uses OpenTelemetry, not the PostHog JS wizard).
- *
- * Two growth experiments overlay this:
- *   - `ONBOARDING_SKIP_INSTALL_STEP`: moves "Skip installation" to the bottom.
- *     The wizard variant manages its own skip UI via OnboardingStep.showSkip.
- *   - `ONBOARDING_MOBILE_INSTALL_HELPER`: on mobile + `test`, swaps the dispatch
- *     for `MobileInstallHandoff` (Web Share API). Excluded for Logs because the
- *     handoff's RealtimeCheckIndicator never resolves without an `ingested_event`.
  */
 export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstallStepProps> = ({
     sdkInstructionMap,
@@ -71,7 +64,6 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
     const installationCompleteFromTeam = useInstallationComplete(teamPropertyToVerify)
     const installationComplete = hideInstallationCheck || installationCompleteFromTeam
     const adblockResult = useAdblockDetection()
-    const isSkipButtonExperiment = useFeatureFlag('ONBOARDING_SKIP_INSTALL_STEP', 'test')
 
     const isLogsProduct = currentStepProductKey === ProductKey.LOGS
 
@@ -105,8 +97,8 @@ export const OnboardingInstallStep: OnboardingStepComponentType<OnboardingInstal
         window.history.replaceState(null, '', newUrl)
     }, [])
 
-    const showSkipAtBottom = isSkipButtonExperiment && !installationComplete
-    const showTopSkipButton = !isSkipButtonExperiment || installationComplete
+    const showSkipAtBottom = !installationComplete
+    const showTopSkipButton = installationComplete
 
     const handleSDKClick = (sdk: SDK): void => {
         selectSDK(sdk)

@@ -54,7 +54,7 @@ jobs:
         needs: changes
         if: needs.changes.outputs.llm_gateway == 'true'
         runs-on: ubuntu-latest
-        timeout-minutes: 10
+        timeout-minutes: 15
         defaults:
             run:
                 working-directory: services/llm-gateway
@@ -83,6 +83,8 @@ jobs:
                   OPENROUTER_API_KEY: ${{ secrets.OPENROUTER_API_KEY }}
                   FIREWORKS_API_KEY: ${{ secrets.FIREWORKS_API_KEY }}
                   AWS_DEFAULT_REGION: us-east-1
+                  CLOUDFLARE_API_KEY: ${{ secrets.CLOUDFLARE_LLM_GATEWAY_TOKEN }}
+                  CLOUDFLARE_ACCOUNT_ID: ${{ secrets.CLOUDFLARE_ACCOUNT_ID }}
               run: uv run pytest tests/ -v --tb=short --junitxml=junit.xml
 
             - name: Upload test results

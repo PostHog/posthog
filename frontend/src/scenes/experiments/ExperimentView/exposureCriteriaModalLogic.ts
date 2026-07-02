@@ -28,7 +28,7 @@ export const exposureCriteriaModalLogic = kea<exposureCriteriaModalLogicType>([
                 openExposureCriteriaModal: (_, { exposureCriteria }) =>
                     (exposureCriteria ?? NEW_EXPERIMENT.exposure_criteria) as ExperimentExposureCriteria,
                 closeExposureCriteriaModal: () => NEW_EXPERIMENT.exposure_criteria as ExperimentExposureCriteria,
-                setExposureCriteria: (_, { exposureCriteria }) => exposureCriteria,
+                setExposureCriteria: (state, { exposureCriteria }) => ({ ...state, ...exposureCriteria }),
             },
         ],
     }),

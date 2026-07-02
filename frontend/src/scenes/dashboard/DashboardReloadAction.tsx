@@ -5,8 +5,8 @@ import { IconCheck, IconX } from '@posthog/icons'
 import { IconRefresh } from '@posthog/icons'
 import { LemonBadge, LemonButton, LemonSwitch, Spinner } from '@posthog/lemon-ui'
 
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TZLabel } from 'lib/components/TZLabel'
 import { dayjs } from 'lib/dayjs'
 import { usePageVisibilityCb } from 'lib/hooks/usePageVisibility'
@@ -104,7 +104,7 @@ export function DashboardReloadAction(): JSX.Element {
         <div className="relative flex min-w-0 flex-wrap items-center gap-x-2 gap-y-1 sm:flex-nowrap">
             <DashboardRefreshStatusText />
 
-            <AppShortcut
+            <Shortcut
                 name="DashboardRefresh"
                 keybind={[keyBinds.refresh]}
                 intent="Refresh dashboard"
@@ -181,7 +181,7 @@ export function DashboardReloadAction(): JSX.Element {
                         {itemsLoading ? 'Cancel' : 'Refresh'}
                     </LemonButton>
                 </div>
-            </AppShortcut>
+            </Shortcut>
 
             <LemonBadge
                 size="small"

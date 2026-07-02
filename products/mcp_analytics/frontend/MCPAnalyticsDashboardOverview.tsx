@@ -1,15 +1,10 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
 
-import { type ChartTheme } from '@posthog/quill-charts'
-
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartTheme } from 'lib/charts/hooks'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { McpDateFilter } from './components/McpDateFilter'
 import { ActivityChart } from './dashboard/ActivityChart'
@@ -18,6 +13,7 @@ import { KpiTiles } from './dashboard/KpiTiles'
 import { NotableSessionsTable } from './dashboard/NotableSessionsTable'
 import { ToolErrorRateChart } from './dashboard/ToolErrorRateChart'
 import { ToolUsageChart } from './dashboard/ToolUsageChart'
+import { MCPAnalyticsFirstLook } from './firstLook/MCPAnalyticsFirstLook'
 import { mcpDashboardOverviewLogic } from './mcpDashboardOverviewLogic'
 
 export function MCPAnalyticsDashboardOverview(): JSX.Element {
@@ -28,7 +24,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         notableSessions,
         sessionRowsLoading,
         harnessRows,
-        harnessRawRowsLoading,
+        harnessRowsLoading,
         dailyActivity,
         activityRowsLoading,
         toolDailySeries,
@@ -41,15 +37,13 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         propertyFilters,
     } = useValues(mcpDashboardOverviewLogic)
     const { setDateFilter, setFilterTestAccounts, setPropertyFilters } = useActions(mcpDashboardOverviewLogic)
-    const { isDarkModeOn } = useValues(themeLogic)
     const { timezone } = useValues(teamLogic)
 
-    // buildTheme() reads CSS vars from the DOM; isDarkModeOn is the dep that forces a recompute when
-    // the theme flips (it isn't passed as an argument).
-    const theme = useMemo<ChartTheme>(() => buildTheme(), [isDarkModeOn])
+    const theme = useChartTheme()
 
     return (
         <div className="flex flex-col gap-4">
+            <MCPAnalyticsFirstLook />
             <div className="flex flex-wrap items-center justify-between gap-3">
                 <div className="flex flex-wrap items-center gap-3">
                     <McpDateFilter
@@ -95,7 +89,7 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
                                 interval={interval}
                             />
                         </div>
-                        <HarnessDonut rows={harnessRows} loading={harnessRawRowsLoading} theme={theme} />
+                        <HarnessDonut rows={harnessRows} loading={harnessRowsLoading} theme={theme} />
                     </div>
                     <div className="grid grid-cols-1 gap-[22px] lg:grid-cols-2">
                         <ToolErrorRateChart rows={toolRows} loading={toolRowsLoading} theme={theme} />

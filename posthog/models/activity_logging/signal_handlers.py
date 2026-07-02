@@ -15,14 +15,13 @@ from django.http import HttpRequest
 
 import structlog
 from loginas import settings as la_settings
-from loginas.utils import is_impersonated_session
 from prometheus_client import Counter
 
 from posthog.caching.login_device_cache import check_and_cache_login_device
 from posthog.constants import AUTH_BACKEND_DISPLAY_NAMES
 from posthog.exceptions_capture import capture_exception
 from posthog.geoip import get_geoip_properties
-from posthog.helpers.impersonation import get_original_user_from_session
+from posthog.helpers.impersonation import get_original_user_from_session, is_impersonated
 from posthog.models import Organization, PersonalAPIKey, Tag, TaggedItem
 from posthog.models.activity_logging.activity_log import (
     ActivityContextBase,
@@ -76,7 +75,7 @@ class UserLogoutContext(ActivityContextBase):
 
 def _get_logout_user_context(user, request):
     """Determine the correct user context and attribution for logout activity logging."""
-    was_impersonated = is_impersonated_session(request)
+    was_impersonated = is_impersonated(request)
     log_user = user
     item_id = str(user.id)
 

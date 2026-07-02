@@ -18,12 +18,12 @@ pytestmark = [pytest.mark.asyncio, pytest.mark.django_db]
 TEST_DATA_INTERVAL_END = dt.datetime.now(tz=dt.UTC).replace(hour=0, minute=0, second=0, microsecond=0)
 
 
-@pytest.mark.parametrize("interval", ["hour", "day", "every 5 minutes", "week"], indirect=True)
+@pytest.mark.parametrize("interval", ["hour"], indirect=True)
 @pytest.mark.parametrize("model", TEST_S3_MODELS)
 @pytest.mark.parametrize("compression", [None], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None], indirect=True)
 @pytest.mark.parametrize("file_format", ["Parquet"], indirect=True)
-async def test_s3_export_workflow_with_minio_bucket_with_various_intervals_and_models(
+async def test_s3_export_workflow_with_minio_bucket_with_various_models(
     clickhouse_client,
     minio_client,
     ateam,

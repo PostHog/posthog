@@ -78,6 +78,27 @@ IDENTITY_MATCHING_RULES_MODEL_VERSION = "rules_v1"
 IDENTITY_MATCHING_LOGREG_MODEL_VERSION = "logreg_v1"
 IDENTITY_MATCHING_TIERS = ["high", "medium", "low"]
 
+# Person properties surfaced per link so a reviewer can sanity-check a match at a glance: identity
+# (email/name) plus the dimensions the models score on — geo, device, and campaign attribution.
+# Maps raw person-property keys to clean API field names (the `$`-prefixed keys can't be serializer
+# field names). Kept curated rather than dumping every property: the payload stays bounded, and the
+# chosen fields mirror the match signals so "same city? same browser? same campaign?" is one glance.
+IDENTITY_MATCHING_PERSON_PROPERTY_MAP: dict[str, str] = {
+    "email": "email",
+    "name": "name",
+    "$geoip_city_name": "city",
+    "$geoip_country_code": "country",
+    "$browser": "browser",
+    "$os": "os",
+    "$device_type": "device_type",
+    "$timezone": "timezone",
+    "$initial_utm_source": "utm_source",
+    "$initial_utm_medium": "utm_medium",
+    "$initial_utm_campaign": "utm_campaign",
+    "$initial_referring_domain": "referring_domain",
+    "$initial_gclid": "gclid",
+}
+
 # Parquet column schemas, passed as the explicit `structure` argument to `s3(...)`. They are
 # *required* for the VALUES-based writes (person_timeline, logreg links) and used on every read
 # so that a glob matching no objects returns zero rows instead of failing schema inference (the

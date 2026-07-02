@@ -1,12 +1,14 @@
 from posthog.test.base import APIBaseTest
 from unittest.mock import patch
 
+from django.test import SimpleTestCase
+
 from rest_framework import status
 
 from products.ai_observability.backend.api.models import LLMModelInfoSerializer, LLMModelsListResponseSerializer
 
 
-class TestLLMModelInfoSerializer(APIBaseTest):
+class TestLLMModelInfoSerializer(SimpleTestCase):
     def test_serializes_expected_shape(self):
         serializer = LLMModelInfoSerializer(data={"id": "gpt-4o-mini", "posthog_available": True})
         self.assertTrue(serializer.is_valid(), serializer.errors)
@@ -18,7 +20,7 @@ class TestLLMModelInfoSerializer(APIBaseTest):
         self.assertIn("posthog_available", serializer.errors)
 
 
-class TestLLMModelsListResponseSerializer(APIBaseTest):
+class TestLLMModelsListResponseSerializer(SimpleTestCase):
     def test_serializes_nested_models(self):
         serializer = LLMModelsListResponseSerializer(
             data={

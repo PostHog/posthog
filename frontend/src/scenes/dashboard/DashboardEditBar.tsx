@@ -3,10 +3,10 @@ import { BindLogic, useActions, useValues } from 'kea'
 
 import { IconCalendar } from '@posthog/icons'
 
-import { AppShortcut } from 'lib/components/AppShortcuts/AppShortcut'
-import { keyBinds } from 'lib/components/AppShortcuts/shortcuts'
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
+import { Shortcut } from 'lib/components/Shortcuts/Shortcut'
+import { keyBinds } from 'lib/components/Shortcuts/shortcuts'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { DashboardEventSource } from 'lib/utils/eventUsageLogic'
 import { getProjectEventExistence } from 'lib/utils/getAppContext'
@@ -59,7 +59,7 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
         >
             {showDateFilter && (
                 <div className={clsx('content-end min-w-0', { 'h-[61px]': hasVariables })}>
-                    <AppShortcut
+                    <Shortcut
                         name="DashboardDateFilter"
                         keybind={[keyBinds.dateFilter]}
                         intent="Date filter"
@@ -87,7 +87,7 @@ export function DashboardEditBar({ showDateFilter = true, className }: Dashboard
                                 </>
                             )}
                         />
-                    </AppShortcut>
+                    </Shortcut>
                 </div>
             )}
             <div className={clsx('content-end', { 'h-[61px]': hasVariables })}>

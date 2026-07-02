@@ -1,3 +1,5 @@
+from datetime import datetime
+
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -49,22 +51,32 @@ def create_missing_capability_submission(
 
 
 def list_mcp_sessions(
-    team: Team, limit: int, offset: int, search: str = "", order_by: str = ""
+    team: Team,
+    limit: int,
+    offset: int,
+    search: str = "",
+    order_by: str = "",
+    date_from: str | None = None,
+    date_to: str | None = None,
 ) -> contracts.MCPSessionsPage:
-    return logic.list_mcp_sessions(team, limit=limit, offset=offset, search=search, order_by=order_by)
+    return logic.list_mcp_sessions(
+        team, limit=limit, offset=offset, search=search, order_by=order_by, date_from=date_from, date_to=date_to
+    )
 
 
-def list_mcp_tool_calls(team: Team, session_id: str) -> list[contracts.MCPToolCall]:
-    return logic.list_mcp_tool_calls(team, session_id=session_id)
+def list_mcp_tool_calls(team: Team, session_id: str, date_from: datetime | None = None) -> list[contracts.MCPToolCall]:
+    return logic.list_mcp_tool_calls(team, session_id=session_id, date_from=date_from)
 
 
-def generate_session_intent(team: Team, session_id: str) -> str:
+def generate_session_intent(team: Team, session_id: str, date_from: datetime | None = None) -> str:
     """Generate (or return the cached) intent summary for an MCP session.
 
     Shared entry point for the UI's on-demand button and any future caller
-    (e.g. clustering). Persists the result to ``MCPSession.intent``.
+    (e.g. clustering). Persists the result to ``MCPSession.intent``. ``date_from``
+    bounds the event scan to keep older sessions summarisable (same bound as
+    ``list_mcp_tool_calls``).
     """
-    return logic.generate_session_intent(team, session_id=session_id)
+    return logic.generate_session_intent(team, session_id=session_id, date_from=date_from)
 
 
 def get_intent_cluster_snapshot(team: Team) -> contracts.IntentClusterSnapshot:

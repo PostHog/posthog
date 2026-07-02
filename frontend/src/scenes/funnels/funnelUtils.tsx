@@ -386,6 +386,21 @@ export function hasBreakdown(breakdownValue: BreakdownKeyType | undefined): bool
     )
 }
 
+/**
+ * Aggregate "conversion so far" (across all breakdown values) to show alongside a hovered breakdown
+ * variant's own conversion. Returns null unless `series` is a genuine breakdown variant of `step` —
+ * excluding the top-level step itself, compare-only bars, and breakdown+compare (the aggregate spans
+ * periods there and would be ambiguous).
+ */
+export function getFunnelAggregateConversionRate(
+    series: FunnelStepWithConversionMetrics,
+    step: FunnelStepWithConversionMetrics
+): number | null {
+    return series !== step && hasBreakdown(series.breakdown_value) && !series.compare_label
+        ? step.conversionRates.total
+        : null
+}
+
 /** String identifier for breakdowns used when determining visibility. */
 export function getVisibilityKey(breakdownValue?: BreakdownKeyType): string {
     const breakdownValues = getBreakdownStepValues(

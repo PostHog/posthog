@@ -34,6 +34,7 @@ from products.signals.backend.models import SignalProjectProfile, SignalReport, 
 from products.signals.backend.scout_harness.profile import INVENTORY_SOURCE_VERSION, Inventory, build_inventory
 from products.signals.backend.scout_harness.profile.builders import (
     RECENT_ACTIVITY_WINDOW_DAYS,
+    REVIEWER_CORRECTIONS_WINDOW_DAYS,
     _business_knowledge,
     _existing_inbox_reports,
     _external_data_sources,
@@ -51,6 +52,7 @@ from products.signals.backend.scout_harness.profile.builders import (
     _recent_hog_flows,
     _recent_hog_functions,
     _recent_notebooks,
+    _recent_reviewer_corrections,
     _recent_surveys,
     _signal_source_configs,
 )
@@ -60,7 +62,7 @@ from products.signals.backend.scout_harness.tools.profile import (
     get_project_profile,
 )
 from products.surveys.backend.models import Survey
-from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
+from products.warehouse_sources.backend.facade.models import ExternalDataSource
 from products.workflows.backend.models.hog_flow.hog_flow import HogFlow
 
 
@@ -591,6 +593,61 @@ class TestRecentActivity(BaseTest):
         return User.objects.create(email=email, distinct_id=email)
 
 
+class TestRecentReviewerCorrections(BaseTest):
+    def _log_correction(self, *, team=None, created_at=None, detail=None, activity="suggested_reviewers_changed"):
+        return ActivityLog.objects.create(
+            team_id=(team or self.team).id,
+            activity=activity,
+            scope="SignalReport",
+            item_id=str(uuid4()),
+            was_impersonated=False,
+            is_system=False,
+            created_at=created_at or timezone.now(),
+            detail=detail
+            if detail is not None
+            else {
+                "name": "Report title",
+                "changes": [
+                    {
+                        "type": "SignalReport",
+                        "action": "changed",
+                        "field": "suggested_reviewers",
+                        "before": ["alice"],
+                        "after": ["bob"],
+                    }
+                ],
+            },
+        )
+
+    def test_parses_corrections_and_excludes_noise(self) -> None:
+        correction = self._log_correction()
+        # None of these are reviewer corrections: other activity on the same scope,
+        # another team's correction, and a correction outside the window.
+        self._log_correction(activity="updated")
+        other = self.organization.teams.create(name="other")
+        self._log_correction(team=other)
+        self._log_correction(created_at=timezone.now() - timedelta(days=REVIEWER_CORRECTIONS_WINDOW_DAYS + 1))
+
+        result = _recent_reviewer_corrections(self.team)
+        assert result["window_days"] == REVIEWER_CORRECTIONS_WINDOW_DAYS
+        (row,) = result["corrections"]
+        assert row == {
+            "report_id": str(correction.item_id),
+            "report_title": "Report title",
+            "before": ["alice"],
+            "after": ["bob"],
+            "at": correction.created_at.isoformat(),
+        }
+
+    def test_malformed_detail_degrades_to_empty_lists(self) -> None:
+        self._log_correction(detail={})
+        result = _recent_reviewer_corrections(self.team)
+        (row,) = result["corrections"]
+        assert row["before"] == []
+        assert row["after"] == []
+        assert row["report_title"] is None
+
+
 class TestBusinessKnowledge(BaseTest):
     def test_returns_zeroed_section_when_no_sources(self) -> None:
         result = _business_knowledge(self.team)
@@ -652,6 +709,7 @@ class TestBuildInventory(BaseTest):
             "signal_source_configs",
             "existing_inbox_reports",
             "recent_activity",
+            "recent_reviewer_corrections",
             "recent_dashboards",
             "recent_surveys",
             "recent_feature_flags",

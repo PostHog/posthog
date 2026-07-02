@@ -1,3 +1,4 @@
+import { SessionBatchMetrics } from '~/ingestion/pipelines/sessionreplay/sessions/metrics'
 import {
     deserializeSessionKey,
     serializeSessionKey,
@@ -24,30 +25,36 @@ export class RedisCachedKeyStore implements KeyStore {
     }
 
     private async getCached(sessionId: string, teamId: number): Promise<SessionKey | null> {
+        const startTime = performance.now()
         const client = await this.redisPool.acquire()
         try {
             const cached = await client.get(this.cacheKey(sessionId, teamId))
             return cached ? deserializeSessionKey(cached) : null
         } finally {
             await this.redisPool.release(client)
+            SessionBatchMetrics.observeKeystoreRedisLatency((performance.now() - startTime) / 1000)
         }
     }
 
     private async setCached(sessionId: string, teamId: number, key: SessionKey): Promise<void> {
+        const startTime = performance.now()
         const client = await this.redisPool.acquire()
         try {
             await client.setex(this.cacheKey(sessionId, teamId), this.ttlSeconds, serializeSessionKey(key))
         } finally {
             await this.redisPool.release(client)
+            SessionBatchMetrics.observeKeystoreRedisLatency((performance.now() - startTime) / 1000)
         }
     }
 
     private async deleteCached(sessionId: string, teamId: number): Promise<void> {
+        const startTime = performance.now()
         const client = await this.redisPool.acquire()
         try {
             await client.del(this.cacheKey(sessionId, teamId))
         } finally {
             await this.redisPool.release(client)
+            SessionBatchMetrics.observeKeystoreRedisLatency((performance.now() - startTime) / 1000)
         }
     }
 

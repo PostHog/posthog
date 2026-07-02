@@ -2,8 +2,9 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { type ReactNode, useEffect } from 'react'
 
+import { HedgehogJudge } from '@posthog/brand/hoggies'
+
 import { PostHogLogo } from 'lib/brand/v2'
-import { JudgeHog } from 'lib/components/hedgehogs'
 import PasswordStrength from 'lib/components/PasswordStrength'
 import SignupRoleSelect from 'lib/components/SignupRoleSelect'
 import passkeyLogo from 'lib/components/SocialLoginButton/passkey.svg'
@@ -436,7 +437,7 @@ function InviteInvalid(): JSX.Element {
         <PaperDeskScene notes={['// hmm', "// this invite isn't right"]}>
             <PaperDeskCard footer={footer}>
                 <div className="flex flex-col items-center text-center">
-                    <JudgeHog className="block w-auto mx-auto h-28" />
+                    <HedgehogJudge className="block w-auto mx-auto h-28" />
                     <h1 className="m-0 mt-3 font-title text-2xl font-extrabold leading-tight text-primary text-center tracking-tight">
                         {titles[code]}
                     </h1>

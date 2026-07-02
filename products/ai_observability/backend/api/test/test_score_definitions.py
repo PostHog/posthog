@@ -12,6 +12,14 @@ from products.ai_observability.backend.models.score_definitions import (
 
 
 class TestScoreDefinitionsApi(APIBaseTest):
+    def setUp(self) -> None:
+        super().setUp()
+        self.feature_flag_patcher = patch(
+            "products.ai_observability.backend.api.score_definitions.feature_enabled_or_false", return_value=True
+        )
+        self.feature_flag_patcher.start()
+        self.addCleanup(self.feature_flag_patcher.stop)
+
     def _endpoint(self) -> str:
         return f"/api/environments/{self.team.id}/llm_analytics/score_definitions/"
 

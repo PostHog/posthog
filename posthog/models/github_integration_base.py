@@ -20,32 +20,17 @@ from django.utils import timezone
 import jwt
 import requests
 import structlog
-from prometheus_client import Counter, Gauge
+from prometheus_client import Counter
 
+from posthog.egress.github.observability import record_github_api_exception, record_github_api_response
+from posthog.egress.github.transport import GITHUB_API_VERSION, github_request
 from posthog.sync import database_sync_to_async_pool
 
 logger = structlog.get_logger(__name__)
 
-github_api_request_counter = Counter(
-    "github_integration_api_requests",
-    "Number of GitHub API requests made through a GitHub integration.",
-    labelnames=["integration_id", "method", "endpoint", "status_code"],
-)
-github_api_rate_limit_remaining_gauge = Gauge(
-    "github_integration_api_rate_limit_remaining",
-    "Most recently observed GitHub API rate limit remaining count by integration and resource.",
-    labelnames=["integration_id", "resource"],
-)
-github_api_rate_limit_limit_gauge = Gauge(
-    "github_integration_api_rate_limit_limit",
-    "Most recently observed GitHub API rate limit limit by integration and resource.",
-    labelnames=["integration_id", "resource"],
-)
-github_api_rate_limit_reset_timestamp_gauge = Gauge(
-    "github_integration_api_rate_limit_reset_timestamp_seconds",
-    "Most recently observed GitHub API rate limit reset timestamp by integration and resource.",
-    labelnames=["integration_id", "resource"],
-)
+# This client always knows its installation, so it records under source="integration" with a real id.
+_OBSERVABILITY_SOURCE = "integration"
+
 github_cache_access_counter = Counter(
     "github_integration_cache_accesses",
     "Number of GitHub integration cache accesses by cache type, repository, and result.",
@@ -137,7 +122,7 @@ class GitHubIntegrationBase:
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {jwt_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
             timeout=timeout,
         )
@@ -250,7 +235,7 @@ class GitHubIntegrationBase:
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {user_access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
             params={"per_page": 1},
             timeout=10,
@@ -266,38 +251,22 @@ class GitHubIntegrationBase:
         )
         raise requests.RequestException(f"Unexpected status {response.status_code} verifying installation access")
 
-    @staticmethod
-    def _rate_limit_header(headers: Mapping[str, str] | None, name: str) -> float | None:
-        if headers is None:
-            return None
-        value = headers.get(name)
-        if value is None:
-            return None
-        try:
-            return float(value)
-        except (TypeError, ValueError):
-            return None
-
     def _record_github_api_response(self, response: requests.Response, method: str, endpoint: str) -> None:
-        integration_id = str(self.integration.id)
-        status_code = str(response.status_code)
-        github_api_request_counter.labels(integration_id, method, endpoint, status_code).inc()
-
-        headers = response.headers if isinstance(response.headers, Mapping) else None
-        resource = headers.get("X-RateLimit-Resource", "unknown") if headers is not None else "unknown"
-        remaining = self._rate_limit_header(headers, "X-RateLimit-Remaining")
-        limit = self._rate_limit_header(headers, "X-RateLimit-Limit")
-        reset_at = self._rate_limit_header(headers, "X-RateLimit-Reset")
-
-        if remaining is not None:
-            github_api_rate_limit_remaining_gauge.labels(integration_id, resource).set(remaining)
-        if limit is not None:
-            github_api_rate_limit_limit_gauge.labels(integration_id, resource).set(limit)
-        if reset_at is not None:
-            github_api_rate_limit_reset_timestamp_gauge.labels(integration_id, resource).set(reset_at)
+        record_github_api_response(
+            response,
+            source=_OBSERVABILITY_SOURCE,
+            installation_id=self.github_installation_id,
+            method=method,
+            endpoint=endpoint,
+        )
 
     def _record_github_api_exception(self, method: str, endpoint: str) -> None:
-        github_api_request_counter.labels(str(self.integration.id), method, endpoint, "exception").inc()
+        record_github_api_exception(
+            source=_OBSERVABILITY_SOURCE,
+            installation_id=self.github_installation_id,
+            method=method,
+            endpoint=endpoint,
+        )
 
     def _record_github_cache_access(
         self, cache_type: Literal["repositories", "branches"], result: Literal["hit", "miss"], repository: str
@@ -313,13 +282,16 @@ class GitHubIntegrationBase:
         params: dict[str, str | int] | None = None,
         timeout: int | None = None,
     ) -> requests.Response:
-        try:
-            response = requests.get(url, headers=headers, params=params, timeout=timeout)
-        except requests.RequestException:
-            self._record_github_api_exception("GET", endpoint)
-            raise
-        self._record_github_api_response(response, "GET", endpoint)
-        return response
+        return github_request(
+            "GET",
+            url,
+            source=_OBSERVABILITY_SOURCE,
+            headers=headers,
+            installation_id=self.github_installation_id,
+            endpoint=endpoint,
+            params=params,
+            timeout=timeout,
+        )
 
     def _github_api_post(
         self,
@@ -329,13 +301,15 @@ class GitHubIntegrationBase:
         headers: dict[str, str],
         json_body: Mapping[str, object] | None = None,
     ) -> requests.Response:
-        try:
-            response = requests.post(url, json=json_body, headers=headers)
-        except requests.RequestException:
-            self._record_github_api_exception("POST", endpoint)
-            raise
-        self._record_github_api_response(response, "POST", endpoint)
-        return response
+        return github_request(
+            "POST",
+            url,
+            source=_OBSERVABILITY_SOURCE,
+            headers=headers,
+            installation_id=self.github_installation_id,
+            endpoint=endpoint,
+            json=json_body,
+        )
 
     def _github_api_put(
         self,
@@ -345,13 +319,15 @@ class GitHubIntegrationBase:
         headers: dict[str, str],
         json_body: Mapping[str, object],
     ) -> requests.Response:
-        try:
-            response = requests.put(url, json=json_body, headers=headers)
-        except requests.RequestException:
-            self._record_github_api_exception("PUT", endpoint)
-            raise
-        self._record_github_api_response(response, "PUT", endpoint)
-        return response
+        return github_request(
+            "PUT",
+            url,
+            source=_OBSERVABILITY_SOURCE,
+            headers=headers,
+            installation_id=self.github_installation_id,
+            endpoint=endpoint,
+            json=json_body,
+        )
 
     # --- Installation access token ---
 
@@ -470,7 +446,7 @@ class GitHubIntegrationBase:
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": "2022-11-28",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
                 },
                 params=params,
                 timeout=timeout,
@@ -732,6 +708,32 @@ class GitHubIntegrationBase:
             return []
         return [pr["html_url"] for pr in pulls if isinstance(pr, dict) and isinstance(pr.get("html_url"), str)]
 
+    def get_open_pr_base_for_head(self, repository: str, branch: str) -> str | None:
+        """Return the base branch of an OPEN pull request whose head is ``branch``, if one exists.
+
+        ``repository`` is ``owner/repo`` (or a bare repo, resolved against the org). Distinguishes
+        a branch that *heads* an open PR (work continues on it) from a branch used as a PR *base*.
+        Best-effort: returns None on a bad repo, non-200, no open PR, or any error.
+        """
+        repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
+        owner = repo_path.split("/", 1)[0]
+        response = self._installation_authenticated_get(
+            f"https://api.github.com/repos/{repo_path}/pulls",
+            endpoint="/repos/{owner}/{repo}/pulls",
+            params={"head": f"{owner}:{branch}", "state": "open", "per_page": 1},
+        )
+        if response is None or response.status_code != 200:
+            return None
+        try:
+            pulls = response.json()
+        except Exception:
+            logger.warning("GitHubIntegration: get_open_pr_base_for_head non-JSON response", repository=repo_path)
+            return None
+        if not isinstance(pulls, list) or not pulls or not isinstance(pulls[0], dict):
+            return None
+        base = (pulls[0].get("base") or {}).get("ref")
+        return base if isinstance(base, str) and base else None
+
     _PR_SNAPSHOT_QUERY = """
     query($owner: String!, $repo: String!, $number: Int!) {
       repository(owner: $owner, name: $repo) {
@@ -770,7 +772,7 @@ class GitHubIntegrationBase:
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {self.get_access_token()}",
-                    "X-GitHub-Api-Version": "2022-11-28",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
                 },
                 json_body={"query": query, "variables": variables},
             )
@@ -920,7 +922,7 @@ class GitHubIntegrationBase:
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": "2022-11-28",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
                 },
             )
 
@@ -1059,7 +1061,7 @@ class GitHubIntegrationBase:
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": "2022-11-28",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
                 },
                 timeout=10,
             )
@@ -1184,7 +1186,7 @@ class GitHubIntegrationBase:
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {access_token}",
-                    "X-GitHub-Api-Version": "2022-11-28",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
                 },
             )
 
@@ -1240,7 +1242,7 @@ class GitHubIntegrationBase:
             headers={
                 "Accept": "application/vnd.github+json",
                 "Authorization": f"Bearer {access_token}",
-                "X-GitHub-Api-Version": "2022-11-28",
+                "X-GitHub-Api-Version": GITHUB_API_VERSION,
             },
             timeout=10,
         )
@@ -1525,7 +1527,7 @@ class GitHubIntegrationBase:
                 headers={
                     "Accept": "application/vnd.github+json",
                     "Authorization": f"Bearer {self.get_access_token()}",
-                    "X-GitHub-Api-Version": "2022-11-28",
+                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
                 },
                 timeout=timeout,
             )

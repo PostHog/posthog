@@ -1,13 +1,24 @@
-from posthog.test.base import APIBaseTest
+from datetime import UTC, datetime, timedelta
+
+from posthog.test.base import APIBaseTest, ClickhouseTestMixin, _create_event
 from unittest.mock import patch
+
+from django.core.cache import cache
+from django.test import SimpleTestCase
 
 from parameterized import parameterized
 from rest_framework import status
 
 from posthog.models import Organization, Team
+from posthog.models.utils import uuid7
 
 from products.mcp_analytics.backend import intent_generation
 from products.mcp_analytics.backend.models import MCPAnalyticsSubmission, MCPIntentClusterSnapshot, MCPSession
+from products.mcp_analytics.backend.presentation.serializers import (
+    MCP_SESSION_LIST_DEFAULT_LIMIT,
+    MCP_SESSION_LIST_MAX_LIMIT,
+    MCPSessionListQuerySerializer,
+)
 from products.mcp_analytics.backend.tests import _MCPAnalyticsTeamScopedTestMixin
 
 
@@ -331,6 +342,69 @@ class TestMCPSessionIntentEndpoint(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert response.status_code == status.HTTP_503_SERVICE_UNAVAILABLE
         # Nothing persisted when generation fails.
         assert not MCPSession.objects.filter(team=self.team, session_id=session_id).exists()
+
+
+class TestMCPSessionToolCallsEndpoint(_MCPAnalyticsTeamScopedTestMixin, ClickhouseTestMixin, APIBaseTest):
+    """The detail event list is bounded by the session's aggregated session_start. Listing *all*
+    events hinges on that bound surviving the serialize -> query-param -> parse round-trip without
+    dropping the first event (the one at exactly session_start)."""
+
+    def setUp(self) -> None:
+        super().setUp()
+        cache.clear()
+
+    def test_tool_calls_bounded_by_session_start_returns_every_event(self) -> None:
+        session_id = str(uuid7())
+        now = datetime.now(tz=UTC)
+        events = [(now - timedelta(hours=2), "first_tool"), (now - timedelta(minutes=5), "last_tool")]
+        for timestamp, tool in events:
+            _create_event(
+                team=self.team,
+                event="$mcp_tool_call",
+                distinct_id="seed",
+                timestamp=timestamp,
+                properties={"$session_id": session_id, "$mcp_tool_name": tool},
+            )
+
+        with patch("posthoganalytics.feature_enabled", return_value=True):
+            listed = self.client.get(f"/api/environments/{self.team.id}/mcp_analytics/sessions/", {"date_from": "-7d"})
+            assert listed.status_code == status.HTTP_200_OK
+            session = next(s for s in listed.json()["results"] if s["session_id"] == session_id)
+            # Hand the serialized session_start straight back, exactly as the UI does.
+            response = self.client.get(
+                f"/api/environments/{self.team.id}/mcp_analytics/sessions/{session_id}/tool_calls/",
+                {"date_from": session["session_start"]},
+            )
+
+        assert response.status_code == status.HTTP_200_OK
+        # The first event sits at exactly session_start; a `timestamp >= session_start` bound must
+        # still include it after the round-trip — otherwise we'd get just ["last_tool"].
+        assert [c["tool_name"] for c in response.json()["results"]] == ["first_tool", "last_tool"]
+
+
+class TestMCPSessionListQuerySerializer(SimpleTestCase):
+    def test_defaults_when_pagination_params_omitted(self) -> None:
+        serializer = MCPSessionListQuerySerializer(data={})
+        assert serializer.is_valid(), serializer.errors
+        assert serializer.validated_data["limit"] == MCP_SESSION_LIST_DEFAULT_LIMIT
+        assert serializer.validated_data["offset"] == 0
+
+    @parameterized.expand(
+        [
+            ("limit_at_cap", {"limit": MCP_SESSION_LIST_MAX_LIMIT}, True, None),
+            ("limit_over_cap", {"limit": MCP_SESSION_LIST_MAX_LIMIT + 1}, False, "limit"),
+            ("limit_below_min", {"limit": 0}, False, "limit"),
+            ("offset_at_min", {"offset": 0}, True, None),
+            ("offset_negative", {"offset": -1}, False, "offset"),
+        ]
+    )
+    def test_pagination_bounds(
+        self, _name: str, data: dict[str, int], expected_valid: bool, error_field: str | None
+    ) -> None:
+        serializer = MCPSessionListQuerySerializer(data=data)
+        assert serializer.is_valid() is expected_valid, serializer.errors
+        if error_field is not None:
+            assert error_field in serializer.errors
 
 
 class TestMCPAnalyticsCrossTeamIsolation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest):

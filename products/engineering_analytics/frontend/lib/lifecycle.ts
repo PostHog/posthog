@@ -32,6 +32,8 @@ export interface WorkflowRun {
     durationSeconds: number | null
     /** GitHub Actions run id — links straight to the run page when present. */
     runId: number | null
+    /** Re-run attempt (1 for the first); null when unknown (lifecycle events don't carry it). */
+    runAttempt: number | null
 }
 
 const PASSING_CONCLUSIONS = new Set(['success', 'skipped', 'neutral', 'completed'])
@@ -39,6 +41,11 @@ const PASSING_CONCLUSIONS = new Set(['success', 'skipped', 'neutral', 'completed
 /** For a finished run's conclusion; 'completed' stands in when no conclusion was recorded. */
 export function isPassingConclusion(conclusion: string): boolean {
     return PASSING_CONCLUSIONS.has(conclusion)
+}
+
+/** A decisive failure — the verdict that turns a run red. Cancelled/skipped/neutral are not failures. */
+export function isDecisiveFailure(conclusion: string | null): boolean {
+    return conclusion === 'failure' || conclusion === 'timed_out'
 }
 
 /**
@@ -76,6 +83,7 @@ export function workflowRuns(events: PRLifecycleEventApi[]): WorkflowRun[] {
                 finishedAt: null,
                 durationSeconds: null,
                 runId: event.run_id ?? null,
+                runAttempt: null,
             }
             runs.push(run)
             const queue = unfinishedByWorkflow.get(workflow) ?? []
@@ -99,6 +107,7 @@ export function workflowRuns(events: PRLifecycleEventApi[]): WorkflowRun[] {
                     finishedAt: event.at,
                     durationSeconds: null,
                     runId: event.run_id ?? null,
+                    runAttempt: null,
                 })
             }
         }

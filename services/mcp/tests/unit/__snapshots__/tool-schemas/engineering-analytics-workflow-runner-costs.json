@@ -1,0 +1,31 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "branch": {
+            "description": "Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.",
+            "type": "string"
+        },
+        "date_from": {
+            "description": "Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.",
+            "type": "string"
+        },
+        "date_to": {
+            "description": "Window end: relative or ISO8601. Defaults to now.",
+            "type": "string"
+        },
+        "repo": {
+            "description": "'owner/name' repository the workflow belongs to.",
+            "type": "string"
+        },
+        "source_id": {
+            "description": "Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.",
+            "type": "string"
+        },
+        "workflow_name": {
+            "description": "Workflow name to break down cost for.",
+            "type": "string"
+        }
+    },
+    "required": ["repo", "workflow_name"],
+    "type": "object"
+}

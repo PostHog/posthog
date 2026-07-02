@@ -3,9 +3,9 @@ from unittest.mock import MagicMock, patch
 
 from posthog.hogql.constants import DEFAULT_RETURNED_ROWS
 
-from posthog.models.person.person import Person
 from posthog.models.team import Team
 from posthog.tasks.early_access_feature import send_events_for_early_access_feature_stage_change
+from posthog.test.persons import create_person
 
 from products.early_access_features.backend.models import EarlyAccessFeature
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
@@ -24,7 +24,7 @@ class TestSendEventsForEarlyAccessFeatureStageChange(APIBaseTest):
             stage=EarlyAccessFeature.Stage.BETA,
         )
 
-        Person.objects.create(
+        create_person(
             team=team,
             distinct_ids=["abc123"],
             properties={f"$feature_enrollment/{feature_flag.key}": True, "email": "test@example.com"},
@@ -59,7 +59,7 @@ class TestSendEventsForEarlyAccessFeatureStageChange(APIBaseTest):
         )
 
         # Person on a different team, but with the same feature flag key
-        Person.objects.create(
+        create_person(
             team=team2,
             distinct_ids=["other123"],
             properties={f"$feature_enrollment/{feature_flag.key}": True, "email": "other@example.com"},
@@ -85,7 +85,7 @@ class TestSendEventsForEarlyAccessFeatureStageChange(APIBaseTest):
 
         persons = []
         for i in range(persons_count):
-            person = Person.objects.create(
+            person = create_person(
                 team=team,
                 distinct_ids=[f"user_{i}"],
                 properties={f"$feature_enrollment/{feature_flag.key}": True, "email": f"user_{i}@example.com"},

@@ -42,6 +42,7 @@ from posthog.schema import (
 from posthog.hogql import ast
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.database.database import Database
+from posthog.hogql.errors import QueryError
 
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded
 from posthog.constants import AvailableFeature
@@ -618,13 +619,21 @@ class TestQueryRunner(BaseTest):
                 lambda: UserAccessControlError("query", "viewer", None),
                 SloOutcome.SUCCESS,
                 "user_error",
+                False,
             ),
-            ("concurrency_limit_exceeded", ConcurrencyLimitExceeded, SloOutcome.SUCCESS, "rate_limited"),
-            ("unclassified_value_error", ValueError, SloOutcome.FAILURE, "error"),
+            ("concurrency_limit_exceeded", ConcurrencyLimitExceeded, SloOutcome.SUCCESS, "rate_limited", False),
+            (
+                "user_hogql_query_error",
+                lambda: QueryError("Can't select a table when a column is expected: postgres_waitlist_entries"),
+                SloOutcome.SUCCESS,
+                "user_error",
+                False,
+            ),
+            ("unclassified_value_error", ValueError, SloOutcome.FAILURE, "error", True),
         ]
     )
     def test_run_classifies_slo_error_at_except_boundary(
-        self, _name, exception_factory, expected_outcome, expected_error_category
+        self, _name, exception_factory, expected_outcome, expected_error_category, expected_captured
     ):
         TestQueryRunner = self.setup_test_query_runner_class()
         raised_exc = exception_factory()
@@ -635,7 +644,10 @@ class TestQueryRunner(BaseTest):
         TestQueryRunner.calculate = calculate_raises
         runner = TestQueryRunner(query={"some_attr": "bla"}, team=self.team)
 
-        with mock.patch("posthog.slo.context.emit_slo_completed") as mock_emit_slo_completed:
+        with (
+            mock.patch("posthog.slo.context.emit_slo_completed") as mock_emit_slo_completed,
+            mock.patch("posthog.hogql_queries.query_runner.capture_exception") as mock_capture_exception,
+        ):
             with pytest.raises(type(raised_exc)):
                 runner.run(execution_mode=ExecutionMode.CALCULATE_BLOCKING_ALWAYS)
 
@@ -643,6 +655,11 @@ class TestQueryRunner(BaseTest):
         completed_kwargs = mock_emit_slo_completed.call_args.kwargs
         assert completed_kwargs["properties"].outcome == expected_outcome
         assert completed_kwargs["extra_properties"]["error_category"] == expected_error_category
+
+        # User-input errors (SUCCESS outcome) must not be captured to error tracking; only FAILURE
+        # outcomes are. This is what keeps benign HogQL query errors out of error tracking.
+        captured = any(call.args and call.args[0] is raised_exc for call in mock_capture_exception.call_args_list)
+        assert captured == expected_captured
 
     def test_query_execution_metrics_not_recorded_on_cache_hit(self):
         from posthog.clickhouse.query_tagging import reset_query_tags
@@ -1552,3 +1569,20 @@ class TestQueryRunnerAccessControlFingerprint(BaseTest):
         assert "system.notebooks" in database._denied_tables
         ac_queries = [q["sql"] for q in ctx.captured_queries if "ee_accesscontrol" in q["sql"]]
         assert ac_queries == [], ac_queries
+
+    def test_unentitled_org_skips_access_control_fingerprint(self):
+        # Without the ACCESS_CONTROL entitlement no user can be restricted, so computing the cache key
+        # must not issue the access-control read
+        self.organization.available_product_features = []
+        self.organization.save()
+
+        runner = self._runner(self.user, base=AnalyticsQueryRunner)
+        with CaptureQueriesContext(connection) as ctx:
+            runner.get_cache_key()
+
+        ac_queries = [q["sql"] for q in ctx.captured_queries if "ee_accesscontrol" in q["sql"]]
+        assert ac_queries == [], ac_queries
+
+        # Entitlement is read off the team's org, so the gate must short-circuit without building
+        # user_access_control (whose membership/preload reads are what we're avoiding per query).
+        assert runner._user_access_control is None

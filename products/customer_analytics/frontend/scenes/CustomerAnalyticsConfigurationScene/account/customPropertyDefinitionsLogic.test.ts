@@ -7,12 +7,35 @@ import { userLogic } from 'scenes/userLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type { CustomPropertyDefinitionApi } from 'products/customer_analytics/frontend/generated/api.schemas'
+import type {
+    CustomPropertyDefinitionApi,
+    CustomPropertySourceApi,
+} from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import { customPropertyDefinitionsLogic } from './customPropertyDefinitionsLogic'
 
 const DEFINITIONS_URL = '/api/projects/:team_id/custom_property_definitions/'
 const DEFINITION_URL = '/api/projects/:team_id/custom_property_definitions/:id/'
+const SAVED_QUERIES_URL = '/api/environments/:team_id/warehouse_saved_queries/'
+const SOURCES_URL = '/api/projects/:team_id/custom_property_sources/'
+const SOURCE_URL = '/api/projects/:team_id/custom_property_sources/:id/'
+
+const buildSource = (overrides: Partial<CustomPropertySourceApi> = {}): CustomPropertySourceApi =>
+    ({
+        id: 'src-1',
+        definition: 'def-1',
+        saved_query: 'view-1',
+        source_column: 'mrr',
+        key_column: 'org_id',
+        is_enabled: true,
+        consecutive_failures: 0,
+        last_synced_at: '2026-01-02T00:00:00Z',
+        last_sync_error: null,
+        created_at: '2026-01-01T00:00:00Z',
+        created_by: 1,
+        updated_at: '2026-01-02T00:00:00Z',
+        ...overrides,
+    }) as CustomPropertySourceApi
 
 const buildDefinition = (overrides: Partial<CustomPropertyDefinitionApi> = {}): CustomPropertyDefinitionApi =>
     ({
@@ -21,17 +44,30 @@ const buildDefinition = (overrides: Partial<CustomPropertyDefinitionApi> = {}): 
         description: null,
         display_type: 'currency',
         is_big_number: true,
+        source: null,
         created_at: '2026-01-01T00:00:00Z',
         created_by: 1,
         updated_at: '2026-01-01T00:00:00Z',
         ...overrides,
     }) as CustomPropertyDefinitionApi
 
+// Loosely-typed warehouse view — the logic only reads id/name/columns[].name/is_materialized.
+const buildView = (overrides: Record<string, any> = {}): any => ({
+    id: 'view-1',
+    name: 'billing_view',
+    columns: [{ name: 'org_id' }, { name: 'mrr' }],
+    is_materialized: true,
+    ...overrides,
+})
+
 const defaultMocks = (): Parameters<typeof useMocks>[0] => ({
-    get: { [DEFINITIONS_URL]: { count: 1, results: [buildDefinition()] } },
-    post: { [DEFINITIONS_URL]: buildDefinition({ id: 'def-2' }) },
-    patch: { [DEFINITION_URL]: buildDefinition() },
-    delete: { [DEFINITION_URL]: {} },
+    get: {
+        [DEFINITIONS_URL]: { count: 1, results: [buildDefinition()] },
+        [SAVED_QUERIES_URL]: { count: 1, results: [buildView()] },
+    },
+    post: { [DEFINITIONS_URL]: buildDefinition({ id: 'def-2' }), [SOURCES_URL]: buildSource() },
+    patch: { [DEFINITION_URL]: buildDefinition(), [SOURCE_URL]: buildSource() },
+    delete: { [DEFINITION_URL]: {}, [SOURCE_URL]: {} },
 })
 
 describe('customPropertyDefinitionsLogic', () => {
@@ -143,5 +179,98 @@ describe('customPropertyDefinitionsLogic', () => {
         await expectLogic(logic, () => logic.actions.deleteDefinition({ id: 'def-1' }))
             .toDispatchActions(['deleteDefinitionSuccess'])
             .toMatchValues({ definitions: [] })
+    })
+
+    it('loads warehouse views and hydrates the form when configuring an existing source', async () => {
+        useMocks(defaultMocks())
+        mountLogic()
+        await expectLogic(logic, () => logic.actions.openSourceModal(buildDefinition({ source: buildSource() })))
+            .toDispatchActions(['loadSavedQueries', 'loadSavedQueriesSuccess'])
+            .toFinishAllListeners()
+
+        expect(logic.values.sourceModalVisible).toBe(true)
+        expect(logic.values.customPropertySourceForm).toEqual({
+            savedQuery: 'view-1',
+            sourceColumn: 'mrr',
+            keyColumn: 'org_id',
+            isEnabled: true,
+        })
+    })
+
+    it('exposes the selected view columns for the pickers', async () => {
+        useMocks(defaultMocks())
+        mountLogic()
+        await expectLogic(logic, () => logic.actions.openSourceModal(buildDefinition())).toDispatchActions([
+            'loadSavedQueriesSuccess',
+        ])
+        logic.actions.setCustomPropertySourceFormValue('savedQuery', 'view-1')
+        expect(logic.values.selectedSourceColumns).toEqual(['org_id', 'mrr'])
+    })
+
+    it('creates a source for a definition without one', async () => {
+        let postedBody: Record<string, any> | null = null
+        useMocks({
+            ...defaultMocks(),
+            post: {
+                ...defaultMocks().post,
+                [SOURCES_URL]: async ({ request }) => {
+                    postedBody = (await request.json()) as Record<string, any>
+                    return buildSource()
+                },
+            },
+        })
+        mountLogic()
+        logic.actions.openSourceModal(buildDefinition())
+        logic.actions.setCustomPropertySourceFormValues({
+            savedQuery: 'view-1',
+            sourceColumn: 'mrr',
+            keyColumn: 'org_id',
+            isEnabled: true,
+        })
+
+        await expectLogic(logic, () => logic.actions.submitCustomPropertySourceForm()).toDispatchActions([
+            'submitCustomPropertySourceFormSuccess',
+            'loadDefinitions',
+            'closeSourceModal',
+        ])
+        expect(postedBody).toEqual({
+            definition: 'def-1',
+            saved_query: 'view-1',
+            source_column: 'mrr',
+            key_column: 'org_id',
+            is_enabled: true,
+        })
+    })
+
+    it('updates an existing source via PATCH without the create-only fields', async () => {
+        let patchedBody: Record<string, any> | null = null
+        useMocks({
+            ...defaultMocks(),
+            patch: {
+                ...defaultMocks().patch,
+                [SOURCE_URL]: async ({ request }) => {
+                    patchedBody = (await request.json()) as Record<string, any>
+                    return buildSource()
+                },
+            },
+        })
+        mountLogic()
+        logic.actions.openSourceModal(buildDefinition({ source: buildSource() }))
+        logic.actions.setCustomPropertySourceFormValue('isEnabled', false)
+
+        await expectLogic(logic, () => logic.actions.submitCustomPropertySourceForm()).toDispatchActions([
+            'submitCustomPropertySourceFormSuccess',
+        ])
+        expect(patchedBody).toEqual({ source_column: 'mrr', key_column: 'org_id', is_enabled: false })
+    })
+
+    it('removes a source and closes the modal', async () => {
+        useMocks(defaultMocks())
+        mountLogic()
+        const definition = buildDefinition({ source: buildSource() })
+        await expectLogic(logic, () => logic.actions.removeSource({ definition })).toDispatchActions([
+            'removeSourceSuccess',
+            'closeSourceModal',
+        ])
     })
 })

@@ -4,7 +4,7 @@ resolver = "2"
 
 [package]
 name = "posthog-cli"
-version = "0.7.30"
+version = "0.7.34"
 authors = [
     "David <david@posthog.com>",
     "Olly <oliver@posthog.com>",

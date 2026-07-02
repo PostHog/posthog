@@ -8,7 +8,7 @@ from posthog.test.base import (
     snapshot_postgres_queries,
 )
 
-from posthog.models import Group, Person
+from posthog.models.person.util import get_persons_by_uuids
 from posthog.queries.actor_base_query import (
     get_groups,
     get_people,
@@ -16,6 +16,7 @@ from posthog.queries.actor_base_query import (
     serialize_groups,
     serialize_people,
 )
+from posthog.test.persons import create_group
 
 
 class TestActorsBaseQuery(ClickhouseTestMixin, APIBaseTest):
@@ -31,7 +32,7 @@ class TestActorsBaseQuery(ClickhouseTestMixin, APIBaseTest):
         )
         flush_persons_and_events()
 
-        persons = Person.objects.filter(uuid=person.uuid)
+        persons = get_persons_by_uuids(self.team.pk, [str(person.uuid)])
         result = serialize_people(self.team, persons)
 
         assert len(result) == 1
@@ -105,14 +106,14 @@ class TestActorsBaseQuery(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_postgres_queries
     def test_get_groups(self):
-        Group.objects.create(
+        create_group(
             team=self.team,
             group_type_index=0,
             group_key="org_1",
             group_properties={"name": "Organization 1", "industry": "Tech"},
             version=1,
         )
-        Group.objects.create(
+        create_group(
             team=self.team,
             group_type_index=0,
             group_key="org_2",
@@ -129,14 +130,14 @@ class TestActorsBaseQuery(ClickhouseTestMixin, APIBaseTest):
 
     @snapshot_postgres_queries
     def test_serialize_groups_with_values(self):
-        Group.objects.create(
+        create_group(
             team=self.team,
             group_type_index=1,
             group_key="company_a",
             group_properties={"name": "Company A"},
             version=1,
         )
-        Group.objects.create(
+        create_group(
             team=self.team,
             group_type_index=1,
             group_key="company_b",
@@ -144,7 +145,7 @@ class TestActorsBaseQuery(ClickhouseTestMixin, APIBaseTest):
             version=1,
         )
 
-        groups = Group.objects.filter(group_key__in=["company_a", "company_b"])
+        groups, _ = get_groups(self.team.pk, 1, ["company_a", "company_b"])
         value_per_actor_id = {
             "company_a": 500.0,
             "company_b": 300.0,

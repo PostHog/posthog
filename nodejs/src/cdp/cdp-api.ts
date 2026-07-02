@@ -1,7 +1,10 @@
 import { DateTime } from 'luxon'
 import express from 'ultimate-express'
 
-import { ModifiedRequest } from '~/api/router'
+import { ModifiedRequest } from '~/common/api/router'
+import { buildIntegerMatcherWithPercentage } from '~/common/config/config'
+import { logger } from '~/common/utils/logger'
+import { UUID, UUIDT, delay } from '~/common/utils/utils'
 import { PluginEvent } from '~/plugin-scaffold'
 
 import {
@@ -10,9 +13,8 @@ import {
     HealthCheckResultOk,
     PluginServerService,
     PluginsServerConfig,
+    ValueMatcher,
 } from '../types'
-import { logger } from '../utils/logger'
-import { UUID, UUIDT, delay } from '../utils/utils'
 import { getAsyncFunctionHandler, getRegisteredAsyncFunctionNames } from './async-function-registry'
 import './async-functions'
 import { CdpOutputs, createCdpCoreServices } from './cdp-services'
@@ -27,7 +29,13 @@ import { BATCH_HOGFLOW_REQUESTS_OUTPUT } from './outputs/outputs'
 import { RerunJobManager } from './rerun/rerun-job.manager'
 import { RerunRequest } from './rerun/rerun-job.types'
 import { BatchExportHogFunctionService, NotFoundError, ParseError } from './services/batch-export-hog-function.service'
+import type { CyclotronV2JobProducer } from './services/cyclotron-v2'
 import { HogExecutorExecuteAsyncOptions, HogExecutorService, MAX_ASYNC_STEPS } from './services/hog-executor.service'
+import {
+    BatchResolverState,
+    HOGFLOW_BATCH_RESOLVE_QUEUE,
+    serializeResolverState,
+} from './services/hogflows/batch-resolver.types'
 import { HogFlowExecutorService, createHogFlowInvocation } from './services/hogflows/hogflow-executor.service'
 import { HogFlowManagerService } from './services/hogflows/hogflow-manager.service'
 import { InvocationResultsService } from './services/invocation-results.service'
@@ -98,11 +106,14 @@ export class CdpApi {
     private outputs: CdpOutputs
     private batchExportHogFunctionService: BatchExportHogFunctionService
     private groupsManager: GroupsManagerService
+    private batchResolverProducer: CyclotronV2JobProducer | null
+    private batchResolverRoutingMatcher: ValueMatcher<number>
 
     constructor(
         private config: PluginsServerConfig,
         private deps: CdpApiDeps,
-        jobQueues: { hogQueue: JobQueue; hogflowQueue: JobQueue }
+        jobQueues: { hogQueue: JobQueue; hogflowQueue: JobQueue },
+        batchResolverProducer: CyclotronV2JobProducer | null = null
     ) {
         const services = createCdpCoreServices(config, deps, 'cdp-api-redis')
 
@@ -145,6 +156,8 @@ export class CdpApi {
             this.hogWatcher,
             this.invocationResultsService
         )
+        this.batchResolverProducer = batchResolverProducer
+        this.batchResolverRoutingMatcher = buildIntegerMatcherWithPercentage(config.CDP_BATCH_RESOLVER_ROUTING)
     }
 
     public get service(): PluginServerService {
@@ -779,10 +792,38 @@ export class CdpApi {
                 maxAudienceSize,
             }
 
-            await this.outputs.produce(BATCH_HOGFLOW_REQUESTS_OUTPUT, {
-                value: Buffer.from(JSON.stringify(batchHogFlowRequest)),
-                key: `${team.id}_${hogFlow.id}`,
-            })
+            if (this.batchResolverRoutingMatcher(team.id)) {
+                if (!this.batchResolverProducer) {
+                    throw new Error('CDP_BATCH_RESOLVER_ROUTING matched team but no producer is configured')
+                }
+                const initialState: BatchResolverState = {
+                    batchJobId: parent_run_id,
+                    teamId: team.id,
+                    hogFlowId: hogFlow.id,
+                    filters: batchHogFlowRequest.filters,
+                    variables: req.body.variables ?? {},
+                    groupTypeIndex:
+                        typeof req.body.group_type_index === 'number' ? req.body.group_type_index : undefined,
+                    maxAudienceSize: maxAudienceSize ?? this.config.CDP_BATCH_WORKFLOW_MAX_AUDIENCE_SIZE,
+                    cursor: null,
+                    totalEnqueued: 0,
+                    pagesProcessed: 0,
+                    attempts: 0,
+                    startedAt: new Date().toISOString(),
+                }
+                await this.batchResolverProducer.createJob({
+                    teamId: team.id,
+                    queueName: HOGFLOW_BATCH_RESOLVE_QUEUE,
+                    parentRunId: parent_run_id,
+                    functionId: hogFlow.id,
+                    state: serializeResolverState(initialState),
+                })
+            } else {
+                await this.outputs.produce(BATCH_HOGFLOW_REQUESTS_OUTPUT, {
+                    value: Buffer.from(JSON.stringify(batchHogFlowRequest)),
+                    key: `${team.id}_${hogFlow.id}`,
+                })
+            }
 
             res.json({ status: 'queued' })
         } catch (e) {

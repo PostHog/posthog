@@ -118,7 +118,8 @@ describe('SessionBatchManager', () => {
             mockSessionFilter,
             mockKeyStore,
             mockEncryptor,
-            Number.MAX_SAFE_INTEGER
+            Number.MAX_SAFE_INTEGER,
+            100
         )
 
         const secondBatch = manager.getCurrentBatch()
@@ -213,7 +214,8 @@ describe('SessionBatchManager', () => {
                 mockSessionFilter,
                 mockKeyStore,
                 mockEncryptor,
-                500
+                500,
+                100
             )
         })
 
@@ -245,7 +247,8 @@ describe('SessionBatchManager', () => {
                 mockSessionFilter,
                 mockKeyStore,
                 mockEncryptor,
-                250
+                250,
+                100
             )
         })
 
@@ -275,7 +278,8 @@ describe('SessionBatchManager', () => {
                 mockSessionFilter,
                 mockKeyStore,
                 mockEncryptor,
-                0
+                0,
+                100
             )
         })
 
@@ -305,7 +309,8 @@ describe('SessionBatchManager', () => {
                 mockSessionFilter,
                 mockKeyStore,
                 mockEncryptor,
-                Number.MAX_SAFE_INTEGER
+                Number.MAX_SAFE_INTEGER,
+                100
             )
         })
     })

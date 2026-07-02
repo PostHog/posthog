@@ -16,7 +16,6 @@ except ImportError:  # fail-open: runs without tools/hogli-commands on pythonpat
 
 from django.conf import settings
 from django.core.management.commands.flush import Command as FlushCommand
-from django.db import connections
 
 from infi.clickhouse_orm import Database
 
@@ -240,10 +239,22 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
     test_db_name = connection.settings_dict["NAME"]
     test_persons_db_name = test_db_name + "_persons"
 
-    # Update the persons database NAME to use the correct test database name
-    # The database configuration already exists from settings, we just need to update the NAME
-    settings.DATABASES["persons_db_writer"]["NAME"] = test_persons_db_name
-    settings.DATABASES["persons_db_reader"]["NAME"] = test_persons_db_name
+    # Point the off-ORM persons_db util (posthog/persons_db.py) at the test persons DB. It reads
+    # only PERSONS_DB_{WRITER,READER}_URL from the environment, never Django settings. Derive the
+    # URL from the DEFAULT connection's config (the persons DB lives on the same server, just a
+    # different database) so this no longer depends on the persons_db Django alias.
+    _default_db = connection.settings_dict
+    _persons_user = quote_plus(_default_db.get("USER") or "")
+    _persons_password = f":{quote_plus(_default_db['PASSWORD'])}" if _default_db.get("PASSWORD") else ""
+    # HOST/PORT can be empty strings in Django's config (empty HOST means Unix socket);
+    # fall back to localhost:5432 so the URL is always well-formed for psycopg.
+    _persons_host = _default_db.get("HOST") or "localhost"
+    _persons_port = _default_db.get("PORT") or "5432"
+    _persons_db_url = (
+        f"postgres://{_persons_user}{_persons_password}@{_persons_host}:{_persons_port}/{test_persons_db_name}"
+    )
+    os.environ["PERSONS_DB_WRITER_URL"] = _persons_db_url
+    os.environ["PERSONS_DB_READER_URL"] = _persons_db_url
 
     # Update product database NAMEs to use test-prefixed names
     from posthog.product_db_config import load_product_db_routes
@@ -255,8 +266,9 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
             if alias in settings.DATABASES:
                 settings.DATABASES[alias]["NAME"] = test_product_db_name
 
-    # Drop Person-related tables from default database and all FK constraints
-    # These tables will exist in the persons_db_writer database via sqlx migrations
+    # Drop Person-related tables from default database and all FK constraints.
+    # These tables exist only in the persons database, provisioned by sqlx migrations and
+    # reached via off-Django psycopg — never the ORM.
     with django_db_blocker.unblock():
         with connection.cursor() as cursor:
             # Drop all FK constraints pointing to posthog_person, regardless of naming convention
@@ -282,8 +294,8 @@ def _django_db_setup(django_db_keepdb, django_db_blocker):
                 END $$;
             """)
 
-            # Drop all persons-related tables from default database
-            # These will exist in the persons_db_writer database via sqlx migrations
+            # Drop all persons-related tables from default database. They exist only in the
+            # persons database (provisioned by sqlx migrations).
             # Drop in correct order: dependent tables first, then referenced tables
             cursor.execute("""
                 DROP TABLE IF EXISTS posthog_cohortpeople CASCADE;
@@ -348,21 +360,6 @@ def pytest_terminal_summary(terminalreporter: Any, exitstatus: int, config: Any)
         terminalreporter.write_line(f"[flush-lock-guard] {flush_lock_guard.reports.pop(0)}", yellow=True)
 
 
-def _truncate_persons_db_tables(database: str) -> None:
-    conn = connections[database]
-    with conn.cursor() as cursor:
-        cursor.execute("""
-            SELECT tablename FROM pg_tables
-            WHERE schemaname = 'public'
-            AND tablename NOT LIKE 'pg_%'
-            AND tablename NOT LIKE '_sqlx_%'
-            AND tablename NOT LIKE '_persons_migrations'
-        """)
-        tables = [row[0] for row in cursor.fetchall()]
-        if tables:
-            cursor.execute(f"TRUNCATE TABLE {', '.join(tables)} RESTART IDENTITY CASCADE")
-
-
 def _patched_flush_handle(self, **options: Any) -> None:
     """
     Patched Django flush command for three reasons:
@@ -385,11 +382,8 @@ def _patched_flush_handle(self, **options: Any) -> None:
     """
     database = options["database"]
 
-    if database in ("persons_db_writer", "persons_db_reader"):
-        flush: Callable[[], None] = partial(_truncate_persons_db_tables, database)
-    else:
-        options["allow_cascade"] = True
-        flush = partial(_original_flush_handle, self, **options)
+    options["allow_cascade"] = True
+    flush: Callable[[], None] = partial(_original_flush_handle, self, **options)
 
     flush_lock_guard.flush_with_lock_guard(database, flush)
 
@@ -538,8 +532,8 @@ def pytest_configure(config):
     from django.test import TestCase, TransactionTestCase
 
     # Set default databases for Django test classes
-    TestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
-    TransactionTestCase.databases = {"default", "persons_db_writer", "persons_db_reader"}
+    TestCase.databases = {"default"}
+    TransactionTestCase.databases = {"default"}
 
     if not config.pluginmanager.hasplugin("posthog-junit-timings"):
         config.pluginmanager.register(_JUnitTimingsPlugin(), "posthog-junit-timings")

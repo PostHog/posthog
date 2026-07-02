@@ -47,7 +47,9 @@ class TrendsExtractor:
     normalize. Relative conditions are invalid for non-time-series insights and raise.
     """
 
-    def extract(self, alert: AlertConfiguration, insight: Insight, query: Any) -> ExtractionResult:
+    def extract(
+        self, alert: AlertConfiguration, insight: Insight, query: Any, execution_mode: ExecutionMode
+    ) -> ExtractionResult:
         query = TrendsQuery.model_validate(query)
         if not (alert.config and "type" in alert.config and alert.config["type"] == "TrendsAlertConfig"):
             raise ValueError(f"Unsupported alert config type: {alert.config}")
@@ -65,10 +67,6 @@ class TrendsExtractor:
         check_current_interval = bool(config.check_ongoing_interval)
         lookback_intervals = lookback_intervals_for(condition)
         interval_type = None if is_non_time_series else query.interval
-
-        execution_mode = ExecutionMode.RECENT_CACHE_CALCULATE_BLOCKING_IF_STALE
-        if query.interval == IntervalType.HOUR:
-            execution_mode = ExecutionMode.CALCULATE_BLOCKING_ALWAYS
 
         match condition.type:
             case AlertConditionType.ABSOLUTE_VALUE:

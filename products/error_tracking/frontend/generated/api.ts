@@ -13,6 +13,10 @@ import type {
     ErrorTrackingAssignmentRuleCreateRequestApi,
     ErrorTrackingAssignmentRuleUpdateRequestApi,
     ErrorTrackingAssignmentRulesListParams,
+    ErrorTrackingBypassRuleApi,
+    ErrorTrackingBypassRuleCreateRequestApi,
+    ErrorTrackingBypassRuleUpdateRequestApi,
+    ErrorTrackingBypassRulesListParams,
     ErrorTrackingExternalReferenceResultApi,
     ErrorTrackingExternalReferencesListParams,
     ErrorTrackingFingerprintApi,
@@ -61,6 +65,7 @@ import type {
     ErrorTrackingSymbolSetsListParams,
     GitProviderFileLinkResolveResponseApi,
     PaginatedErrorTrackingAssignmentRuleListApi,
+    PaginatedErrorTrackingBypassRuleListApi,
     PaginatedErrorTrackingExternalReferenceResultListApi,
     PaginatedErrorTrackingFingerprintListApi,
     PaginatedErrorTrackingIssueReadListApi,
@@ -72,6 +77,8 @@ import type {
     PaginatedErrorTrackingSymbolSetListApi,
     PatchedErrorTrackingAssignmentRuleApi,
     PatchedErrorTrackingAssignmentRuleUpdateRequestApi,
+    PatchedErrorTrackingBypassRuleApi,
+    PatchedErrorTrackingBypassRuleUpdateRequestApi,
     PatchedErrorTrackingGroupingRuleApi,
     PatchedErrorTrackingGroupingRuleUpdateRequestApi,
     PatchedErrorTrackingIssueReadApi,
@@ -231,6 +238,133 @@ export const errorTrackingAssignmentRulesReorderPartialUpdate = async (
         method: 'PATCH',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(patchedErrorTrackingAssignmentRuleApi),
+    })
+}
+
+export const getErrorTrackingBypassRulesListUrl = (projectId: string, params?: ErrorTrackingBypassRulesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/error_tracking/bypass_rules/?${stringifiedParams}`
+        : `/api/projects/${projectId}/error_tracking/bypass_rules/`
+}
+
+export const errorTrackingBypassRulesList = async (
+    projectId: string,
+    params?: ErrorTrackingBypassRulesListParams,
+    options?: RequestInit
+): Promise<PaginatedErrorTrackingBypassRuleListApi> => {
+    return apiMutator<PaginatedErrorTrackingBypassRuleListApi>(getErrorTrackingBypassRulesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getErrorTrackingBypassRulesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/bypass_rules/`
+}
+
+export const errorTrackingBypassRulesCreate = async (
+    projectId: string,
+    errorTrackingBypassRuleCreateRequestApi: ErrorTrackingBypassRuleCreateRequestApi,
+    options?: RequestInit
+): Promise<ErrorTrackingBypassRuleApi> => {
+    return apiMutator<ErrorTrackingBypassRuleApi>(getErrorTrackingBypassRulesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(errorTrackingBypassRuleCreateRequestApi),
+    })
+}
+
+export const getErrorTrackingBypassRulesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/bypass_rules/${id}/`
+}
+
+export const errorTrackingBypassRulesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<ErrorTrackingBypassRuleApi> => {
+    return apiMutator<ErrorTrackingBypassRuleApi>(getErrorTrackingBypassRulesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getErrorTrackingBypassRulesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/bypass_rules/${id}/`
+}
+
+export const errorTrackingBypassRulesUpdate = async (
+    projectId: string,
+    id: string,
+    errorTrackingBypassRuleUpdateRequestApi?: ErrorTrackingBypassRuleUpdateRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingBypassRulesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(errorTrackingBypassRuleUpdateRequestApi),
+    })
+}
+
+export const getErrorTrackingBypassRulesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/bypass_rules/${id}/`
+}
+
+export const errorTrackingBypassRulesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedErrorTrackingBypassRuleUpdateRequestApi?: PatchedErrorTrackingBypassRuleUpdateRequestApi,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingBypassRulesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedErrorTrackingBypassRuleUpdateRequestApi),
+    })
+}
+
+export const getErrorTrackingBypassRulesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/error_tracking/bypass_rules/${id}/`
+}
+
+export const errorTrackingBypassRulesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingBypassRulesDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getErrorTrackingBypassRulesReorderPartialUpdateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/error_tracking/bypass_rules/reorder/`
+}
+
+export const errorTrackingBypassRulesReorderPartialUpdate = async (
+    projectId: string,
+    patchedErrorTrackingBypassRuleApi?: NonReadonly<PatchedErrorTrackingBypassRuleApi>,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getErrorTrackingBypassRulesReorderPartialUpdateUrl(projectId), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedErrorTrackingBypassRuleApi),
     })
 }
 

@@ -1,12 +1,12 @@
+import * as envUtils from '~/common/utils/env-utils'
 import { RetentionService } from '~/ingestion/pipelines/sessionreplay/shared/retention/retention-service'
-import * as envUtils from '~/utils/env-utils'
 
 import { CleartextKeyStore } from './cleartext-keystore'
 import { DynamoDBKeyStore } from './dynamodb-keystore'
 import { getKeyStore } from './index'
 
-jest.mock('~/utils/env-utils', () => ({
-    ...jest.requireActual('~/utils/env-utils'),
+jest.mock('~/common/utils/env-utils', () => ({
+    ...jest.requireActual('~/common/utils/env-utils'),
     isCloud: jest.fn(),
 }))
 

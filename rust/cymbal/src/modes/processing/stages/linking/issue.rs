@@ -7,12 +7,11 @@ use tracing::warn;
 use uuid::Uuid;
 
 use crate::{
-    analytics::capture_issue_created,
     app_context::AppContext,
     error::UnhandledError,
     issue_resolution::{
-        send_fingerprint_issue_state, send_issue_created_alert, send_issue_reopened_alert,
-        send_new_fingerprint_event, Issue, IssueFingerprintOverride,
+        send_fingerprint_issue_state, send_issue_created_notification,
+        send_issue_reopened_notification, Issue, IssueFingerprintOverride,
     },
     metric_consts::{ISSUE_CREATED, ISSUE_LINKER_OPERATOR},
     modes::processing::rules::assignment::{try_assignment_rules, Assignment},
@@ -206,10 +205,8 @@ async fn load_and_maybe_reopen(
     .await?;
     let output_props: OutputErrProps = event_properties.to_output(issue.id)?;
     drop(conn);
-    context
-        .signal_client
-        .emit_issue_reopened(&issue, &output_props);
-    send_issue_reopened_alert(context, &issue, assignment, output_props, &event_timestamp).await?;
+    send_issue_reopened_notification(context, &issue, assignment, output_props, &event_timestamp)
+        .await?;
 
     Ok(Some(issue))
 }
@@ -247,11 +244,14 @@ async fn resolve_issue(
             .await?;
             let output_props: OutputErrProps = event_properties.to_output(issue.id)?;
             drop(conn);
-            context
-                .signal_client
-                .emit_issue_reopened(&issue, &output_props);
-            send_issue_reopened_alert(context, &issue, assignment, output_props, &event_timestamp)
-                .await?;
+            send_issue_reopened_notification(
+                context,
+                &issue,
+                assignment,
+                output_props,
+                &event_timestamp,
+            )
+            .await?;
         }
         return Ok(issue);
     }
@@ -315,11 +315,14 @@ async fn resolve_issue(
             drop(conn);
 
             let output_props: OutputErrProps = event_properties.to_output(issue.id)?;
-            context
-                .signal_client
-                .emit_issue_reopened(&issue, &output_props);
-            send_issue_reopened_alert(context, &issue, assignment, output_props, &event_timestamp)
-                .await?;
+            send_issue_reopened_notification(
+                context,
+                &issue,
+                assignment,
+                output_props,
+                &event_timestamp,
+            )
+            .await?;
         }
     } else {
         metrics::counter!(ISSUE_CREATED).increment(1);
@@ -327,7 +330,6 @@ async fn resolve_issue(
             process_assignment(&mut txn, &context.team_manager, &issue, &event_properties).await?;
 
         let output_props = event_properties.clone().to_output(issue.id)?;
-        send_new_fingerprint_event(context, &issue, &output_props).await?;
         send_fingerprint_issue_state(
             context,
             &issue,
@@ -340,18 +342,15 @@ async fn resolve_issue(
         txn.commit().await?;
         drop(conn);
 
-        context
-            .signal_client
-            .emit_issue_created(&issue, &output_props);
-
-        send_issue_created_alert(context, &issue, assignment, output_props, &event_timestamp)
-            .await?;
-
-        capture_issue_created(
-            team_id,
-            issue_override.issue_id,
-            event_properties.props.contains_key("$sentry_event_id"),
-        );
+        send_issue_created_notification(
+            context,
+            &issue,
+            assignment,
+            output_props,
+            event_properties.uuid,
+            &event_timestamp,
+        )
+        .await?;
     };
 
     Ok(issue)

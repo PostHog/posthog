@@ -1,6 +1,6 @@
 # Warehouse-source gRPC calls must go through the tracked gRPC transport so they
 # participate in gRPC logging, metrics, and sample capture (see
-# posthog/temporal/data_imports/sources/common/grpc/). Raw `grpc.secure_channel`
+# products/warehouse_sources/backend/temporal/data_imports/sources/common/grpc/). Raw `grpc.secure_channel`
 # / `grpc.insecure_channel` channels, and direct vendor gRPC-client construction,
 # bypass the transport.
 #
@@ -22,7 +22,7 @@ rules:
       message: |
           Build the channel through the tracked gRPC transport instead of a raw
           `grpc.*_channel(...)`. Use `make_tracked_channel(channel, host=...)`
-          from `posthog.temporal.data_imports.sources.common.grpc` so every RPC
+          from `products.warehouse_sources.backend.temporal.data_imports.sources.common.grpc` so every RPC
           is logged, metered, and eligible for sample capture.
 
           If a vendor SDK forces a raw channel and exposes no interceptor seam,
@@ -35,9 +35,9 @@ rules:
           confidence: HIGH
       paths:
           include:
-              - '**/posthog/temporal/data_imports/sources/**'
+              - '**/products/warehouse_sources/backend/temporal/data_imports/sources/**'
           exclude:
-              - '**/posthog/temporal/data_imports/sources/common/grpc/**'
+              - '**/products/warehouse_sources/backend/temporal/data_imports/sources/common/grpc/**'
               - '**/test/**'
               - '**/tests/**'
               - '**/test_*.py'
@@ -64,13 +64,13 @@ rules:
           confidence: HIGH
       paths:
           include:
-              - '**/posthog/temporal/data_imports/sources/**'
+              - '**/products/warehouse_sources/backend/temporal/data_imports/sources/**'
           exclude:
-              - '**/posthog/temporal/data_imports/sources/common/grpc/**'
+              - '**/products/warehouse_sources/backend/temporal/data_imports/sources/common/grpc/**'
               # bigquery.py constructs the client itself, but routes the channel
               # through make_tracked_channel — the enforced invariant there is the
               # tracked channel, not avoiding the constructor.
-              - '**/posthog/temporal/data_imports/sources/bigquery/bigquery.py'
+              - '**/products/warehouse_sources/backend/temporal/data_imports/sources/bigquery/bigquery.py'
               - '**/test/**'
               - '**/tests/**'
               - '**/test_*.py'
@@ -95,13 +95,13 @@ rules:
           confidence: HIGH
       paths:
           include:
-              - '**/posthog/temporal/data_imports/sources/**'
+              - '**/products/warehouse_sources/backend/temporal/data_imports/sources/**'
           exclude:
-              - '**/posthog/temporal/data_imports/sources/common/grpc/**'
+              - '**/products/warehouse_sources/backend/temporal/data_imports/sources/common/grpc/**'
               # google_ads.py constructs the client but the enforced invariant is
               # passing tracked_interceptors(...) to get_service, not avoiding the
               # constructor (google-ads exposes no other seam).
-              - '**/posthog/temporal/data_imports/sources/google_ads/google_ads.py'
+              - '**/products/warehouse_sources/backend/temporal/data_imports/sources/google_ads/google_ads.py'
               - '**/test/**'
               - '**/tests/**'
               - '**/test_*.py'

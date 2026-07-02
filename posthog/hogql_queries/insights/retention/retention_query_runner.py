@@ -13,6 +13,7 @@ from posthog.schema import (
     HogQLQueryResponse,
     InCohortVia,
     IntervalType,
+    ResolvedDateRangeResponse,
     RetentionEntity,
     RetentionQuery,
     RetentionQueryResponse,
@@ -611,7 +612,16 @@ class RetentionQueryRunner(AnalyticsQueryRunner[RetentionQueryResponse]):
 
         results = self.format_results(response)
 
-        return RetentionQueryResponse(results=results, timings=response.timings, hogql=hogql, modifiers=self.modifiers)
+        return RetentionQueryResponse(
+            results=results,
+            timings=response.timings,
+            hogql=hogql,
+            modifiers=self.modifiers,
+            resolved_date_range=ResolvedDateRangeResponse(
+                date_from=self.query_date_range.date_from(),
+                date_to=self.query_date_range.date_to(),
+            ),
+        )
 
     def format_results(self, response: HogQLQueryResponse) -> list[dict[str, Any]]:
         """Format raw retention HogQL response into nested interval structures.

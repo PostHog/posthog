@@ -116,10 +116,15 @@ export function getInitialPinnedRowIndex({
     value: string | number | null | undefined
     isActiveTab: boolean
 }): number | null {
+    const dataWarehouseGroupTypes: TaxonomicFilterGroupType[] = [
+        TaxonomicFilterGroupType.DataWarehouse,
+        TaxonomicFilterGroupType.DataWarehouseSourceTables,
+    ]
     if (
         !isActiveTab ||
-        listGroupType !== TaxonomicFilterGroupType.DataWarehouse ||
-        groupType !== TaxonomicFilterGroupType.DataWarehouse ||
+        !dataWarehouseGroupTypes.includes(listGroupType) ||
+        groupType === undefined ||
+        !dataWarehouseGroupTypes.includes(groupType) ||
         value == null
     ) {
         return null

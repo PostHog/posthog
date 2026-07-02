@@ -29,7 +29,7 @@
             "state": "live",
             "bundle_sha256": "abc123",
             "spec": {
-                "model": "anthropic/claude-sonnet-4-6",
+                "models": { "mode": "manual", "models": [{ "model": "anthropic/claude-sonnet-4-6" }] },
                 "triggers": [{ "type": "cron", "config": { "schedule": "0 9 * * 1", "timezone": "UTC" } }],
                 "tools": [
                     { "kind": "native", "id": "@posthog/query" },
