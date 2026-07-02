@@ -15,8 +15,7 @@ function formatDuration(seconds: number | null): string {
     return seconds == null ? '—' : humanFriendlyDuration(seconds, { maxUnits: 2 })
 }
 
-/** Duration spread as a compact range bar: the median is the fill, p95 the tick — "typically fast, with
- *  a long tail" reads in one glance, where two separate p50/p95 numbers didn't. */
+/** Duration spread as a range bar: median is the fill, p95 the tick. */
 function DurationRange({ median, p95 }: { median: number | null; p95: number | null }): JSX.Element {
     // Scale a touch past p95 so its tick sits inside the bar rather than hard against the end.
     const scale = p95 ? p95 * 1.25 : 0
@@ -48,10 +47,8 @@ interface WorkflowHealthHeaderProps {
 }
 
 /**
- * The verdict strip above a workflow's runs: a colored state word + pass rate carry the answer (is this
- * workflow ok?) before the eye reaches the chart, with the headline rollups the chart can't show —
- * re-run rate (flakiness) and total CI cost — alongside. Adapted from the CI master-health design to a
- * single workflow over the selected window.
+ * Verdict strip above a workflow's runs: colored state word + pass rate, plus rollups the chart can't
+ * show (re-run rate, total CI cost).
  */
 export function WorkflowHealthHeader({ summary, cost, truncated, className }: WorkflowHealthHeaderProps): JSX.Element {
     const meta = STATE_META[summary.state]
@@ -61,8 +58,7 @@ export function WorkflowHealthHeader({ summary, cost, truncated, className }: Wo
     return (
         <LemonCard
             hoverEffect={false}
-            // Left accent in the state color (border-l-4 + the state's token class) — the strip reads as
-            // healthy/degraded/failing at the edge.
+            // Left accent in the state color so the strip reads healthy/degraded/failing at the edge.
             className={cn(
                 'flex flex-wrap items-center gap-x-6 gap-y-4 border-l-4 px-5 py-4',
                 meta.borderClass,
@@ -104,8 +100,8 @@ export function WorkflowHealthHeader({ summary, cost, truncated, className }: Wo
 
             <div className="flex-1" />
 
-            {/* Rollups the chart doesn't already show — median is the chart's dashed line, so it's omitted
-                here; p95 (tail latency), re-run rate, and total cost aren't anywhere on the scatter. */}
+            {/* Rollups not on the chart: median is the chart's dashed line (omitted); p95, re-run rate,
+                and cost aren't. */}
             <div className="flex flex-wrap items-start gap-x-6 gap-y-3">
                 <HealthKpi
                     label="Runs"

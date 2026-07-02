@@ -778,6 +778,27 @@ class TestPostgresSourceNonRetryableErrors:
     @pytest.mark.parametrize(
         "error_msg",
         [
+            # Raw psycopg message (what the activity-level check sees via str(e)).
+            'user mapping not found for user "svc_role", server "remote_server"',
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            'UndefinedObject: user mapping not found for user "svc_role", server "remote_server"',
+        ],
+    )
+    def test_missing_fdw_user_mapping_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Missing FDW user mapping error should be non-retryable: {error_msg}"
+
+    def test_missing_fdw_user_mapping_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = 'user mapping not found for user "svc_role", server "remote_server"'
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Missing FDW user mapping error should surface an actionable message"
+        assert "CREATE USER MAPPING" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
             # A single recovery conflict is retried in-process; on its own it must stay retryable.
             "canceling statement due to conflict with recovery",
             "could not serialize access due to conflict with recovery",

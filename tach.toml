@@ -43,6 +43,7 @@ depends_on = [
     "products.dashboards",
     "products.data_modeling",
     "products.data_tools",
+    "products.demo",
     "products.error_tracking",
     "products.event_definitions",
     "products.experiments",
@@ -81,6 +82,7 @@ depends_on = [
     "products.dashboards",
     "products.data_modeling",
     "products.data_warehouse",
+    "products.demo",
     "products.early_access_features",
     "products.endpoints",
     "products.engineering_analytics",
@@ -263,6 +265,24 @@ depends_on = [
     "products.cdp",
     "products.data_modeling",
     "products.revenue_analytics", "products.warehouse_sources", "products.data_tools", "products.batch_exports",
+]
+layer = "modules"
+
+[[modules]]
+path = "products.demo"
+depends_on = [
+    "posthog",
+    "products.actions",
+    "products.cohorts",
+    "products.dashboards",
+    "products.data_tools",
+    "products.endpoints",
+    "products.error_tracking",
+    "products.event_definitions",
+    "products.experiments",
+    "products.feature_flags",
+    "products.product_analytics",
+    "products.warehouse_sources",
 ]
 layer = "modules"
 
@@ -720,7 +740,7 @@ expose = [
     "backend\\.routes.*",
 ]
 from = [
-    "products\\.(customer_analytics|data_modeling|data_warehouse|endpoints|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
+    "products\\.(customer_analytics|data_modeling|data_warehouse|demo|endpoints|error_tracking|experiments|mcp_analytics|mcp_store|metrics|notebooks|notifications|streamlit_apps|tasks|tracing|user_interviews|visual_review|warehouse_sources)",
 ]
 
 # TODO: Experiments-specific temporary interface
