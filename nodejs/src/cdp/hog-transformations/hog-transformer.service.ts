@@ -35,6 +35,7 @@ import { getTransformationFunctions } from './transformation-functions'
 export interface HogTransformerConfig {
     siteUrl: string
     hogWatcherSampleRate: number
+    hogRustVmShadowSampleRate: number
 }
 
 export const hogTransformationDroppedEvents = new Counter({
@@ -450,9 +451,10 @@ export class HogTransformerService implements HogTransformer {
 /**
  * Config needed by the HogTransformer when running inside ingestion.
  * This is CdpCoreServicesConfig (CDP redis, watcher, monitoring, encryption, etc.)
- * plus the ingestion-specific CDP_HOG_WATCHER_SAMPLE_RATE from CommonConfig.
+ * plus the ingestion-specific sample rates from CommonConfig.
  */
-export type HogTransformerServiceConfig = CdpCoreServicesConfig & Pick<CommonConfig, 'CDP_HOG_WATCHER_SAMPLE_RATE'>
+export type HogTransformerServiceConfig = CdpCoreServicesConfig &
+    Pick<CommonConfig, 'CDP_HOG_WATCHER_SAMPLE_RATE' | 'CDP_HOG_RUST_VM_SHADOW_SAMPLE_RATE'>
 
 export interface HogTransformerServiceDeps {
     geoipService: GeoIPService
@@ -556,6 +558,7 @@ export function createHogTransformerService(
         {
             siteUrl: config.SITE_URL,
             hogWatcherSampleRate: config.CDP_HOG_WATCHER_SAMPLE_RATE,
+            hogRustVmShadowSampleRate: config.CDP_HOG_RUST_VM_SHADOW_SAMPLE_RATE,
         }
     )
 }
