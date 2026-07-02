@@ -59,6 +59,7 @@ from posthog.hogql.query import execute_hogql_query
 
 from posthog.clickhouse.client.execute import sync_execute
 from posthog.models import PropertyDefinition
+from posthog.models.event.sql import EVENTS_JSON_DATA_TABLE
 from posthog.models.exchange_rate.sql import EXCHANGE_RATE_DICTIONARY_NAME
 from posthog.models.team.team import WeekStartDay
 from posthog.settings.data_stores import CLICKHOUSE_DATABASE
@@ -4947,6 +4948,11 @@ class TestNewEventsSchemaDefaults(BaseTest):
 class TestMaterializedColumnOptimization(ClickhouseTestMixin, APIBaseTest):
     maxDiff = None
     allow_dual_schema_snapshots = True
+
+    def setUp(self) -> None:
+        super().setUp()
+        if settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+            sync_execute(f"TRUNCATE TABLE {EVENTS_JSON_DATA_TABLE}")
 
     def _json_dynamic_subcolumn_expr(self, root: str, property_name: str) -> str:
         field = f"{root}.{escape_clickhouse_json_subcolumn_identifier(property_name)}"
