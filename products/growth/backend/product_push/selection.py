@@ -15,7 +15,7 @@ is hidden in the projects that already use it (see the API's team_id handling).
 
 from collections import defaultdict
 from dataclasses import dataclass
-from datetime import datetime, timedelta
+from datetime import datetime
 from random import choice
 
 from django.db.models import Q
@@ -26,7 +26,7 @@ from posthog.models.project import Project
 from posthog.schema_enums import ProductKey
 
 from products.growth.backend.models import ProductPushCampaign
-from products.growth.backend.product_push.cadence import SKIP_RETRY_DAYS
+from products.growth.backend.product_push.cadence import is_retry_eligible
 
 # The order in which we push products to organizations that don't use them yet.
 # Seeded from the cross-sell BASE_PREFERENCE_WEIGHTS ranking (see
@@ -138,7 +138,6 @@ def select_next_product(organization: Organization, now: datetime) -> Selection 
 
     excluded = get_org_used_product_keys(organization)
 
-    retry_cutoff = now - timedelta(days=SKIP_RETRY_DAYS)
     history = ProductPushCampaign.objects.filter(organization=organization).values_list(
         "product_key", "status", "ended_at"
     )
@@ -149,7 +148,7 @@ def select_next_product(organization: Organization, now: datetime) -> Selection 
             ProductPushCampaign.Status.ADOPTED,
         ):
             excluded.add(product_key)
-        elif ended_at is not None and ended_at > retry_cutoff:
+        elif ended_at is not None and not is_retry_eligible(ended_at, now):
             # Skipped or cancelled recently — still in retry cooldown.
             excluded.add(product_key)
 

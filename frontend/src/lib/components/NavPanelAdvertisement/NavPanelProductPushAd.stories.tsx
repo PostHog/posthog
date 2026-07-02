@@ -41,7 +41,8 @@ export const AllProducts: Story = {
         // catalog label; a story has no catalog to resolve against, so humanize the key instead.
         const humanizeProductKey = (productKey: string): string => {
             const spaced = productKey.replace(/_/g, ' ')
-            return spaced.charAt(0).toUpperCase() + spaced.slice(1)
+            const sentence = spaced.charAt(0).toUpperCase() + spaced.slice(1)
+            return sentence.replace(/^Llm\b/, 'LLM')
         }
 
         return (

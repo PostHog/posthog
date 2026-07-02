@@ -3,14 +3,14 @@
 Two sequenced phases:
 
 1. Close — evaluate every ACTIVE campaign: close as adopted when the org started
-   using the product, as skipped when the 30-day window expired without adoption.
+   using the product, as skipped when the 14-day window expired without adoption.
 2. Start — start the next campaign for every eligible org (past the signup grace
    period, no active campaign, out of the between-campaigns cooldown, or holding a
    due dated TAM pin).
 
 The start phase depends on the collected close results so a campaign that expires
 today frees its org for cadence evaluation in the same run (the cooldown then
-keeps it quiet for 15 days).
+keeps it quiet for 7 days).
 
 All business logic lives in products/growth/backend/product_push/; this file only
 orchestrates. Rollout controls (`rollout_percentage`, `max_starts`, `dry_run`)
