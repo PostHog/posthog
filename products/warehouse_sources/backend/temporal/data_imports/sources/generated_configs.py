@@ -1556,7 +1556,8 @@ class HubspotSourceConfig(config.Config):
 
 @config.config
 class HuggingFaceSourceConfig(config.Config):
-    pass
+    api_token: str
+    author: str
 
 
 @config.config
