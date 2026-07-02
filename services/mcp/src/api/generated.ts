@@ -8874,6 +8874,7 @@ export namespace Schemas {
     export type DetectorConfig = EnsembleDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig | IQRDetectorConfig | ThresholdDetectorConfig | ECODDetectorConfig | COPODDetectorConfig | IsolationForestDetectorConfig | KNNDetectorConfig | HBOSDetectorConfig | LOFDetectorConfig | OCSVMDetectorConfig | PCADetectorConfig;
 
     /**
+     * * `real_time` - real_time
      * * `every_15_minutes` - every_15_minutes
      * * `hourly` - hourly
      * * `daily` - daily
@@ -8884,6 +8885,7 @@ export namespace Schemas {
 
 
     export const CalculationIntervalEnum = {
+      RealTime: 'real_time',
       Every15Minutes: 'every_15_minutes',
       Hourly: 'hourly',
       Daily: 'daily',
@@ -8951,6 +8953,7 @@ export namespace Schemas {
       detector_config?: DetectorConfig | null;
       /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
        *
+       * * `real_time` - real_time
        * * `every_15_minutes` - every_15_minutes
        * * `hourly` - hourly
        * * `daily` - daily
@@ -35997,6 +36000,7 @@ export namespace Schemas {
       detector_config?: DetectorConfig | null;
       /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
        *
+       * * `real_time` - real_time
        * * `every_15_minutes` - every_15_minutes
        * * `hourly` - hourly
        * * `daily` - daily
