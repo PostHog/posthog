@@ -2260,6 +2260,56 @@ class TestExperimentCRUD(APILicensedTest):
         self.assertEqual(list_parameters["feature_flag_variants"], expected_variants)
         self.assertEqual(list_parameters["aggregation_group_type_index"], 1)
 
+    def test_feature_flag_config_is_not_persisted_into_parameters(self):
+        """Create and update consume feature-flag config to build/sync the flag, but never store it
+        in the deprecated `parameters` column. Non-flag keys (e.g. variant_notes) are preserved.
+        """
+        ff_key = "ff-config-not-stored"
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "No mirror",
+                "feature_flag_key": ff_key,
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ],
+                    "rollout_percentage": 100,
+                    "variant_notes": {"control": "baseline"},
+                },
+            },
+        )
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        experiment_id = response.json()["id"]
+
+        experiment = Experiment.objects.get(id=experiment_id)
+        assert experiment.parameters is not None
+        self.assertNotIn("feature_flag_variants", experiment.parameters)
+        self.assertNotIn("rollout_percentage", experiment.parameters)
+        self.assertEqual(experiment.parameters["variant_notes"], {"control": "baseline"})
+        flag = FeatureFlag.objects.get(key=ff_key, team_id=self.team.id)
+        self.assertEqual([v["key"] for v in flag.variants], ["control", "test"])
+
+        # A draft update that re-sends the full parameters blob also strips the flag config and
+        # keeps the non-flag keys.
+        self.client.patch(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}",
+            {
+                "parameters": {
+                    "feature_flag_variants": [
+                        {"key": "control", "name": "Control", "rollout_percentage": 50},
+                        {"key": "test", "name": "Test", "rollout_percentage": 50},
+                    ],
+                    "variant_notes": {"control": "still baseline"},
+                },
+            },
+        )
+        experiment.refresh_from_db()
+        assert experiment.parameters is not None
+        self.assertNotIn("feature_flag_variants", experiment.parameters)
+        self.assertEqual(experiment.parameters["variant_notes"], {"control": "still baseline"})
+
     def test_experiment_response_includes_feature_flag(self):
         """Test that experiment responses include the feature_flag field correctly serialized."""
         response = self.client.post(
@@ -3198,13 +3248,15 @@ class TestExperimentCRUD(APILicensedTest):
             },
         )
 
-        # Verify that Experiment.parameters.feature_flag_variants reflects the updated FeatureFlag.filters.multivariate.variants
-        experiment = Experiment.objects.get(id=experiment_id)
-        assert experiment.parameters is not None
-        parameters = cast(dict[str, Any], experiment.parameters)
+        # The flag is the source of truth; the experiment API projects variants and aggregation
+        # group type from it (no `parameters` mirror is persisted).
+        parameters = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}").json()["parameters"]
         self.assertEqual(
             parameters["feature_flag_variants"],
-            [{"key": "control", "rollout_percentage": 10}, {"key": "test", "rollout_percentage": 90}],
+            [
+                {"key": "control", "rollout_percentage": 10, "split_percent": 10},
+                {"key": "test", "rollout_percentage": 90, "split_percent": 90},
+            ],
         )
         self.assertEqual(parameters["aggregation_group_type_index"], 1)
 
@@ -3248,10 +3300,9 @@ class TestExperimentCRUD(APILicensedTest):
             },
         )
 
-        # Verify that aggregation_group_type_index is removed from experiment parameters
-        experiment = Experiment.objects.get(id=experiment_id)
-        assert experiment.parameters is not None
-        self.assertNotIn("aggregation_group_type_index", cast(dict[str, Any], experiment.parameters))
+        # With no aggregation_group_type_index on the flag, it is absent from the projection too.
+        parameters = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}").json()["parameters"]
+        self.assertNotIn("aggregation_group_type_index", parameters)
 
     def test_update_experiment_exposure_config_valid(self):
         feature_flag = FeatureFlag.objects.create(
@@ -7246,11 +7297,11 @@ class TestExperimentRunningTimeCalculation(APILicensedTest):
             experiment.running_time_calculation,
             {"minimum_detectable_effect": 10, "recommended_running_time": 7},
         )
-        # `parameters` is untouched: variants survive and no calculator keys leak in.
-        assert experiment.parameters is not None
-        self.assertEqual(len(experiment.parameters["feature_flag_variants"]), 2)
-        self.assertNotIn("minimum_detectable_effect", experiment.parameters)
-        self.assertNotIn("recommended_running_time", experiment.parameters)
+        # Calculator keys never leak into `parameters`, and the variants on the flag are untouched.
+        self.assertNotIn("minimum_detectable_effect", experiment.parameters or {})
+        self.assertNotIn("recommended_running_time", experiment.parameters or {})
+        flag = FeatureFlag.objects.get(key="running-time-flag")
+        self.assertEqual(len(flag.filters["multivariate"]["variants"]), 2)
 
     def test_update_running_time_calculation_does_not_touch_feature_flag(self):
         variants = [
@@ -7370,9 +7421,9 @@ class TestExperimentExcludedVariants(APILicensedTest):
         experiment = Experiment.objects.get(pk=created["id"])
         self.assertEqual(experiment.excluded_variants, ["test-2"])
         # Only the column is written; the deprecated parameters blob is untouched
-        assert experiment.parameters is not None
-        self.assertNotIn("excluded_variants", experiment.parameters)
-        self.assertEqual(len(experiment.parameters["feature_flag_variants"]), 3)
+        self.assertNotIn("excluded_variants", experiment.parameters or {})
+        flag = FeatureFlag.objects.get(key="excluded-variants-flag")
+        self.assertEqual(len(flag.filters["multivariate"]["variants"]), 3)
 
     def test_update_excluded_variants_does_not_touch_feature_flag(self):
         created = self._create_experiment(parameters={"feature_flag_variants": self.THREE_VARIANTS})
