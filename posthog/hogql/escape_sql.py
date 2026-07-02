@@ -42,6 +42,8 @@ def escape_param_clickhouse(value: str) -> str:
 def escape_hogql_identifier(identifier: str | int) -> str:
     if isinstance(identifier, int):  # In HogQL we allow integers as identifiers to access array elements
         return str(identifier)
+    if identifier == "":
+        raise QueryError("An empty string is not permitted as a HogQL identifier")
     if "%" in identifier:
         raise QueryError(f'The HogQL identifier "{identifier}" is not permitted as it contains the "%" character')
     # HogQL allows dollars in the identifier.
@@ -297,6 +299,8 @@ def _quote_postgres_wire_identifier(v: str, extra_reserved_keywords: set[str] | 
 
 # Copied from clickhouse_driver.util.escape, adapted from single quotes to backquotes.
 def escape_clickhouse_identifier(identifier: str) -> str:
+    if identifier == "":
+        raise QueryError("An empty string is not permitted as a ClickHouse identifier")
     if "%" in identifier:
         raise QueryError(f'The HogQL identifier "{identifier}" is not permitted as it contains the "%" character')
     if re.match(r"^[A-Za-z_][A-Za-z0-9_]*$", identifier):

@@ -267,6 +267,15 @@ class TestPrinter(BaseTest):
             "1 column(s) but 2 column name(s) were provided",
         )
 
+    def test_empty_alias_raises_instead_of_invalid_sql(self):
+        # An empty column alias used to print as a bare backtick pair (`AS ``), which ClickHouse rejects
+        # with a raw syntax error. It should raise a friendly QueryError instead.
+        select_query = ast.SelectQuery(select=[ast.Alias(alias="", expr=ast.Constant(value=1))])
+        context = HogQLContext(team_id=self.team.pk, enable_select_queries=True)
+        with self.assertRaises(QueryError) as ctx:
+            print_prepared_ast(select_query, context=context, dialect="clickhouse", stack=[select_query])
+        self.assertIn("empty string is not permitted", str(ctx.exception))
+
     @parameterized.expand(
         [
             ("range", "select range from range(10)", "range() is not supported in ClickHouse dialect"),

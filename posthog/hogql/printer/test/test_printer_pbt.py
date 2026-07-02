@@ -177,6 +177,12 @@ class TestBacktickIdentifierRoundTrip:
         with pytest.raises(QueryError, match='is not permitted as it contains the "%" character'):
             escape_fn(s)
 
+    @pytest.mark.parametrize("label,escape_fn", _BACKTICK_IDENTIFIER_FUNCTIONS)
+    def test_empty_identifier_rejected(self, label: str, escape_fn: Callable) -> None:
+        # An empty identifier would otherwise render as an empty backtick pair (``), which is invalid SQL.
+        with pytest.raises(QueryError, match="empty string is not permitted"):
+            escape_fn("")
+
 
 class TestClickHouseIdentifier:
     """Property-based tests specific to escape_clickhouse_identifier."""
