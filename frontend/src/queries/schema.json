@@ -27328,10 +27328,6 @@
                 "orderBy": {
                     "$ref": "#/definitions/LogsOrderBy"
                 },
-                "personId": {
-                    "description": "Show logs for a given person",
-                    "type": "string"
-                },
                 "resourceFingerprint": {
                     "type": "string"
                 },
