@@ -191,8 +191,7 @@ export type ScannerConfig =
 // hedgehog_config's nullable index-signature type trips DeepPartial and ProfilePicture; the UI never reads it.
 export type ScannerCreatedBy = Omit<UserBasicApi, 'hedgehog_config'>
 
-// Derived from the generated schema so serializer changes fail typecheck instead of silently drifting.
-// Fields the write side marks optional carry serializer defaults, so responses always include them.
+// Derived from the generated schema so serializer changes fail typecheck; write-optional fields carry defaults.
 export type BaseReplayScanner = Omit<ReplayScannerApi, 'scanner_type' | 'scanner_config' | 'query' | 'created_by'> &
     Required<Pick<ReplayScannerApi, 'sampling_rate' | 'enabled' | 'emits_signals' | 'provider'>> & {
         query: RecordingsQuery | null
@@ -227,8 +226,7 @@ export function configFromSnapshot(snapshot: { scanner_config?: unknown } | null
     return config && typeof config === 'object' ? (config as ScannerConfig) : null
 }
 
-// The API exposes scanner_config and query as `unknown`. The client narrows them via
-// the scanner_type discriminator, so conversion is contained to this single boundary.
+// The API types scanner_config and query as `unknown`; the scanner_type discriminator narrows them here only.
 export function scannerFromApi(api: ReplayScannerApi): ReplayScanner {
     return api as unknown as ReplayScanner
 }

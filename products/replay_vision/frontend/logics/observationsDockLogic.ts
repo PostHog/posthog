@@ -7,7 +7,7 @@ import { visionScannersObserveCreate, visionObservationsList } from '../generate
 import type { ReplayScannerApi, ReplayObservationApi } from '../generated/api.schemas'
 import { OBSERVE_POLL_GRACE_MS, scheduleObservationPoll, shouldPollObservations } from './observationPolling'
 import type { observationsDockLogicType } from './observationsDockLogicType'
-import { visionQuotaLogic } from './visionQuotaLogic'
+import { refreshVisionQuota } from './visionQuotaLogic'
 import { visionScannersListLogic } from './visionScannersListLogic'
 
 export interface ObservationsDockLogicProps {
@@ -125,8 +125,7 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                 }
             },
 
-            // Poll while work is in flight and through the observe grace window; rescheduled on failure too,
-            // so a transient API hiccup can't permanently kill the cycle.
+            // Poll while in flight and through the observe grace window; rescheduled on failure so one hiccup can't kill it.
             loadObservationsSuccess: reschedulePoll,
             loadObservationsFailure: reschedulePoll,
 
@@ -150,8 +149,7 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                     actions.observeSuccess()
                     actions.setDockOpen(true)
                     actions.loadObservations()
-                    // An observe consumes quota immediately (in-flight rows count), so keep the guards fresh.
-                    visionQuotaLogic.findMounted()?.actions.loadQuota()
+                    refreshVisionQuota()
                 } catch (error: any) {
                     lemonToast.error(`Failed to start observation${error.detail ? `: ${error.detail}` : ''}`)
                     actions.observeFailure()

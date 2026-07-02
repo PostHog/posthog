@@ -7,7 +7,7 @@ import { urls } from 'scenes/urls'
 
 import { visionScannersObserveCreate } from '../generated/api'
 import type { bulkScanLogicType } from './bulkScanLogicType'
-import { visionQuotaLogic } from './visionQuotaLogic'
+import { refreshVisionQuota } from './visionQuotaLogic'
 import { visionScannersListLogic } from './visionScannersListLogic'
 
 // Caps simultaneous workflow-start requests; the batches run sequentially.
@@ -49,8 +49,7 @@ export const bulkScanLogic = kea<bulkScanLogicType>([
                 actions.scanRecordingsFailure()
                 return
             }
-            // The backend keys the workflow on (scanner, session) and silently no-ops duplicates,
-            // so re-running the same pair is safe and needs no client-side dedup.
+            // The backend keys the workflow on (scanner, session) and no-ops duplicates, so no client-side dedup.
             let started = 0
             let failed = 0
             let firstError: any = null
@@ -77,8 +76,7 @@ export const bulkScanLogic = kea<bulkScanLogicType>([
             const scannerName = values.scanners.find((s) => s.id === scannerId)?.name ?? 'scanner'
 
             if (started > 0) {
-                // Observes consume quota immediately (in-flight rows count), so keep the meter and guards fresh.
-                visionQuotaLogic.findMounted()?.actions.loadQuota()
+                refreshVisionQuota()
                 lemonToast.success(
                     `Started scanning ${started} recording${started === 1 ? '' : 's'} with “${scannerName}”`,
                     {

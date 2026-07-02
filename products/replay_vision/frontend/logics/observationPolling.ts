@@ -25,8 +25,7 @@ export function scheduleObservationPoll(
     }
 }
 
-// The observe endpoint only starts the workflow; its row lands a moment later. Poll through this grace
-// window after an observe so the new card appears even before anything reports in flight.
+// Observe only starts the workflow — poll through this grace window so the new card appears before its row lands.
 export const OBSERVE_POLL_GRACE_MS = 30_000
 
 export function shouldPollObservations(hasInFlight: boolean, pollUntil: number): boolean {

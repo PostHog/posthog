@@ -69,8 +69,7 @@ export function readResult(observation: ReplayObservationApi): Record<string, un
     return output && typeof output === 'object' ? (output as Record<string, unknown>) : null
 }
 
-// `uuid` is legacy: timestamp citations only carry `timestamp_ms`, but observations stored under the
-// old event-uuid citations still have it, so it's optional and otherwise ignored.
+// `uuid` is legacy — only old event-uuid citations carry it; timestamp citations use `timestamp_ms` alone.
 type Segment = { kind: 'text'; value: string } | { kind: 'chip'; timestamp_ms: number; uuid?: string }
 
 function isSegment(value: unknown): value is Segment {

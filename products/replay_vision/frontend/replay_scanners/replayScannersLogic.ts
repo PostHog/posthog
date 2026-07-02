@@ -16,7 +16,7 @@ import {
     visionScannersStatsRetrieve,
 } from '../generated/api'
 import type { ScannerStatsResponseApi, UserBasicApi, VisionScannersListParams } from '../generated/api.schemas'
-import { visionQuotaLogic } from '../logics/visionQuotaLogic'
+import { refreshVisionQuota, visionQuotaLogic } from '../logics/visionQuotaLogic'
 import { csvParam, parseCsvParam, parseSortParam, serializeSortParam } from '../utils/urlParams'
 import type { replayScannersLogicType } from './replayScannersLogicType'
 import {
@@ -278,7 +278,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 const count = response.count ?? 0
                 // A shrunken set (delete, narrowed filter, concurrent change) can strand an out-of-range page.
                 if (results.length === 0 && count > 0 && filters.page > 1) {
-                    actions.setScannersFilters({ page: Math.max(1, Math.ceil(count / SCANNERS_PAGE_SIZE)) })
+                    actions.setScannersFilters({ page: Math.ceil(count / SCANNERS_PAGE_SIZE) })
                     return
                 }
                 actions.loadScannersSuccess(scannersFromApi(results), count)
@@ -291,9 +291,9 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             }
         },
 
-        // Any change that affects the result set has to refetch; free-text search debounces per keystroke.
-        setScannersFilters: async ({ filters }, breakpoint) => {
-            if (filters.search !== undefined) {
+        // Refetch on any result-set change; debounce live search keystrokes only — URL restores must load immediately.
+        setScannersFilters: async ({ filters, replace }, breakpoint) => {
+            if (filters.search !== undefined && !replace) {
                 await breakpoint(300)
             }
             actions.loadScanners()
@@ -328,11 +328,11 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             actions.loadScanners()
             actions.loadCreators()
             actions.loadScannerStats()
-            visionQuotaLogic.findMounted()?.actions.loadQuota()
+            refreshVisionQuota()
         },
         toggleScannerEnabledDone: () => {
             actions.loadScannerStats()
-            visionQuotaLogic.findMounted()?.actions.loadQuota()
+            refreshVisionQuota()
         },
 
         toggleScannerEnabled: async ({ id }) => {

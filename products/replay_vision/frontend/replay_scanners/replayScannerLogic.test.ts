@@ -6,17 +6,15 @@ import { urls } from 'scenes/urls'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
+import { parseCsvParam, parseSortParam } from '../utils/urlParams'
 import {
     buildObservationListParams,
     ObservationStatusValue,
     ObservationTriggeredByValue,
     ObservationVerdictValue,
-    parseCsvParam,
-    parseSortParam,
     replayScannerLogic,
     shouldGuardScannerNavigation,
 } from './replayScannerLogic'
-import { scannerEditorSceneLogic } from './scannerEditorSceneLogic'
 import { defaultScannerTemplates } from './scannerTemplates'
 import { ClassifierScanner, ReplayScanner, ScorerScanner } from './types'
 
@@ -234,14 +232,11 @@ describe('replayScannerLogic', () => {
         })
 
         it('default-intent submit (Enter) on the new-scanner configure step advances instead of creating', async () => {
-            const editorLogic = scannerEditorSceneLogic()
-            editorLogic.mount()
-            editorLogic.actions.setStep('configure')
+            router.actions.push('/replay-vision/new/configure')
             logic.actions.setScannerValues({ name: 'Test scanner', scanner_config: { prompt: 'Q?' } })
             await expectLogic(logic, () => logic.actions.submitScanner()).toFinishAllListeners()
             expect(createSpy).not.toHaveBeenCalled()
             expect(router.values.location.pathname).toContain('/replay-vision/new/triggers')
-            editorLogic.unmount()
         })
     })
 

@@ -38,8 +38,7 @@ export function ObservationSearchMaxChat({ scannerId }: { scannerId: string }): 
         initialMaxPrompt: example,
     })
 
-    // Summarizer scanners already surface their own "Chat about these summaries" entry point; keep the search
-    // tool registered for Max, but don't render a second, near-identical card on that page.
+    // Summarizer pages already surface a near-identical chat entry point — keep the Max tool, skip the card.
     if (!openMax || scanner?.scanner_type === 'summarizer') {
         return null
     }

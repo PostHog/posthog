@@ -1,4 +1,4 @@
-import { afterMount, connect, kea, listeners, path } from 'kea'
+import { actions, afterMount, connect, isBreakpoint, kea, listeners, path } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { teamLogic } from 'scenes/teamLogic'
@@ -17,11 +17,16 @@ export const visionScannersListLogic = kea<visionScannersListLogicType>([
         actions: [teamLogic, ['loadCurrentTeamSuccess']],
     })),
 
-    loaders({
+    actions({
+        // Declared here so the action stays zero-arg despite the loader's `breakpoint` parameter.
+        loadScanners: true,
+    }),
+
+    loaders(({ values }) => ({
         scanners: [
             [] as ReplayScannerApi[],
             {
-                loadScanners: async () => {
+                loadScanners: async (_, breakpoint) => {
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
                         return []
@@ -35,6 +40,8 @@ export const visionScannersListLogic = kea<visionScannersListLogicType>([
                                 limit: PAGE_LIMIT,
                                 offset,
                             })
+                            // Cancel superseded loops (e.g. team switch) so a stale multi-page fetch can't win.
+                            breakpoint()
                             const results = response.results ?? []
                             all.push(...results)
                             if (!response.next || results.length === 0) {
@@ -42,13 +49,16 @@ export const visionScannersListLogic = kea<visionScannersListLogicType>([
                             }
                             offset += PAGE_LIMIT
                         }
-                    } catch {
-                        return []
+                    } catch (error) {
+                        if (error instanceof Error && isBreakpoint(error)) {
+                            throw error
+                        }
+                        return values.scanners
                     }
                 },
             },
         ],
-    }),
+    })),
 
     listeners(({ actions }) => ({
         // Propless/global — reload on team switch so a stale list can't offer another team's scanner ids.

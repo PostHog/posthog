@@ -145,8 +145,7 @@ export const observationProgressLogic = kea<observationProgressLogicType>([
         streamCompleted: () => {
             // The observation settled — dispose the stream so tab hide/show cycles don't resurrect it.
             cache.disposables.dispose('progressStream')
-            // Refresh the dock list so the finished card swaps its progress bar for the result immediately,
-            // instead of lingering until the next poll. No-op where the dock isn't mounted (e.g. details page).
+            // Refresh the dock list so the finished card swaps to the result immediately; no-op if the dock isn't mounted.
             if (props.sessionId) {
                 observationsDockLogic.findMounted({ sessionId: props.sessionId })?.actions.loadObservations()
             }

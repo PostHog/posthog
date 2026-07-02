@@ -36,7 +36,7 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
     actions({
         setVisibleSessionIds: (sessionIds: string[]) => ({ sessionIds }),
         startScan: (sessionId: string) => ({ sessionId }),
-        setPendingId: (sessionId: string | null) => ({ sessionId }),
+        setPendingId: (sessionId: string) => ({ sessionId }),
         loadObservations: (background = false) => ({ background }),
         loadObservationsSuccess: (bySession: Record<string, RowObservation>) => ({ bySession }),
         loadObservationsFailure: true,
@@ -56,8 +56,7 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
                 loadObservationsSuccess: (state, { bySession }) => ({ ...state, ...bySession }),
             },
         ],
-        // Bridges the gap between clicking Scan and its observation appearing in the lookup — kept until the
-        // observation lands (so the spinner never flickers back to the button), released on trigger failure.
+        // Bridges click-to-row gap: kept until the observation lands or the trigger fails, so the spinner holds.
         pendingId: [
             null as string | null,
             {
@@ -93,60 +92,60 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
         ],
     }),
 
-    listeners(({ actions, props, values, cache }) => ({
-        setVisibleSessionIds: ({ sessionIds }) => {
-            if (sessionIds.length > 0) {
-                actions.loadObservations()
-            }
-        },
+    listeners(({ actions, props, values, cache }) => {
+        // Rescheduled on failure too — a transient API hiccup shouldn't permanently kill the polling cycle.
+        const reschedulePoll = (): void =>
+            scheduleObservationPoll(cache.disposables, values.shouldPoll, () => actions.loadObservations(true))
+        return {
+            setVisibleSessionIds: ({ sessionIds }) => {
+                if (sessionIds.length > 0) {
+                    actions.loadObservations()
+                }
+            },
 
-        startScan: ({ sessionId }) => {
-            if (values.triggeringOnDemandObservation || values.pendingId) {
-                return
-            }
-            actions.setPendingId(sessionId)
-            actions.triggerOnDemandObservation(sessionId, true)
-        },
+            startScan: ({ sessionId }) => {
+                if (values.triggeringOnDemandObservation || values.pendingId) {
+                    return
+                }
+                actions.setPendingId(sessionId)
+                actions.triggerOnDemandObservation(sessionId, true)
+            },
 
-        // A successful trigger creates a pending observation server-side — refetch to pick it up.
-        triggerOnDemandObservationSuccess: () => actions.loadObservations(),
+            // A successful trigger creates a pending observation server-side — refetch to pick it up.
+            triggerOnDemandObservationSuccess: () => actions.loadObservations(),
 
-        loadObservations: async (_, breakpoint) => {
-            const teamId = teamLogic.values.currentTeamId
-            const sessionIds = values.visibleSessionIds
-            if (!teamId || sessionIds.length === 0) {
-                actions.loadObservationsFailure() // Clear the foreground loading flag; a bare return spins forever.
-                return
-            }
-            try {
-                // No limit coupling to the visible-row count: retried sessions carry several observations each,
-                // and a truncated page would render "Scan" for an already-scanned session.
-                const response = await visionScannersObservationsList(String(teamId), props.scannerId, {
-                    session_id: sessionIds.join(','),
-                })
-                breakpoint()
-                const bySession: Record<string, RowObservation> = {}
-                for (const observation of response.results ?? []) {
-                    // Results are newest-first — the first observation per session is the one the row reflects.
-                    if (!(observation.session_id in bySession)) {
-                        bySession[observation.session_id] = { id: observation.id, status: observation.status }
+            loadObservations: async (_, breakpoint) => {
+                const teamId = teamLogic.values.currentTeamId
+                const sessionIds = values.visibleSessionIds
+                if (!teamId || sessionIds.length === 0) {
+                    actions.loadObservationsFailure() // Clear the foreground loading flag; a bare return spins forever.
+                    return
+                }
+                try {
+                    // No limit coupling to visible rows — retries stack observations and a truncated page hides scans.
+                    const response = await visionScannersObservationsList(String(teamId), props.scannerId, {
+                        session_id: sessionIds.join(','),
+                    })
+                    breakpoint()
+                    const bySession: Record<string, RowObservation> = {}
+                    for (const observation of response.results ?? []) {
+                        // Results are newest-first — the first observation per session is the one the row reflects.
+                        if (!(observation.session_id in bySession)) {
+                            bySession[observation.session_id] = { id: observation.id, status: observation.status }
+                        }
                     }
+                    actions.loadObservationsSuccess(bySession)
+                } catch (error) {
+                    if (error instanceof Error && isBreakpoint(error)) {
+                        throw error
+                    }
+                    // Best-effort enrichment — on failure the rows just stay scannable, but keep polling alive.
+                    actions.loadObservationsFailure()
                 }
-                actions.loadObservationsSuccess(bySession)
-            } catch (error) {
-                if (error instanceof Error && isBreakpoint(error)) {
-                    throw error
-                }
-                // Best-effort enrichment — on failure the rows just stay scannable, but keep polling alive.
-                actions.loadObservationsFailure()
-            }
-        },
+            },
 
-        loadObservationsSuccess: () => {
-            scheduleObservationPoll(cache.disposables, values.shouldPoll, () => actions.loadObservations(true))
-        },
-        loadObservationsFailure: () => {
-            scheduleObservationPoll(cache.disposables, values.shouldPoll, () => actions.loadObservations(true))
-        },
-    })),
+            loadObservationsSuccess: reschedulePoll,
+            loadObservationsFailure: reschedulePoll,
+        }
+    }),
 ])

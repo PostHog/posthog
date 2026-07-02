@@ -1,8 +1,9 @@
 /** CSV + sort-token URL param helpers shared by the scanners list and the observations table. */
+import type { Sorting } from 'lib/lemon-ui/LemonTable'
 
-export interface UrlSorting<K extends string = string> {
+/** LemonTable's `Sorting` with the column key narrowed to the caller's sortable-key union. */
+export interface UrlSorting<K extends string = string> extends Sorting {
     columnKey: K
-    order: 1 | -1
 }
 
 /** CSV join for URL params; an empty selection omits the param entirely. */

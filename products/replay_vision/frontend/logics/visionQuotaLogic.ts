@@ -55,3 +55,8 @@ export const visionQuotaLogic = kea<visionQuotaLogicType>([
         actions.loadQuota()
     }),
 ])
+
+/** Refresh after any quota-affecting mutation — observes consume quota immediately (in-flight rows count). */
+export function refreshVisionQuota(): void {
+    visionQuotaLogic.findMounted()?.actions.loadQuota()
+}

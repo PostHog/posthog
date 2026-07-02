@@ -23,8 +23,7 @@ const PHASE_LABELS: Record<Phase, string> = {
     finalizing: 'Finalizing',
 }
 
-// Rough per-phase time constants (seconds) driving an asymptotic fill for phases without real sub-progress, so the
-// bar keeps moving. At elapsed = tau the fill is ~63%; at 2*tau ~86%; never reaches 100% until the phase advances.
+// Per-phase time constants (seconds) for an asymptotic fill (~63% at tau, ~86% at 2*tau) so the bar keeps moving.
 const PHASE_TAU_S: Record<Phase, number> = {
     queued: 4,
     fetching: 4,
