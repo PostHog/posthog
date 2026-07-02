@@ -14,7 +14,12 @@ import requests
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
-from rest_framework import mixins, serializers, viewsets
+from rest_framework import (
+    mixins,
+    serializers,
+    status as drf_status,
+    viewsets,
+)
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -37,6 +42,7 @@ from posthog.api.shared import UserBasicSerializer
 from posthog.api.utils import action
 from posthog.auth import SessionAuthentication
 from posthog.domain_connect import discover_domain_connect, extract_root_domain_and_host, get_available_providers
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.event_usage import report_user_action
 from posthog.exceptions_capture import capture_exception
 from posthog.helpers.fuzzy_search import fuzzy_filter
@@ -1532,6 +1538,14 @@ class IntegrationViewSet(
         github = GitHubIntegration(self.get_object())
         try:
             teams, has_more = github.list_teams(search=search, limit=limit, offset=offset)
+        except GitHubRateLimitError as err:
+            response = Response(
+                {"detail": "GitHub API rate limit exceeded. Please retry later.", "code": "rate_limited"},
+                status=drf_status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+            if err.retry_after:
+                response["Retry-After"] = str(err.retry_after)
+            return response
         except GitHubIntegrationError as err:
             capture_exception(err)
             raise ValidationError(

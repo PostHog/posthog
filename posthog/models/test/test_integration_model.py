@@ -2014,12 +2014,12 @@ class TestGitHubIntegrationGhApiGet(BaseTest):
     def test_raises_rate_limit_error_on_secondary_limit(self, _mock_expired, mock_get):
         resp = MagicMock()
         resp.status_code = 403
-        resp.headers = {"Retry-After": "5"}
+        resp.headers = {"retry-after": "5"}
         resp.json.return_value = {"message": "secondary rate limit"}
         mock_get.return_value = resp
 
         integration = self._create_integration()
-        with pytest.raises(GitHubIntegrationError) as excinfo:
+        with pytest.raises(GitHubRateLimitError) as excinfo:
             GitHubIntegration(integration)._gh_api_get("/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}")
         assert excinfo.value.is_rate_limit is True
         assert excinfo.value.retry_after_seconds == 5.0
@@ -2035,7 +2035,7 @@ class TestGitHubIntegrationGhApiGet(BaseTest):
         mock_get.return_value = resp
 
         integration = self._create_integration()
-        with pytest.raises(GitHubIntegrationError) as excinfo:
+        with pytest.raises(GitHubRateLimitError) as excinfo:
             GitHubIntegration(integration)._gh_api_get("/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}")
         assert excinfo.value.is_rate_limit is True
         assert excinfo.value.retry_after_seconds == 60.0

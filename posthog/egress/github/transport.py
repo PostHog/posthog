@@ -47,16 +47,22 @@ class GitHubRateLimitError(Exception):
 
 
 def raise_if_github_rate_limited(response: requests.Response) -> None:
-    """Raise :class:`GitHubRateLimitError` when the response signals a GitHub rate limit (primary
-    403 + body, or secondary 429). Safe to call unconditionally after any GitHub API response."""
+    """Raise :class:`GitHubRateLimitError` when the response signals a GitHub rate limit. Safe to call
+    unconditionally after any GitHub API response. Covers every documented signal: secondary 429,
+    primary 403 with an exhausted window (``X-RateLimit-Remaining: 0``) or a ``Retry-After`` hint,
+    and 403s that only mark the limit in the body (rate limit / abuse detection)."""
     if response.status_code == 429:
         is_rate_limited = True
     elif response.status_code == 403:
-        try:
-            body = response.text
-        except Exception:
-            body = ""
-        is_rate_limited = "rate limit" in body.lower()
+        if response.headers.get("retry-after") or response.headers.get("x-ratelimit-remaining") == "0":
+            is_rate_limited = True
+        else:
+            try:
+                body = response.text
+            except Exception:
+                body = ""
+            body = body.lower()
+            is_rate_limited = "rate limit" in body or "abuse detection" in body
     else:
         return
 
@@ -76,6 +82,9 @@ def raise_if_github_rate_limited(response: requests.Response) -> None:
     retry_after = _int_header("retry-after")
     if retry_after is None and reset_at is not None:
         retry_after = max(1, reset_at - int(time.time()))
+    if retry_after is None and reset_at is None:
+        # Body-only signal with no timing headers — GitHub's documented guidance is to wait ≥1 minute.
+        retry_after = 60
 
     raise GitHubRateLimitError(
         f"GitHub API rate limit exceeded (resets at {reset_at})",
