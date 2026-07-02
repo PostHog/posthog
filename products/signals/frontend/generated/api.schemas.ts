@@ -470,7 +470,6 @@ export interface PulseOpportunityEvidenceEntryApi {
 
 export interface PulseOpportunitySignalExtraApi {
     brief_id: string
-    kind: string
     evidence: PulseOpportunityEvidenceEntryApi[]
 }
 

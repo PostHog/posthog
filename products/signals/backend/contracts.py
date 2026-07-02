@@ -374,8 +374,6 @@ class PulseOpportunityEvidenceEntry(ContractModel):
 
 class PulseOpportunitySignalExtra(SignalExtraBase):
     brief_id: str
-    # Opportunity kind ("build" | "fix" | "instrument"); mirrors the source_type suffix.
-    kind: str
     evidence: list[PulseOpportunityEvidenceEntry]
 
 
