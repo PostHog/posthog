@@ -111,7 +111,7 @@ class TestCacheUtils(APIBaseTest):
         flaky_dependency.reset_mock(side_effect=True)
         flaky_dependency.return_value = 1
 
-        captured_thread_exceptions: list[BaseException] = []
+        captured_thread_exceptions: list[BaseException | None] = []
         original_hook = threading.excepthook
         threading.excepthook = lambda args: captured_thread_exceptions.append(args.exc_value)
 
