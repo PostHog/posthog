@@ -1,5 +1,5 @@
 import type { BarRect, BarRoundedCorners } from './canvas-renderer'
-import { type BarScaleSet, groupedBandSlot, type StackedBand } from './scales'
+import { type BarScaleSet, type CapStackedKeysByAxis, groupedBandSlot, type StackedBand } from './scales'
 import type { ResolvedSeries, Series } from './types'
 import { DEFAULT_Y_AXIS_ID } from './types'
 
@@ -129,7 +129,7 @@ export interface BuildBarLayersOptions {
     layout: 'stacked' | 'grouped' | 'percent'
     isHorizontal: boolean
     stackedData?: Map<string, StackedBand>
-    topStackedKeyByAxis: Map<string, string>
+    topStackedKeyByAxis: CapStackedKeysByAxis
 }
 
 /** Compute the bar rects for every visible series — the per-series `computeSeriesBars` loop shared by
@@ -150,6 +150,7 @@ export function buildBarLayers({
             continue
         }
         const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
+        const capsForAxis = topStackedKeyByAxis.get(axisId)
         const bars = computeSeriesBars({
             series: s,
             labels,
@@ -157,7 +158,8 @@ export function buildBarLayers({
             layout,
             isHorizontal,
             stackedBand: stackedData?.get(s.key),
-            isTopOfStack: topStackedKeyByAxis.get(axisId) === s.key,
+            isTopOfStack: false,
+            capRoundedAtIndex: capsForAxis ? (i) => capsForAxis[i]?.has(s.key) ?? false : undefined,
         }).filter((b): b is BarRect => b !== null)
         layers.push({ series: s, bars })
     }

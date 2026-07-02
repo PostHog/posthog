@@ -13,7 +13,8 @@ import {
     computeDivergingStackData,
     computePercentStackData,
     computeStackData,
-    computeTopStackedKeyByAxis,
+    type CapStackedKeysByAxis,
+    computeCapStackedKeysByAxis,
     createBarScales,
     type StackedBand,
     toYAxisScales,
@@ -124,12 +125,12 @@ function BarChartInner<Meta = unknown>({
         return undefined
     }, [barLayout, visibleSeries, labels, divergingStack])
 
-    // Cap rounding is per-axis: buildStackData stacks each yAxisId independently, so each
-    // axis has its own topmost visible series. Iteration order matches d3.stack's key order,
-    // so the last write per axis is that axis's top layer.
-    const topStackedKeyByAxis = useMemo<Map<string, string>>(
-        () => (barLayout === 'grouped' ? new Map() : computeTopStackedKeyByAxis(visibleSeries)),
-        [barLayout, visibleSeries]
+    // Cap rounding is per-axis and per-band: at each index the outermost nonzero segment in each
+    // direction gets the rounded cap, so breakdown stacks (top layer varies band to band) and
+    // diverging stacks (e.g. lifecycle's negative bottoms) both round their actual outer edges.
+    const topStackedKeyByAxis = useMemo<CapStackedKeysByAxis>(
+        () => computeCapStackedKeysByAxis(visibleSeries, stackedData, labels.length),
+        [visibleSeries, stackedData, labels.length]
     )
 
     const chartConfig = useMemo<BarChartConfig>(() => {

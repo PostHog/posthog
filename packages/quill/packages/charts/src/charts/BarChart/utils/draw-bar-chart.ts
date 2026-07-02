@@ -14,7 +14,7 @@ import {
     type DrawContext,
 } from '../../../core/canvas-renderer'
 import { barColorAt } from '../../../core/color-utils'
-import type { BarScaleSet, StackedBand } from '../../../core/scales'
+import type { BarScaleSet, CapStackedKeysByAxis, StackedBand } from '../../../core/scales'
 import type { BarChartConfig, BarFillStyle, BarsConfig, ChartDimensions, ChartDrawArgs } from '../../../core/types'
 import { computeVisibleXLabels } from '../../../overlays/AxisLabels'
 import { resolveBarShadow } from './bar-config'
@@ -77,7 +77,7 @@ export interface DrawBarChartStaticArgs {
     showAxisLines: boolean
     xTickFormatter: BarChartConfig['xTickFormatter']
     stackedData: Map<string, StackedBand> | undefined
-    topStackedKeyByAxis: Map<string, string>
+    topStackedKeyByAxis: CapStackedKeysByAxis
     roundStackEnds: boolean
     barCornerRadius: number
     barTrack: boolean
@@ -118,14 +118,18 @@ export function drawBarChartStatic(
         labels: drawLabels,
     }
 
+    // Grid sits behind the bars; the L-axis is drawn after them (below) so a bar doesn't paint over
+    // the baseline where it meets the axis.
     if (showGrid) {
         drawGrid(baseDrawCtx, {
             gridColor: theme.gridColor,
+            gridDash: theme.gridDashPattern,
+            frame: !showAxisLines,
             orientation: isHorizontal ? 'horizontal' : 'vertical',
-            categoryTicks: computeGridTicks(d3Scales, drawLabels, isHorizontal, xTickFormatter),
+            // In the axis-line style only the value-axis grid guides reading; category lines
+            // through the band gaps are noise (line charts never draw them either).
+            categoryTicks: showAxisLines ? [] : computeGridTicks(d3Scales, drawLabels, isHorizontal, xTickFormatter),
         })
-    } else if (showAxisLines) {
-        drawAxes(baseDrawCtx, { axisColor: theme.gridColor })
     }
 
     const seriesBars = buildBarLayers({
@@ -174,6 +178,10 @@ export function drawBarChartStatic(
             ctx.restore()
         }
     })
+
+    if (showAxisLines) {
+        drawAxes(baseDrawCtx, { axisColor: theme.axisLineColor ?? theme.axisColor ?? theme.gridColor })
+    }
 }
 
 export interface DrawBarHoverArgs {

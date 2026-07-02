@@ -1,5 +1,5 @@
 import { type BarRect } from '../../../core/canvas-renderer'
-import type { BarScaleSet, StackedBand } from '../../../core/scales'
+import type { BarScaleSet, CapStackedKeysByAxis, StackedBand } from '../../../core/scales'
 import type { ChartDrawArgs, ResolvedSeries } from '../../../core/types'
 import {
     type BarLayout,
@@ -31,7 +31,7 @@ export interface ResolveBarHoverArgs {
     barLayout: BarLayout
     isHorizontal: boolean
     stackedData: Map<string, StackedBand> | undefined
-    topStackedKeyByAxis: Map<string, string>
+    topStackedKeyByAxis: CapStackedKeysByAxis
     roundStackEnds: boolean
     barTrackHover: boolean
 }

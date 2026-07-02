@@ -2,7 +2,7 @@ import React from 'react'
 
 import type { BarChartPrivate } from '../../core/bar-layout'
 import { useChartLayout } from '../../core/chart-context'
-import type { BarScaleSet, StackedBand } from '../../core/scales'
+import type { BarScaleSet, CapStackedKeysByAxis, StackedBand } from '../../core/scales'
 import type { Series, TooltipConfig, TooltipContext } from '../../core/types'
 import { DefaultTooltip } from '../../overlays/DefaultTooltip'
 import {
@@ -19,7 +19,7 @@ export interface BarTooltipProps<Meta> {
      *  hit-test must see the full stack, not just the tooltip-visible subset. */
     allSeries: Series<Meta>[]
     stackedData: Map<string, StackedBand> | undefined
-    topStackedKeyByAxis: Map<string, string>
+    topStackedKeyByAxis: CapStackedKeysByAxis
     layout: BarLayout
     isHorizontal: boolean
     tooltipConfig?: TooltipConfig
@@ -64,7 +64,7 @@ function narrowSeriesByCursor<Meta>(
     layout: BarLayout,
     isHorizontal: boolean,
     stackedData: Map<string, StackedBand> | undefined,
-    topStackedKeyByAxis: Map<string, string>,
+    topStackedKeyByAxis: CapStackedKeysByAxis,
     labels: string[],
     allSeries: Series<Meta>[]
 ): TooltipContext<Meta> | null {

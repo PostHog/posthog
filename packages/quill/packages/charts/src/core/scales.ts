@@ -144,18 +144,14 @@ export function createYScale(
     const { scaleType = 'linear', percentStack = false, valueDomain, floatBaseline = false } = options
     const { fixed, include } = resolveValueDomain(valueDomain)
     const tickCount = yTickCountForHeight(dimensions.plotHeight)
+    const bottom = dimensions.plotTop + dimensions.plotHeight
 
     if (fixed) {
-        return scaleLinear()
-            .domain([fixed[0], fixed[1]])
-            .range([dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop])
+        return scaleLinear().domain([fixed[0], fixed[1]]).range([bottom, dimensions.plotTop])
     }
 
     if (percentStack) {
-        return scaleLinear()
-            .domain([0, 1])
-            .nice(tickCount)
-            .range([dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop])
+        return scaleLinear().domain([0, 1]).nice(tickCount).range([bottom, dimensions.plotTop])
     }
 
     const dataRange = seriesValueRange(series)
@@ -168,7 +164,7 @@ export function createYScale(
     return buildValueScale({
         range,
         primaryRange,
-        valueRange: [dimensions.plotTop + dimensions.plotHeight, dimensions.plotTop],
+        valueRange: [bottom, dimensions.plotTop],
         tickCount,
         scaleType,
         allowNegativeBaseline: hasExplicitNegativeGoal,
@@ -279,6 +275,74 @@ export function computeTopStackedKeyByAxis<S extends Pick<Series, 'key' | 'visib
         m.set(s.yAxisId ?? DEFAULT_Y_AXIS_ID, s.key)
     }
     return m
+}
+
+/** Cap-rounded stack layers per axis id and band index. */
+export type CapStackedKeysByAxis = Map<string, Array<Set<string>>>
+
+/** Resolve which stack segments get a rounded cap, per axis and per band: at each index the
+ *  outermost nonzero segment in each direction — upward always, downward when the stack diverges
+ *  below zero. Resolved from the stacked extents rather than series order, so breakdown stacks
+ *  (where the top layer varies band to band) round every band's actual outer segment. */
+export function computeCapStackedKeysByAxis<S extends Pick<Series, 'key' | 'visibility' | 'yAxisId'>>(
+    series: readonly S[],
+    stackedData: Map<string, StackedBand> | undefined,
+    labelCount: number,
+    options: { skip?: (s: S) => boolean } = {}
+): CapStackedKeysByAxis {
+    const caps: CapStackedKeysByAxis = new Map()
+    if (!stackedData) {
+        return caps
+    }
+    const byAxis = new Map<string, S[]>()
+    for (const s of series) {
+        if (s.visibility?.excluded || options.skip?.(s) || !stackedData.has(s.key)) {
+            continue
+        }
+        const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
+        const bucket = byAxis.get(axisId)
+        if (bucket) {
+            bucket.push(s)
+        } else {
+            byAxis.set(axisId, [s])
+        }
+    }
+    for (const [axisId, bucket] of byAxis) {
+        const sets: Array<Set<string>> = Array.from({ length: labelCount }, () => new Set<string>())
+        for (let i = 0; i < labelCount; i++) {
+            let posKey: string | null = null
+            let posMax = 0
+            let negKey: string | null = null
+            let negMin = 0
+            for (const s of bucket) {
+                const band = stackedData.get(s.key)!
+                const a = band.top[i]
+                const b = band.bottom[i]
+                if (a == null || b == null || !isFinite(a) || !isFinite(b) || a === b) {
+                    continue
+                }
+                const hi = Math.max(a, b)
+                const lo = Math.min(a, b)
+                // `>=` so a later series wins ties, matching d3.stack's layer order.
+                if (hi > 0 && hi >= posMax) {
+                    posMax = hi
+                    posKey = s.key
+                }
+                if (lo < 0 && lo <= negMin) {
+                    negMin = lo
+                    negKey = s.key
+                }
+            }
+            if (posKey) {
+                sets[i].add(posKey)
+            }
+            if (negKey) {
+                sets[i].add(negKey)
+            }
+        }
+        caps.set(axisId, sets)
+    }
+    return caps
 }
 
 /** Order the visible series' axis ids — DEFAULT_Y_AXIS_ID first (when present), then the

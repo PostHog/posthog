@@ -5,6 +5,7 @@ import { bandCenter, buildBarLayers, computeBarAtIndex, groupedBarCenter } from 
 import {
     BAR_HIGHLIGHT_DARKEN,
     DEFAULT_BAR_CORNER_RADIUS,
+    LINE_STROKE_WIDTH,
     drawAxes,
     drawBarHighlight,
     drawBars,
@@ -23,7 +24,8 @@ import {
     buildStackedPositionValue,
     computePercentStackData,
     computeStackData,
-    computeTopStackedKeyByAxis,
+    type CapStackedKeysByAxis,
+    computeCapStackedKeysByAxis,
     resolveYScaleForSeries,
     type StackedBand,
     toYAxisScales,
@@ -89,7 +91,9 @@ function ComboChartInner<Meta = unknown>({
         defaultSeriesType = DEFAULT_SERIES_TYPE,
         xTickFormatter,
         valueDomain,
+        curve,
     } = config ?? {}
+    const smooth = curve === 'monotone'
 
     const seriesTypeOf = useCallback(
         (s: Pick<Series, 'type'>): SeriesType => resolveSeriesType(s, defaultSeriesType),
@@ -111,14 +115,14 @@ function ComboChartInner<Meta = unknown>({
             : computeStackData(barSeries, labels)
     }, [barLayout, series, labels, seriesTypeOf])
 
-    // Per-axis topmost bar — only bar layers below the cap forgo corner rounding. Non-bar series are
+    // Per-axis, per-band outermost bar segments — only they get cap rounding. Non-bar series are
     // skipped so lines/areas don't take part in bar stacking. Shares BarChart's helper.
-    const topStackedKeyByAxis = useMemo<Map<string, string>>(
+    const topStackedKeyByAxis = useMemo<CapStackedKeysByAxis>(
         () =>
-            barLayout !== 'stacked' && barLayout !== 'percent'
-                ? new Map()
-                : computeTopStackedKeyByAxis(series, { skip: (s) => seriesTypeOf(s) !== 'bar' }),
-        [barLayout, series, seriesTypeOf]
+            computeCapStackedKeysByAxis(series, barStackedData, labels.length, {
+                skip: (s) => seriesTypeOf(s) !== 'bar',
+            }),
+        [series, barStackedData, labels.length, seriesTypeOf]
     )
 
     const createScales: CreateScalesFn = useCallback(
@@ -181,15 +185,22 @@ function ComboChartInner<Meta = unknown>({
                 labels: drawLabels,
             }
 
+            // Grid sits behind the data; the L-axis is drawn after the series (below) so neither bars
+            // nor lines paint over the baseline where they meet the axis.
             if (showGrid) {
-                const categoryTicks = computeVisibleXLabels(
-                    drawLabels,
-                    (label) => bandCenter(comboScales, label),
-                    xTickFormatter
-                ).map((entry) => entry.x)
-                drawGrid(baseDrawCtx, { gridColor: theme.gridColor, categoryTicks })
-            } else if (showAxisLines) {
-                drawAxes(baseDrawCtx, { axisColor: theme.gridColor })
+                // In the axis-line style only the value-axis grid guides reading; category lines
+                // through the band gaps are noise (line charts never draw them either).
+                const categoryTicks = showAxisLines
+                    ? []
+                    : computeVisibleXLabels(drawLabels, (label) => bandCenter(comboScales, label), xTickFormatter).map(
+                          (entry) => entry.x
+                      )
+                drawGrid(baseDrawCtx, {
+                    gridColor: theme.gridColor,
+                    gridDash: theme.gridDashPattern,
+                    frame: !showAxisLines,
+                    categoryTicks,
+                })
             }
 
             // ── 1. Bars ──────────────────────────────────────────────────────────────────────
@@ -221,7 +232,18 @@ function ComboChartInner<Meta = unknown>({
                 shouldFill: (s) => seriesTypeOf(s) === 'area' || !!s.fill,
                 bottomFor: (s) => s.fill?.lowerData,
                 zOrder: 'areas-first',
+                smooth,
+                // Rest baseline-hugging strokes on the axis line, and trim the first point's
+                // stroke at the y-axis, instead of straddling either axis line.
+                yFloor: showAxisLines
+                    ? dimensions.plotTop + dimensions.plotHeight - LINE_STROKE_WIDTH / 2
+                    : undefined,
+                clipLeftEdge: showAxisLines,
             })
+
+            if (showAxisLines) {
+                drawAxes(baseDrawCtx, { axisColor: theme.axisLineColor ?? theme.axisColor ?? theme.gridColor })
+            }
         },
         [
             seriesTypeOf,
@@ -232,6 +254,7 @@ function ComboChartInner<Meta = unknown>({
             barStackedData,
             topStackedKeyByAxis,
             barCornerRadius,
+            smooth,
         ]
     )
 
@@ -286,7 +309,7 @@ function ComboChartInner<Meta = unknown>({
                     layout: barLayout,
                     isHorizontal: false,
                     stackedBand: barStackedData?.get(s.key),
-                    isTopOfStack: topStackedKeyByAxis.get(axisId) === s.key,
+                    isTopOfStack: topStackedKeyByAxis.get(axisId)?.[hoverIndex]?.has(s.key) ?? false,
                 })
                 if (!bar) {
                     continue

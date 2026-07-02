@@ -2,7 +2,13 @@ import React, { useCallback, useMemo } from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
 import { useChartLegend } from '../../components/Legend/useChartLegend'
-import { drawAxes, drawGrid, drawLineHoverPoints, drawLineSeriesLayer } from '../../core/canvas-renderer'
+import {
+    LINE_STROKE_WIDTH,
+    drawAxes,
+    drawGrid,
+    drawLineHoverPoints,
+    drawLineSeriesLayer,
+} from '../../core/canvas-renderer'
 import type { DrawContext } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
@@ -82,7 +88,9 @@ function LineChartInner<Meta = unknown>({
         valueDomain,
         floatBaseline = false,
         yAxes,
+        curve,
     } = config ?? {}
+    const smooth = curve === 'monotone'
 
     const { visibleSeries, legendProps } = useChartLegend(series, theme, config?.legend)
 
@@ -154,7 +162,7 @@ function LineChartInner<Meta = unknown>({
                 _private: lineChartPrivate,
             }
         },
-        [yScaleType, percentStackView, stackedData, valueDomain, floatBaseline, yAxes]
+        [yScaleType, percentStackView, stackedData, valueDomain, floatBaseline, yAxes, showAxisLines]
     )
 
     const drawStatic = useCallback(
@@ -177,10 +185,14 @@ function LineChartInner<Meta = unknown>({
                 labels: drawLabels,
             }
 
+            // Grid sits behind the data; the L-axis is drawn after the series (below) so the line
+            // doesn't paint over the baseline where it meets the axis.
             if (showGrid) {
-                drawGrid(baseDrawCtx, { gridColor: theme.gridColor })
-            } else if (showAxisLines) {
-                drawAxes(baseDrawCtx, { axisColor: theme.gridColor })
+                drawGrid(baseDrawCtx, {
+                    gridColor: theme.gridColor,
+                    gridDash: theme.gridDashPattern,
+                    frame: !showAxisLines,
+                })
             }
 
             // Area then line+points per series, clipped vertically (shared with ComboChart). Areas use
@@ -196,9 +208,20 @@ function LineChartInner<Meta = unknown>({
                 bottomFor: (s) => s.fill?.lowerData ?? stackedData?.get(s.key)?.bottom,
                 shouldFill: (s) => !!s.fill,
                 zOrder: 'per-series',
+                smooth,
+                // Rest baseline-hugging strokes on the axis line, and trim the first point's
+                // stroke at the y-axis, instead of straddling either axis line.
+                yFloor: showAxisLines
+                    ? dimensions.plotTop + dimensions.plotHeight - LINE_STROKE_WIDTH / 2
+                    : undefined,
+                clipLeftEdge: showAxisLines,
             })
+
+            if (showAxisLines) {
+                drawAxes(baseDrawCtx, { axisColor: theme.axisLineColor ?? theme.axisColor ?? theme.gridColor })
+            }
         },
-        [showGrid, showAxisLines, stackedData]
+        [showGrid, showAxisLines, stackedData, smooth]
     )
 
     const drawHover = useCallback(

@@ -1,4 +1,4 @@
-import type { BarScaleSet, StackedBand } from '../../../core/scales'
+import type { BarScaleSet, CapStackedKeysByAxis, StackedBand } from '../../../core/scales'
 import type { PointClickData, Series } from '../../../core/types'
 import {
     type BarLayout,
@@ -14,7 +14,7 @@ export interface ResolveClickedBarSeriesArgs<Meta> {
     barLayout: BarLayout
     isHorizontal: boolean
     stackedData: Map<string, StackedBand> | undefined
-    topStackedKeyByAxis: Map<string, string>
+    topStackedKeyByAxis: CapStackedKeysByAxis
     series: Series<Meta>[]
     labels: readonly string[]
 }

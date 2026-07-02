@@ -1,6 +1,6 @@
 import { computeBarAtIndex } from '../../../core/bar-layout'
 import type { BarRect } from '../../../core/canvas-renderer'
-import { type BarScaleSet, groupedBandSlot, type StackedBand } from '../../../core/scales'
+import { type BarScaleSet, type CapStackedKeysByAxis, groupedBandSlot, type StackedBand } from '../../../core/scales'
 import type { BandSlot, Series } from '../../../core/types'
 import { DEFAULT_Y_AXIS_ID } from '../../../core/types'
 
@@ -54,7 +54,7 @@ export interface BarsAtCursorArgs {
     layout: BarLayout
     isHorizontal: boolean
     stackedData?: Map<string, StackedBand>
-    topStackedKeyByAxis: Map<string, string>
+    topStackedKeyByAxis: CapStackedKeysByAxis
 }
 
 export interface BarAtCursor<S> {
@@ -75,7 +75,7 @@ export function* barsAtCursor<S extends Pick<Series, 'key' | 'visibility' | 'yAx
         }
         const stackedBand = stackedData?.get(s.key)
         const axisId = s.yAxisId ?? DEFAULT_Y_AXIS_ID
-        const isTopOfStack = topStackedKeyByAxis.get(axisId) === s.key
+        const isTopOfStack = topStackedKeyByAxis.get(axisId)?.[dataIndex]?.has(s.key) ?? false
         const bar = computeBarAtIndex({
             series: s as unknown as Series,
             label,

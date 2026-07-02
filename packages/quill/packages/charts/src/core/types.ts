@@ -7,8 +7,15 @@ export interface ChartTheme {
     colors: string[]
     backgroundColor?: string
     axisColor?: string
+    /** Stroke color for the L-shaped axis baselines and tick marks. Falls back to `axisColor`,
+     *  then `gridColor` — set it to mute the lines without muting the tick label text. */
+    axisLineColor?: string
     gridColor?: string
+    /** Canvas dash pattern (e.g. `[3, 3]`) for interior grid lines. Solid when omitted. */
+    gridDashPattern?: number[]
     crosshairColor?: string
+    /** Canvas dash pattern (e.g. `[3, 3]`) for the hover crosshair. Solid when omitted. */
+    crosshairDashPattern?: number[]
     tooltipBackground?: string
     tooltipColor?: string
     tooltipZIndex?: number | string
@@ -229,6 +236,12 @@ export interface ChartConfig {
     /** Draw only the L-shaped axis baselines (left + bottom) without interior grid lines. Ignored
      *  when `showGrid` is true, since the grid already frames the plot. */
     showAxisLines?: boolean
+    /** Draw short tick marks on the axes next to each visible tick label. Pairs with
+     *  `showAxisLines` for a clean, grid-free axis that still reads precisely. */
+    showTickMarks?: boolean
+    /** Line/area interpolation. `linear` (default) draws straight segments; `monotone` smooths the
+     *  line with monotone-cubic curves that pass through every point without overshooting. */
+    curve?: 'linear' | 'monotone'
     /** Tooltip behaviour. Defaults to enabled with no pinning and `follow-data` placement. */
     tooltip?: TooltipConfig
     /** Show a vertical crosshair line that follows the cursor. */
