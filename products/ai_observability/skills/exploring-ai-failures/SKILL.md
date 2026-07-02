@@ -99,7 +99,7 @@ aren't there; it means you have to read.
 
 For each trace, note in plain language what went wrong — and jot down the trace's earliest-event timestamp
 alongside the note (it's right there in the trace you just read, and in `query-llm-traces-list`'s
-`first_timestamp`). That timestamp and the trace ID is all you need to build a resolvable deep link in Step 4,
+`createdAt`). That timestamp and the trace ID is all you need to build a resolvable deep link in Step 4,
 so capturing it now saves a second round-trip later.
 
 When a trace fails in a chain, record the _first_ thing that broke — the root failure usually causes the

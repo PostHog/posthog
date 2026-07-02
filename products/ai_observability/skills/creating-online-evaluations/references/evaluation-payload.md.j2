@@ -103,7 +103,7 @@ and sample volume with `rollout_percentage`.
 {
   "name": "Reply is under 500 tokens",
   "evaluation_type": "hog",
-  "evaluation_config": { "source": "return event.properties.$ai_output_tokens < 500;" },
+  "evaluation_config": { "source": "return properties.$ai_output_tokens < 500;" },
   "output_type": "boolean",
   "output_config": { "allows_na": false },
   "conditions": [{ "id": "default", "rollout_percentage": 100, "properties": [] }],

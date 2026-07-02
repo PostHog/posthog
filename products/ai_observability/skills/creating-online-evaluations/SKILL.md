@@ -92,7 +92,7 @@ posthog:llma-evaluation-create
   "name": "Output is valid JSON",
   "description": "Fails when the assistant message can't be parsed as JSON",
   "evaluation_type": "hog",
-  "evaluation_config": { "source": "try { jsonParseStr(event.properties.$ai_output_choices[1].content); return true; } catch { return false; }" },
+  "evaluation_config": { "source": "try { jsonParse(jsonParse(output)[1].message.content); return true; } catch { return false; }" },
   "output_type": "boolean",
   "output_config": { "allows_na": false },
   "conditions": [
