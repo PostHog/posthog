@@ -243,9 +243,19 @@ class TestGetDagStructureActivity:
             name="active-model",
             type=NodeType.MAT_VIEW,
             saved_query=saved_queries[1],
+            properties={
+                "system": {
+                    "suspended": {
+                        DataModelingJobEngine.DUCKGRES.value: {
+                            "reason": "duckgres boom",
+                            "job_id": "duckgres-failed-job",
+                        }
+                    }
+                }
+            },
         )
 
-        result = await activity_environment.run(
+        clickhouse_result = await activity_environment.run(
             get_suspended_node_ids_activity,
             GetSuspendedNodeIDsInputs(
                 team_id=ateam.pk,
@@ -253,8 +263,17 @@ class TestGetDagStructureActivity:
                 engine=DataModelingJobEngine.CLICKHOUSE.value,
             ),
         )
+        duckgres_result = await activity_environment.run(
+            get_suspended_node_ids_activity,
+            GetSuspendedNodeIDsInputs(
+                team_id=ateam.pk,
+                dag_id=str(adag.id),
+                engine=DataModelingJobEngine.DUCKGRES.value,
+            ),
+        )
 
-        assert result == [str(suspended_node.id)]
+        assert clickhouse_result == [str(suspended_node.id)]
+        assert duckgres_result == [str(active_node.id)]
 
         await database_sync_to_async(suspended_node.delete)()
         await database_sync_to_async(active_node.delete)()
@@ -580,7 +599,8 @@ class TestExecuteDAGWorkflowWithMocks:
             )
 
         @temporal_activity.defn(name="get_suspended_node_ids_activity")
-        async def stub_get_suspended_nodes(_: GetSuspendedNodeIDsInputs) -> list[str]:
+        async def stub_get_suspended_nodes(inputs: GetSuspendedNodeIDsInputs) -> list[str]:
+            assert inputs.engine == DataModelingJobEngine.CLICKHOUSE.value
             return [node_a_id]
 
         async with await WorkflowEnvironment.start_time_skipping() as env:
@@ -609,6 +629,49 @@ class TestExecuteDAGWorkflowWithMocks:
         assert suspended_result.skipped is True
         assert suspended_result.skip_reason == "Node is suspended for clickhouse"
         assert downstream_result.skipped is True
+
+    async def test_duckgres_only_skips_duckgres_suspended_nodes(self):
+        dag_id = "test-dag"
+        node_id = str(uuid.uuid4())
+
+        @temporal_activity.defn(name="get_dag_structure_activity")
+        async def stub_get_dag_structure(_: GetDAGStructureInputs) -> DAGPlan:
+            return DAGPlan(
+                nodes=[node_id],
+                executable_nodes=[node_id],
+                edges=[],
+            )
+
+        @temporal_activity.defn(name="get_suspended_node_ids_activity")
+        async def stub_get_suspended_nodes(inputs: GetSuspendedNodeIDsInputs) -> list[str]:
+            assert inputs.engine == DataModelingJobEngine.DUCKGRES.value
+            return [node_id]
+
+        async with await WorkflowEnvironment.start_time_skipping() as env:
+            async with temporalio.worker.Worker(
+                env.client,
+                task_queue="test-queue",
+                workflows=[ExecuteDAGWorkflow, MockMaterializeViewWorkflow],
+                activities=[stub_preempt_dag_run, stub_get_dag_structure, stub_get_suspended_nodes],
+                workflow_runner=temporalio.worker.UnsandboxedWorkflowRunner(),
+            ):
+                result: ExecuteDAGResult = await env.client.execute_workflow(
+                    ExecuteDAGWorkflow.run,
+                    ExecuteDAGInputs(team_id=1, dag_id=dag_id, duckgres_only=True),
+                    id=f"test-skip-duckgres-suspended-{uuid.uuid4()}",
+                    task_queue="test-queue",
+                    execution_timeout=dt.timedelta(seconds=30),
+                )
+
+        assert result.successful_nodes == 0
+        assert result.failed_nodes == 0
+        assert result.skipped_nodes == 1
+        assert _mock_workflow_calls == []
+
+        suspended_result = result.node_results[0]
+        assert suspended_result.node_id == node_id
+        assert suspended_result.skipped is True
+        assert suspended_result.skip_reason == "Node is suspended for duckgres"
 
     async def test_filters_by_node_ids(self):
         """Test that specifying node_ids filters which nodes are executed."""

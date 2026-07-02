@@ -317,7 +317,7 @@ class ExecuteDAGWorkflow(PostHogWorkflow):
 
         node_results: list[NodeResult] = []
         ephemeral_node_set = set(dag_structure.ephemeral_nodes)
-        failed_node_set: set[str] = set()
+        failed_node_set: set[str] = set(suspended_node_ids)
         downstreams = _get_downstream_lookup(edge_lookup)
         # execute child workflows with bounded concurrency using a sliding window;
         # the semaphore limits how many child workflows run simultaneously across
