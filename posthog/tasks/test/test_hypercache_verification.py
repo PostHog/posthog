@@ -252,18 +252,21 @@ class TestVerifyAndFixFlagDefinitionsCacheTask(PushGatewayTaskTestMixin, TestCas
         _include_cohorts: bool,
         _cache_type: str,
         _other: str,
-        _metric: str,
+        metric_name: str,
         mock_run_verification: MagicMock,
         mock_capture: MagicMock,
     ) -> None:
         """A run that hits the soft time limit winds down cleanly: unlike a real
-        verification failure, it is not captured as an error or re-raised."""
+        verification failure, it is not captured as an error or re-raised, and the
+        task's success metric reflects a clean finish."""
         mock_run_verification.side_effect = SoftTimeLimitExceeded()
 
         # Should not raise
         task_fn()
 
         mock_capture.assert_not_called()
+        success = self.registry.get_sample_value(f"posthog_celery_{metric_name}_success")
+        assert success == 1
 
     @parameterized.expand(FLAG_DEFINITIONS_VARIANTS)
     @patch("posthog.tasks.hypercache_verification._run_verification_for_cache")
