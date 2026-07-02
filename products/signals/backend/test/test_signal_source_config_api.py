@@ -487,15 +487,16 @@ class TestIsSourceEnabledGating(APIBaseTest):
 
     @parameterized.expand(
         [
-            ("evaluation_always_on_without_row", SignalSourceConfig.SourceType.EVALUATION, None, True),
+            ("evaluation_requires_row", SignalSourceConfig.SourceType.EVALUATION, None, False),
+            ("evaluation_enabled_row", SignalSourceConfig.SourceType.EVALUATION, True, True),
             ("evaluation_report_requires_row", SignalSourceConfig.SourceType.EVALUATION_REPORT, None, False),
             ("evaluation_report_enabled_row", SignalSourceConfig.SourceType.EVALUATION_REPORT, True, True),
             ("evaluation_report_disabled_row", SignalSourceConfig.SourceType.EVALUATION_REPORT, False, False),
         ]
     )
     def test_llm_analytics_gating(self, _name, source_type, existing_enabled, expected):
-        # Per-result evaluation signals bypass the row check (gated per evaluation upstream);
-        # evaluation_report signals must go through the standard config-row check.
+        # llm_analytics has no always-on bypass: both evaluation and evaluation_report signals
+        # go through the standard config-row check.
         if existing_enabled is not None:
             SignalSourceConfig.objects.create(
                 team=self.team,
