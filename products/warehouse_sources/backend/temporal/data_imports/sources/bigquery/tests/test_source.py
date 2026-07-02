@@ -843,7 +843,8 @@ def test_temp_table_write_denial_surfaces_write_permission_guidance():
         )
     )
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
-    friendly = next(msg for key, msg in non_retryable_errors.items() if key in observed_error)
+    first_key, friendly = next((key, msg) for key, msg in non_retryable_errors.items() if key in observed_error)
+    assert first_key == "bigquery.tables.update"
     assert friendly is not None
     assert "write access" in friendly
 
