@@ -1,12 +1,13 @@
 from __future__ import annotations
 
 import contextlib
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextvars import ContextVar
-from typing import TYPE_CHECKING
+from typing import TYPE_CHECKING, TypeVar
 from uuid import UUID
 
 from django.core.signals import request_finished, request_started
+from django.db import DatabaseError, connections
 from django.db.models.signals import post_delete, post_save
 from django.dispatch import receiver
 
@@ -99,6 +100,30 @@ __all__ = [
     "is_property_access_control_enabled",
     "strip_restricted_properties",
 ]
+
+
+_T = TypeVar("_T")
+
+
+def _run_with_stale_connection_retry(operation: Callable[[], _T]) -> _T:
+    """Run a read-only DB ``operation``, retrying once if a pooled connection is found dead.
+
+    Long-lived async / Temporal workers keep Postgres connections open across queries (pooled via
+    pgbouncer). A connection can be recycled or time out while idle and then, on reuse, raise a
+    corrupted-protocol error (``lost synchronization with server``) — for property access control
+    this surfaces in the HogQL printer's hot path. Evict any unusable connection and retry once on
+    a fresh one. If no connection is actually unusable the error is a genuine query failure, so we
+    re-raise. Safe because every ``operation`` passed here is a read and thus idempotent.
+    """
+    try:
+        return operation()
+    except DatabaseError:
+        dead = [conn for conn in connections.all(initialized_only=True) if not conn.is_usable()]
+        if not dead:
+            raise
+        for conn in dead:
+            conn.close()
+        return operation()
 
 
 def get_default_access_level() -> PropertyAccessLevel:
@@ -301,12 +326,23 @@ def get_restricted_properties_for_team(
         if cached is not None:
             return cached
 
+    # This DB work runs in the HogQL printer's hot path, which executes inside long-lived async /
+    # Temporal workers where a pooled Postgres connection can be recycled or time out while idle
+    # between queries. Retry once on a fresh connection if the pooled one is found dead — see
+    # `_run_with_stale_connection_retry`.
+    restricted = _run_with_stale_connection_retry(
+        lambda: _compute_restricted_properties_for_team(team_id=team_id, user=user)
+    )
+
+    if cache is not None:
+        cache[cache_key] = restricted
+    return restricted
+
+
+def _compute_restricted_properties_for_team(*, team_id: int, user: User | None) -> set[tuple[str, int]]:
     # Short-circuit: no PROPERTY_ACCESS_CONTROL means no property access control rules exist
     if not is_property_access_control_enabled(team_id=team_id):
-        empty_no_feature: set[tuple[str, int]] = set()
-        if cache is not None:
-            cache[cache_key] = empty_no_feature
-        return empty_no_feature
+        return set()
 
     rules = (
         PropertyAccessControl.objects.filter(team_id=team_id)
@@ -315,10 +351,7 @@ def get_restricted_properties_for_team(
     )
 
     if not rules.exists():
-        empty: set[tuple[str, int]] = set()
-        if cache is not None:
-            cache[cache_key] = empty
-        return empty
+        return set()
 
     # group rules by property definition
     rules_by_property: dict[UUID, list[PropertyAccessControl]] = {}
@@ -361,8 +394,6 @@ def get_restricted_properties_for_team(
         if prop_def is not None and not level.grants_access():
             restricted.add((prop_def.name, prop_def.type))
 
-    if cache is not None:
-        cache[cache_key] = restricted
     return restricted
 
 

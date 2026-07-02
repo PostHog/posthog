@@ -1,5 +1,8 @@
 from posthog.test.base import BaseTest
-from unittest.mock import patch
+from unittest.mock import MagicMock, patch
+
+from django.db import DatabaseError
+from django.test import SimpleTestCase
 
 from posthog.constants import AvailableFeature
 from posthog.models import PropertyDefinition
@@ -8,6 +11,7 @@ from products.access_control.backend.models.property_access_control import Prope
 from products.access_control.backend.property_access_control import (
     PropertyAccessLevel,
     _restriction_cache_var,
+    _run_with_stale_connection_retry,
     get_default_access_level,
     get_property_access_level,
     get_restricted_properties_for_team,
@@ -530,3 +534,52 @@ class TestQueryTimeFeatureGate(BaseTest):
         assert get_restricted_properties_for_team(team_id=self.team.pk, user=self.user) == {
             ("gated_event_prop", PropertyDefinition.Type.EVENT)
         }
+
+
+class TestRunWithStaleConnectionRetry(SimpleTestCase):
+    def test_evicts_dead_connection_and_retries_once(self):
+        # A pooled connection recycled while idle raises a corrupted-protocol DatabaseError on reuse
+        # (the production "lost synchronization with server" crash in the HogQL printer's hot path);
+        # the dead connection is evicted and the read succeeds on the retry.
+        dead_conn = MagicMock()
+        dead_conn.is_usable.return_value = False
+
+        results = iter(
+            [
+                DatabaseError('lost synchronization with server: got message type "c", length 1751475051'),
+                "recovered",
+            ]
+        )
+
+        def operation():
+            outcome = next(results)
+            if isinstance(outcome, Exception):
+                raise outcome
+            return outcome
+
+        with patch("products.access_control.backend.property_access_control.connections") as mock_connections:
+            mock_connections.all.return_value = [dead_conn]
+            assert _run_with_stale_connection_retry(operation) == "recovered"
+
+        dead_conn.close.assert_called_once()
+
+    def test_reraises_when_connection_still_usable(self):
+        # A DatabaseError on a healthy connection is a genuine query failure, not connection
+        # corruption — it must propagate rather than silently retry.
+        healthy_conn = MagicMock()
+        healthy_conn.is_usable.return_value = True
+
+        call_count = 0
+
+        def operation():
+            nonlocal call_count
+            call_count += 1
+            raise DatabaseError("integrity constraint violated")
+
+        with patch("products.access_control.backend.property_access_control.connections") as mock_connections:
+            mock_connections.all.return_value = [healthy_conn]
+            with self.assertRaises(DatabaseError):
+                _run_with_stale_connection_retry(operation)
+
+        assert call_count == 1
+        healthy_conn.close.assert_not_called()
