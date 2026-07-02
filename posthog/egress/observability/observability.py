@@ -1,6 +1,6 @@
 """Generic outbound API egress observability — the metrics analog of the egress limiter.
 
-Mirrors the limiter's shape (:mod:`posthog.rate_limiting.outbound`): a domain-agnostic mechanism,
+Mirrors the limiter's shape (:mod:`posthog.egress.limiter.outbound`): a domain-agnostic mechanism,
 with each third-party API registered as a *domain* that supplies its own metric set and a parser for
 that API's rate-limit response headers. A consumer records a response against a domain; the registered
 :class:`EgressObservability` does the rest.

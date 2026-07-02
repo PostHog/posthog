@@ -316,6 +316,7 @@
           ExternalDataSourceType.INSIGHTFUL: InsightfulSourceConfig,
           ExternalDataSourceType.INSIGHTLY: InsightlySourceConfig,
           ExternalDataSourceType.INSTAGRAM: InstagramSourceConfig,
+          ExternalDataSourceType.INSTANTLY: InstantlySourceConfig,
           ExternalDataSourceType.INSTATUS: InstatusSourceConfig,
           ExternalDataSourceType.INTERCOM: IntercomSourceConfig,
           ExternalDataSourceType.INTERZOID: InterzoidSourceConfig,

@@ -15679,6 +15679,7 @@ export namespace Schemas {
      * * `InforNexus` - InforNexus
      * * `Insightful` - Insightful
      * * `Insightly` - Insightly
+     * * `Instantly` - Instantly
      * * `Instatus` - Instatus
      * * `Intruder` - Intruder
      * * `Invoiced` - Invoiced
@@ -16334,6 +16335,7 @@ export namespace Schemas {
       InforNexus: 'InforNexus',
       Insightful: 'Insightful',
       Insightly: 'Insightly',
+      Instantly: 'Instantly',
       Instatus: 'Instatus',
       Intruder: 'Intruder',
       Invoiced: 'Invoiced',
@@ -17003,6 +17005,7 @@ export namespace Schemas {
        * * `InforNexus` - InforNexus
        * * `Insightful` - Insightful
        * * `Insightly` - Insightly
+       * * `Instantly` - Instantly
        * * `Instatus` - Instatus
        * * `Intruder` - Intruder
        * * `Invoiced` - Invoiced
@@ -21478,8 +21481,8 @@ export namespace Schemas {
       id?: number | null;
       /** Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure. */
       kind?: Kind1 | null;
-      /** Event property filters. Pass an empty array if no filters needed. */
-      properties: EventPropertyFilter[];
+      /** Property filters (event, person, and other supported types). Pass an empty array if no filters needed. */
+      properties: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[];
     }
 
     export interface ExperimentApiExposureCriteria {
@@ -22831,6 +22834,7 @@ export namespace Schemas {
        * * `InforNexus` - InforNexus
        * * `Insightful` - Insightful
        * * `Insightly` - Insightly
+       * * `Instantly` - Instantly
        * * `Instatus` - Instatus
        * * `Intruder` - Intruder
        * * `Invoiced` - Invoiced
@@ -49143,6 +49147,7 @@ export namespace Schemas {
        * * `InforNexus` - InforNexus
        * * `Insightful` - Insightful
        * * `Insightly` - Insightly
+       * * `Instantly` - Instantly
        * * `Instatus` - Instatus
        * * `Intruder` - Intruder
        * * `Invoiced` - Invoiced
@@ -49838,6 +49843,7 @@ export namespace Schemas {
        * * `InforNexus` - InforNexus
        * * `Insightful` - Insightful
        * * `Insightly` - Insightly
+       * * `Instantly` - Instantly
        * * `Instatus` - Instatus
        * * `Intruder` - Intruder
        * * `Invoiced` - Invoiced
@@ -50525,6 +50531,7 @@ export namespace Schemas {
        * * `InforNexus` - InforNexus
        * * `Insightful` - Insightful
        * * `Insightly` - Insightly
+       * * `Instantly` - Instantly
        * * `Instatus` - Instatus
        * * `Intruder` - Intruder
        * * `Invoiced` - Invoiced
@@ -66427,9 +66434,14 @@ export namespace Schemas {
      */
     created_by?: number;
     /**
-     * When true, list internal tasks instead of user-facing ones. Honored in debug environments or for staff users; ignored for non-staff users in production. Defaults to excluding internal tasks.
+     * Filter by the internal flag, which controls whether a task is shown by default, not whether it is accessible. Defaults to excluding internal tasks. Use 'all' to include both internal and user-facing tasks (available to any team member; access stays governed by task visibility). 'true' lists only internal tasks and is a staff/debug view.
+     *
+     * * `true` - true
+     * * `false` - false
+     * * `all` - all
+     * @minLength 1
      */
-    internal?: boolean;
+    internal?: TasksListInternal;
     /**
      * Number of results to return per page.
      * @minimum 1
@@ -66483,6 +66495,15 @@ export namespace Schemas {
 
 
     export const TasksListArchived = {
+      True: 'true',
+      False: 'false',
+      All: 'all',
+    } as const;
+
+    export type TasksListInternal = typeof TasksListInternal[keyof typeof TasksListInternal];
+
+
+    export const TasksListInternal = {
       True: 'true',
       False: 'false',
       All: 'all',

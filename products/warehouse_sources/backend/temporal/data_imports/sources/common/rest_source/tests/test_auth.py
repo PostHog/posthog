@@ -58,6 +58,25 @@ class TestOAuth2Auth(SimpleTestCase):
         assert auth.rotated_refresh_token is None
 
     @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_externally_managed_token_never_mints_even_when_expired(self, mock_session):
+        # A single-use refresh token rotates only once, so an integration-backed source seeds a static
+        # bearer with manages_own_token=False: the engine must never re-mint. Even with no known expiry
+        # (so _is_token_expired() reads True), __call__ sends the seeded token as-is (the resource server
+        # 401s — a retryable failure whose retry re-mints up front through the row) instead of consuming
+        # and losing the rotation.
+        auth = OAuth2Auth(
+            token_url="https://auth.example.com/token",
+            client_id="cid",
+            client_secret="cs",
+            grant_type="refresh_token",
+            refresh_token="orig-RT",
+            access_token="seeded-AT",
+            manages_own_token=False,
+        )
+        assert _apply_auth(auth) == "Bearer seeded-AT"
+        mock_session.return_value.post.assert_not_called()
+
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
     def test_refresh_token_grant_body_and_no_in_memory_rotation(self, mock_session):
         mock_session.return_value.post.return_value = _token_response(
             payload={"access_token": "minted-456", "expires_in": 3600, "refresh_token": "refresh-rotated"}

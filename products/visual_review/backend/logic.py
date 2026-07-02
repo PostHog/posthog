@@ -30,8 +30,8 @@ import structlog
 if TYPE_CHECKING:
     from posthog.models.integration import GitHubIntegration
 
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.helpers.trigram_search import TrigramSearchField, apply_trigram_search, normalize_search_term
-from posthog.models.integration import GitHubRateLimitError
 
 from .classifier import SnapshotClassifier
 from .db import READER_DB, WRITER_DB

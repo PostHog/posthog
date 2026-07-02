@@ -27,12 +27,12 @@ scratch** for a use case the fleet doesn't cover.
 
 Scouts come in **two output channels**, picked per scout via its frontmatter `allowed_tools`:
 
-- **Signal-emitting** (the default, most of the fleet) — fires weak **findings** via
-  `emit-signal` that the pipeline groups, dedupes, and may promote into a report.
+- **Signal-emitting** (the default for a scout with no `allowed_tools` opt-in) — fires weak
+  **findings** via `emit-signal` that the pipeline groups, dedupes, and may promote into a report.
 - **Report-authoring** — lists `emit_report` / `edit_report` in `allowed_tools` and writes a
   full inbox **report** 1:1 directly, skipping the pipeline, for a scout whose natural output is
-  one well-formed report. The canonical generalist (`signals-scout-general`) is the first scout
-  on this channel. See the report-channel reference below.
+  one well-formed report. Nearly the whole canonical fleet runs on this channel (every scout
+  except `signals-scout-skills-store`). See the report-channel reference below.
 
 The channel changes the scout's **Decide** section and which references it bundles, but not
 the rest of its anatomy — orient, discriminator, explore, memory, disqualifiers are the same.

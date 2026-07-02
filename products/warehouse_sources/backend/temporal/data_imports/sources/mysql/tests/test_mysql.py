@@ -28,6 +28,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysq
     _is_transient_connect_timeout,
     _is_transient_packet_sequence_error,
     _is_transient_tablet_unavailable,
+    _is_transient_vitess_dial_timeout,
     _release_streaming_cursor,
     _retry_on_transient_tablet_unavailable,
     _safe_convert_date,
@@ -961,6 +962,42 @@ class TestIsTransientPacketSequenceError:
         assert not _is_transient_packet_sequence_error(pymysql.err.InternalError())
 
 
+class TestIsTransientVitessDialTimeout:
+    @pytest.mark.parametrize(
+        "message",
+        [
+            # The shape a Vitess/PlanetScale vtgate surfaces at connect time when it can't dial the
+            # backend tablet in time — the tablet address, attempt count, and reqid all vary, the
+            # Go `dial tcp ... connection timed out` signature is the stable signal.
+            "internal connection error: dial tcp 10.0.0.1:8083: connect: connection timed out, "
+            "after 1 attempts, reqid=csYTzBMNB2hB8111yzcg4A",
+            "internal connection error: dial tcp 192.0.2.5:3306: connect: connection timed out",
+        ],
+    )
+    def test_matches_dial_timeout(self, message):
+        assert _is_transient_vitess_dial_timeout(pymysql.err.OperationalError(1815, message))
+
+    @pytest.mark.parametrize(
+        "code,message",
+        [
+            # A refused dial returns immediately and is more often a persistent config problem, so
+            # it must not be absorbed here — only the timeout flavour above is treated as transient.
+            (1815, "internal connection error: dial tcp 10.0.0.1:8083: connect: connection refused"),
+            # Config/credential errors stay untouched, even when they mention a timeout.
+            (2003, "Can't connect to MySQL server on 'db.example.com' (timed out)"),
+            (1045, "Access denied for user"),
+        ],
+    )
+    def test_does_not_match_non_dial_timeout_errors(self, code, message):
+        assert not _is_transient_vitess_dial_timeout(pymysql.err.OperationalError(code, message))
+
+    def test_does_not_match_error_without_args(self):
+        assert not _is_transient_vitess_dial_timeout(pymysql.err.OperationalError())
+
+    def test_does_not_match_non_operational_error(self):
+        assert not _is_transient_vitess_dial_timeout(ValueError("dial tcp 10.0.0.1: connection timed out"))
+
+
 class TestConnectTransientRetry:
     @pytest.mark.parametrize(
         "fail_count,expected_sleeps",
@@ -1016,6 +1053,28 @@ class TestConnectTransientRetry:
             "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
             side_effect=[
                 pymysql.err.OperationalError(2003, "Can't connect to MySQL server on 'host' (timed out)"),
+                conn,
+            ],
+        )
+
+        with MySQLImplementation().connect(_make_config()) as yielded:
+            assert yielded is conn
+
+        assert mock_connect.call_count == 2
+        sleep.assert_called_once_with(2)
+
+    def test_retries_vitess_dial_timeout_then_succeeds(self, mocker):
+        sleep = mocker.patch("products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.time.sleep")
+        conn = MagicMock()
+        conn.__enter__.return_value = conn
+        mock_connect = mocker.patch(
+            "products.warehouse_sources.backend.temporal.data_imports.sources.mysql.mysql.pymysql.connect",
+            side_effect=[
+                pymysql.err.OperationalError(
+                    1815,
+                    "internal connection error: dial tcp 10.0.0.1:8083: connect: connection timed out, "
+                    "after 1 attempts, reqid=csYTzBMNB2hB8111yzcg4A",
+                ),
                 conn,
             ],
         )

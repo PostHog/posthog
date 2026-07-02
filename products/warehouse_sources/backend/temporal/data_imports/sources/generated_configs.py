@@ -878,6 +878,7 @@ class CustomSourceConfig(config.Config):
     auth_password: str | None = None
     auth_oauth2_client_secret: str | None = None
     auth_oauth2_refresh_token: str | None = None
+    auth_oauth2_integration_id: str | None = None
 
 
 @config.config
@@ -1599,6 +1600,11 @@ class InsightlySourceConfig(config.Config):
 
 @config.config
 class InstagramSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class InstantlySourceConfig(config.Config):
     pass
 
 
@@ -3899,6 +3905,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.INSIGHTFUL: InsightfulSourceConfig,
         ExternalDataSourceType.INSIGHTLY: InsightlySourceConfig,
         ExternalDataSourceType.INSTAGRAM: InstagramSourceConfig,
+        ExternalDataSourceType.INSTANTLY: InstantlySourceConfig,
         ExternalDataSourceType.INSTATUS: InstatusSourceConfig,
         ExternalDataSourceType.INTERCOM: IntercomSourceConfig,
         ExternalDataSourceType.INTERZOID: InterzoidSourceConfig,
