@@ -313,7 +313,7 @@ AS SELECT
     mapSort(mapApply((k, v) -> (k, JSONExtractString(v)), attributes)) AS attributes,
     timestamp as last_seen
 FROM kafka_metrics_avro
-WHERE series_fingerprint IS NOT NULL
+WHERE kafka_metrics_avro.series_fingerprint IS NOT NULL
 settings min_insert_block_size_rows=0, min_insert_block_size_bytes=0;
 
 drop table if exists kafka_metrics_avro_to_metric_samples;
@@ -331,7 +331,7 @@ AS SELECT
     span_id,
     ifNull(trace_flags, 0) as trace_flags
 FROM kafka_metrics_avro
-WHERE series_fingerprint IS NOT NULL
+WHERE kafka_metrics_avro.series_fingerprint IS NOT NULL
 settings min_insert_block_size_rows=0, min_insert_block_size_bytes=0;
 
 -- Kafka consumer lag tracking
