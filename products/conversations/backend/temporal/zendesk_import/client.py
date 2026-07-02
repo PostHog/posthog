@@ -187,6 +187,27 @@ class ZendeskImportClient:
 
 
 def validate_zendesk_credentials(credentials: ZendeskCredentials) -> bool:
-    from products.warehouse_sources.backend.temporal.data_imports.sources.zendesk.zendesk import validate_credentials
+    """Probe the tickets count endpoint to confirm the credentials work.
 
-    return validate_credentials(credentials.subdomain, credentials.api_token, credentials.email_address)
+    Validates the subdomain to a single DNS label here (same guard as
+    `ZendeskImportClient.__init__`) so a crafted subdomain like "attacker.example#"
+    can't retarget the probe — and the Basic auth token with it — at another host (SSRF).
+    """
+    subdomain = normalize_subdomain(credentials.subdomain)
+    if not _SUBDOMAIN_LABEL_RE.match(subdomain):
+        return False
+    token = base64.b64encode(f"{credentials.email_address}/token:{credentials.api_token}".encode("ascii")).decode(
+        "ascii"
+    )
+    # The Basic auth header carries a reusable Zendesk API token. Mask the token, api_token,
+    # and email in logged URLs/samples, and disable sample capture so the Authorization header
+    # can't leak into HTTP telemetry.
+    session = make_tracked_session(
+        redact_values=(token, credentials.api_token, credentials.email_address),
+        capture=False,
+    )
+    res = session.get(
+        f"https://{subdomain}.zendesk.com/api/v2/tickets/count",
+        headers={"Authorization": f"Basic {token}"},
+    )
+    return res.status_code == 200
