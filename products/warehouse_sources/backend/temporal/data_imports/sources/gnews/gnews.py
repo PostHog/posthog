@@ -31,9 +31,9 @@ class GNewsRetryableError(Exception):
 
 @dataclasses.dataclass
 class GNewsResumeConfig:
-    # Page number to resume from. Checkpointed as the current (not next) page so a crash re-fetches
-    # the in-flight page and re-yields it — merge dedupes the overlap on the `url` primary key.
-    next_page: int = 1
+    # The page to re-fetch on resume. Checkpointed as the current (in-flight) page, not the next one,
+    # so a crash re-fetches and re-yields it — merge dedupes the overlap on the `url` primary key.
+    page_to_refetch: int = 1
 
 
 def _get_headers(api_key: str) -> dict[str, str]:
@@ -108,7 +108,8 @@ def _fetch_page(session: requests.Session, url: str, headers: dict[str, str], lo
         raise GNewsRetryableError(f"GNews API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:
-        logger.error(f"GNews API error: status={response.status_code}, body={response.text}, url={url}")
+        # Truncate the body so a large or repeated error payload can't flood the logs.
+        logger.error(f"GNews API error: status={response.status_code}, body={response.text[:500]!r}, url={url}")
         response.raise_for_status()
 
     return response.json()
@@ -174,7 +175,7 @@ def get_rows(
     )
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
-    page = resume.next_page if resume else 1
+    page = resume.page_to_refetch if resume else 1
     if resume:
         logger.debug(f"GNews: resuming {endpoint} from page {page}")
 
@@ -206,7 +207,7 @@ def get_rows(
                 # Save AFTER yielding (and only when more pages remain) so a crash re-yields this
                 # page instead of skipping it, without pointlessly re-fetching the final page.
                 if not is_last_page:
-                    resumable_source_manager.save_state(GNewsResumeConfig(next_page=checkpoint_page))
+                    resumable_source_manager.save_state(GNewsResumeConfig(page_to_refetch=checkpoint_page))
 
         if is_last_page:
             break

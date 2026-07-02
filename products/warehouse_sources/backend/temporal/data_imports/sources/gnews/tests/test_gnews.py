@@ -180,7 +180,7 @@ class TestGetRows:
                         None,
                         None,
                         MagicMock(),
-                        _resume_manager(GNewsResumeConfig(next_page=5)),
+                        _resume_manager(GNewsResumeConfig(page_to_refetch=5)),
                     )
                 )
         # First (and only, since page 2 rows < PAGE_SIZE) request starts at the saved page.
@@ -247,7 +247,7 @@ class TestResumableStateSaving:
         with patch(f"{_MODULE}.Batcher", _FakeBatcher):
             with patch(f"{_MODULE}._fetch_page", side_effect=pages):
                 _collect(get_rows("k", "articles", "posthog", None, None, None, MagicMock(), manager))
-        saved_pages = [call.args[0].next_page for call in manager.save_state.call_args_list]
+        saved_pages = [call.args[0].page_to_refetch for call in manager.save_state.call_args_list]
         # Checkpoints record the page that produced the batch (current page), never a page ahead.
         assert 1 in saved_pages
         assert 2 in saved_pages
