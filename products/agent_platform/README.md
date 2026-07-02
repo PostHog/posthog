@@ -36,5 +36,5 @@ AgentSessionV2
 ```
 
 The `spec` JSONB is the structural truth — model, triggers, tools, mcps,
-skills, integrations, secrets, limits, entrypoint. See `@posthog/agent-shared-v2`
+skills, secrets, limits, entrypoint. See `@posthog/agent-shared-v2`
 for the canonical TypeScript shape (`AgentSpec`).

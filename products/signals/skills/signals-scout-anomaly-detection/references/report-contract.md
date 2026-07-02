@@ -27,18 +27,18 @@ Below that bar, write a `baseline:` / `noise:` scratchpad entry instead — don'
 
 ## `emit_report` — author a full report
 
-| Field                       | Type                     | Notes                                                                                                                                                    |
-| --------------------------- | ------------------------ | -------------------------------------------------------------------------------------------------------------------------------------------------------- |
-| `title`                     | string, ≤300, non-empty  | The inbox headline. One specific, quantified line (see below).                                                                                           |
-| `summary`                   | string                   | The report body prose — hook → pattern → hypothesis → lineage → recommendation (see below).                                                              |
-| `evidence`                  | list, 1–50               | Each `{description, source_id}`. Becomes a bound signal row backing the report.                                                                          |
-| `actionability_explanation` | string                   | One sentence justifying the actionability call.                                                                                                          |
-| `actionability`             | enum                     | `immediately_actionable` / `requires_human_input` / `not_actionable`. You make the call.                                                                 |
-| `already_addressed`         | bool, default `false`    | Set when the move is already handled and you're filing for the record.                                                                                   |
-| `suggested_reviewers`       | list of `{github_login}` | Who owns the metric/dashboard — routes the report. Each entry is an object (`{github_login: "octocat"}`), not a bare string. Optional but high-leverage. |
-| `priority`                  | `P0`–`P4`                | Optional; pair with `priority_explanation`. Needed for an autostart draft PR.                                                                            |
-| `priority_explanation`      | string                   | Required when `priority` is set.                                                                                                                         |
-| `repository`                | string                   | `owner/repo` for a code fix, the `NO_REPO` sentinel for a pure metric move, omitted for free-form.                                                       |
+| Field                       | Type                    | Notes                                                                                                                                                           |
+| --------------------------- | ----------------------- | --------------------------------------------------------------------------------------------------------------------------------------------------------------- |
+| `title`                     | string, ≤300, non-empty | The inbox headline. One specific, quantified line (see below).                                                                                                  |
+| `summary`                   | string                  | The report body prose — hook → pattern → hypothesis → lineage → recommendation (see below).                                                                     |
+| `evidence`                  | list, 1–50              | Each `{description, source_id}`. Becomes a bound signal row backing the report.                                                                                 |
+| `actionability_explanation` | string                  | One sentence justifying the actionability call.                                                                                                                 |
+| `actionability`             | enum                    | `immediately_actionable` / `requires_human_input` / `not_actionable`. You make the call.                                                                        |
+| `already_addressed`         | bool, default `false`   | Set when the move is already handled and you're filing for the record.                                                                                          |
+| `suggested_reviewers`       | list of objects         | Who owns the metric/dashboard — routes the report. Each entry is `{github_login}` and/or `{user_uuid}` (not a bare string). High-leverage — set it (see below). |
+| `priority`                  | `P0`–`P4`               | Optional; pair with `priority_explanation`. Needed for an autostart draft PR.                                                                                   |
+| `priority_explanation`      | string                  | Required when `priority` is set.                                                                                                                                |
+| `repository`                | string                  | `owner/repo` for a code fix, the `NO_REPO` sentinel for a pure metric move, omitted for free-form.                                                              |
 
 The result carries `report_id` (always set when a report was persisted — even when suppressed,
 so you can edit / dedup against it), `report_status`, `emitted` (true only when it surfaced as
@@ -108,11 +108,12 @@ the durable artifact the human opens.
 
 ### Suggested reviewers
 
-The single highest-leverage field — it **routes** the report to whoever owns the metric. Resolve
-the login cheapest-source-first (a `reviewer:anomaly_detection:<area>` scratchpad entry you cached
-before; inbox precedent via `inbox-reports-list` on the same dashboard/surface), and cache it back
-for next run. Each entry is a bare, lowercase GitHub login. If you can't resolve a confident login,
-leave it empty — the report still surfaces — but never guess a handle.
+The single highest-leverage field — it **routes** the report to whoever owns the metric. The
+harness prompt covers resolution in full (resolve via `signals-scout-members-list`, each entry an
+object `{github_login}` and/or `{user_uuid}`, and `edit_report` can route an orphaned report). The
+anomaly specifics: cache the owner under a `reviewer:anomaly_detection:<area>` key, and reuse inbox
+precedent (`inbox-reports-list` on the same dashboard/surface, then `inbox-report-artefacts-list`)
+for who has owned that metric before. Never guess a handle.
 
 ## `edit_report` — update on a recurrence
 
@@ -136,24 +137,16 @@ building the notebook until the edit is about to commit.
 A genuinely distinct anomaly (a different insight, or a new move on the same one after the prior
 was resolved) is a new `emit_report`, with a `summary` lineage line citing the prior report.
 
-## Dedup: the channel is NOT idempotent
+## Dedup
 
-`emit_report` has no server-side dedup key — a retried call authors a **second** report. The
-dedup is yours, two-sided:
-
-1. **Before authoring**, `inbox-reports-list` (search by the insight / metric / dashboard) and
-   check your `report:anomaly_detection:insight:<short_id>` pointer. Found one? Check whether it
-   is **live** before editing: if the pointer is flagged suppressed, or `inbox-reports-retrieve`
-   shows the report is suppressed / already resolved, `edit_report` can't resurface it — author a
-   fresh report (with a `summary` lineage line citing the prior `report_id`) instead. Only
-   `edit_report` a report that is still surfaced.
-2. **After authoring**, write the `report:` pointer with the `report_id` (and its status, so the
-   next run applies the live-check above).
-
-**Never retry an `emit_report` / `edit_report` that may have landed** — if unsure, `inbox-reports-list`
-to check before re-sending. The pipeline may later re-research and rewrite a report you authored;
-that's accepted — your durable record of "I filed this" is the `report_id` in the pointer, not the
-title text.
+The channel isn't idempotent, and the harness prompt covers the general discipline (search the
+inbox first with `ordering=-updated_at`, edit over a near-duplicate, never retry a call that may
+have landed, and the accepted caveat that the pipeline may later rewrite a report you authored).
+The anomaly specifics: dedup by the insight via your
+`report:anomaly_detection:insight:<short_id>` pointer (and `inbox-reports-list` on the insight /
+metric / dashboard), and **live-check before editing** — a suppressed or resolved report can't be
+resurfaced by `edit_report`, so re-author with a `summary` lineage line citing the prior
+`report_id` instead of editing the invisible one.
 
 ## The notebook write-up
 

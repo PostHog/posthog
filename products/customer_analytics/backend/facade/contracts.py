@@ -239,13 +239,26 @@ class CustomerProfileConfigView:
 
 
 @stdlib_dataclass(frozen=True)
+class CustomPropertyReference:
+    """A place that uses a custom property definition. ``type`` discriminates the kind of
+    referrer (``workflow`` for now); ``id``/``name``/``status`` identify the referring entity."""
+
+    id: str
+    name: str
+    status: str
+    type: str = "workflow"
+
+
+@stdlib_dataclass(frozen=True)
 class CustomPropertyDefinitionView:
     """A team-scoped custom account-property definition as returned by the
     custom-property-definitions endpoints.
 
     Defaults exist so the wrapping serializer can parse partial request bodies (see
     :class:`AccountView`). ``created_by`` is the creator's user id (or ``None``), matching
-    the old model serializer's ``PrimaryKeyRelatedField`` output.
+    the old model serializer's ``PrimaryKeyRelatedField`` output. ``references`` lists where the
+    property is used (workflows), resolved by definition id. ``source`` is the read-only
+    view-sync binding when one is configured for this definition, else ``None``.
     """
 
     id: UUID | None = None
@@ -253,6 +266,33 @@ class CustomPropertyDefinitionView:
     description: str | None = None
     display_type: str = "text"
     is_big_number: bool = False
+    created_at: datetime | None = None
+    created_by: int | None = None
+    updated_at: datetime | None = None
+    references: list[CustomPropertyReference] = field(default_factory=list)
+    source: "CustomPropertySourceView | None" = None
+
+
+@stdlib_dataclass(frozen=True)
+class CustomPropertySourceView:
+    """A custom-property source: binds a materialized view's column to a definition, feeding its
+    values on each materialization.
+
+    ``definition`` / ``saved_query`` are ids (the definition this feeds, and the data-warehouse
+    saved query read from). ``last_sync_error`` is null when the last run succeeded or hasn't run.
+    Defaults exist so the wrapping serializer can parse partial request bodies (see
+    :class:`AccountView`).
+    """
+
+    id: UUID | None = None
+    definition: UUID | None = None
+    saved_query: UUID | None = None
+    source_column: str = ""
+    key_column: str = ""
+    is_enabled: bool = True
+    consecutive_failures: int = 0
+    last_synced_at: datetime | None = None
+    last_sync_error: str | None = None
     created_at: datetime | None = None
     created_by: int | None = None
     updated_at: datetime | None = None
@@ -350,6 +390,7 @@ class ExternalAccountCustomPropertiesError(Enum):
     INVALID_VALUE = "invalid_value"
     CONFLICT = "conflict"
     UPDATE_FAILED = "update_failed"
+    SOURCE_MANAGED = "source_managed"
 
 
 @dataclass(frozen=True)
@@ -358,7 +399,8 @@ class ExternalAccountCustomPropertiesResult:
     case to its exact HTTP status and error string without holding write logic.
 
     Exactly one of ``values`` / ``error`` is set. ``error_field`` carries the offending
-    property name for ``DEFINITION_NOT_FOUND`` / ``INVALID_VALUE`` failures; it is None otherwise.
+    property name for ``DEFINITION_NOT_FOUND`` / ``INVALID_VALUE`` / ``SOURCE_MANAGED`` failures;
+    it is None otherwise.
     """
 
     values: list[CustomPropertyValue] | None = None

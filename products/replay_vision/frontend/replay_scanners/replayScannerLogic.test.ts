@@ -1,6 +1,8 @@
 import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
+import { urls } from 'scenes/urls'
+
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
@@ -12,6 +14,7 @@ import {
     parseCsvParam,
     parseSortParam,
     replayScannerLogic,
+    shouldGuardScannerNavigation,
 } from './replayScannerLogic'
 import { defaultScannerTemplates } from './scannerTemplates'
 import { ClassifierScanner, ReplayScanner, ScorerScanner } from './types'
@@ -551,6 +554,37 @@ describe('replayScannerLogic', () => {
             await expectLogic(logic, () => logic.actions.setScannerValues({ name: 'Edited' })).toMatchValues({
                 hasUnsavedChanges: true,
             })
+        })
+    })
+
+    describe('shouldGuardScannerNavigation', () => {
+        const scannerId = 'abc-123'
+        const configure = urls.replayVisionScannerConfigure(scannerId)
+        const triggers = urls.replayVisionScannerTriggers(scannerId)
+        const template = urls.replayVisionScannerTemplate(scannerId)
+        const detail = urls.replayVision(scannerId)
+        const base = { hasUnsavedChanges: true, isSubmitting: false, scannerId, currentPathname: configure }
+
+        it.each([
+            // Nothing to lose, or the editor is mid-submit (save / step advance redirects itself).
+            ['no unsaved changes', { ...base, hasUnsavedChanges: false, nextPathname: '/insights' }, false],
+            ['mid-submit redirect to detail', { ...base, isSubmitting: true, nextPathname: detail }, false],
+            // Moving between the wizard's own steps keeps the same draft mounted.
+            ['forward to triggers step', { ...base, nextPathname: triggers }, false],
+            ['back to template step', { ...base, currentPathname: triggers, nextPathname: template }, false],
+            // Only guard while actually inside this scanner's editor.
+            ['not currently in the editor', { ...base, currentPathname: detail, nextPathname: '/insights' }, false],
+            // Genuinely leaving the editor with unsaved edits.
+            ['out to the detail page', { ...base, nextPathname: detail }, true],
+            ['out to an unrelated scene', { ...base, nextPathname: '/insights' }, true],
+            ['closing the tab (no next location)', { ...base, nextPathname: undefined }, true],
+            [
+                'over to a different scanner’s editor',
+                { ...base, nextPathname: urls.replayVisionScannerConfigure('other-id') },
+                true,
+            ],
+        ])('%s', (_label, params, expected) => {
+            expect(shouldGuardScannerNavigation(params)).toBe(expected)
         })
     })
 

@@ -41,8 +41,13 @@ def _extract(
         return FunnelsExtractor().extract(_alert(config, condition_type), MagicMock(), _query(viz), IF_STALE)
 
 
-def _config(metric: str = "conversion_from_start", funnel_step: int | None = None) -> dict:
-    return {"type": "FunnelsAlertConfig", "metric": metric, "funnel_step": funnel_step}
+def _config(
+    metric: str = "conversion_from_start", funnel_step: int | None = None, check_ongoing_interval: bool | None = None
+) -> dict:
+    config: dict = {"type": "FunnelsAlertConfig", "metric": metric, "funnel_step": funnel_step}
+    if check_ongoing_interval is not None:
+        config["check_ongoing_interval"] = check_ongoing_interval
+    return config
 
 
 @pytest.mark.parametrize(
@@ -77,10 +82,9 @@ def test_result_is_unframed_single_series():
             AlertConditionType.ABSOLUTE_VALUE,
             "undefined at the first step",
         ),
-        (_steps(100, 40), None, "time_to_convert", AlertConditionType.ABSOLUTE_VALUE, "steps funnel"),
         (_steps(100, 40), None, None, AlertConditionType.RELATIVE_INCREASE, "absolute value conditions"),
         (_steps(100, 40), None, None, AlertConditionType.RELATIVE_DECREASE, "absolute value conditions"),
-        ([], None, None, AlertConditionType.ABSOLUTE_VALUE, "no steps"),
+        ([], None, None, AlertConditionType.ABSOLUTE_VALUE, "no data"),
         ([{"order": 0}, {"order": 1}], None, None, AlertConditionType.ABSOLUTE_VALUE, "non-numeric count"),
         ([{"order": 0, "count": 100}, "broken"], None, None, AlertConditionType.ABSOLUTE_VALUE, "malformed"),
     ],
@@ -95,6 +99,74 @@ def test_none_result_raises_runtime_error():
     # AlertExtractionError) so it routes to the harder failure path, matching the other extractors.
     with pytest.raises(RuntimeError, match="No results found"):
         _extract(None)
+
+
+def _trends_series(data: list[float], *, breakdown_value=None) -> dict:
+    days = [f"2024-01-{i + 1:02d}" for i in range(len(data))]
+    series: dict = {"count": len(data), "data": data, "days": days, "labels": days}
+    if breakdown_value is not None:
+        series["breakdown_value"] = breakdown_value
+    return series
+
+
+@pytest.mark.parametrize(
+    "condition_type,check_ongoing,expected_index,expected_value",
+    [
+        # Default: the latest period is in progress, so anchor the last *complete* one.
+        (AlertConditionType.ABSOLUTE_VALUE, False, 1, 20.0),
+        # check_ongoing_interval anchors the latest (in-progress) period instead.
+        (AlertConditionType.ABSOLUTE_VALUE, True, 2, 40.0),
+        # Relative conditions use the same anchor (then diff it against the period before it).
+        (AlertConditionType.RELATIVE_INCREASE, False, 1, 20.0),
+        (AlertConditionType.RELATIVE_INCREASE, True, 2, 40.0),
+    ],
+)
+def test_trends_funnel_anchor_selection(condition_type, check_ongoing, expected_index, expected_value):
+    result = _extract(
+        [_trends_series([10.0, 20.0, 40.0])],
+        viz="trends",
+        condition_type=condition_type,
+        config=_config(check_ongoing_interval=check_ongoing),
+    )
+    assert result.subject == "The funnel conversion rate"
+    assert result.unit == "%"
+    assert result.is_breakdown is False
+    series = result.series[0]
+    assert series.current_index == expected_index
+    assert series.points[series.current_index].value == expected_value
+
+
+def test_trends_funnel_breakdown_yields_one_series_per_value():
+    # check_ongoing_interval so the anchor is the latest (only) interesting point per breakdown.
+    result = _extract(
+        [
+            _trends_series([10.0, 40.0], breakdown_value=["Chrome"]),
+            _trends_series([5.0, 20.0], breakdown_value=["Safari"]),
+        ],
+        viz="trends",
+        config=_config(check_ongoing_interval=True),
+    )
+    assert result.is_breakdown is True
+    assert {s.label: s.points[s.current_index].value for s in result.series} == {"Chrome": 40.0, "Safari": 20.0}
+
+
+def test_trends_funnel_compare_evaluates_current_period_only():
+    current = {**_trends_series([10.0, 40.0]), "compare_label": "current"}
+    previous = {**_trends_series([8.0, 30.0]), "compare_label": "previous"}
+    result = _extract([current, previous], viz="trends", config=_config(check_ongoing_interval=True))
+    assert len(result.series) == 1
+    assert result.series[0].points[result.series[0].current_index].value == 40.0
+
+
+def test_trends_funnel_empty_result_raises_extraction_error():
+    with pytest.raises(AlertExtractionError, match="no data"):
+        _extract([], viz="trends")
+
+
+def test_unsupported_viz_raises():
+    # Time-to-convert and flow funnels have no conversion-rate metric, so they aren't supported.
+    with pytest.raises(ValueError, match="aren't supported for the"):
+        _extract(_steps(100, 40), viz="time_to_convert")
 
 
 def test_breakdown_yields_one_series_per_value():
@@ -147,3 +219,25 @@ def test_breakdown_compared_funnel_evaluates_current_breakdowns_only():
     assert result.is_breakdown is True
     assert {s.label for s in result.series} == {"US", "DE"}  # current breakdowns only, no crash
     assert {s.label: s.points[0].value for s in result.series} == {"US": 40.0, "DE": 25.0}
+
+
+def test_trends_funnel_relative_widens_date_range_to_cover_lookback():
+    # A relative condition diffs against a prior period; the insight's own range may not yield one, so
+    # the extractor widens it to the trailing intervals the comparator needs (here: 3 days).
+    query = _query("trends")
+    query["interval"] = "day"
+    with patch(CALC_PATH) as calc:
+        calc.return_value = MagicMock(result=[_trends_series([10.0, 20.0, 40.0])])
+        FunnelsExtractor().extract(
+            _alert(condition_type=AlertConditionType.RELATIVE_INCREASE), MagicMock(), query, IF_STALE
+        )
+    assert calc.call_args.kwargs["filters_override"] == {"date_from": "-3d"}
+
+
+def test_absolute_funnel_does_not_override_the_insight_date_range():
+    # Absolute conditions read the insight's configured range as-is — widening would change what a
+    # steps-funnel alert has always evaluated.
+    with patch(CALC_PATH) as calc:
+        calc.return_value = MagicMock(result=_steps(100, 40))
+        FunnelsExtractor().extract(_alert(), MagicMock(), _query("steps"), IF_STALE)
+    assert calc.call_args.kwargs["filters_override"] is None

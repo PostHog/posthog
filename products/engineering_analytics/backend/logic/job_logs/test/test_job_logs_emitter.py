@@ -1,5 +1,7 @@
 from datetime import UTC, datetime
 
+from unittest.mock import patch
+
 from opentelemetry.exporter.otlp.proto.common._internal._log_encoder import encode_logs
 from opentelemetry.sdk._logs.export import InMemoryLogExporter
 from parameterized import parameterized
@@ -131,8 +133,32 @@ def test_noop_when_unconfigured():
     assert JobLogsEmitter().emit_log_archive(_lines("2026-06-25T09:14:02.000000Z x"), attributes=_ATTRS) == 0
 
 
+def test_production_exporter_bypasses_egress_proxy():
+    # The endpoint+token path builds the real OTLP exporter, and its requests.Session must have
+    # trust_env=False: capture-logs is an in-cluster private ClusterIP, and the worker's
+    # HTTP_PROXY/HTTPS_PROXY Smokescreen egress proxy denies private-range hosts (407) — so a
+    # proxy-routed export silently drops every batch. No other test hits this branch (they all inject
+    # an in-memory exporter), which is exactly how the 407 shipped unnoticed.
+    otlp = "products.engineering_analytics.backend.logic.job_logs.emitter.OTLPLogExporter"
+    with patch(otlp) as mock_otlp:
+        with JobLogsEmitter(endpoint="http://capture-logs.posthog.svc.cluster.local:4318/i/v1/logs", token="phc_x"):
+            pass
+    assert mock_otlp.call_args.kwargs["session"].trust_env is False
+
+
 def test_noop_when_token_missing():
     # Endpoint set but no token must also no-op — we never emit unauthenticated (it would 401 and
     # the records would be lost), and a half-configured lane shouldn't crash the worker.
     emitter = JobLogsEmitter(endpoint="http://localhost:8010/i/v1/logs", token=None)
     assert emitter.emit_log_archive(_lines("2026-06-25T09:14:02.000000Z x"), attributes=_ATTRS) == 0
+
+
+def test_records_carry_ci_logs_service_name_despite_pod_otel_env():
+    # The worker pod sets OTEL_SERVICE_NAME to its own workload name, and a hand-built LogRecord
+    # defaults its resource from that env — Logger.emit(record) never attaches the provider's
+    # resource. Without pinning the resource on each record, every line lands under the pod's
+    # service.name and the failure-logs read filter (service.name = github-ci-logs) matches nothing.
+    env = {"OTEL_SERVICE_NAME": "temporal-worker-general-purpose", "OTEL_RESOURCE_ATTRIBUTES": ""}
+    with patch.dict("os.environ", env):
+        _, records = _emit("2026-06-25T09:14:02.000000Z hello")
+    assert [r.resource.attributes["service.name"] for r in records] == ["github-ci-logs"]

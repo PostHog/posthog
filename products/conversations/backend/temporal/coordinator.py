@@ -25,6 +25,7 @@ with workflow.unsafe.imports_passed_through():
 
     from products.business_knowledge.backend.logic import has_ready_sources
     from products.conversations.backend.models import Ticket
+    from products.conversations.backend.models.constants import Status
     from products.conversations.backend.temporal.pipeline import SupportReplyInput, SupportReplyWorkflow
 
 logger = structlog.get_logger(__name__)
@@ -112,7 +113,8 @@ def _collect_eligible(lookback_minutes: int = TICKET_LOOKBACK_MINUTES) -> list[E
     # last_message_at is the debounce axis; fall back to created_at for tickets whose denormalized
     # timestamp hasn't landed yet (set via a post-commit signal, so there's a brief null window).
     recent_tickets = Ticket.objects.filter(
-        Q(last_message_at__gte=cutoff) | Q(last_message_at__isnull=True, created_at__gte=cutoff)
+        Q(last_message_at__gte=cutoff) | Q(last_message_at__isnull=True, created_at__gte=cutoff),
+        status__in=[Status.NEW, Status.OPEN],
     ).select_related("team__organization")
 
     # First pass: the cheap per-ticket gates that don't touch the comments table. We keep

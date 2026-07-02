@@ -18,6 +18,8 @@ import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
 import { BreakdownFilter, CurrencyCode, DateRange, TrendsFilter } from '~/queries/schema/schema-general'
 import { ActionFilter, IntervalType } from '~/types'
 
+// ── Types ──────────────────────────────────────────────────────────────────
+
 type InsightSeriesMetaBase = {
     action?: ActionFilter
     breakdown_value?: string | number | string[] | null
@@ -43,25 +45,113 @@ export interface InsightSeriesTooltipProps<Meta extends InsightSeriesMetaBase> {
     formatCompareLabel?: (label: string, dateLabel?: string) => string
     onRowClick?: (datum: SeriesDatum) => void
     showHeader?: boolean
-    /** Override the auto-derived date header. Stickiness needs this since its `date`
-     *  is an interval-count integer, not a date — letting it format as a calendar date
-     *  produces a wrong "Thursday, 1 Jan 1970" header. */
+    /** Override the auto-derived date header — stickiness passes an interval-count integer
+     *  rather than a date, so the default calendar formatter would produce the wrong label. */
     altTitle?: string | ((tooltipData: SeriesDatum[], formattedDate: string) => React.ReactNode)
-    /** Overrides the default value formatter — needed for the pie chart, which renders the
-     *  raw aggregation plus the slice's share of the total. */
+    /** Override the value formatter — pie chart passes slice share alongside the raw count. */
     renderCount?: (value: number) => string
-    /** Overrides the default row label — used by lifecycle, where the label is the lifecycle
-     *  status (e.g. "New") rather than the entity name. */
+    /** Override the row label — lifecycle uses the status name rather than the event name. */
     renderSeriesOverride?: (datum: SeriesDatum) => React.ReactNode
-    /** Sort rows by value descending. Defaults true; pass false to use visual top-to-bottom order (e.g. lifecycle). */
+    /** Sort rows by value descending. Pass false to preserve visual top-to-bottom order. */
     sortedByValue?: boolean
-    /** Hide rows with value 0 — useful when zero means the series is absent (e.g. lifecycle statuses). */
+    /** Hide rows whose value is exactly 0 (e.g. absent lifecycle statuses). */
     hideZeroRows?: boolean
 }
 
-/** Renders hog-charts' DefaultTooltip for insight series charts so they share the same tooltip
- *  surface as SQL insights. Maps the quill TooltipContext to the insight-flavored value/label/date
- *  formatting and wires the per-series persons-modal drill-down. */
+// ── Pure helpers ───────────────────────────────────────────────────────────
+
+/** Format a single row's value given the chart's display mode. */
+function formatRowValue(
+    value: number,
+    opts: {
+        override?: (value: number) => string
+        showPercentView?: boolean
+        isPercentStackView?: boolean
+        trendsFilter?: TrendsFilter | null
+        baseCurrency?: CurrencyCode
+    }
+): string {
+    if (opts.override) {
+        return opts.override(value)
+    }
+    if (opts.showPercentView) {
+        return `${value.toFixed(1)}%`
+    }
+    if (opts.isPercentStackView) {
+        // quill-charts delivers percent-stack segments as 0..1 fractions.
+        return percentage(value)
+    }
+    return formatAggregationAxisValue(opts.trendsFilter, value, opts.baseCurrency)
+}
+
+// ── SeriesLabel ────────────────────────────────────────────────────────────
+
+interface SeriesLabelProps {
+    datum: SeriesDatum
+    breakdownFilter?: BreakdownFilter
+    formatCompareLabel?: (label: string, dateLabel?: string) => string
+    hasMultipleEvents: boolean
+    renderSeriesOverride?: (datum: SeriesDatum) => React.ReactNode
+}
+
+/**
+ * Label for a single tooltip row. Handles four cases:
+ *   1. Custom override (lifecycle status, etc.)
+ *   2. Breakdown + compare — breakdown truncates; period label is always fully visible
+ *   3. Breakdown or compare alone — same split layout
+ *   4. Plain series label
+ */
+export function SeriesLabel({
+    datum,
+    breakdownFilter,
+    formatCompareLabel,
+    hasMultipleEvents,
+    renderSeriesOverride,
+}: SeriesLabelProps): React.ReactNode {
+    if (renderSeriesOverride) {
+        return renderSeriesOverride(datum)
+    }
+
+    const hasBreakdown =
+        datum.breakdown_value !== undefined && datum.breakdown_value !== null && datum.breakdown_value !== ''
+
+    if (!hasBreakdown && !datum.compare_label) {
+        return datum.label
+    }
+
+    const comparePeriod = datum.compare_label
+        ? formatCompareLabel
+            ? formatCompareLabel(String(datum.compare_label), datum.date_label)
+            : datum.compare_label === 'current'
+              ? 'Current'
+              : 'Previous'
+        : null
+
+    const breakdownTitle = hasBreakdown
+        ? getDatumTitle({ ...datum, compare_label: undefined }, breakdownFilter, formatCompareLabel)
+        : null
+
+    const eventPrefix = hasMultipleEvents ? (
+        <span className="opacity-50 mr-1 shrink-0">
+            {(datum.action ? getDisplayNameFromEntityFilter(datum.action) : null) ?? datum.label} ·
+        </span>
+    ) : null
+
+    // inline-flex: breakdown span truncates (flex-1), period label stays visible (shrink-0).
+    return (
+        <span className="inline-flex items-center w-full overflow-hidden">
+            {eventPrefix}
+            <span className="truncate min-w-0 flex-1">{breakdownTitle ?? datum.label}</span>
+            {comparePeriod && <span className="shrink-0 opacity-60">&nbsp;·&nbsp;{comparePeriod}</span>}
+        </span>
+    )
+}
+
+// ── InsightSeriesTooltip ───────────────────────────────────────────────────
+
+/** DefaultTooltip adapter for insight series charts (trends, retention, stickiness).
+ *  Maps the quill TooltipContext to insight-flavored value/label/date formatting and
+ *  wires persons-modal drill-down via onRowClick. */
 export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
     context,
     timezone = 'UTC',
@@ -77,7 +167,7 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
     onRowClick,
     showHeader,
     altTitle,
-    renderCount: renderCountOverride,
+    renderCount,
     renderSeriesOverride,
     sortedByValue = true,
     hideZeroRows,
@@ -85,48 +175,34 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
     const { formatPropertyValueForDisplay } = useValues(propertyDefinitionsModel)
     const { weekStartDay } = useValues(teamLogic)
 
-    // Map each quill series entry (keyed by series.key) to the InsightTooltip SeriesDatum shape so the
-    // existing breakdown/compare/value formatting helpers stay reusable. `datasetIndex` mirrors the
-    // entry's position in context.seriesData, which the chart's onRowClick maps back to a series key.
+    // Quill delivers one entry per series key; map to SeriesDatum so existing
+    // formatting helpers (getDatumTitle, formatAggregationValue, etc.) stay reusable.
     const datumByKey = useMemo(() => {
         const m = new Map<string, SeriesDatum>()
         context.seriesData.forEach((entry, idx) => {
-            const meta = entry.series.meta ?? {}
+            const meta = (entry.series.meta ?? {}) as InsightSeriesMetaBase
             m.set(entry.series.key, {
                 id: idx,
                 dataIndex: context.dataIndex,
                 datasetIndex: idx,
-                order: (meta as InsightSeriesMetaBase).order ?? idx,
+                order: meta.order ?? idx,
                 label: entry.series.label,
                 color: entry.color,
                 count: entry.value,
-                action: (meta as InsightSeriesMetaBase).action,
-                breakdown_value: (meta as InsightSeriesMetaBase).breakdown_value ?? undefined,
-                compare_label: (meta as InsightSeriesMetaBase).compare_label,
-                date_label: (meta as InsightSeriesMetaBase).days?.[context.dataIndex],
-                filter: (meta as InsightSeriesMetaBase).filter,
+                action: meta.action,
+                breakdown_value: meta.breakdown_value ?? undefined,
+                compare_label: meta.compare_label,
+                date_label: meta.days?.[context.dataIndex],
+                filter: meta.filter,
             })
         })
         return m
     }, [context.seriesData, context.dataIndex])
 
-    const renderCount = useCallback(
-        (value: number): string => {
-            if (renderCountOverride) {
-                return renderCountOverride(value)
-            }
-            if (showPercentView) {
-                // Stickiness percent view: value is already a percentage.
-                return `${value.toFixed(1)}%`
-            }
-            if (!isPercentStackView) {
-                return formatAggregationAxisValue(trendsFilter, value, baseCurrency)
-            }
-            // hog-charts passes each segment as a 0..1 fraction, so format it directly as a percentage.
-            return percentage(value)
-        },
-        [renderCountOverride, showPercentView, isPercentStackView, trendsFilter, baseCurrency]
-    )
+    const hasMultipleEvents = useMemo(() => {
+        const events = new Set([...datumByKey.values()].map((d) => d.action?.id ?? d.action?.name))
+        return events.size > 1
+    }, [datumByKey])
 
     const valueFormatter = useCallback(
         (value: number, entry: InsightSeriesTooltipEntry<Meta>): React.ReactNode => {
@@ -134,19 +210,27 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
             return formatAggregationValue(
                 datum?.action?.math_property,
                 value,
-                renderCount,
+                (v) =>
+                    formatRowValue(v, {
+                        override: renderCount,
+                        showPercentView,
+                        isPercentStackView,
+                        trendsFilter,
+                        baseCurrency,
+                    }),
                 formatPropertyValueForDisplay
             )
         },
-        [datumByKey, renderCount, formatPropertyValueForDisplay]
+        [
+            datumByKey,
+            renderCount,
+            showPercentView,
+            isPercentStackView,
+            trendsFilter,
+            baseCurrency,
+            formatPropertyValueForDisplay,
+        ]
     )
-
-    // Multiple distinct events in the tooltip — prefix breakdown rows with the event name
-    // so the user knows which series each breakdown value belongs to.
-    const hasMultipleEvents = useMemo(() => {
-        const events = new Set([...datumByKey.values()].map((d) => d.action?.id ?? d.action?.name))
-        return events.size > 1
-    }, [datumByKey])
 
     const labelRenderer = useCallback(
         (entry: InsightSeriesTooltipEntry<Meta>): React.ReactNode => {
@@ -154,28 +238,17 @@ export function InsightSeriesTooltip<Meta extends InsightSeriesMetaBase>({
             if (!datum) {
                 return entry.series.label
             }
-            if (renderSeriesOverride) {
-                return renderSeriesOverride(datum)
-            }
-            const hasBreakdown =
-                datum.breakdown_value !== undefined && datum.breakdown_value !== null && datum.breakdown_value !== ''
-            if (hasBreakdown || datum.compare_label) {
-                const title = getDatumTitle(datum, breakdownFilter, formatCompareLabel)
-                if (hasMultipleEvents && (hasBreakdown || datum.compare_label)) {
-                    const seriesName =
-                        (datum.action ? getDisplayNameFromEntityFilter(datum.action) : null) ?? datum.label
-                    return (
-                        <>
-                            <span className="opacity-50 mr-1 shrink-0">{seriesName} ·</span>
-                            {title}
-                        </>
-                    )
-                }
-                return title
-            }
-            return datum.label
+            return (
+                <SeriesLabel
+                    datum={datum}
+                    breakdownFilter={breakdownFilter}
+                    formatCompareLabel={formatCompareLabel}
+                    hasMultipleEvents={hasMultipleEvents}
+                    renderSeriesOverride={renderSeriesOverride}
+                />
+            )
         },
-        [datumByKey, renderSeriesOverride, breakdownFilter, formatCompareLabel, hasMultipleEvents]
+        [datumByKey, breakdownFilter, formatCompareLabel, hasMultipleEvents, renderSeriesOverride]
     )
 
     const labelFormatter = useCallback((): React.ReactNode => {

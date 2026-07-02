@@ -1,8 +1,4 @@
-/**
- * Product manifest for engineering_analytics.
- *
- * Defines scenes, routes, URLs, and navigation for this product.
- */
+/** Product manifest for engineering_analytics: scenes, routes, URLs, and navigation. */
 import { FEATURE_FLAGS } from 'lib/constants'
 import { urls } from 'scenes/urls'
 
@@ -16,7 +12,7 @@ export const manifest: ProductManifest = {
         EngineeringAnalytics: {
             import: () => import('./frontend/scenes/EngineeringAnalyticsScene'),
             projectBased: true,
-            name: 'CI analytics',
+            name: 'Engineering analytics',
             layout: 'app-container',
             description: 'Pull request and workflow CI health across connected GitHub repos.',
             iconType: 'health',
@@ -54,9 +50,9 @@ export const manifest: ProductManifest = {
             iconType: 'health',
         },
     },
-    // Detail paths mirror GitHub 1:1 (owner/repo/pull/:n, owner/repo/actions/runs/:id); the cross-repo
-    // aggregate dashboards stay at the product root. Provider lives on the data (RepoRef.provider), so
-    // these url builders are the single place to branch verbs for a future provider (e.g. GitLab).
+    // Detail paths mirror GitHub 1:1 (owner/repo/pull/:n, owner/repo/actions/runs/:id); cross-repo
+    // aggregates stay at the product root. Provider lives on the data (RepoRef.provider), so these url
+    // builders are the single place to branch verbs for a future provider (e.g. GitLab).
     routes: {
         '/engineering-analytics': ['EngineeringAnalytics', 'engineeringAnalytics'],
         '/engineering-analytics/workflows': ['EngineeringAnalytics', 'engineeringAnalyticsWorkflows'],
@@ -93,7 +89,7 @@ export const manifest: ProductManifest = {
     treeItemsNew: [],
     treeItemsProducts: [
         {
-            path: 'CI analytics',
+            path: 'Engineering analytics',
             intents: [ProductKey.ENGINEERING_ANALYTICS],
             category: ProductItemCategory.UNRELEASED,
             type: 'engineering_analytics',

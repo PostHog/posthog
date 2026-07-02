@@ -1016,10 +1016,10 @@ class SignalReportViewSet(
         # report (or an already-committed state change) into a 500.
         report_ids = [str(report.id)]
         try:
-            source_products_map = fetch_source_products_for_reports(self.team, report_ids)
+            signal_meta_map = fetch_source_products_for_reports(self.team, report_ids)
         except Exception:
             logger.exception("signals.enriched_context.source_products_failed", report_id=str(report.id))
-            source_products_map = {}
+            signal_meta_map = {}
         try:
             implementation_pr_url_map = fetch_implementation_pr_urls_for_reports(report_ids)
         except Exception:
@@ -1027,7 +1027,8 @@ class SignalReportViewSet(
             implementation_pr_url_map = {}
         return {
             **self.get_serializer_context(),
-            "source_products_map": source_products_map,
+            "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
+            "scout_names_map": {rid: meta.scout_name for rid, meta in signal_meta_map.items() if meta.scout_name},
             "implementation_pr_url_map": implementation_pr_url_map,
         }
 
@@ -1182,14 +1183,15 @@ class SignalReportViewSet(
         trace.get_current_span().set_attribute("signals.reports.list.count", len(report_ids))
 
         with tracer.start_as_current_span("signals.reports.list.fetch_source_products"):
-            source_products_map = fetch_source_products_for_reports(self.team, report_ids) if report_ids else {}
+            signal_meta_map = fetch_source_products_for_reports(self.team, report_ids) if report_ids else {}
 
         with tracer.start_as_current_span("signals.reports.list.fetch_implementation_pr_urls"):
             implementation_pr_url_map = fetch_implementation_pr_urls_for_reports(report_ids)
 
         context = {
             **self.get_serializer_context(),
-            "source_products_map": source_products_map,
+            "source_products_map": {rid: meta.source_products for rid, meta in signal_meta_map.items()},
+            "scout_names_map": {rid: meta.scout_name for rid, meta in signal_meta_map.items() if meta.scout_name},
             "implementation_pr_url_map": implementation_pr_url_map,
         }
         serializer = self.get_serializer(reports, many=True, context=context)

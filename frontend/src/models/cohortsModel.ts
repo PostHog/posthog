@@ -88,7 +88,9 @@ function processCohortCriteria(criteria: AnyCohortCriteriaType): AnyCohortCriter
     const processedCriteria = { ...criteria }
 
     if (
-        [BehavioralFilterKey.Cohort, BehavioralFilterKey.Person].includes(criteria.type) &&
+        [BehavioralFilterKey.Cohort, BehavioralFilterKey.Person, BehavioralFilterKey.PersonMetadata].includes(
+            criteria.type
+        ) &&
         !('value_property' in criteria)
     ) {
         processedCriteria.value_property = criteria.value

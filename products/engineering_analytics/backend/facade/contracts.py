@@ -217,6 +217,42 @@ class WorkflowRunDetail:
 
 
 @dataclass(frozen=True)
+class WorkflowRunActivityPoint:
+    """A single workflow run reduced to the fields the run-activity chart plots: start time, duration,
+    conclusion, branch, and attributed PR. Deliberately leaner than ``WorkflowRunDetail`` so the chart can
+    load far more runs across the full window (for the scatter, the in-flight band, and the focus-lens
+    brush) than the capped run-detail table, without the per-row wire cost of the full detail shape.
+    """
+
+    run_id: int
+    # Raw conclusion passthrough ('success' / 'failure' / 'timed_out' / ...), or None while still running.
+    conclusion: str | None
+    # Always set here (unlike the shared WorkflowRunDetail shape): the windowed query filters on
+    # run_started_at, so a run with no parseable start timestamp is excluded — it can't be placed on the
+    # chart's time axis anyway. Non-null keeps the contract honest for this chart-only endpoint.
+    run_started_at: datetime
+    # None until the run completes — duration is only computed for completed runs.
+    duration_seconds: int | None
+    head_branch: str
+    # Attributed pull request number, or 0 when unattributed.
+    pr_number: int
+
+
+@dataclass(frozen=True)
+class WorkflowRunActivity:
+    """The run-activity chart's data for one workflow over a window: compact per-run points plus an
+    explicit truncation signal. ``points`` is capped at ``limit`` (newest first); ``truncated`` is True
+    when more runs matched than the cap, so the chart can label itself as covering only the most recent
+    runs rather than the full window. Higher-capped than the run-detail table, so the chart still spans
+    multiple days on busy workflows where the smaller table cap would collapse to a sliver.
+    """
+
+    points: list[WorkflowRunActivityPoint]
+    truncated: bool
+    limit: int
+
+
+@dataclass(frozen=True)
 class WorkflowJob:
     """One job within a workflow run, for the run's expandable job breakdown. ``estimated_cost_usd``
     is derived from the runner tier (parsed from ``runner_label``) and the job's elapsed time via the

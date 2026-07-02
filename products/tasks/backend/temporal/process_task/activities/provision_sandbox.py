@@ -8,7 +8,7 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
 
-from products.tasks.backend.constants import filter_user_sandbox_env_vars
+from products.tasks.backend.constants import SNAPSHOT_KIND_FILESYSTEM, filter_user_sandbox_env_vars
 from products.tasks.backend.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
 from products.tasks.backend.logic.services.agentsh import ENV_FILE, INFRASTRUCTURE_DOMAINS, _get_debug_only_domains
 from products.tasks.backend.logic.services.connection_token import (
@@ -18,8 +18,13 @@ from products.tasks.backend.logic.services.connection_token import (
 )
 from products.tasks.backend.logic.services.sandbox import Sandbox, SandboxConfig, SandboxTemplate
 from products.tasks.backend.models import SandboxSnapshot, Task, TaskRun
-from products.tasks.backend.temporal.metrics import StepTimer, increment_sandbox_created, increment_snapshot_usage
-from products.tasks.backend.temporal.oauth import create_oauth_access_token
+from products.tasks.backend.temporal.metrics import (
+    StepTimer,
+    increment_sandbox_created,
+    increment_snapshot_restore,
+    increment_snapshot_usage,
+)
+from products.tasks.backend.temporal.oauth import create_oauth_access_token, create_wizard_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.sandbox_credentials import set_git_remote_token
 from products.tasks.backend.temporal.process_task.utils import (
@@ -27,6 +32,7 @@ from products.tasks.backend.temporal.process_task.utils import (
     get_sandbox_api_url,
     get_sandbox_github_token,
     get_sandbox_name_for_task,
+    get_sandbox_snapshot_metadata,
     parse_run_state,
 )
 
@@ -60,6 +66,9 @@ class PrepareSandboxForRepositoryOutput:
     shallow_clone: bool
     image_source: str
     image_source_label: str
+    snapshot_kind: str = SNAPSHOT_KIND_FILESYSTEM
+    snapshot_mount_path: str | None = None
+    snapshot_source: str = "none"
 
 
 @dataclass
@@ -73,6 +82,7 @@ class CreateSandboxForRepositoryOutput:
     sandbox_id: str
     sandbox_url: str
     connect_token: str | None
+    used_snapshot: bool | None = None
 
 
 @dataclass
@@ -228,6 +238,12 @@ def _build_environment_variables(
     elif run_state.handoff_resumed:
         environment_variables["POSTHOG_RESUME_RUN_ID"] = str(ctx.run_id)
 
+    # Cloud wizard runs get a SEPARATE token, minted under the wizard's own OAuth app with the
+    # wizard's scopes, so the wizard's access stays independent of the agent's sandbox token above.
+    # The run_wizard activity reads it from POSTHOG_WIZARD_API_KEY in the sandbox env.
+    if ctx.wizard_config is not None:
+        environment_variables["POSTHOG_WIZARD_API_KEY"] = create_wizard_oauth_access_token(task)
+
     return environment_variables
 
 
@@ -279,13 +295,24 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
 
         snapshot = None
         used_snapshot = False
+        snapshot_source = "none"
+        snapshot_kind = SNAPSHOT_KIND_FILESYSTEM
+        snapshot_mount_path: str | None = None
         if has_repo and ctx.github_integration_id is not None:
             assert repository is not None
             with StepTimer("snapshot_lookup") as snapshot_lookup_timer:
                 snapshot = SandboxSnapshot.get_latest_snapshot_with_repos(ctx.github_integration_id, [repository])
                 used_snapshot = snapshot is not None
                 snapshot_lookup_timer.set_used_snapshot(used_snapshot)
-            increment_snapshot_usage(used_snapshot)
+            if snapshot is not None:
+                snapshot_metadata = get_sandbox_snapshot_metadata(snapshot)
+                if not snapshot_metadata.is_usable:
+                    snapshot = None
+                    used_snapshot = False
+                else:
+                    snapshot_source = "repository"
+                    snapshot_kind = snapshot_metadata.kind
+                    snapshot_mount_path = snapshot_metadata.mount_path
         elif not has_repo:
             emit_agent_log(ctx.run_id, "debug", "Creating environment without repository")
 
@@ -328,23 +355,33 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
         environment_variables = _build_environment_variables(ctx, task, github_token, access_token)
 
         run_state = parse_run_state(ctx.state)
-        # VM and gVisor both resume from filesystem snapshots. A run's resume
-        # snapshot is taken from the same task's sandbox, so its base image
-        # matches the runtime provisioned here (the earlier disable was for
-        # gVisor memory snapshots, which cannot restore into the VM runtime).
-        resume_snapshot_external_id = (
-            run_state.snapshot_external_id if settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS else None
-        )
+        # VM and gVisor both resume from snapshots. A run's stored snapshot kind
+        # determines the restore mechanism; the rollout flag only chooses the
+        # kind of new snapshot created after this run.
+        resume_snapshot_external_id = run_state.snapshot_external_id
         if resume_snapshot_external_id:
-            used_snapshot = True
+            if not run_state.resume_snapshot_is_usable():
+                emit_agent_log(
+                    ctx.run_id,
+                    "debug",
+                    "Previous session snapshot is unusable; resuming with a fresh sandbox",
+                )
+                resume_snapshot_external_id = None
+            else:
+                used_snapshot = True
+                snapshot_source = "resume"
+                snapshot_kind = run_state.resume_snapshot_kind()
+                snapshot_mount_path = run_state.resume_snapshot_mount_path()
 
         activity.logger.info(
             "resume_decision",
             extra={
                 "run_id": ctx.run_id,
-                "use_modal_resume_snapshots": settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS,
                 "state_snapshot_external_id": run_state.snapshot_external_id,
+                "state_snapshot_kind": run_state.snapshot_kind,
                 "effective_snapshot_external_id": resume_snapshot_external_id,
+                "effective_snapshot_kind": snapshot_kind,
+                "effective_snapshot_mount_path": snapshot_mount_path,
                 "handoff_resumed": run_state.handoff_resumed,
                 "resume_from_run_id": run_state.resume_from_run_id,
                 "posthog_resume_run_id_set": "POSTHOG_RESUME_RUN_ID" in environment_variables,
@@ -381,6 +418,9 @@ def prepare_sandbox_for_repository(input: PrepareSandboxForRepositoryInput) -> P
             shallow_clone=shallow_clone,
             image_source=image_source,
             image_source_label=image_source_label,
+            snapshot_kind=snapshot_kind,
+            snapshot_mount_path=snapshot_mount_path,
+            snapshot_source=snapshot_source,
         )
 
 
@@ -411,6 +451,9 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
             environment_variables=prepared.environment_variables,
             snapshot_id=prepared.snapshot_id,
             snapshot_external_id=prepared.snapshot_external_id,
+            snapshot_kind=prepared.snapshot_kind,
+            snapshot_mount_path=prepared.snapshot_mount_path,
+            snapshot_source=prepared.snapshot_source,
             metadata=_build_sandbox_tags(ctx, prepared, use_vm_sandbox),
             vm_runtime=use_vm_sandbox,
             **ctx.sandbox_resource_overrides(),
@@ -439,8 +482,22 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
                 f"Using Modal outbound_domain_allowlist ({len(config.outbound_domain_allowlist)} domains) instead of agentsh",
             )
 
-        with StepTimer("sandbox_creation", used_snapshot=prepared.used_snapshot):
+        with StepTimer("sandbox_creation", used_snapshot=prepared.used_snapshot) as sandbox_creation_timer:
             sandbox = Sandbox.create(config)
+            actual_used_snapshot = bool(
+                (prepared.snapshot_external_id or prepared.snapshot_id) and sandbox.config.snapshot_restored
+            )
+            sandbox_creation_timer.set_used_snapshot(actual_used_snapshot)
+        snapshot_outcome = (
+            "used" if actual_used_snapshot else "fresh" if prepared.snapshot_source == "none" else "fallback"
+        )
+        metrics_snapshot_kind = prepared.snapshot_kind if prepared.snapshot_source != "none" else "none"
+        increment_snapshot_usage(
+            actual_used_snapshot,
+            snapshot_source=prepared.snapshot_source,
+            snapshot_kind=metrics_snapshot_kind,
+        )
+        increment_snapshot_restore(prepared.snapshot_source, metrics_snapshot_kind, snapshot_outcome)
 
         increment_sandbox_created("vm" if use_vm_sandbox else "gvisor")
 
@@ -460,12 +517,13 @@ def create_sandbox_for_repository(input: CreateSandboxForRepositoryInput) -> Cre
             raise
 
         emit_agent_log(ctx.run_id, "debug", f"Sandbox provisioned: {sandbox.id}")
-        activity.logger.info(f"Created sandbox {sandbox.id} (used_snapshot={prepared.used_snapshot})")
+        activity.logger.info(f"Created sandbox {sandbox.id} (used_snapshot={actual_used_snapshot})")
 
         return CreateSandboxForRepositoryOutput(
             sandbox_id=sandbox.id,
             sandbox_url=credentials.url,
             connect_token=credentials.token,
+            used_snapshot=actual_used_snapshot,
         )
 
 

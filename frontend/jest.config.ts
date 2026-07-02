@@ -9,6 +9,8 @@ process.env.TZ = process.env.TZ || 'UTC'
 
 const esmModules = [
     'query-selector-shadow-dom',
+    // @posthog/brand is ESM-only (ships .mjs); let Sucrase transpile it so its import/export parses.
+    '@posthog/brand',
     // @shadcn/react ships ESM-only; @posthog/quill-primitives chat components re-export its
     // message-scroller, pulling it into frontend test module graphs via the quill barrel.
     '@shadcn/react',
@@ -172,6 +174,10 @@ const config: Config = {
     // A map from regular expressions to module names or to arrays of module names that allow to stub out resources with a single module
     moduleNameMapper: {
         '^.+\\.(css|less|scss|svg|png)$': '<rootDir>/src/test/mocks/styleMock.js',
+        // @posthog/brand PNG subpaths resolve to .mjs modules that build a URL via
+        // `new URL("./x.png", import.meta.url)` — import.meta is unavailable under Sucrase/CJS,
+        // so mock them to the styleMock string instead of executing them.
+        '^@posthog/brand/.*/png/.*$': '<rootDir>/src/test/mocks/styleMock.js',
         '^.+\\.sql\\?raw$': '<rootDir>/src/test/mocks/rawFileMock.js',
         '^(.+)\\.yaml\\?raw$': '$1.yaml',
         '^~/(.*)$': '<rootDir>/src/$1',

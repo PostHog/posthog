@@ -1,5 +1,5 @@
 import { type EventSourceMessage, createParser } from 'eventsource-parser'
-import { actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
+import { type BreakPointFunction, actions, connect, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 import posthog from 'posthog-js'
 
 import api from 'lib/api'
@@ -23,6 +23,7 @@ import type {
     RunArtifacts,
     ProgressStatus,
     ProgressStep,
+    RunConnectionState,
     SdkSession,
     ThreadItem,
     ThreadItemType,
@@ -70,9 +71,19 @@ export interface RunStreamLogicProps {
 }
 
 /** Reconnect/backoff constants for the SSE drop-recovery loop. */
-export const MAX_SSE_RECONNECT_ATTEMPTS = 5
+export const MAX_SSE_RECONNECT_ATTEMPTS = 10
 export const SSE_RECONNECT_BASE_DELAY_MS = 2_000
 export const SSE_RECONNECT_MAX_DELAY_MS = 30_000
+/**
+ * Retries for the one-shot `logs/` history snapshot fetch. A transient blip here must not tear down an
+ * otherwise-healthy live SSE (which is connected first); only exhausting these attempts does.
+ */
+export const MAX_HISTORY_FETCH_ATTEMPTS = 3
+/**
+ * Re-mint budget for the proxy read token on a 401 handshake — kept separate from the reconnect budget so
+ * bumping reconnects to 10 doesn't balloon the number of token re-mints per open.
+ */
+export const MAX_STREAM_TOKEN_REMINTS = 5
 /**
  * Cumulative cap across all drops in a run — bounds runaway clean-EOF loops that keep dodging the
  * per-drop counter (a connection that opens, immediately drops, and reopens resets `reconnectAttempt`
@@ -372,6 +383,30 @@ export function foldUsageAggregate(existing: ContextUsage | null, update: Sessio
         next.cost = cost
     }
     return next
+}
+
+/**
+ * Fetch the run's `logs/` snapshot, retrying transient failures with capped backoff (§case 5). Returns the
+ * raw entries on success, or `{ historyError }` once the attempts are exhausted — a sentinel object, not a
+ * throw, so the caller's teardown branch is driven by an ordinary check and a kea `breakpoint(ms)` delay
+ * (which throws to cancel a superseded bootstrap) propagates through untouched.
+ */
+async function fetchLogEntriesWithRetry(
+    taskId: string,
+    runId: string,
+    breakpoint: BreakPointFunction
+): Promise<unknown[] | { historyError: unknown }> {
+    for (let attempt = 1; ; attempt++) {
+        try {
+            return await api.tasks.runs.getLogEntries(taskId, runId)
+        } catch (error) {
+            if (attempt >= MAX_HISTORY_FETCH_ATTEMPTS) {
+                return { historyError: error }
+            }
+        }
+        // Outside the try so a supersession cancel (breakpoint throw) is never mistaken for a fetch failure.
+        await breakpoint(reconnectDelayMs(attempt))
+    }
 }
 
 /** Refetch the run's status (plus any git artifacts it now exposes); on failure return the mapped error envelope. */
@@ -1079,7 +1114,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
             featureFlagLogic,
             ['featureFlags'],
             preflightLogic,
-            ['preflight', 'isDev'],
+            ['isDev'],
             userLogic,
             ['user'],
         ],
@@ -1198,6 +1233,15 @@ export const runStreamLogic = kea<runStreamLogicType>([
         markTurnComplete: true,
         /** Echoes the user's own message into the thread as a `client`-sourced log entry (the wire never replays a live turn). */
         pushHumanMessage: (content: string) => ({ content }),
+        /**
+         * Open a run optimistically before its real id exists: flips the thread to the provisioning
+         * indicator and, when a first message is given, renders it immediately as the human bubble. The
+         * composable seam for an optimistic-create UI — mount a surface keyed by a client `streamKey`,
+         * call this on send, then attach the real run (`bootstrapRun({ justCreatedRun: true })`) once
+         * created; the live SSE echo dedups the seeded message. Pure composition of `setRunOpening` +
+         * `pushHumanMessage`.
+         */
+        startOptimisticRun: (message?: string) => ({ message }),
         /** Injects a client-side error (terminal failure / stream disconnect) into the log as a `client`-sourced entry. */
         pushErrorItem: (errorMessage: string, variant: 'error' | 'crash' = 'error') => ({ errorMessage, variant }),
         /** Union the products an answer was grounded in — accumulates across the whole session. */
@@ -1304,6 +1348,26 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 sseOpened: () => false,
                 bootstrapReplayComplete: () => false,
                 handleStreamError: () => false,
+                reset: () => false,
+            },
+        ],
+        // The run id this instance last bootstrapped, so the surface can adopt an already-bootstrapped
+        // instance (the optimistic-create handoff) instead of resetting and re-bootstrapping it. Logic-
+        // resident (not a per-component ref) so the decision survives the create-thread → detail swap.
+        bootstrappedRunId: [
+            null as string | null,
+            {
+                bootstrapRun: (_, { runId }) => runId,
+                reset: () => null,
+            },
+        ],
+        // True between an optimistic seed (`startOptimisticRun`) and its attach (`bootstrapRun`): the
+        // surface uses it to take the seed-preserving fast path when the real run id arrives.
+        awaitingOptimisticAttach: [
+            false,
+            {
+                startOptimisticRun: () => true,
+                bootstrapRun: () => false,
                 reset: () => false,
             },
         ],
@@ -1618,14 +1682,44 @@ export const runStreamLogic = kea<runStreamLogicType>([
         ],
         /**
          * Gates routing the live stream through the standalone agent-proxy (the durable-streaming
-         * rollout). Local dev disables the analytics SDK, so DEBUG instances opt in unconditionally —
-         * the server still owns the final proxy-vs-Django decision via `stream_token` (no base URL
-         * ⇒ Django), so opting in here is safe even where the proxy isn't deployed.
+         * rollout). Purely flag-driven: off ⇒ stream directly from Django and never mint a
+         * `stream_token`; on ⇒ resolve a proxy target. The server still owns the final
+         * proxy-vs-Django decision via `stream_token` (no base URL ⇒ Django), so a flag-on client
+         * where the proxy isn't deployed falls back safely. Frontend flags evaluate in local dev, so
+         * a dev exercises the proxy by enabling `tasks-stream-via-proxy` for their user.
          */
         streamViaProxyEnabled: [
-            (s) => [s.featureFlags, s.preflight],
-            (featureFlags, preflight): boolean =>
-                !!featureFlags[FEATURE_FLAGS.TASKS_STREAM_VIA_PROXY] || !!preflight?.is_debug,
+            (s) => [s.featureFlags],
+            (featureFlags): boolean => !!featureFlags[FEATURE_FLAGS.TASKS_STREAM_VIA_PROXY],
+        ],
+        /**
+         * The live connection banner view-model (footer `RunAlertActivity`), or null when the connection is
+         * healthy. `reconnecting` drives the attempt-counter card during the backoff loop; `connection_failed`
+         * is its terminal state (retries/cumulative exhausted, a non-retryable open, or a bootstrap-fetch
+         * failure — including read-only replay, which surfaces via `sseStatus='error'`). A terminal run's own
+         * failure/crash is an inline `error` item, not a banner, so it's excluded here.
+         */
+        runConnectionState: [
+            (s, p) => [s.sseStatus, s.reconnectAttempt, s.bootstrapError, s.currentRunStatus, p.replayOnly!],
+            (sseStatus, reconnectAttempt, bootstrapError, currentRunStatus, replayOnly): RunConnectionState | null => {
+                if (isTerminalRunStatus(currentRunStatus)) {
+                    return null
+                }
+                if (!replayOnly && sseStatus === 'reconnecting') {
+                    return {
+                        kind: 'reconnecting',
+                        attempt: reconnectAttempt,
+                        maxAttempts: MAX_SSE_RECONNECT_ATTEMPTS,
+                    }
+                }
+                if (sseStatus === 'error') {
+                    const detail = bootstrapError
+                        ? [bootstrapError.errorTitle, bootstrapError.errorMessage].filter(Boolean).join(' — ')
+                        : undefined
+                    return { kind: 'connection_failed', message: detail || undefined }
+                }
+                return null
+            },
         ],
     }),
     listeners(({ values, actions, cache, props }) => ({
@@ -1652,13 +1746,14 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 actions.markBootstrapResumeRun(isResumeRun(replayRun))
                 actions.mergeRunArtifacts(extractRunArtifacts(replayRun))
 
-                let replayEntries: unknown[]
-                try {
-                    replayEntries = await api.tasks.runs.getLogEntries(taskId, runId)
-                } catch (error) {
-                    actions.handleStreamError(mapHttpStatusToStreamError((error as { status?: number })?.status))
+                const replayResult = await fetchLogEntriesWithRetry(taskId, runId, breakpoint)
+                if (!Array.isArray(replayResult)) {
+                    actions.handleStreamError(
+                        mapHttpStatusToStreamError((replayResult.historyError as { status?: number })?.status)
+                    )
                     return
                 }
+                const replayEntries = replayResult
                 breakpoint()
                 if (values.log.entries.length === 0) {
                     replayEntries
@@ -1723,20 +1818,21 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 actions.openSseForRun({ taskId, runId, startLatest: true })
             }
 
-            let entries: unknown[]
-            try {
-                entries = await api.tasks.runs.getLogEntries(taskId, runId)
-            } catch (error) {
-                // The snapshot failed; for an in-progress run the SSE is already open, so tear it
-                // down too — a thread of live-only frames with no history is more confusing than a
-                // clean, retryable error.
+            // Retry the snapshot before giving up (§case 5) — a transient blip shouldn't kill the live SSE.
+            const historyResult = await fetchLogEntriesWithRetry(taskId, runId, breakpoint)
+            if (!Array.isArray(historyResult)) {
+                // Retries exhausted; for an in-progress run the SSE is already open, so tear it down too —
+                // a thread of live-only frames with no history is more confusing than a clean, retryable error.
                 cache.bufferingLiveFrames = false
                 cache.bufferedLiveFrames = undefined
                 cache.disposables.dispose('reconnect-backoff')
                 cache.disposables.dispose('event-source')
-                actions.handleStreamError(mapHttpStatusToStreamError((error as { status?: number })?.status))
+                actions.handleStreamError(
+                    mapHttpStatusToStreamError((historyResult.historyError as { status?: number })?.status)
+                )
                 return
             }
+            const entries = historyResult
             breakpoint()
 
             // The full resume-chain S3 snapshot — replayed as `replay`, so the projection renders
@@ -1914,11 +2010,7 @@ export const runStreamLogic = kea<runStreamLogicType>([
                     // surfacing an auth error. Bounded so a genuinely revoked user can't loop; on
                     // exhaustion it falls through to the normal drop handling (whose Django fallback
                     // surfaces a real 401 as a retryable error).
-                    if (
-                        status === 401 &&
-                        proxyTarget &&
-                        (cache.streamTokenRefreshes ?? 0) < MAX_SSE_RECONNECT_ATTEMPTS
-                    ) {
+                    if (status === 401 && proxyTarget && (cache.streamTokenRefreshes ?? 0) < MAX_STREAM_TOKEN_REMINTS) {
                         cache.streamTokenRefreshes = ((cache.streamTokenRefreshes as number | undefined) ?? 0) + 1
                         return streamRun(signal)
                     }
@@ -2252,12 +2344,12 @@ export const runStreamLogic = kea<runStreamLogicType>([
                 duration_ms: startedAt !== undefined ? Date.now() - startedAt : undefined,
             })
         },
-        handleStreamError: ({ errorTitle, errorMessage, retryable }) => {
-            // The composer-unlock is already wired off this action in maxThreadLogic; today it
-            // unlocks silently. Push a visible, retryable error line so the user knows the stream
-            // dropped — and capture the disconnect telemetry that mirrors the cloud client's
+        handleStreamError: ({ errorTitle, retryable }) => {
+            // A stream/connection failure no longer appends an inline error item (which stacked up as
+            // spam on a flapping stream). It sets `sseStatus='error'` + the error envelope via the reducers,
+            // which the `runConnectionState` selector projects into the single footer `RunAlertActivity`
+            // card. Here we only capture the disconnect telemetry that mirrors the cloud client's
             // CLOUD_STREAM_DISCONNECTED (the relay can't see a client-side reconnect-budget exhaustion).
-            actions.pushErrorItem(errorMessage ? `${errorTitle}: ${errorMessage}` : errorTitle)
             const activeRun = cache.activeRun as { taskId: string; runId: string } | undefined
             posthog.capture('sandbox_stream_disconnected', {
                 conversation_id: props.conversationId,
@@ -2296,6 +2388,12 @@ export const runStreamLogic = kea<runStreamLogicType>([
             cache.lastEventId = undefined
             cache.disposables.dispose('reconnect-backoff')
             cache.disposables.dispose('event-source')
+        },
+        startOptimisticRun: ({ message }) => {
+            actions.setRunOpening(true)
+            if (message) {
+                actions.pushHumanMessage(message)
+            }
         },
         pushHumanMessage: ({ content }) => {
             // The echo is always a live turn (replayed human turns render straight from the log), so

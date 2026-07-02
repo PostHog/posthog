@@ -14,7 +14,9 @@
 # - permissions: pull-requests:read (no comment/auto-commit side effects)
 # - Stripped side effects: artifact uploads, PR comment posters, snapshot
 #   auto-commit (handle-snapshots), posthog-github-action telemetry,
-#   --store-durations write, test-selection verdict
+#   --store-durations write, test-selection verdict, Trunk flaky-test upload
+#   (trunk-upload — the shadow strips the junit artifact uploads it would aggregate,
+#   and must not post to the external Trunk service from a non-blocking timing trial)
 # - OpenAPI types: the check-openapi-types job is folded into check-migrations as a
 #   check-only step (drift still fails the run); only its auto-commit side effect is dropped
 # - actions/cache reads/writes route to Depot Cache, not GitHub Actions Cache,
@@ -30,9 +32,9 @@
 # - Path-filter persons-SQL folded into migrations. check-migrations.if also gates
 #   on openapi_types so an OpenAPI-only PR still runs the folded check
 # - Snapshot mode matches canonical, but snapshot patch upload/commit is stripped
-# - Test-duration cache restore omitted: there is no Depot timing-update writer, so
-#   the shadow shards from the committed .test_durations (canonical refreshes from a
-#   daily cache) and the file-granularity split-plan probe stays dormant
+# - Test durations restored from Depot Cache (posthog-test-durations- prefix), refreshed by
+#   .depot/workflows/ci-backend-update-test-timing.yml, so shard counts match GitHub Actions.
+#   Committed .test_durations is the fallback.
 # - master (push) runs only check-migrations to prime the shared schema cache; the
 #   test matrices are skipped on master (canonical runs them). PRs/merge_group/dispatch
 #   run the full graph — that is where the apples-to-apples comparison happens
@@ -40,8 +42,8 @@
 
 # This workflow runs all of our backend django tests.
 #
-# Shards derive from the committed .test_durations; to re-time, refresh that file
-# (canonical's .github/workflows/ci-backend-update-test-timing.yml is the source of truth).
+# Shards derive from .test_durations (Amdahl), restored from Depot Cache (else committed);
+# .depot/workflows/ci-backend-update-test-timing.yml keeps that cache fresh.
 name: '[optional, does not block merge] Backend CI'
 # OPTIONAL, non-blocking shadow of canonical Backend CI — its statuses must never gate
 # merging (hence the "[optional, does not block merge]" name prefix). The
@@ -171,10 +173,11 @@ jobs:
         name: Determine need to run backend and migration checks
         # Set job outputs to values from filter step
         outputs:
-            backend: ${{ steps.filter.outputs.backend || 'true' }}
+            backend: ${{ steps.backend_docs.outputs.backend || 'true' }}
             backend_files: ${{ steps.filter.outputs.backend_files }}
             migrations: ${{ steps.filter.outputs.migrations || 'true' }}
             migrations_files: ${{ steps.filter.outputs.migrations_files }}
+            migrations_any: ${{ steps.filter.outputs.migrations_any || 'true' }}
             tasks_temporal: ${{ steps.filter.outputs.tasks_temporal || 'true' }}
             openapi_types: ${{ steps.filter.outputs.openapi_types || 'true' }}
             legacy: ${{ steps.filter.outputs.legacy || 'true' }}
@@ -331,6 +334,11 @@ jobs:
                         # depot strips canonical's separate persons-migration job
                         - 'rust/persons_migrations/*.sql'
                         - 'rust/bin/migrate-persons'
+                      # Any migration file in any app (broader than `migrations` above,
+                      # which omits ee/ and posthog sub-package dirs). Gates the
+                      # deleted-migration check in repo-checks.
+                      migrations_any:
+                        - '**/migrations/*.py'
                       tasks_temporal:
                         - 'products/tasks/backend/temporal/**/*'
                       product_yamls:
@@ -402,6 +410,38 @@ jobs:
                   fi
                   echo "data_import_sources_only=$only_sources" >> "$GITHUB_OUTPUT"
                   echo "Only data warehouse import sources changed: $only_sources"
+
+            # A change that only touches Markdown docs (e.g. a README under
+            # posthog/) still matches the broad backend globs above, needlessly
+            # running the whole backend suite. Drop the backend signal when
+            # every backend-matched file is Markdown.
+            # PR/merge_group events only; push keeps the default full run.
+            - name: Ignore Markdown-only changes for backend
+              id: backend_docs
+              if: github.event_name != 'push'
+              # If this step ever errors, the job output falls back to
+              # backend='true', so a failure here can only over-run the
+              # backend suite, never wrongly skip it.
+              continue-on-error: true
+              env:
+                  BACKEND: ${{ steps.filter.outputs.backend }}
+                  BACKEND_FILES: ${{ steps.filter.outputs.backend_files }}
+              run: |
+                  backend="$BACKEND"
+                  if [ "$backend" = "true" ] && [ -n "$BACKEND_FILES" ]; then
+                      # backend_files is in dorny/paths-filter's "escape" format
+                      # (space-delimited, backslash-escaped). Decode it with xargs
+                      # so paths containing whitespace stay intact and a very long
+                      # list can't overflow the argument list, then skip the backend
+                      # suite only when every changed file is Markdown.
+                      if files=$(printf '%s' "$BACKEND_FILES" | xargs -n1); then
+                          if ! printf '%s\n' "$files" | grep -qvE '\.(md|mdx)$'; then
+                              backend=false
+                          fi
+                      fi
+                  fi
+                  echo "backend=$backend" >> "$GITHUB_OUTPUT"
+                  echo "Backend tests needed: $backend"
 
     detect-snapshot-mode:
         name: Detect snapshot mode
@@ -504,6 +544,14 @@ jobs:
               uses: ./.depot/actions/pnpm-install
               with:
                   install-command: pnpm install --frozen-lockfile --filter=@posthog/root
+            - name: Restore test durations from cache
+              # Restore fresh timings so shard counts match GitHub Actions; miss falls back to committed.
+              uses: actions/cache/restore@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              with:
+                  path: .test_durations
+                  key: posthog-test-durations-${{ github.run_id }}
+                  restore-keys: |
+                      posthog-test-durations-
             - name: Discover products to test
               id: discover
               env:
@@ -818,6 +866,9 @@ jobs:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
         timeout-minutes: 10
+        permissions:
+            contents: read
+            pull-requests: read # list PR files for the deleted-migration check
         name: Repo checks (depot-ubuntu-latest)
         runs-on: depot-ubuntu-latest
         steps:
@@ -846,6 +897,15 @@ jobs:
               run: tach check --dependencies --interfaces
             - name: Check product facade enforcement (import-linter)
               run: lint-imports
+            # Block deleting historical migration files (see safe-django-migrations.md).
+            # GITHUB_ACTIONS=false suppresses the command's PR annotations on the shadow.
+            - name: Check deleted migrations
+              if: github.event_name == 'pull_request' && needs.changes.outputs.migrations_any == 'true'
+              env:
+                  GITHUB_ACTIONS: 'false'
+                  REPO: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: .github/scripts/list-removed-renamed-paths.sh | ./bin/hogli lint:migration-deletions
 
     validate-product-yamls:
         needs: [changes]

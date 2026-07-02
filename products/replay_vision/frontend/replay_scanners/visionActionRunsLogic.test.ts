@@ -3,15 +3,14 @@ import { expectLogic } from 'kea-test-utils'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import type { VisionActionApi, VisionActionRunApi } from '../generated/api.schemas'
+import type { VisionActionApi, VisionActionRunListApi } from '../generated/api.schemas'
 import { visionActionRunsLogic } from './visionActionRunsLogic'
 
-const run = (id: string, overrides: Partial<VisionActionRunApi> = {}): VisionActionRunApi => ({
+const run = (id: string, overrides: Partial<VisionActionRunListApi> = {}): VisionActionRunListApi => ({
     id,
     status: 'completed',
     scheduled_at: '2026-01-01T09:00:00Z',
     observation_count: 3,
-    synthesized_markdown: '# Themes',
     error_reason: '',
     created_at: '2026-01-01T09:01:00Z',
     updated_at: '2026-01-01T09:01:00Z',
@@ -38,7 +37,6 @@ describe('visionActionRunsLogic', () => {
                         run('r1'),
                         run('r2', {
                             status: 'skipped',
-                            synthesized_markdown: '',
                             error_reason: 'nothing to summarize',
                         }),
                     ],

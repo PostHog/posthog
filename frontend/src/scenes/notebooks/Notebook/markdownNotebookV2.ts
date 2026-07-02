@@ -486,7 +486,7 @@ function serializeRichContentNode(
             id: '',
             type: 'component',
             tagName: markdownTagName,
-            props: getSerializableAttrs(node.attrs),
+            props: withDefaultHiddenFilters(getSerializableAttrs(node.attrs)),
         })
     }
 
@@ -516,9 +516,9 @@ function serializeLegacyInsightNode(node: JSONContent): string {
         id: '',
         type: 'component',
         tagName: 'Query',
-        props: {
+        props: withDefaultHiddenFilters({
             query: { kind: NodeKind.SavedInsightNode, shortId: insightShortId },
-        },
+        }),
     })
 }
 
@@ -542,7 +542,7 @@ function serializeLegacyQueryNode(node: JSONContent): string {
         id: '',
         type: 'component',
         tagName: 'Query',
-        props,
+        props: withDefaultHiddenFilters(props),
     })
 }
 
@@ -803,6 +803,13 @@ function getSerializableAttrs(attrs: Record<string, unknown> | undefined): Noteb
         }
         return props
     }, {})
+}
+
+function withDefaultHiddenFilters(props: NotebookComponentProps): NotebookComponentProps {
+    if (typeof props.hideFilters === 'boolean' || typeof props.edit === 'boolean') {
+        return props
+    }
+    return { ...props, hideFilters: true }
 }
 
 // Widget node attributes round-trip through HTML as JSON strings (NodeWrapper's jsonAttr), so a

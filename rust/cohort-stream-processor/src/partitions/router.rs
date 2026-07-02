@@ -209,7 +209,7 @@ mod tests {
 
     fn event(tag: i64) -> ShuffleMessage {
         ShuffleMessage::Event {
-            event: CohortStreamEvent {
+            event: Box::new(CohortStreamEvent {
                 team_id: 1,
                 person_id: "01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee".to_string(),
                 distinct_id: "d".to_string(),
@@ -223,7 +223,7 @@ mod tests {
                 source_partition: 0,
                 redirected_from: None,
                 redirect_hops: 0,
-            },
+            }),
             cse_offset: 0,
         }
     }

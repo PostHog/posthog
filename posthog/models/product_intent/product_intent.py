@@ -206,6 +206,24 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
         # Activated when the user has engaged with the dashboard (15s dwell) or viewed a trace
         return contexts.get("llm_analytics_viewed", 0) >= 1 or contexts.get("llm_analytics_trace_viewed", 0) >= 1
 
+    def has_activated_mcp_analytics(self) -> bool:
+        # The instrumented MCP server is sending tool calls (registers the $mcp_tool_call
+        # definition in this team) and the user has opened the dashboard at least once.
+        has_tool_call = EventDefinition.objects.filter(team=self.team, name="$mcp_tool_call").exists()
+        if not has_tool_call:
+            return False
+
+        intent = ProductIntent.objects.filter(
+            team=self.team,
+            product_type="mcp_analytics",
+        ).first()
+
+        if not intent:
+            return False
+
+        contexts = intent.contexts or {}
+        return contexts.get("mcp_analytics_viewed", 0) >= 1
+
     def has_activated_workflows(self) -> bool:
         # At least one workflow needs to be active (not just drafted)
         return HogFlow.objects.filter(team=self.team, status=HogFlow.State.ACTIVE).exists()
@@ -228,6 +246,7 @@ class ProductIntent(UUIDTModel, RootTeamMixin):
             "product_analytics": self.has_activated_product_analytics,
             "surveys": self.has_activated_surveys,
             "llm_analytics": self.has_activated_llm_analytics,
+            "mcp_analytics": self.has_activated_mcp_analytics,
             "workflows": self.has_activated_workflows,
         }
 

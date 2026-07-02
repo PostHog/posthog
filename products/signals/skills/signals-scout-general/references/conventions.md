@@ -6,7 +6,7 @@ scratchpad entries, and noise patterns common across PostHog projects.
 ## The four states
 
 Classify every candidate finding against prior runs, the inbox, and the scratchpad
-before you author a report (see [report.md](report.md) for the channel contract):
+before you author a report (the harness prompt carries the report-channel contract):
 
 1. **Net new** — no prior run, no inbox report, and no scratchpad entry covers this
    topic. → Author a report with `emit-report` if it clears the report bar.

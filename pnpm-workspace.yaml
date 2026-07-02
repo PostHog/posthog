@@ -42,6 +42,7 @@ catalog:
     kea-window-values: ^3.0.1
     # PostHog packages
     '@posthog/icons': ^0.37.4
+    '@posthog/brand': 0.3.0
     '@posthog/react': ^1.9.0
     posthog-js: ^1.396.3
     # Build tools
@@ -56,6 +57,7 @@ catalog:
     '@playwright/test': 1.60.0
     # Storybook
     '@storybook/react': ^10.4.3
+    '@storybook/react-vite': ^10.4.3
     storybook: ^10.4.3
     # Common utilities
     fast-deep-equal: ^3.1.3

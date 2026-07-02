@@ -20,7 +20,6 @@ import { logsViewerFiltersLogic } from 'products/logs/frontend/components/LogsVi
 import { logsExportLogic } from 'products/logs/frontend/components/LogsViewer/logsExportLogic'
 import { VirtualizedLogsList } from 'products/logs/frontend/components/VirtualizedLogsList/VirtualizedLogsList'
 import { virtualizedLogsListLogic } from 'products/logs/frontend/components/VirtualizedLogsList/virtualizedLogsListLogic'
-import { LogsOrderBy } from 'products/logs/frontend/types'
 
 import { LogDetailsModal } from './LogDetailsModal'
 import { logDetailsModalLogic } from './LogDetailsModal/logDetailsModalLogic'
@@ -110,8 +109,15 @@ function LogsViewerContent({
     const { orderBy, sparklineBreakdownBy, sparklineCollapsed, facetRailCollapsed, viewMode } =
         useValues(logsViewerConfigLogic)
     const { setOrderBy, setSparklineBreakdownBy, toggleSparklineCollapsed } = useActions(logsViewerConfigLogic)
-    const { logsLoading, parsedLogs, sparklineData, sparklineLoading, hasMoreLogsToLoad, totalLogsMatchingFilters } =
-        useValues(logsViewerDataLogic)
+    const {
+        logsLoading,
+        parsedLogs,
+        sparklineData,
+        sparklineLoading,
+        sparklineIncompleteBarIndices,
+        hasMoreLogsToLoad,
+        totalLogsMatchingFilters,
+    } = useValues(logsViewerDataLogic)
     const { runQuery, fetchNextLogsPage } = useActions(logsViewerDataLogic)
     const { setDateRange, zoomDateRange } = useActions(logsViewerFiltersLogic)
     const showFacetRail = useFeatureFlag('LOGS_FACET_RAIL')
@@ -294,6 +300,7 @@ function LogsViewerContent({
                 onBreakdownByChange={setSparklineBreakdownBy}
                 collapsed={sparklineCollapsed}
                 onToggleCollapse={toggleSparklineCollapsed}
+                incompleteBarIndices={sparklineIncompleteBarIndices}
             />
             <SceneDivider />
         </>
@@ -306,8 +313,6 @@ function LogsViewerContent({
     const displayBarProps = {
         id,
         totalLogsCount: sparklineLoading ? undefined : totalLogsMatchingFilters,
-        orderBy,
-        onChangeOrderBy: (newOrderBy: LogsOrderBy) => setOrderBy(newOrderBy, 'toolbar'),
     }
 
     const logList = (

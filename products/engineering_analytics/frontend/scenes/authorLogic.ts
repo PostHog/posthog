@@ -15,9 +15,9 @@ import { PullRequestRow, toPullRequestRow } from './engineeringAnalyticsLogic'
 
 const projectId = (): string => String(ApiConfig.getCurrentProjectId())
 
-// The PR list itself isn't date-scoped (the date picker only scopes the cost tiles), but the load still
-// needs a floor for finished PRs — a wide one so the list reads as "this author's recent PRs". Open PRs
-// come back regardless of this. Wider than any tile window option, so the tiles are always a subset.
+// The PR list isn't date-scoped (the picker only scopes the cost tiles), but the load needs a floor for
+// finished PRs — wide so the list reads as "this author's recent PRs", and wider than any tile window so
+// the tiles stay a subset. Open PRs come back regardless.
 const LIST_WINDOW = '-365d'
 
 export interface AuthorLogicProps {
@@ -42,7 +42,7 @@ export const authorLogic = kea<authorLogicType>([
             [] as PullRequestRow[],
             {
                 // Loaded once: the author's recent PRs, mapped to the shared table row shape. Stable across
-                // date changes — the date picker only scopes the tiles.
+                // date changes — the picker only scopes the tiles.
                 loadPrs: async (): Promise<PullRequestRow[]> => {
                     const result = await engineeringAnalyticsPullRequests(projectId(), {
                         author: props.handle,
@@ -91,7 +91,7 @@ export const authorLogic = kea<authorLogicType>([
             (handle): Breadcrumb[] => [
                 {
                     key: 'EngineeringAnalytics',
-                    name: 'CI analytics',
+                    name: 'Engineering analytics',
                     path: urls.engineeringAnalytics(),
                     iconType: 'health',
                 },

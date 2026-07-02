@@ -59,6 +59,10 @@ export {
 } from '../components/ActivityPrimitives'
 export type { ActivityStatus } from '../components/ActivityPrimitives'
 export { RunActivity } from '../components/RunActivity'
+export { RunAlertActivity } from '../components/RunAlertActivity'
+
+export { TaskRunStatusDot } from '../components/TaskRunStatusDot'
+export { TaskRunLivenessDot } from '../components/TaskRunLivenessDot'
 
 export { PermissionInput } from '../components/PermissionInput'
 export { QuestionInput } from '../components/QuestionInput'

@@ -2,9 +2,9 @@ import time
 from datetime import datetime, timedelta
 
 from django.conf import settings
-from django.db import transaction
 from django.utils.dateparse import parse_datetime
 
+import posthoganalytics
 from temporalio import activity
 
 from posthog.hogql import ast
@@ -15,11 +15,10 @@ from posthog.event_usage import groups
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team
 from posthog.ph_client import ph_scoped_capture
-from posthog.sync import database_sync_to_async
-from posthog.temporal.common.scoped import scoped_temporal
+from posthog.temporal.common.utils import close_db_connections
 
 from products.error_tracking.backend.indexed_embedding import EMBEDDING_TABLES
-from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2
+from products.error_tracking.backend.models import ErrorTrackingIssueFingerprintV2, ErrorTrackingIssueMergeResult
 from products.error_tracking.backend.temporal.fingerprint_embedding_result.types import (
     FingerprintEmbeddingMergeResult,
     FingerprintEmbeddingResultInputs,
@@ -91,6 +90,10 @@ class TargetFingerprintEmbeddingNotFoundError(RuntimeError):
 
 
 class FingerprintIssueNotFoundError(RuntimeError):
+    pass
+
+
+class StaleAutoMergeStateError(RuntimeError):
     pass
 
 
@@ -284,30 +287,39 @@ def _merge_fingerprint_into_closest_issue(
     if closest_fingerprint.distance >= AUTO_MERGE_DISTANCE_THRESHOLD:
         return 0
 
-    with transaction.atomic():
-        # Lock both fingerprints together so reciprocal auto-merge attempts re-check the post-merge state.
-        locked_fingerprints = {
-            row.fingerprint: row
-            for row in ErrorTrackingIssueFingerprintV2.objects.select_for_update()
-            .filter(team_id=team_id, fingerprint__in=[fingerprint, closest_fingerprint.fingerprint])
-            .select_related("issue")
-            .order_by("fingerprint", "id")
-        }
-        source_fingerprint = locked_fingerprints.get(fingerprint)
-        if source_fingerprint is None:
-            raise FingerprintIssueNotFoundError(f"Source fingerprint {fingerprint} not found for team {team_id}")
+    fingerprints_by_value = {
+        row.fingerprint: row
+        for row in ErrorTrackingIssueFingerprintV2.objects.filter(
+            team_id=team_id, fingerprint__in=[fingerprint, closest_fingerprint.fingerprint]
+        )
+        .select_related("issue")
+        .order_by("fingerprint", "id")
+    }
+    source_fingerprint = fingerprints_by_value.get(fingerprint)
+    if source_fingerprint is None:
+        raise FingerprintIssueNotFoundError(f"Source fingerprint {fingerprint} not found for team {team_id}")
 
-        target_fingerprint = locked_fingerprints.get(closest_fingerprint.fingerprint)
-        if target_fingerprint is None:
-            raise FingerprintIssueNotFoundError(
-                f"Target fingerprint {closest_fingerprint.fingerprint} not found for team {team_id}"
-            )
-        if source_fingerprint.issue_id == target_fingerprint.issue_id:
-            return 0
+    target_fingerprint = fingerprints_by_value.get(closest_fingerprint.fingerprint)
+    if target_fingerprint is None:
+        raise FingerprintIssueNotFoundError(
+            f"Target fingerprint {closest_fingerprint.fingerprint} not found for team {team_id}"
+        )
+    if source_fingerprint.issue_id == target_fingerprint.issue_id:
+        return 0
 
-        source_issue_id = source_fingerprint.issue_id
-        target_issue_id = target_fingerprint.issue_id
-        target_fingerprint.issue.merge(issue_ids=[str(source_issue_id)])
+    source_issue_id = source_fingerprint.issue_id
+    target_issue_id = target_fingerprint.issue_id
+    merge_result = target_fingerprint.issue.merge(
+        issue_ids=[source_issue_id],
+        expected_fingerprint_issue_ids={
+            fingerprint: source_issue_id,
+            closest_fingerprint.fingerprint: target_issue_id,
+        },
+    )
+    if merge_result == ErrorTrackingIssueMergeResult.NO_SOURCE_ISSUES:
+        return 0
+    if merge_result != ErrorTrackingIssueMergeResult.MERGED:
+        raise StaleAutoMergeStateError(f"Fingerprint issue ownership changed before auto-merge for team {team_id}")
 
     with ph_scoped_capture() as capture:
         capture(
@@ -327,23 +339,24 @@ def _merge_fingerprint_into_closest_issue(
 
 
 @activity.defn
-@scoped_temporal()
-async def merge_similar_fingerprints_activity(
+@posthoganalytics.scoped()
+@close_db_connections
+def merge_similar_fingerprints_activity(
     inputs: FingerprintEmbeddingResultInputs,
 ) -> FingerprintEmbeddingMergeResult:
     model_name: str | None = None
     try:
-        team = await Team.objects.aget(id=inputs.team_id)
+        team = Team.objects.get(id=inputs.team_id)
         model_name = _input_model_name(inputs)
 
         start = time.monotonic()
-        closest_fingerprints = await database_sync_to_async(_query_closest_fingerprints)(team, inputs, model_name)
+        closest_fingerprints = _query_closest_fingerprints(team, inputs, model_name)
         query_duration_seconds = time.monotonic() - start
         query_duration_ms = query_duration_seconds * 1000
 
         # Keep emitting candidate metrics for every run; merging is gated separately by configuration.
         _report_closest_fingerprint_metrics(team, inputs, closest_fingerprints, model_name, query_duration_ms)
-        merged_count = await database_sync_to_async(_merge_fingerprint_into_closest_issue)(
+        merged_count = _merge_fingerprint_into_closest_issue(
             team,
             inputs.fingerprint,
             closest_fingerprints,

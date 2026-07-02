@@ -1,6 +1,6 @@
 import { defaultConfig } from '~/common/config/config'
 
-import { EmailTrackingCodeSigner } from './tracking-code'
+import { EmailTrackingCodeSigner, trackingCodeMintCounter } from './tracking-code'
 
 const TRACKING_URL = 'http://localhost:8010'
 
@@ -280,6 +280,24 @@ describe('email tracking code', () => {
             const code = unsignedSigner.generate({ functionId: 'fn', id: 'inv', teamId: 1 })
             expect(code).not.toContain('.')
             expect(unsignedSigner.parse(code)?.format).toBe('unsigned')
+        })
+    })
+
+    describe('mint metric', () => {
+        const mintCount = async (format: string): Promise<number> => {
+            const metric = await trackingCodeMintCounter.get()
+            return metric.values.find((v) => v.labels.format === format)?.value ?? 0
+        }
+
+        // The keyless branch is silent without this counter; it is the proof that fail-closed (#62624)
+        // is safe to enable, so guard that generate() labels each minted code correctly.
+        it.each([
+            { name: 'signed when a key is configured', keys: defaultConfig.ENCRYPTION_SALT_KEYS, format: 'signed' },
+            { name: 'unsigned when no key is configured', keys: '', format: 'unsigned' },
+        ])('counts a mint as $name', async ({ keys, format }) => {
+            const before = await mintCount(format)
+            new EmailTrackingCodeSigner(keys, TRACKING_URL).generate({ functionId: 'fn', id: 'inv', teamId: 1 })
+            expect(await mintCount(format)).toBe(before + 1)
         })
     })
 })

@@ -77,8 +77,8 @@ function toWorkflowRun(run: WorkflowRunDetailApi): WorkflowRun {
     }
 }
 
-// Re-exported for existing importers (the PR detail scene); defined in lib/jobs so the shared RunsTable
-// can read the cache without importing scene logic.
+// Re-exported for the PR detail scene; defined in lib/jobs so the shared RunsTable can read the cache
+// without importing scene logic.
 export { jobCacheKey }
 
 /** Group a PR's runs by commit, newest push first — so the detail shows CI across all pushes. */
@@ -157,9 +157,9 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
         runJobs: [
             {} as Record<string, WorkflowJobApi[]>,
             {
-                // Lazy: fetched only when a run row is first expanded. Keyed by run+attempt; the
-                // post-await read of values.runJobs (not a pre-await snapshot) keeps two near-simultaneous
-                // first-expands from clobbering each other's entries.
+                // Lazy: fetched only on first expand. Keyed by run+attempt; the post-await read of
+                // values.runJobs (not a pre-await snapshot) keeps two near-simultaneous first-expands
+                // from clobbering each other.
                 loadJobs: async ({
                     runId,
                     runAttempt,
@@ -187,8 +187,8 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                 loadLifecycleFailure: () => true,
             },
         ],
-        // Separate from loadFailed (the PR header): a runs-load failure shows an error in the CI-runs
-        // section instead of the misleading "no runs attributed" empty state, with its own retry.
+        // Separate from loadFailed (the header): a runs-load failure shows an error in the CI-runs section
+        // instead of the misleading "no runs attributed" empty state, with its own retry.
         prRunsFailed: [
             false,
             {
@@ -245,8 +245,8 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                     .filter((group) => group.runs.length > 0)
             },
         ],
-        // The PR's runs as one flat list (newest push first), each tagged with its commit and narrowed
-        // to the workflow filter — the single runs table that replaced the per-commit tables.
+        // The PR's runs as one flat list (newest push first), each tagged with its commit, narrowed to
+        // the workflow filter.
         filteredRuns: [
             (s) => [s.filteredCommitGroups],
             (groups): PrRunRow[] =>
@@ -254,9 +254,9 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                     group.runs.map((run) => ({ ...run, headSha: group.headSha, headBranch: group.headBranch }))
                 ),
         ],
-        // The PR's runs rolled up per workflow, in the same WorkflowHealthRow shape the Workflows tab
-        // uses — so the PR page reuses the shared WorkflowHealthTable. The sparkline buckets are the
-        // PR's pushes (oldest → newest), zero-filled across all pushes so every workflow row aligns.
+        // The PR's runs rolled up per workflow, in the Workflows tab's WorkflowHealthRow shape so the PR
+        // page reuses the shared WorkflowHealthTable. Sparkline buckets are the PR's pushes (oldest →
+        // newest), zero-filled so every workflow row aligns.
         workflowHealthRows: [
             (s) => [s.commitGroups, s.repoOwner, s.repoName, s.prCost],
             (commitGroups, repoOwner, repoName, prCost): WorkflowHealthRow[] => {
@@ -324,9 +324,8 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                 })
             },
         ],
-        // Per-run cost keyed by jobCacheKey(run_id, run_attempt) — so the expanded runs table can show a
-        // cost column per attempt, rolling up to the per-workflow figure above it. Empty when the job
-        // source isn't synced (prCost.jobs_available false).
+        // Per-run cost keyed by jobCacheKey(run_id, run_attempt) — so the expanded runs table shows a cost
+        // column per attempt. Empty when the job source isn't synced (prCost.jobs_available false).
         runCostByKey: [
             (s) => [s.prCost],
             (prCost): Record<string, { minutes: number | null; cost: number | null }> => {
@@ -357,7 +356,7 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
             (repoOwner, repoName, number): Breadcrumb[] => [
                 {
                     key: 'EngineeringAnalytics',
-                    name: 'CI analytics',
+                    name: 'Engineering analytics',
                     path: urls.engineeringAnalytics(),
                     iconType: 'health',
                 },

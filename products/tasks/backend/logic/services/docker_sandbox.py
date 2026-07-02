@@ -313,10 +313,12 @@ class DockerSandbox(SandboxBase):
     @staticmethod
     def _get_image(config: SandboxConfig) -> str:
         """Get the image to use, checking for snapshots first."""
+        config.snapshot_restored = False
         if config.snapshot_external_id:
             snapshot_image = f"posthog-sandbox-snapshot:{config.snapshot_external_id}"
             result = DockerSandbox._run(["docker", "images", "-q", snapshot_image])
             if result.stdout.strip():
+                config.snapshot_restored = True
                 return snapshot_image
             logger.warning(f"Resume snapshot image {snapshot_image} not found locally, using base image")
 
@@ -327,6 +329,7 @@ class DockerSandbox(SandboxBase):
                     snapshot_image = f"posthog-sandbox-snapshot:{snapshot.external_id}"
                     result = DockerSandbox._run(["docker", "images", "-q", snapshot_image])
                     if result.stdout.strip():
+                        config.snapshot_restored = True
                         return snapshot_image
                     logger.warning(f"Snapshot image {snapshot_image} not found locally, using base image")
             except SandboxSnapshot.DoesNotExist:
@@ -721,6 +724,7 @@ class DockerSandbox(SandboxBase):
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
         event_ingest_url: str | None = None,
+        event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
     ) -> str:
         # The host proxy URL (e.g. localhost:8003) is unreachable from inside the container;
@@ -735,6 +739,7 @@ class DockerSandbox(SandboxBase):
             reasoning_effort=reasoning_effort,
             event_ingest_token=event_ingest_token,
             event_ingest_url=event_ingest_url,
+            event_ingest_keep_stream_open=event_ingest_keep_stream_open,
         )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
@@ -800,6 +805,7 @@ class DockerSandbox(SandboxBase):
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
         event_ingest_url: str | None = None,
+        event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
     ) -> None:
@@ -849,6 +855,7 @@ class DockerSandbox(SandboxBase):
             allowed_domains=allowed_domains,
             event_ingest_token=event_ingest_token,
             event_ingest_url=event_ingest_url,
+            event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
         )
 
@@ -894,6 +901,7 @@ class DockerSandbox(SandboxBase):
                 allowed_domains=allowed_domains,
                 event_ingest_token=event_ingest_token,
                 event_ingest_url=event_ingest_url,
+                event_ingest_keep_stream_open=event_ingest_keep_stream_open,
                 repo_ready_file=repo_ready_file,
             )
             if self._launch_and_check(command):
@@ -1012,6 +1020,9 @@ class DockerSandbox(SandboxBase):
                 {"sandbox_id": self.id, "error": str(e)},
                 cause=e,
             )
+
+    def create_directory_snapshot(self, path: str) -> str:
+        return self.create_snapshot()
 
     @staticmethod
     def delete_snapshot(external_id: str) -> None:

@@ -33,8 +33,8 @@ class TestSCIMAPI(APILicensedTest):
 
         # Generate SCIM token
         self.plain_token, hashed_token = generate_scim_token()
-        self.domain.scim_enabled = True
-        self.domain.scim_bearer_token = hashed_token
+        self.domain._scim_enabled = True
+        self.domain._scim_bearer_token = hashed_token
         self.domain.save()
 
         self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.plain_token}"}
@@ -48,6 +48,37 @@ class TestSCIMAPI(APILicensedTest):
         assert "urn:ietf:params:scim:api:messages:2.0:Error" in data["schemas"]
         assert data["status"] == 403
         assert "detail" in data
+
+    def test_domain_without_idp_config_is_rejected(self):
+        # A domain with no linked IdP config must be rejected by SCIM auth (the no-config case is
+        # handled explicitly, not by falling through to check_password against a null hash).
+        unconfigured = OrganizationDomain.objects.create(
+            organization=self.organization,
+            domain="no-config.example.com",
+            verified_at="2024-01-01T00:00:00Z",
+        )
+        assert unconfigured.identity_provider_config is None
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {self.plain_token}")
+        response = self.client.get(f"/scim/v2/{unconfigured.id}/Users")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
+
+    def test_unverified_domain_is_rejected(self):
+        # SCIM can be enabled on a config independently of any domain, so an unverified domain with
+        # a SCIM-enabled config must still be rejected — provisioning stays gated behind verification.
+        plain_token, hashed_token = generate_scim_token()
+        unverified = OrganizationDomain.objects.create(
+            organization=self.organization,
+            domain="unverified.example.com",
+            verified_at=None,
+        )
+        unverified._scim_enabled = True
+        unverified._scim_bearer_token = hashed_token
+        unverified.save()
+        assert unverified.has_scim  # config is SCIM-enabled with a token
+
+        self.client.credentials(HTTP_AUTHORIZATION=f"Bearer {plain_token}")
+        response = self.client.get(f"/scim/v2/{unverified.id}/Users")
+        assert response.status_code == status.HTTP_403_FORBIDDEN
 
     def test_no_token(self):
         response = self.client.get(f"/scim/v2/{self.domain.id}/Users")
@@ -236,8 +267,8 @@ class TestSCIMEmailDomainValidation(APILicensedTest):
         )
 
         self.plain_token, hashed_token = generate_scim_token()
-        self.domain.scim_enabled = True
-        self.domain.scim_bearer_token = hashed_token
+        self.domain._scim_enabled = True
+        self.domain._scim_bearer_token = hashed_token
         self.domain.save()
 
         self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.plain_token}"}
@@ -473,8 +504,8 @@ class TestSCIMAuditLogging(APILicensedTest):
         )
 
         self.plain_token, hashed_token = generate_scim_token()
-        self.domain.scim_enabled = True
-        self.domain.scim_bearer_token = hashed_token
+        self.domain._scim_enabled = True
+        self.domain._scim_bearer_token = hashed_token
         self.domain.save()
 
         self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.plain_token}"}
@@ -567,8 +598,8 @@ class TestSCIMGroupAuditLogging(APILicensedTest):
         )
 
         self.plain_token, hashed_token = generate_scim_token()
-        self.domain.scim_enabled = True
-        self.domain.scim_bearer_token = hashed_token
+        self.domain._scim_enabled = True
+        self.domain._scim_bearer_token = hashed_token
         self.domain.save()
 
         self.scim_headers = {"HTTP_AUTHORIZATION": f"Bearer {self.plain_token}"}
