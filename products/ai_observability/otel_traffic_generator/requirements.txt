@@ -1,0 +1,5 @@
+# Standalone deps for running the generator outside the repo venv.
+# Both are already present in the repo's flox venv, so from a checkout you can
+# usually run it with no install.
+requests>=2.31
+opentelemetry-proto>=1.20

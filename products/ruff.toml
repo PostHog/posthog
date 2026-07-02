@@ -14,6 +14,8 @@ extend-select = ["ANN001", "ANN201", "ANN202", "ANN204"]
 "**/dags/**" = ["ANN"]
 "**/scripts/**" = ["ANN"]
 "**/stats/**" = ["ANN"]
+# Standalone CLI tool: stdout is its user interface, so print() is intentional.
+"ai_observability/otel_traffic_generator/**" = ["T201"]
 
 # Temporarily exempted — too many violations to fix in one pass.
 # Run: ruff check products/<name>/backend --select ANN --statistics
