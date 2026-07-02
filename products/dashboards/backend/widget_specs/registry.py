@@ -186,7 +186,9 @@ def _load_widget_specs() -> dict[str, WidgetSpec]:
             product_access_denied_message="You do not have access to surveys.",
             availability_requirements=(),
             form_fields=("surveyId", "limit", "dateRange"),
-            filter_fields=("dateRange",),
+            # surveyId is chosen on the tile filter bar (like experiment_results' experimentId), so it
+            # counts as a filter change — include it so "dashboard widget filters updated" fires on re-pick.
+            filter_fields=("surveyId", "dateRange"),
         ),
         LOGS_LIST_WIDGET_TYPE: WidgetSpec(
             widget_type=LOGS_LIST_WIDGET_TYPE,
