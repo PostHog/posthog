@@ -46,6 +46,9 @@ const SSE_RETRY_ATTEMPTS = 3
 const SSE_RETRY_INITIAL_DELAY_MS = 30000
 const SSE_RETRY_BACKOFF_MULTIPLIER = 4
 
+// Notifications fetched per page for the in-app list (initial load + "Load more"). Backend max_limit is 100.
+const NOTIFICATION_PAGE_SIZE = 50
+
 // Maps each source type to a path builder from `source_id`, or `null` to fall through to the
 // backend-provided `source_url` (customer_analytics carries a precise account deep-link a
 // source_id→path mapping can't build). Kept as a full `Record` — not `Partial` — so adding a
@@ -616,7 +619,7 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 }
                 try {
                     const resp = await notificationsList((values.currentProjectId ?? '').toString(), {
-                        limit: 20,
+                        limit: NOTIFICATION_PAGE_SIZE,
                         offset: values.mainListOffset,
                     })
                     const results = resp.results as InAppNotification[]
@@ -817,7 +820,9 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
         if (values.realTimeNotificationsEnabled) {
             void (async () => {
                 try {
-                    const resp = await notificationsList((values.currentProjectId ?? '').toString(), { limit: 20 })
+                    const resp = await notificationsList((values.currentProjectId ?? '').toString(), {
+                        limit: NOTIFICATION_PAGE_SIZE,
+                    })
                     actions.setInAppNotifications(resp.results as InAppNotification[], !!resp.next)
                 } catch {
                     // Swallow
