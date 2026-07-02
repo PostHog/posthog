@@ -104,7 +104,11 @@ def _glob_matcher(pattern: str) -> Callable[[str], bool]:
         return lambda key: key == pattern
     prefix, _, suffix = pattern.partition("*")
     min_len = len(prefix) + len(suffix)
-    return lambda key, p=prefix, s=suffix, m=min_len: len(key) >= m and key.startswith(p) and key.endswith(s)
+
+    def matches(key: str) -> bool:
+        return len(key) >= min_len and key.startswith(prefix) and key.endswith(suffix)
+
+    return matches
 
 
 def attributes_filter_regex(wanted_data_attributes: list[str]) -> Callable[[str], bool]:
