@@ -34,6 +34,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     QuarantineRequestResult,
     WorkflowHealthItem,
     WorkflowJob,
+    WorkflowRunActivity,
     WorkflowRunDetail,
     WorkflowRunnerCost,
 )
@@ -129,6 +130,27 @@ def list_workflow_runs(
     user_access_control: "UserAccessControl | None" = None,
 ) -> list[WorkflowRunDetail]:
     return logic.build_workflow_run_list(
+        curated=_authorized_source(team, source_id, user_access_control),
+        repo=repo,
+        workflow_name=workflow_name,
+        date_from=date_from,
+        date_to=date_to,
+        branch=branch,
+    )
+
+
+def get_workflow_run_activity(
+    *,
+    team: Team,
+    repo: str,
+    workflow_name: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    branch: str | None = None,
+    source_id: str | None = None,
+    user_access_control: "UserAccessControl | None" = None,
+) -> WorkflowRunActivity:
+    return logic.build_workflow_run_activity(
         curated=_authorized_source(team, source_id, user_access_control),
         repo=repo,
         workflow_name=workflow_name,

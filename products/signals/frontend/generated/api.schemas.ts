@@ -103,6 +103,11 @@ export interface SignalReportApi {
     /** Distinct source products contributing signals to this report (from ClickHouse). */
     readonly source_products: readonly string[]
     /**
+     * skill_name slug of the scout that authored this report, when scout-authored (from ClickHouse); null otherwise.
+     * @nullable
+     */
+    readonly scout_name: string | null
+    /**
      * PR URL from the latest implementation task run, if available.
      * @nullable
      */
@@ -693,6 +698,38 @@ export interface RecentActivityApi {
 }
 
 /**
+ * One row in `inventory.recent_reviewer_corrections.corrections`.
+ */
+export interface ReviewerCorrectionEntryApi {
+    /** UUID of the report whose reviewers a human edited. */
+    report_id: string
+    /**
+     * Report title at the time of the edit.
+     * @nullable
+     */
+    report_title: string | null
+    /** GitHub logins on the report before the human edit (lowercased). */
+    before: string[]
+    /** GitHub logins on the report after the human edit (lowercased). */
+    after: string[]
+    /**
+     * ISO-8601 timestamp of the edit.
+     * @nullable
+     */
+    at: string | null
+}
+
+/**
+ * `inventory.recent_reviewer_corrections` — human edits to report reviewer lists.
+ */
+export interface RecentReviewerCorrectionsApi {
+    /** Lookback window in days the corrections cover. */
+    window_days: number
+    /** Human reviewer edits, newest first. A human swapping a report's suggested reviewers is authoritative ownership precedent — route to who they chose. */
+    corrections: ReviewerCorrectionEntryApi[]
+}
+
+/**
  * One row in `inventory.recent_dashboards`.
  */
 export interface RecentDashboardEntryApi {
@@ -1054,6 +1091,8 @@ export interface ProjectProfileInventoryApi {
     existing_inbox_reports: ExistingInboxReportsApi
     /** Per-scope counts off the activity log over the recent-activity window — cross-cutting orientation across every entity type (surveys, feature flags, experiments, dashboards, insights, cohorts, notebooks, actions, etc.). Each scope reports `edits` (total log entries), `users` (distinct user count), and `last_edit` (ISO-8601). Use to triage which scope a team has been working in lately before drilling down via the per-entity readers or `activity-log-list`. */
     recent_activity: RecentActivityApi
+    /** Recent human edits to report reviewer lists (before/after GitHub logins). The strongest ownership precedent available — check it before setting `suggested_reviewers` and fold what it shows into `reviewer:` memory keys. */
+    recent_reviewer_corrections: RecentReviewerCorrectionsApi
     /** Up to 20 dashboards on this team sorted by `last_accessed_at` desc — what the team is currently looking at, not necessarily the most-trafficked. We don't have per-dashboard view counts in Postgres, only the timestamp of the most recent access. */
     recent_dashboards: RecentDashboardEntryApi[]
     /** Surveys orientation: total + active count, plus the 5 most recently updated surveys with id, name, type, status (draft / running / stopped / archived), and updated_at. */
@@ -1713,6 +1752,7 @@ export const SourceProductEnumApi = {
 /**
  * * `session_analysis_cluster` - Session analysis cluster
  * * `evaluation` - Evaluation
+ * * `evaluation_report` - Evaluation report
  * * `issue` - Issue
  * * `ticket` - Ticket
  * * `issue_created` - Issue created
@@ -1731,6 +1771,7 @@ export type SignalSourceConfigSourceTypeEnumApi =
 export const SignalSourceConfigSourceTypeEnumApi = {
     SessionAnalysisCluster: 'session_analysis_cluster',
     Evaluation: 'evaluation',
+    EvaluationReport: 'evaluation_report',
     Issue: 'issue',
     Ticket: 'ticket',
     IssueCreated: 'issue_created',

@@ -9,6 +9,11 @@ set -euo pipefail
 #   bin/wait-for-docker                     # wait for core (db redis7 kafka clickhouse)
 #   bin/wait-for-docker temporal            # wait for core + temporal
 #   bin/wait-for-docker --only db redis7    # wait only for db and redis7 (skip core)
+#
+# Stays bash 3.2 compatible (the version macOS ships as /bin/bash): no
+# associative arrays, no empty-array expansion under `set -u`. Per-service
+# state is kept in parallel indexed arrays scanned by hand — the service
+# count is tiny, so the linear scans are free.
 
 # In a sandbox container, infra is managed by docker compose externally
 # and is guaranteed healthy via depends_on health checks.
@@ -39,11 +44,17 @@ else
     SERVICES+=("$@")
 fi
 
-declare -A seen=()
+# Dedup while preserving order via a linear membership scan.
 unique_services=()
 for svc in "${SERVICES[@]}"; do
-    if [[ -z "${seen[$svc]+x}" ]]; then
-        seen[$svc]=1
+    already_seen=0
+    for kept in ${unique_services[@]+"${unique_services[@]}"}; do
+        if [ "$kept" = "$svc" ]; then
+            already_seen=1
+            break
+        fi
+    done
+    if [ "$already_seen" -eq 0 ]; then
         unique_services+=("$svc")
     fi
 done
@@ -63,7 +74,7 @@ compose() {
                 compose_args+=(-f "$compose_file")
             fi
         done
-        env -u COMPOSE_FILE docker compose "${compose_args[@]}" "$@"
+        env -u COMPOSE_FILE docker compose ${compose_args[@]+"${compose_args[@]}"} "$@"
     else
         docker compose -f "$DEFAULT_COMPOSE_FILE" "$@"
     fi
@@ -117,19 +128,22 @@ print_service_diagnostics() {
 SECONDS=0
 last_progress_log=-5
 pending=("${SERVICES[@]}")
+# Services that time out, captured at the moment of timeout as
+# "svc|status|container_id" (this iteration's status is the last observed).
 timed_out=()
-declare -A last_status=()
-declare -A last_container_id=()
 
 while [ ${#pending[@]} -gt 0 ]; do
-    unset ps_health ps_state ps_id
-    declare -A ps_health ps_state ps_id
-
+    # Parse this poll's `compose ps` into parallel arrays keyed by ps_keys.
+    ps_keys=()
+    ps_health=()
+    ps_state=()
+    ps_id=()
     while IFS='|' read -r svc health state container_id; do
         [ -z "$svc" ] && continue
-        ps_health[$svc]="$health"
-        ps_state[$svc]="$state"
-        ps_id[$svc]="$container_id"
+        ps_keys+=("$svc")
+        ps_health+=("$health")
+        ps_state+=("$state")
+        ps_id+=("$container_id")
     done < <(compose ps --format '{{.Service}}|{{.Health}}|{{.State}}|{{.ID}}' "${pending[@]}" 2>/dev/null || true)
 
     still_pending=()
@@ -137,10 +151,24 @@ while [ ${#pending[@]} -gt 0 ]; do
     elapsed=$SECONDS
 
     for svc in "${pending[@]}"; do
-        status=$(readiness_status "${ps_health[$svc]:-}" "${ps_state[$svc]:-}")
-        container_id="${ps_id[$svc]:-}"
-        last_status[$svc]="$status"
-        last_container_id[$svc]="$container_id"
+        # Look up this service's row from the parsed poll output.
+        health=""
+        state=""
+        container_id=""
+        key_count=${#ps_keys[@]}
+        i=0
+        while [ "$i" -lt "$key_count" ]; do
+            # No early break: a scaled service emits one ps row per replica, so
+            # keep the last match to preserve the prior map's last-write-wins.
+            if [ "${ps_keys[$i]}" = "$svc" ]; then
+                health="${ps_health[$i]}"
+                state="${ps_state[$i]}"
+                container_id="${ps_id[$i]}"
+            fi
+            i=$((i + 1))
+        done
+
+        status=$(readiness_status "$health" "$state")
 
         if service_is_ready "$status"; then
             echo "$svc is ready after ${elapsed}s."
@@ -148,7 +176,7 @@ while [ ${#pending[@]} -gt 0 ]; do
         fi
 
         if [ "$elapsed" -ge "$TIMEOUT" ]; then
-            timed_out+=("$svc")
+            timed_out+=("$svc|$status|$container_id")
             continue
         fi
 
@@ -156,7 +184,7 @@ while [ ${#pending[@]} -gt 0 ]; do
         pending_summary+=("$svc=${status}(${elapsed}s)")
     done
 
-    pending=("${still_pending[@]}")
+    pending=(${still_pending[@]+"${still_pending[@]}"})
 
     if [ ${#pending[@]} -eq 0 ]; then
         break
@@ -174,8 +202,9 @@ while [ ${#pending[@]} -gt 0 ]; do
 done
 
 if [ ${#timed_out[@]} -gt 0 ]; then
-    for svc in "${timed_out[@]}"; do
-        print_service_diagnostics "$svc" "$SECONDS" "${last_status[$svc]}" "${last_container_id[$svc]:-}"
+    for entry in "${timed_out[@]}"; do
+        IFS='|' read -r svc status container_id <<< "$entry"
+        print_service_diagnostics "$svc" "$SECONDS" "$status" "$container_id"
     done
     exit 1
 fi

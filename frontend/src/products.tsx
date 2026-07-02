@@ -148,6 +148,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     ReplayVisionScannerEditor: () => import('../../products/replay_vision/frontend/replay_scanners/ScannerEditorScene'),
     ReplayVisionObservation: () => import('../../products/replay_vision/frontend/observations/ReplayObservation'),
     ReplayVisionAction: () => import('../../products/replay_vision/frontend/replay_scanners/VisionActionScene'),
+    ReplayVisionActionRun: () => import('../../products/replay_vision/frontend/replay_scanners/VisionActionRunScene'),
     RevenueAnalytics: () => import('../../products/revenue_analytics/frontend/RevenueAnalyticsScene'),
     SessionGroupSummariesTable: () => import('../../products/session_summaries/frontend/SessionGroupSummariesTable'),
     SessionGroupSummary: () => import('../../products/session_summaries/frontend/SessionGroupSummaryScene'),
@@ -290,6 +291,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/tasks/:taskId': ['TaskTracker', 'taskDetail'],
     '/replay-vision': ['ReplayVision', 'replayVision'],
     '/replay-vision/observations/:observationId': ['ReplayVisionObservation', 'replayVisionObservation'],
+    '/replay-vision/actions/:actionId/runs/:runId': ['ReplayVisionActionRun', 'replayVisionActionRun'],
     '/replay-vision/actions/:actionId': ['ReplayVisionAction', 'replayVisionAction'],
     '/replay-vision/:id/template': ['ReplayVisionScannerEditor', 'replayVisionScannerTemplate'],
     '/replay-vision/:id/configure': ['ReplayVisionScannerEditor', 'replayVisionScannerConfigure'],
@@ -822,6 +824,12 @@ export const productConfiguration: Record<string, any> = {
         iconType: 'replay_vision',
         layout: 'app-container',
     },
+    ReplayVisionActionRun: {
+        name: 'Replay vision action run',
+        projectBased: true,
+        iconType: 'replay_vision',
+        layout: 'app-container',
+    },
     RevenueAnalytics: {
         name: 'Revenue Analytics',
         projectBased: true,
@@ -1283,6 +1291,8 @@ export const productUrls = {
     replayVisionScannerTriggers: (id: string): string => `/replay-vision/${id}/triggers`,
     replayVisionObservation: (observationId: string): string => `/replay-vision/observations/${observationId}`,
     replayVisionAction: (actionId: string): string => `/replay-vision/actions/${actionId}`,
+    replayVisionActionRun: (actionId: string, runId: string): string =>
+        `/replay-vision/actions/${actionId}/runs/${runId}`,
     revenueAnalytics: (): string => '/revenue_analytics',
     sessionSummaries: (): string => '/session-summaries',
     sessionSummary: (sessionGroupId: string): string => `/session-summaries/${sessionGroupId}`,

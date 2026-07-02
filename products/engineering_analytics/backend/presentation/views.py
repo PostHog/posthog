@@ -39,6 +39,7 @@ from products.engineering_analytics.backend.presentation.serializers import (
     QuarantineRequestSerializer,
     WorkflowHealthItemSerializer,
     WorkflowJobSerializer,
+    WorkflowRunActivitySerializer,
     WorkflowRunDetailSerializer,
     WorkflowRunnerCostSerializer,
 )
@@ -133,6 +134,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         "pr_cost",
         "workflow_run",
         "workflow_runs",
+        "workflow_run_activity",
         "workflow_runner_costs",
         "workflow_jobs",
     ]
@@ -544,6 +546,61 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         except ValueError as exc:
             return _bad_request(exc, fallback="Invalid date, repo, or source_id")
         return Response(WorkflowRunDetailSerializer(instance=runs, many=True).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_workflow_run_activity",
+        parameters=[
+            OpenApiParameter(
+                name="workflow_name",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Workflow name to load run activity for.",
+            ),
+            OpenApiParameter(
+                name="repo",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="'owner/name' repository the workflow belongs to.",
+            ),
+            _DATE_FROM,
+            _DATE_TO,
+            _BRANCH,
+            _SOURCE_ID,
+        ],
+        responses={
+            200: WorkflowRunActivitySerializer,
+            400: OpenApiResponse(description="Missing workflow_name/repo, or invalid date or source_id."),
+        },
+        description=(
+            "Compact per-run points for a single workflow over a window (date_from default -30d), newest first, for "
+            "the run-activity chart: each run's start time, duration, conclusion, branch, and attributed PR. "
+            "Optionally scope to a single git branch via `branch`, matching workflow_runs. Leaner and higher-capped "
+            "than workflow_runs so the chart spans the full window even on busy workflows; `truncated` is true when "
+            "the cap is hit, so the chart covers only the most recent runs."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def workflow_run_activity(self, request: Request, **kwargs) -> Response:
+        workflow_name = request.query_params.get("workflow_name")
+        repo = request.query_params.get("repo")
+        if not workflow_name or not repo:
+            return Response({"detail": "workflow_name and repo are required"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            result = api.get_workflow_run_activity(
+                team=self.team,
+                repo=repo,
+                workflow_name=workflow_name,
+                date_from=request.query_params.get("date_from") or None,
+                date_to=request.query_params.get("date_to") or None,
+                branch=request.query_params.get("branch") or None,
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid date, repo, or source_id")
+        return Response(WorkflowRunActivitySerializer(instance=result).data)
 
     @extend_schema(
         operation_id="engineering_analytics_workflow_runner_costs",

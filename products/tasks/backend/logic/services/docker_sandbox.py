@@ -724,6 +724,7 @@ class DockerSandbox(SandboxBase):
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
         event_ingest_url: str | None = None,
+        event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
     ) -> str:
         # The host proxy URL (e.g. localhost:8003) is unreachable from inside the container;
@@ -738,6 +739,7 @@ class DockerSandbox(SandboxBase):
             reasoning_effort=reasoning_effort,
             event_ingest_token=event_ingest_token,
             event_ingest_url=event_ingest_url,
+            event_ingest_keep_stream_open=event_ingest_keep_stream_open,
         )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         branch_flag = f" --baseBranch {shlex.quote(branch)}" if branch else ""
@@ -803,6 +805,7 @@ class DockerSandbox(SandboxBase):
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
         event_ingest_url: str | None = None,
+        event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
     ) -> None:
@@ -852,6 +855,7 @@ class DockerSandbox(SandboxBase):
             allowed_domains=allowed_domains,
             event_ingest_token=event_ingest_token,
             event_ingest_url=event_ingest_url,
+            event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
         )
 
@@ -897,6 +901,7 @@ class DockerSandbox(SandboxBase):
                 allowed_domains=allowed_domains,
                 event_ingest_token=event_ingest_token,
                 event_ingest_url=event_ingest_url,
+                event_ingest_keep_stream_open=event_ingest_keep_stream_open,
                 repo_ready_file=repo_ready_file,
             )
             if self._launch_and_check(command):

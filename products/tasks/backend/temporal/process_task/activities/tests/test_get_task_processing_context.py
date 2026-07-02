@@ -10,6 +10,7 @@ from posthog.models import OrganizationMembership, User
 from posthog.models.user_integration import UserIntegration
 
 from products.tasks.backend.constants import (
+    AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
     MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG,
     MODAL_VM_SANDBOX_FEATURE_FLAG,
     SANDBOX_EVENT_INGEST_FEATURE_FLAG,
@@ -19,6 +20,7 @@ from products.tasks.backend.models import SandboxEnvironment, Task
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import (
     GetTaskProcessingContextInput,
     TaskProcessingContext,
+    _is_agent_proxy_keep_stream_open_enabled,
     _is_burstable_sandbox_resources_enabled,
     _is_modal_vm_sandbox_enabled,
     _is_sandbox_event_ingest_enabled,
@@ -354,6 +356,68 @@ class TestGetTaskProcessingContextActivity:
                     organization_id="organization-id",
                     run_id="run-id",
                     state={"sandbox_event_ingest_enabled": True},
+                )
+                is True
+            )
+
+        feature_enabled_mock.assert_not_called()
+
+    @pytest.mark.parametrize(
+        "flag_value, expected",
+        [
+            (True, True),
+            (False, False),
+            (None, False),
+        ],
+    )
+    def test_agent_proxy_keep_stream_open_flag_uses_organization_rollout(self, flag_value, expected):
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            return_value=flag_value,
+        ) as feature_enabled_mock:
+            assert (
+                _is_agent_proxy_keep_stream_open_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                )
+                is expected
+            )
+
+        feature_enabled_mock.assert_called_once_with(
+            AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
+            distinct_id="distinct-id",
+            groups={"organization": "organization-id"},
+            group_properties={"organization": {"id": "organization-id"}},
+            only_evaluate_locally=False,
+            send_feature_flag_events=False,
+        )
+
+    def test_agent_proxy_keep_stream_open_flag_fails_closed(self):
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            side_effect=RuntimeError("flag service failed"),
+        ):
+            assert (
+                _is_agent_proxy_keep_stream_open_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                )
+                is False
+            )
+
+    def test_agent_proxy_keep_stream_open_state_override_skips_flag_check(self):
+        with patch(
+            "products.tasks.backend.temporal.process_task.activities.get_task_processing_context.posthoganalytics.feature_enabled",
+            return_value=False,
+        ) as feature_enabled_mock:
+            assert (
+                _is_agent_proxy_keep_stream_open_enabled(
+                    distinct_id="distinct-id",
+                    organization_id="organization-id",
+                    run_id="run-id",
+                    state={"agent_proxy_keep_stream_open": True},
                 )
                 is True
             )

@@ -1,7 +1,5 @@
-// The PR list table, shared by the main PR list (Overview tab) and the author page (same list, scoped
-// to one author). Both feed `PullRequestRow[]`; the columns, row → detail navigation, and cost lens are
-// identical — only the author column (redundant on the author page) and the default sort differ, passed
-// in by the caller.
+// The PR list table, shared by the main PR list (Overview tab) and the author page (scoped to one
+// author). Only the author column and default sort differ per caller.
 
 import { combineUrl, router } from 'kea-router'
 import { ReactNode } from 'react'
@@ -18,6 +16,15 @@ import { githubPrUrl } from '../lib/github'
 import { PullRequestRow, prKeyOf } from '../scenes/engineeringAnalyticsLogic'
 import { BillableBadge } from './BillableBadge'
 import { CIStatusTag } from './CIStatusTag'
+import { PullRequestStateTag } from './PullRequestStateTag'
+
+/** The PR's detail page, carrying the active source so it opens scoped to the same one. */
+function detailUrlOf(row: PullRequestRow, sourceId: string | null): string {
+    return combineUrl(
+        urls.engineeringAnalyticsPullRequest(row.repoOwner, row.repoName, row.number),
+        sourceId ? { source: sourceId } : {}
+    ).url
+}
 
 export interface PullRequestTableProps {
     rows: PullRequestRow[]
@@ -49,18 +56,21 @@ export function PullRequestTable({
             key: 'title',
             render: (_, row) => (
                 <div className="flex flex-col gap-0.5">
-                    <Link
-                        to={githubPrUrl(row.repoOwner, row.repoName, row.number)}
-                        target="_blank"
-                        className="font-medium"
-                    >
-                        {row.title}
-                    </Link>
+                    <div className="flex items-center gap-2">
+                        <PullRequestStateTag state={row.state} isDraft={row.isDraft} />
+                        <Link to={detailUrlOf(row, sourceId)} className="font-medium">
+                            {row.title}
+                        </Link>
+                    </div>
                     <div className="flex items-center gap-1.5 text-xs text-secondary">
-                        <span className="font-mono">
+                        <Link
+                            to={githubPrUrl(row.repoOwner, row.repoName, row.number)}
+                            target="_blank"
+                            targetBlankIcon
+                            className="font-mono text-secondary"
+                        >
                             {row.repoOwner}/{row.repoName} #{row.number}
-                        </span>
-                        {row.isDraft && <LemonTag type="muted">draft</LemonTag>}
+                        </Link>
                         {row.labels.slice(0, 3).map((label) => (
                             <LemonTag key={label} type="option">
                                 {label}
@@ -181,13 +191,9 @@ export function PullRequestTable({
             loading={loading}
             defaultSorting={defaultSorting}
             onRow={(row) => {
-                // Carry the selected source so the PR's detail page reads the same one.
-                const detailUrl = combineUrl(
-                    urls.engineeringAnalyticsPullRequest(row.repoOwner, row.repoName, row.number),
-                    sourceId ? { source: sourceId } : {}
-                ).url
+                const detailUrl = detailUrlOf(row, sourceId)
                 return {
-                    // Inner links (PR title → GitHub, author → author page) keep their own behavior.
+                    // Inner links (#id → GitHub, author → author page) keep their own behavior.
                     onClick: (e: React.MouseEvent) => {
                         if ((e.target as HTMLElement).closest('a, button')) {
                             return

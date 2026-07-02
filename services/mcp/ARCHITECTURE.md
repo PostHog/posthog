@@ -83,7 +83,9 @@ There are three independent layers that emit signals about each MCP request:
 
 #### `$mcp_tool_call` event paths
 
-Three distinct code paths emit the tool-call event (canonical `$mcp_tool_call`, with a legacy unprefixed `mcp_tool_call` alias still dual-emitted during the cutover — see the transition shim in `hono/analytics.ts`); which one fires depends on the server mode and on the `mcp-posthog-analytics-sdk` feature flag:
+The canonical event is `$mcp_tool_call`.
+The legacy unprefixed `mcp_tool_call` alias is no longer emitted — the transition shim that dual-emitted it through the cutover has been removed (only pre-2026-06-16 history remains under that name).
+The path that fires depends on the server mode and on the `mcp-posthog-analytics-sdk` feature flag:
 
 - **`hono/analytics.ts`** — homegrown PostHog capture. Used by the exec-mode wrapper to emit events for inner tool calls. Properties use the bare form: `mcp_session_id`, `mcp_conversation_id`, `mcp_client_name`, etc.
 - **`lib/mcpcat.ts`** — legacy MCPcat SDK path. Same bare property names.

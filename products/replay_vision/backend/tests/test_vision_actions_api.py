@@ -8,6 +8,7 @@ from posthog.cdp.templates.slack.template_slack import template as template_slac
 from posthog.models import Organization, Team
 from posthog.models.integration import Integration
 
+from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerModel, ScannerType
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
 
@@ -271,6 +272,23 @@ class TestVisionActionRunViewSet(_VisionActionAPITestCase):
         defaults.update(overrides)
         return VisionActionRun.all_teams.create(**defaults)
 
+    def _create_observation(
+        self,
+        session_id: str,
+        *,
+        summary: str = "churned",
+        title: str | None = "Checkout",
+        email: str | None = "user@example.com",
+        scanner: ReplayScanner | None = None,
+    ) -> ReplayObservation:
+        # team_id is copied from the scanner by ReplayObservation.save(); don't pass it.
+        return ReplayObservation.objects.create(
+            scanner=scanner or self.scanner,
+            session_id=session_id,
+            recording_subject_email=email,
+            scanner_result={"model_output": {"summary": summary, **({"title": title} if title else {})}},
+        )
+
     def test_list_runs_for_action(self) -> None:
         self._create_run(status=VisionActionRunStatus.COMPLETED, synthesized_markdown="# Themes", observation_count=3)
         self._create_run(status=VisionActionRunStatus.SKIPPED, error={"skip_reason": "nothing to summarize"})
@@ -280,9 +298,44 @@ class TestVisionActionRunViewSet(_VisionActionAPITestCase):
         results = resp.json()["results"]
         self.assertEqual(len(results), 2)
         completed = next(r for r in results if r["status"] == "completed")
-        self.assertEqual(completed["synthesized_markdown"], "# Themes")
         self.assertEqual(completed["observation_count"], 3)
         self.assertIsNone(completed["error_reason"])
+        # The list stays light — the report body + observations are only fetched on retrieve.
+        self.assertNotIn("synthesized_markdown", completed)
+        self.assertNotIn("observations", completed)
+
+    def test_retrieve_returns_summary_and_observations_in_stored_order(self) -> None:
+        obs_a = self._create_observation("sess-a", title="Checkout")
+        obs_b = self._create_observation("sess-b", title="Onboarding")
+        # observation_ids is the summary order; the API must preserve it rather than DB order.
+        run = self._create_run(
+            status=VisionActionRunStatus.COMPLETED,
+            synthesized_markdown="# Themes",
+            observation_count=2,
+            observation_ids=[str(obs_b.id), str(obs_a.id)],
+        )
+
+        body = self.client.get(f"{self.runs_url()}{run.id}/").json()
+        self.assertEqual(body["synthesized_markdown"], "# Themes")
+        self.assertEqual([o["id"] for o in body["observations"]], [str(obs_b.id), str(obs_a.id)])
+        self.assertEqual(body["observations"][0]["session_id"], "sess-b")
+        self.assertEqual(body["observations"][0]["title"], "Onboarding")
+        self.assertEqual(body["observations"][1]["recording_subject_email"], "user@example.com")
+
+    def test_retrieve_does_not_resolve_cross_team_observation_ids(self) -> None:
+        # A stray id from another team stored on the run must never resolve — ReplayObservation isn't fail-closed.
+        other_team = Team.objects.create(organization=self.organization, name="rv-other-team")
+        other_scanner = self._create_scanner(team=other_team, name="rv-other-scanner")
+        foreign = self._create_observation("foreign", scanner=other_scanner)
+        mine = self._create_observation("mine")
+        run = self._create_run(
+            status=VisionActionRunStatus.COMPLETED,
+            synthesized_markdown="# Themes",
+            observation_ids=[str(foreign.id), str(mine.id)],
+        )
+
+        body = self.client.get(f"{self.runs_url()}{run.id}/").json()
+        self.assertEqual([o["id"] for o in body["observations"]], [str(mine.id)])
 
     def test_error_reason_surfaced(self) -> None:
         run = self._create_run(status=VisionActionRunStatus.SKIPPED, error={"skip_reason": "over budget"})

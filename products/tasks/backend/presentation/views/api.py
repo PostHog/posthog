@@ -224,10 +224,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         filters = {key: request.query_params.get(key) for key in request.query_params}
         filters["internal"] = getattr(request, "validated_query_data", {}).get("internal")
         filters["archived"] = getattr(request, "validated_query_data", {}).get("archived")
-        is_debug_or_staff = settings.DEBUG or request.user.is_staff
-        tasks = tasks_facade._list_tasks_queryset(
-            self.team_id, self._user_id(), filters=filters, is_debug_or_staff=is_debug_or_staff
-        )
+        tasks = tasks_facade._list_tasks_queryset(self.team_id, self._user_id(), filters=filters)
         page = self.paginate_queryset(tasks)
         assert page is not None, "TaskViewSet list requires an active paginator"
         return self.get_paginated_response(
@@ -514,6 +511,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Run task",
         description="Create a new task run and kick off the workflow.",
+        include_serializer_context=True,
     )
     @action(detail=True, methods=["post"], url_path="run", required_scopes=["task:write"])
     def run(self, request, pk=None, **kwargs):
@@ -826,6 +824,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Create task run",
         description="Create a new run for a specific task without starting execution.",
+        include_serializer_context=True,
     )
     def create(self, request, *args, **kwargs):
         task_id = self._task_id()

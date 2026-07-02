@@ -30,6 +30,14 @@ describe('url utils', () => {
             const actual = toParams({ include: ['a', 'b'] }, true)
             expect(actual).toEqual('include=a&include=b')
         })
+
+        it('does not throw when a nested object value is a bigint', () => {
+            // Property filter values may be bigints (see PropertyFilterBaseValue), which crashed
+            // toParams with "Do not know how to serialize a BigInt" via JSON.stringify
+            const filters = { properties: [{ key: 'user_id', value: BigInt('9007199254740993') }] }
+            expect(() => toParams({ filters })).not.toThrow()
+            expect(toParams({ filters })).toContain('9007199254740993')
+        })
     })
 
     describe('isURL()', () => {

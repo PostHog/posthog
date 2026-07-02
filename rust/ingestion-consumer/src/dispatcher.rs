@@ -364,10 +364,27 @@ impl Dispatcher {
 
         let mut router = self.router.lock().unwrap();
         for group in groups {
-            let Some(worker) = router.select(&healthy, &working_load) else {
-                // No healthy worker yet — keep it stashed for a later flush.
-                table.stash.put_back(batch_id, group);
-                continue;
+            // Prefer the key's existing pin when it still points to a healthy
+            // worker, so a key deferred across several batches re-homes to a
+            // single survivor — preserving per-distinct_id (person-batching)
+            // locality instead of scattering its messages across workers.
+            // Fall back to load-based selection for a fresh key, or when the
+            // pinned worker is itself unhealthy (e.g. the drainer we're leaving).
+            let sticky = table
+                .pins
+                .get(&group.routing_key)
+                .map(|pin| pin.worker.clone())
+                .filter(|w| healthy.contains(w));
+            let worker = match sticky {
+                Some(worker) => worker,
+                None => {
+                    let Some(worker) = router.select(&healthy, &working_load) else {
+                        // No healthy worker yet — keep it stashed for a later flush.
+                        table.stash.put_back(batch_id, group);
+                        continue;
+                    };
+                    worker
+                }
             };
             bump_load(&mut working_load, &worker, group.messages.len());
             // Re-pin the key to the new worker. The deferral is NOT cleared here:
@@ -1342,6 +1359,46 @@ mod tests {
         assert_eq!(offsets(&f2), vec![1], "batch-2 flushes its own message");
         assert_eq!(offsets(&f3), vec![2], "batch-3 flushes its own message");
         assert!(!dispatcher.has_deferred("batch-2") && !dispatcher.has_deferred("batch-3"));
+    }
+
+    #[test]
+    fn test_cross_batch_deferred_flush_stays_on_one_survivor() {
+        // A key deferred across multiple batches during a drain must re-home to a
+        // SINGLE survivor — otherwise one distinct_id's events scatter across
+        // workers and lose person-batching locality. Needs >=2 survivors after a
+        // drain, so 3 workers. (With 2 workers there's one survivor and the bug is
+        // masked, which is why `..._preserves_order` above can't catch it.)
+        let registry = healthy_registry(3);
+        let dispatcher = Dispatcher::new(Arc::clone(&registry));
+
+        // Pin user-1, keep it in-flight, then drain its worker.
+        let b1 = dispatcher.assign("batch-1", make_msgs(&[("t", "user-1")]));
+        let pinned = b1[0].worker.clone();
+        registry.start_draining(&pinned);
+
+        // Two later batches each carry user-1 → both defer behind the drainer.
+        assert!(dispatcher
+            .assign("batch-2", make_msgs(&[("t", "user-1")]))
+            .is_empty());
+        assert!(dispatcher
+            .assign("batch-3", make_msgs(&[("t", "user-1")]))
+            .is_empty());
+
+        // Drain completes when batch-1's in-flight resolves.
+        dispatcher.on_sub_batch_resolved(&pinned, b1[0].messages.len(), &b1[0].routing_keys, false);
+
+        // Flush oldest-first. batch-2 re-homes user-1 onto a survivor; batch-3 must
+        // land on the SAME survivor. Without the fix, batch-2's flush bumps that
+        // survivor's load, so batch-3's least-loaded pick scatters to the other one.
+        let f2 = dispatcher.flush_deferred("batch-2");
+        let f3 = dispatcher.flush_deferred("batch-3");
+        assert_eq!(f2.len(), 1);
+        assert_eq!(f3.len(), 1);
+        assert_ne!(f2[0].worker, pinned, "re-homes off the drainer");
+        assert_eq!(
+            f3[0].worker, f2[0].worker,
+            "a key deferred across batches must re-home to one survivor, not scatter"
+        );
     }
 
     fn offsets(sub_batches: &[SubBatch]) -> Vec<i64> {

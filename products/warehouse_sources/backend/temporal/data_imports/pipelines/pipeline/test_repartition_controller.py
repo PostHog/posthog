@@ -179,11 +179,51 @@ class TestRepartitionActivity:
             ActivityEnvironment().run(maybe_repartition_table_activity, inputs)
         return capture
 
-    def test_noop_when_nothing_pending(self, team):
-        inputs = self._inputs(team, _make_schema(team, {}))
+    def test_noop_when_within_budget_measurement_recorded(self, team):
+        # The healthy common path: a within-budget `max_partition_bytes` from a prior post-load run
+        # short-circuits the cheap gate, so nothing pending means no delta read, no detection, no
+        # rewrite. Guards the gate that keeps every healthy sync free of the extra pre-extraction work.
+        schema = _make_schema(team, {"max_partition_bytes": 5})
         mocked = AsyncMock()
-        self._run(inputs, mocked)
+        with (
+            patch.object(repartition_table, "HeartbeaterSync"),
+            patch.object(repartition_table, "repartition_table_in_place", new=mocked),
+            patch.object(repartition_table, "capture_repartition_event"),
+            patch.object(repartition_table, "target_partition_bytes", return_value=10**12),
+            patch.object(repartition_table, "maybe_flag_for_repartition") as flag,
+        ):
+            ActivityEnvironment().run(maybe_repartition_table_activity, self._inputs(team, schema))
         mocked.assert_not_called()
+        flag.assert_not_called()
+
+    def test_pre_extraction_flags_over_budget_table_and_repartitions(self, team):
+        # No target was queued, but the on-disk partition is over budget: the activity must detect and
+        # rewrite it here, pre-extraction. This is the path that rescues a table whose merge OOMs every
+        # run and so never reaches post-load detection to flag itself — without it the activity is a noop.
+        schema = _make_schema(
+            team,
+            {"partitioning_enabled": True, "partition_mode": "md5", "partition_count": 2, "partitioning_keys": ["id"]},
+        )
+        mocked = AsyncMock(return_value={"outcome": "completed", "row_count": 4, "partition_mode_after": "md5"})
+        with tempfile.TemporaryDirectory() as d:
+            delta = _write_partitioned_delta(f"{d}/t", ["0", "0", "1", "1"])
+            with (
+                patch.object(repartition_table, "HeartbeaterSync"),
+                patch.object(repartition_table, "repartition_table_in_place", new=mocked),
+                patch.object(repartition_table, "capture_repartition_event") as capture,
+                patch.object(repartition_table.DeltaTableHelper, "get_delta_table", new=AsyncMock(return_value=delta)),
+                patch.object(ctrl, "target_partition_bytes", return_value=1),
+                # The activity evaluates the rollout flag once and threads the verdict into detection,
+                # so patch the binding the activity reads from (not the controller's).
+                patch.object(repartition_table, "is_auto_repartition_enabled", return_value=True),
+                patch.object(ctrl, "capture_repartition_event"),
+            ):
+                ActivityEnvironment().run(maybe_repartition_table_activity, self._inputs(team, schema))
+
+        mocked.assert_awaited_once()
+        emitted = [c.args[0] for c in capture.call_args_list]
+        assert "warehouse_repartition_started" in emitted
+        assert "warehouse_repartition_completed" in emitted
 
     def test_success_emits_completed(self, team):
         schema = _make_schema(team, {})
