@@ -435,6 +435,21 @@ describe('hog-charts canvas-renderer', () => {
             expect(ctx.beginPath).toHaveBeenCalledTimes(2)
             expect(dashCalls(ctx)).toEqual([[], [10, 10], []])
         })
+
+        it.each([
+            { name: 'two points', data: [10, 90], labels: ['a', 'b'] },
+            { name: 'three points (leading segment stays curved)', data: [10, 40, 90], labels: ['a', 'b', 'c'] },
+        ])('$name, smooth → tail follows the curve as a bezier, never a straight chord', ({ data, labels }) => {
+            const ctx = mockCanvasContext()
+            const series = makeSeries({ key: 's1', data, stroke: { partial: { fromFraction: 0.5 } } })
+            drawLine({ ...makeDrawContext(ctx, labels), smooth: true }, series)
+            // The straight-line branch would emit lineTo for the split bridge and the tail; the smooth
+            // split draws both the solid body and the dashed tail as bezier segments instead.
+            expect(ctx.lineTo).not.toHaveBeenCalled()
+            expect(ctx.bezierCurveTo).toHaveBeenCalled()
+            expect(ctx.beginPath).toHaveBeenCalledTimes(2)
+            expect(dashCalls(ctx)).toEqual([[], [10, 10], []])
+        })
     })
 
     describe('drawArea — stacked bands', () => {

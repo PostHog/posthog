@@ -57,7 +57,7 @@ function drawFractionalTailDash(drawCtx: DrawContext, series: ResolvedSeries, da
     if (fraction == null || data.length < 2) {
         return false
     }
-    const { ctx, xScale, yScale, labels, yFloor } = drawCtx
+    const { ctx, xScale, yScale, labels, yFloor, smooth } = drawCtx
     const last = data.length - 1
     const x0 = xScale(labels[last - 1])
     const rawY0 = yScale(data[last - 1])
@@ -70,6 +70,12 @@ function drawFractionalTailDash(drawCtx: DrawContext, series: ResolvedSeries, da
     const y1 = yFloor != null ? Math.min(rawY1, yFloor) : rawY1
 
     const f = Math.max(0, Math.min(1, fraction))
+
+    if (smooth) {
+        drawSmoothFractionalTail(drawCtx, series, data, f)
+        return true
+    }
+
     const splitX = x0 + (x1 - x0) * f
     const splitY = y0 + (y1 - y0) * f
 
@@ -87,6 +93,88 @@ function drawFractionalTailDash(drawCtx: DrawContext, series: ResolvedSeries, da
     ctx.lineTo(x1, y1)
     ctx.stroke()
     return true
+}
+
+/** Two cubic bezier halves from splitting one segment at parameter `t` (de Casteljau). */
+interface SplitCubic {
+    /** Split point — end of the first half, start of the second. */
+    x: number
+    y: number
+    firstCp1x: number
+    firstCp1y: number
+    firstCp2x: number
+    firstCp2y: number
+    secondCp1x: number
+    secondCp1y: number
+    secondCp2x: number
+    secondCp2y: number
+}
+
+/** Split the cubic bezier `p0 → (seg.cp1, seg.cp2) → p3` at parameter `t` into two halves that
+ *  together trace the identical curve (de Casteljau subdivision). */
+function splitCubicBezier(p0: Point, seg: CurveSegment, p3: Point, t: number): SplitCubic {
+    const lerp = (a: number, b: number): number => a + (b - a) * t
+    const p01x = lerp(p0.x, seg.cp1x)
+    const p01y = lerp(p0.y, seg.cp1y)
+    const p12x = lerp(seg.cp1x, seg.cp2x)
+    const p12y = lerp(seg.cp1y, seg.cp2y)
+    const p23x = lerp(seg.cp2x, p3.x)
+    const p23y = lerp(seg.cp2y, p3.y)
+    const p012x = lerp(p01x, p12x)
+    const p012y = lerp(p01y, p12y)
+    const p123x = lerp(p12x, p23x)
+    const p123y = lerp(p12y, p23y)
+    return {
+        x: lerp(p012x, p123x),
+        y: lerp(p012y, p123y),
+        firstCp1x: p01x,
+        firstCp1y: p01y,
+        firstCp2x: p012x,
+        firstCp2y: p012y,
+        secondCp1x: p123x,
+        secondCp1y: p123y,
+        secondCp2x: p23x,
+        secondCp2y: p23y,
+    }
+}
+
+/** The `smooth` branch of {@link drawFractionalTailDash}: draws the monotone curve solid up to the
+ *  split point and dashed from there to the last point. `f` is taken as the bezier parameter of the
+ *  final segment (splitting the same curve the rest of the line follows), so the dashed tail stays
+ *  on the curve instead of reverting to a straight chord. Leading gap-separated runs draw solid. */
+function drawSmoothFractionalTail(drawCtx: DrawContext, series: ResolvedSeries, data: number[], f: number): void {
+    const { ctx } = drawCtx
+    const runs = collectSmoothRuns(drawCtx, data, 0, data.length - 1)
+    // The caller's guard ensures the last two indices are finite and adjacent, so the final run
+    // ends at the last point with at least two points — a splittable final segment.
+    const tail = runs[runs.length - 1]
+    const segs = monotoneSegments(tail)
+    const lastSeg = segs[segs.length - 1]
+    const split = splitCubicBezier(tail[tail.length - 2], lastSeg, tail[tail.length - 1], f)
+
+    // Solid: every leading run in full, then the final run up to the split point on its last segment.
+    ctx.beginPath()
+    ctx.setLineDash(series.stroke?.pattern ?? [])
+    for (let r = 0; r < runs.length - 1; r++) {
+        ctx.moveTo(runs[r][0].x, runs[r][0].y)
+        if (runs[r].length > 1) {
+            curveForward(ctx, runs[r])
+        }
+    }
+    ctx.moveTo(tail[0].x, tail[0].y)
+    for (let i = 0; i < segs.length - 1; i++) {
+        ctx.bezierCurveTo(segs[i].cp1x, segs[i].cp1y, segs[i].cp2x, segs[i].cp2y, tail[i + 1].x, tail[i + 1].y)
+    }
+    ctx.bezierCurveTo(split.firstCp1x, split.firstCp1y, split.firstCp2x, split.firstCp2y, split.x, split.y)
+    ctx.stroke()
+
+    // Dashed: the split point out to the final point, along the same curve.
+    ctx.beginPath()
+    ctx.setLineDash(series.stroke?.partial?.pattern ?? [10, 10])
+    ctx.moveTo(split.x, split.y)
+    const end = tail[tail.length - 1]
+    ctx.bezierCurveTo(split.secondCp1x, split.secondCp1y, split.secondCp2x, split.secondCp2y, end.x, end.y)
+    ctx.stroke()
 }
 
 /** One contiguous stroke: indices [start, end] inclusive, rendered with `pattern`. */
@@ -164,47 +252,58 @@ function tracePath(drawCtx: DrawContext, data: number[], start: number, end: num
     }
 }
 
-/** The `smooth` branch of {@link tracePath}: buffers each gap-delimited subpath and emits
- *  monotone-cubic bezier segments through it. */
-function traceSmoothPath(drawCtx: DrawContext, data: number[], start: number, end: number): void {
-    const { ctx, xScale, yScale, labels, yFloor } = drawCtx
-    let xs: number[] = []
-    let ys: number[] = []
-    const flush = (): void => {
-        if (xs.length === 0) {
-            return
-        }
-        ctx.moveTo(xs[0], ys[0])
-        if (xs.length > 1) {
-            curveForward(ctx, xs, ys)
-        }
-        xs = []
-        ys = []
-    }
+interface Point {
+    x: number
+    y: number
+}
+
+/** Collects the drawable points of [start, end] into gap-delimited runs — a new run starts after
+ *  every NaN/out-of-domain point, so each run is a contiguous subpath. `yFloor` clamps each point. */
+function collectSmoothRuns(drawCtx: DrawContext, data: number[], start: number, end: number): Point[][] {
+    const { xScale, yScale, labels, yFloor } = drawCtx
+    const runs: Point[][] = []
+    let run: Point[] = []
     for (let i = start; i <= end; i++) {
         const x = xScale(labels[i])
         const y = yScale(data[i])
         if (x == null || !isFinite(y)) {
-            flush()
+            if (run.length > 0) {
+                runs.push(run)
+                run = []
+            }
             continue
         }
-        xs.push(x)
-        ys.push(yFloor != null ? Math.min(y, yFloor) : y)
+        run.push({ x, y: yFloor != null ? Math.min(y, yFloor) : y })
     }
-    flush()
+    if (run.length > 0) {
+        runs.push(run)
+    }
+    return runs
+}
+
+/** The `smooth` branch of {@link tracePath}: emits monotone-cubic bezier segments through each
+ *  gap-delimited subpath. */
+function traceSmoothPath(drawCtx: DrawContext, data: number[], start: number, end: number): void {
+    const { ctx } = drawCtx
+    for (const run of collectSmoothRuns(drawCtx, data, start, end)) {
+        ctx.moveTo(run[0].x, run[0].y)
+        if (run.length > 1) {
+            curveForward(ctx, run)
+        }
+    }
 }
 
 /** Monotone-cubic (Fritsch–Carlson) tangents for points with strictly increasing x. Matches d3's
  *  `curveMonotoneX`: preserves monotonicity between points, so the curve never overshoots the data
  *  (no spurious wiggles or dips past a peak/trough). Hand-rolled rather than d3-shape because the
  *  shortened `SMOOTH_ARM` below isn't expressible with d3's fixed 1/3 arm. */
-function monotoneTangents(xs: number[], ys: number[]): number[] {
-    const n = xs.length
+function monotoneTangents(pts: Point[]): number[] {
+    const n = pts.length
     const h: number[] = new Array(n - 1)
     const s: number[] = new Array(n - 1)
     for (let i = 0; i < n - 1; i++) {
-        h[i] = xs[i + 1] - xs[i]
-        s[i] = h[i] !== 0 ? (ys[i + 1] - ys[i]) / h[i] : 0
+        h[i] = pts[i + 1].x - pts[i].x
+        s[i] = h[i] !== 0 ? (pts[i + 1].y - pts[i].y) / h[i] : 0
     }
     const m: number[] = new Array(n)
     if (n === 2) {
@@ -240,36 +339,36 @@ interface CurveSegment {
 // segments still meet smoothly there — the data points stay rounded, only the mid-segment bow shrinks.
 const SMOOTH_ARM = 1 / 4
 
-function monotoneSegments(xs: number[], ys: number[]): CurveSegment[] {
-    const m = monotoneTangents(xs, ys)
+function monotoneSegments(pts: Point[]): CurveSegment[] {
+    const m = monotoneTangents(pts)
     const segs: CurveSegment[] = []
-    for (let i = 0; i < xs.length - 1; i++) {
-        const arm = (xs[i + 1] - xs[i]) * SMOOTH_ARM
+    for (let i = 0; i < pts.length - 1; i++) {
+        const arm = (pts[i + 1].x - pts[i].x) * SMOOTH_ARM
         segs.push({
-            cp1x: xs[i] + arm,
-            cp1y: ys[i] + m[i] * arm,
-            cp2x: xs[i + 1] - arm,
-            cp2y: ys[i + 1] - m[i + 1] * arm,
+            cp1x: pts[i].x + arm,
+            cp1y: pts[i].y + m[i] * arm,
+            cp2x: pts[i + 1].x - arm,
+            cp2y: pts[i + 1].y - m[i + 1] * arm,
         })
     }
     return segs
 }
 
 /** Emit monotone bezier segments from the first point forward. Assumes the current path point is
- *  already at (xs[0], ys[0]). */
-function curveForward(ctx: CanvasRenderingContext2D, xs: number[], ys: number[]): void {
-    const segs = monotoneSegments(xs, ys)
+ *  already at `pts[0]`. */
+function curveForward(ctx: CanvasRenderingContext2D, pts: Point[]): void {
+    const segs = monotoneSegments(pts)
     for (let i = 0; i < segs.length; i++) {
-        ctx.bezierCurveTo(segs[i].cp1x, segs[i].cp1y, segs[i].cp2x, segs[i].cp2y, xs[i + 1], ys[i + 1])
+        ctx.bezierCurveTo(segs[i].cp1x, segs[i].cp1y, segs[i].cp2x, segs[i].cp2y, pts[i + 1].x, pts[i + 1].y)
     }
 }
 
 /** Emit the same monotone curve traversed last→first (control points swapped). Assumes the current
- *  path point is already at (xs[n-1], ys[n-1]). Used for an area's bottom edge. */
-function curveReverse(ctx: CanvasRenderingContext2D, xs: number[], ys: number[]): void {
-    const segs = monotoneSegments(xs, ys)
+ *  path point is already at `pts[n-1]`. Used for an area's bottom edge. */
+function curveReverse(ctx: CanvasRenderingContext2D, pts: Point[]): void {
+    const segs = monotoneSegments(pts)
     for (let i = segs.length - 1; i >= 0; i--) {
-        ctx.bezierCurveTo(segs[i].cp2x, segs[i].cp2y, segs[i].cp1x, segs[i].cp1y, xs[i], ys[i])
+        ctx.bezierCurveTo(segs[i].cp2x, segs[i].cp2y, segs[i].cp1x, segs[i].cp1y, pts[i].x, pts[i].y)
     }
 }
 
@@ -439,20 +538,11 @@ export function drawArea(
     ctx.globalAlpha = 1
 }
 
-function fillAreaPath(
-    ctx: CanvasRenderingContext2D,
-    top: { x: number; y: number }[],
-    bottom: { x: number; y: number }[],
-    smooth?: boolean
-): void {
+function fillAreaPath(ctx: CanvasRenderingContext2D, top: Point[], bottom: Point[], smooth?: boolean): void {
     ctx.beginPath()
     ctx.moveTo(top[0].x, top[0].y)
     if (smooth && top.length > 1) {
-        curveForward(
-            ctx,
-            top.map((p) => p.x),
-            top.map((p) => p.y)
-        )
+        curveForward(ctx, top)
     } else {
         for (let i = 1; i < top.length; i++) {
             ctx.lineTo(top[i].x, top[i].y)
@@ -460,11 +550,7 @@ function fillAreaPath(
     }
     ctx.lineTo(bottom[bottom.length - 1].x, bottom[bottom.length - 1].y)
     if (smooth && bottom.length > 1) {
-        curveReverse(
-            ctx,
-            bottom.map((p) => p.x),
-            bottom.map((p) => p.y)
-        )
+        curveReverse(ctx, bottom)
     } else {
         for (let i = bottom.length - 2; i >= 0; i--) {
             ctx.lineTo(bottom[i].x, bottom[i].y)
