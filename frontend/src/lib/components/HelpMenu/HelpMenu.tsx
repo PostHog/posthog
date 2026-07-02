@@ -1,26 +1,12 @@
 import { Menu } from '@base-ui/react/menu'
 import { useActions, useValues } from 'kea'
 
-import {
-    IconBook,
-    IconCloud,
-    IconConfetti,
-    IconCopy,
-    IconDatabase,
-    IconDownload,
-    IconExpand45,
-    IconHeart,
-    IconLive,
-    IconOpenSidebar,
-    IconServer,
-    IconShieldLock,
-    IconSparkles,
-    IconStethoscope,
-} from '@posthog/icons'
+import { IconCopy, IconDatabase, IconOpenSidebar, IconServer, IconShieldLock, IconSparkles } from '@posthog/icons'
 import { ProfilePicture } from '@posthog/lemon-ui'
 
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconMenu, IconWithBadge } from 'lib/lemon-ui/icons'
+import { LemonBadge } from 'lib/lemon-ui/LemonBadge/LemonBadge'
 import { Link } from 'lib/lemon-ui/Link/Link'
 import { ButtonPrimitive } from 'lib/ui/Button/ButtonPrimitives'
 import { Label } from 'lib/ui/Label/Label'
@@ -37,8 +23,6 @@ import { navigation3000Logic } from '~/layout/navigation-3000/navigationLogic'
 import { sidePanelStateLogic } from '~/layout/navigation-3000/sidepanel/sidePanelStateLogic'
 import { SidePanelTab } from '~/types'
 
-import { SidePanelSupportIcon } from 'products/conversations/frontend/components/SidePanel/SidePanelSupportIcon'
-
 import { ThemeMenu } from '../Menus/ThemeMenu'
 import { ScrollableShadows } from '../ScrollableShadows/ScrollableShadows'
 import { shortcutLogic } from '../Shortcuts/shortcutLogic'
@@ -49,6 +33,12 @@ import { healthSummaryLogic } from './healthSummaryLogic'
 import { helpMenuLogic } from './helpMenuLogic'
 import { IconCheeseburger } from './IconCheeseburger'
 import { posthogStatusLogic } from './posthogStatusLogic'
+
+// Empty leading slot that keeps menu labels aligned where the item's icon has been removed.
+// Only the AI icon and the green/red status badges keep a visible glyph in this slot.
+function IconSlotPlaceholder(): JSX.Element {
+    return <span aria-hidden className="size-4 shrink-0" />
+}
 
 export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Element {
     const { openSidePanel } = useActions(sidePanelStateLogic)
@@ -148,7 +138,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                     onClick={() => openSidePanel(SidePanelTab.Support)}
                                     render={
                                         <ButtonPrimitive menuItem data-attr="more-menu-support-button">
-                                            <SidePanelSupportIcon />
+                                            <IconSlotPlaceholder />
                                             Support
                                             <IconOpenSidebar className="size-3" />
                                         </ButtonPrimitive>
@@ -167,13 +157,13 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                             tooltipPlacement="right"
                                             data-attr="more-menu-docs-button"
                                         >
-                                            <IconBook />
+                                            <IconSlotPlaceholder />
                                             Docs
                                         </Link>
                                     )}
                                 />
 
-                                <Label intent="menu" className="px-2 mt-2">
+                                <Label intent="menu" className="px-2 mt-3">
                                     Project
                                 </Label>
                                 <Menu.Item
@@ -184,7 +174,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                             buttonProps={{ menuItem: true }}
                                             data-attr="more-menu-exports-button"
                                         >
-                                            <IconDownload />
+                                            <IconSlotPlaceholder />
                                             Exports
                                         </Link>
                                     )}
@@ -204,19 +194,17 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                             tooltipCloseDelayMs={0}
                                             data-attr="more-menu-health-button"
                                         >
-                                            <IconWithBadge
-                                                size="xsmall"
+                                            <LemonBadge
+                                                size="small"
                                                 content={triggerBadgeContent}
                                                 status={triggerBadgeStatus}
-                                            >
-                                                <IconStethoscope />
-                                            </IconWithBadge>
+                                            />
                                             Health
                                         </Link>
                                     )}
                                 />
 
-                                <Label intent="menu" className="px-2 mt-2">
+                                <Label intent="menu" className="px-2 mt-3">
                                     PostHog
                                 </Label>
                                 <Menu.Item
@@ -232,14 +220,11 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                             tooltipCloseDelayMs={0}
                                             data-attr="more-menu-status-button"
                                         >
-                                            <IconWithBadge
+                                            <LemonBadge
                                                 content={postHogStatusBadgeContent}
-                                                size="xsmall"
+                                                size="small"
                                                 status={postHogStatusBadgeStatus}
-                                                className="flex"
-                                            >
-                                                <IconCloud />
-                                            </IconWithBadge>
+                                            />
                                             Status
                                         </Link>
                                     )}
@@ -256,7 +241,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                             to="https://posthog.com/changelog"
                                             data-attr="more-menu-changelog-button"
                                         >
-                                            <IconLive />
+                                            <IconSlotPlaceholder />
                                             Changelog
                                         </Link>
                                     )}
@@ -271,7 +256,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                                 buttonProps={{ menuItem: true }}
                                                 data-attr="help-menu-upgrade-to-cloud-button"
                                             >
-                                                <IconConfetti />
+                                                <IconSlotPlaceholder />
                                                 Try PostHog Cloud
                                             </Link>
                                         )}
@@ -283,7 +268,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                         <Menu.SubmenuTrigger
                                             render={
                                                 <ButtonPrimitive menuItem data-attr="help-menu-admin-button">
-                                                    <IconHeart />
+                                                    <IconSlotPlaceholder />
                                                     Admin (Lucky you!)
                                                     <MenuOpenIndicator intent="sub" />
                                                 </ButtonPrimitive>
@@ -362,7 +347,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                     </Menu.SubmenuRoot>
                                 )}
 
-                                <Label intent="menu" className="px-2 mt-2">
+                                <Label intent="menu" className="px-2 mt-3">
                                     Display
                                 </Label>
                                 <Menu.Item
@@ -374,7 +359,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                             menuItem
                                             data-attr="more-menu-shortcuts-button"
                                         >
-                                            <span className="size-4 flex items-center justify-center">⌘</span>
+                                            <IconSlotPlaceholder />
                                             Shortcuts
                                             <div className="flex gap-1 ml-auto items-center">
                                                 <KeyboardShortcut command option k />
@@ -388,7 +373,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                     onClick={() => toggleZenMode('help_menu')}
                                     render={
                                         <ButtonPrimitive menuItem data-attr="more-menu-zen-mode-button">
-                                            <IconExpand45 />
+                                            <IconSlotPlaceholder />
                                             Zen mode
                                             <div className="flex gap-1 ml-auto items-center">
                                                 <KeyboardShortcut command option z />
