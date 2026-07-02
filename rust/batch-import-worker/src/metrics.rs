@@ -5,6 +5,13 @@ pub const STAGING_SWEEP_REMOVED: &str = "batch_import_staging_sweep_removed_tota
 pub const STAGING_DIR_BYTES: &str = "batch_import_staging_dir_bytes";
 pub const STAGING_GUARD_TRIPPED: &str = "batch_import_staging_guard_tripped_total";
 pub const ACTIVE_JOBS: &str = "batch_import_active_jobs";
+pub const TEMP_BUCKET_STAGE_BYTES: &str = "batch_import_temp_bucket_stage_bytes";
+pub const TEMP_BUCKET_STAGE_DURATION_SECONDS: &str =
+    "batch_import_temp_bucket_stage_duration_seconds";
+pub const TEMP_BUCKET_READ_DURATION_SECONDS: &str =
+    "batch_import_temp_bucket_read_duration_seconds";
+pub const STAGED_PLAINTEXT_CEILING_TRIPPED: &str =
+    "batch_import_staged_plaintext_ceiling_tripped_total";
 
 use metrics::{counter, gauge, histogram};
 
@@ -34,4 +41,20 @@ pub fn staging_guard_tripped() {
 /// collapses the per-pod duplicates with `max()` to drive replica count.
 pub fn active_jobs(count: f64) {
     gauge!(ACTIVE_JOBS).set(count);
+}
+
+/// Record a completed temp-bucket part upload: total bytes staged and wall-clock duration.
+pub fn temp_bucket_part_staged(bytes: u64, duration_secs: f64) {
+    histogram!(TEMP_BUCKET_STAGE_BYTES).record(bytes as f64);
+    histogram!(TEMP_BUCKET_STAGE_DURATION_SECONDS).record(duration_secs);
+}
+
+/// Record the latency of a single ranged GET against the temp bucket.
+pub fn temp_bucket_read(duration_secs: f64) {
+    histogram!(TEMP_BUCKET_READ_DURATION_SECONDS).record(duration_secs);
+}
+
+/// Count a part that breached STAGED_PLAINTEXT_MAX_BYTES and paused the job.
+pub fn staged_plaintext_ceiling_tripped() {
+    counter!(STAGED_PLAINTEXT_CEILING_TRIPPED).increment(1);
 }
