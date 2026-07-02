@@ -45,7 +45,7 @@ def _zd_ticket(
     }
 
 
-def _zd_user(uid: int, email: str, role: str = "end-user", name: str | None = None) -> dict[str, Any]:
+def _zd_user(uid: int, email: str, role: str | None = "end-user", name: str | None = None) -> dict[str, Any]:
     return {"id": uid, "email": email, "role": role, "name": name}
 
 
@@ -57,8 +57,9 @@ def _zd_comment(
     body: str = "hello",
     created_at: str = "2020-01-02T03:04:05Z",
     attachments: list[dict[str, Any]] | None = None,
+    via_from: dict[str, str] | None = None,
 ) -> dict[str, Any]:
-    return {
+    comment: dict[str, Any] = {
         "id": cid,
         "author_id": author_id,
         "public": public,
@@ -67,6 +68,9 @@ def _zd_comment(
         "created_at": created_at,
         "attachments": attachments or [],
     }
+    if via_from is not None:
+        comment["via"] = {"source": {"from": via_from}}
+    return comment
 
 
 class TestZendeskImportBatchActivity(BaseTest):
@@ -233,6 +237,32 @@ class TestZendeskImportBatchActivity(BaseTest):
         # requester on every message.
         self.assertEqual(by_body["from second end user"].item_context["author_email"], "person2@example.com")
         self.assertEqual(by_body["from staff"].item_context["author_email"], "staff@posthog.com")
+
+    def test_deleted_staff_author_recovered_from_comment_via_sender(self) -> None:
+        # Staff author id 88 doesn't resolve (deleted ex-agent, absent from `users`), so name/email
+        # must come from the comment's own via.source.from sender rather than being dropped.
+        comments = [
+            _zd_comment(1, 10, public=True, body="customer"),
+            _zd_comment(
+                2,
+                88,
+                public=True,
+                body="staff reply",
+                via_from={"name": "Marcus", "address": "marcus@posthog.com"},
+            ),
+        ]
+        self._run_batch(
+            [208],
+            tickets=[_zd_ticket(208, 10)],
+            users={10: _zd_user(10, "person@example.com", name="Person")},  # 88 intentionally missing
+            comments_by_ticket={208: comments},
+        )
+
+        ticket = Ticket.objects.get(team=self.team, zendesk_ticket_id=208)
+        staff = Comment.objects.get(team=self.team, item_id=str(ticket.id), content="staff reply")
+        self.assertEqual(staff.item_context["author_type"], "support")
+        self.assertEqual(staff.item_context["author_name"], "Marcus")
+        self.assertEqual(staff.item_context["author_email"], "marcus@posthog.com")
 
     @parameterized.expand(
         [

@@ -7,40 +7,45 @@ from dataclasses import dataclass
 from datetime import UTC, datetime
 from typing import Any
 
-from django.db import transaction
-from django.db.models import F, Func, Max, Value
-from django.db.models.fields.json import JSONField
-from django.utils import timezone
-from django.utils.dateparse import parse_datetime
-from django.utils.html import strip_tags
-
 import structlog
-from temporalio import activity
+from temporalio import activity, workflow
 
-from posthog.models import Team
-from posthog.models.comment import Comment
-from posthog.sync import database_sync_to_async
-from posthog.temporal.common.heartbeat import Heartbeater
+# The package __init__ imports this module inside the Temporal workflow sandbox, but these
+# Django/HogQL/model imports are non-deterministic and trip sandbox restrictions (e.g. the
+# ORM query-expression names walk django.core.checks.translation -> gettext). Only the
+# activity sync helpers touch them at runtime, so pass them through the sandbox unmodified.
+with workflow.unsafe.imports_passed_through():
+    from django.db import transaction
+    from django.db.models import F, Func, Max, Value
+    from django.db.models.fields.json import JSONField
+    from django.utils import timezone
+    from django.utils.dateparse import parse_datetime
+    from django.utils.html import strip_tags
 
-from products.conversations.backend.models import Ticket, ZendeskImportJob
-from products.conversations.backend.person_lookup import _get_persons_by_email
-from products.conversations.backend.services.attachments import (
-    CONVERSATIONS_MAX_IMAGE_BYTES,
-    build_content_with_images,
-    save_file_to_uploaded_media,
-)
-from products.conversations.backend.temporal.zendesk_import.client import (
-    ZendeskAttachmentTooLargeError,
-    ZendeskCredentials,
-    ZendeskImportClient,
-)
-from products.conversations.backend.temporal.zendesk_import.constants import EMAIL_RESOLUTION_BATCH_SIZE
-from products.conversations.backend.temporal.zendesk_import.mappers import (
-    default_channel_source,
-    map_zendesk_author_type,
-    map_zendesk_priority,
-    map_zendesk_status,
-)
+    from posthog.models import Team
+    from posthog.models.comment import Comment
+    from posthog.sync import database_sync_to_async
+    from posthog.temporal.common.heartbeat import Heartbeater
+
+    from products.conversations.backend.models import Ticket, ZendeskImportJob
+    from products.conversations.backend.person_lookup import _get_persons_by_email
+    from products.conversations.backend.services.attachments import (
+        CONVERSATIONS_MAX_IMAGE_BYTES,
+        build_content_with_images,
+        save_file_to_uploaded_media,
+    )
+    from products.conversations.backend.temporal.zendesk_import.client import (
+        ZendeskAttachmentTooLargeError,
+        ZendeskCredentials,
+        ZendeskImportClient,
+    )
+    from products.conversations.backend.temporal.zendesk_import.constants import EMAIL_RESOLUTION_BATCH_SIZE
+    from products.conversations.backend.temporal.zendesk_import.mappers import (
+        default_channel_source,
+        map_zendesk_author_type,
+        map_zendesk_priority,
+        map_zendesk_status,
+    )
 
 logger = structlog.get_logger(__name__)
 
@@ -369,6 +374,13 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
                 # inheriting the ticket-level requester from anonymous_traits.
                 author_name = (author.get("name") or "").strip()
                 author_email = (author.get("email") or "").strip()
+                # A staff author whose Zendesk user no longer resolves (deleted ex-agent) has no
+                # name/email — recover it from the comment's own sender (`via.source.from`), which
+                # survives user deletion, so the reply doesn't render as "Anonymous user".
+                if author_type == "support" and not author_name and not author_email:
+                    via_from = ((zd_comment.get("via") or {}).get("source") or {}).get("from") or {}
+                    author_name = (via_from.get("name") or "").strip()
+                    author_email = (via_from.get("address") or "").strip()
                 item_context: dict[str, Any] = {
                     "author_type": author_type,
                     "is_private": is_private,

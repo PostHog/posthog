@@ -410,6 +410,9 @@ export const supportTicketSceneLogic = kea<supportTicketSceneLogicType>([
                                 ticket?.anonymous_traits?.name ||
                                 ticket?.anonymous_traits?.email ||
                                 'Anonymous user'
+                        } else {
+                            // Staff message with no resolvable author (e.g. deleted ex-agent).
+                            displayName = 'Support'
                         }
                     }
 
