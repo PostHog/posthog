@@ -250,11 +250,12 @@ class Pipeline:
                 return None
 
         bot_list = ", ".join(f"@{b}" for b in bots)
+        has_or_have = "have" if len(bots) > 1 else "has"
         self.final_verdict = "WAIT"
         self.reviewer_output = {
             "verdict": "WAIT",
             "reasoning": (
-                f"{bot_list} still has a review in flight (👀) after "
+                f"{bot_list} still {has_or_have} a review in flight (👀) after "
                 f"{BOT_REVIEW_WAIT_BUDGET_SECONDS // 60} minutes — not approving over an "
                 "unfinished review. The `stamphog` label has been kept; the review re-runs "
                 "on the next push, or remove and re-apply the label once the reviewer finishes."
@@ -430,10 +431,13 @@ class Pipeline:
     def _check_size(self) -> tuple[bool, str]:
         lines, files = substantive_size(self.pr.files)
         binary_count = sum(1 for f in self.pr.files if f.get("binary"))
-        suffix = f", {binary_count} binary" if binary_count else ""
         exempt_files = len(self.pr.files) - files
+        suffix_parts = []
+        if binary_count:
+            suffix_parts.append(f"{binary_count} binary")
         if exempt_files:
-            suffix += f"; {self.pr.lines_total}L/{len(self.pr.files)}F incl. docs/generated/snapshots"
+            suffix_parts.append(f"{self.pr.lines_total}L/{len(self.pr.files)}F incl. docs/generated/snapshots")
+        suffix = (", " + "; ".join(suffix_parts)) if suffix_parts else ""
         if lines > MAX_LINES or files > MAX_FILES:
             return (
                 False,
