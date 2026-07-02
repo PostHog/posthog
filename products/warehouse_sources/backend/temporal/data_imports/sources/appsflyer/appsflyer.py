@@ -36,6 +36,26 @@ class AppsFlyerCredentialsError(Exception):
     pass
 
 
+# AppsFlyer overloads HTTP 416 as a catch-all for the Pull API (rate/quota limit, bad date range,
+# unauthorized app id, wrong fields, ...) rather than the standard byte-range meaning, so the real
+# reason lives in the response body. A body mentioning a limit means we hit a rate/quota cap and
+# should back off rather than treat it as a permanent error.
+def _is_rate_limit_body(body: str) -> bool:
+    lowered = body.lower()
+    return "limit reached" in lowered or "too many requests" in lowered or "calls limit" in lowered
+
+
+def _raise_for_416(body: str) -> None:
+    """Classify an AppsFlyer 416 body and raise the right error; never returns normally."""
+    if _is_rate_limit_body(body):
+        raise AppsFlyerRetryableError(f"AppsFlyer rate/quota limit reached (HTTP 416): {body[:200]}")
+    raise AppsFlyerCredentialsError(
+        "AppsFlyer rejected the request (HTTP 416). AppsFlyer uses this code for several problems "
+        "(quota reached, unsupported date range, unauthorized app id, or unknown fields). "
+        f"AppsFlyer said: {body[:300]}"
+    )
+
+
 def _get_session(api_token: str) -> requests.Session:
     # the v5 docs are a bit ambiguous about whether the return format defaults to CSV
     # or JSON, so we explicitly request CSV for safety.
@@ -128,6 +148,9 @@ def validate_credentials(api_token: str, app_id: str) -> bool:
         )
     if response.status_code == 404:
         raise AppsFlyerCredentialsError("AppsFlyer couldn't find an app with that app id. Please check the app id.")
+    # AppsFlyer overloads 416; the body says whether it's a transient limit or a real error.
+    if response.status_code == 416:
+        _raise_for_416(response.text)
     # Any other status is unexpected (e.g. a 400 from a malformed request) — surface the real
     # code rather than blaming the token or app id, which sends users debugging the wrong thing.
     raise AppsFlyerCredentialsError(
@@ -171,6 +194,9 @@ def get_rows(
 
         if not response.ok:
             logger.error(f"AppsFlyer API error: status={response.status_code}, body={response.text[:500]}, url={url}")
+            # AppsFlyer overloads 416; the body says whether it's a transient limit or a real error.
+            if response.status_code == 416:
+                _raise_for_416(response.text)
             response.raise_for_status()
 
         return response.text

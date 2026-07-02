@@ -12,6 +12,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.appsflyer.
     AppsFlyerRetryableError,
     _normalize_header,
     _parse_csv_rows,
+    _raise_for_416,
     _to_date,
     _validate_app_id,
     appsflyer_source,
@@ -89,6 +90,35 @@ class TestHelpers:
             _validate_app_id(value)
 
 
+class TestRaiseFor416:
+    # AppsFlyer overloads 416: a body mentioning a limit is a transient rate/quota cap (retry),
+    # anything else is a real error whose body we must surface instead of crashing.
+    @pytest.mark.parametrize(
+        "body",
+        [
+            "Limit reached, you've made too many requests today.",
+            "Your API calls limit has reached, please contact your account manager.",
+            "LIMIT REACHED",
+        ],
+    )
+    def test_limit_body_is_retryable(self, body):
+        with pytest.raises(AppsFlyerRetryableError):
+            _raise_for_416(body)
+
+    @pytest.mark.parametrize(
+        "body",
+        [
+            "Please select authorized app-id",
+            "Requested time range in UTC only",
+            "Wrong API Fields",
+        ],
+    )
+    def test_non_limit_body_surfaces_as_credentials_error(self, body):
+        with pytest.raises(AppsFlyerCredentialsError) as exc:
+            _raise_for_416(body)
+        assert body in str(exc.value)
+
+
 class TestValidateCredentials:
     @mock.patch(f"{_MODULE}.make_tracked_session")
     def test_validate_credentials_succeeds_on_200(self, mock_session):
@@ -137,6 +167,21 @@ class TestValidateCredentials:
 
         with pytest.raises(AppsFlyerRetryableError):
             validate_credentials("token", "id123")
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_validate_treats_416_limit_as_retryable(self, mock_session):
+        mock_session.return_value.get.return_value = _response("Limit reached, too many requests today.", status=416)
+
+        with pytest.raises(AppsFlyerRetryableError):
+            validate_credentials("token", "id123")
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_validate_416_non_limit_surfaces_body(self, mock_session):
+        mock_session.return_value.get.return_value = _response("Please select authorized app-id", status=416)
+
+        with pytest.raises(AppsFlyerCredentialsError) as exc:
+            validate_credentials("token", "id123")
+        assert "authorized app-id" in str(exc.value)
 
 
 class TestGetRows:
@@ -216,6 +261,16 @@ class TestGetRows:
         mock_session.return_value.get.return_value = _response("Date,Media Source (pid)\n")
 
         assert list(get_rows("token", "id123", "daily_report", mock.MagicMock())) == []
+
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_416_non_limit_raises_credentials_error_not_raw_httperror(self, mock_session):
+        # A 416 that isn't a rate limit used to fall through to raise_for_status and crash the
+        # import with a bare HTTPError; it must now surface the AppsFlyer body instead.
+        mock_session.return_value.get.return_value = _response("Wrong API Fields", status=416)
+
+        with pytest.raises(AppsFlyerCredentialsError) as exc:
+            list(get_rows("token", "id123", "daily_report", mock.MagicMock()))
+        assert "Wrong API Fields" in str(exc.value)
 
 
 class TestAppsFlyerSourceResponse:
