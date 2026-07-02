@@ -69,6 +69,12 @@ GITHUB_ISSUE_EXTRA = {
     "state": "open",
 }
 
+PULSE_OPPORTUNITY_EXTRA = {
+    "brief_id": "0197a000-0000-0000-0000-000000000000",
+    "kind": "build",
+    "evidence": [{"type": "insight", "ref": "abc123", "label": "Pageviews"}],
+}
+
 
 @pytest.mark.asyncio
 class TestEmitSignalValidation:
@@ -79,8 +85,9 @@ class TestEmitSignalValidation:
             ("llm_analytics", "evaluation", EVALUATION_EXTRA),
             ("zendesk", "ticket", ZENDESK_TICKET_EXTRA),
             ("github", "issue", GITHUB_ISSUE_EXTRA),
+            ("pulse", "opportunity_build", PULSE_OPPORTUNITY_EXTRA),
         ],
-        ids=["session_problem", "evaluation", "ticket", "issue"],
+        ids=["session_problem", "evaluation", "ticket", "issue", "pulse_opportunity"],
     )
     async def test_emit_signal_accepts_valid_input(self, source_product, source_type, extra, team_stub):
         client = AsyncMock()

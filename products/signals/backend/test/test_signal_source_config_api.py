@@ -485,6 +485,18 @@ class TestIsSourceEnabledGating(APIBaseTest):
         # The scanner's `emits_signals` flag is the config — no SignalSourceConfig row exists.
         assert SignalSourceConfig.is_source_enabled(self.team.id, "replay_vision", "scanner_finding") is True
 
+    def test_pulse_opportunity_default_off_until_configured(self):
+        assert SignalSourceConfig.is_source_enabled(self.team.id, "pulse", "opportunity_build") is False
+
+        SignalSourceConfig.objects.create(
+            team=self.team,
+            source_product=SignalSourceConfig.SourceProduct.PULSE,
+            source_type=SignalSourceConfig.SourceType.OPPORTUNITY_BUILD,
+            enabled=True,
+        )
+
+        assert SignalSourceConfig.is_source_enabled(self.team.id, "pulse", "opportunity_build") is True
+
     @parameterized.expand(
         [
             ("evaluation_requires_row", SignalSourceConfig.SourceType.EVALUATION, None, False),

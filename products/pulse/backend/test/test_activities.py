@@ -1,7 +1,7 @@
 import uuid
 
 import pytest
-from unittest.mock import patch
+from unittest.mock import AsyncMock, patch
 
 from django.conf import settings
 
@@ -102,6 +102,17 @@ def _opportunity_count(team) -> int:
     return Opportunity.objects.for_team(team.pk).count()
 
 
+@sync_to_async
+def _get_opportunity(team) -> Opportunity:
+    return Opportunity.objects.for_team(team.pk).get()
+
+
+@sync_to_async
+def _create_opportunity(team, fingerprint: str) -> Opportunity:
+    with team_scope(team.pk, canonical=True):
+        return Opportunity.objects.create(team=team, kind="build", title="t", summary="s", fingerprint=fingerprint)
+
+
 def _confident_out() -> BriefOut:
     return BriefOut(
         sections=[
@@ -195,7 +206,10 @@ async def test_gather_activity_refuses_without_ai_consent(team) -> None:
 async def test_synthesize_activity_marks_ready(team, user) -> None:
     brief = await _create_brief(team, user)
     env = ActivityEnvironment()
-    with patch("products.pulse.backend.temporal.activities.synthesize_brief", return_value=_confident_out()):
+    with (
+        patch("products.pulse.backend.temporal.activities.synthesize_brief", return_value=_confident_out()),
+        patch("products.pulse.backend.temporal.activities.emit_signal", new_callable=AsyncMock),
+    ):
         status = await env.run(
             synthesize_brief_activity,
             SynthesizeActivityInputs(team_id=team.pk, brief_id=str(brief.id), items=[]),
@@ -204,6 +218,68 @@ async def test_synthesize_activity_marks_ready(team, user) -> None:
     reloaded = await _reload_brief(brief.id)
     assert reloaded.status == ProductBrief.Status.READY
     assert await _opportunity_count(team) == 1
+
+
+async def test_synthesize_activity_emits_signal_per_new_opportunity(team, user) -> None:
+    brief = await _create_brief(team, user)
+    env = ActivityEnvironment()
+    with (
+        patch("products.pulse.backend.temporal.activities.synthesize_brief", return_value=_confident_out()),
+        patch("products.pulse.backend.temporal.activities.emit_signal", new_callable=AsyncMock) as emit_mock,
+    ):
+        await env.run(
+            synthesize_brief_activity,
+            SynthesizeActivityInputs(team_id=team.pk, brief_id=str(brief.id), items=[]),
+        )
+    opportunity = await _get_opportunity(team)
+    assert emit_mock.await_count == 1
+    kwargs = emit_mock.await_args.kwargs
+    assert kwargs["source_product"] == "pulse"
+    assert kwargs["source_type"] == "opportunity_build"
+    assert kwargs["source_id"] == str(opportunity.id)
+    assert kwargs["description"] == "t\n\ns"
+    assert kwargs["weight"] == 0.9
+    assert kwargs["extra"] == {
+        "brief_id": str(brief.id),
+        "kind": "build",
+        "evidence": [{"type": "insight", "ref": "abc", "label": ""}],
+    }
+
+
+async def test_synthesize_activity_does_not_emit_for_deduped_opportunity(team, user) -> None:
+    brief = await _create_brief(team, user)
+    await _create_opportunity(team, fingerprint="build:abc:0")
+    env = ActivityEnvironment()
+    with (
+        patch("products.pulse.backend.temporal.activities.synthesize_brief", return_value=_confident_out()),
+        patch("products.pulse.backend.temporal.activities.emit_signal", new_callable=AsyncMock) as emit_mock,
+    ):
+        status = await env.run(
+            synthesize_brief_activity,
+            SynthesizeActivityInputs(team_id=team.pk, brief_id=str(brief.id), items=[]),
+        )
+    assert status == ProductBrief.Status.READY
+    emit_mock.assert_not_awaited()
+
+
+async def test_synthesize_activity_survives_emit_failure(team, user) -> None:
+    brief = await _create_brief(team, user)
+    env = ActivityEnvironment()
+    with (
+        patch("products.pulse.backend.temporal.activities.synthesize_brief", return_value=_confident_out()),
+        patch(
+            "products.pulse.backend.temporal.activities.emit_signal",
+            new_callable=AsyncMock,
+            side_effect=RuntimeError("signals down"),
+        ),
+    ):
+        status = await env.run(
+            synthesize_brief_activity,
+            SynthesizeActivityInputs(team_id=team.pk, brief_id=str(brief.id), items=[]),
+        )
+    assert status == ProductBrief.Status.READY
+    reloaded = await _reload_brief(brief.id)
+    assert reloaded.status == ProductBrief.Status.READY
 
 
 async def test_workflow_marks_brief_failed_when_gather_fails(team, user) -> None:
