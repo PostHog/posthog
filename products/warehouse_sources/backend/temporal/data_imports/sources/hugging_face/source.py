@@ -39,6 +39,12 @@ class HuggingFaceSource(ResumableSource[HuggingFaceSourceConfig, HuggingFaceResu
         return ExternalDataSourceType.HUGGINGFACE
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # `author` selects which namespace the stored token reads from, so changing it retargets the
+        # saved credential at a different user or org's repos — force secret re-entry on a change.
+        return ["author"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.HUGGING_FACE,

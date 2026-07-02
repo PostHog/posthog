@@ -48,6 +48,10 @@ class TestHuggingFaceSourceClass:
         assert fields["author"].secret is False
         assert fields["author"].required is True
 
+    def test_connection_host_fields_force_secret_reentry_on_author_change(self) -> None:
+        # Changing author retargets the stored token at another namespace, so it must count as a host field.
+        assert self.source.connection_host_fields == ["author"]
+
     @parameterized.expand([("models",), ("datasets",), ("spaces",)])
     def test_get_schemas_are_full_refresh_only(self, endpoint: str) -> None:
         schemas = {s.name: s for s in self.source.get_schemas(_config(), team_id=self.team_id)}
