@@ -168,8 +168,10 @@ def _get_fan_out_rows(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[NorthpassResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
-    # Narrows the Optional fan-out fields to str so `parent_id_field` can be used as a dict key below.
-    assert config.fan_out_parent is not None and config.parent_id_field is not None
+    # Guard (and narrow the Optional fan-out fields to str) so `parent_id_field` can be used as a
+    # dict key below. A `raise` rather than `assert` so it survives `python -O`.
+    if config.fan_out_parent is None or config.parent_id_field is None:
+        raise ValueError(f"_get_fan_out_rows called with non-fan-out config: {config.name}")
     parent_config = NORTHPASS_ENDPOINTS[config.fan_out_parent]
 
     parent_ids = list(_iter_parent_ids(session, parent_config.path, headers, logger))
