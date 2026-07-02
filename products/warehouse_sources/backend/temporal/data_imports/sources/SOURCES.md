@@ -175,6 +175,7 @@ the row lists both.
 | hubspot                 | HTTP                        | requests                                                        | ✅                          |
 | hugging_face            | HTTP                        | requests                                                        | ✅                          |
 | incident_io             | HTTP                        | requests                                                        | ✅                          |
+| insightly               | HTTP                        | requests                                                        | ✅                          |
 | intercom                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | iterable                | HTTP                        | requests                                                        | ✅                          |
 | jira                    | HTTP                        | requests                                                        | ✅                          |
@@ -463,7 +464,6 @@ doesn't conflict with concurrent PRs.
 - inflowinventory
 - infor_nexus
 - insightful
-- insightly
 - instagram
 - instantly
 - instatus
