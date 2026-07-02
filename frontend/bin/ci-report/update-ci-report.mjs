@@ -2,11 +2,12 @@
 import fs from 'node:fs'
 
 // One sticky comment shared by every frontend CI check. Each check owns a delimited
-// section and updates only its own; the header list and section order are rebuilt from
-// the fixed SECTIONS registry every time, so the layout never shifts between runs and
-// readers learn where each check lives. Safe as a plain read-modify-write only because
-// every writer runs sequentially in the single frontend-bundle-size job — do not call
-// this from parallel jobs without a locking strategy.
+// section and updates only its own; the collapsed summary lines and section order are
+// rebuilt from the fixed SECTIONS registry every time, so the layout never shifts
+// between runs and readers learn where each check lives. Safe as a plain
+// read-modify-write only because every writer runs sequentially in the single
+// frontend-bundle-size job — do not call this from parallel jobs without a locking
+// strategy.
 export const MARKER = '<!-- posthog-ci-report -->'
 
 // The single source of truth for which sections exist and the order they render in.
@@ -28,17 +29,6 @@ function titleFor(id) {
     return SECTIONS.find((s) => s.id === id)?.title ?? id
 }
 
-// GitHub derives a heading anchor by lowercasing, dropping anything that is not a word
-// char/space/hyphen, and turning spaces into hyphens. The section headings are plain
-// (no emoji), so the same transform yields the anchor the header list links to.
-export function slugify(title) {
-    return title
-        .toLowerCase()
-        .replace(/[^\w\s-]/g, '')
-        .trim()
-        .replace(/\s+/g, '-')
-}
-
 function encodeMeta(meta) {
     return Buffer.from(JSON.stringify(meta), 'utf-8').toString('base64')
 }
@@ -54,9 +44,23 @@ function decodeMeta(encoded) {
 const SECTION_RE =
     /<!-- ci-report:section:([\w-]+):([A-Za-z0-9+/=]*) -->\n([\s\S]*?)\n<!-- ci-report:section-end:\1 -->/g
 
+// The details wrapper and heading are presentation that renderComment regenerates from
+// the marker meta every time, so parsing strips them back off — re-rendering an
+// untouched section must never wrap it twice. The greedy body capture matters: section
+// bodies can end with their own nested </details>. The heading form covers comments
+// written before sections became collapsible.
+const RENDERED_INNER_RE = /^<details>\n<summary>.*<\/summary>\n\n([\s\S]*)\n\n<\/details>$/
+function stripPresentation(inner) {
+    const details = inner.match(RENDERED_INNER_RE)
+    if (details) {
+        return details[1]
+    }
+    return inner.replace(/^## .+\n\n/, '')
+}
+
 // Parse an existing comment body back into a map of id -> { status, summary, inner }.
-// `inner` is the rendered section content, kept verbatim so sections this run does not
-// touch are re-emitted byte-for-byte.
+// `inner` is the section body as its check posted it; sections this run does not touch
+// are re-emitted from it unchanged.
 export function parseSections(body) {
     const sections = new Map()
     if (!body) {
@@ -65,14 +69,18 @@ export function parseSections(body) {
     for (const match of body.matchAll(SECTION_RE)) {
         const [, id, encodedMeta, inner] = match
         const meta = decodeMeta(encodedMeta)
-        sections.set(id, { status: meta.status ?? 'info', summary: meta.summary ?? '', inner })
+        sections.set(id, {
+            status: meta.status ?? 'info',
+            summary: meta.summary ?? '',
+            inner: stripPresentation(inner),
+        })
     }
     return sections
 }
 
 export function upsertSection(sections, { id, status = 'info', summary = '', body }) {
     const next = new Map(sections)
-    next.set(id, { status, summary, inner: `## ${titleFor(id)}\n\n${body}` })
+    next.set(id, { status, summary, inner: body })
     return next
 }
 
@@ -85,23 +93,26 @@ function orderedIds(sections) {
     return [...known, ...unknown]
 }
 
+// Each section renders as a collapsed <details> block whose summary line carries the
+// status, title, and one-line summary — collapsed, the sections ARE the at-a-glance
+// list, and the comment stays short no matter how many checks join.
 export function renderComment(sections) {
     const ids = orderedIds(sections)
-    const header = ids.map((id) => {
-        const { status, summary } = sections.get(id)
-        const title = titleFor(id)
-        const suffix = summary ? ` — ${summary}` : ''
-        return `- ${emojiFor(status)} [${title}](#${slugify(title)})${suffix}`
-    })
     const blocks = ids.map((id) => {
         const { status, summary, inner } = sections.get(id)
+        const suffix = summary ? ` — ${summary}` : ''
         return [
             `<!-- ci-report:section:${id}:${encodeMeta({ status, summary })} -->`,
+            '<details>',
+            `<summary>${emojiFor(status)} <b>${titleFor(id)}</b>${suffix}</summary>`,
+            '',
             inner,
+            '',
+            '</details>',
             `<!-- ci-report:section-end:${id} -->`,
         ].join('\n')
     })
-    return [MARKER, '## 🤖 CI report', '', ...header, '', ...blocks].join('\n')
+    return [MARKER, '## 🤖 CI report', '', ...blocks].join('\n')
 }
 
 export async function gh(token, url, options = {}) {
