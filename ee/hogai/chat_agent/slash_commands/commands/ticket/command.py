@@ -70,7 +70,9 @@ class TicketCommand(SlashCommand):
             # license/org rows to the DB, and a transient failure in those writes must not
             # flip an eligible customer to "denied".
             billing_status = BillingManager(license, self._user)._get_billing(self._team.organization)
-            customer = cast(dict[str, Any], billing_status.get("customer") or {})
+            # The billing service can omit "customer" even though the TypedDict declares it required,
+            # so drop to a plain dict before the lookup (same as BillingManager.get_billing does).
+            customer = cast(dict[str, Any], billing_status).get("customer") or {}
             if customer.get("subscription_level") in ("paid", "custom"):
                 return True
             trial = customer.get("trial")
