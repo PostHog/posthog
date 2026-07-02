@@ -1,3 +1,4 @@
+from datetime import timedelta
 from io import StringIO
 
 from django import forms
@@ -6,6 +7,8 @@ from django.core.management import call_command
 from django.shortcuts import render
 from django.urls import path, reverse
 from django.utils.html import format_html
+
+from posthog.management.commands.rerun_google_ads_failed_invocations import MAX_WINDOW_DAYS
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction, HogFunctionState
 
@@ -73,8 +76,15 @@ class RerunGoogleAdsFailedInvocationsForm(forms.Form):
         cleaned = super().clean() or {}
         start = cleaned.get("window_start")
         end = cleaned.get("window_end")
-        if start and end and end <= start:
-            raise forms.ValidationError("window_end must be after window_start.")
+        if start and end:
+            if end <= start:
+                raise forms.ValidationError("window_end must be after window_start.")
+            if end - start > timedelta(days=MAX_WINDOW_DAYS):
+                span_days = (end - start).days
+                raise forms.ValidationError(
+                    f"Window cannot exceed {MAX_WINDOW_DAYS} days "
+                    f"(ClickHouse TTL on hog_invocation_results). Got {span_days} days."
+                )
         return cleaned
 
 

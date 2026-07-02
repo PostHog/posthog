@@ -4,6 +4,7 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command
+from django.core.management.base import CommandError
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
@@ -90,6 +91,23 @@ class TestRerunGoogleAdsFailedInvocations(BaseTest):
                 stdout=StringIO(),
             )
 
+        mock_rerun.assert_not_called()
+
+    def test_rejects_window_longer_than_clickhouse_ttl(self):
+        # Regression this catches: without an explicit >30d guard, a rushed
+        # incident-response operator could pass a 60d window; ClickHouse has
+        # already dropped the partitions past 30d, so the rerun silently
+        # under-replays. Fail loud instead. (Django's serializer enforces
+        # this on the server side too, but by then N HTTP calls have already
+        # fired — reject client-side.)
+        with patch(RERUN_HELPER) as mock_rerun:
+            with self.assertRaisesRegex(CommandError, r"cannot exceed 30 days"):
+                call_command(
+                    "rerun_google_ads_failed_invocations",
+                    "--window-start=2026-05-01T00:00:00Z",
+                    "--window-end=2026-07-02T00:00:00Z",
+                    stdout=StringIO(),
+                )
         mock_rerun.assert_not_called()
 
     def test_continues_when_one_request_fails(self):

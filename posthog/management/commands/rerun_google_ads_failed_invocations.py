@@ -16,7 +16,7 @@ were enqueued for.
 """
 
 import time
-from datetime import UTC, datetime
+from datetime import UTC, datetime, timedelta
 from typing import Any
 
 from django.core.management.base import BaseCommand, CommandError
@@ -27,6 +27,11 @@ from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 GOOGLE_ADS_TEMPLATE_ID = "template-google-ads"
 DEFAULT_ERROR_KIND = "http_4xx"
+
+# Matches RERUN_MAX_WINDOW_DAYS in posthog/api/hog_invocation_rerun.py, which
+# is the ClickHouse TTL on hog_invocation_results. Anything past this either
+# 400s downstream or silently under-replays because the partitions are gone.
+MAX_WINDOW_DAYS = 30
 
 
 class Command(BaseCommand):
@@ -83,6 +88,12 @@ class Command(BaseCommand):
         window_end = _parse_iso(options["window_end"], "window-end")
         if window_end <= window_start:
             raise CommandError("--window-end must be after --window-start.")
+        if window_end - window_start > timedelta(days=MAX_WINDOW_DAYS):
+            span_days = (window_end - window_start).days
+            raise CommandError(
+                f"Window cannot exceed {MAX_WINDOW_DAYS} days (ClickHouse TTL on hog_invocation_results). "
+                f"Got {span_days} days."
+            )
 
         error_kinds = options["error_kind"] or [DEFAULT_ERROR_KIND]
         dry_run: bool = options["dry_run"]
@@ -176,10 +187,11 @@ class Command(BaseCommand):
                 time.sleep(sleep_seconds)
 
         duration = time.time() - started
+        enqueued_label = "WouldEnqueue" if dry_run else "Enqueued"
         self.stdout.write("")
         self.stdout.write(
             self.style.SUCCESS(
-                f"Done in {duration:.1f}s. Destinations={total} | Enqueued={enqueued} | Failed={len(failures)}"
+                f"Done in {duration:.1f}s. Destinations={total} | {enqueued_label}={enqueued} | Failed={len(failures)}"
             )
         )
         if status_counts:
