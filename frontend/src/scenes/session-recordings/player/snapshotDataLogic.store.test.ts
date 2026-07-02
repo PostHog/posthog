@@ -391,6 +391,26 @@ describe('snapshotDataLogic (store-based loading)', () => {
                 logic.actions.loadNextSnapshotSource()
             }).toDispatchActions(['maybeStartPolling'])
         })
+
+        it('re-arms the next poll after a poll returns unchanged sources', async () => {
+            // polling-enabled instance, unlike the shared harness
+            logic = snapshotDataLogic({ sessionRecordingId: 'store-test-polling' })
+            logic.mount()
+
+            // pre-seed the store as fully loaded so no snapshot fetch starts
+            const store = logic.values.snapshotStore!
+            store.setSources([SOURCE_A])
+            store.markLoaded(0, [makeFullSnapshot(tsMs(0, 0))])
+
+            await expectLogic(logic, () => {
+                logic.actions.loadSnapshotSourcesSuccess([SOURCE_A])
+            }).toDispatchActions(['maybeStartPolling', 'startPolling'])
+
+            // a poll response with the same source list must close this cycle and arm the next one
+            await expectLogic(logic, () => {
+                logic.actions.loadSnapshotSourcesSuccess([SOURCE_A])
+            }).toDispatchActions(['stopPolling', 'maybeStartPolling', 'startPolling'])
+        })
     })
 
     describe('selectors', () => {

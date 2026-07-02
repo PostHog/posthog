@@ -326,10 +326,11 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
 
             cache.previousSourceKeys = currentSourceKeys
 
+            // Close the poll cycle on both branches, or maybeStartPolling's isPolling gate blocks every future poll after the first unchanged response.
+            actions.stopPolling()
             if (sourcesChanged) {
                 actions.resetPollingInterval()
                 cache.lastSourcesChangeTime = Date.now()
-                actions.stopPolling()
             } else {
                 const currentInterval = values.pollingInterval
                 const newInterval = Math.min(currentInterval * 2, MAX_V2_POLLING_INTERVAL_MS)
