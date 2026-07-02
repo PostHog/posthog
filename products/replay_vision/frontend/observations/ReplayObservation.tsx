@@ -109,6 +109,11 @@ export function ReplayObservationSceneComponent(): JSX.Element {
     const [recordingExpanded, setRecordingExpanded] = useState(true)
     const [pendingSeek, setPendingSeek] = useState<{ ms: number; trigger: number } | null>(null)
 
+    // A citation seek belongs to one observation — never replay it on a sibling after prev/next navigation.
+    useEffect(() => {
+        setPendingSeek(null)
+    }, [observationId])
+
     const observationLogic = replayObservationLogic({ id: observationId })
     useAttachedLogic(observationLogic, replayObservationSceneLogic)
 
@@ -187,6 +192,14 @@ export function ReplayObservationSceneComponent(): JSX.Element {
             setRecordingExpanded(true)
         }
         setPendingSeek({ ms, trigger: Date.now() })
+    }
+
+    const toggleRecordingExpanded = (): void => {
+        // Collapsing discards the seek intent, or re-expanding would remount the seeker and replay it.
+        if (recordingExpanded) {
+            setPendingSeek(null)
+        }
+        setRecordingExpanded(!recordingExpanded)
     }
 
     return (
@@ -498,14 +511,14 @@ export function ReplayObservationSceneComponent(): JSX.Element {
             <LemonCard className="overflow-hidden p-0" hoverEffect={false}>
                 <div
                     className="flex items-center gap-2 bg-surface-primary p-3 cursor-pointer hover:bg-surface-secondary"
-                    onClick={() => setRecordingExpanded(!recordingExpanded)}
+                    onClick={toggleRecordingExpanded}
                 >
                     <LemonButton
                         icon={recordingExpanded ? <IconCollapse /> : <IconExpand />}
                         size="small"
                         onClick={(e) => {
                             e.stopPropagation()
-                            setRecordingExpanded(!recordingExpanded)
+                            toggleRecordingExpanded()
                         }}
                         data-attr="vision-observation-recording-toggle"
                     />

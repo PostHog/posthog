@@ -10,6 +10,9 @@ import { visionScannersList, visionScannersObserveCreate } from '../generated/ap
 import type { ReplayScannerApi } from '../generated/api.schemas'
 import type { bulkScanLogicType } from './bulkScanLogicType'
 
+// Caps simultaneous workflow-start requests; the batches run sequentially.
+const BULK_SCAN_CONCURRENCY = 10
+
 export const bulkScanLogic = kea<bulkScanLogicType>([
     path(['products', 'replay_vision', 'frontend', 'logics', 'bulkScanLogic']),
 
@@ -68,11 +71,29 @@ export const bulkScanLogic = kea<bulkScanLogicType>([
             }
             // The backend keys the workflow on (scanner, session) and silently no-ops duplicates,
             // so re-running the same pair is safe and needs no client-side dedup.
-            const results = await Promise.allSettled(
-                sessionIds.map((session_id) => visionScannersObserveCreate(String(teamId), scannerId, { session_id }))
-            )
-            const failed = results.filter((r) => r.status === 'rejected').length
-            const started = results.length - failed
+            let started = 0
+            let failed = 0
+            let firstError: any = null
+            let quotaError: any = null
+            // Batched so selecting hundreds of recordings doesn't fire hundreds of simultaneous workflow starts.
+            for (let i = 0; i < sessionIds.length && !quotaError; i += BULK_SCAN_CONCURRENCY) {
+                const batch = sessionIds.slice(i, i + BULK_SCAN_CONCURRENCY)
+                const results = await Promise.allSettled(
+                    batch.map((session_id) => visionScannersObserveCreate(String(teamId), scannerId, { session_id }))
+                )
+                for (const result of results) {
+                    if (result.status === 'fulfilled') {
+                        started += 1
+                        continue
+                    }
+                    failed += 1
+                    firstError = firstError ?? result.reason
+                    if (result.reason?.status === 402) {
+                        quotaError = result.reason // Quota is org-wide — the rest of the batch would 402 too.
+                    }
+                }
+            }
+            const skipped = sessionIds.length - started - failed
             const scannerName = values.scanners.find((s) => s.id === scannerId)?.name ?? 'scanner'
 
             if (started > 0) {
@@ -87,8 +108,15 @@ export const bulkScanLogic = kea<bulkScanLogicType>([
                     }
                 )
             }
-            if (failed > 0) {
-                lemonToast.error(`Failed to start scanning ${failed} recording${failed === 1 ? '' : 's'}`)
+            if (quotaError) {
+                const detail = quotaError.detail ?? 'Monthly Replay Vision quota reached.'
+                lemonToast.error(skipped > 0 ? `${detail} Skipped ${skipped} remaining recordings.` : detail)
+            } else if (failed > 0) {
+                lemonToast.error(
+                    `Failed to start scanning ${failed} recording${failed === 1 ? '' : 's'}${
+                        firstError?.detail ? `: ${firstError.detail}` : ''
+                    }`
+                )
             }
             actions.scanRecordingsSuccess()
         },

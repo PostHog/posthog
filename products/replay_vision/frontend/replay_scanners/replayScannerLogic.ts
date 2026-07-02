@@ -30,6 +30,7 @@ import type {
 import { scheduleObservationPoll } from '../logics/observationPolling'
 import { visionQuotaLogic } from '../logics/visionQuotaLogic'
 import type { replayScannerLogicType } from './replayScannerLogicType'
+import { scannerEditorSceneLogic } from './scannerEditorSceneLogic'
 import { findScannerTemplate, newScanner } from './scannerTemplates'
 import {
     ScannerConfig,
@@ -227,6 +228,8 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         loadScannerFailure: true,
         setScannerType: (scannerType: ScannerType) => ({ scannerType }),
         setSubmitIntent: (intent: 'save' | 'advance') => ({ intent }),
+        // Fired only after an actual API write, unlike submitScannerSuccess (which the advance path emits too).
+        scannerSaved: (scanner: ReplayScanner) => ({ scanner }),
         appendClassifierTags: (tags: string[]) => ({ tags }),
         loadTagSuggestions: true,
         loadTagSuggestionsSuccess: (suggestions: TagSuggestionApi[]) => ({ suggestions }),
@@ -314,7 +317,10 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
             },
             submit: async (scanner: ReplayScanner) => {
-                if (values.submitIntent === 'advance') {
+                // Enter submits with the default 'save' intent; on the new-scanner configure step that must
+                // advance to triggers, not create an enabled full-sampling scanner the user never finished.
+                const onConfigureStep = scannerEditorSceneLogic.findMounted()?.values.step === 'configure'
+                if (values.submitIntent === 'advance' || (values.isNew && onConfigureStep)) {
                     actions.setSubmitIntent('save')
                     router.actions.push(urls.replayVisionScannerTriggers(props.id))
                     return
@@ -327,10 +333,12 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 try {
                     if (props.id === 'new') {
                         const response = await visionScannersCreate(String(teamId), scannerToApiBody(body))
+                        actions.scannerSaved(scanner)
                         router.actions.replace(urls.replayVision(response.id))
                         lemonToast.success('Scanner created')
                     } else {
                         await visionScannersPartialUpdate(String(teamId), props.id, scannerToPatchedApiBody(body))
+                        actions.scannerSaved(scanner)
                         lemonToast.success('Scanner saved')
                         router.actions.push(urls.replayVision(props.id))
                     }
@@ -347,7 +355,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             null as ReplayScanner | null,
             {
                 loadScannerSuccess: (_, { scanner }) => scanner,
-                submitScannerSuccess: (_, { scanner }: { scanner: ReplayScanner }) => scanner,
+                // Keyed on the explicit save action, NOT submitScannerSuccess: kea-forms fires success on the
+                // wizard's no-API advance path too, which would disarm the unsaved-changes guard for a lost draft.
+                scannerSaved: (_, { scanner }) => scanner,
                 toggleEnabledSuccess: (state, { enabled }) => (state ? { ...state, enabled } : state),
             },
         ],
@@ -786,7 +796,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
             // and rapid filter edits don't fire one request per tick.
             setScannerValue: () => actions.requestScannerEstimate(),
             setScannerValues: () => actions.requestScannerEstimate(),
-            submitScannerSuccess: () => {
+            scannerSaved: () => {
                 actions.requestScannerEstimate()
                 // Saving recomputes the persisted estimate, which shifts the org-wide fleet sum.
                 visionQuotaLogic.findMounted()?.actions.loadQuota()
@@ -908,7 +918,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
 
             refreshObservations: () => reloadObservationsAndStats(),
 
-            loadObservations: async () => {
+            loadObservations: async (_, breakpoint) => {
                 if (props.id === 'new') {
                     actions.loadObservationsSuccess([], 0)
                     return
@@ -921,8 +931,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     const offset = (values.observationsPage - 1) * OBSERVATIONS_PAGE_SIZE
                     const params = buildObservationListParams(values, OBSERVATIONS_PAGE_SIZE, offset)
                     const response = await visionScannersObservationsList(String(teamId), props.id, params)
+                    // Drop out-of-order responses — a newer load (filter change, poll, pagination) owns the table.
+                    breakpoint()
                     actions.loadObservationsSuccess(response.results ?? [], response.count ?? 0)
-                } catch {
+                } catch (error) {
+                    if (error instanceof Error && isBreakpoint(error)) {
+                        throw error
+                    }
                     actions.loadObservationsFailure()
                 }
             },
@@ -946,7 +961,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 actions.loadObservationStats()
             },
 
-            loadObservationStats: async () => {
+            loadObservationStats: async (_, breakpoint) => {
                 if (props.id === 'new') {
                     actions.loadObservationStatsFailure()
                     return
@@ -963,8 +978,13 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                         ...params,
                         recent_days: recentDays,
                     })
+                    // Drop out-of-order responses; the superseding load reschedules the poll itself.
+                    breakpoint()
                     actions.loadObservationStatsSuccess(response)
-                } catch {
+                } catch (error) {
+                    if (error instanceof Error && isBreakpoint(error)) {
+                        throw error
+                    }
                     actions.loadObservationStatsFailure()
                 }
             },

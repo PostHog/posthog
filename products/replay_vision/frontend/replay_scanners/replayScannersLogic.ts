@@ -1,5 +1,5 @@
 import equal from 'fast-deep-equal'
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, isBreakpoint, kea, listeners, path, reducers, selectors } from 'kea'
 import { router, urlToAction } from 'kea-router'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
@@ -250,7 +250,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
     }),
 
     listeners(({ actions, values }) => ({
-        loadScanners: async () => {
+        loadScanners: async (_, breakpoint) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
                 return
@@ -270,15 +270,25 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                     offset
                 )
                 const response = await visionScannersList(String(teamId), params)
+                // Drop out-of-order responses — the most recent filter/page change owns the table.
+                breakpoint()
                 actions.loadScannersSuccess(scannersFromApi(response.results ?? []), response.count ?? 0)
             } catch (error: any) {
+                if (error instanceof Error && isBreakpoint(error)) {
+                    throw error
+                }
                 lemonToast.error(`Failed to load scanners${error.detail ? `: ${error.detail}` : ''}`)
                 actions.loadScannersFailure(String(error))
             }
         },
 
-        // Any change that affects the result set has to refetch.
-        setScannersFilters: () => actions.loadScanners(),
+        // Any change that affects the result set has to refetch; free-text search debounces per keystroke.
+        setScannersFilters: async ({ filters }, breakpoint) => {
+            if (filters.search !== undefined) {
+                await breakpoint(300)
+            }
+            actions.loadScanners()
+        },
         clearFilters: () => actions.loadScanners(),
 
         deleteScanner: async ({ id }) => {

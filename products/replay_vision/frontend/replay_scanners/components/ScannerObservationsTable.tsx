@@ -317,6 +317,8 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                 sorting={observationsSort}
                 onSort={(next) => setObservationsSort(next)}
                 useURLForSorting={false}
+                // The URL scheme can't express "no sort", so a third header click would snap back with duplicate fetches.
+                noSortingCancellation
                 nouns={['observation', 'observations']}
                 emptyState={
                     <div className="p-6 text-center text-muted">

@@ -47,7 +47,7 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
         ],
     }),
 
-    listeners(({ actions, props, cache }) => ({
+    listeners(({ actions, props, values, cache }) => ({
         loadObservation: async () => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
@@ -62,7 +62,10 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
                     response.scanner_snapshot?.name ?? null
                 )
             } catch (error: any) {
-                lemonToast.error(`Failed to load observation${error.detail ? `: ${error.detail}` : ''}`)
+                // Only toast the initial load — background poll retries would otherwise spam one toast per tick.
+                if (!values.observation) {
+                    lemonToast.error(`Failed to load observation${error.detail ? `: ${error.detail}` : ''}`)
+                }
                 actions.loadObservationFailure()
             }
         },
@@ -72,6 +75,11 @@ export const replayObservationLogic = kea<replayObservationLogicType>([
             // stream is a shared keyed logic — if the dock started and finished it before this page opened,
             // the past event isn't replayed here. Poll while in flight as a fallback so we still land the result.
             const inFlight = observation.status === 'pending' || observation.status === 'running'
+            scheduleObservationPoll(cache.disposables, inFlight, actions.loadObservation)
+        },
+        // Reschedule on failure too (while the last-known status was in flight) — one hiccup must not kill the poll.
+        loadObservationFailure: () => {
+            const inFlight = values.observation?.status === 'pending' || values.observation?.status === 'running'
             scheduleObservationPoll(cache.disposables, inFlight, actions.loadObservation)
         },
 

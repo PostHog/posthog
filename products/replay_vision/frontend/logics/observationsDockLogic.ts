@@ -130,6 +130,14 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                 actions.loadObservations
             )
         },
+        // Reschedule on failure too — a transient API hiccup shouldn't permanently kill the polling cycle.
+        loadObservationsFailure: () => {
+            scheduleObservationPoll(
+                cache.disposables,
+                values.hasObservationsInFlight || Date.now() < values.pollUntil,
+                actions.loadObservations
+            )
+        },
 
         loadScanners: async () => {
             const teamId = teamLogic.values.currentTeamId
