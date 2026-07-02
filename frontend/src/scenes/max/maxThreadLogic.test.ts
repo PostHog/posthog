@@ -1781,6 +1781,8 @@ describe('maxThreadLogic', () => {
             expect(names).not.toContain(SlashCommandName.SlashRemember)
             expect(names).toContain(SlashCommandName.SlashUsage)
             expect(names).toContain(SlashCommandName.SlashFeedback)
+            // /ticket must be offered even when no billing context is available — the backend decides eligibility
+            expect(names).toContain(SlashCommandName.SlashTicket)
         })
 
         it('keeps the full command set for langgraph conversations', async () => {
@@ -1790,6 +1792,7 @@ describe('maxThreadLogic', () => {
             expect(names).toContain(SlashCommandName.SlashRemember)
             expect(names).toContain(SlashCommandName.SlashUsage)
             expect(names).toContain(SlashCommandName.SlashFeedback)
+            expect(names).toContain(SlashCommandName.SlashTicket)
         })
     })
 
