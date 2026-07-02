@@ -170,7 +170,12 @@ class MetricEventSample:
     metric_name: str
     metric_type: str  # OTel type: gauge | sum | histogram | summary | exponential_histogram
     value: float
+    # Observations behind this point: 1 for gauges/counters, the distribution
+    # count for histograms/summaries (value is then the sum; avg = value/count).
+    count: int
     unit: str
+    aggregation_temporality: str  # "delta" | "cumulative" | "" (gauges)
+    is_monotonic: bool
     service_name: str
     trace_id: str
     span_id: str
