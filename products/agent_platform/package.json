@@ -2,12 +2,6 @@
     "name": "@posthog/products-agent-platform",
     "scripts": {
         "backend:test": "pytest -c ../../pytest.ini --rootdir ../.. backend -v --tb=short",
-        "backend:lint": "ruff check --config ../../pyproject.toml backend && ruff format --config ../../pyproject.toml --check backend",
-        "coherence:graph": "coherence graph",
-        "coherence:docs": "coherence docs",
-        "coherence:verify": "coherence verify"
-    },
-    "devDependencies": {
-        "coherence-harness": "github:daniloc/coherence#v0.5.3"
+        "backend:lint": "ruff check --config ../../pyproject.toml backend && ruff format --config ../../pyproject.toml --check backend"
     }
 }

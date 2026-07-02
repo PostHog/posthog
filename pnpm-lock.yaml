@@ -2218,11 +2218,7 @@ importers:
         specifier: 'catalog:'
         version: 0.2.4(kea@4.0.0-pre.5(react@18.3.1))
 
-  products/agent_platform:
-    devDependencies:
-      coherence-harness:
-        specifier: github:daniloc/coherence#v0.5.3
-        version: https://codeload.github.com/daniloc/coherence/tar.gz/a4a43bb05f527178c3c7f288d958910895628c96
+  products/agent_platform: {}
 
   products/agent_platform/services/agent-ingress:
     dependencies:
@@ -14355,12 +14351,6 @@ packages:
   co@4.6.0:
     resolution: {integrity: sha512-QVb0dM5HvG+uaxitm8wONl7jltx8dqhfU33DcqtOZcLSVIKSDDLDi7+0LbAKiyI8hD9u42m2YxXSkMGWThaecQ==}
     engines: {iojs: '>= 1.0.0', node: '>= 0.12.0'}
-
-  coherence-harness@https://codeload.github.com/daniloc/coherence/tar.gz/a4a43bb05f527178c3c7f288d958910895628c96:
-    resolution: {tarball: https://codeload.github.com/daniloc/coherence/tar.gz/a4a43bb05f527178c3c7f288d958910895628c96}
-    version: 0.5.3
-    engines: {node: '>=22'}
-    hasBin: true
 
   collect-v8-coverage@1.0.2:
     resolution: {integrity: sha512-lHl4d5/ONEbLlJvaJNtsF/Lz+WvB07u2ycqTYbdrq7UypDXailES4valYb2eWiJFxZlVmpGekfqoxQhzyFdT4Q==}
@@ -35676,8 +35666,6 @@ snapshots:
   cluster-key-slot@1.1.2: {}
 
   co@4.6.0: {}
-
-  coherence-harness@https://codeload.github.com/daniloc/coherence/tar.gz/a4a43bb05f527178c3c7f288d958910895628c96: {}
 
   collect-v8-coverage@1.0.2: {}
 

@@ -160,7 +160,6 @@
             "@parcel/watcher",
             "chartjs-plugin-stacked100",
             "@swc/core",
-            "coherence-harness",
             "core-js",
             "core-js-pure",
             "cpu-features",
