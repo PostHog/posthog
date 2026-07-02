@@ -626,6 +626,23 @@ class TestReadDataTool(BaseTest):
         assert "- my_custom_view" in result
         assert "- revenue_summary" in result
 
+    async def test_list_tables_includes_core_table_descriptions(self):
+        """data_warehouse_schema annotates core PostHog table columns with their curated descriptions
+        — a separate path from the per-table detail view, and the one an agent hits when listing."""
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=self.user, state=state, context_manager=context_manager
+        )
+
+        result, _ = await tool._arun_impl({"kind": "data_warehouse_schema"})
+
+        # uuid carries a curated description in the events schema; assert the separator rather than the
+        # exact text so a reworded description doesn't break the test.
+        assert "- uuid (string) — " in result
+
     async def test_list_tables_omits_empty_warehouse_and_views_sections(self):
         """Test that data_warehouse_schema omits warehouse/views sections when empty."""
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
@@ -801,6 +818,9 @@ class TestReadDataTool(BaseTest):
         assert "with fields:" in result
         assert "- event (string)" in result
         assert "- timestamp (datetime)" in result
+        # uuid carries a curated description in the events schema — it must now be surfaced. Assert the
+        # separator rather than the exact text so a reworded description doesn't break the test.
+        assert "- uuid (string) — " in result
 
     async def test_table_schema_returns_posthog_field_aliases(self):
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))

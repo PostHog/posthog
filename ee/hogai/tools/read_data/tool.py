@@ -485,13 +485,23 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
     def _build_tables_list(self, database: Database, hogql_context: HogQLContext) -> str:
         core_tables = {"events", "groups", "persons", "sessions"}
         serialized = database.serialize(hogql_context, include_only=core_tables)
+        descriptions = self._get_table_descriptions()
 
         system_table_lines: list[str] = []
         for table_name, table in serialized.items():
-            system_table_lines.append(f"## Table `{table_name}`")
-            raw_fields = database.get_table(table_name).fields
+            raw_table = database.get_table(table_name)
+            raw_fields = raw_table.fields
+            table_desc = descriptions.for_table(raw_table)
+            header = f"## Table `{table_name}`"
+            if table_desc:
+                header += f" — {_sanitize_semantic_text(table_desc)}"
+            system_table_lines.append(header)
             for field in table.fields.values():
-                system_table_lines.append(self._format_schema_field(field, raw_fields.get(field.name)))
+                line = self._format_schema_field(field, raw_fields.get(field.name))
+                col_desc = descriptions.for_column(raw_table, field.name, raw_fields.get(field.name))
+                if col_desc:
+                    line += f" — {_sanitize_semantic_text(col_desc)}"
+                system_table_lines.append(line)
             system_table_lines.append("")
 
         warehouse_tables = database.get_warehouse_table_names()
@@ -499,7 +509,6 @@ class ReadDataTool(HogQLDatabaseMixin, MaxTool):
         system_tables = database.get_system_table_names()
 
         semantics = self._warehouse_table_semantics(set(warehouse_tables))
-        descriptions = self._get_table_descriptions()
 
         listify = lambda items: "\n".join(f"- {item}" for item in sorted(items))
 
