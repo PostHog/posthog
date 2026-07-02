@@ -5,6 +5,7 @@
     },
     "dependencies": {
         "@posthog/quill-primitives": "workspace:*",
+        "@tanstack/react-virtual": "*",
         "eventsource-parser": "*",
         "kea-subscriptions": "catalog:",
         "marked": "*",

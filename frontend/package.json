@@ -149,6 +149,7 @@
         "@simplewebauthn/browser": "^13.2.2",
         "@stripe/react-stripe-js": "^2.8.0",
         "@stripe/stripe-js": "^4.5.0",
+        "@tanstack/react-virtual": "^3.14.3",
         "@testing-library/dom": ">=9.3.4",
         "@tiptap/core": "3.20.1",
         "@tiptap/extension-code-block-lowlight": "3.20.1",
