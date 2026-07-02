@@ -6688,6 +6688,10 @@ snapshots:
         hash: v1.k794b7964.8e074309fead3a6e5abf2b263f02d5117c0a8e3130d0ac6bddd7456942b8976c.IOEnXxWVDhORglv-Z8IDtXuO89NWwgRd9z0o3jglg0E
     scenes-app-settings-user--settings-user-profile--light:
         hash: v1.k794b7964.e4738c59cb0a887733f0e1184ed95f6c1121d4957972271c62751879ed7d9905.iYs2mcf-aLhqJZPHK60Bt0lJHYdWpP21M3fC2kCoRIk
+    scenes-app-settings-user--settings-user-reminders-modal--dark:
+        hash: v1.k794b7964.a47d11ce213bbd41bec7534af79f065316b34e6565747d299e73f1991aa8ac6b.F2BXFXa1jnVeSs-vXg8CGTaPlt-yRW6TyfgoGOlU-ko
+    scenes-app-settings-user--settings-user-reminders-modal--light:
+        hash: v1.k794b7964.23cdeccf9d38cc5e5033e986ab9372d1db6e1fe71b39f4cedec000eeade4ceb9.WA7AM_B5I4s5ydGspkg-8DvQAjxF1NdVoQTaH_eLfEs
     scenes-app-sidepanels--side-panel-access-control--dark:
         hash: v1.k794b7964.80fd4cbed7d99893eabb98d53d5f24b11dd4aecfc3fbcb8915be38cf6f950447.C0WODvsCDwbz9_2H9yhAixqz1ikKJsc8z0Y3vIBnxJk
     scenes-app-sidepanels--side-panel-access-control--light:

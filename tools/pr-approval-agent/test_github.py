@@ -1,5 +1,7 @@
 """Tests for GitHub review normalization used by the PR approval agent."""
 
+import re
+
 import pytest
 
 import github
@@ -126,3 +128,27 @@ def test_trusted_reactor_predicate_gates_untrusted_and_author(
 )
 def test_is_bot_author(user: dict, expected: bool) -> None:
     assert is_bot_author(user) is expected
+
+
+def _worst_case_node_count(query: str) -> int:
+    # Mirrors GitHub's pre-execution node-limit check: each connection requests
+    # `first` nodes multiplied by the `first` of every ancestor connection.
+    total = 0
+    multipliers = [1]
+    pending = 1
+    for match in re.finditer(r"first:\s*(\d+)|[{}]", query):
+        if match.group(1):
+            pending = int(match.group(1))
+            total += multipliers[-1] * pending
+        elif match.group(0) == "{":
+            multipliers.append(multipliers[-1] * pending)
+            pending = 1
+        else:
+            multipliers.pop()
+    return total
+
+
+def test_review_threads_query_stays_under_github_node_limit() -> None:
+    # GitHub rejects any GraphQL query whose worst-case node count exceeds
+    # 500,000 before executing it, which hard-fails the review on every PR.
+    assert _worst_case_node_count(github._REVIEW_THREADS_QUERY) < 500_000
