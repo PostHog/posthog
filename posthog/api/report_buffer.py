@@ -185,7 +185,10 @@ class CspReportBuffer:
             try:
                 batch = self._collect()
                 if batch:
-                    self._flush(batch)
+                    try:
+                        self._flush(batch)
+                    finally:
+                        self._release_bytes(batch)
             except Exception:
                 logger.exception("csp_report_buffer_sender_error")
 
@@ -203,9 +206,14 @@ class CspReportBuffer:
                 break
         for token, _, _ in items:
             self._release_slot(token)
+        # Bytes stay reserved until the flush finishes (_release_bytes) — the
+        # in-flight batch still holds the memory, so releasing here would let
+        # the queue refill a full budget on top of it.
+        return items
+
+    def _release_bytes(self, items: list[tuple[str, dict[str, Any], int]]) -> None:
         with self._counts_lock:
             self._total_bytes -= sum(size for _, _, size in items)
-        return items
 
     def _flush(self, items: list[tuple[str, dict[str, Any], int]]) -> None:
         CSP_BUFFER_DEPTH.set(self._queue.qsize())
@@ -225,12 +233,26 @@ class CspReportBuffer:
                     process_person_profile=False,
                     max_attempts=1,
                 )
-                result.raise_for_status()
-                CSP_BUFFER_SUBMITTED.inc(len(events))
             except Exception as exc:
                 CSP_BUFFER_FAILED.inc(len(events))
                 capture_exception(exc, {"capture-pathway": "csp_report_buffer", "ph-team-token": token})
                 logger.warning("csp_report_buffer_flush_failed", batch_size=len(events), error=str(exc))
+                continue
+            # Count per-event outcomes: a partial failure must not mark events
+            # capture already accepted as lost — these counters are the only
+            # delivery visibility in a fire-and-forget design, so
+            # enqueued ≈ submitted + failed + dropped + depth has to hold.
+            accepted = len(result.ok) + len(result.warnings)
+            failed = len(result.dropped) + len(result.retried) + len(result.unaccounted)
+            CSP_BUFFER_SUBMITTED.inc(accepted)
+            if failed:
+                CSP_BUFFER_FAILED.inc(failed)
+                logger.warning(
+                    "csp_report_buffer_flush_partial",
+                    batch_size=len(events),
+                    failed=failed,
+                    error=result.error,
+                )
 
     def _drain_on_exit(self) -> None:
         # Best-effort final flush of at most one batch. The capture call itself can
@@ -244,10 +266,11 @@ class CspReportBuffer:
                 break
         for token, _, _ in items:
             self._release_slot(token)
-        with self._counts_lock:
-            self._total_bytes -= sum(size for _, _, size in items)
         if items:
-            self._flush(items)
+            try:
+                self._flush(items)
+            finally:
+                self._release_bytes(items)
 
 
 csp_report_buffer = CspReportBuffer()

@@ -9,7 +9,19 @@ from django.test.client import Client
 
 from rest_framework import status
 
-from posthog.api.report_buffer import CspReportBuffer
+from posthog.api.report_buffer import CSP_BUFFER_FAILED, CSP_BUFFER_SUBMITTED, CspReportBuffer
+
+
+def _capture_result(ok=(), dropped=(), retried=(), unaccounted=(), warnings=()):
+    return MagicMock(
+        ok=list(ok),
+        dropped=list(dropped),
+        retried=list(retried),
+        unaccounted=list(unaccounted),
+        warnings=list(warnings),
+        error=None,
+    )
+
 
 CSP_PAYLOAD = {
     "csp-report": {
@@ -92,7 +104,7 @@ class TestCspReportBufferLogic(SimpleTestCase):
     @patch.object(CspReportBuffer, "_ensure_sender")
     @patch("posthog.api.report_buffer.capture_batch_internal")
     def test_flush_groups_events_by_token(self, mock_capture, _mock_sender) -> None:
-        mock_capture.return_value = MagicMock(raise_for_status=MagicMock())
+        mock_capture.return_value = _capture_result(ok=["u1"])
         buf = self._buffer()
         buf.enqueue([{"event": "a"}, {"event": "b"}], token="token-1")
         buf.enqueue([{"event": "c"}], token="token-2")
@@ -141,6 +153,33 @@ class TestCspReportBufferLogic(SimpleTestCase):
 
         contents = [buf._queue.get_nowait() for _ in range(buf._queue.qsize())]
         assert [e["event"] for _, e, _s in contents] == ["small"]
+
+    @patch.object(CspReportBuffer, "_ensure_sender")
+    def test_bytes_stay_reserved_while_batch_in_flight(self, _mock_sender) -> None:
+        buf = self._buffer(max_bytes=250, max_event_bytes=200)
+        buf.enqueue([{"event": "0", "raw": "x" * 100}], token="token-1")
+        in_flight = buf._collect()
+        assert len(in_flight) == 1
+
+        buf.enqueue([{"event": "1", "raw": "x" * 100}, {"event": "2", "raw": "x" * 100}], token="token-1")
+        assert buf._queue.qsize() == 1
+
+        buf._release_bytes(in_flight)
+        buf.enqueue([{"event": "3", "raw": "x" * 100}], token="token-1")
+        assert buf._queue.qsize() == 2
+
+    @patch.object(CspReportBuffer, "_ensure_sender")
+    @patch("posthog.api.report_buffer.capture_batch_internal")
+    def test_partial_batch_failure_splits_submitted_and_failed(self, mock_capture, _mock_sender) -> None:
+        mock_capture.return_value = _capture_result(ok=["u1"], dropped=["u2"])
+        buf = self._buffer()
+        submitted_before = CSP_BUFFER_SUBMITTED._value.get()
+        failed_before = CSP_BUFFER_FAILED._value.get()
+
+        buf._flush([("token-1", {"event": "a"}, 10), ("token-1", {"event": "b"}, 10)])
+
+        assert CSP_BUFFER_SUBMITTED._value.get() - submitted_before == 1
+        assert CSP_BUFFER_FAILED._value.get() - failed_before == 1
 
     @patch.object(CspReportBuffer, "_ensure_sender")
     def test_byte_budget_evicts_oldest(self, _mock_sender) -> None:
