@@ -86,6 +86,14 @@ class SlackPermissionMode(models.TextChoices):
     FULL_AUTO = "full_auto", "Full auto"
 
 
+class SlackUserPersona(models.TextChoices):
+    """Self-confirmed role of a Slack user, collected during persona onboarding."""
+
+    ENGINEER = "engineer", "Engineer"
+    CSM = "csm", "Customer success"
+    OTHER = "other", "Other"
+
+
 class SlackSettings(UUIDModel):
     """Per-(Slack workspace, Slack user) settings for inbound Slack events.
     Currently stores the routing default — which PostHog integration a mention
@@ -126,6 +134,12 @@ class SlackSettings(UUIDModel):
     )
     # Keys mirror the task-run request serializer.
     ai_preferences = models.JSONField(blank=True, null=True)
+    persona = models.CharField(max_length=32, choices=SlackUserPersona.choices, null=True, blank=True)
+    # Set once persona onboarding finishes (completed, skipped, or grandfathered);
+    # persona may still be NULL for skipped/grandfathered rows.
+    onboarded_at = models.DateTimeField(null=True, blank=True)
+    # Transient step state for the persona-onboarding DM flow; cleared on completion.
+    onboarding_state = models.JSONField(null=True, blank=True)
     created_at = models.DateTimeField(auto_now_add=True)
     updated_at = models.DateTimeField(auto_now=True)
 
