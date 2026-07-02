@@ -134,7 +134,12 @@ def _tag_span_with_batch_export_context(attributes: dict[str, str | int | float 
 
 
 class BatchExportsMetricsInterceptor(Interceptor):
-    """Interceptor to emit Prometheus metrics for batch exports."""
+    """Interceptor for batch export observability.
+
+    Emits Prometheus metrics (execution latency, attempt counters) and enriches the active OTel
+    trace span with batch export metadata (id, destination, interval, model) via
+    _tag_span_with_batch_export_context.
+    """
 
     task_queue = (settings.BATCH_EXPORTS_TASK_QUEUE, settings.SYNC_BATCH_EXPORTS_TASK_QUEUE)
 
