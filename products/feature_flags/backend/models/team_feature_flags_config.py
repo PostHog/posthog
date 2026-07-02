@@ -12,7 +12,8 @@ class TeamFeatureFlagsConfig(models.Model):
 
     Never expose this model through a serializer, API endpoint, or settings UI —
     it gates server-controlled behavior rollouts, not customer preferences.
-    Sanctioned writers: the team-creation signal below and management commands.
+    Sanctioned writers: the team-creation signal below, get_or_create_team_extension,
+    and management commands.
     """
 
     # db_constraint=False: a real FK constraint would take a SHARE ROW EXCLUSIVE
