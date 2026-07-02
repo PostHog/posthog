@@ -167,8 +167,9 @@ export const Complete = {
 } satisfies Story
 
 /**
- * A feed of items. Continuation rows (same author) drop the header and avatar; a gutter timestamp
- * appears when the row is hovered or focused.
+ * A feed of items. Authors render as profile links (foreground-colored, underline on hover).
+ * Continuation rows (same author) drop the header and avatar; a gutter timestamp appears when the
+ * row is hovered or focused.
  */
 export const Feed = {
     render: () => (
@@ -180,7 +181,14 @@ export const Feed = {
                     </ThreadItemGutter>
                     <ThreadItemContent>
                         <ThreadItemHeader>
-                            <ThreadItemAuthor>Grace Hopper</ThreadItemAuthor>
+                            <ThreadItemAuthor
+                                render={
+                                    // eslint-disable-next-line react/forbid-elements
+                                    <a href="#profile-grace" />
+                                }
+                            >
+                                Grace Hopper
+                            </ThreadItemAuthor>
                             <ThreadItemTimestamp dateTime="2026-07-01T16:10:00">4:10 PM</ThreadItemTimestamp>
                         </ThreadItemHeader>
                         <ThreadItemBody>Nanoseconds matter. Shipping the fix now.</ThreadItemBody>
@@ -227,7 +235,14 @@ export const Feed = {
                     </ThreadItemGutter>
                     <ThreadItemContent>
                         <ThreadItemHeader>
-                            <ThreadItemAuthor>Alan Turing</ThreadItemAuthor>
+                            <ThreadItemAuthor
+                                render={
+                                    // eslint-disable-next-line react/forbid-elements
+                                    <a href="#profile-alan" />
+                                }
+                            >
+                                Alan Turing
+                            </ThreadItemAuthor>
                             <ThreadItemTimestamp dateTime="2026-07-01T16:15:00">4:15 PM</ThreadItemTimestamp>
                         </ThreadItemHeader>
                         <ThreadItemBody>Can we compute? Yes. Should we? Also yes.</ThreadItemBody>

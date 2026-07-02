@@ -66,9 +66,15 @@
         color: var(--foreground);
     }
 
-    /* Author as a profile trigger (render={<button />} / <a />) gets link affordances. */
+    /*
+     * Author as a profile trigger (render={<button />} / <a />): pointer + hover underline, but it
+     * keeps the name's foreground color and rests without an underline — it's a person, not a
+     * body-copy link, so app-level anchor styling must not tint it.
+     */
     button.quill-thread-item__author,
     a.quill-thread-item__author {
+        color: var(--foreground);
+        text-decoration: none;
         text-underline-offset: 4px;
         cursor: pointer;
     }
