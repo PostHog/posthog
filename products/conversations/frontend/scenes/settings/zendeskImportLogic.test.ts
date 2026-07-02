@@ -11,6 +11,8 @@ function makeJob(status: ZendeskImportJobStatus, overrides: Partial<ZendeskImpor
     return {
         id: 'job-1',
         status,
+        subdomain: null,
+        has_credentials: false,
         total_tickets: 0,
         processed_tickets: 0,
         imported_tickets: 0,

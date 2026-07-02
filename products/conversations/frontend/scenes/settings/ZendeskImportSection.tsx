@@ -99,7 +99,11 @@ function ZendeskImportForm(): JSX.Element {
             />
             <LemonInput
                 type="email"
-                placeholder="Zendesk agent email"
+                placeholder={
+                    importJob?.has_credentials
+                        ? 'Zendesk agent email (configured — re-enter to start a new import)'
+                        : 'Zendesk agent email'
+                }
                 value={emailAddress}
                 onChange={setEmailAddress}
                 disabled={isImportRunning}
@@ -107,7 +111,9 @@ function ZendeskImportForm(): JSX.Element {
             <LemonInput
                 type="password"
                 placeholder={
-                    importJob?.subdomain ? 'Zendesk API token (re-enter to start a new import)' : 'Zendesk API token'
+                    importJob?.has_credentials
+                        ? 'Zendesk API token (configured — re-enter to start a new import)'
+                        : 'Zendesk API token'
                 }
                 value={apiToken}
                 onChange={setApiToken}

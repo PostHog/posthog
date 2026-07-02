@@ -105,15 +105,13 @@ export const zendeskImportLogic = kea<zendeskImportLogicType>([
             }, POLL_INTERVAL_MS)
         },
         loadImportJobSuccess: ({ importJob }) => {
-            // Prefill the connection fields from the last job so an admin can see what's configured.
-            // Only fill empty inputs — never clobber what the user is currently typing (poll refreshes
-            // re-fire this). The API token is never returned, so it always stays blank and must be
-            // re-entered to start a new import.
+            // Prefill only the account-level subdomain so an admin can see which Zendesk account is
+            // configured. The agent email and API token are intentionally never returned (the email
+            // is a personal login — don't disclose the prior operator's identity to other admins), so
+            // both must be re-entered to start a new import. Only fill an empty input to avoid
+            // clobbering what the user is typing when poll refreshes re-fire this.
             if (importJob?.subdomain && !values.subdomain) {
                 actions.setSubdomain(importJob.subdomain)
-            }
-            if (importJob?.email_address && !values.emailAddress) {
-                actions.setEmailAddress(importJob.email_address)
             }
             if (importJob && TERMINAL_STATUSES.includes(importJob.status)) {
                 actions.stopPolling()

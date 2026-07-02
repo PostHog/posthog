@@ -68,11 +68,14 @@ class ZendeskImportErrorSerializer(serializers.Serializer):
 
 
 class ZendeskImportJobSerializer(serializers.ModelSerializer):
-    # Non-sensitive connection details, surfaced so the settings form can show/prefill which
-    # Zendesk account the last job used. The API token lives in the same encrypted blob but is
-    # never serialized.
+    # Surface only the account-level subdomain so the settings form can show which Zendesk account
+    # was last used. The agent email and API token live in the same encrypted blob but are NEVER
+    # serialized: the email is a personal login that must not leak to other admins. `has_credentials`
+    # lets the UI show "configured" without disclosing the operator's identity.
     subdomain = serializers.SerializerMethodField(help_text="Zendesk subdomain used for this import job.")
-    email_address = serializers.SerializerMethodField(help_text="Zendesk agent email used for this import job.")
+    has_credentials = serializers.SerializerMethodField(
+        help_text="Whether stored Zendesk credentials exist for this job (the token/email are never returned)."
+    )
 
     class Meta:
         model = ZendeskImportJob
@@ -80,7 +83,7 @@ class ZendeskImportJobSerializer(serializers.ModelSerializer):
             "id",
             "status",
             "subdomain",
-            "email_address",
+            "has_credentials",
             "total_tickets",
             "processed_tickets",
             "imported_tickets",
@@ -111,8 +114,8 @@ class ZendeskImportJobSerializer(serializers.ModelSerializer):
     def get_subdomain(self, obj: ZendeskImportJob) -> str | None:
         return (obj.job_inputs or {}).get("subdomain")
 
-    def get_email_address(self, obj: ZendeskImportJob) -> str | None:
-        return (obj.job_inputs or {}).get("email_address")
+    def get_has_credentials(self, obj: ZendeskImportJob) -> bool:
+        return bool((obj.job_inputs or {}).get("api_token"))
 
 
 class ZendeskImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):

@@ -1048,11 +1048,8 @@ export interface ZendeskImportJobApi {
      * @nullable
      */
     readonly subdomain: string | null
-    /**
-     * Zendesk agent email used for this import job.
-     * @nullable
-     */
-    readonly email_address: string | null
+    /** Whether stored Zendesk credentials exist for this job (the token/email are never returned). */
+    readonly has_credentials: boolean
     /** Total number of tickets discovered for import. */
     readonly total_tickets: number
     /** Number of tickets processed so far. */
