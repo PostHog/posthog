@@ -10,6 +10,9 @@ from products.error_tracking.backend.models import ErrorTrackingRecommendation
 
 RECOMMENDATIONS_PATH = "/error_tracking?activeTab=recommendations"
 SOURCE_MAPS_DOCS_URL = "https://posthog.com/docs/error-tracking/upload-source-maps"
+# Same command the source maps fix wizard modal shows (sourceMapsFixWizardLogic.wizardCommand);
+# remediation is a static per-kind constant, so the EU region flag is a note rather than interpolated.
+WIZARD_COMMAND = "npx -y @posthog/wizard@latest upload-source-maps"
 
 
 class MissingSourceMapsCheck(HealthCheck):
@@ -30,22 +33,12 @@ class MissingSourceMapsCheck(HealthCheck):
     schedule = "0 7 * * *"
     remediation = Remediation(
         human=f"""
-            Upload source maps for your JavaScript builds so stack traces show your original
-            source code. Open Error tracking → Recommendations for the "Missing source maps"
-            card — it includes an AI wizard that sets up uploads for your build pipeline — or
-            follow the docs at {SOURCE_MAPS_DOCS_URL}. Once uploads are in place, new
-            exceptions resolve against your original sources and this issue clears on the
-            next check run.
+            Run the source maps wizard in your project: `{WIZARD_COMMAND}` (add `--region eu`
+            on EU Cloud), or follow the docs at {SOURCE_MAPS_DOCS_URL}.
         """,
         agent=f"""
-            Read this issue with `health-issues-get` — the payload has `unresolved_pct`,
-            `total_frames`, and `lookback_hours` describing how many recent JavaScript stack
-            frames could not be resolved. Then fix it in the user's codebase: add source map
-            upload to their build following {SOURCE_MAPS_DOCS_URL} — typically installing
-            `posthog-cli` (or the PostHog bundler plugin for webpack/vite/rollup) and running
-            `posthog-cli sourcemap inject` + `posthog-cli sourcemap upload` against the build
-            output in their CI/deploy step, authenticated with a PostHog personal API key.
-            The issue clears on the next check run once newly ingested frames resolve.
+            Run `{WIZARD_COMMAND}` in the user's project (add `--region eu` if the project is
+            on EU Cloud), or set up uploads manually following {SOURCE_MAPS_DOCS_URL}.
         """,
     )
 
