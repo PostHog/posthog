@@ -123,8 +123,10 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
                 }
                 try {
                     // No limit coupling to visible rows — retries stack observations and a truncated page hides scans.
+                    // Ordering pinned: the newest-wins mapping below depends on it, not on the API default.
                     const response = await visionScannersObservationsList(String(teamId), props.scannerId, {
                         session_id: sessionIds.join(','),
+                        order_by: '-created_at',
                     })
                     breakpoint()
                     const bySession: Record<string, RowObservation> = {}

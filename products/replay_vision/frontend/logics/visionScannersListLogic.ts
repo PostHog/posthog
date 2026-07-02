@@ -47,7 +47,7 @@ export const visionScannersListLogic = kea<visionScannersListLogicType>([
                             if (!response.next || results.length === 0) {
                                 return all
                             }
-                            offset += PAGE_LIMIT
+                            offset += results.length
                         }
                     } catch (error) {
                         if (error instanceof Error && isBreakpoint(error)) {
