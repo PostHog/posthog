@@ -2272,6 +2272,36 @@ class TestPrinter(BaseTest):
         printed = self._expr("toDateTime(properties.dt_prop AS d)")
         self.assertEqual(printed.count("parseDateTime64BestEffortOrNull"), 1, printed)
 
+    @parameterized.expand(
+        [
+            ("eq", "timestamp = '2026-07-01T09:54:12.988000Z'"),
+            ("gt", "timestamp > '2026-07-01T09:54:12.988000Z'"),
+            ("numeric_offset", "timestamp > '2026-07-01T09:54:12.988000+02:00'"),
+            ("constant_on_left", "'2026-07-01T09:54:12.988000Z' < timestamp"),
+            ("inside_call", "if(timestamp > '2026-07-01T09:54:12.988000Z', 1, 0)"),
+        ]
+    )
+    def test_datetime_comparison_with_timezone_literal_uses_best_effort(self, _name: str, expr: str):
+        # A raw ISO-8601 literal carrying a Z / numeric offset reaches ClickHouse as a string,
+        # and its implicit String->DateTime64 conversion chokes on the designator, failing the
+        # whole query. The literal must be routed through parseDateTime64BestEffort, which honors
+        # the embedded offset — mirroring the IS_DATE_* property-filter coercion.
+        printed = self._expr(expr)
+        self.assertIn("parseDateTime64BestEffort(", printed)
+        self.assertNotIn("toDateTime64(", printed)
+
+    def test_datetime_comparison_with_plain_literal_is_untouched(self):
+        # A space/date literal without a timezone designator parses fine, so it must not be
+        # rewritten — keeping the index-friendly strict form.
+        printed = self._expr("timestamp > '2026-07-01 09:54:12'")
+        self.assertNotIn("parseDateTime64BestEffort", printed)
+
+    def test_string_column_comparison_with_timezone_literal_is_untouched(self):
+        # The coercion keys off the DateTime type, not the literal's shape: comparing a string
+        # column against the same literal must stay a plain string comparison.
+        printed = self._expr("event = '2026-07-01T09:54:12.988000Z'")
+        self.assertNotIn("parseDateTime64BestEffort", printed)
+
     def test_window_functions(self):
         self.assertEqual(
             self._select(

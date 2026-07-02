@@ -71,6 +71,23 @@ USE_GLOBAL_JOINS = False
 
 _SAFE_TABLE_FUNCTION_NAME_RE = re2.compile(r"^[A-Za-z_][A-Za-z0-9_]*$")
 
+# ISO-8601 datetime literals carrying a timezone designator — a trailing "Z" or a numeric
+# offset like "+02:00". ClickHouse's implicit String->DateTime conversion (and strict
+# toDateTime64) rejects the designator, so a comparison against a DateTime column has to route
+# the literal through parseDateTime64BestEffort instead. See _coerce_datetime_string_constant.
+_ISO_DATETIME_WITH_TIMEZONE_RE = re2.compile(r"^\d{4}-\d{2}-\d{2}[ T]\d{2}:\d{2}(:\d{2})?(\.\d+)?(Z|[+-]\d{2}:?\d{2})$")
+
+_DATETIME_STRING_COMPARE_OPS = frozenset(
+    {
+        ast.CompareOperationOp.Eq,
+        ast.CompareOperationOp.NotEq,
+        ast.CompareOperationOp.Gt,
+        ast.CompareOperationOp.GtEq,
+        ast.CompareOperationOp.Lt,
+        ast.CompareOperationOp.LtEq,
+    }
+)
+
 EMPTY_SCOPE = ast.SelectQueryType()
 
 type PostgresKeywordType = type[ast.DateType] | type[ast.DateTimeType]
@@ -2236,6 +2253,8 @@ class Resolver(CloningVisitor):
         node = super().visit_compare_operation(node)
         node.type = ast.BooleanType(nullable=False)
 
+        self._coerce_datetime_string_constant(node)
+
         if (
             USE_GLOBAL_JOINS
             and (node.op == ast.CompareOperationOp.In or node.op == ast.CompareOperationOp.NotIn)
@@ -2258,6 +2277,46 @@ class Resolver(CloningVisitor):
                 node.op = ast.CompareOperationOp.GlobalNotIn
 
         return node
+
+    def _coerce_datetime_string_constant(self, node: ast.CompareOperation) -> None:
+        """Coerce an ISO-8601 string literal with a timezone designator compared against a
+        DateTime column into parseDateTime64BestEffort, the same coercion IS_DATE_* property
+        filters use (see ``property._force_datetime``).
+
+        Without it the literal reaches ClickHouse as a raw string and its implicit
+        String->DateTime64 conversion chokes on the trailing ``Z`` / numeric offset, failing the
+        whole query. Wrapping the constant in HogQL's ``toDateTime`` lets the printer lower it to
+        ``parseDateTime64BestEffort``, which honors the embedded offset. Only relevant for the
+        ClickHouse dialect — the warehouse dialects don't share that implicit conversion.
+        """
+        if self.dialect != "clickhouse" or node.op not in _DATETIME_STRING_COMPARE_OPS:
+            return
+
+        if self._is_iso_datetime_string_with_timezone(node.right) and self._resolves_to_datetime(node.left):
+            node.right = self._to_datetime_call(node.right)
+        elif self._is_iso_datetime_string_with_timezone(node.left) and self._resolves_to_datetime(node.right):
+            node.left = self._to_datetime_call(node.left)
+
+    def _to_datetime_call(self, constant: ast.Expr) -> ast.Expr:
+        # A fresh Constant so the resolver doesn't reject the already-resolved node it replaces.
+        return self.visit(ast.Call(name="toDateTime", args=[ast.Constant(value=cast(ast.Constant, constant).value)]))
+
+    @staticmethod
+    def _is_iso_datetime_string_with_timezone(node: ast.Expr) -> bool:
+        return (
+            isinstance(node, ast.Constant)
+            and isinstance(node.value, str)
+            and _ISO_DATETIME_WITH_TIMEZONE_RE.match(node.value) is not None
+        )
+
+    def _resolves_to_datetime(self, node: ast.Expr) -> bool:
+        if node.type is None or isinstance(node, ast.Constant):
+            return False
+        try:
+            constant_type = node.type.resolve_constant_type(self.context)
+        except (NotImplementedError, ResolutionError):
+            return False
+        return isinstance(constant_type, ast.DateTimeType | ast.DateType)
 
     def _get_scope(self):
         if len(self.scopes) > 0:
