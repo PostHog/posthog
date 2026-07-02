@@ -110,7 +110,11 @@ function VisionActionRunScene(): JSX.Element {
             ) : (
                 <LemonBanner type={run.status === 'failed' ? 'error' : 'info'}>
                     <div className="font-semibold">
-                        {run.status === 'failed' ? 'This run failed' : 'This run was skipped'}
+                        {run.status === 'failed'
+                            ? 'This run failed'
+                            : run.status === 'skipped'
+                              ? 'This run was skipped'
+                              : 'This run produced no summary'}
                     </div>
                     <div>{run.error_reason || 'No summary was produced for this run.'}</div>
                 </LemonBanner>

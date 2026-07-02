@@ -372,14 +372,18 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
 # Human-readable copy for the engine's controlled skip/abort reasons (see temporal.vision_actions —
 # _validate skip reasons and SynthesisStatus). Unmapped values fall through to the raw string.
+# Copy stays neutral (no "Skipped —"/"Failed —" prefix): the run's status drives the banner heading,
+# so the abort reasons read correctly under the "failed" banner they actually carry.
 _RUN_REASON_LABELS = {
     "skipped_empty": "No new observations in this window to summarize.",
-    "skipped_over_budget": "Skipped — the team is over its AI-credit budget.",
+    "skipped_over_budget": "The team is over its AI-credit budget.",
     "no_delivery": "No delivery destination is configured for this action.",
+    # Alias: runs recorded before #66892 stored the old "no_delivery_flow" enum; map it to the same copy.
+    "no_delivery_flow": "No delivery destination is configured for this action.",
     "disabled": "The action was disabled when this run was due.",
     "not_found": "The action no longer exists.",
-    "aborted_no_consent": "Skipped — AI data processing isn't enabled for this organization.",
-    "aborted_no_user": "Skipped — the action's creator no longer has access.",
+    "aborted_no_consent": "AI data processing isn't enabled for this organization.",
+    "aborted_no_user": "The action's creator no longer has access.",
 }
 
 
