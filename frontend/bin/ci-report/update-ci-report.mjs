@@ -18,6 +18,7 @@ export const SECTIONS = [
     { id: 'eager-graph', title: 'Eager graph' },
     { id: 'dist-size', title: 'Dist folder size' },
     { id: 'mcp-ui-apps', title: 'MCP UI apps size' },
+    { id: 'playwright', title: 'Playwright' },
     { id: 'storybook-snapshots', title: 'Storybook snapshots' },
     { id: 'playwright-snapshots', title: 'Playwright snapshots' },
     { id: 'backend-snapshots', title: 'Backend snapshots' },

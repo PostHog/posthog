@@ -9,6 +9,7 @@ const LEGACY_MARKERS = [
     '<!-- posthog-eager-graph-check -->',
     '<!-- posthog-bundle-size-check -->',
     '<!-- mcp-ui-apps-size-report -->',
+    '<!-- playwright-report-comment -->',
 ]
 
 const context = resolvePrContext('cleanup')

@@ -722,104 +722,19 @@ jobs:
                   echo "- Commit: \`${{ github.sha }}\`" >> $GITHUB_STEP_SUMMARY
                   echo "- Run: [#${{ github.run_number }}](${{ github.server_url }}/${{ github.repository }}/actions/runs/${{ github.run_id }})" >> $GITHUB_STEP_SUMMARY
 
-            - name: Upsert report URL comment on PR
+            - name: Post Playwright section to CI report comment
               if: always() && github.event_name == 'pull_request' && github.event.pull_request.head.repo.full_name == github.repository
               continue-on-error: true
-              uses: actions/github-script@ed597411d8f924073f98dfc5c65a23a2325f34cd # v8.0.0
               env:
                   DEPLOYMENT_URL: ${{ steps.cf-deploy.outputs.deployment-url }}
-              with:
-                  github-token: ${{ secrets.GITHUB_TOKEN }}
-                  script: |
-                      const fs = require('fs');
-                      const marker = '<!-- playwright-report-comment -->';
-                      const reportUrl = process.env.DEPLOYMENT_URL;
-                      const jobPassed = '${{ job.status }}' === 'success';
-
-                      // Collect failed and flaky tests from JSON report — only populated when
-                      // results.json exists (i.e. tests actually ran). If the file is missing
-                      // (setup failure, cancelled, etc.) extraLines stays empty and we treat
-                      // it the same as "no failures found", so we don't delete an existing
-                      // comment that may have relevant info from a previous run.
-                      let extraLines = '';
-                      let resultsRead = false;
-                      let failed = [];
-                      try {
-                          const results = JSON.parse(fs.readFileSync('playwright/results.json', 'utf8'));
-                          resultsRead = true;
-                          const flaky = [];
-                          function collect(suites) {
-                              for (const suite of suites || []) {
-                                  for (const spec of suite.specs || []) {
-                                      for (const test of spec.tests || []) {
-                                          if (test.status === 'unexpected') {
-                                              failed.push(`- ${spec.title} (${test.projectName})`);
-                                          } else if (test.status === 'flaky') {
-                                              flaky.push(`- ${spec.title} (${test.projectName})`);
-                                          }
-                                      }
-                                  }
-                                  collect(suite.suites);
-                              }
-                          }
-                          collect(results.suites);
-                          if (failed.length > 0) {
-                              extraLines += `\n\n❌ **${failed.length} failed test${failed.length > 1 ? 's' : ''}:**\n${failed.join('\n')}`;
-                          }
-                          if (flaky.length > 0) {
-                              extraLines += `\n\n⚠️ **${flaky.length} flaky test${flaky.length > 1 ? 's' : ''}:**\n${flaky.join('\n')}`;
-                          }
-                      } catch {}
-
-                      // Flake verification results for changed test files
-                      try {
-                          const flakeResults = JSON.parse(fs.readFileSync('playwright/flake-verification-results.json', 'utf8'));
-                          if (flakeResults.status === 'failed') {
-                              const fileList = flakeResults.files.map(f => `- \`${f}\``).join('\n');
-                              const flakeReportLink = reportUrl ? ` [View report →](${reportUrl})` : '';
-                              extraLines += `\n\n🔁 **Flake verification failed** (--repeat-each=${flakeResults.repeat_count}):\n${fileList}\n\nThe report only shows the tests under verification.${flakeReportLink} Fix these before merging.`;
-                          }
-                      } catch {}
-
-                      const { data: comments } = await github.rest.issues.listComments({
-                          owner: context.repo.owner,
-                          repo: context.repo.repo,
-                          issue_number: context.issue.number,
-                      });
-                      const existing = comments.find(c => c.body.includes(marker));
-
-                      // No failures or flakies — nothing to comment about
-                      if (!extraLines) {
-                          // Clean up any existing comment, but only when we know tests actually ran and passed
-                          if (resultsRead && existing) {
-                              await github.rest.issues.deleteComment({
-                                  owner: context.repo.owner,
-                                  repo: context.repo.repo,
-                                  comment_id: existing.id,
-                              });
-                          }
-                          return;
-                      }
-
-                      const reportLink = reportUrl ? ` · [View test results →](${reportUrl})` : '';
-                      const footer = '\n\n\n*These issues are not necessarily caused by your changes.*\n*Annoyed by this comment? Help fix flakies and failures and it\'ll disappear!*';
-                      const body = `${marker}\n🎭 Playwright report${reportLink}${extraLines}${footer}`;
-
-                      if (existing) {
-                          await github.rest.issues.updateComment({
-                              owner: context.repo.owner,
-                              repo: context.repo.repo,
-                              comment_id: existing.id,
-                              body,
-                          });
-                      } else {
-                          await github.rest.issues.createComment({
-                              owner: context.repo.owner,
-                              repo: context.repo.repo,
-                              issue_number: context.issue.number,
-                              body,
-                          });
-                      }
+                  GITHUB_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+              run: |
+                  if [ -f .github/scripts/post-playwright-section.mjs ]; then
+                      node .github/scripts/post-playwright-section.mjs
+                      node frontend/bin/ci-report/delete-legacy-comments.mjs
+                  else
+                      echo "Skipping Playwright section — script not present on this checkout"
+                  fi
 
     capture-run-time:
         name: Capture run time
