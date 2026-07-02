@@ -220,7 +220,7 @@ class TestGetRowsFanOut:
         with pytest.raises(requests.HTTPError):
             list(get_rows(access_key="tok", endpoint="webinars", logger=MagicMock()))
 
-    def test_event_without_id_fails_loudly(self, monkeypatch: Any) -> None:
+    def test_event_missing_id_key_fails_loudly(self, monkeypatch: Any) -> None:
         # A malformed parent event (missing the required `id` fan-out key) must raise rather than
         # silently under-sync that event's children with no signal.
         _patch_fetch(
@@ -230,6 +230,19 @@ class TestGetRowsFanOut:
 
         with pytest.raises(KeyError):
             list(get_rows(access_key="tok", endpoint="webinars", logger=MagicMock()))
+
+    @parameterized.expand([("empty_string", ""), ("none", None), ("zero", 0)])
+    def test_event_with_falsy_id_fails_loudly(self, _name: str, falsy_id: Any) -> None:
+        # A falsy `id` (empty string, None, 0) must raise too — silently skipping it would
+        # under-sync that event's children exactly like a missing key would.
+        with pytest.MonkeyPatch.context() as monkeypatch:
+            _patch_fetch(
+                monkeypatch,
+                {"https://customapi.goldcast.io/event/": [{"id": falsy_id}]},
+            )
+
+            with pytest.raises(ValueError):
+                list(get_rows(access_key="tok", endpoint="webinars", logger=MagicMock()))
 
 
 class TestGoldcastSourceResponse:
