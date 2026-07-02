@@ -1129,7 +1129,8 @@ impl CohortStreamEventsConsumer {
             .dispatch_events_nonblocking(outcome.events, &backpressure.held_partitions());
         backpressure.absorb(full);
         let deltas = backpressure.reconcile();
-        if (!deltas.pause.is_empty() || !deltas.resume.is_empty()) && pause_tx.send(deltas).is_err() {
+        if (!deltas.pause.is_empty() || !deltas.resume.is_empty()) && pause_tx.send(deltas).is_err()
+        {
             // The receiver is gone only at shutdown, where an unapplied delta is moot.
             debug!("pauser task has exited; skipping a pause/resume delta");
         }
