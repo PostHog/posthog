@@ -364,6 +364,11 @@ class PostgresPrinter(BasePrinter):
             return f"({left} IN {right})"
         elif op == ast.CompareOperationOp.NotIn:
             return f"({left} NOT IN {right})"
+        elif op == ast.CompareOperationOp.GlobalIn:
+            # Postgres has no distributed GLOBAL concept, so it maps to a plain IN
+            return f"({left} IN {right})"
+        elif op == ast.CompareOperationOp.GlobalNotIn:
+            return f"({left} NOT IN {right})"
         elif op == ast.CompareOperationOp.Regex:
             return f"({left} ~ {right})"
         elif op == ast.CompareOperationOp.NotRegex:
