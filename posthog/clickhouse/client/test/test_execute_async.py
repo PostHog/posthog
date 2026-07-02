@@ -13,6 +13,7 @@ from parameterized import parameterized
 from posthog.schema import ClickhouseQueryProgress, QueryStatus
 
 from posthog.hogql.constants import DEFAULT_POSTHOG_AI_RETURNED_ROWS
+from posthog.hogql.errors import ExposedHogQLError
 
 from posthog.clickhouse.client import (
     execute_async as client,
@@ -135,6 +136,32 @@ class TestExecuteProcessQuery(TestCase):
         args, kwargs = mock_redis.set.call_args
         args_loaded = json.loads(args[1])
         self.assertEqual(args_loaded["results"], [None, None, None, 1.0, "👍"])
+
+    @parameterized.expand(
+        [
+            ("exposed_error", ExposedHogQLError("mismatched input 'CLP'"), False),
+            ("unexpected_error", ValueError("boom"), True),
+        ]
+    )
+    @patch("posthog.clickhouse.client.execute_async.capture_exception")
+    @patch("posthog.clickhouse.client.execute_async.redis.get_client")
+    @patch("posthog.api.services.query.process_query_dict")
+    def test_execute_process_query_only_captures_unexpected_errors(
+        self, _name, error, should_capture, mock_process_query_dict, mock_redis_client, mock_capture_exception
+    ):
+        mock_redis = MagicMock()
+        mock_redis.get.return_value = json.dumps(
+            {"id": self.query_id, "team_id": self.team.id, "complete": False, "error": False}
+        ).encode()
+        mock_redis_client.return_value = mock_redis
+        mock_process_query_dict.side_effect = error
+
+        execute_process_query(self.team.id, self.user.id, self.query_id, self.query_json, self.limit_context)
+
+        if should_capture:
+            mock_capture_exception.assert_called_once_with(error)
+        else:
+            mock_capture_exception.assert_not_called()
 
 
 class ClickhouseClientTestCase(TestCase, ClickhouseTestMixin):
