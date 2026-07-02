@@ -37,6 +37,19 @@ class TestRunStateSnapshotPaths(TestCase):
                 {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR},
                 DEFAULT_SANDBOX_WORKING_DIR,
             ),
+            # A disallowed stored path invalidates the snapshot (None) — it must NOT be remapped
+            # to the default: the snapshot's content layout only fits the path it was captured
+            # from. "/tmp" is the legacy default whose re-mount killed the sandbox.
+            (
+                "legacy_tmp_directory_snapshot",
+                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": "/tmp"},
+                None,
+            ),
+            (
+                "unsupported_directory_snapshot_path",
+                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": "/tmp/agent-env"},
+                None,
+            ),
             ("filesystem_snapshot", {"snapshot_kind": "filesystem"}, None),
         ]
     )
@@ -394,6 +407,7 @@ class TestGetGitIdentityEnvVars(TestCase):
         [
             (Task.OriginProduct.ERROR_TRACKING,),
             (Task.OriginProduct.SUPPORT_QUEUE,),
+            (Task.OriginProduct.HOGDESK,),
             (Task.OriginProduct.EVAL_CLUSTERS,),
             (Task.OriginProduct.SESSION_SUMMARIES,),
         ]

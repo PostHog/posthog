@@ -142,6 +142,7 @@ export function Chart<Meta = unknown>({
     const {
         enabled: showTooltip = true,
         pinnable: pinnableTooltip = false,
+        resolveClickToNearestSeries = false,
         placement: tooltipPlacement = 'follow-data',
         valueFormatter: tooltipValueFormatter,
         labelFormatter: tooltipLabelFormatter,
@@ -216,6 +217,7 @@ export function Chart<Meta = unknown>({
         wrapperRef,
         showTooltip,
         pinnable: pinnableTooltip,
+        resolveClickToNearestSeries,
         onPointClick,
         onDateRangeZoom,
         resolveValue,

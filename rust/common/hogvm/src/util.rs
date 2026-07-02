@@ -133,11 +133,20 @@ pub fn get_json_nested<'h>(
         match val {
             Value::Array(values) => {
                 let key: &Num = next_key.try_as()?;
-                if key.is_float() || key.to_integer() < 1 {
+                if key.is_float() {
                     return Err(VmError::InvalidIndex);
                 }
-                let key = (key.to_integer() as usize) - 1; // Hog indices are 1 based
-                let Some(found) = values.get(key) else {
+                // Hog JSON-path indices are 1-based; the reference also allows negatives counting
+                // from the end. Index 0 and out-of-range yield "not found" (None), not an error.
+                let raw = key.to_integer();
+                let len = values.len() as i64;
+                let idx = match raw {
+                    0 => return Ok(None),
+                    r if r > 0 && r <= len => (r - 1) as usize,
+                    r if r < 0 && -r <= len => (len + r) as usize,
+                    _ => return Ok(None),
+                };
+                let Some(found) = values.get(idx) else {
                     return Ok(None);
                 };
                 current = Some(found);

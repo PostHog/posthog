@@ -180,6 +180,11 @@ class AhrefsSourceConfig(config.Config):
 
 
 @config.config
+class AirOpsSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class AirbyteSourceConfig(config.Config):
     pass
 
@@ -573,7 +578,7 @@ class CannySourceConfig(config.Config):
 
 @config.config
 class CapsuleCRMSourceConfig(config.Config):
-    pass
+    access_token: str
 
 
 @config.config
@@ -878,6 +883,7 @@ class CustomSourceConfig(config.Config):
     auth_password: str | None = None
     auth_oauth2_client_secret: str | None = None
     auth_oauth2_refresh_token: str | None = None
+    auth_oauth2_integration_id: str | None = None
 
 
 @config.config
@@ -1008,6 +1014,11 @@ class DropboxSourceConfig(config.Config):
 
 
 @config.config
+class DubSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class DwollaSourceConfig(config.Config):
     pass
 
@@ -1030,7 +1041,8 @@ class EConomicSourceConfig(config.Config):
 
 @config.config
 class EZOfficeInventorySourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
@@ -1151,7 +1163,9 @@ class FilloutSourceConfig(config.Config):
 
 @config.config
 class FinageSourceConfig(config.Config):
-    pass
+    api_key: str
+    symbols: str
+    start_date: str | None = None
 
 
 @config.config
@@ -1600,6 +1614,11 @@ class InstagramSourceConfig(config.Config):
 
 
 @config.config
+class InstantlySourceConfig(config.Config):
+    pass
+
+
+@config.config
 class InstatusSourceConfig(config.Config):
     pass
 
@@ -1841,6 +1860,11 @@ class LokaliseSourceConfig(config.Config):
 
 @config.config
 class LookerSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class LoopsSourceConfig(config.Config):
     pass
 
 
@@ -2486,6 +2510,11 @@ class PocketSourceConfig(config.Config):
 
 
 @config.config
+class PodiumSourceConfig(config.Config):
+    pass
+
+
+@config.config
 class PolarSourceConfig(config.Config):
     polar_api_key: str
 
@@ -2638,6 +2667,11 @@ class RedditAdsSourceConfig(config.Config):
 
 @config.config
 class RedditSourceConfig(config.Config):
+    pass
+
+
+@config.config
+class RedisSourceConfig(config.Config):
     pass
 
 
@@ -3635,6 +3669,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.AGILECRM: AgileCRMSourceConfig,
         ExternalDataSourceType.AHA: AhaSourceConfig,
         ExternalDataSourceType.AHREFS: AhrefsSourceConfig,
+        ExternalDataSourceType.AIROPS: AirOpsSourceConfig,
         ExternalDataSourceType.AIRBYTE: AirbyteSourceConfig,
         ExternalDataSourceType.AIRCALL: AircallSourceConfig,
         ExternalDataSourceType.AIRTABLE: AirtableSourceConfig,
@@ -3784,6 +3819,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.DRIP: DripSourceConfig,
         ExternalDataSourceType.DROPBOX: DropboxSourceConfig,
         ExternalDataSourceType.DROPBOXSIGN: DropboxSignSourceConfig,
+        ExternalDataSourceType.DUB: DubSourceConfig,
         ExternalDataSourceType.DWOLLA: DwollaSourceConfig,
         ExternalDataSourceType.DYNAMICS365: Dynamics365SourceConfig,
         ExternalDataSourceType.DYNAMODB: DynamoDBSourceConfig,
@@ -3896,6 +3932,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.INSIGHTFUL: InsightfulSourceConfig,
         ExternalDataSourceType.INSIGHTLY: InsightlySourceConfig,
         ExternalDataSourceType.INSTAGRAM: InstagramSourceConfig,
+        ExternalDataSourceType.INSTANTLY: InstantlySourceConfig,
         ExternalDataSourceType.INSTATUS: InstatusSourceConfig,
         ExternalDataSourceType.INTERCOM: IntercomSourceConfig,
         ExternalDataSourceType.INTERZOID: InterzoidSourceConfig,
@@ -3943,6 +3980,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.LOB: LobSourceConfig,
         ExternalDataSourceType.LOKALISE: LokaliseSourceConfig,
         ExternalDataSourceType.LOOKER: LookerSourceConfig,
+        ExternalDataSourceType.LOOPS: LoopsSourceConfig,
         ExternalDataSourceType.LUMA: LumaSourceConfig,
         ExternalDataSourceType.MSSQL: MSSQLSourceConfig,
         ExternalDataSourceType.MAILCHIMP: MailchimpSourceConfig,
@@ -4063,6 +4101,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.PLAUSIBLE: PlausibleSourceConfig,
         ExternalDataSourceType.PLUNK: PlunkSourceConfig,
         ExternalDataSourceType.POCKET: PocketSourceConfig,
+        ExternalDataSourceType.PODIUM: PodiumSourceConfig,
         ExternalDataSourceType.POLAR: PolarSourceConfig,
         ExternalDataSourceType.POLYGON: PolygonSourceConfig,
         ExternalDataSourceType.POPLAR: PoplarSourceConfig,
@@ -4092,6 +4131,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.RECURLY: RecurlySourceConfig,
         ExternalDataSourceType.REDDIT: RedditSourceConfig,
         ExternalDataSourceType.REDDITADS: RedditAdsSourceConfig,
+        ExternalDataSourceType.REDIS: RedisSourceConfig,
         ExternalDataSourceType.REDSHIFT: RedshiftSourceConfig,
         ExternalDataSourceType.REFERRALHERO: ReferralHeroSourceConfig,
         ExternalDataSourceType.RENTCAST: RentCastSourceConfig,

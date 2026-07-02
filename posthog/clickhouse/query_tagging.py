@@ -51,6 +51,7 @@ class Product(StrEnum):
     BATCH_EXPORT = "batch_export"
     COHORTS = "cohorts"
     CONVERSATIONS = "conversations"
+    CUSTOMER_ANALYTICS = "customer_analytics"
     ENDPOINTS = "endpoints"
     ENGINEERING_ANALYTICS = "engineering_analytics"
     ERROR_TRACKING = "error_tracking"
@@ -89,6 +90,7 @@ class Product(StrEnum):
 
 
 class Feature(StrEnum):
+    ACCOUNTS = "accounts"
     ALERTING = "alerting"
     BACKFILL = "backfill"
     BEHAVIORAL_COHORTS = "behavioral_cohorts"
