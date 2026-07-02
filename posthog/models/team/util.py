@@ -13,6 +13,13 @@ from products.batch_exports.backend.service import BatchExportServiceScheduleNot
 
 logger = structlog.get_logger(__name__)
 
+# Batch size for the personhog batch-delete RPCs on the largest team-scoped tables
+# (personless distinct IDs, persons, hash-key-overrides). Kept well below 10000 so each
+# DELETE commits comfortably inside the personhog gRPC deadline on multi-billion-row
+# tables; otherwise a batch that overruns the deadline is rolled back wholesale and the
+# activity retries with zero forward progress.
+TEAM_DELETE_BATCH_SIZE = 2000
+
 actions_that_require_current_team = [
     "rotate_secret_token",
     "delete_secret_token_backup",
@@ -82,7 +89,7 @@ def _delete_hash_key_overrides_for_teams(team_ids: list[int]) -> None:
     def _fn() -> None:
         while True:
             resp = client.delete_hash_key_overrides_by_teams(
-                DeleteHashKeyOverridesByTeamsRequest(team_ids=team_ids, batch_size=10000)
+                DeleteHashKeyOverridesByTeamsRequest(team_ids=team_ids, batch_size=TEAM_DELETE_BATCH_SIZE)
             )
             if resp.deleted_count == 0:
                 break
@@ -115,7 +122,7 @@ def _delete_personless_distinct_ids_for_team_via_personhog(team_id: int) -> None
 
     while True:
         resp = client.delete_personless_distinct_ids_batch_for_team(
-            DeletePersonlessDistinctIdsBatchForTeamRequest(team_id=team_id, batch_size=10000)
+            DeletePersonlessDistinctIdsBatchForTeamRequest(team_id=team_id, batch_size=TEAM_DELETE_BATCH_SIZE)
         )
         if resp.deleted_count == 0:
             break
@@ -154,7 +161,9 @@ def _delete_persons_for_team_via_personhog(team_id: int) -> None:
     client = require_personhog_client()
 
     while True:
-        resp = client.delete_persons_batch_for_team(DeletePersonsBatchForTeamRequest(team_id=team_id, batch_size=10000))
+        resp = client.delete_persons_batch_for_team(
+            DeletePersonsBatchForTeamRequest(team_id=team_id, batch_size=TEAM_DELETE_BATCH_SIZE)
+        )
         if resp.deleted_count == 0:
             break
 

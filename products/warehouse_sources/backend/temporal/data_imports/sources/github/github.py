@@ -14,10 +14,13 @@ from structlog.types import FilteringBoundLogger
 from tenacity import RetryCallState, retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 from urllib3.util.retry import Retry
 
-from posthog.models.integration import GitHubRateLimitError, raise_if_github_rate_limited
-from posthog.rate_limiting.github import consume_github_installation_sync
-from posthog.rate_limiting.github_observability import record_github_api_exception, record_github_api_response
-from posthog.rate_limiting.policies import Priority
+from posthog.egress.github.transport import (
+    GitHubEgressBudgetExhausted,
+    GitHubRateLimitError,
+    github_request,
+    raise_if_github_rate_limited,
+)
+from posthog.egress.limiter.policies import Priority
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.batcher import Batcher
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
@@ -369,6 +372,8 @@ def _github_retry_wait(state: RetryCallState) -> float:
     retry=retry_if_exception_type(
         (
             GithubRetryableError,
+            # Our egress limiter shed this deferrable page (BATCH); back off and re-acquire next attempt.
+            GitHubEgressBudgetExhausted,
             GitHubRateLimitError,
             requests.ReadTimeout,
             requests.ConnectionError,
@@ -388,28 +393,22 @@ def _fetch_page(
     logger: FilteringBoundLogger,
     egress_identity: GithubEgressIdentity | None = None,
 ) -> requests.Response:
-    # Gate deferrable warehouse polling on the shared per-installation budget BEFORE spending it.
-    # Only the App path has an installation to bill (PAT path has no shared budget). On denial raise
-    # the retryable error so tenacity backs off instead of blocking a worker — bulk traffic defers,
-    # critical traffic keeps the headroom the BATCH reserve protects. Skipped entirely on the PAT path.
+    # One gated + recorded GET through the shared egress client. The App path bills the shared
+    # per-installation budget at BATCH (deferrable bulk); the PAT path (installation_id None) skips the
+    # gate and records volume only. On a BATCH denial the client raises GitHubEgressBudgetExhausted, which
+    # this function's @retry backs off on; transport failures are recorded and re-raised for the same
+    # retry. We keep our own tracked session and the GitHub response→exception mapping below.
     installation_id = egress_identity.installation_id if egress_identity is not None else None
-    if installation_id is not None:
-        if not consume_github_installation_sync(installation_id, priority=Priority.BATCH, source="warehouse"):
-            raise GithubRetryableError(f"GitHub egress budget exhausted for installation {installation_id}; deferring")
-
-    # Record transport failures (ReadTimeout/ConnectionError from the retry tuple) too, so a GitHub
-    # connectivity incident doesn't silently zero out warehouse telemetry exactly when it matters. Best
-    # effort — the recorder never raises, and we re-raise the original error untouched.
-    try:
-        response = make_tracked_session(retry=_NO_ADAPTER_RETRY).get(page_url, headers=headers, timeout=60)
-    except requests.RequestException:
-        record_github_api_exception(source="warehouse", method="GET", url=page_url, installation_id=installation_id)
-        raise
-
-    # Record before the branching below so rate-limited (403/429) and error responses count too. Pass the
-    # installation id when known (App path) so the shared rate-limit gauges are set; the PAT path stays
-    # counter-only (no installation, token-blind).
-    record_github_api_response(response, source="warehouse", installation_id=installation_id)
+    response = github_request(
+        "GET",
+        page_url,
+        source="warehouse",
+        headers=headers,
+        installation_id=installation_id,
+        priority=Priority.BATCH,
+        timeout=60,
+        session=make_tracked_session(retry=_NO_ADAPTER_RETRY),
+    )
 
     # Transient server errors: retry with plain exponential backoff.
     if response.status_code >= 500:

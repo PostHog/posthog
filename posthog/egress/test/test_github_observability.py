@@ -7,12 +7,12 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 from requests.structures import CaseInsensitiveDict
 
-from posthog.rate_limiting.github_observability import (
+from posthog.egress.github.observability import (
     _normalize_github_endpoint,
     record_github_api_exception,
     record_github_api_response,
 )
-from posthog.rate_limiting.observability import (
+from posthog.egress.observability.observability import (
     default_normalize_endpoint,
     record_outbound_api_response,
     resolve_egress_observability,
