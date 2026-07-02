@@ -22741,6 +22741,40 @@
             "required": ["key", "operator", "type", "value"],
             "type": "object"
         },
+        "ForecastConditionType": {
+            "enum": ["future_breach", "band_deviation"],
+            "type": "string"
+        },
+        "ForecastConfig": {
+            "additionalProperties": false,
+            "description": "Configuration for forecast alerts. Requires a time-series trends insight without breakdowns.",
+            "properties": {
+                "condition": {
+                    "$ref": "#/definitions/ForecastConditionType"
+                },
+                "engine": {
+                    "$ref": "#/definitions/ForecastEngineType"
+                },
+                "horizon": {
+                    "$ref": "#/definitions/integer",
+                    "description": "How many future intervals to forecast when checking for a threshold breach (future_breach only). Default 7, max 30."
+                },
+                "interval_width": {
+                    "description": "Width of the forecast uncertainty band as a fraction, e.g. 0.8 or 0.95 (default 0.95).",
+                    "type": "number"
+                },
+                "type": {
+                    "const": "ForecastConfig",
+                    "type": "string"
+                }
+            },
+            "required": ["type", "engine", "condition"],
+            "type": "object"
+        },
+        "ForecastEngineType": {
+            "const": "prophet",
+            "type": "string"
+        },
         "FormDismissPayload": {
             "additionalProperties": false,
             "properties": {

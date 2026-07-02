@@ -104,6 +104,7 @@ from posthog.schema_enums import (
     ExternalQueryStatus as ExternalQueryStatus,
     FileSystemIconType as FileSystemIconType,
     FilterLogicalOperator as FilterLogicalOperator,
+    ForecastConditionType as ForecastConditionType,
     FunnelAggregateByHogQL as FunnelAggregateByHogQL,
     FunnelConversionMetric as FunnelConversionMetric,
     FunnelConversionWindowTimeUnit as FunnelConversionWindowTimeUnit,
@@ -5273,6 +5274,26 @@ class FileSystemImport(BaseModel):
         description="Type of object, used for icon, e.g. feature_flag, insight, etc",
     )
     visualOrder: float | None = Field(default=None, description="Order of object in tree")
+
+
+class ForecastConfig(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    condition: ForecastConditionType
+    engine: Literal["prophet"] = "prophet"
+    horizon: int | None = Field(
+        default=None,
+        description=(
+            "How many future intervals to forecast when checking for a threshold breach"
+            " (future_breach only). Default 7, max 30."
+        ),
+    )
+    interval_width: float | None = Field(
+        default=None,
+        description=("Width of the forecast uncertainty band as a fraction, e.g. 0.8 or 0.95 (default 0.95)."),
+    )
+    type: Literal["ForecastConfig"] = "ForecastConfig"
 
 
 class FormResumePayload(BaseModel):
