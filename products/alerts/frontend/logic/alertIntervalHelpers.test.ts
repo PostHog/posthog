@@ -19,7 +19,7 @@ describe('alertIntervalHelpers', () => {
 
     describe('getDefaultSimulationRange', () => {
         it.each([
-            [AlertCalculationInterval.REAL_TIME, '-2h'],
+            [AlertCalculationInterval.REAL_TIME, '-1h'],
             [AlertCalculationInterval.EVERY_15_MINUTES, '-12h'],
             [AlertCalculationInterval.HOURLY, '-48h'],
             [AlertCalculationInterval.DAILY, '-30d'],
