@@ -618,6 +618,10 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         else:
             detector_config = None
 
+        # No serializer field for forecast_config yet (wired up in a follow-up task) — only read it
+        # back off an existing instance, so re-validating a forecast alert on unrelated edits stays safe.
+        forecast_config = self.instance.forecast_config if self.instance is not None else None
+
         require_threshold_bounds = detector_config is None and (
             self.instance is None or "threshold" in attrs or "detector_config" in attrs
         )
@@ -631,6 +635,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
                 calculation_interval,
                 detector_config=detector_config,
                 require_threshold_bounds=require_threshold_bounds,
+                forecast_config=forecast_config,
             )
         except ValueError as e:
             if str(e) == THRESHOLD_BOUNDS_REQUIRED_MESSAGE:

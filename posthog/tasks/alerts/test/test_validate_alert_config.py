@@ -530,3 +530,97 @@ class TestValidateAlertConfig:
             "daily",
             require_threshold_bounds=False,
         )
+
+
+VALID_FORECAST = {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach", "horizon": 7}
+TRENDS_QUERY = {"kind": "TrendsQuery", "series": [{"kind": "EventsNode", "event": "$pageview"}]}
+TRENDS_CONFIG = {"type": "TrendsAlertConfig", "series_index": 0}
+ABS_THRESHOLD = {"type": "absolute", "bounds": {"upper": 100}}
+
+
+class TestForecastConfigValidation:
+    @parameterized.expand(
+        [
+            ("horizon_zero", {**VALID_FORECAST, "horizon": 0}, "horizon"),
+            ("horizon_too_big", {**VALID_FORECAST, "horizon": 31}, "horizon"),
+            ("bad_interval_width", {**VALID_FORECAST, "interval_width": 1.5}, "interval_width"),
+            ("unknown_engine", {**VALID_FORECAST, "engine": "chronos"}, "engine"),
+            ("unknown_condition", {**VALID_FORECAST, "condition": "nope"}, "condition"),
+        ]
+    )
+    def test_invalid_forecast_config_rejected(self, _name, forecast_config, match):
+        with pytest.raises(ValueError, match=match):
+            validate_alert_config(
+                TRENDS_QUERY,
+                {"type": "absolute_value"},
+                TRENDS_CONFIG,
+                ABS_THRESHOLD,
+                calculation_interval="daily",
+                forecast_config=forecast_config,
+            )
+
+    def test_valid_forecast_config_accepted(self):
+        validate_alert_config(
+            TRENDS_QUERY,
+            {"type": "absolute_value"},
+            TRENDS_CONFIG,
+            ABS_THRESHOLD,
+            calculation_interval="daily",
+            forecast_config=VALID_FORECAST,
+        )
+
+    def test_forecast_and_detector_mutually_exclusive(self):
+        with pytest.raises(ValueError, match="both"):
+            validate_alert_config(
+                TRENDS_QUERY,
+                {"type": "absolute_value"},
+                TRENDS_CONFIG,
+                ABS_THRESHOLD,
+                calculation_interval="daily",
+                detector_config={"type": "zscore"},
+                forecast_config=VALID_FORECAST,
+            )
+
+    def test_future_breach_requires_threshold_bounds(self):
+        with pytest.raises(ValueError, match="threshold"):
+            validate_alert_config(
+                TRENDS_QUERY,
+                {"type": "absolute_value"},
+                TRENDS_CONFIG,
+                None,
+                calculation_interval="daily",
+                forecast_config=VALID_FORECAST,
+            )
+
+    def test_band_deviation_needs_no_threshold(self):
+        validate_alert_config(
+            TRENDS_QUERY,
+            {"type": "absolute_value"},
+            TRENDS_CONFIG,
+            None,
+            calculation_interval="daily",
+            forecast_config={"type": "ForecastConfig", "engine": "prophet", "condition": "band_deviation"},
+        )
+
+    def test_forecast_rejects_non_trends(self):
+        with pytest.raises(ValueError, match="[Ff]orecast"):
+            validate_alert_config(
+                {"kind": "HogQLQuery", "query": "select 1"},
+                {"type": "absolute_value"},
+                {"type": "HogQLAlertConfig", "evaluation": "last_row"},
+                ABS_THRESHOLD,
+                calculation_interval="daily",
+                forecast_config=VALID_FORECAST,
+            )
+
+    def test_forecast_rejects_breakdown(self):
+        query = {**TRENDS_QUERY, "breakdownFilter": {"breakdown": "$browser", "breakdown_type": "event"}}
+        with pytest.raises(ValueError, match="breakdown"):
+            validate_alert_config(
+                query,
+                {"type": "absolute_value"},
+                TRENDS_CONFIG,
+                ABS_THRESHOLD,
+                calculation_interval="daily",
+                forecast_config=VALID_FORECAST,
+            )

@@ -7,6 +7,8 @@ from posthog.schema import (
     AlertCalculationInterval,
     AlertCondition,
     AlertConditionType,
+    ForecastConditionType,
+    ForecastConfig,
     FunnelsAlertConfig,
     FunnelsQuery,
     HogQLAlertConfig,
@@ -21,8 +23,9 @@ from posthog.schema import (
 from posthog.tasks.alerts.utils import WRAPPER_NODE_KINDS, is_non_time_series_trend
 from posthog.utils import get_from_dict_or_attr
 
-from products.alerts.backend.evaluation.dispatcher import DETECTOR_EXTRACTORS
+from products.alerts.backend.evaluation.dispatcher import DETECTOR_EXTRACTORS, FORECAST_EXTRACTORS
 from products.alerts.backend.evaluation.funnel_strategies import strategy_for_viz
+from products.alerts.backend.forecasting.engine import MAX_FORECAST_HORIZON
 
 THRESHOLD_BOUNDS_REQUIRED_MESSAGE = "At least one threshold bound (lower or upper) must be provided."
 
@@ -38,6 +41,7 @@ class _AlertConfigValidationContext:
     threshold_config: dict | None
     require_threshold_bounds: bool
     detector_config: dict | None
+    forecast_config: dict | None
 
 
 def insight_threshold_has_bounds(threshold_config: dict | None) -> bool:
@@ -94,7 +98,7 @@ def _validate_hogql_alert_config(ctx: _AlertConfigValidationContext) -> None:
         # series. Reject at config time so the alert can't be saved only to fail every check.
         raise ValueError("Anomaly detection isn't supported for any-row SQL alerts — use last-row or first-row")
     _validate_condition_threshold_compatibility(ctx.parsed_condition, ctx.threshold_config)
-    if ctx.require_threshold_bounds and ctx.detector_config is None:
+    if ctx.require_threshold_bounds and ctx.detector_config is None and ctx.forecast_config is None:
         validate_threshold_bounds_required(ctx.threshold_config)
 
 
@@ -140,7 +144,7 @@ def _validate_trends_alert_config(ctx: _AlertConfigValidationContext) -> None:
                 f"check_ongoing_interval is only supported for alert condition {ctx.parsed_condition.type} when upper threshold is specified"
             )
 
-    if ctx.require_threshold_bounds and ctx.detector_config is None:
+    if ctx.require_threshold_bounds and ctx.detector_config is None and ctx.forecast_config is None:
         validate_threshold_bounds_required(ctx.threshold_config)
 
 
@@ -164,8 +168,35 @@ def _validate_funnels_alert_config(ctx: _AlertConfigValidationContext) -> None:
         raise ValueError("This funnel only supports absolute value conditions")
     strategy.validate_config(funnels_query, parsed)
     _validate_condition_threshold_compatibility(ctx.parsed_condition, ctx.threshold_config)
-    if ctx.require_threshold_bounds and ctx.detector_config is None:
+    if ctx.require_threshold_bounds and ctx.detector_config is None and ctx.forecast_config is None:
         validate_threshold_bounds_required(ctx.threshold_config)
+
+
+def _validate_forecast_config(
+    forecast_config: dict, kind: str | None, query: dict, threshold_config: dict | None
+) -> None:
+    if kind not in FORECAST_EXTRACTORS:
+        raise ValueError(f"Forecast alerts aren't supported for {kind} insights")
+    try:
+        parsed = ForecastConfig.model_validate(forecast_config)
+    except Exception:
+        raise ValueError(
+            f"Alert has invalid forecast config (engine/condition/horizon/interval_width): {forecast_config}"
+        )
+    if parsed.horizon is not None and not (1 <= parsed.horizon <= MAX_FORECAST_HORIZON):
+        raise ValueError(f"Forecast horizon must be between 1 and {MAX_FORECAST_HORIZON}")
+    if parsed.interval_width is not None and not (0 < parsed.interval_width < 1):
+        raise ValueError("Forecast interval_width must be between 0 and 1 (e.g. 0.8 or 0.95)")
+    try:
+        trends_query = TrendsQuery.model_validate(query)
+    except Exception as e:
+        raise ValueError(f"Alert's insight has an invalid TrendsQuery: {e}")
+    if is_non_time_series_trend(trends_query):
+        raise ValueError("Forecast alerts require a time series trends insight")
+    if trends_query.breakdownFilter and trends_query.breakdownFilter.breakdown is not None:
+        raise ValueError("Forecast alerts don't support breakdowns yet")
+    if parsed.condition == ForecastConditionType.FUTURE_BREACH:
+        validate_threshold_bounds_required(threshold_config)
 
 
 # Per-config-type validators, mirroring the extractor registry in dispatcher.py: one entry per
@@ -185,6 +216,7 @@ def validate_alert_config(
     calculation_interval: str | None = None,
     detector_config: dict | None = None,
     require_threshold_bounds: bool = True,
+    forecast_config: dict | None = None,
 ) -> None:
     """Validate alert configuration dicts. Raises ValueError on failure.
 
@@ -215,6 +247,11 @@ def validate_alert_config(
     if detector_config is not None and kind not in DETECTOR_EXTRACTORS:
         raise ValueError(f"Anomaly detection alerts aren't supported for {kind} insights")
 
+    if forecast_config is not None:
+        if detector_config is not None:
+            raise ValueError("An alert can't have both anomaly detection and forecast configured")
+        _validate_forecast_config(forecast_config, kind, query, threshold_config)
+
     validator = _ALERT_CONFIG_VALIDATORS.get(config_type) if isinstance(config_type, str) else None
     if validator is None:
         raise ValueError(f"Unsupported alert config type: {config}")
@@ -227,5 +264,6 @@ def validate_alert_config(
             threshold_config=threshold_config,
             require_threshold_bounds=require_threshold_bounds,
             detector_config=detector_config,
+            forecast_config=forecast_config,
         )
     )
