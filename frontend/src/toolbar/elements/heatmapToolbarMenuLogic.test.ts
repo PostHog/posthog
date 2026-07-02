@@ -15,7 +15,7 @@ function statsRow(overrides: Partial<ElementsEventType>): ElementsEventType {
 describe('dedupeByChainIdentity', () => {
     const cases = [
         {
-            name: 'keeps distinct chains even though the API returns hash null for every row',
+            name: 'keeps distinct chains when a legacy server returns hash null',
             events: [
                 statsRow({ elements: [{ tag_name: 'button', attributes: {} }] as ElementsEventType['elements'] }),
                 statsRow({ elements: [{ tag_name: 'a', attributes: {} }] as ElementsEventType['elements'] }),
@@ -23,7 +23,7 @@ describe('dedupeByChainIdentity', () => {
             expectedCount: 2,
         },
         {
-            name: 'drops a chain repeated across paginated pages, keeping the first occurrence',
+            name: 'drops a null-hash chain repeated across paginated pages, keeping the first occurrence',
             events: [statsRow({ count: 10 }), statsRow({ count: 3 })],
             expectedCount: 1,
         },
@@ -31,6 +31,16 @@ describe('dedupeByChainIdentity', () => {
             name: 'keeps identical chains that differ by event type',
             events: [statsRow({ type: '$autocapture' }), statsRow({ type: '$rageclick' })],
             expectedCount: 2,
+        },
+        {
+            name: 'keeps distinct hashes even when attribute trimming made the chains serialize identically',
+            events: [statsRow({ hash: 'abc123' }), statsRow({ hash: 'def456' })],
+            expectedCount: 2,
+        },
+        {
+            name: 'drops a repeated hash across paginated pages, keeping the first occurrence',
+            events: [statsRow({ hash: 'abc123', count: 10 }), statsRow({ hash: 'abc123', count: 3 })],
+            expectedCount: 1,
         },
     ]
 
