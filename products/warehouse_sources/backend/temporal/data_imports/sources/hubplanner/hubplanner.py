@@ -135,8 +135,8 @@ def _build_request_plan(
     if config.list_via_search or incremental_active:
         body: dict[str, Any] = {}
         sort_field: Optional[str] = None
-        if incremental_active:
-            field_name = config.incremental_search_field
+        field_name = config.incremental_search_field
+        if incremental_active and field_name is not None:
             # Sort ascending on the cursor field so rows arrive oldest-first and the pipeline's
             # incremental watermark advances safely (matches SourceResponse.sort_mode="asc").
             sort_field = field_name
