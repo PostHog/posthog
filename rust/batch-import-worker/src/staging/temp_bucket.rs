@@ -102,7 +102,7 @@ impl StagingBackend for TempBucketBackend {
             match block {
                 Ok(block) => {
                     if let Err(e) = writer.write_all(&block).await {
-                        drop(writer.abort().await);
+                        abort_quietly(&mut writer, key).await;
                         return Err(Error::from(e)
                             .context(format!("Failed to write staged data for key: {key}")));
                     }
@@ -111,7 +111,7 @@ impl StagingBackend for TempBucketBackend {
                 Err(e) => {
                     // Decode/ceiling error from the pipeline: abort so no readable object
                     // is left, and preserve the (possibly user-facing) error chain.
-                    drop(writer.abort().await);
+                    abort_quietly(&mut writer, key).await;
                     return Err(e.context(format!("Failed to stage part for key: {key}")));
                 }
             }
@@ -173,6 +173,16 @@ impl StagingBackend for TempBucketBackend {
         }
         self.sizes.lock().await.remove(key);
         Ok(())
+    }
+}
+
+/// Abort an in-flight multipart upload, logging (not failing) if the abort itself errors.
+/// Atomicity holds either way — an aborted or failed upload leaves no readable object — but a
+/// failed abort can orphan multipart parts until the bucket lifecycle rule reclaims them, so
+/// make that visible to operators.
+async fn abort_quietly(writer: &mut BufWriter, key: &str) {
+    if let Err(abort_err) = writer.abort().await {
+        warn!("Failed to abort staged upload for key {key}: {abort_err}");
     }
 }
 
