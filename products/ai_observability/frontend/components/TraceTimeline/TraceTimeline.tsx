@@ -93,9 +93,8 @@ export function TraceTimeline({
         return result
     }, [bars])
 
-    // A single bar spanning the full width says nothing — only render when the
-    // timeline can actually show how the trace's latency breaks down.
-    if (bars.length < 2 || totalMs <= 0) {
+    // Nothing to draw without at least one bar of nonzero width.
+    if (!bars.length || totalMs <= 0) {
         return null
     }
 
@@ -143,7 +142,7 @@ export function TraceTimeline({
             </div>
             {!collapsed && (
                 <div className="px-3 pb-2">
-                    <div className="relative h-4 text-[10px] leading-4 text-muted">
+                    <div className="relative h-4 mb-1.5 text-[10px] leading-4 text-muted">
                         {ticks.map((tick) => (
                             <span
                                 key={tick}
