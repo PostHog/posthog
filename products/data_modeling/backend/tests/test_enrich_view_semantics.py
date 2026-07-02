@@ -316,3 +316,37 @@ class TestMaybeDispatchEnrichment:
             on_commit.call_args.args[0]()
 
         start_workflow.assert_called_once_with(sq.team_id, str(sq.id))
+
+
+class TestDispatchOnSave:
+    """The post_save signal → maybe_dispatch_enrichment → on_commit → workflow start path."""
+
+    def test_creating_view_dispatches_once(self, django_capture_on_commit_callbacks):
+        team = _team()
+        with patch.object(enrich, "_start_enrichment_workflow") as mock_start:
+            with django_capture_on_commit_callbacks(execute=True):
+                sq = _saved_query(team, columns=_columns("amount"), query="SELECT amount FROM events")
+        mock_start.assert_called_once_with(team.id, str(sq.id))
+
+    def test_status_only_save_does_not_dispatch(self, django_capture_on_commit_callbacks):
+        team = _team()
+        with patch.object(enrich, "_start_enrichment_workflow") as mock_start:
+            sq = _saved_query(team, columns=_columns("amount"), query="SELECT amount FROM events")
+            mock_start.reset_mock()
+            with django_capture_on_commit_callbacks(execute=True):
+                sq.status = DataWarehouseSavedQuery.Status.COMPLETED
+                sq.save(update_fields=["status"])
+        mock_start.assert_not_called()
+
+    def test_unchanged_hash_save_does_not_dispatch(self, django_capture_on_commit_callbacks):
+        team = _team()
+        with patch.object(enrich, "_start_enrichment_workflow") as mock_start:
+            sq = _saved_query(team, columns=_columns("amount"), query="SELECT amount FROM events")
+            DataWarehouseSavedQuery.objects.filter(id=sq.id).update(
+                semantic_enrichment_hash=compute_enrichment_hash(sq)
+            )
+            sq.refresh_from_db()
+            mock_start.reset_mock()
+            with django_capture_on_commit_callbacks(execute=True):
+                sq.save(update_fields=["query"])
+        mock_start.assert_not_called()
