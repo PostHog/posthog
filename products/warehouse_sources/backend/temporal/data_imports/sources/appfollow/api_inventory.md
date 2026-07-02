@@ -33,7 +33,7 @@ auth via the `X-AppFollow-API-Token` header. Docs: <https://docs.api.appfollow.i
 AppFollow is app-centric: most data is queried per app by its store `ext_id`, and the only way to
 enumerate a workspace's apps is:
 
-```
+```text
 /account/apps            -> collections (id, title, title_normalized)
   /account/apps/app?apps_id=<id>  -> apps (ext_id, store, app_id) per collection
 ```
