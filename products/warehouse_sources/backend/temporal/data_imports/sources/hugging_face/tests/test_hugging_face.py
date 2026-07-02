@@ -129,7 +129,9 @@ class TestFetchPage:
         response = MagicMock()
         response.status_code = 401
         response.ok = False
-        response.raise_for_status.side_effect = requests.HTTPError("401 Client Error: Unauthorized", response=None)
+        response.raise_for_status.side_effect = requests.HTTPError(
+            "401 Client Error: Unauthorized", response=requests.Response()
+        )
         session = MagicMock()
         session.get.return_value = response
         with pytest.raises(requests.HTTPError):
