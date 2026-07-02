@@ -196,8 +196,8 @@ function SessionsEmptyState({ reason }: { reason: SessionsEmptyReason }): JSX.El
             <div className="flex flex-col items-center gap-2 p-6 text-center text-sm text-secondary">
                 <p className="m-0 font-semibold text-primary">These events aren't grouped into sessions</p>
                 <p className="m-0">
-                    There's AI activity in this time range, but none of it is tagged with a session id, so it can't
-                    be grouped into sessions. Set <code>$ai_session_id</code> in your SDK to group related traces.
+                    There's AI activity in this time range, but none of it is tagged with a session id, so it can't be
+                    grouped into sessions. Set <code>$ai_session_id</code> in your SDK to group related traces.
                 </p>
                 <Link to={SESSIONS_DOCS_URL} target="_blank">
                     Learn how to set up sessions

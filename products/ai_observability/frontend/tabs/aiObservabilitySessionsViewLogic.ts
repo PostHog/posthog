@@ -185,10 +185,7 @@ export const aiObservabilitySessionsViewLogic = kea<aiObservabilitySessionsViewL
             requestId: number
         ): Promise<void> => {
             try {
-                const response = await api.query(
-                    { ...source, query: EMPTY_REASON_PROBE_QUERY },
-                    { refresh }
-                )
+                const response = await api.query({ ...source, query: EMPTY_REASON_PROBE_QUERY }, { refresh })
                 if (requestId !== loadSessionsRequestId) {
                     return
                 }
