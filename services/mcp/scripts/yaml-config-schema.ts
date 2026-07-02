@@ -436,6 +436,15 @@ export const QueryWrapperToolConfigSchema = z
         /** Properties to exclude from the generated Zod schema */
         exclude_properties: z.array(z.string()).optional(),
         /**
+         * Cap the tool's response to an agent-consumable size. Intended for LLM trace queries,
+         * whose full per-generation content plus high event counts routinely overflow the caller's
+         * context window. Bounds per-field size, total content size, and event count while keeping
+         * the tree structure and lightweight metadata intact; the complete trace stays available in
+         * the PostHog UI via `_posthogUrl`. Note: `exclude_properties` only trims the tool's *input*
+         * schema — this is the lever that trims the *response*.
+         */
+        truncate_response: z.boolean().optional(),
+        /**
          * Set to `true` when the wrapper's `schema_ref` has a matching formatter in
          * `ee/hogai/context/insight/format/`. Enabling this:
          *   - surfaces the formatter's LLM-friendly text output (via the backend's `formatted_results`)
