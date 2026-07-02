@@ -420,4 +420,26 @@ describe('customPropertyDefinitionsLogic', () => {
         ])
         expect(window.open).toHaveBeenCalledWith('/workflows/new/workflow', '_blank')
     })
+
+    it('opens the editor without re-creating an already-existing property', async () => {
+        let definitionCreated = false
+        useMocks({
+            ...defaultMocks(),
+            post: {
+                ...defaultMocks().post,
+                [DEFINITIONS_URL]: () => {
+                    definitionCreated = true
+                    return buildDefinition({ id: 'def-2' })
+                },
+            },
+        })
+        mountLogic()
+        logic.actions.openEditModal(buildDefinition())
+
+        await expectLogic(logic, () => logic.actions.createWorkflowForProperty()).toDispatchActions([
+            'createWorkflowForPropertySuccess',
+        ])
+        expect(definitionCreated).toBe(false)
+        expect(window.open).toHaveBeenCalledWith('/workflows/new/workflow', '_blank')
+    })
 })
