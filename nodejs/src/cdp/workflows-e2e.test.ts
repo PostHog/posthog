@@ -69,6 +69,22 @@ import { convertToHogFunctionFilterGlobal } from './utils/hog-function-filtering
 
 const ActualKafkaProducerWrapper = jest.requireActual('~/common/kafka/producer').KafkaProducerWrapper
 
+// DNS is mocked (like fetch) because EmailValidationService's MX lookups are a real
+// network boundary: validation is fail-open, so a CI resolver hiccup would silently
+// turn a "skipped hard bounce" assertion into a sent email — a guaranteed flake.
+// Implementations are domain-aware and set in the email-queue block's beforeEach.
+const mockDnsResolveMx = jest.fn()
+const mockDnsResolve4 = jest.fn()
+const mockDnsResolve6 = jest.fn()
+
+jest.mock('node:dns/promises', () => ({
+    Resolver: jest.fn().mockImplementation(() => ({
+        resolveMx: mockDnsResolveMx,
+        resolve4: mockDnsResolve4,
+        resolve6: mockDnsResolve6,
+    })),
+}))
+
 // Use the same env vars as config.ts (lines 221-229) so cleanup pools and hub target the same DBs
 const CYCLOTRON_NODE_DB_URL =
     process.env.CYCLOTRON_NODE_DATABASE_URL ?? 'postgres://posthog:posthog@localhost:5432/test_cyclotron_node'
@@ -1616,6 +1632,21 @@ describe('Workflows E2E (email queue)', () => {
         // captured in `MessageAssetsService` at instantiation.
         hub.MESSAGE_ASSETS_CAPTURE_ENABLED = true
 
+        // Enforce mode for the whole block: existing tests prove deliverable recipients
+        // pass validation untouched; the skip test proves dead domains never reach the queue.
+        hub.CDP_EMAIL_MX_VALIDATION_ENABLED = true
+        hub.CDP_EMAIL_MX_VALIDATION_ENFORCE_TEAMS = '*'
+
+        // `.invalid` domains are NXDOMAIN, everything else resolves as deliverable.
+        const nxdomain = () => Promise.reject(Object.assign(new Error('queryMx ENOTFOUND'), { code: 'ENOTFOUND' }))
+        mockDnsResolveMx.mockImplementation((domain: string) =>
+            domain.endsWith('.invalid') ? nxdomain() : Promise.resolve([{ exchange: 'mx.example.com', priority: 10 }])
+        )
+        mockDnsResolve4.mockImplementation((domain: string) =>
+            domain.endsWith('.invalid') ? nxdomain() : Promise.resolve(['1.2.3.4'])
+        )
+        mockDnsResolve6.mockImplementation(() => Promise.resolve([]))
+
         kafkaProducer = await ActualKafkaProducerWrapper.create(hub.KAFKA_CLIENT_RACK)
         mockProducerObserver = new KafkaProducerObserver(kafkaProducer)
 
@@ -1799,6 +1830,78 @@ describe('Workflows E2E (email queue)', () => {
                 (j: any) => j.status === 'completed' || j.status === 'failed' || j.status === 'canceled'
             )
             expect(terminal.length).toBeGreaterThanOrEqual(1)
+        }, 10000)
+    })
+
+    it('skips a predicted hard bounce before the email queue and completes the workflow', async () => {
+        // Locks down the pipeline sequencing the unit tests can't: the MX-validation
+        // skip happens on the hogflow worker BEFORE routeEmailToQueue, so a dead-domain
+        // recipient must produce no email_queued/email_sent, no billable_invocation,
+        // exactly one email_bounce_prevented, and a workflow that still runs to exit
+        // instead of wedging on the email queue.
+        const hogFlow = new FixtureHogFlowBuilder()
+            .withTeamId(team.id)
+            .withStatus('active')
+            .withExitCondition('exit_only_at_end')
+            .withWorkflow({
+                actions: {
+                    trigger: {
+                        type: 'trigger',
+                        config: { type: 'event', filters: HOG_FILTERS_EXAMPLES.no_filters.filters ?? {} },
+                    },
+                    email_1: {
+                        type: 'function_email',
+                        config: {
+                            template_id: 'template-workflows-e2e-email',
+                            inputs: {
+                                email: {
+                                    value: {
+                                        to: { email: 'recipient@dead.invalid', name: 'Recipient' },
+                                        from: { integrationId: 1, email: 'sender@posthog.com' },
+                                        subject: 'Predicted bounce',
+                                        text: 'Should never send',
+                                        html: '<p>Should never send</p>',
+                                    },
+                                },
+                            },
+                        },
+                    },
+                    exit: { type: 'exit', config: {} },
+                },
+                edges: [
+                    { from: 'trigger', to: 'email_1', type: 'continue' },
+                    { from: 'email_1', to: 'exit', type: 'continue' },
+                ],
+            })
+            .build()
+        await insertHogFlow(hub.postgres, hogFlow)
+
+        const { backgroundTask } = await eventsConsumer.processBatch([createGlobals()])
+        await backgroundTask
+
+        await waitForExpect(() => {
+            const sumCounts = (filter: (m: any) => boolean) =>
+                mockProducerObserver
+                    .getProducedKafkaMessagesForTopic(KAFKA_APP_METRICS_2)
+                    .filter(filter)
+                    .reduce((sum: number, m: any) => sum + m.value.count, 0)
+
+            // Wait for the two positive signals first — once the exit 'succeeded' metric
+            // has flushed, the absence of email metrics below is meaningful, since
+            // email_queued would have been emitted earlier in the pipeline.
+            expect(sumCounts((m) => m.value.metric_name === 'email_bounce_prevented')).toBe(1)
+            expect(sumCounts((m) => m.value.metric_name === 'succeeded' && m.value.instance_id === 'exit')).toBe(1)
+
+            expect(sumCounts((m) => m.value.metric_name === 'email_queued')).toBe(0)
+            expect(sumCounts((m) => m.value.metric_name === 'email_sent')).toBe(0)
+            expect(sumCounts((m) => m.value.metric_name === 'email_failed')).toBe(0)
+            expect(sumCounts((m) => m.value.metric_name === 'billable_invocation')).toBe(0)
+        }, 15000)
+
+        await waitForExpect(async () => {
+            const jobs = await queryCyclotronJobs()
+            expect(jobs.filter((j: any) => j.status === 'completed').length).toBeGreaterThanOrEqual(1)
+            expect(jobs.filter((j: any) => j.status === 'failed').length).toBe(0)
         }, 10000)
     })
 
