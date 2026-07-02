@@ -314,15 +314,13 @@ function SessionSceneWrapper({ showBreadcrumb = false }: { showBreadcrumb?: bool
             >
                 {drawerTraceId ? (
                     <div className="flex flex-col gap-3">
-                        {(fullTraces[drawerTraceId]?.events?.length ?? 0) > 0 && (
-                            <TraceTimeline
-                                events={fullTraces[drawerTraceId]?.events ?? []}
-                                selectedEventId={
-                                    expandedGenerationIds.size === 1 ? Array.from(expandedGenerationIds)[0] : null
-                                }
-                                onSelectEvent={focusGenerationExpanded}
-                            />
-                        )}
+                        <TraceTimeline
+                            events={fullTraces[drawerTraceId]?.events ?? []}
+                            selectedEventId={
+                                expandedGenerationIds.size === 1 ? Array.from(expandedGenerationIds)[0] : null
+                            }
+                            onSelectEvent={focusGenerationExpanded}
+                        />
                         <AIObservabilityTraceEvents
                             trace={fullTraces[drawerTraceId]}
                             isLoading={loadingFullTraces.has(drawerTraceId)}

@@ -2,60 +2,109 @@ import { LLMTraceEvent } from '~/queries/schema/schema-general'
 
 import { buildTraceTimeline } from './buildTraceTimeline'
 
-function ev(id: string, isoOffsetMs: number, latencySec: number, extra: Record<string, any> = {}): LLMTraceEvent {
+const T0 = 1_000_000_000_000
+
+function ev(
+    id: string,
+    event: string,
+    atMs: number,
+    latencySec?: number,
+    props: Record<string, any> = {}
+): LLMTraceEvent {
     return {
         id,
-        event: '$ai_generation',
-        createdAt: new Date(1_000_000_000_000 + isoOffsetMs).toISOString(),
-        properties: { $ai_latency: latencySec, ...extra },
+        event,
+        createdAt: new Date(T0 + atMs).toISOString(),
+        properties: {
+            $ai_trace_id: 't1',
+            ...(latencySec !== undefined ? { $ai_latency: latencySec } : {}),
+            ...props,
+        },
     }
 }
 
 describe('buildTraceTimeline', () => {
-    it('positions bars by timestamp offset and latency', () => {
-        const { bars, totalMs, laneCount } = buildTraceTimeline([ev('a', 0, 1), ev('b', 2000, 0.5)])
-        expect(bars).toHaveLength(2)
-        expect(bars[0]).toMatchObject({ id: 'a', startMs: 0, durationMs: 1000, lane: 0 })
-        expect(bars[1]).toMatchObject({ id: 'b', startMs: 2000, durationMs: 500, lane: 0 })
-        expect(totalMs).toBe(2500)
-        expect(laneCount).toBe(1) // sequential, non-overlapping → one lane
-    })
-
-    it('stacks overlapping (nested) events into separate lanes', () => {
-        // a generation 0–2000ms containing a span 500–1000ms — they overlap in time
-        const { bars, laneCount } = buildTraceTimeline([
-            ev('gen', 0, 2),
-            ev('span', 500, 0.5, { $ai_span_name: 'tool', event: '$ai_span' }),
+    it('nests SDK events (createdAt = operation end) under their parents, one lane per depth', () => {
+        // Root trace ends at 3000ms, the agent span inside it at 2800ms, the
+        // generation inside that at 1500ms — each bar must start latency before it.
+        const { bars, totalMs, laneCount } = buildTraceTimeline([
+            ev('root', '$ai_trace', 3000, 3, { $ai_span_id: 't1' }),
+            ev('agent', '$ai_span', 2800, 2.5, { $ai_span_id: 's1', $ai_parent_id: 't1' }),
+            ev('gen', '$ai_generation', 1500, 1, {
+                $ai_generation_id: 'g1',
+                $ai_parent_id: 's1',
+                $ai_is_error: true,
+            }),
         ])
-        expect(bars[0]).toMatchObject({ startMs: 0, durationMs: 2000 })
-        expect(bars[1]).toMatchObject({ startMs: 500, durationMs: 500 })
-        expect(bars[0].lane).not.toBe(bars[1].lane)
-        expect(laneCount).toBe(2)
-    })
-
-    it('marks error events', () => {
-        const { bars } = buildTraceTimeline([ev('a', 0, 1, { $ai_is_error: true })])
-        expect(bars[0].isError).toBe(true)
-    })
-
-    it('falls back to sequential layout when timestamps have no spread', () => {
-        // both events share the same createdAt — lay them out back-to-back by latency
-        const { bars, totalMs, laneCount } = buildTraceTimeline([ev('a', 0, 1), ev('b', 0, 2)])
-        expect(bars[0]).toMatchObject({ startMs: 0, durationMs: 1000 })
-        expect(bars[1]).toMatchObject({ startMs: 1000, durationMs: 2000 })
+        expect(bars).toEqual([
+            expect.objectContaining({ id: 'root', startMs: 0, durationMs: 3000, lane: 0, kind: 'trace' }),
+            expect.objectContaining({ id: 'agent', startMs: 300, durationMs: 2500, lane: 1, kind: 'span' }),
+            expect.objectContaining({
+                id: 'gen',
+                startMs: 500,
+                durationMs: 1000,
+                lane: 2,
+                kind: 'generation',
+                isError: true,
+            }),
+        ])
         expect(totalMs).toBe(3000)
-        expect(laneCount).toBe(1) // back-to-back, no overlap → one lane
+        expect(laneCount).toBe(3)
     })
 
-    it('caps each label to the room before the next bar in its lane', () => {
-        const seq = buildTraceTimeline([ev('a', 0, 1), ev('b', 2000, 0.5)])
-        expect(seq.bars[0].labelRoomMs).toBe(2000) // up to b's start
-        expect(seq.bars[1].labelRoomMs).toBe(500) // last in lane → up to the trace end (2500 - 2000)
+    it('keeps OTel-ingested events (createdAt = span start) at their timestamp', () => {
+        // Same trace as above but stamped at span starts, as the OTel pipeline does —
+        // $ai_ingestion_source marks them, so bars must not be shifted by their latency.
+        const otel = { $ai_ingestion_source: 'otel' }
+        const { bars, totalMs } = buildTraceTimeline([
+            ev('root', '$ai_trace', 0, 3, { $ai_span_id: 't1', ...otel }),
+            ev('agent', '$ai_span', 300, 2.5, { $ai_span_id: 's1', $ai_parent_id: 't1', ...otel }),
+            ev('gen', '$ai_generation', 500, 1, { $ai_generation_id: 'g1', $ai_parent_id: 's1', ...otel }),
+        ])
+        expect(bars).toEqual([
+            expect.objectContaining({ id: 'root', startMs: 0, durationMs: 3000, lane: 0 }),
+            expect.objectContaining({ id: 'agent', startMs: 300, durationMs: 2500, lane: 1 }),
+            expect.objectContaining({ id: 'gen', startMs: 500, durationMs: 1000, lane: 2 }),
+        ])
+        expect(totalMs).toBe(3000)
+    })
 
-        // Bars in different lanes don't shorten each other's room.
-        const nested = buildTraceTimeline([ev('gen', 0, 2), ev('span', 500, 0.5)])
-        expect(nested.bars[0].labelRoomMs).toBe(2000) // gen alone in lane 0 → trace end
-        expect(nested.bars[1].labelRoomMs).toBe(1500) // span alone in lane 1 → trace end (2000 - 500)
+    it('spills overlapping siblings into extra sub-lanes and reuses freed ones', () => {
+        const { bars, laneCount } = buildTraceTimeline([
+            ev('root', '$ai_trace', 3000, 3, { $ai_span_id: 't1' }),
+            // g2 [100, 1600] and g1 [200, 1500] overlap in time; g3 [2000, 2900] doesn't.
+            ev('g2', '$ai_generation', 1600, 1.5, { $ai_generation_id: 'g2', $ai_parent_id: 't1' }),
+            ev('g1', '$ai_generation', 1500, 1.3, { $ai_generation_id: 'g1', $ai_parent_id: 't1' }),
+            ev('g3', '$ai_generation', 2900, 0.9, { $ai_generation_id: 'g3', $ai_parent_id: 't1' }),
+        ])
+        const byId = Object.fromEntries(bars.map((b) => [b.id, b]))
+        expect(byId['root'].lane).toBe(0)
+        expect(byId['g2'].lane).not.toBe(byId['g1'].lane)
+        expect(byId['g3'].lane).toBe(byId['g2'].lane) // g2's lane is free again by 2000ms
+        expect(laneCount).toBe(3)
+    })
+
+    it.each([
+        ['$ai_generation', 'generation'],
+        ['$ai_embedding', 'embedding'],
+        ['$ai_trace', 'trace'],
+        ['$ai_span', 'span'],
+        ['$ai_tool_call', 'span'], // any unrecognized $ai_* event renders as a span, like the tree
+    ])('maps %s to kind %s', (event, kind) => {
+        const { bars } = buildTraceTimeline([ev('a', event, 1000, 1)])
+        expect(bars[0].kind).toBe(kind)
+    })
+
+    it('drops annotation events and renders latency-less events as instant markers', () => {
+        const { bars, totalMs } = buildTraceTimeline([
+            ev('gen', '$ai_generation', 1000, 1),
+            ev('mark', '$ai_span', 500), // no $ai_latency → instant
+            ev('feedback', '$ai_feedback', 1200),
+            ev('metric', '$ai_metric', 1300),
+        ])
+        expect(bars.map((b) => b.id).sort()).toEqual(['gen', 'mark'])
+        expect(bars.find((b) => b.id === 'mark')).toMatchObject({ startMs: 500, durationMs: 0 })
+        expect(totalMs).toBe(1000)
     })
 
     it('returns empty for no events', () => {

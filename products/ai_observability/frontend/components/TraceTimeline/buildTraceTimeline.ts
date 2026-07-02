@@ -1,21 +1,17 @@
 import { LLMTraceEvent } from '~/queries/schema/schema-general'
 
-export type TraceBarKind = 'generation' | 'span' | 'embedding' | 'other'
+export type TraceBarKind = 'generation' | 'span' | 'embedding' | 'trace'
 
 export interface TraceTimelineBar {
     id: string
     label: string
     startMs: number
+    // 0 means the event has no latency — rendered as an instant marker.
     durationMs: number
     kind: TraceBarKind
     isError: boolean
-    // Row index: overlapping/nested events stack into separate lanes so their
-    // bars and labels never collide on a shared row.
+    // Flame-chart row: outer operations sit above the operations they contain.
     lane: number
-    // Horizontal room (ms) before the next bar in the same lane begins — or the
-    // trace end for the last bar in a lane. The caption below the bar truncates
-    // to this so it never overruns its neighbor's label.
-    labelRoomMs: number
 }
 
 export interface TraceTimelineData {
@@ -24,17 +20,21 @@ export interface TraceTimelineData {
     laneCount: number
 }
 
+// Annotation events the trace tree hides too — they aren't steps in time.
+const HIDDEN_EVENTS = new Set(['$ai_feedback', '$ai_metric'])
+
+// Mirrors getEventType in ../../utils.ts so bar colors match the tree's tags.
 function kindOf(event: string): TraceBarKind {
-    if (event.includes('generation')) {
-        return 'generation'
+    switch (event) {
+        case '$ai_generation':
+            return 'generation'
+        case '$ai_embedding':
+            return 'embedding'
+        case '$ai_trace':
+            return 'trace'
+        default:
+            return 'span'
     }
-    if (event.includes('embedding')) {
-        return 'embedding'
-    }
-    if (event.includes('span')) {
-        return 'span'
-    }
-    return 'other'
 }
 
 function labelOf(event: LLMTraceEvent): string {
@@ -42,67 +42,104 @@ function labelOf(event: LLMTraceEvent): string {
     return p.$ai_span_name || p.$ai_model || event.event || event.id
 }
 
+interface TimedEvent {
+    event: LLMTraceEvent
+    /** The operation's start as epoch ms, see the timestamp-convention note below. */
+    startAt: number
+    latencyMs: number
+    /** Same node identity conventions as restoreTree, so nesting matches the tree. */
+    nodeId: string
+    parentId: string | null
+}
+
+function depthOf(timedEvent: TimedEvent, byNodeId: Map<string, TimedEvent>): number {
+    let depth = 0
+    const seen = new Set<string>([timedEvent.nodeId])
+    let parent = timedEvent.parentId != null ? byNodeId.get(timedEvent.parentId) : undefined
+    while (parent && !seen.has(parent.nodeId)) {
+        depth++
+        seen.add(parent.nodeId)
+        parent = parent.parentId != null ? byNodeId.get(parent.parentId) : undefined
+    }
+    return depth
+}
+
 export function buildTraceTimeline(events: LLMTraceEvent[]): TraceTimelineData {
-    if (!events.length) {
+    const timed: TimedEvent[] = []
+    for (const event of events) {
+        if (HIDDEN_EVENTS.has(event.event)) {
+            continue
+        }
+        const t = new Date(event.createdAt).getTime()
+        if (!isFinite(t)) {
+            continue
+        }
+        const latencySec = Number(event.properties?.$ai_latency)
+        const latencyMs = isFinite(latencySec) && latencySec > 0 ? latencySec * 1000 : 0
+        const p = event.properties || {}
+        timed.push({
+            event,
+            // PostHog AI SDKs capture an event when the operation finishes, so its
+            // timestamp is the END and $ai_latency the duration — while OTel-ingested
+            // spans (marked with $ai_ingestion_source) keep the span's START time.
+            startAt: p.$ai_ingestion_source === 'otel' ? t : t - latencyMs,
+            latencyMs,
+            nodeId: p.$ai_generation_id ?? p.$ai_span_id ?? event.id,
+            parentId: p.$ai_parent_id ?? p.$ai_trace_id ?? null,
+        })
+    }
+    if (!timed.length) {
         return { bars: [], totalMs: 0, laneCount: 0 }
     }
 
-    const times = events.map((e) => new Date(e.createdAt).getTime())
-    const traceStart = Math.min(...times)
-    const hasSpread = Math.max(...times) - traceStart > 0
-
-    let cursor = 0
-    const bars: TraceTimelineBar[] = events.map((event, i) => {
-        const durationMs = Math.round((event.properties?.$ai_latency ?? 0) * 1000)
-        // With real timestamp spread, position by wall-clock; otherwise lay out
-        // sequentially so a poorly-instrumented trace still reads as a waterfall.
-        const startMs = hasSpread ? times[i] - traceStart : cursor
-        cursor = startMs + durationMs
-        return {
-            id: event.id,
-            label: labelOf(event),
-            startMs,
-            durationMs,
-            kind: kindOf(event.event),
-            isError: !!event.properties?.$ai_is_error,
-            lane: 0,
-            labelRoomMs: 0,
-        }
-    })
-
-    // Greedy lane packing: each bar drops into the first lane whose previous bar has
-    // ended, so non-overlapping bars share a lane and nested spans don't collide.
-    const laneEnds: number[] = []
-    for (const i of [...bars.keys()].sort((a, b) => bars[a].startMs - bars[b].startMs)) {
-        const bar = bars[i]
-        let lane = laneEnds.findIndex((end) => end <= bar.startMs)
-        if (lane === -1) {
-            lane = laneEnds.length
-        }
-        laneEnds[lane] = bar.startMs + bar.durationMs
-        bar.lane = lane
+    const byNodeId = new Map<string, TimedEvent>()
+    for (const timedEvent of timed) {
+        byNodeId.set(timedEvent.nodeId, timedEvent)
     }
 
-    const totalMs = Math.max(...bars.map((b) => b.startMs + b.durationMs), 0)
+    const traceStart = Math.min(...timed.map((e) => e.startAt))
 
-    // A bar's caption can run until the next bar in its lane starts (or the trace
-    // end for the last bar in a lane), so labels never collide with a neighbor.
-    const byLane = new Map<number, TraceTimelineBar[]>()
+    const bars: (TraceTimelineBar & { depth: number })[] = timed.map((timedEvent) => ({
+        id: timedEvent.event.id,
+        label: labelOf(timedEvent.event),
+        startMs: timedEvent.startAt - traceStart,
+        durationMs: timedEvent.latencyMs,
+        kind: kindOf(timedEvent.event.event),
+        isError: !!timedEvent.event.properties?.$ai_is_error,
+        lane: 0,
+        depth: depthOf(timedEvent, byNodeId),
+    }))
+
+    const totalMs = Math.max(...bars.map((b) => b.startMs + b.durationMs))
+
+    // Flame layout: one band of lanes per tree depth, so containers render above
+    // their contents. Within a depth, overlapping bars (concurrent siblings) spill
+    // into extra sub-lanes; non-overlapping ones share a lane.
+    const byDepth = new Map<number, (TraceTimelineBar & { depth: number })[]>()
     for (const bar of bars) {
-        const group = byLane.get(bar.lane)
+        const group = byDepth.get(bar.depth)
         if (group) {
             group.push(bar)
         } else {
-            byLane.set(bar.lane, [bar])
+            byDepth.set(bar.depth, [bar])
         }
     }
-    for (const group of byLane.values()) {
-        group.sort((a, b) => a.startMs - b.startMs)
-        group.forEach((bar, i) => {
-            const next = group[i + 1]
-            bar.labelRoomMs = (next ? next.startMs : totalMs) - bar.startMs
-        })
+    let laneCount = 0
+    for (const depth of [...byDepth.keys()].sort((a, b) => a - b)) {
+        const group = byDepth.get(depth)!
+        group.sort((a, b) => a.startMs - b.startMs || b.durationMs - a.durationMs)
+        const laneEnds: number[] = []
+        for (const bar of group) {
+            let subLane = laneEnds.findIndex((end) => end <= bar.startMs)
+            if (subLane === -1) {
+                subLane = laneEnds.length
+            }
+            laneEnds[subLane] = bar.startMs + bar.durationMs
+            bar.lane = laneCount + subLane
+        }
+        laneCount += laneEnds.length
     }
 
-    return { bars, totalMs, laneCount: Math.max(laneEnds.length, 1) }
+    bars.sort((a, b) => a.lane - b.lane || a.startMs - b.startMs)
+    return { bars: bars.map(({ depth: _depth, ...bar }) => bar), totalMs, laneCount }
 }
