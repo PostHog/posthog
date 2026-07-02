@@ -1,0 +1,10 @@
+{
+    "name": "@posthog/hogvm-node",
+    "version": "0.0.1",
+    "private": true,
+    "description": "Rust HogVM exposed to Node via napi-rs (parallel batch execution)",
+    "main": "hogvm-node.node",
+    "scripts": {
+        "build": "cargo build --release && cp target/release/libhogvm_node.so hogvm-node.node"
+    }
+}
