@@ -339,7 +339,7 @@ def add_alert_check(
     new_state, notify = decide_insight_alert_check(
         alert,
         threshold_breached=bool(breaches),
-        error_message=(str(error.get("message", "Alert check failed")) if error else None),
+        error_message=(str(error.get("message") or "Alert check failed") if error else None),
         now=now,
     )
     alert.state = new_state

@@ -69,6 +69,8 @@ def soft_delete_alert_destinations(
         updated = HogFunction.objects.filter(
             team_id=team_id,
             id__in=unique_ids,
+            type="internal_destination",
+            template_id__in=list(DESTINATION_TYPE_BY_TEMPLATE_ID),
             filters__properties__contains=[{"key": ALERT_ID_PROPERTY, "value": alert_id}],
         ).update(deleted=True, enabled=False)
         if updated != len(unique_ids):
