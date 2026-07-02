@@ -893,6 +893,24 @@ class TestLogsAlertAPI(APIBaseTest):
         assert HogFunction.objects.filter(id__in=ids, deleted=False).count() == 0
         assert HogFunction.objects.filter(id__in=ids, enabled=True).count() == 0
 
+    def test_delete_alert_soft_deletes_destination_hog_functions(self):
+        from products.cdp.backend.models.hog_functions.hog_function import HogFunction
+
+        self._sync_destination_templates()
+        created = self._create_via_api()
+        create_response = self.client.post(
+            self._destinations_url(created["id"]),
+            {"type": "webhook", "webhook_url": "https://example.com/hook"},
+            format="json",
+        )
+        ids = create_response.json()["hog_function_ids"]
+
+        delete_response = self.client.delete(f"{self.base_url}{created['id']}/")
+        assert delete_response.status_code == status.HTTP_204_NO_CONTENT
+        assert not LogsAlertConfiguration.objects.filter(id=created["id"]).exists()
+        assert HogFunction.objects.filter(id__in=ids, deleted=False).count() == 0
+        assert HogFunction.objects.filter(id__in=ids, enabled=True).count() == 0
+
     def test_delete_destination_rejects_foreign_hog_function_ids(self):
         self._sync_destination_templates()
         created_a = self._create_via_api()

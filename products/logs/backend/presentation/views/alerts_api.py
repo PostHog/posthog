@@ -22,6 +22,7 @@ from posthog.alerting.destinations import (
     AlertDestinationOwnershipError,
     create_alert_destination_hog_functions,
     soft_delete_alert_destinations,
+    soft_delete_all_alert_destinations,
 )
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.shared import UserBasicSerializer
@@ -1185,4 +1186,6 @@ class LogsAlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
 
     def perform_destroy(self, instance: LogsAlertConfiguration) -> None:
         self._track("logs alert deleted", instance)
-        super().perform_destroy(instance)
+        with transaction.atomic():
+            soft_delete_all_alert_destinations(team_id=instance.team_id, alert_id=str(instance.id))
+            super().perform_destroy(instance)
