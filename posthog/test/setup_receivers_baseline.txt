@@ -169,6 +169,7 @@ post_save:products.product_analytics.backend.models.insight_caching_state.sync_d
 post_save:products.product_analytics.backend.models.insight_caching_state.sync_dashboard_updated
 post_save:products.product_analytics.backend.models.insight_caching_state.sync_insight
 post_save:products.product_analytics.backend.models.insight_caching_state.sync_sharing_configuration
+post_save:products.signals.backend.receivers.close_pr_when_report_dismissed
 post_save:products.slack_app.backend.signals.invalidate_repo_list_on_user_github_change
 post_save:products.slack_app.backend.signals.onboard_slack_inbox_on_install
 post_save:products.surveys.backend.models.survey_changed
