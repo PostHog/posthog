@@ -54,6 +54,7 @@ class Product(StrEnum):
     SDK_DOCTOR = "sdk_doctor"
     SESSION_SUMMARY = "session_summary"
     SIGNALS = "signals"
+    SQL_EDITOR = "sql_editor"
     SURVEYS = "surveys"
     USER_INTERVIEWS = "user_interviews"
     WAREHOUSE = "warehouse"
