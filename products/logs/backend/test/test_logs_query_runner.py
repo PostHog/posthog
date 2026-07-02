@@ -616,12 +616,15 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         )
         self.assertLess(len(results), len(unfiltered["results"]))
 
-    def _run_log_attribute_filter(self, operator: PropertyOperator, mode: PropertyGroupsMode) -> list[dict]:
+    def _run_log_attribute_filter(
+        self, operator: PropertyOperator, mode: PropertyGroupsMode, exclude_attributes: bool = False
+    ) -> list[dict]:
         query = LogsQuery(
             dateRange=DateRange(date_from="2025-12-14T00:00:00Z", date_to="2025-12-18T03:00:00Z"),
             limit=2000,
             serviceNames=[],
             severityLevels=[],
+            excludeAttributes=exclude_attributes,
             filterGroup=PropertyGroupFilter(
                 type=FilterLogicalOperator.AND_,
                 values=[
@@ -664,6 +667,18 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # The "= F" filter must match the 1000 logtag="F" rows — not return nothing.
         self.assertTrue(all(r["attributes"].get("logtag") == "F" for r in exact_results))
         self.assertEqual(len(exact_results), 1000)
+
+    @freeze_time("2025-12-18T03:00:00Z")
+    def test_log_attribute_filter_with_excluded_attributes(self):
+        # excludeAttributes=True SELECTs an empty map to shrink the payload (the path the log list view uses).
+        # That empty-map projection must not reuse the `attributes` column name, or it shadows the real Map
+        # column that the log-attribute filter references in WHERE — which raised a QueryError. The filter must
+        # still resolve and return the 1000 logtag="F" rows, with the attributes payload stripped from results.
+        exact_results = self._run_log_attribute_filter(
+            PropertyOperator.EXACT, PropertyGroupsMode.OPTIMIZED, exclude_attributes=True
+        )
+        self.assertEqual(len(exact_results), 1000)
+        self.assertTrue(all(r["attributes"] == {} for r in exact_results))
 
     @freeze_time("2025-12-16T10:33:00Z")
     def test_resource_negative_attribute_filters(self):
