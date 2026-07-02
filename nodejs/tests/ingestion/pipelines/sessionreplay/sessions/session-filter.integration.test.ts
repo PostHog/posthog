@@ -149,4 +149,80 @@ describe('SessionFilter integration', () => {
             expect(isBlocked2).toBe(true)
         })
     })
+
+    describe('batch behavior', () => {
+        it('blocks a mixed batch in one call and reads each session back from a fresh instance', async () => {
+            const teamId = 5
+            const allowed = `${testRunId}-batch-allowed`
+            const blockedA = `${testRunId}-batch-blocked-a`
+            const blockedB = `${testRunId}-batch-blocked-b`
+
+            // Budget of 1: within a single batched call the first new session is allowed and the rest
+            // are rate-limited and blocked. Verifies the pipelined write persists every blocked key.
+            const writer = new SessionFilter({
+                redisPool,
+                bucketCapacity: 1,
+                bucketReplenishRate: 0.001,
+                blockingEnabled: true,
+                filterEnabled: true,
+                localCacheTtlMs: 100,
+            })
+            await writer.handleNewSessions(
+                new SessionSet().add(teamId, allowed).add(teamId, blockedA).add(teamId, blockedB)
+            )
+
+            // A fresh instance (cold local cache) resolves the whole batch from Redis in one read.
+            const reader = new SessionFilter({
+                redisPool,
+                bucketCapacity: 1000,
+                bucketReplenishRate: 1,
+                blockingEnabled: true,
+                filterEnabled: true,
+                localCacheTtlMs: 100,
+            })
+            const result = await reader.isBlocked(
+                new SessionSet()
+                    .add(teamId, allowed)
+                    .add(teamId, blockedA)
+                    .add(teamId, blockedB)
+                    .add(teamId, `${testRunId}-batch-never`)
+            )
+
+            expect(result.get(teamId, allowed)).toBe(false)
+            expect(result.get(teamId, blockedA)).toBe(true)
+            expect(result.get(teamId, blockedB)).toBe(true)
+            expect(result.get(teamId, `${testRunId}-batch-never`)).toBe(false)
+        })
+
+        it('keeps blocks isolated per team in Redis', async () => {
+            const teamA = 6
+            const teamB = 7
+            const shared = `${testRunId}-team-shared`
+
+            // Block (team A, shared) by exhausting team A's budget; team B is never touched.
+            const writer = new SessionFilter({
+                redisPool,
+                bucketCapacity: 1,
+                bucketReplenishRate: 0.001,
+                blockingEnabled: true,
+                filterEnabled: true,
+                localCacheTtlMs: 100,
+            })
+            await writer.handleNewSessions(new SessionSet().add(teamA, `${testRunId}-team-filler`).add(teamA, shared))
+
+            // A fresh instance reads both teams' identically-named session from Redis in one batch.
+            const reader = new SessionFilter({
+                redisPool,
+                bucketCapacity: 1000,
+                bucketReplenishRate: 1,
+                blockingEnabled: true,
+                filterEnabled: true,
+                localCacheTtlMs: 100,
+            })
+            const result = await reader.isBlocked(new SessionSet().add(teamA, shared).add(teamB, shared))
+
+            expect(result.get(teamA, shared)).toBe(true) // blocked in Redis for team A
+            expect(result.get(teamB, shared)).toBe(false) // team B's key was never written
+        })
+    })
 })
