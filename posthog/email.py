@@ -126,6 +126,7 @@ _TRANSIENT_HTTP_ERRORS = (
 class _TransientEmailDeliveryError(Exception):
     """A retryable Customer.io send failure (5xx / 429). Re-raised so the task's autoretry re-fires."""
 
+
 CUSTOMER_IO_TEMPLATE_ID_MAP = {
     # Set up in customer.io
     "2fa_enabled": "31",
