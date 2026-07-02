@@ -207,9 +207,9 @@ class GenerateAndDeliverEvalReportWorkflow(PostHogWorkflow):
         # 3b. Emit a signal for this report run (fire-and-forget).
         # Runs on the same LLMA worker as the parent via LLMA_TASK_QUEUE; ABANDON
         # parent-close lets the LLM summary call continue independently so it doesn't
-        # block delivery. Gated by the same SignalSourceConfig(LLM_ANALYTICS, EVALUATION)
-        # row that gates per-result emission — the activity bails out early for
-        # teams/evaluations that haven't opted in.
+        # block delivery. Gated by the team-level SignalSourceConfig(LLM_ANALYTICS,
+        # EVALUATION_REPORT) row — the activity bails out early for teams that
+        # haven't opted in.
         # Wrapped in workflow.patched so in-flight workflows started before this code
         # was deployed don't hit a nondeterminism error on replay — they'll skip the
         # child-workflow command entirely.

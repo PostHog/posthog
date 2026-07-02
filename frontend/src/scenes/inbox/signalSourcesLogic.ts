@@ -139,6 +139,7 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
         toggleErrorTracking: true,
         toggleErrorTrackingComplete: true,
         toggleHealthChecks: true,
+        toggleEvalReports: true,
         toggleConversations: true,
         saveSessionAnalysisFilters: (filters: RecordingUniversalFilters) => ({ filters }),
         clearSessionAnalysisFilters: true,
@@ -193,6 +194,8 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             },
             toggleHealthChecks: (state: SignalSourceConfig[] | null) =>
                 toggleSourceConfigState(state, SignalSourceProduct.HEALTH_CHECKS, SignalSourceType.HEALTH_ISSUE),
+            toggleEvalReports: (state: SignalSourceConfig[] | null) =>
+                toggleSourceConfigState(state, SignalSourceProduct.LLM_ANALYTICS, SignalSourceType.EVALUATION_REPORT),
             toggleConversations: (state: SignalSourceConfig[] | null) =>
                 toggleSourceConfigState(state, SignalSourceProduct.CONVERSATIONS, SignalSourceType.TICKET),
         },
@@ -318,6 +321,20 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
             (s) => [s.togglingSourceKeys],
             (keys: Set<string>): boolean =>
                 keys.has(`${SignalSourceProduct.HEALTH_CHECKS}_${SignalSourceType.HEALTH_ISSUE}`),
+        ],
+        evalReportsConfig: [
+            (s) => [s.sourceConfigs],
+            (sourceConfigs: SignalSourceConfig[] | null): SignalSourceConfig | null =>
+                sourceConfigs?.find(
+                    (c) =>
+                        c.source_product === SignalSourceProduct.LLM_ANALYTICS &&
+                        c.source_type === SignalSourceType.EVALUATION_REPORT
+                ) ?? null,
+        ],
+        isEvalReportsToggling: [
+            (s) => [s.togglingSourceKeys],
+            (keys: Set<string>): boolean =>
+                keys.has(`${SignalSourceProduct.LLM_ANALYTICS}_${SignalSourceType.EVALUATION_REPORT}`),
         ],
         errorTrackingIsFullyEnabled: [
             (s) => [s.sourceConfigs],
@@ -521,6 +538,17 @@ export const signalSourcesLogic = kea<signalSourcesLogicType>([
                 actions.toggleSignalSource({
                     sourceProduct: SignalSourceProduct.HEALTH_CHECKS,
                     sourceType: SignalSourceType.HEALTH_ISSUE,
+                    enabled: desiredEnabled,
+                })
+            },
+            toggleEvalReports: () => {
+                // The optimistic reducer flips the config before this listener runs,
+                // so config.enabled already reflects the desired state.
+                const config = values.evalReportsConfig
+                const desiredEnabled = config?.enabled ?? true
+                actions.toggleSignalSource({
+                    sourceProduct: SignalSourceProduct.LLM_ANALYTICS,
+                    sourceType: SignalSourceType.EVALUATION_REPORT,
                     enabled: desiredEnabled,
                 })
             },

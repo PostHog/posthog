@@ -6,9 +6,9 @@ per report run, which is strictly more useful because a report already aggregate
 the underlying results into an analytical narrative (trend, patterns, citations)
 — the signal inherits that narrative rather than the per-result verdict.
 
-The same `SignalSourceConfig(LLM_ANALYTICS, EVALUATION)` toggle gates both:
-enabling signals for an evaluation lights up per-result AND per-report-run
-emission. No new config surface.
+Gated by its own team-level `SignalSourceConfig(LLM_ANALYTICS, EVALUATION_REPORT)`
+toggle (surfaced in the inbox sources UI), independent of the per-evaluation
+allowlist that gates per-result emission.
 
 Lives in `posthog/temporal/ai_observability/` (not `products/signals/`) because
 this is fundamentally an LLMA operation: it runs on the LLMA worker, reads the
@@ -149,11 +149,13 @@ async def summarize_report_for_signal(
 
 @temporalio.activity.defn
 async def emit_eval_report_signal_activity(inputs: EmitEvalReportSignalInputs) -> None:
-    """Summarize a report run and emit a signal if the evaluation is allowlisted.
+    """Summarize a report run and emit a signal if the team has the source enabled.
 
-    Gated by the same SignalSourceConfig(LLM_ANALYTICS, EVALUATION) row that
-    governs per-result signal emission. No separate toggle — enabling signals
-    for an evaluation turns on both per-result and per-report emission.
+    Gated by the team-level SignalSourceConfig(LLM_ANALYTICS, EVALUATION_REPORT)
+    row — the same check `is_source_enabled` applies downstream in the signals
+    pipeline; running it here too avoids the LLM summarization call for teams
+    that haven't opted in. Unlike per-result evaluation signals, there is no
+    per-evaluation allowlist: the toggle covers every eval report on the team.
 
     No significance threshold — we emit every run that passes the config gate.
     The downstream signal grouping system already handles deduplication and
@@ -161,24 +163,16 @@ async def emit_eval_report_signal_activity(inputs: EmitEvalReportSignalInputs) -
     is cheaper than trying to guess a threshold that holds across all evals.
     """
 
-    def _is_eval_enabled() -> Team | None:
-        try:
-            source_config = SignalSourceConfig.objects.get(
-                team_id=inputs.team_id,
-                source_product=SignalSourceConfig.SourceProduct.LLM_ANALYTICS,
-                source_type=SignalSourceConfig.SourceType.EVALUATION,
-                enabled=True,
-            )
-        except SignalSourceConfig.DoesNotExist:
+    def _is_eval_report_source_enabled() -> Team | None:
+        if not SignalSourceConfig.is_source_enabled(
+            inputs.team_id,
+            SignalSourceConfig.SourceProduct.LLM_ANALYTICS,
+            SignalSourceConfig.SourceType.EVALUATION_REPORT,
+        ):
             return None
-
-        enabled_ids = source_config.config.get("evaluation_ids", [])
-        if inputs.evaluation_id not in enabled_ids:
-            return None
-
         return Team.objects.get(id=inputs.team_id)
 
-    team = await database_sync_to_async(_is_eval_enabled, thread_sensitive=False)()
+    team = await database_sync_to_async(_is_eval_report_source_enabled, thread_sensitive=False)()
     if team is None:
         return
 

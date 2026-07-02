@@ -53,6 +53,7 @@ class SignalSourceConfig(UUIDModel):
     class SourceType(models.TextChoices):
         SESSION_ANALYSIS_CLUSTER = "session_analysis_cluster", "Session analysis cluster"
         EVALUATION = "evaluation", "Evaluation"
+        EVALUATION_REPORT = "evaluation_report", "Evaluation report"
         ISSUE = "issue", "Issue"
         TICKET = "ticket", "Ticket"
         ISSUE_CREATED = "issue_created", "Issue created"
@@ -78,11 +79,13 @@ class SignalSourceConfig(UUIDModel):
     def is_source_enabled(cls, team_id: int, source_product: str, source_type: str) -> bool:
         """Check whether a given signal source is enabled for a team.
 
-        AI observability signals are always allowed (gated in llma evals workflows). TODO - this should be moved here.
+        Per-result AI observability evaluation signals are always allowed (gated per evaluation in
+        llma evals workflows). TODO - this should be moved here. Evaluation report signals go
+        through the standard config-row check below.
         Scout findings are on by default (see below). For everything else, the team must have a
         SignalSourceConfig row with enabled=True.
         """
-        if source_product == cls.SourceProduct.LLM_ANALYTICS:
+        if source_product == cls.SourceProduct.LLM_ANALYTICS and source_type == cls.SourceType.EVALUATION:
             return True
 
         # Replay Vision scanners are self-authorizing: the scanner's `emits_signals` flag is the
