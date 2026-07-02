@@ -119,7 +119,7 @@ export class SessionBatchRecorder {
                 teamId,
                 batchId: this.batchId,
             })
-            return this.ignoreMessage(message)
+            return 0
         }
 
         const sessionKey = isNewSession
@@ -133,7 +133,7 @@ export class SessionBatchRecorder {
                 teamId,
                 batchId: this.batchId,
             })
-            return this.ignoreMessage(message)
+            return 0
         }
 
         const isEventAllowed = this.rateLimiter.handleMessage(teamSessionKey, partition, message.message)
@@ -148,7 +148,7 @@ export class SessionBatchRecorder {
             })
 
             if (!this.partitionSessions.has(partition)) {
-                return this.ignoreMessage(message)
+                return 0
             }
 
             const sessions = this.partitionSessions.get(partition)!
@@ -162,7 +162,7 @@ export class SessionBatchRecorder {
                 })
             }
 
-            return this.ignoreMessage(message)
+            return 0
         }
 
         if (!this.partitionSessions.has(partition)) {
@@ -182,7 +182,7 @@ export class SessionBatchRecorder {
                     newTeamId: teamId,
                     batchId: this.batchId,
                 })
-                return this.ignoreMessage(message)
+                return 0
             }
 
             if (!existingSessionKey.encryptedKey.equals(sessionKey.encryptedKey)) {
@@ -191,7 +191,7 @@ export class SessionBatchRecorder {
                     teamId,
                     batchId: this.batchId,
                 })
-                return this.ignoreMessage(message)
+                return 0
             }
         } else {
             sessions.set(teamSessionKey, [
@@ -223,12 +223,6 @@ export class SessionBatchRecorder {
         this._size += bytesWritten
 
         return this.ackMessage(message, bytesWritten)
-    }
-
-    private ignoreMessage(_message: MessageWithTeam): 0 {
-        // Offsets are tracked once per batch from the pipeline results, not here — see
-        // {@link runSessionReplayPipeline} and {@link SessionBatchManager.trackProcessedOffsets}.
-        return 0
     }
 
     private ackMessage(message: MessageWithTeam, bytesWritten: number): number {
