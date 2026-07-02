@@ -206,17 +206,21 @@ function InsightHistorySkeleton(): JSX.Element {
 
 function InsightHistoryContent({ insight }: { insight: QueryBasedInsightModel }): JSX.Element {
     const logic = insightHistoryLogic({ insightId: insight.id })
-    const { versions, activityLoading } = useValues(logic)
+    const { versions, activityPageLoading, historyComplete } = useValues(logic)
 
-    if (activityLoading) {
+    if (activityPageLoading) {
         return <InsightHistorySkeleton />
     }
 
     // The state the insight was created with: what the oldest recorded edit started from,
-    // or the current query if the SQL has never been edited
-    const originalSql = versions.length
-        ? versions[versions.length - 1].beforeSql
-        : (toDataVisualizationNode(insight.query)?.source.query ?? '')
+    // or the current query if the SQL has never been edited. Only trustworthy when the
+    // full activity log was fetched — otherwise the oldest loaded edit is not the creation state.
+    const originalSql =
+        historyComplete && versions.length
+            ? versions[versions.length - 1].beforeSql
+            : versions.length === 0
+              ? (toDataVisualizationNode(insight.query)?.source.query ?? '')
+              : ''
 
     return (
         <div className="flex flex-col gap-1 p-2 max-w-200">
@@ -225,6 +229,11 @@ function InsightHistoryContent({ insight }: { insight: QueryBasedInsightModel })
             ))}
             {originalSql.trim() !== '' && (
                 <OriginalVersionRow insight={insight} sql={originalSql} isCurrent={versions.length === 0} />
+            )}
+            {!historyComplete && (
+                <div className="p-2 text-secondary text-xs">
+                    This insight has a very long history — older versions are not shown.
+                </div>
             )}
         </div>
     )

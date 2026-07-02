@@ -113,6 +113,7 @@ describe('insightHistoryLogic', () => {
             await expectLogic(logic).toDispatchActions(['loadActivity', 'loadActivitySuccess'])
 
             expect(logic.values.activity).toHaveLength(3)
+            expect(logic.values.historyComplete).toBe(true)
             expect(logic.values.versions).toEqual([
                 {
                     id: 'activity-1',
@@ -124,6 +125,46 @@ describe('insightHistoryLogic', () => {
                     afterSql: 'SELECT 2',
                 },
             ])
+        })
+
+        it('pages through the full activity log and concatenates results', async () => {
+            const fullPage = Array.from({ length: 100 }, () => queryChangeItem)
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/activity_log/': (req) => {
+                        const page = Number(req.url.searchParams.get('page') || '1')
+                        return [
+                            200,
+                            page === 1 ? { results: fullPage, count: 101 } : { results: [nameChangeItem], count: 101 },
+                        ]
+                    },
+                },
+            })
+
+            logic = insightHistoryLogic({ insightId: 42 })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadActivity', 'loadActivitySuccess'])
+
+            expect(logic.values.activity).toHaveLength(101)
+            expect(logic.values.historyComplete).toBe(true)
+        })
+
+        it('marks history incomplete when the page cap is hit', async () => {
+            const fullPage = Array.from({ length: 100 }, () => queryChangeItem)
+            useMocks({
+                get: {
+                    '/api/projects/:team_id/activity_log/': () => [200, { results: fullPage, count: 5000 }],
+                },
+            })
+
+            logic = insightHistoryLogic({ insightId: 42 })
+            logic.mount()
+
+            await expectLogic(logic).toDispatchActions(['loadActivity', 'loadActivitySuccess'])
+
+            expect(logic.values.activity).toHaveLength(1000)
+            expect(logic.values.historyComplete).toBe(false)
         })
     })
 })

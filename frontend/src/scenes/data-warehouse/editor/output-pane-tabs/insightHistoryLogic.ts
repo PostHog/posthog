@@ -52,28 +52,49 @@ export function getQueryChange(logItem: ActivityLogItem): ActivityChange | null 
     )
 }
 
+const ACTIVITY_PAGE_SIZE = 100
+// Safety cap: 10 pages = 1000 activity entries. Beyond that we stop and admit the history is partial.
+const ACTIVITY_MAX_PAGES = 10
+
+export interface InsightActivityPage {
+    items: ActivityLogItem[]
+    /** False when the log was too long to fetch fully — the oldest loaded entry is NOT the creation state */
+    complete: boolean
+}
+
 export const insightHistoryLogic = kea<insightHistoryLogicType>([
     path(['data-warehouse', 'editor', 'output-pane-tabs', 'insightHistoryLogic']),
     props({} as InsightHistoryLogicProps),
     key((props) => props.insightId),
     loaders(({ props }) => ({
-        activity: [
-            [] as ActivityLogItem[],
+        activityPage: [
+            { items: [], complete: true } as InsightActivityPage,
             {
                 loadActivity: async () => {
-                    const response = await api.activity
-                        .listRequest({
-                            scope: ActivityScope.INSIGHT,
-                            item_id: props.insightId,
-                            page_size: 50,
-                        })
-                        .get()
-                    return response.results ?? []
+                    const items: ActivityLogItem[] = []
+                    for (let page = 1; page <= ACTIVITY_MAX_PAGES; page++) {
+                        const response = await api.activity
+                            .listRequest({
+                                scope: ActivityScope.INSIGHT,
+                                item_id: props.insightId,
+                                page,
+                                page_size: ACTIVITY_PAGE_SIZE,
+                            })
+                            .get()
+                        const results = response.results ?? []
+                        items.push(...results)
+                        if (results.length < ACTIVITY_PAGE_SIZE) {
+                            return { items, complete: true }
+                        }
+                    }
+                    return { items, complete: false }
                 },
             },
         ],
     })),
     selectors({
+        activity: [(s) => [s.activityPage], (activityPage) => activityPage.items],
+        historyComplete: [(s) => [s.activityPage], (activityPage) => activityPage.complete],
         // Newest first, only edits that changed the SQL — each one is a "version"
         versions: [
             (s) => [s.activity],
