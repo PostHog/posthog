@@ -19,8 +19,7 @@ set -e
 # Shared registry directory so metrics from all granian workers can be
 # aggregated by the metrics sidecar below.
 export PROMETHEUS_MULTIPROC_DIR=$(mktemp -d)
-chmod -R 777 $PROMETHEUS_MULTIPROC_DIR
-trap 'rm -rf "$PROMETHEUS_MULTIPROC_DIR"' EXIT
+chmod -R 777 "$PROMETHEUS_MULTIPROC_DIR"
 
 export PROMETHEUS_METRICS_EXPORT_PORT=${PROMETHEUS_METRICS_EXPORT_PORT:-8001}
 export STATSD_PORT=${STATSD_PORT:-8125}
@@ -33,8 +32,14 @@ STREAMING_WORKERS_KILL_TIMEOUT=${STREAMING_WORKERS_KILL_TIMEOUT:-960}
 echo "🔧 Starting streaming tier: granian asgi, ${STREAMING_WORKERS} workers..."
 
 # Metrics sidecar: aggregates the multiproc dir on :$PROMETHEUS_METRICS_EXPORT_PORT,
-# the same port the Unit entrypoint exposes metrics on.
+# the same port the Unit entrypoint exposes metrics on. If it ever dies the
+# whole pod exits (kill of PID 1's process group via the trap below) so the
+# scheduler restarts a fully working pod instead of one that silently stops
+# reporting metrics.
 python bin/streaming_metrics.py &
+METRICS_PID=$!
+trap 'kill -TERM "$METRICS_PID" 2>/dev/null || true; rm -rf "$PROMETHEUS_MULTIPROC_DIR"' EXIT
+( while kill -0 "$METRICS_PID" 2>/dev/null; do sleep 10; done; echo "metrics sidecar exited, stopping pod"; kill -TERM $$ ) &
 
 exec python -m granian \
     --interface asgi \

@@ -1144,3 +1144,7 @@ environment:
         bin_script: ensure-local-setup
         description: Idempotent local-dev bootstrap (e.g. the wizard OAuth app); runs automatically on hogli start
         hidden: true
+    docker:server:streaming:
+        bin_script: docker-server-streaming
+        description: Run the SSE streaming tier server (granian, no request-count recycling)
+        hidden: true
