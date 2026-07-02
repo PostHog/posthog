@@ -1520,6 +1520,7 @@ class ExternalDataSourceType(StrEnum):
     INFOR_NEXUS = "InforNexus"
     INSIGHTFUL = "Insightful"
     INSIGHTLY = "Insightly"
+    INSTANTLY = "Instantly"
     INSTATUS = "Instatus"
     INTRUDER = "Intruder"
     INVOICED = "Invoiced"

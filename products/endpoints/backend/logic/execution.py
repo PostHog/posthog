@@ -71,6 +71,8 @@ from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_warehouse.backend.facade.api import trigger_saved_query_schedule
 from products.endpoints.backend.exceptions import EndpointAtCapacity, EndpointQueryTooExpensive
 from products.endpoints.backend.insight_transformers import MaterializedSeriesMismatchError
+from products.endpoints.backend.logic.pagination import EndpointPagination
+from products.endpoints.backend.logic.strategies import EndpointQueryStrategy, strategy_for
 from products.endpoints.backend.logs import build_execution_message, log_endpoint_execution
 from products.endpoints.backend.metrics import (
     ENDPOINT_CACHE_RESULT_TOTAL,
@@ -83,8 +85,6 @@ from products.endpoints.backend.metrics import (
     query_kind_label,
 )
 from products.endpoints.backend.models import Endpoint, EndpointVersion
-from products.endpoints.backend.services.pagination import EndpointPagination
-from products.endpoints.backend.services.strategies import EndpointQueryStrategy, strategy_for
 from products.endpoints.backend.tasks import shadow_compare_ducklake_execution
 
 from common.hogvm.python.utils import HogVMException

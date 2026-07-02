@@ -18,7 +18,7 @@ import { urls } from 'scenes/urls'
 
 import { ToolbarMenu } from '~/toolbar/bar/ToolbarMenu'
 import { elementsLogic } from '~/toolbar/elements/elementsLogic'
-import { heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
+import { ELEMENT_STATS_PAGE_LIMIT, heatmapToolbarMenuLogic } from '~/toolbar/elements/heatmapToolbarMenuLogic'
 import { currentPageLogic } from '~/toolbar/stats/currentPageLogic'
 import { joinWithUiHost } from '~/toolbar/utils'
 
@@ -270,6 +270,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                     type="secondary"
                                     size="small"
                                     onClick={loadMoreElementStats}
+                                    loading={elementStatsLoading}
                                     disabledReason={
                                         canLoadMoreElementStats ? undefined : 'Loaded all elements in this data range.'
                                     }
@@ -309,6 +310,12 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                     '!'
                                 )}
                             </div>
+                            {canLoadMoreElementStats && (
+                                <div className="mb-2 text-muted text-xs">
+                                    Showing the top {ELEMENT_STATS_PAGE_LIMIT.toLocaleString()} element groups by click
+                                    count — load more for the full data range.
+                                </div>
+                            )}
                             <div className="flex flex-col w-full h-full">
                                 {countedElements.length ? (
                                     countedElements.map(({ element, count }, index) => {

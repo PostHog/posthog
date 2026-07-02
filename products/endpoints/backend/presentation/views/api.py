@@ -1,13 +1,13 @@
 """HTTP layer for the Endpoints product.
 
 The viewset is intentionally thin: authentication/permissions, request parsing,
-and response serialization. Business logic lives in ``backend/services``:
+and response serialization. Business logic lives in ``backend/logic``:
 
-- ``services.crud``: create/update/destroy orchestration + activity logging
-- ``services.execution``: the /run path (materialized / inline / DuckLake)
-- ``services.materialization``: enable/disable/preview materialization
-- ``services.strategies``: HogQL vs insight query behavior
-- ``services.validation``: request payload validation
+- ``logic.crud``: create/update/destroy orchestration + activity logging
+- ``logic.execution``: the /run path (materialized / inline / DuckLake)
+- ``logic.materialization``: enable/disable/preview materialization
+- ``logic.strategies``: HogQL vs insight query behavior
+- ``logic.validation``: request payload validation
 """
 
 import re
@@ -54,32 +54,29 @@ from posthog.rbac.user_access_control import access_level_satisfied_for_resource
 from posthog.schema_migrations.upgrade import upgrade
 
 from products.endpoints.backend.constants import ENDPOINT_NAME_REGEX
+from products.endpoints.backend.logic.crud import EndpointCrudService
+from products.endpoints.backend.logic.execution import EndpointExecutionService
+from products.endpoints.backend.logic.materialization import EndpointMaterializationService, build_materialization_info
+from products.endpoints.backend.logic.validation import (
+    validate_bucket_overrides,
+    validate_endpoint_request,
+    validate_update_request,
+)
 from products.endpoints.backend.logs import ENDPOINTS_LOG_SOURCE
 from products.endpoints.backend.models import Endpoint, EndpointVersion
 from products.endpoints.backend.openapi import generate_openapi_spec
-from products.endpoints.backend.rate_limit import (
-    EndpointBurstThrottle,
-    EndpointProjectSecretApiKeyTeamBurstThrottle,
-    EndpointProjectSecretApiKeyTeamSustainedThrottle,
-    EndpointSustainedThrottle,
-)
-from products.endpoints.backend.serializers import (
+from products.endpoints.backend.presentation.serializers import (
     EndpointMaterializationSerializer,
     EndpointRequestSerializer,
     EndpointResponseSerializer,
     EndpointRunResponseSerializer,
     EndpointVersionResponseSerializer,
 )
-from products.endpoints.backend.services.crud import EndpointCrudService
-from products.endpoints.backend.services.execution import EndpointExecutionService
-from products.endpoints.backend.services.materialization import (
-    EndpointMaterializationService,
-    build_materialization_info,
-)
-from products.endpoints.backend.services.validation import (
-    validate_bucket_overrides,
-    validate_endpoint_request,
-    validate_update_request,
+from products.endpoints.backend.rate_limit import (
+    EndpointBurstThrottle,
+    EndpointProjectSecretApiKeyTeamBurstThrottle,
+    EndpointProjectSecretApiKeyTeamSustainedThrottle,
+    EndpointSustainedThrottle,
 )
 
 
