@@ -65,7 +65,7 @@ class TestRateLimit(BaseTest):
     def test_block_counter_buckets_unknown_product(self):
         # A product value outside the known set (e.g. a client-forged tag that slipped past validation)
         # must collapse to "unknown" so it can't mint an unbounded Prometheus series.
-        query_tags.set(QueryTags.model_construct(product="totally-made-up-product"))
+        query_tags.set(QueryTags.model_construct(product="totally-made-up-product"))  # type: ignore[arg-type]
         self.cancels.append(self.limit.use(is_api=True, team_id=9, task_id=1))
         with patch("posthog.clickhouse.client.limit.CONCURRENT_QUERY_LIMIT_EXCEEDED_COUNTER") as mock_counter:
             with self.assertRaises(ConcurrencyLimitExceeded):
