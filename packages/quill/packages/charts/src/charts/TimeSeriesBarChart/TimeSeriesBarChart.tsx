@@ -1,7 +1,6 @@
-import React, { useMemo } from 'react'
+import React from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
-import { useChartLegend } from '../../components/Legend/useChartLegend'
 import type {
     BarChartConfig,
     BarFillStyle,
@@ -15,23 +14,12 @@ import type {
 import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { TrendLineOverlay } from '../../overlays/TrendLineOverlay'
 import { ValueLabels } from '../../overlays/ValueLabels'
-import { buildGoalLineReferenceLines, goalLineValueDomain, type GoalLineConfig } from '../../utils/goal-lines'
-import {
-    buildYAxes,
-    normalizeYAxisList,
-    primaryYAxisConfig,
-    useXTickFormatter,
-    useYTickFormatter,
-    type XAxisConfig,
-    type YAxisConfig,
-} from '../../utils/use-axis-formatters'
+import type { GoalLineConfig } from '../../utils/goal-lines'
+import type { XAxisConfig, YAxisConfig } from '../../utils/use-axis-formatters'
 import { BarChart } from '../BarChart/BarChart'
-import { buildTrendLineSeries, type TrendLineConfig } from '../TimeSeriesLineChart/utils/derived-series'
-import {
-    resolveValueLabelsConfig,
-    useSeriesWithValueLabelAllowlist,
-    type ValueLabelsConfig,
-} from '../utils/use-value-labels'
+import { useTrendLineSeries, type TrendLineConfig } from '../utils/use-derived-series'
+import { useGoalLines, useTimeSeries } from '../utils/use-time-series'
+import type { ValueLabelsConfig } from '../utils/use-value-labels'
 
 export interface TimeSeriesBarChartConfig {
     xAxis?: XAxisConfig
@@ -105,44 +93,23 @@ export function TimeSeriesBarChart<Meta = unknown>({
         legend,
         trendLines,
     } = config ?? {}
-    const axisList = useMemo(() => normalizeYAxisList(yAxis), [yAxis])
-    const primaryYAxis = useMemo<YAxisConfig | undefined>(() => primaryYAxisConfig(axisList), [axisList])
-    const yAxes = useMemo(() => (Array.isArray(yAxis) ? buildYAxes(axisList) : undefined), [yAxis, axisList])
-
-    const xTickFormatter = useXTickFormatter(xAxis, labels)
-    const yTickFormatter = useYTickFormatter(primaryYAxis)
-
-    const { visibleSeries, legendProps } = useChartLegend(series, theme, legend)
-
-    const valueLabelsConfig = resolveValueLabelsConfig(valueLabels)
-    const seriesAfterValueLabels = useSeriesWithValueLabelAllowlist(visibleSeries, valueLabelsConfig?.seriesKeys)
-
-    const valueLabelFormatter = valueLabelsConfig ? (valueLabelsConfig.formatter ?? yTickFormatter) : undefined
+    const {
+        xTickFormatter,
+        yTickFormatter,
+        legendProps,
+        visibleSeries,
+        chartSeries,
+        valueLabelsConfig,
+        valueLabelFormatter,
+        primaryYAxis,
+        yAxes,
+    } = useTimeSeries(series, labels, theme, { xAxis, yAxis, valueLabels, legend })
 
     // `axisOrientation` flows through `barChartConfig` into chart context, so `ReferenceLine`
     // reads it automatically — no need to stamp each line here.
-    const referenceLines = useMemo(
-        () => buildGoalLineReferenceLines(goalLines, seriesAfterValueLabels),
-        [goalLines, seriesAfterValueLabels]
-    )
+    const { referenceLines, valueDomain } = useGoalLines(goalLines, chartSeries)
 
-    // Extend the value axis to cover goal lines that sit above (or below) the data, so a goal
-    // line off the data's natural scale still renders inside the plot. Memoized so the `{ include }`
-    // object stays referentially stable and doesn't re-trigger scale recomputation each render.
-    const valueDomain = useMemo(() => goalLineValueDomain(referenceLines), [referenceLines])
-
-    const trendSeries = useMemo(() => {
-        if (!trendLines?.length) {
-            return []
-        }
-        const byKey = new Map(visibleSeries.map((s) => [s.key, s]))
-        return trendLines.flatMap((tl) => {
-            const source = byKey.get(tl.seriesKey)
-            return source
-                ? [buildTrendLineSeries({ sourceSeries: source, kind: tl.kind, label: tl.label, fitUpTo: tl.fitUpTo, excluded: source.visibility?.excluded })]
-                : []
-        })
-    }, [trendLines, visibleSeries])
+    const trendSeries = useTrendLineSeries(visibleSeries, trendLines)
 
     const barChartConfig: BarChartConfig = {
         yScaleType: primaryYAxis?.scale,
@@ -171,7 +138,7 @@ export function TimeSeriesBarChart<Meta = unknown>({
     return (
         <ChartLegend {...legendProps} legendDataAttr="hog-chart-timeseries-bar-legend">
             <BarChart
-                series={seriesAfterValueLabels}
+                series={chartSeries}
                 labels={labels}
                 config={barChartConfig}
                 theme={theme}

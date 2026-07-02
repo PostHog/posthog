@@ -1,6 +1,6 @@
-import type { Series } from '../../../core/types'
-import { dimHex } from '../../../utils/comparison-dimming'
-import { linearRegression, movingAverage, trendLine } from '../../../utils/statistics'
+import type { Series } from '../../core/types'
+import { dimHex } from '../../utils/comparison-dimming'
+import { linearRegression, movingAverage, trendLine } from '../../utils/statistics'
 
 export type { TrendLineConfig } from './use-derived-series'
 
