@@ -1084,6 +1084,27 @@ def test_run_destination_query_does_not_retry_genuine_not_found(mock_sleep):
     mock_sleep.assert_not_called()
 
 
+@mock.patch(
+    "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery._JOB_NOT_FOUND_MAX_ATTEMPTS",
+    4,
+)
+@mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.time.sleep")
+def test_run_destination_query_gives_up_after_max_attempts(mock_sleep):
+    """The race almost always clears within moments, but a persistent job-not-found must still stop
+    at the attempt cap and surface the error instead of retrying forever."""
+    client = mock.MagicMock()
+    client.query.side_effect = [NotFound("404 Not found: Job prj:US.abc") for _ in range(4)]
+
+    with pytest.raises(NotFound):
+        _run_destination_query_with_job_retry(
+            client, "SELECT 1", destination_table=mock.MagicMock(), query_parameters=[], project="prj"
+        )
+
+    assert client.query.call_count == 4
+    # No back-off after the final, failed attempt.
+    assert mock_sleep.call_count == 3
+
+
 @pytest.mark.parametrize(
     "location",
     ["US", "EU", "asia-northeast1"],
