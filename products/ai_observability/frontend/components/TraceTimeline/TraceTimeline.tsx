@@ -3,6 +3,7 @@ import { useMemo, useState } from 'react'
 import { IconChevronDown } from '@posthog/icons'
 import { LemonButton, Tooltip } from '@posthog/lemon-ui'
 
+import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { cn } from 'lib/utils/css-classes'
 
 import { LLMTraceEvent } from '~/queries/schema/schema-general'
@@ -26,7 +27,7 @@ const LANE_GAP = 6
 const LANE_H = BAR_H + LANE_GAP
 // Beyond this many lanes the chart scrolls vertically instead of growing, so a
 // deeply nested trace can't crowd out the rest of the page.
-const MAX_VISIBLE_LANES = 8
+const MAX_VISIBLE_LANES = 6
 
 export function TraceTimeline({
     events,
@@ -124,9 +125,12 @@ export function TraceTimeline({
                     </div>
                     {/* The negative margin + matching padding move the clip edge out by
                         2px without shifting the canvas, so the outer state rings on bars
-                        at the chart's edges don't get clipped. */}
-                    <div
-                        className="relative overflow-y-auto -m-0.5 p-0.5"
+                        at the chart's edges don't get clipped. The scroll shadows signal
+                        when more lanes hide beyond the height cap. */}
+                    <ScrollableShadows
+                        direction="vertical"
+                        className="-m-0.5"
+                        innerClassName="p-0.5"
                         // eslint-disable-next-line react/forbid-dom-props
                         style={{ maxHeight: MAX_VISIBLE_LANES * LANE_H - LANE_GAP + 4 }}
                     >
@@ -202,7 +206,7 @@ export function TraceTimeline({
                                 )
                             })}
                         </div>
-                    </div>
+                    </ScrollableShadows>
                 </div>
             )}
         </div>
