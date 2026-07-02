@@ -9,7 +9,6 @@ import requests
 import structlog
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.freshcaller.freshcaller import (
-    DEFAULT_START_DATETIME,
     FreshcallerResumeConfig,
     _format_datetime,
     _has_next_page,
@@ -21,7 +20,10 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.freshcalle
     normalize_subdomain,
     validate_credentials,
 )
-from products.warehouse_sources.backend.temporal.data_imports.sources.freshcaller.settings import FRESHCALLER_ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.freshcaller.settings import (
+    DEFAULT_START_DATETIME,
+    FRESHCALLER_ENDPOINTS,
+)
 
 logger = structlog.get_logger()
 

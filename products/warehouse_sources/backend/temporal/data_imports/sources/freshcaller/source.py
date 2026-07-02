@@ -38,6 +38,11 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 _SUBDOMAIN_REGEX = re.compile(r"^[a-zA-Z0-9-]+$")
 
+# User-facing auth/permission messages, shared between sync-time (get_non_retryable_errors) and
+# connect-time (validate_credentials) so the two can't drift.
+_ERR_AUTH_FAILED = "Freshcaller authentication failed. Please check your API key and account name."
+_ERR_FORBIDDEN = "Your Freshcaller API key does not have permission for this resource. Check the agent's role/scope."
+
 
 @SourceRegistry.register
 class FreshcallerSource(ResumableSource[FreshcallerSourceConfig, FreshcallerResumeConfig]):
@@ -62,8 +67,8 @@ class FreshcallerSource(ResumableSource[FreshcallerSourceConfig, FreshcallerResu
 
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         return {
-            "401 Client Error": "Freshcaller authentication failed. Please check your API key and account name.",
-            "403 Client Error: Forbidden for url": "Your Freshcaller API key does not have permission for this resource. Check the agent's role/scope.",
+            "401 Client Error": _ERR_AUTH_FAILED,
+            "403 Client Error: Forbidden for url": _ERR_FORBIDDEN,
         }
 
     @property
@@ -146,13 +151,10 @@ Your **API key** is on your Freshcaller profile settings page (click your profil
             return True, None
 
         if status == 403:
-            return (
-                False,
-                "Your Freshcaller API key does not have permission for this resource. Check the agent's role/scope.",
-            )
+            return False, _ERR_FORBIDDEN
 
         if status == 401:
-            return False, "Freshcaller authentication failed. Please check your API key and account name."
+            return False, _ERR_AUTH_FAILED
 
         return False, "Could not connect to Freshcaller. Please check your account name and API key."
 

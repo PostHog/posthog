@@ -208,7 +208,7 @@ def freshcaller_source(
     logger: FilteringBoundLogger,
     resumable_source_manager: ResumableSourceManager[FreshcallerResumeConfig],
     should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Optional[Any] = None,
+    db_incremental_field_last_value: Any = None,
 ) -> SourceResponse:
     config = FRESHCALLER_ENDPOINTS[endpoint]
 
