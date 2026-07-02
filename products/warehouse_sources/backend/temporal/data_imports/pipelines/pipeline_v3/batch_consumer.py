@@ -629,6 +629,23 @@ class BatchConsumer:
             self._metrics.batches_processed_total.labels(team_id=team_id, schema_id=schema_id, status="error").inc()
             self._metrics.batch_retry_total.labels(attempt=str(attempt), error_type=type(err).__name__).inc()
 
+            # Fence the error-path writes on ownership: a worker can outlive its
+            # lease (expiry mid-batch, group reclaimed), and a stale writer must
+            # not stamp waiting_retry over the new owner's lifecycle — or fail
+            # the whole run out from under the pod now processing it. Raises
+            # OwnershipLostError (abandoning the group with no status write)
+            # when the lease is gone; the new owner drives the batch from here.
+            try:
+                await self._verify_ownership(lock_conn, batch)
+            except OwnershipLostError:
+                logger.warning(
+                    self._event("ownership_lost_suppressing_error_status"),
+                    batch_id=batch.id,
+                    run_uuid=batch.run_uuid,
+                    error=str(err)[:500],
+                )
+                raise
+
             if attempt >= self._config.max_attempts:
                 logger.exception(
                     self._event("batch_failed_no_retries_left"),

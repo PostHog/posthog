@@ -282,6 +282,37 @@ class TestProcessGroup:
         assert processed == [0]
 
 
+class TestOwnershipFencing:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("latest_attempt", [0, 2])  # waiting_retry branch / fail_run branch
+    async def test_error_status_suppressed_when_ownership_lost_mid_batch(self, latest_attempt):
+        # A worker can outlive its lease (expiry mid-batch, group reclaimed);
+        # its error path must not stamp waiting_retry — or fail the whole run —
+        # over the new owner's lifecycle. It must abandon with no write.
+        consumer = _make_consumer(max_attempts=3)
+        consumer._process_batch = AsyncMock(side_effect=ValueError("boom"))
+        lock_conn = _make_healthy_conn()
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
+                new_callable=AsyncMock,
+            ) as mock_status,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_advisory_lock",
+                new_callable=AsyncMock,
+                side_effect=[True, False],  # start-of-batch check passes; error-path check fails
+            ),
+            patch.object(consumer, "_fail_run", new_callable=AsyncMock) as mock_fail,
+            pytest.raises(OwnershipLostError),
+        ):
+            await consumer._process_single(_make_batch(latest_attempt=latest_attempt), lock_conn=lock_conn)
+
+        mock_fail.assert_not_called()
+        states = [call.kwargs["job_state"] for call in mock_status.call_args_list]
+        assert SourceBatchStatus.State.WAITING_RETRY not in states
+
+
 class TestRecoverySweep:
     @pytest.mark.asyncio
     async def test_retries_stale_below_max(self):
