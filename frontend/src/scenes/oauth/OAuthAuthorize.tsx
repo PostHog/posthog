@@ -3,8 +3,9 @@ import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 import { useMemo, useState } from 'react'
 
-import { IconCheck, IconCheckCircle, IconPlus, IconWarning } from '@posthog/icons'
+import { IconCheck, IconCheckCircle, IconChevronDown, IconChevronRight, IconPlus, IconWarning } from '@posthog/icons'
 
+import { UpgradeModal } from 'lib/components/UpgradeModal/UpgradeModal'
 import { upgradeModalLogic } from 'lib/components/UpgradeModal/upgradeModalLogic'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
@@ -50,21 +51,34 @@ export const OAuthAuthorizeSuccess = ({ appName }: { appName: string }): JSX.Ele
 export const OAuthAuthorizeRedirecting = ({
     appName,
     redirectUrl,
+    isLoopback,
 }: {
     appName: string
     redirectUrl: string
+    isLoopback: boolean
 }): JSX.Element => {
     return (
         <div className="flex flex-col items-center justify-center h-full gap-4 py-12 px-4">
             <Spinner className="text-3xl" />
-            <div className="text-xl font-semibold">Redirecting to {appName}…</div>
+            <div className="text-xl font-semibold">
+                {isLoopback ? `Finishing up with ${appName}…` : `Redirecting to ${appName}…`}
+            </div>
             <div className="text-sm text-muted text-center max-w-md">
-                <p>This usually only takes a moment.</p>
+                {isLoopback ? (
+                    <p>
+                        {appName} is running on your computer and is completing the connection. This can take a few
+                        seconds — you can switch back to {appName}, it will continue automatically.
+                    </p>
+                ) : (
+                    <p>This usually only takes a moment.</p>
+                )}
                 <p className="mt-2">
                     Not redirected automatically? <Link to={redirectUrl}>Click here</Link>.
                 </p>
                 <p className="mt-2">
-                    If {appName} has already finished authorizing on your end, you can safely close this window.
+                    {isLoopback
+                        ? `Once ${appName} shows you're connected, it's safe to close this window.`
+                        : `If ${appName} has already finished authorizing on your end, you can safely close this window.`}
                 </p>
             </div>
         </div>
@@ -143,9 +157,12 @@ export const OAuthAuthorize = (): JSX.Element => {
         authorizationComplete,
         isRedirecting,
         redirectUrl,
+        isLoopbackRedirect,
         scopesWereDefaulted,
         isMcpResource,
         resourceScopesLoading,
+        collapsibleScopeList,
+        scopeListExpanded,
         showCreateProject,
         newProjectLoading,
         selectedOrganization,
@@ -160,6 +177,7 @@ export const OAuthAuthorize = (): JSX.Element => {
         setOauthAuthorizationValue,
         setReadOnlyMode,
         toggleDeniedScope,
+        setScopeListExpanded,
     } = useActions(oauthAuthorizeLogic)
 
     const { isReadOnly: isImpersonationReadOnly, isImpersonated } = useValues(impersonationNoticeLogic)
@@ -237,7 +255,7 @@ export const OAuthAuthorize = (): JSX.Element => {
     }
 
     if (isRedirecting) {
-        return <OAuthAuthorizeRedirecting appName={appName} redirectUrl={redirectUrl} />
+        return <OAuthAuthorizeRedirecting appName={appName} redirectUrl={redirectUrl} isLoopback={isLoopbackRedirect} />
     }
 
     return (
@@ -407,33 +425,52 @@ export const OAuthAuthorize = (): JSX.Element => {
                                             ))}
                                         </ul>
                                     )}
-                                    {scopeRows.length > 0 &&
-                                        (allScopesRequired ? (
-                                            <ul className="space-y-2">
-                                                {scopeRows.map((row) => (
-                                                    <li key={row.key} className="flex items-center space-x-2">
-                                                        <IconCheck color="var(--success)" />
-                                                        <span className="font-medium">{row.description}</span>
-                                                    </li>
+                                    {scopeRows.length > 0 && (
+                                        <>
+                                            {collapsibleScopeList && (
+                                                <LemonButton
+                                                    type="tertiary"
+                                                    size="small"
+                                                    className="self-start"
+                                                    icon={
+                                                        scopeListExpanded ? <IconChevronDown /> : <IconChevronRight />
+                                                    }
+                                                    onClick={() => setScopeListExpanded(!scopeListExpanded)}
+                                                >
+                                                    {scopeListExpanded
+                                                        ? 'Hide permissions'
+                                                        : `Show all ${scopeRows.length} permissions`}
+                                                </LemonButton>
+                                            )}
+                                            {(!collapsibleScopeList || scopeListExpanded) &&
+                                                (allScopesRequired ? (
+                                                    <ul className="space-y-2">
+                                                        {scopeRows.map((row) => (
+                                                            <li key={row.key} className="flex items-center space-x-2">
+                                                                <IconCheck color="var(--success)" />
+                                                                <span className="font-medium">{row.description}</span>
+                                                            </li>
+                                                        ))}
+                                                    </ul>
+                                                ) : (
+                                                    <div className="flex flex-col gap-2">
+                                                        {scopeRows.map((row) => (
+                                                            <LemonCheckbox
+                                                                key={row.key}
+                                                                checked={row.granted}
+                                                                onChange={() =>
+                                                                    row.toggleKey && toggleDeniedScope(row.toggleKey)
+                                                                }
+                                                                label={row.description}
+                                                                disabledReason={
+                                                                    row.required ? `Required by ${appName}` : undefined
+                                                                }
+                                                            />
+                                                        ))}
+                                                    </div>
                                                 ))}
-                                            </ul>
-                                        ) : (
-                                            <div className="flex flex-col gap-2">
-                                                {scopeRows.map((row) => (
-                                                    <LemonCheckbox
-                                                        key={row.key}
-                                                        checked={row.granted}
-                                                        onChange={() =>
-                                                            row.toggleKey && toggleDeniedScope(row.toggleKey)
-                                                        }
-                                                        label={row.description}
-                                                        disabledReason={
-                                                            row.required ? `Required by ${appName}` : undefined
-                                                        }
-                                                    />
-                                                ))}
-                                            </div>
-                                        ))}
+                                        </>
+                                    )}
                                 </>
                             )}
                         </div>
@@ -491,6 +528,9 @@ export const OAuthAuthorize = (): JSX.Element => {
                     </div>
                 </Form>
             </div>
+            {/* This scene renders without AuthenticatedShell, so it mounts the upgrade modal itself —
+                guardAvailableFeature (create-project-at-limit) relies on it. */}
+            <UpgradeModal />
         </div>
     )
 }

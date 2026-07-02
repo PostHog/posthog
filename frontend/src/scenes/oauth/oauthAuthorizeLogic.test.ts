@@ -195,6 +195,67 @@ describe('oauthAuthorizeLogic', () => {
         expect(logic.values.effectiveScopes).toEqual(['openid', 'insight:write'])
     })
 
+    // Only a client that requested nothing (defaulted to the resource's whole catalog) on a known
+    // MCP resource, and only once the list is long, should collapse. It must never hide scopes a
+    // client explicitly requested.
+    const collapseCases: {
+        name: string
+        scopes: string[]
+        defaulted: boolean
+        mcp: boolean
+        expected: boolean
+    }[] = [
+        {
+            name: 'collapses a long defaulted MCP catalog',
+            scopes: ['feature_flag:read', 'insight:read', 'dashboard:read', 'experiment:read', 'query:read'],
+            defaulted: true,
+            mcp: true,
+            expected: true,
+        },
+        {
+            name: 'never collapses explicitly requested scopes',
+            scopes: ['feature_flag:read', 'insight:read', 'dashboard:read', 'experiment:read', 'query:read'],
+            defaulted: false,
+            mcp: true,
+            expected: false,
+        },
+        {
+            name: 'does not collapse a short defaulted list',
+            scopes: ['feature_flag:read', 'insight:read'],
+            defaulted: true,
+            mcp: true,
+            expected: false,
+        },
+        {
+            name: 'does not collapse for non-MCP resources',
+            scopes: ['feature_flag:read', 'insight:read', 'dashboard:read', 'experiment:read', 'query:read'],
+            defaulted: true,
+            mcp: false,
+            expected: false,
+        },
+    ]
+
+    it.each(collapseCases)('collapsibleScopeList $name', ({ scopes, defaulted, mcp, expected }) => {
+        logic.actions.setScopesWereDefaulted(defaulted)
+        logic.actions.setIsMcpResource(mcp)
+        logic.actions.setScopes(scopes)
+        expect(logic.values.collapsibleScopeList).toBe(expected)
+    })
+
+    // Loopback (local listener) redirects get reassuring copy; real external redirects do not.
+    const loopbackCases: { url: string; expected: boolean }[] = [
+        { url: 'http://localhost:8090/callback?code=abc', expected: true },
+        { url: 'http://127.0.0.1:52111/callback?code=abc', expected: true },
+        { url: 'http://[::1]:8090/callback', expected: true },
+        { url: 'https://app.example.com/oauth/callback?code=abc', expected: false },
+        { url: 'cursor://anysphere.cursor-retrieval/callback', expected: false },
+    ]
+
+    it.each(loopbackCases)('isLoopbackRedirect for $url is $expected', ({ url, expected }) => {
+        logic.actions.setRedirecting(url)
+        expect(logic.values.isLoopbackRedirect).toBe(expected)
+    })
+
     const HINT_TEAMS = [
         { id: 11, organization: 'org-a', name: 'A project' },
         { id: 22, organization: 'org-b', name: 'B project' },

@@ -75,6 +75,24 @@ const isNativeProtocol = (url: string): boolean => {
     }
 }
 
+const LOOPBACK_HOSTNAMES: ReadonlySet<string> = new Set(['localhost', '127.0.0.1', '[::1]', '::1'])
+
+// HTTP-loopback redirect targets (e.g. Claude Code's local listener) legitimately take a moment
+// while the browser waits on the local server, so the redirect screen tailors its copy for them.
+const isLoopbackUrl = (url: string): boolean => {
+    try {
+        const parsed = new URL(url)
+        return ['http:', 'https:'].includes(parsed.protocol) && LOOPBACK_HOSTNAMES.has(parsed.hostname)
+    } catch {
+        return false
+    }
+}
+
+// Below this row count the permissions list is short enough to show in full; at or above it a
+// client that requested nothing (so we default to the resource's whole catalog) gets a collapsed
+// list instead of dumping every permission on the user.
+const DEFAULTED_SCOPE_LIST_COLLAPSE_THRESHOLD = 5
+
 type OAuthAuthorizeResult = { redirectTo: string; isNative: boolean }
 
 const oauthAuthorize = async (
@@ -124,6 +142,7 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
         setRequiredAccessLevel: (requiredAccessLevel: 'organization' | 'team' | null) => ({ requiredAccessLevel }),
         setTeamHint: (teamId: number | null) => ({ teamId }),
         setScopesWereDefaulted: (scopesWereDefaulted: boolean) => ({ scopesWereDefaulted }),
+        setScopeListExpanded: (expanded: boolean) => ({ expanded }),
         setIsMcpResource: (isMcpResource: boolean) => ({ isMcpResource }),
         loadResourceScopes: (resourceUrl: string) => ({ resourceUrl }),
         setResourceScopesLoading: (loading: boolean) => ({ loading }),
@@ -270,6 +289,13 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
             false,
             {
                 setScopesWereDefaulted: (_, { scopesWereDefaulted }) => scopesWereDefaulted,
+            },
+        ],
+        scopeListExpanded: [
+            false,
+            {
+                setScopeListExpanded: (_, { expanded }) => expanded,
+                setScopes: () => false,
             },
         ],
         isMcpResource: [
@@ -662,6 +688,16 @@ export const oauthAuthorizeLogic = kea<oauthAuthorizeLogicType>([
                 )
                 return Array.from(new Set([...identity, ...resources, ...required]))
             },
+        ],
+        // True while redirecting to an HTTP-loopback target (a local listener on the user's
+        // machine, e.g. Claude Code), so the redirect screen can reassure instead of implying a hang.
+        isLoopbackRedirect: [(s) => [s.redirectUrl], (redirectUrl: string): boolean => isLoopbackUrl(redirectUrl)],
+        // Collapse the permissions list only when the client requested nothing and we defaulted to
+        // the resource's whole catalog, and only once it's long enough to be overwhelming.
+        collapsibleScopeList: [
+            (s) => [s.scopesWereDefaulted, s.isMcpResource, s.scopeRows],
+            (scopesWereDefaulted: boolean, isMcpResource: boolean, scopeRows: { key: string }[]): boolean =>
+                scopesWereDefaulted && isMcpResource && scopeRows.length >= DEFAULTED_SCOPE_LIST_COLLAPSE_THRESHOLD,
         ],
         redirectDomain: [
             (s) => [s.oauthApplication],

@@ -284,6 +284,13 @@ export interface SceneConfig {
      * @default 'app'
      */
     layout?: 'app' | 'app-raw' | 'app-container' | 'app-raw-no-header' | 'plain' | 'app-full-scene-height'
+    /**
+     * Render the scene bare — without `AuthenticatedShell` — even for logged-in users. Use for
+     * standalone, full-page flows (e.g. OAuth consent) that shouldn't have the global app chrome
+     * (GlobalModals, welcome dialog, setup highlights, notices) mounting and flashing behind them.
+     * The scene becomes responsible for anything it still needs (toasts are provided).
+     */
+    withoutAuthenticatedShell?: boolean
     /** Hides project notice (ProjectNotice.tsx). */
     hideProjectNotice?: boolean
     /** Personal account management (used e.g. by breadcrumbs) */

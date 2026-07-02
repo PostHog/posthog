@@ -332,6 +332,9 @@ export const sceneConfigurations: Record<Scene | string, SceneConfig> = {
         projectBased: false,
         organizationBased: false,
         allowUnauthenticated: true,
+        // Consent + redirect are standalone full-page screens; keep the app chrome from mounting
+        // (and flashing) behind them.
+        withoutAuthenticatedShell: true,
     },
     [Scene.Onboarding]: { projectBased: true, name: 'Onboarding', layout: 'plain' },
     [Scene.OnboardingCoupon]: { projectBased: true, name: 'Claim coupon', layout: 'plain' },

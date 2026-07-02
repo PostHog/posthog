@@ -160,6 +160,18 @@ function AppScene(): JSX.Element | null {
         ) : null
     }
 
+    // Standalone full-page flows (e.g. OAuth consent) render bare even when logged in, so the
+    // global app chrome (GlobalModals, welcome dialog, setup highlights, notices) never mounts or
+    // flashes behind them. Toasts still work via the shared container.
+    if (sceneConfig?.withoutAuthenticatedShell) {
+        return (
+            <>
+                {wrappedSceneElement}
+                {unauthToastContainer}
+            </>
+        )
+    }
+
     return (
         <ChunkLoadErrorBoundary>
             <Suspense
