@@ -59,8 +59,9 @@ def create_default_modifiers_for_team(
 ) -> "HogQLQueryModifiers":
     # Resolve the flag-based persons-on-events default here (the boundary, where the Team and
     # flags live) and inject it as plain data, so the pure builder never touches the Team. Only
-    # evaluate the flag when the caller hasn't already set the mode.
-    needs_persons_on_events = modifiers is None or modifiers.personsOnEventsMode is None
+    # evaluate the flag when neither the caller nor the team's modifier overrides set the mode.
+    team_sets_mode = isinstance(team.modifiers, dict) and team.modifiers.get("personsOnEventsMode") is not None
+    needs_persons_on_events = (modifiers is None or modifiers.personsOnEventsMode is None) and not team_sets_mode
     return create_default_modifiers_for_team_context(
         HogQLTeamContext.from_team(team),
         modifiers,

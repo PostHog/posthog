@@ -38,7 +38,7 @@ from products.cohorts.backend.models.calculation_history import CohortCalculatio
 from products.cohorts.backend.models.cohort import Cohort
 from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.product_analytics.backend.models.insight_variable import InsightVariable
-from products.warehouse_sources.backend.models.util import get_view_or_table_by_name
+from products.warehouse_sources.backend.facade.hogql import get_view_or_table_by_name
 
 if TYPE_CHECKING:
     from posthog.hogql import ast
@@ -298,7 +298,8 @@ class DjangoDataProvider:
         return refs
 
     def action_expr(self, action_id: int, events_alias: Optional[str] = None) -> Optional["ast.Expr"]:
-        # Deferred import: property.py itself imports this module for its boundary shims.
+        # Deferred: keeps the engine's property module (and its transitive imports) off this
+        # module's import path.
         from posthog.hogql.property import steps_to_expr_core  # noqa: PLC0415
 
         row = self._action_rows.get(action_id)
@@ -307,9 +308,10 @@ class DjangoDataProvider:
             if row is None:
                 return None
             self._action_rows[action_id] = row
-        # Resolve the action's steps through this provider — not action_to_expr, which would rebuild a
-        # second DjangoDataProvider from row.team. We are already the provider, scoped to row's project.
-        return steps_to_expr_core(row.steps, self, events_alias=events_alias)
+        # An action from a sibling team in the project compiles with its own team's settings
+        # (timezone, path cleaning, warehouse joins) — the pre-provider behavior.
+        provider = self if row.team_id == self._team_id else DjangoDataProvider(team_id=row.team_id, user=self._user)
+        return steps_to_expr_core(row.steps, provider, events_alias=events_alias)
 
     def insight_variables(self, variable_ids: list[str]) -> list[InsightVariableInfo]:
         rows = InsightVariable.objects.filter(team_id=self.team.id, id__in=variable_ids).all()

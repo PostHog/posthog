@@ -7,7 +7,9 @@ from django.db import DatabaseError
 from django.test import override_settings
 
 from posthog.schema import (
+    DateRange,
     HogLanguage,
+    HogQLFilters,
     HogQLMetadata,
     HogQLMetadataResponse,
     HogQLQuery,
@@ -138,6 +140,22 @@ class TestMetadata(ClickhouseTestMixin, APIBaseTest):
                 ],
             },
         )
+
+    def test_metadata_select_with_filters_placeholder_is_valid(self):
+        # {filters} resolution needs a database; metadata must build one rather than
+        # reporting every {filters} query as invalid.
+        metadata = get_hogql_metadata(
+            query=HogQLMetadata(
+                kind="HogQLMetadata",
+                language=HogLanguage.HOG_QL,
+                query="select event from events where {filters}",
+                filters=HogQLFilters(dateRange=DateRange(date_from="-7d")),
+                response=None,
+            ),
+            team=self.team,
+        )
+        self.assertEqual(metadata.errors, [])
+        self.assertTrue(metadata.isValid)
 
     def test_metadata_expr_parse_error(self):
         metadata = self._expr("1 as true")

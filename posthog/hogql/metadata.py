@@ -94,7 +94,11 @@ def get_hogql_metadata(
                 hogql_ast = parse_select(query.query)
                 finder = find_placeholders(hogql_ast)
                 if finder.has_filters:
-                    hogql_ast = replace_filters_core(hogql_ast, query.filters, context.data, database=database)
+                    # replace_filters_core needs a database to resolve which table each select reads
+                    # from; build it once and cache it on the context so printing reuses it.
+                    if context.database is None:
+                        context.database = Database.create_for(team=team, user=user, modifiers=query_modifiers)
+                    hogql_ast = replace_filters_core(hogql_ast, query.filters, context.data, database=context.database)
                 if query.variables or finder.placeholder_fields or finder.placeholder_expressions:
                     hogql_ast = replace_variables(
                         hogql_ast, list(query.variables.values()) if query.variables else [], team

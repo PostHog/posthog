@@ -29,6 +29,7 @@ from posthog.hogql.errors import (
 from posthog.hogql.parser import parse_select
 from posthog.hogql.placeholders import find_placeholders
 from posthog.hogql.printer import prepare_and_print_ast
+
 from posthog.hogql_compat import replace_filters, replace_variables
 from posthog.models import Team
 from posthog.models.user import User
