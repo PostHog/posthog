@@ -1184,11 +1184,22 @@ class SignalReportViewSet(
         report_ids = [str(r.id) for r in reports]
         trace.get_current_span().set_attribute("signals.reports.list.count", len(report_ids))
 
+        # Both lookups are best-effort decorative metadata (source-product badges, scout names, PR
+        # urls). The serializer degrades to empty values when a map is missing, so a ClickHouse or
+        # backend hiccup in either must not 500 the whole inbox load — fall back to empty and log.
         with tracer.start_as_current_span("signals.reports.list.fetch_source_products"):
-            signal_meta_map = fetch_source_products_for_reports(self.team, report_ids) if report_ids else {}
+            try:
+                signal_meta_map = fetch_source_products_for_reports(self.team, report_ids) if report_ids else {}
+            except Exception:
+                logger.exception("signals.reports.list.source_products_failed", report_count=len(report_ids))
+                signal_meta_map = {}
 
         with tracer.start_as_current_span("signals.reports.list.fetch_implementation_pr_urls"):
-            implementation_pr_url_map = fetch_implementation_pr_urls_for_reports(report_ids)
+            try:
+                implementation_pr_url_map = fetch_implementation_pr_urls_for_reports(report_ids)
+            except Exception:
+                logger.exception("signals.reports.list.implementation_pr_url_failed", report_count=len(report_ids))
+                implementation_pr_url_map = {}
 
         context = {
             **self.get_serializer_context(),
