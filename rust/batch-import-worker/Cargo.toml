@@ -49,6 +49,10 @@ metrics = { workspace = true }
 url = { workspace = true }
 urlencoding = "2.1"
 moka = { workspace = true }
+# Pinned to the last release with a synchronous, Result-returning capture_batch.
+# posthog-rs 0.14.0 made capture fire-and-forget (no delivery Result), which the
+# import commit path relies on to gate Kafka offset rollback (at-least-once). Do
+# not bump until the SDK exposes an awaited, Result-returning batch capture again.
 posthog-rs = { version = "0.13.3", features = ["async-client", "capture-v1"] }
 
 [dev-dependencies]

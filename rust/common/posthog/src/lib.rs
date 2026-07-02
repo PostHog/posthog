@@ -8,12 +8,20 @@ use std::sync::{Arc, OnceLock};
 use std::task::{Context, Waker};
 use std::time::Instant;
 
+use posthog_rs::PostHogError;
 use serde_json::Value;
 
 /// Hard cap on captured exceptions per process per minute. Bounds both outage
 /// storms (every request failing at once) and self-amplification: cymbal
 /// ingests the internal project's `$exception` events, i.e. its own captures.
 const MAX_CAPTURES_PER_MINUTE: u32 = 10;
+
+/// Terminal SDK delivery failures, counted once per `on_error` invocation.
+/// Labeled `service` (the caller passed to [`init`]), `surface` (which SDK
+/// network path failed), and `reason` (bounded failure class). Shared across
+/// every service that inits through this crate; the `service` label keeps them
+/// cleanly faceted regardless of scrape topology.
+const SDK_DELIVERY_FAILURES: &str = "posthog_sdk_delivery_failures_total";
 
 static SERVICE: OnceLock<ServiceContext> = OnceLock::new();
 static CAPTURE_WINDOW: RateWindow = RateWindow::new();
@@ -69,6 +77,10 @@ pub async fn init(
         .host(normalize_host(endpoint))
         .error_tracking(error_tracking)
         .before_send(move |event| prepare_event_for_capture(event, &context))
+        // Observe terminal SDK delivery failures as metrics. Registering a hook
+        // also silences the SDK's default per-reject WARN, so this metric now
+        // owns that signal. Observability-only: must not re-enter the SDK.
+        .on_error(move |err| report_sdk_error(service, err))
         .build()
         .expect("all client options have defaults");
     posthog_rs::init_global(options).await?;
@@ -153,6 +165,55 @@ fn is_fatal_exception(event: &posthog_rs::Event) -> bool {
             .get("$exception_level")
             .and_then(Value::as_str)
             == Some("fatal")
+}
+
+/// Emit the delivery-failure metric for one terminal SDK failure. Wired as the
+/// client's `on_error` hook in [`init`]; runs on whichever SDK thread hit the
+/// failure, stays allocation-light, and never calls back into the SDK.
+fn report_sdk_error(service: &'static str, err: &PostHogError<'_>) {
+    let (surface, reason) = classify_sdk_error(err);
+    metrics::counter!(
+        SDK_DELIVERY_FAILURES,
+        "service" => service,
+        "surface" => surface,
+        "reason" => reason,
+    )
+    .increment(1);
+}
+
+/// Map a `PostHogError` to bounded `(surface, reason)` metric labels. `surface`
+/// is the SDK network path that failed; `reason` classifies the cause. Both are
+/// `&'static str` to keep the label set low-cardinality. `PostHogError` is
+/// `#[non_exhaustive]`, hence the catch-all arm.
+fn classify_sdk_error(err: &PostHogError<'_>) -> (&'static str, &'static str) {
+    match err {
+        // A capture failure with no underlying error is the capture-v1 2xx
+        // whose per-event verdicts left events unpersisted (no transport error).
+        PostHogError::Capture(f) => (
+            "capture",
+            f.error().map_or("partial_drop", sdk_error_reason),
+        ),
+        PostHogError::FeatureFlags(f) => ("flags", sdk_error_reason(f.error())),
+        PostHogError::LocalEvaluation(f) => ("local_evaluation", sdk_error_reason(f.error())),
+        _ => ("unknown", "other"),
+    }
+}
+
+/// Bounded failure class for a `posthog_rs::Error`. Mirrors the tag split the
+/// batch-import-worker uses so `quota` (expected billing enforcement) stays
+/// separable from actionable transport/server failures in alerts.
+/// `posthog_rs::Error` is `#[non_exhaustive]`, hence the catch-all arm.
+fn sdk_error_reason(err: &posthog_rs::Error) -> &'static str {
+    match err {
+        posthog_rs::Error::BillingLimitExceeded(_) => "quota",
+        posthog_rs::Error::BadRequest(_) => "bad_request",
+        posthog_rs::Error::ServerError { .. } => "server_error",
+        posthog_rs::Error::RateLimit => "rate_limited",
+        posthog_rs::Error::Unauthorized => "unauthorized",
+        posthog_rs::Error::Connection(_) => "transport",
+        posthog_rs::Error::Serialization(_) => "serialization",
+        _ => "other",
+    }
 }
 
 /// Strip a legacy capture path suffix from a configured PostHog endpoint,
@@ -248,5 +309,33 @@ mod tests {
         }
         assert!(!limiter.allows(1, 3));
         assert!(limiter.allows(2, 3));
+    }
+
+    #[test]
+    fn sdk_error_reason_maps_every_variant() {
+        use posthog_rs::Error;
+        // The exact tag per variant is an alerting contract: `quota` (expected
+        // billing enforcement) MUST stay separable from actionable failures.
+        let cases: &[(Error, &str)] = &[
+            (Error::BillingLimitExceeded("x".into()), "quota"),
+            (Error::BadRequest("x".into()), "bad_request"),
+            (
+                Error::ServerError {
+                    status: 503,
+                    message: "x".into(),
+                },
+                "server_error",
+            ),
+            (Error::RateLimit, "rate_limited"),
+            (Error::Unauthorized, "unauthorized"),
+            (Error::Connection("x".into()), "transport"),
+            (Error::Serialization("x".into()), "serialization"),
+            // A variant outside the classified set maps safely via the
+            // non_exhaustive catch-all instead of panicking.
+            (Error::NotInitialized, "other"),
+        ];
+        for (err, expected) in cases {
+            assert_eq!(sdk_error_reason(err), *expected, "reason for {err:?}");
+        }
     }
 }
