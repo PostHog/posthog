@@ -20,6 +20,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.activities imp
 )
 from products.warehouse_sources.backend.temporal.data_imports.cdc.errors import CDCErrorCategory, cdc_error_info
 from products.warehouse_sources.backend.temporal.data_imports.cdc.types import ChangeEvent
+from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.masking import mask_value
 from products.warehouse_sources.backend.temporal.data_imports.sources.postgres.cdc.adapter import PostgresCDCAdapter
 from products.warehouse_sources.backend.temporal.data_imports.util import NonRetryableException
 
@@ -2609,3 +2610,37 @@ class TestCDCBoundedReadLoop:
 
         assert reader.upto_nchanges_calls == [CDC_MAX_CHANGES_PER_READ, CDC_MAX_CHANGES_PER_READ * 2]
         assert reader.confirmed_positions == ["0/300"]  # nothing to advance on pass 1; pass 2 drains
+
+
+class TestMaskEventColumns:
+    def test_masks_configured_columns_and_passes_rest_through(self):
+        source = _make_source()
+        activity_obj = _make_extract_activity(source)
+        activity_obj.masked_columns_by_table = {"users": {"email"}}
+
+        event = _make_event(columns={"id": 1, "email": "a@x.com", "name": None})
+        out = activity_obj._mask_event_columns(event)
+
+        # Masked column digests match the shared engine (snapshot/CDC consistency for equal text);
+        # unmasked columns and nulls pass through untouched.
+        assert out.columns["email"] == mask_value(1, "a@x.com")
+        assert out.columns["id"] == 1
+        assert out.columns["name"] is None
+
+    def test_folds_event_column_names_before_matching(self):
+        source = _make_source()
+        activity_obj = _make_extract_activity(source)
+        activity_obj.masked_columns_by_table = {"users": {"email"}}
+
+        # A cased event column must still match the folded mask set — otherwise PII streams plaintext.
+        event = _make_event(columns={"id": 1, "Email": "a@x.com"})
+        out = activity_obj._mask_event_columns(event)
+        assert out.columns["Email"] == mask_value(1, "a@x.com")
+
+    def test_unconfigured_table_is_untouched(self):
+        source = _make_source()
+        activity_obj = _make_extract_activity(source)
+        activity_obj.masked_columns_by_table = {}
+
+        event = _make_event(columns={"id": 1, "email": "a@x.com"})
+        assert activity_obj._mask_event_columns(event) is event

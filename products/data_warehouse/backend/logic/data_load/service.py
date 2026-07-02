@@ -43,7 +43,7 @@ from posthog.temporal.common.schedule import (
     unpause_schedule,
     update_schedule,
 )
-from posthog.temporal.utils import ExternalDataWorkflowInputs, RemaskColumnsInputs
+from posthog.temporal.utils import REMASK_COLUMNS_WORKFLOW_NAME, ExternalDataWorkflowInputs, RemaskColumnsInputs
 
 if TYPE_CHECKING:
     from posthog.models import Team
@@ -208,7 +208,7 @@ async def _start_remask_workflow(
 ) -> None:
     try:
         await client.start_workflow(
-            "remask-warehouse-columns",
+            REMASK_COLUMNS_WORKFLOW_NAME,
             RemaskColumnsInputs(
                 team_id=external_data_schema.team_id, schema_id=external_data_schema.id, columns=columns
             ),
@@ -219,11 +219,23 @@ async def _start_remask_workflow(
             task_queue=settings.DATA_WAREHOUSE_TASK_QUEUE,
         )
     except WorkflowAlreadyStartedError:
-        pass
+        # A remask is already running for this schema — the new columns' historical rows are NOT
+        # re-masked by it (it was started with the earlier column list). Surface loudly until we
+        # have a queue/signal mechanism; the mask still applies to all newly synced rows.
+        logger.exception(
+            "remask_workflow_conflict_dropped",
+            schema_id=str(external_data_schema.id),
+            team_id=external_data_schema.team_id,
+            dropped_columns=columns,
+        )
 
 
 def trigger_remask_workflow(external_data_schema: ExternalDataSchema, columns: list[str]) -> None:
-    """Re-mask already-synced data in place for newly-masked columns (no source re-fetch)."""
+    """Re-mask already-synced data in place for newly-masked columns (no source re-fetch).
+
+    Not called by the API yet — mask changes route through a full resync until the remask job is
+    hardened and integration-validated (see remask_columns_job.py's docstring).
+    """
     _start_remask_workflow(sync_connect(), external_data_schema, columns)
 
 

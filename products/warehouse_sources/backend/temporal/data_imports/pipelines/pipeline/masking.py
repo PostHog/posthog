@@ -9,35 +9,61 @@ as long as those columns are never masked (enforced by `resolve_masked_columns`)
 
 The value is hashed via `str(value)`, so that stability holds for a stable textual
 representation; a value rendered differently between read paths (e.g. `Decimal("1.10")` vs `1.1`,
-or a datetime at different precision/tz) digests differently. Rotating `ENCRYPTION_SALT_KEYS`
-changes every digest, so a rotation requires re-masking the affected columns.
+or a datetime at different precision/tz) digests differently.
+
+Key rotation caveat: the digest always uses `ENCRYPTION_SALT_KEYS[0]`. Prepending a new key (the
+standard rotation pattern) changes every future digest while already-synced rows keep old-key
+digests — the same source value then maps to two digests within one column. Rotating the key
+therefore requires a full re-sync of every schema with masked columns; there is no in-place
+re-key (the plaintext is gone by design).
+
+Known limitations (accepted):
+- CDC streams hash the decoder's pgoutput text while snapshot syncs hash Python `str(value)`;
+  temporal/numeric columns whose renderings differ (e.g. `+00` vs `+00:00`) digest differently
+  across the two paths, so equality on a masked timestamp column can split stream-vs-snapshot.
+- Masking is not retroactive through derived data: materialized views / saved queries built
+  before a mask keep their plaintext copies until re-materialized, and the int→string type flip
+  can break dependents doing numeric operations on the column.
 """
 
 import hmac
+import asyncio
 import hashlib
 
 from django.conf import settings
 
 import pyarrow as pa
+import structlog
 
 from products.warehouse_sources.backend.temporal.data_imports.naming_convention import NamingConvention
 
+logger = structlog.get_logger(__name__)
 
-def _masking_key() -> bytes:
+
+def get_masking_key() -> bytes:
+    """The HMAC key for column masking. Derive once per batch/stream and pass to `mask_value` —
+    don't call per cell."""
     keys = settings.ENCRYPTION_SALT_KEYS
     if not keys:
         raise ValueError("ENCRYPTION_SALT_KEYS must be set to mask warehouse columns")
     return keys[0].encode()
 
 
+def _mask_base(team_id: int, key: bytes) -> hmac.HMAC:
+    # Every digest shares the `{team_id}:` prefix; pre-hashing it once and `.copy()`ing per value
+    # skips the key-schedule + prefix blocks for each cell (identical digests, ~half the CPU).
+    base = hmac.new(key, f"{team_id}:".encode(), hashlib.sha256)
+    return base
+
+
 def mask_value(team_id: int, value: object, *, key: bytes | None = None) -> str | None:
     """Deterministic, one-way digest of a single column value, keyed by the server secret and
-    salted by team_id. Null stays null. Pass `key` to reuse one `_masking_key()` across a batch."""
+    salted by team_id. Null stays null. Pass `key` to reuse one `get_masking_key()` across a batch."""
     if value is None:
         return None
-    return hmac.new(
-        key if key is not None else _masking_key(), f"{team_id}:{value}".encode(), hashlib.sha256
-    ).hexdigest()
+    digest = _mask_base(team_id, key if key is not None else get_masking_key()).copy()
+    digest.update(str(value).encode())
+    return digest.hexdigest()
 
 
 def fold_column_name(name: str) -> str:
@@ -77,10 +103,55 @@ def mask_table_columns(
     masked = resolve_masked_columns(masked_columns, primary_keys, incremental_field)
     if not masked:
         return table
-    key = _masking_key()  # derive once; the per-cell loop below reuses it
+    base = _mask_base(team_id, get_masking_key())  # derive once; per-cell work is copy+update only
     for index, name in enumerate(list(table.column_names)):
         if fold_column_name(name) not in masked:
             continue
-        digests = [mask_value(team_id, value, key=key) for value in table.column(index).to_pylist()]
-        table = table.set_column(index, name, pa.array(digests, type=pa.string()))
+        # Chunk-wise so peak Python-object memory is one chunk, not the whole column — the remask
+        # job feeds entire tables through here, not just pipeline-sized batches.
+        masked_chunks: list[pa.Array] = []
+        for chunk in table.column(index).chunks:
+            digests: list[str | None] = []
+            for value in chunk.to_pylist():
+                if value is None:
+                    digests.append(None)
+                else:
+                    digest = base.copy()
+                    digest.update(str(value).encode())
+                    digests.append(digest.hexdigest())
+            masked_chunks.append(pa.array(digests, type=pa.string()))
+        table = table.set_column(index, name, pa.chunked_array(masked_chunks or [[]], type=pa.string()))
     return table
+
+
+async def mask_table_if_configured(
+    table: pa.Table,
+    schema,  # ExternalDataSchema — untyped to keep this module import-light
+    resource,  # SourceResponse
+) -> pa.Table:
+    """Pipeline-facing wrapper: no-op unless the schema masks columns; offloads the CPU-bound
+    transform to a thread (heavier than name normalization — don't block the event loop)."""
+    if not schema.masked_columns:
+        return table
+    # The serializer can't always know the runtime primary keys (API sources auto-detect them), so
+    # a configured mask can land on a protected column and be dropped here. Dropping is correct —
+    # hashing the merge key corrupts merges — but it must not be silent: the user believes the
+    # column is masked while its values sync in plaintext.
+    configured = {fold_column_name(c) for c in schema.masked_columns}
+    effective = resolve_masked_columns(schema.masked_columns, resource.primary_keys, schema.incremental_field)
+    dropped = configured - effective
+    if dropped:
+        logger.warning(
+            "masking_dropped_protected_columns",
+            schema_id=str(schema.id),
+            team_id=schema.team_id,
+            dropped_columns=sorted(dropped),
+        )
+    return await asyncio.to_thread(
+        mask_table_columns,
+        table,
+        schema.masked_columns,
+        team_id=schema.team_id,
+        primary_keys=resource.primary_keys,
+        incremental_field=schema.incremental_field,
+    )

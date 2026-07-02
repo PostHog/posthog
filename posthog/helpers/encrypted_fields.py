@@ -5,7 +5,11 @@ import json
 import base64
 
 from django.conf import settings
-from django.core.checks import Error, register
+from django.core.checks import (
+    Error,
+    Warning as CheckWarning,
+    register,
+)
 from django.db import models
 from django.utils.functional import cached_property
 
@@ -229,4 +233,16 @@ def check_encryption_salt_keys(app_configs, **kwargs):
                     id="posthog.E004",
                 )
             )
+    # The shipped default is public (it's in this repo and the docker-compose files), so anything
+    # keyed with it — encrypted fields, warehouse column-masking digests — offers no secrecy. Warn
+    # rather than fail: existing self-hosted installs shouldn't break, but operators should know.
+    if settings.ENCRYPTION_SALT_KEYS and settings.ENCRYPTION_SALT_KEYS[0] == "00beef0000beef0000beef0000beef00":
+        errors.append(
+            CheckWarning(
+                "ENCRYPTION_SALT_KEYS is the publicly-known default. Encrypted fields and masked "
+                "warehouse columns are not protected against anyone who can read them.",
+                hint="Set ENCRYPTION_SALT_KEYS to a secret value: `openssl rand -hex 16`.",
+                id="posthog.W005",
+            )
+        )
     return errors

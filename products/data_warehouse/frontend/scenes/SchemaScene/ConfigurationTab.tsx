@@ -549,7 +549,7 @@ function ColumnsAndRowFiltersSection({
         JSON.stringify(draftRowFilters ?? null) !== JSON.stringify(schema.row_filters ?? null) ||
         JSON.stringify([...draftMasked].sort()) !== JSON.stringify([...(schema.masked_columns ?? [])].sort())
 
-    const commit = (resyncAfter: boolean): void => {
+    const commit = (resyncAfter: boolean, successToast: string = 'Saved'): void => {
         const next = {
             ...schema,
             enabled_columns: draftColumns,
@@ -576,34 +576,44 @@ function ColumnsAndRowFiltersSection({
             return
         }
         updateSchema(next)
-        lemonToast.success('Saved')
+        lemonToast.success(successToast)
     }
 
     const handleSave = (): void => {
         const syncType = schema.sync_type
 
-        // Unmasking can't be done in place — the hashes are one-way, so the original values have to be
-        // re-fetched from the source, which means a full re-sync of the table. Confirm before saving.
-        // (The backend triggers the re-sync itself on this PATCH, so a normal commit is enough.)
+        // Any mask change rebuilds the table with a full resync: unmasking must restore the original
+        // values from the source (hashes are one-way), and masking must rewrite already-synced
+        // plaintext. Confirm before saving. (The backend triggers the resync itself on this PATCH.)
         const unmasked = (schema.masked_columns ?? []).filter((c) => !draftMasked.includes(c))
-        if (unmasked.length > 0 && !!schema.last_synced_at) {
+        const newlyMasked = draftMasked.filter((c) => !(schema.masked_columns ?? []).includes(c))
+        if ((unmasked.length > 0 || newlyMasked.length > 0) && !!schema.last_synced_at) {
             LemonDialog.open({
-                title: 'Unmasking triggers a full re-sync',
+                title: 'Changing masked columns triggers a full resync',
                 description: (
                     <div className="flex flex-col gap-2">
                         <span>
-                            Unmasking {unmasked.length === 1 ? '1 column' : `${unmasked.length} columns`} re-downloads
-                            the whole table to restore the original values from the source — masked hashes can't be
-                            reversed.
+                            The whole table is re-downloaded from the source
+                            {newlyMasked.length > 0 && ' so already-synced rows get masked'}
+                            {newlyMasked.length > 0 && unmasked.length > 0 && ' and'}
+                            {unmasked.length > 0 && ' to restore original values — masked hashes can’t be reversed'}.
                         </span>
-                        {unmasked.length <= 6 && (
+                        {newlyMasked.length > 0 && newlyMasked.length <= 6 && (
+                            <span className="text-xs text-muted">
+                                Masking: {newlyMasked.map((c) => `"${c}"`).join(', ')}
+                            </span>
+                        )}
+                        {unmasked.length > 0 && unmasked.length <= 6 && (
                             <span className="text-xs text-muted">
                                 Unmasking: {unmasked.map((c) => `"${c}"`).join(', ')}
                             </span>
                         )}
                     </div>
                 ),
-                primaryButton: { children: 'Unmask and full re-sync', onClick: () => commit(false) },
+                primaryButton: {
+                    children: 'Save and resync',
+                    onClick: () => commit(false, 'Saved — full resync queued'),
+                },
                 secondaryButton: { children: 'Cancel' },
             })
             return
@@ -644,7 +654,7 @@ function ColumnsAndRowFiltersSection({
             <div>
                 <SectionHeader
                     title="Columns"
-                    description="Choose which columns from this table get synced. Primary keys and the active incremental field are always synced."
+                    description="Choose which columns from this table get synced, and mask sensitive ones to replace their values with a one-way hash at sync time. Primary keys and the active incremental field are always synced and can't be masked."
                 />
                 <div className="border rounded p-4 bg-surface-primary flex flex-col gap-3">
                     {!hasAvailableColumns ? (
@@ -670,7 +680,9 @@ function ColumnsAndRowFiltersSection({
                             <fieldset disabled={!!editorDisabledReason}>
                                 <ColumnSelectionPicker
                                     hideActions
-                                    enableMasking
+                                    // Masking applies at sync time — direct-query sources never sync,
+                                    // so a mask there would be a false sense of protection.
+                                    enableMasking={source?.access_method !== 'direct'}
                                     schema={schema}
                                     onChange={setDraftColumns}
                                     onMaskedChange={setDraftMasked}

@@ -1886,6 +1886,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 payload_row_filters if isinstance(payload_row_filters, list) and payload_row_filters else None
             )
 
+            payload_masked_columns = schema.get("masked_columns")
+            masked_columns: list[str] | None = (
+                [str(column) for column in payload_masked_columns if isinstance(column, str)]
+                if isinstance(payload_masked_columns, list) and payload_masked_columns
+                else None
+            )
+
             if should_sync and requires_incremental_fields and incremental_field is None:
                 new_source_model.delete()
                 return Response(
@@ -2046,6 +2053,9 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 label=schema_label_by_name.get(schema_name),
                 sync_frequency_interval=schema_sync_frequency_interval,
                 enabled_columns=enabled_columns,
+                # Masking never applies to direct-query sources (they query live, nothing syncs);
+                # the runtime engine additionally drops PK/incremental names defensively.
+                masked_columns=None if is_direct_query else masked_columns,
                 row_filters=row_filters,
             )
 

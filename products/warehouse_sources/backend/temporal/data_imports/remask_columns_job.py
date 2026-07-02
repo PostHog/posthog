@@ -2,23 +2,24 @@
 
 When a user *adds* a column to `ExternalDataSchema.masked_columns`, the rows already in the Delta
 table still hold the column in plaintext, and (because masking rewrites the column to a string
-digest) its stored type no longer matches what future incremental writes will produce. Rather than a
-full source re-sync, this reads the existing Delta table, HMACs the newly-masked columns, overwrites
-the table, and refreshes the queryable files + column metadata. Unmasking still needs a full re-sync
-(the original values have to come back from the source), so the serializer only routes pure-add
-changes here.
+digest) its stored type no longer matches what future incremental writes will produce. This job
+reads the existing Delta table, HMACs the newly-masked columns, overwrites the table, and refreshes
+the queryable files + column metadata — cheaper than a full source resync for large tables.
 
-NOTE (integration validation required): the Delta read/overwrite, S3 queryable-file refresh, and
-metadata update cannot be exercised without a live warehouse stack (S3/Delta/Temporal), so this
-activity needs to be run against a real synced table before it is relied on. The masking transform
-itself and the add/remove routing are covered by unit/API tests.
+NOT DISPATCHED YET: the API currently routes every mask change (adds included) through the tested
+full-resync path instead. Before wiring this job back up it needs hardening — mutual exclusion with
+running syncs, retry idempotency (a retry after the overwrite would double-hash), a queue/signal for
+concurrent mask-adds, immediate purge of pre-mask Delta versions and superseded queryable folders
+(the current `use_timestamped_folders=False` finalize deletes its own destination on a second run),
+resolving primary keys the way the pipeline does (schema PKs are unset for API sources), deleted
+schema/source checks, a table-size guard, and failure surfacing — plus a live-stack integration run.
 """
 
+import json
 import uuid
 import asyncio
 from datetime import timedelta
 
-import structlog
 from temporalio import activity, workflow
 from temporalio.common import RetryPolicy
 
@@ -26,7 +27,7 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.heartbeat import LivenessHeartbeater as Heartbeater
 from posthog.temporal.common.logger import get_logger
-from posthog.temporal.utils import RemaskColumnsInputs
+from posthog.temporal.utils import REMASK_COLUMNS_WORKFLOW_NAME, RemaskColumnsInputs
 
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
@@ -40,8 +41,6 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     validate_schema_and_update_table,
 )
 from products.warehouse_sources.backend.temporal.data_imports.util import prepare_s3_files_for_querying
-
-LOGGER = structlog.get_logger(__name__)
 
 
 def _latest_job(team_id: int, schema_id: uuid.UUID) -> ExternalDataJob | None:
@@ -120,12 +119,10 @@ async def remask_columns_activity(inputs: RemaskColumnsInputs) -> None:
         await logger.ainfo("remask: complete", schema_id=str(inputs.schema_id), rows=masked.num_rows)
 
 
-@workflow.defn(name="remask-warehouse-columns")
+@workflow.defn(name=REMASK_COLUMNS_WORKFLOW_NAME)
 class RemaskColumnsWorkflow(PostHogWorkflow):
     @staticmethod
     def parse_inputs(inputs: list[str]) -> RemaskColumnsInputs:
-        import json
-
         loaded = json.loads(inputs[0])
         return RemaskColumnsInputs(
             team_id=loaded["team_id"], schema_id=uuid.UUID(loaded["schema_id"]), columns=loaded["columns"]
@@ -137,5 +134,8 @@ class RemaskColumnsWorkflow(PostHogWorkflow):
             remask_columns_activity,
             inputs,
             start_to_close_timeout=timedelta(hours=1),
+            # Without a heartbeat timeout the heartbeats enforce nothing — a dead worker would hold
+            # the stable workflow id for the full hour while further mask-adds bounce off it.
+            heartbeat_timeout=timedelta(minutes=5),
             retry_policy=RetryPolicy(maximum_attempts=2),
         )

@@ -1,3 +1,7 @@
+import pytest
+
+from django.test import override_settings
+
 import pyarrow as pa
 from parameterized import parameterized
 
@@ -23,6 +27,13 @@ class TestMaskValue:
     def test_null_passthrough(self):
         # Hashing null would turn every NULL into one constant digest, destroying nullability.
         assert mask_value(1, None) is None
+
+    def test_fails_closed_without_key(self):
+        # A refactor that fails open here would silently write unkeyed (brute-forceable) digests
+        # on any deployment with the setting unset.
+        with override_settings(ENCRYPTION_SALT_KEYS=[]):
+            with pytest.raises(ValueError):
+                mask_value(1, "secret")
 
     @parameterized.expand([("str", "secret"), ("int", 42), ("float", 3.14)])
     def test_one_way_hex_digest(self, _name, value):

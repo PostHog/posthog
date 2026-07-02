@@ -128,7 +128,7 @@ export const ExternalDataSchemasPartialUpdateBody = /* @__PURE__ */ zod.object({
         .array(zod.string())
         .nullish()
         .describe(
-            "Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key columns and the active incremental field can't be masked. Changing which columns are masked re-syncs the table so already-synced rows are re-masked; unmasking a column needs the re-sync to restore its original values from the source."
+            "Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key columns and the active incremental field can't be masked, and direct query sources don't support masking. Any change to this list triggers a full resync of the table (CDC schemas re-snapshot); synced webhook schemas can't change masking, since their data can't be re-fetched."
         ),
     row_filters: zod
         .array(
@@ -245,7 +245,7 @@ export const ExternalDataSchemasCancelCreateBody = /* @__PURE__ */ zod.object({
         .array(zod.string())
         .nullish()
         .describe(
-            "Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key columns and the active incremental field can't be masked. Changing which columns are masked re-syncs the table so already-synced rows are re-masked; unmasking a column needs the re-sync to restore its original values from the source."
+            "Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key columns and the active incremental field can't be masked, and direct query sources don't support masking. Any change to this list triggers a full resync of the table (CDC schemas re-snapshot); synced webhook schemas can't change masking, since their data can't be re-fetched."
         ),
     row_filters: zod
         .array(
@@ -371,7 +371,7 @@ export const ExternalDataSchemasIncrementalFieldsCreateBody = /* @__PURE__ */ zo
         .array(zod.string())
         .nullish()
         .describe(
-            "Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key columns and the active incremental field can't be masked. Changing which columns are masked re-syncs the table so already-synced rows are re-masked; unmasking a column needs the re-sync to restore its original values from the source."
+            "Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key columns and the active incremental field can't be masked, and direct query sources don't support masking. Any change to this list triggers a full resync of the table (CDC schemas re-snapshot); synced webhook schemas can't change masking, since their data can't be re-fetched."
         ),
     row_filters: zod
         .array(
@@ -488,7 +488,7 @@ export const ExternalDataSchemasReloadCreateBody = /* @__PURE__ */ zod.object({
         .array(zod.string())
         .nullish()
         .describe(
-            "Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key columns and the active incremental field can't be masked. Changing which columns are masked re-syncs the table so already-synced rows are re-masked; unmasking a column needs the re-sync to restore its original values from the source."
+            "Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key columns and the active incremental field can't be masked, and direct query sources don't support masking. Any change to this list triggers a full resync of the table (CDC schemas re-snapshot); synced webhook schemas can't change masking, since their data can't be re-fetched."
         ),
     row_filters: zod
         .array(
@@ -605,7 +605,7 @@ export const ExternalDataSchemasResyncCreateBody = /* @__PURE__ */ zod.object({
         .array(zod.string())
         .nullish()
         .describe(
-            "Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key columns and the active incremental field can't be masked. Changing which columns are masked re-syncs the table so already-synced rows are re-masked; unmasking a column needs the re-sync to restore its original values from the source."
+            "Names of source columns whose values are replaced with a deterministic one-way digest at sync time, for sensitive data such as passwords or PII. `null` (default) masks nothing. Primary-key columns and the active incremental field can't be masked, and direct query sources don't support masking. Any change to this list triggers a full resync of the table (CDC schemas re-snapshot); synced webhook schemas can't change masking, since their data can't be re-fetched."
         ),
     row_filters: zod
         .array(

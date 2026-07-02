@@ -59,6 +59,7 @@ from products.warehouse_sources.backend.temporal.data_imports.cdc.types import C
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.helpers import resolve_table_and_folder_names
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.masking import (
     fold_column_name,
+    get_masking_key,
     mask_value,
     resolve_masked_columns,
 )
@@ -174,6 +175,8 @@ class CDCExtractActivity:
         self.enabled_columns_by_table: dict[str, set[str]] = {}
         # Missing/empty entry = no masking; otherwise the set is the columns to mask (never PK/incremental).
         self.masked_columns_by_table: dict[str, set[str]] = {}
+        # HMAC key derived once per activity run — never per cell in the WAL hot loop.
+        self._masking_key: bytes | None = None
         self.write_trackers: dict[str, _WriteTracker] = {}
         self.created_jobs: list[ExternalDataJob] = []
         self.adapter: typing.Any = None
@@ -838,8 +841,11 @@ class CDCExtractActivity:
         masked = self.masked_columns_by_table.get(event.table_name)
         if not masked:
             return event
+        if self._masking_key is None:
+            self._masking_key = get_masking_key()
+        key = self._masking_key
         columns = {
-            name: (mask_value(self.inputs.team_id, value) if fold_column_name(name) in masked else value)
+            name: (mask_value(self.inputs.team_id, value, key=key) if fold_column_name(name) in masked else value)
             for name, value in event.columns.items()
         }
         return dataclasses.replace(event, columns=columns)

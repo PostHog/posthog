@@ -249,14 +249,22 @@ export function ColumnSelectionPicker({
                             ) : (
                                 checkbox
                             )}
-                            {enableMasking && isMaskable(column.name) && (
+                            {enableMasking && (
                                 <Tooltip title="Replace this column's values with a one-way hash (for passwords, PII, and other sensitive data).">
                                     <LemonButton
                                         size="xsmall"
                                         type={isMasked(column.name) ? 'primary' : 'tertiary'}
                                         active={isMasked(column.name)}
                                         icon={<IconLock />}
+                                        aria-pressed={isMasked(column.name)}
                                         onClick={() => toggleMask(column.name, !isMasked(column.name))}
+                                        disabledReason={
+                                            isMaskable(column.name)
+                                                ? undefined
+                                                : retained
+                                                  ? "Primary-key and incremental columns can't be masked."
+                                                  : 'Only synced columns can be masked.'
+                                        }
                                     >
                                         {isMasked(column.name) ? 'Masked' : 'Mask'}
                                     </LemonButton>

@@ -41,6 +41,10 @@ class CDPProducerWorkflowInputs:
 
 # Lives here (not in the warehouse_sources product) so the data_warehouse API can construct it to start
 # the re-mask workflow without importing across the product boundary — same reason as the inputs above.
+# The name constant keeps the `@workflow.defn` and the cross-product `start_workflow` call in sync.
+REMASK_COLUMNS_WORKFLOW_NAME = "remask-warehouse-columns"
+
+
 @dataclasses.dataclass
 class RemaskColumnsInputs:
     team_id: int
