@@ -1,3 +1,5 @@
+from typing import cast
+
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
 from parameterized import parameterized
@@ -83,7 +85,7 @@ class TestElement(ClickhouseTestMixin, BaseTest):
         ]
     )
     def test_chain_to_element_dicts_matches_serialized_models(self, _name: str, chain: str) -> None:
-        via_models = ElementSerializer(chain_to_elements(chain), many=True).data
+        via_models = cast(list[dict], ElementSerializer(chain_to_elements(chain), many=True).data)
         assert chain_to_element_dicts(chain) == via_models
 
     @parameterized.expand(
