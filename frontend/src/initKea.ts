@@ -114,11 +114,17 @@ export function initKea({
                 // `before_send` filter in `selfReadOnlyModeLogic`.
                 // Toast if it's a fetch error or a specific API update error
                 const isLoadAction = typeof actionKey === 'string' && /^(load|get|fetch)[A-Z]/.test(actionKey)
+                // Access-denied 403s (code `permission_denied`) are surfaced by the owning UI
+                // (AccessDenied scene gates on load, friendly messaging on write), so the generic
+                // toast is suppressed for them regardless of action. Read-only mode uses distinct
+                // codes (`read_only_blocked`, `impersonation_read_only`) and still toasts.
+                const isAccessDenied = error.status === 403 && error.code === 'permission_denied'
                 if (
                     !ERROR_FILTER_ALLOW_LIST.includes(actionKey) &&
                     error?.status !== undefined &&
                     ![200, 201, 204, 401, 409].includes(error.status) && // 401 is handled by api.ts and the userLogic, 409 is handled by approval workflow
-                    !(isLoadAction && error.status === 403) // 403 access denied is handled by sceneLogic gates
+                    !(isLoadAction && error.status === 403) && // 403 access denied is handled by sceneLogic gates
+                    !isAccessDenied
                 ) {
                     let errorMessage = error.detail || error.statusText
                     const isTwoFactorError =

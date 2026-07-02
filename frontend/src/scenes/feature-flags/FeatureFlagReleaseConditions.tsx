@@ -131,6 +131,7 @@ export function FeatureFlagReleaseConditions({
         propertySelectErrors,
         affectedCounts,
         totalCounts,
+        blastRadiusErrors,
         filtersTaxonomicOptions,
         aggregationTargetName,
         properties,
@@ -146,6 +147,7 @@ export function FeatureFlagReleaseConditions({
         addConditionSet,
         moveConditionSetUp,
         moveConditionSetDown,
+        calculateBlastRadiusForCondition,
     } = useActions(releaseConditionsLogic)
 
     const { showGroupsOptions, groupTypes, aggregationLabel } = useValues(groupsModel)
@@ -454,6 +456,32 @@ export function FeatureFlagReleaseConditions({
                                     ).singular
                                     const affected = group.sort_key ? affectedCounts[group.sort_key] : undefined
                                     const total = group.sort_key ? totalCounts[group.sort_key] : undefined
+                                    const hasError = group.sort_key ? blastRadiusErrors[group.sort_key] : false
+                                    if (hasError) {
+                                        return (
+                                            <div className="basis-full flex items-center gap-2 mt-1 text-secondary">
+                                                <IconErrorOutline className="text-danger text-base shrink-0" />
+                                                <span>Couldn't estimate how many {pluralName} match.</span>
+                                                <LemonButton
+                                                    type="secondary"
+                                                    size="xsmall"
+                                                    onClick={() =>
+                                                        group.sort_key &&
+                                                        calculateBlastRadiusForCondition(
+                                                            group.sort_key,
+                                                            group.properties,
+                                                            resolveAggregationGroupTypeIndex(
+                                                                group.aggregation_group_type_index,
+                                                                filters.aggregation_group_type_index
+                                                            )
+                                                        )
+                                                    }
+                                                >
+                                                    Retry
+                                                </LemonButton>
+                                            </div>
+                                        )
+                                    }
                                     if (affected === undefined || affected < 0 || total === undefined) {
                                         return (
                                             <div className="basis-full flex items-center mt-1">

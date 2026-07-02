@@ -144,6 +144,10 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
             sortKey,
             count,
         }),
+        setBlastRadiusError: (sortKey: string, hasError: boolean) => ({
+            sortKey,
+            hasError,
+        }),
         calculateBlastRadius: true,
         calculateBlastRadiusForCondition: (
             sortKey: string,
@@ -373,6 +377,17 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 }),
             },
         ],
+        // Tracks conditions whose blast-radius estimate failed, so the UI can distinguish a
+        // genuine error from the still-loading (undefined) state instead of spinning forever.
+        blastRadiusErrors: [
+            {} as Record<string, boolean>,
+            {
+                setBlastRadiusError: (state, { sortKey, hasError }) => ({
+                    ...state,
+                    [sortKey]: hasError,
+                }),
+            },
+        ],
         flagKeyCache: [
             {} as Record<string, string>,
             {
@@ -455,6 +470,7 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 // properties have changed, so we'll have to re-fetch affected counts
                 actions.setAffectedCount(sortKey, undefined)
                 actions.setTotalCount(sortKey, undefined)
+                actions.setBlastRadiusError(sortKey, false)
 
                 // Add any new flag IDs from the updated properties
                 const newFlagIds = newProperties.flatMap((property) =>
@@ -481,16 +497,22 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
                 group.aggregation_group_type_index,
                 values.filters?.aggregation_group_type_index
             )
-            const response: UserBlastRadiusType = await api.create(
-                `api/projects/${values.currentProjectId}/feature_flags/user_blast_radius`,
-                {
-                    condition: { properties: newProperties },
-                    group_type_index: groupTypeIndex,
-                }
-            )
+            try {
+                const response: UserBlastRadiusType = await api.create(
+                    `api/projects/${values.currentProjectId}/feature_flags/user_blast_radius`,
+                    {
+                        condition: { properties: newProperties },
+                        group_type_index: groupTypeIndex,
+                    }
+                )
 
-            actions.setAffectedCount(sortKey, response.affected)
-            actions.setTotalCount(sortKey, response.total)
+                actions.setAffectedCount(sortKey, response.affected)
+                actions.setTotalCount(sortKey, response.total)
+            } catch {
+                // Surface the failure to the UI rather than leaving the counts undefined,
+                // which the render path can't tell apart from "still loading".
+                actions.setBlastRadiusError(sortKey, true)
+            }
         },
         setConditionAggregation: ({ index }) => {
             const group = values.filters.groups[index]
@@ -548,27 +570,30 @@ export const featureFlagReleaseConditionsLogic = kea<featureFlagReleaseCondition
         calculateBlastRadiusForCondition: async ({ sortKey, properties, groupTypeIndex }) => {
             actions.setAffectedCount(sortKey, undefined)
             actions.setTotalCount(sortKey, undefined)
+            actions.setBlastRadiusError(sortKey, false)
 
-            let response: UserBlastRadiusType
             if (!properties || properties.some(isEmptyProperty)) {
                 // don't compute for incomplete conditions
-                response = { affected: -1, total: -1 }
-            } else {
-                try {
-                    response = await api.create(
-                        `api/projects/${values.currentProjectId}/feature_flags/user_blast_radius`,
-                        {
-                            condition: { properties },
-                            group_type_index: groupTypeIndex,
-                        }
-                    )
-                } catch {
-                    response = { affected: -1, total: -1 }
-                }
+                actions.setAffectedCount(sortKey, -1)
+                actions.setTotalCount(sortKey, -1)
+                return
             }
 
-            actions.setAffectedCount(sortKey, response.affected)
-            actions.setTotalCount(sortKey, response.total)
+            try {
+                const response: UserBlastRadiusType = await api.create(
+                    `api/projects/${values.currentProjectId}/feature_flags/user_blast_radius`,
+                    {
+                        condition: { properties },
+                        group_type_index: groupTypeIndex,
+                    }
+                )
+                actions.setAffectedCount(sortKey, response.affected)
+                actions.setTotalCount(sortKey, response.total)
+            } catch {
+                // Surface the failure to the UI rather than masking it as -1, which the
+                // render path can't tell apart from "still loading".
+                actions.setBlastRadiusError(sortKey, true)
+            }
         },
         calculateBlastRadius: () => {
             values.filters.groups.forEach((condition: FeatureFlagGroupTypeWithSortKey) => {

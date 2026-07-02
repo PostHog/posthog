@@ -1449,6 +1449,14 @@ export const featureFlagLogic = kea<featureFlagLogicType>([
                 } catch (error: any) {
                     if (error.code === 'behavioral_cohort_found' || error.code === 'cohort_does_not_exist') {
                         eventUsageLogic.actions.reportFailedToCreateFeatureFlagWithCohort(error.code, error.detail)
+                    } else if (error.status === 403 && error.code === 'permission_denied') {
+                        // Mirror the load path's access-denied handling instead of the generic
+                        // "Save feature flag failed: ..." toast. The global loaders handler
+                        // suppresses its toast for permission_denied, so this is the only message.
+                        lemonToast.error(
+                            error.detail ||
+                                "You don't have permission to edit this feature flag. Contact your administrator to request editing rights."
+                        )
                     }
                     throw error
                 }

@@ -98,6 +98,34 @@ describe('the feature flag release conditions logic', () => {
                 })
         })
 
+        it('flags a distinct error state when the blast radius call fails', async () => {
+            const createSpy = jest.spyOn(api, 'create').mockRejectedValue(new Error('boom'))
+
+            try {
+                await expectLogic(logic, () => {
+                    logic.actions.calculateBlastRadiusForCondition(
+                        'X',
+                        [
+                            {
+                                key: 'aloha',
+                                value: 'aloha',
+                                type: PropertyFilterType.Person,
+                                operator: PropertyOperator.Exact,
+                            },
+                        ],
+                        null
+                    )
+                }).toFinishAllListeners()
+
+                // The error is surfaced distinctly rather than masked as -1, which the render
+                // path can't tell apart from the still-loading (undefined) state.
+                expect(logic.values.blastRadiusErrors.X).toBe(true)
+                expect(logic.values.affectedCounts.X).toBeUndefined()
+            } finally {
+                createSpy.mockRestore()
+            }
+        })
+
         it('loads when editing a flag with multiple conditions', async () => {
             // clear existing logic
             logic?.unmount()
