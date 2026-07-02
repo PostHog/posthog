@@ -5637,17 +5637,17 @@ snapshots:
     scenes-app-inbox-pullrequestdiffview--truncated--light:
         hash: v1.k794b7964.fb773b4c098b2f55cb393d1b9af9051deea9eee9a830940209e388ba916c01d4.kS1w3ZNx__r01yrTZZy7XXog7oqnDTDdJtfBBhnp4pk
     scenes-app-inbox-scene--empty--dark:
-        hash: v1.k794b7964.0730c341122d1d593f4e6acf7a176e05bdd79e9ca6bf5f785a909fd57ad274f1.V4Hgc6xF9-5hiq75aqzZWcbiemdqMe3fdbcMqVHbg7U
+        hash: v1.k794b7964.0284b54c79a12a21362c21da6d6d0c7931a6e7712175382d9403501bade25944.hTTIjAQuFDRQcXSxdhkHbDLUKzWGdWCizFXZO0pDGt4
     scenes-app-inbox-scene--empty--light:
-        hash: v1.k794b7964.90d34c77f6dfa354d95f502f7760a2f663a7a9c30de1da3a731653b59f904cb0.9pu-wR68QOchxE47ApZFjYMJWmmrkN7VZFAnnGxeCW4
+        hash: v1.k794b7964.8b499d6aa9e068adac6c22535509ea16ff73811a0d3576b0cb71c806bc0368f0.nvx1ive6oY4K9UKOvmkEUUkk9EFGTgTsbwRtirSVCzc
     scenes-app-inbox-scene--inbox--dark:
-        hash: v1.k794b7964.eae93d2c506e66eb23f36e19f05bf6f07286d9a895dbad8f970c009fd98f1d53.AqLzv_So4UaxCTEYyb-ZB24M8Z4KF2Zq8PyO-8FDfos
+        hash: v1.k794b7964.3be049495351febd0fd0707ba5892fb476470206a01b3d4f4bf63a3b1f25fcf7.SgEWO4lvLKoR5BmG1ts5oXMwEbVYTqfpXZYWciXpDCc
     scenes-app-inbox-scene--inbox--light:
         hash: v1.k794b7964.88e28c4041b75b5ec02df0ad87e73d6cd2b1274781a7f47181eed609a5f9d4c1.i7mKwerSXPALau25BeHD_X-Xo7-MsOSIzkx3a2FJfaA
     scenes-app-inbox-scene--self-driving-onboarding--dark:
-        hash: v1.k794b7964.0730c341122d1d593f4e6acf7a176e05bdd79e9ca6bf5f785a909fd57ad274f1.qRvNaIt3BFQkYn9JRfSKCXUScoTY331T7aAtb5jHXsk
+        hash: v1.k794b7964.0284b54c79a12a21362c21da6d6d0c7931a6e7712175382d9403501bade25944.JFxilh9rtU8eSo4d135Eak4WWNPaPWAF7zdqAUgyRlw
     scenes-app-inbox-scene--self-driving-onboarding--light:
-        hash: v1.k794b7964.90d34c77f6dfa354d95f502f7760a2f663a7a9c30de1da3a731653b59f904cb0.Cxe2TZ9k11cuJdK6Z16NsJT2jJrHWTwC_8jh7MMztE4
+        hash: v1.k794b7964.dd890b4dee0b457a54daa44c5d02b2995769bcc475f308aabae2f417b737efdf.t3pH8i49XFCWRI6oGXQ3uopBtavfiUUVGbXyDSrIWxI
     scenes-app-inbox-scene--self-driving-paused--dark:
         hash: v1.k794b7964.eae93d2c506e66eb23f36e19f05bf6f07286d9a895dbad8f970c009fd98f1d53.7hksyy3ldoFdJY9rpLYMe7FNYuMAi-U1Vlh3OGhv3wY
     scenes-app-inbox-scene--self-driving-paused--light:
