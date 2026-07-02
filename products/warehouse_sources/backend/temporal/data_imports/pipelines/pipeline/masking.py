@@ -120,7 +120,10 @@ def mask_table_columns(
                     digest.update(str(value).encode())
                     digests.append(digest.hexdigest())
             masked_chunks.append(pa.array(digests, type=pa.string()))
-        table = table.set_column(index, name, pa.chunked_array(masked_chunks or [[]], type=pa.string()))
+        masked_column = pa.chunked_array(masked_chunks, type=pa.string())
+        # pyarrow's stubs type set_column as Array | list, but it accepts ChunkedArray at runtime
+        # (Table columns *are* ChunkedArrays).
+        table = table.set_column(index, name, masked_column)  # type: ignore[arg-type]
     return table
 
 

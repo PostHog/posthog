@@ -6,6 +6,7 @@ import base64
 
 from django.conf import settings
 from django.core.checks import (
+    CheckMessage,
     Error,
     Warning as CheckWarning,
     register,
@@ -222,7 +223,7 @@ def check_encryption_salt_keys(app_configs, **kwargs):
     # during a SECRET_KEY / ENCRYPTION_SALT_KEYS rotation that surfaces as a confusing runtime crash
     # instead of a clear config error. SECRET_KEY / SALT_KEY are exempt: they run through PBKDF2, which
     # normalizes any input length to 32 bytes.
-    errors = []
+    errors: list[CheckMessage] = []
     for index, key in enumerate(settings.ENCRYPTION_SALT_KEYS):
         byte_length = len(key.encode("utf-8"))
         if byte_length != 32:
