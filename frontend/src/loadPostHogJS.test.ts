@@ -20,7 +20,10 @@ describe('dropBrowserInjectedNoise', () => {
         ['non-exception events', { event: '$pageview', properties: { $current_url: '/foo' } }],
         [
             'unrelated $exception events',
-            { event: '$exception', properties: { $exception_list: [{ type: 'TypeError', value: 'x is not a function' }] } },
+            {
+                event: '$exception',
+                properties: { $exception_list: [{ type: 'TypeError', value: 'x is not a function' }] },
+            },
         ],
         ['$exception events with no list', { event: '$exception' }],
         ['$exception events with empty properties', { event: '$exception', properties: {} }],
