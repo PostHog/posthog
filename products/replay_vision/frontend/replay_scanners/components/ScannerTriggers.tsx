@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonCard, LemonInput, LemonSegmentedButton } from '@posthog/lemon-ui'
+import { LemonCard, LemonInput, LemonSegmentedButton, LemonTag } from '@posthog/lemon-ui'
 
 import { resolveCategoryDropdownVariant, TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
@@ -11,6 +11,7 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 import { LemonLabel } from 'lib/lemon-ui/LemonLabel'
 import { LemonSlider } from 'lib/lemon-ui/LemonSlider'
+import { Tooltip } from 'lib/lemon-ui/Tooltip'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { DurationFilter } from 'scenes/session-recordings/filters/DurationFilter'
 import {
@@ -62,6 +63,10 @@ function clampDurationFilter(filter: RecordingDurationFilter): RecordingDuration
     }
     return value === filter.value ? filter : { ...filter, value }
 }
+
+// The hard ceiling Vision enforces on active interaction time — recordings above it are always skipped.
+const MAX_ACTIVE_SECONDS = DURATION_BOUNDS.active_seconds?.max ?? 3600
+const MAX_ACTIVE_LABEL = `${Math.round(MAX_ACTIVE_SECONDS / 3600)}h`
 
 // Renders the bound universal-filter group's values; adding is handled by the search bar above, not an inline button.
 function ScannerFilterGroup(): JSX.Element {
@@ -255,25 +260,36 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                         </UniversalFilters>
                                     )}
                                 <ScannerFilterGroup />
-                                <div className="flex flex-wrap items-center gap-2">
-                                    <span className="font-medium">Duration</span>
-                                    <DurationFilter
-                                        recordingDurationFilter={durationFilter}
-                                        durationTypeFilter={durationFilter.key}
-                                        pageKey={`replay-scanner-${scanner.id}`}
-                                        size="small"
-                                        onChange={(recordingDurationFilter, durationType) =>
-                                            applyUniversal({
-                                                ...universal,
-                                                duration: [
-                                                    clampDurationFilter({
-                                                        ...recordingDurationFilter,
-                                                        key: durationType,
-                                                    }),
-                                                ],
-                                            })
-                                        }
-                                    />
+                                <div className="space-y-1">
+                                    <div className="flex flex-wrap items-center gap-2">
+                                        <span className="font-medium">Duration</span>
+                                        <DurationFilter
+                                            recordingDurationFilter={durationFilter}
+                                            durationTypeFilter={durationFilter.key}
+                                            pageKey={`replay-scanner-${scanner.id}`}
+                                            size="small"
+                                            onChange={(recordingDurationFilter, durationType) =>
+                                                applyUniversal({
+                                                    ...universal,
+                                                    duration: [
+                                                        clampDurationFilter({
+                                                            ...recordingDurationFilter,
+                                                            key: durationType,
+                                                        }),
+                                                    ],
+                                                })
+                                            }
+                                        />
+                                        <Tooltip title="Recordings with more than 1 hour of active interaction take too long to analyze well, so Vision always skips them. This limit can't be changed.">
+                                            <LemonTag type="muted" className="cursor-default">
+                                                Max {MAX_ACTIVE_LABEL} active time
+                                            </LemonTag>
+                                        </Tooltip>
+                                    </div>
+                                    <div className="text-xs text-muted">
+                                        Vision only scans recordings up to {MAX_ACTIVE_LABEL} of active time. Longer
+                                        sessions are always skipped.
+                                    </div>
                                 </div>
                             </UniversalFilters>
                         </LemonCard>
