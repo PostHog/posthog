@@ -31,9 +31,14 @@ interface UseRadialInteractionResult<Meta> {
     handlers: {
         onMouseMove: (e: React.MouseEvent<HTMLDivElement>) => void
         onMouseLeave: () => void
-        onClick: () => void
+        onClick: (e: React.MouseEvent<HTMLDivElement>) => void
     }
 }
+
+/** Extra hit-test slack (px) beyond the hover slack for *clicks* only. A click that lands in the
+ *  chart padding just outside the rim, or in an inter-slice gap, should still drill into the
+ *  nearest slice rather than silently no-op — a slightly generous click target, not a wider hover. */
+const CLICK_OUTER_SLACK = 12
 
 function buildPieTooltipCtx<Meta>(
     slice: PieSlice<Meta>,
@@ -130,26 +135,39 @@ export function useRadialInteraction<Meta = unknown>({
         clearTooltip()
     }, [isPinned, clearTooltip])
 
-    const onClick = useCallback(() => {
-        const idx = hoverIndexRef.current
-        if (idx < 0 || !onSliceClick) {
-            return
-        }
-        const lo = layoutRef.current
-        if (!lo) {
-            return
-        }
-        const slice = lo.slices[idx]
-        if (!slice) {
-            return
-        }
-        onSliceClick({
-            sliceIndex: idx,
-            series: slice.series,
-            value: slice.value,
-            fraction: slice.fraction,
-        })
-    }, [hoverIndexRef, layoutRef, onSliceClick])
+    const onClick = useCallback(
+        (e: React.MouseEvent<HTMLDivElement>) => {
+            if (!onSliceClick) {
+                return
+            }
+            const lo = layoutRef.current
+            if (!lo || lo.slices.length === 0) {
+                return
+            }
+            // Resolve the clicked slice from the click's own coordinates, not the last hover
+            // index: a fast or touch click may leave no fresh hover, and a click that doesn't land
+            // dead-center can sit in the padding or an inter-slice gap where hover was cleared.
+            // Widen the hit region and snap gap clicks so near-misses still drill in; only fall
+            // back to the last hovered slice if the click itself resolves to nothing.
+            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+            const cursor = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+            let idx = sliceAt(lo, cursor, { outerSlack: hitOuterSlack + CLICK_OUTER_SLACK, ignorePadGap: true })
+            if (idx < 0) {
+                idx = hoverIndexRef.current
+            }
+            const slice = idx >= 0 ? lo.slices[idx] : undefined
+            if (!slice) {
+                return
+            }
+            onSliceClick({
+                sliceIndex: idx,
+                series: slice.series,
+                value: slice.value,
+                fraction: slice.fraction,
+            })
+        },
+        [hoverIndexRef, layoutRef, onSliceClick, hitOuterSlack]
+    )
 
     const handlers = useMemo(() => ({ onMouseMove, onMouseLeave, onClick }), [onMouseMove, onMouseLeave, onClick])
 
