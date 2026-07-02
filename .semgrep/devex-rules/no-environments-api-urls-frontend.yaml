@@ -50,7 +50,7 @@ rules:
               # Each file below still constructs hand-coded `/api/environments/`
               # or `api/environments/` URLs. Removing a file from this list
               # re-enables the gate for it.
-              - '/frontend/src/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic.tsx'
+              - '/frontend/src/layout/navigation/sidepanel/panels/activity/sidePanelNotificationsLogic.tsx'
               - '/frontend/src/lib/approvals/approvalsGateLogic.ts'
               - '/frontend/src/lib/components/HelpMenu/healthSummaryLogic.tsx'
               - '/frontend/src/lib/components/PropertiesTimeline/propertiesTimelineLogic.ts'

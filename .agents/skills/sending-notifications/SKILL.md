@@ -115,7 +115,7 @@ Kafka publish happens on `transaction.on_commit` — won't fire if the transacti
 
 1. Add enum value in `products/notifications/backend/facade/enums.py`
 2. Add icon mapping in `frontend/src/lib/components/NotificationsMenu/NotificationRow.tsx` (`NOTIFICATION_TYPE_ICONS`)
-3. Add the same icon in the toast handler in `frontend/src/layout/navigation-3000/sidepanel/panels/activity/sidePanelNotificationsLogic.tsx` (`iconMap`)
+3. Add the same icon in the toast handler in `frontend/src/layout/navigation/sidepanel/panels/activity/sidePanelNotificationsLogic.tsx` (`iconMap`)
 4. Add sample data in `SAMPLE_NOTIFICATIONS` in `products/notifications/backend/presentation/views.py`
 5. Run `python manage.py makemigrations notifications`
 

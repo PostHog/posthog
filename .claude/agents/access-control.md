@@ -105,7 +105,7 @@ class YourResourceSerializer(UserAccessControlSerializerMixin, serializers.Model
 Add your new resource type to the frontend access control system:
 
 ```typescript
-// frontend/src/layout/navigation-3000/sidepanel/panels/access_control/resourcesAccessControlLogic.ts
+// frontend/src/layout/navigation/sidepanel/panels/access_control/resourcesAccessControlLogic.ts
 resources: [
     () => [],
     (): AccessControlType['resource'][] => {
@@ -295,7 +295,7 @@ For detail pages with sidebars, add access control context to the logic's `SIDE_
 
 ```typescript
 // products/your_resource/frontend/logics/yourResourceLogic.ts
-import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation-3000/sidepanel/types'
+import { SIDE_PANEL_CONTEXT_KEY, SidePanelSceneContext } from '~/layout/navigation/sidepanel/types'
 import { ActivityScope } from '~/types'
 
 export const yourResourceLogic = kea<yourResourceLogicType>([
