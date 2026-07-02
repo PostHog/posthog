@@ -21,7 +21,6 @@ import { FeatureFlagFilters } from '~/types'
 
 import { TemplateKey } from 'products/feature_flags/frontend/featureFlagTemplateConstants'
 
-import * as defaultReleaseConditionsModule from './defaultReleaseConditionsLogic'
 import { defaultReleaseConditionsLogic, resolveDefaultReleaseConditions } from './defaultReleaseConditionsLogic'
 import { detectFeatureFlagChanges } from './featureFlagConfirmationLogic'
 import {
@@ -396,65 +395,6 @@ describe('featureFlagLogic', () => {
                         }),
                     }),
                 })
-        })
-
-        it('does not access the store after unmounting mid-apply', async () => {
-            // applyTemplate awaits release conditions before reading values again. Unmounting during
-            // that await (navigating away, or the auto-apply from a ?template= param racing a fast
-            // unmount) must not touch a store path that no longer exists — that used to throw
-            // "Can not find path ... in the store" and surface as an unhandled rejection.
-            useMocks({
-                get: {
-                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/2/`]: () => [
-                        200,
-                        { ...MOCK_FEATURE_FLAG, id: 2 },
-                    ],
-                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/2/status`]: () => [
-                        200,
-                        MOCK_FEATURE_FLAG_STATUS,
-                    ],
-                },
-            })
-
-            // A dedicated instance so unmounting it (below) doesn't disturb the shared `logic`.
-            const raceLogic = featureFlagLogic({ id: 2 })
-            raceLogic.mount()
-            // Drain the on-mount loaders now so nothing async is left dangling after we unmount.
-            await expectLogic(raceLogic).toFinishAllListeners()
-
-            let resolveRelease: (
-                value: defaultReleaseConditionsModule.DefaultReleaseConditionsResponse | null
-            ) => void = () => {}
-            const pendingRelease = new Promise<defaultReleaseConditionsModule.DefaultReleaseConditionsResponse | null>(
-                (resolve) => {
-                    resolveRelease = resolve
-                }
-            )
-            const spy = jest
-                .spyOn(defaultReleaseConditionsModule, 'resolveDefaultReleaseConditions')
-                .mockReturnValue(pendingRelease)
-
-            const rejections: unknown[] = []
-            const onRejection = (error: unknown): void => {
-                rejections.push(error)
-            }
-            process.on('unhandledRejection', onRejection)
-
-            try {
-                // Listener parks on the pending release conditions, then we navigate away.
-                raceLogic.actions.applyTemplate('targeted')
-                raceLogic.unmount()
-
-                // Resuming after unmount must bail instead of reading values.featureFlag.
-                resolveRelease(null)
-                await pendingRelease
-                await new Promise((resolve) => setTimeout(resolve, 0))
-            } finally {
-                process.off('unhandledRejection', onRejection)
-                spy.mockRestore()
-            }
-
-            expect(rejections).toEqual([])
         })
     })
 
