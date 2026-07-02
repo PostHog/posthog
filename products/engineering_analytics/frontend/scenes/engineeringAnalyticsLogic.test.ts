@@ -141,6 +141,7 @@ function makePr(overrides: Partial<PullRequestRow> = {}): PullRequestRow {
         passing: 0,
         failing: 0,
         pending: 0,
+        failingWorkflows: [],
         pushes: 0,
         rerunCycles: 0,
         estimatedCostUsd: null,

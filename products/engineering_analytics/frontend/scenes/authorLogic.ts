@@ -86,6 +86,29 @@ export const authorLogic = kea<authorLogicType>([
                 return minutes.length ? minutes.reduce((sum, m) => sum + m, 0) : null
             },
         ],
+        // Median open→merge over the in-window merged PRs — this author's cycle-time headline.
+        medianOpenToMergeSeconds: [
+            (s) => [s.windowedRows],
+            (rows: PullRequestRow[]): number | null => {
+                const merged = rows
+                    .map((pr) => pr.openToMergeSeconds)
+                    .filter((seconds): seconds is number => seconds != null)
+                    .sort((a, b) => a - b)
+                if (!merged.length) {
+                    return null
+                }
+                const mid = Math.floor(merged.length / 2)
+                return merged.length % 2 ? merged[mid] : (merged[mid - 1] + merged[mid]) / 2
+            },
+        ],
+        rerunCycles: [
+            (s) => [s.windowedRows],
+            (rows: PullRequestRow[]): number => rows.reduce((sum, pr) => sum + pr.rerunCycles, 0),
+        ],
+        openPrCount: [
+            (s) => [s.prs],
+            (prs: PullRequestRow[]): number => prs.filter((pr) => pr.state === 'open').length,
+        ],
         breadcrumbs: [
             (_, p) => [p.handle],
             (handle): Breadcrumb[] => [

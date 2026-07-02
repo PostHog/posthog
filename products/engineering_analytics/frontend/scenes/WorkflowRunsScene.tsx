@@ -5,6 +5,10 @@ import { IconExternal } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { getSeriesColor } from 'lib/colors'
+import { cn } from 'lib/utils/css-classes'
+import { humanFriendlyDuration } from 'lib/utils/durations'
+import { humanFriendlyNumber } from 'lib/utils/numbers'
+import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -13,15 +17,18 @@ import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { BillableBadge } from '../components/BillableBadge'
 import { DistributionBar } from '../components/DistributionBar'
+import { EntityHeader, VerdictPill } from '../components/EntityHeader'
 import { GroupedJobsTable } from '../components/GroupedJobsTable'
 import { JobAggregatesTable } from '../components/JobAggregatesTable'
+import { MetricTile } from '../components/MetricTile'
 import { RunActivityChart } from '../components/RunActivityChart'
 import { RunnerBadge, RunsTable, formatCost } from '../components/runTables'
 import { RepoScopeChip, ScopeBar } from '../components/ScopeBar'
 import { Section, SectionNav } from '../components/Section'
-import { WorkflowHealthHeader } from '../components/WorkflowHealthHeader'
 import type { WorkflowRunnerCostApi } from '../generated/api.schemas'
-import { githubWorkflowUrl } from '../lib/github'
+import { compactCount, compactMinutes, compactUsd, percent } from '../lib/format'
+import { githubCommitUrl, githubWorkflowUrl } from '../lib/github'
+import { isDecisiveFailure } from '../lib/lifecycle'
 import { WorkflowRunRow, WorkflowRunsLogicProps, workflowRunsLogic } from './workflowRunsLogic'
 
 /** Where a workflow's CI spend goes, split by runner tier — a small table (not bespoke chips) so it reads
@@ -107,10 +114,31 @@ export function WorkflowRunsScene(): JSX.Element {
         activityTruncated,
         jobAggregates,
         jobAggregatesLoading,
+        masterConclusion,
+        queueP50Seconds,
     } = useValues(workflowRunsLogic)
     const { loadRuns, setRunExpanded } = useActions(workflowRunsLogic)
 
     const githubUrl = githubWorkflowUrl(repoOwner, repoName, workflowName)
+    // Master's own verdict when the window has master runs; the overall fleet state otherwise.
+    const verdictPill =
+        masterConclusion != null ? (
+            isDecisiveFailure(masterConclusion) ? (
+                <VerdictPill kind="danger">Failing on master</VerdictPill>
+            ) : masterConclusion === 'success' ? (
+                <VerdictPill kind="success">Passing on master</VerdictPill>
+            ) : (
+                <VerdictPill kind="muted">
+                    {capitalizeFirstLetter(masterConclusion.replace('_', ' '))} on master
+                </VerdictPill>
+            )
+        ) : healthSummary.state === 'failing' ? (
+            <VerdictPill kind="danger">Failing</VerdictPill>
+        ) : healthSummary.state === 'degraded' ? (
+            <VerdictPill kind="warning">Degraded</VerdictPill>
+        ) : healthSummary.state === 'healthy' ? (
+            <VerdictPill kind="success">Passing</VerdictPill>
+        ) : undefined
 
     // Run id (→ the single-run page) + attempt, branch, attributed PR. The shared RunsTable appends
     // verdict / duration / started and the expand-to-jobs behavior.
@@ -130,9 +158,6 @@ export function WorkflowRunsScene(): JSX.Element {
                     onClick={(e) => e.stopPropagation()}
                 >
                     #{run.id}
-                    {(run.runAttempt ?? 1) > 1 && (
-                        <span className="ml-1 text-xs text-secondary">· attempt {run.runAttempt}</span>
-                    )}
                 </Link>
             ),
         },
@@ -141,9 +166,49 @@ export function WorkflowRunsScene(): JSX.Element {
             key: 'branch',
             render: (_, run) =>
                 run.headBranch ? (
-                    <span className="font-mono text-xs">{run.headBranch}</span>
+                    <span className="flex items-center gap-1.5 font-mono text-xs">
+                        {(run.headBranch === 'master' || run.headBranch === 'main') && (
+                            <span
+                                className={cn(
+                                    'inline-block size-1.5 shrink-0 rounded-full',
+                                    isDecisiveFailure(run.conclusion) ? 'bg-danger' : 'bg-success'
+                                )}
+                            />
+                        )}
+                        {run.headBranch}
+                    </span>
                 ) : (
                     <span className="text-xs text-secondary">—</span>
+                ),
+        },
+        {
+            title: 'Commit',
+            key: 'commit',
+            width: 90,
+            render: (_, run) =>
+                run.headSha ? (
+                    <Link
+                        to={githubCommitUrl(run.repoOwner, run.repoName, run.headSha)}
+                        target="_blank"
+                        className="font-mono text-xs text-tertiary"
+                        onClick={(e) => e.stopPropagation()}
+                    >
+                        {run.headSha.slice(0, 7)}
+                    </Link>
+                ) : (
+                    <span className="text-xs text-secondary">—</span>
+                ),
+        },
+        {
+            title: 'Attempt',
+            key: 'attempt',
+            width: 80,
+            align: 'right',
+            render: (_, run) =>
+                (run.runAttempt ?? 1) > 1 ? (
+                    <LemonTag type="warning">{run.runAttempt}</LemonTag>
+                ) : (
+                    <span className="text-xs tabular-nums text-tertiary">{run.runAttempt ?? 1}</span>
                 ),
         },
         {
@@ -209,7 +274,72 @@ export function WorkflowRunsScene(): JSX.Element {
                 crumbs={[{ label: workflowName }]}
                 showBranch
             />
-            <WorkflowHealthHeader summary={healthSummary} cost={costSummary} truncated={runsTruncated} />
+            <EntityHeader
+                icon="⚙️"
+                title={workflowName}
+                slug={
+                    <>
+                        {repoOwner}/{repoName} ·{' '}
+                        <Link to={githubUrl} target="_blank" targetBlankIcon>
+                            View on GitHub
+                        </Link>
+                        {runsTruncated && <span> · run stats cover the most recent {runRows.length} runs</span>}
+                    </>
+                }
+                right={verdictPill}
+            />
+            <div className="flex flex-wrap gap-2.5">
+                <MetricTile
+                    label="Pass rate"
+                    value={percent(healthSummary.passRate)}
+                    sub={
+                        healthSummary.completedRuns > 0
+                            ? `${humanFriendlyNumber(healthSummary.passedRuns)} of ${humanFriendlyNumber(
+                                  healthSummary.completedRuns
+                              )} completed runs passed`
+                            : 'no completed runs in the window'
+                    }
+                />
+                <MetricTile
+                    label="Runs"
+                    value={compactCount(healthSummary.totalRuns)}
+                    sub={
+                        healthSummary.reruns > 0
+                            ? `${humanFriendlyNumber(healthSummary.reruns)} re-run cycles`
+                            : 'no re-runs'
+                    }
+                />
+                <MetricTile
+                    label="Duration p50"
+                    value={
+                        healthSummary.medianSeconds != null ? humanFriendlyDuration(healthSummary.medianSeconds) : '—'
+                    }
+                    valueSuffix={
+                        healthSummary.p95Seconds != null
+                            ? `→ ${humanFriendlyDuration(healthSummary.p95Seconds)} p95`
+                            : undefined
+                    }
+                    sub="wall-clock, completed runs"
+                />
+                <MetricTile
+                    label="Queue time p50"
+                    value={queueP50Seconds != null ? humanFriendlyDuration(queueP50Seconds) : '—'}
+                    sub={queueP50Seconds != null ? 'created → started, across jobs' : 'needs the job-level source'}
+                />
+                <MetricTile
+                    label="Cost"
+                    value={costSummary?.estimatedCostUsd != null ? compactUsd(costSummary.estimatedCostUsd) : '—'}
+                    sub={
+                        costSummary?.estimatedCostUsd != null
+                            ? `${compactMinutes(costSummary.billableMinutes)} billable · ${compactUsd(
+                                  healthSummary.totalRuns > 0
+                                      ? costSummary.estimatedCostUsd / healthSummary.totalRuns
+                                      : null
+                              )} per run`
+                            : 'needs the job-level source'
+                    }
+                />
+            </div>
             <SectionNav
                 items={[
                     { id: 'health', label: 'Health' },

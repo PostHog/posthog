@@ -7,12 +7,10 @@ import { useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
 import { ReactNode } from 'react'
 
-import { IconTrending } from '@posthog/icons'
-import { LemonTable, LemonTableColumns, LemonTag, Link, Tooltip } from '@posthog/lemon-ui'
+import { LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { getSeriesColorPalette } from 'lib/colors'
 import { TZLabel } from 'lib/components/TZLabel'
-import { IconTrendingDown, IconTrendingFlat } from 'lib/lemon-ui/icons'
 import type { ExpandableConfig } from 'lib/lemon-ui/LemonTable/types'
 import { cn } from 'lib/utils/css-classes'
 import { humanFriendlyDuration } from 'lib/utils/durations'
@@ -20,14 +18,11 @@ import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { capitalizeFirstLetter } from 'lib/utils/strings'
 import { urls } from 'scenes/urls'
 
-import {
-    WorkflowHealthRow,
-    WorkflowTrendDirection,
-    workflowFailureSeries,
-    workflowFailureTrend,
-} from '../scenes/engineeringAnalyticsLogic'
+import { WorkflowHealthRow, workflowFailureSeries } from '../scenes/engineeringAnalyticsLogic'
 import { BillableBadge } from './BillableBadge'
 import { FailureSparkline } from './FailureSparkline'
+import { DeltaBadge, pointChange } from './MetricTile'
+import { RangeBar } from './RangeBar'
 import { CI_GRID } from './runTables'
 
 // Reserved bar slots for push-bucketed sparklines (PR view): a small floor keeps a single push from
@@ -92,30 +87,6 @@ function StatusTag({ failed, conclusion }: { failed: boolean | null; conclusion:
     return <LemonTag type="muted">{capitalizeFirstLetter(conclusion.replace('_', ' '))}</LemonTag>
 }
 
-function TrendArrow({ direction }: { direction: WorkflowTrendDirection }): JSX.Element {
-    // The column reads "Health", so the arrow tracks health, not failures: rising failures = health
-    // declining = red arrow down; falling failures = health improving = green arrow up.
-    if (direction === 'up') {
-        return (
-            <Tooltip title="Health declining — failures rising">
-                <IconTrendingDown className="text-danger shrink-0" />
-            </Tooltip>
-        )
-    }
-    if (direction === 'down') {
-        return (
-            <Tooltip title="Health improving — failures falling">
-                <IconTrending className="text-success shrink-0" />
-            </Tooltip>
-        )
-    }
-    return (
-        <Tooltip title="Health steady — no change in failures">
-            <IconTrendingFlat className="text-muted shrink-0" />
-        </Tooltip>
-    )
-}
-
 export interface WorkflowHealthTableProps {
     rows: WorkflowHealthRow[]
     loading?: boolean
@@ -150,6 +121,8 @@ export function WorkflowHealthTable({
         ...(searchParams.date_to ? { date_to: searchParams.date_to } : {}),
         ...(searchParams.q ? { q: searchParams.q } : {}),
     }
+    // One scale across rows so p50→p95 bars compare visually down the column.
+    const maxP95 = Math.max(...rows.map((row) => row.p95Seconds ?? 0), 1)
     const columns: LemonTableColumns<WorkflowHealthRow> = [
         {
             title: 'Workflow',
@@ -218,6 +191,68 @@ export function WorkflowHealthTable({
               ]
             : []) as LemonTableColumns<WorkflowHealthRow>),
         {
+            title: 'Δ',
+            key: 'successRateDelta',
+            width: 76,
+            align: 'right',
+            tooltip: 'Success-rate change in percentage points vs the equal-length window before this one.',
+            sorter: (a, b) =>
+                (pointChange(a.successRate, a.successRatePrev) ?? -Infinity) -
+                (pointChange(b.successRate, b.successRatePrev) ?? -Infinity),
+            render: (_, row) => {
+                const delta = pointChange(row.successRate, row.successRatePrev)
+                return delta == null ? (
+                    <span className="text-xs text-secondary">—</span>
+                ) : (
+                    <DeltaBadge value={delta} unit="pp" />
+                )
+            },
+        },
+        {
+            title: 'p50 → p95',
+            key: 'p50Seconds',
+            width: 150,
+            align: 'right',
+            tooltip:
+                'Median and 95th-percentile run duration (wall-clock) over completed runs; the bar is scaled to the slowest workflow so durations compare down the column.',
+            sorter: (a, b) => (a.p50Seconds ?? -1) - (b.p50Seconds ?? -1),
+            render: (_, row) =>
+                row.p50Seconds == null ? (
+                    <span className="text-xs text-secondary">—</span>
+                ) : (
+                    <span className="inline-block text-right">
+                        <span className="text-xs tabular-nums whitespace-nowrap">
+                            {formatSeconds(row.p50Seconds)}{' '}
+                            <span className="text-tertiary">→ {formatSeconds(row.p95Seconds)}</span>
+                        </span>
+                        <RangeBar
+                            fraction={(row.p50Seconds ?? 0) / maxP95}
+                            tickFraction={row.p95Seconds != null ? row.p95Seconds / maxP95 : null}
+                            className="mt-0.5 block w-20"
+                            tooltip={`p50 ${formatSeconds(row.p50Seconds)} (fill) → p95 ${formatSeconds(row.p95Seconds)} (tick), scaled to the slowest workflow`}
+                        />
+                    </span>
+                ),
+        },
+        {
+            title: 'Re-runs',
+            key: 'rerunCycles',
+            width: 96,
+            align: 'right',
+            tooltip: 'Runs with attempt > 1 in the window — retry pressure is a flakiness proxy.',
+            sorter: (a, b) => (a.rerunCycles ?? 0) - (b.rerunCycles ?? 0),
+            render: (_, row) => (
+                <span
+                    className={cn(
+                        'text-xs tabular-nums',
+                        (row.rerunCycles ?? 0) > 50 && 'font-semibold text-warning-dark'
+                    )}
+                >
+                    {row.rerunCycles ?? '—'}
+                </span>
+            ),
+        },
+        {
             title: 'Health',
             key: 'trend',
             // Pinned so the layout doesn't shift when sorting reorders rows with and without history.
@@ -228,42 +263,16 @@ export function WorkflowHealthTable({
                 }
                 const { completed, failures, labels } = workflowFailureSeries(row.buckets, row.granularity)
                 return (
-                    <div className="flex items-center gap-2">
-                        <FailureSparkline
-                            className="flex-1"
-                            completed={completed}
-                            failures={failures}
-                            labels={labels}
-                            ariaLabel={`${row.workflowName} failure history`}
-                            // Push buckets are few — keep bars narrow and right-aligned instead of fat.
-                            minSlots={row.granularity === 'push' ? PUSH_MIN_SLOTS : undefined}
-                        />
-                        <TrendArrow direction={workflowFailureTrend(row.buckets)} />
-                    </div>
+                    <FailureSparkline
+                        completed={completed}
+                        failures={failures}
+                        labels={labels}
+                        ariaLabel={`${row.workflowName} failure history`}
+                        // Push buckets are few — keep bars narrow and right-aligned instead of fat.
+                        minSlots={row.granularity === 'push' ? PUSH_MIN_SLOTS : undefined}
+                    />
                 )
             },
-        },
-        {
-            title: 'p50',
-            tooltip: 'Median run duration (wall-clock) over completed runs in the window.',
-            key: 'p50Seconds',
-            width: CI_GRID.p50,
-            align: 'right',
-            sorter: (a, b) => (a.p50Seconds ?? -1) - (b.p50Seconds ?? -1),
-            render: (_, row) => (
-                <span className="text-xs whitespace-nowrap tabular-nums">{formatSeconds(row.p50Seconds)}</span>
-            ),
-        },
-        {
-            title: 'p95',
-            tooltip: '95th-percentile run duration (wall-clock) over completed runs in the window.',
-            key: 'p95Seconds',
-            width: CI_GRID.p95,
-            align: 'right',
-            sorter: (a, b) => (a.p95Seconds ?? -1) - (b.p95Seconds ?? -1),
-            render: (_, row) => (
-                <span className="text-xs whitespace-nowrap tabular-nums">{formatSeconds(row.p95Seconds)}</span>
-            ),
         },
         {
             title: 'Last failure',

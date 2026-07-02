@@ -42,6 +42,7 @@ export interface WorkflowRunRow {
     startedAt: string | null
     id: number
     headBranch: string | null
+    headSha: string
     prNumber: number
     repoOwner: string
     repoName: string
@@ -201,6 +202,7 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                     startedAt: run.run_started_at,
                     id: run.id,
                     headBranch: run.head_branch,
+                    headSha: run.head_sha,
                     prNumber: run.pr_number,
                     repoOwner: run.repo.owner,
                     repoName: run.repo.name,
@@ -228,6 +230,46 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
         ],
         // Verdict + headline stats for the health strip above the chart.
         healthSummary: [(s) => [s.runRows], (runRows): HealthSummary => computeHealthSummary(runRows)],
+        // The default branch's own verdict: conclusion of the latest completed master/main run in the
+        // window. Null when the window has none (e.g. a PR-only workflow) — the pill then falls back
+        // to the overall verdict.
+        masterConclusion: [
+            (s) => [s.runRows],
+            (runRows): string | null => {
+                const masterRuns = runRows
+                    .filter(
+                        (run) =>
+                            (run.headBranch === 'master' || run.headBranch === 'main') &&
+                            run.conclusion != null &&
+                            run.startedAt != null
+                    )
+                    .sort((a, b) => (b.startedAt ?? '').localeCompare(a.startedAt ?? ''))
+                return masterRuns[0]?.conclusion ?? null
+            },
+        ],
+        // Median queue wait across the workflow's jobs, weighted by how often each job runs — the
+        // "where runner capacity hurts" headline. Null until the job-level source is synced.
+        queueP50Seconds: [
+            (s) => [s.jobAggregates],
+            (jobAggregates): number | null => {
+                const weighted: { value: number; weight: number }[] = jobAggregates
+                    .filter((row) => row.queue_p50_seconds != null)
+                    .map((row) => ({ value: row.queue_p50_seconds as number, weight: row.job_count }))
+                    .sort((a, b) => a.value - b.value)
+                const total = weighted.reduce((sum, entry) => sum + entry.weight, 0)
+                if (!total) {
+                    return null
+                }
+                let acc = 0
+                for (const entry of weighted) {
+                    acc += entry.weight
+                    if (acc >= total / 2) {
+                        return entry.value
+                    }
+                }
+                return weighted[weighted.length - 1].value
+            },
+        ],
         // Runs list is capped server-side; when hit, run rollups cover only the most recent runs (cost
         // still comes from the full-window aggregate), so the header labels them as such.
         runsTruncated: [(s) => [s.runRows], (runRows): boolean => runRows.length >= RUN_LIST_LIMIT],

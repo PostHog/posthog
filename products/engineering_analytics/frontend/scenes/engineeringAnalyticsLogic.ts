@@ -68,6 +68,8 @@ export interface PullRequestRow {
     passing: number
     failing: number
     pending: number
+    /** Workflow names behind `failing`, sorted — named under the CI tag instead of a bare count. */
+    failingWorkflows: string[]
     /** CI triggers in the PR's window: distinct head SHAs across its workflow runs. Fork PRs unattributed. */
     pushes: number
     /** Workflow runs attributed to this PR that were a 2nd+ attempt (a re-run). */
@@ -124,6 +126,10 @@ export interface WorkflowHealthRow {
     billableMinutes?: number | null
     /** Estimated $ cost for this workflow within the scope; null when nothing was costable. */
     estimatedCostUsd?: number | null
+    /** Runs in the window that were a 2nd+ attempt — retry pressure. Undefined on per-push rows. */
+    rerunCycles?: number
+    /** Success rate over the previous equal-length window — the Δpp baseline. Undefined on per-push rows. */
+    successRatePrev?: number | null
 }
 
 export type WorkflowTrendDirection = 'up' | 'down' | 'flat'
@@ -212,6 +218,7 @@ export function toPullRequestRow(it: PullRequestListItemApi): PullRequestRow {
         passing: it.ci.passing,
         failing: it.ci.failing,
         pending: it.ci.pending,
+        failingWorkflows: it.ci.failing_workflows ?? [],
         pushes: it.pushes ?? 0,
         rerunCycles: it.rerun_cycles ?? 0,
         estimatedCostUsd: it.estimated_cost_usd ?? null,
@@ -580,6 +587,8 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                                 })),
                                 billableMinutes: it.billable_minutes ?? null,
                                 estimatedCostUsd: it.estimated_cost_usd ?? null,
+                                rerunCycles: it.rerun_cycles ?? 0,
+                                successRatePrev: it.success_rate_prev ?? null,
                             })
                         )
                     },

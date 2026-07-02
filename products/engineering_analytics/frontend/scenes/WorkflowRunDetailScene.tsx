@@ -2,10 +2,10 @@ import { useActions, useValues } from 'kea'
 import { combineUrl } from 'kea-router'
 
 import { IconExternal } from '@posthog/icons'
-import { LemonButton, LemonSkeleton, LemonTag, Link } from '@posthog/lemon-ui'
+import { LemonButton, LemonSkeleton, Link } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
-import { LemonCard } from 'lib/lemon-ui/LemonCard'
+import { dayjs } from 'lib/dayjs'
 import { humanFriendlyDuration } from 'lib/utils/durations'
 import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
@@ -14,11 +14,12 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { EntityHeader, VerdictPill } from '../components/EntityHeader'
 import { FailureLogGroups } from '../components/FailureLogs'
 import { GroupedJobsTable } from '../components/GroupedJobsTable'
+import { MetricTile } from '../components/MetricTile'
 import { formatCost, formatMinutes } from '../components/runTables'
 import { RepoScopeChip, ScopeBar } from '../components/ScopeBar'
-import { StatTile } from '../components/StatTile'
 import { githubCommitUrl, githubRunUrl } from '../lib/github'
 import { isDecisiveFailure } from '../lib/lifecycle'
 import { verdictTag } from '../lib/runStatus'
@@ -33,15 +34,6 @@ export const scene: SceneExport<WorkflowRunDetailLogicProps> = {
         runId: parseInt(runId, 10),
         sourceId: source ?? null,
     }),
-}
-
-function DetailRow({ label, children }: { label: string; children: React.ReactNode }): JSX.Element {
-    return (
-        <div className="flex items-baseline gap-4 px-4 py-2.5">
-            <span className="w-32 shrink-0 text-xs text-secondary">{label}</span>
-            <span className="min-w-0 text-sm">{children}</span>
-        </div>
-    )
 }
 
 export function WorkflowRunDetailScene(): JSX.Element {
@@ -77,6 +69,28 @@ export function WorkflowRunDetailScene(): JSX.Element {
                   sourceId ? { source: sourceId } : {}
               ).url
             : null
+    // Run started → first job started: the runner-capacity wait before anything executed.
+    const jobStarts = (jobs ?? []).map((job) => job.started_at).filter((at): at is string => !!at)
+    const queueSeconds =
+        run?.run_started_at && jobStarts.length
+            ? Math.max(
+                  0,
+                  dayjs(jobStarts.reduce((min, at) => (at < min ? at : min))).diff(dayjs(run.run_started_at), 'second')
+              )
+            : null
+    const jobRollupLabel = jobs?.length
+        ? [
+              `${jobs.filter((job) => job.conclusion === 'success').length} passed`,
+              ...(jobs.some((job) => isDecisiveFailure(job.conclusion))
+                  ? [`${jobs.filter((job) => isDecisiveFailure(job.conclusion)).length} failed`]
+                  : []),
+              ...(jobs.some((job) => job.conclusion === 'skipped')
+                  ? [`${jobs.filter((job) => job.conclusion === 'skipped').length} skipped`]
+                  : []),
+          ].join(' · ')
+        : null
+    // The logs endpoint only carries job ids; the run's loaded jobs supply the names.
+    const jobNamesById = Object.fromEntries((jobs ?? []).map((job) => [job.id, job.name]))
 
     if (loadFailed) {
         return (
@@ -139,104 +153,123 @@ export function WorkflowRunDetailScene(): JSX.Element {
                         ]}
                         showDate={false}
                     />
-                    <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
-                        {verdict && <LemonTag type={verdict.type}>{verdict.label}</LemonTag>}
-                        {run.run_attempt > 1 && <LemonTag type="muted">attempt {run.run_attempt}</LemonTag>}
-                        <span className="font-mono text-xs text-secondary">
-                            {run.repo.owner}/{run.repo.name} · run #{run.id}
-                        </span>
-                    </div>
-
-                    {runCost && (
-                        <div className="flex flex-col gap-2">
-                            <div className="flex flex-wrap items-center gap-2">
-                                <LemonTag type="warning">estimate · wall-clock × reference rate</LemonTag>
-                                {runCost.unsettledJobs > 0 && (
-                                    <LemonTag type="muted">
-                                        {pluralize(runCost.unsettledJobs, 'unsettled job')} excluded
-                                    </LemonTag>
+                    <EntityHeader
+                        icon={
+                            run.conclusion == null
+                                ? '⏳'
+                                : isDecisiveFailure(run.conclusion)
+                                  ? '❌'
+                                  : run.conclusion === 'success'
+                                    ? '✅'
+                                    : '⏸️'
+                        }
+                        title={run.workflow_name}
+                        titleSuffix={`#${run.id}`}
+                        slug={
+                            <>
+                                {run.head_branch && <span>{run.head_branch}</span>}
+                                {run.head_sha && (
+                                    <>
+                                        <span>· commit</span>
+                                        <Link
+                                            to={githubCommitUrl(run.repo.owner, run.repo.name, run.head_sha)}
+                                            target="_blank"
+                                        >
+                                            {run.head_sha.slice(0, 7)}
+                                        </Link>
+                                    </>
                                 )}
-                            </div>
-                            <StatTile
-                                label="Billable CI minutes"
-                                value={formatMinutes(runCost.billableMinutes)}
-                                sub={<>≈ {formatCost(runCost.estimatedCostUsd)} estimated</>}
-                                className="max-w-72"
-                            />
-                        </div>
-                    )}
-
-                    <LemonCard hoverEffect={false} className="divide-y p-0">
-                        <DetailRow label="Status">
-                            <span className="capitalize">{run.status || '—'}</span>
-                        </DetailRow>
-                        <DetailRow label="Duration">
-                            <span className="tabular-nums">
-                                {run.duration_seconds == null ? '—' : humanFriendlyDuration(run.duration_seconds)}
-                                {jobs && jobs.length > 0 && (
-                                    <span className="ml-2 text-xs text-tertiary">
-                                        wall-clock — the critical path of {pluralize(jobs.length, 'job')}
+                                {prUrl && (
+                                    <>
+                                        <span>· pull request</span>
+                                        <Link to={prUrl}>#{run.pr_number}</Link>
+                                    </>
+                                )}
+                                {run.run_attempt > 1 && <span>· attempt {run.run_attempt}</span>}
+                                {run.run_started_at && (
+                                    <span>
+                                        · started <TZLabel time={run.run_started_at} />
                                     </span>
                                 )}
-                            </span>
-                        </DetailRow>
-                        <DetailRow label="Started">
-                            {run.run_started_at ? (
-                                <TZLabel time={run.run_started_at} />
-                            ) : (
-                                <span className="text-secondary">—</span>
-                            )}
-                        </DetailRow>
-                        <DetailRow label="Updated">
-                            {run.updated_at ? (
-                                <TZLabel time={run.updated_at} />
-                            ) : (
-                                <span className="text-secondary">—</span>
-                            )}
-                        </DetailRow>
-                        <DetailRow label="Branch">
-                            {run.head_branch ? (
-                                <span className="font-mono text-xs">{run.head_branch}</span>
-                            ) : (
-                                <span className="text-secondary">—</span>
-                            )}
-                        </DetailRow>
-                        <DetailRow label="Commit">
-                            {run.head_sha ? (
-                                <Link
-                                    to={githubCommitUrl(run.repo.owner, run.repo.name, run.head_sha)}
-                                    target="_blank"
-                                    className="font-mono text-xs"
+                            </>
+                        }
+                        right={
+                            verdict ? (
+                                <VerdictPill
+                                    kind={
+                                        run.conclusion == null
+                                            ? 'warning'
+                                            : isDecisiveFailure(run.conclusion)
+                                              ? 'danger'
+                                              : run.conclusion === 'success'
+                                                ? 'success'
+                                                : 'muted'
+                                    }
                                 >
-                                    {run.head_sha.slice(0, 7)}
-                                </Link>
-                            ) : (
-                                <span className="text-secondary">—</span>
-                            )}
-                        </DetailRow>
-                        <DetailRow label="Pull request">
-                            {prUrl ? (
-                                <Link to={prUrl} className="font-medium">
-                                    #{run.pr_number}
-                                </Link>
-                            ) : (
-                                <span className="text-secondary">—</span>
-                            )}
-                        </DetailRow>
-                    </LemonCard>
+                                    {verdict.label}
+                                </VerdictPill>
+                            ) : undefined
+                        }
+                    />
+
+                    <div className="flex flex-wrap gap-2.5">
+                        <MetricTile
+                            label="Duration"
+                            value={run.duration_seconds == null ? '—' : humanFriendlyDuration(run.duration_seconds)}
+                            sub={
+                                jobs && jobs.length > 0
+                                    ? `wall-clock — the critical path of ${pluralize(jobs.length, 'job')}`
+                                    : 'wall-clock'
+                            }
+                        />
+                        <MetricTile
+                            label="Queue time"
+                            value={queueSeconds != null ? humanFriendlyDuration(queueSeconds) : '—'}
+                            sub="run started → first job started"
+                        />
+                        <MetricTile
+                            label="Jobs"
+                            value={jobs ? `${jobs.length}` : '—'}
+                            sub={jobRollupLabel ?? 'not loaded yet'}
+                        />
+                        <MetricTile
+                            label="Estimated cost"
+                            value={runCost ? formatCost(runCost.estimatedCostUsd) : '—'}
+                            sub={
+                                runCost
+                                    ? `${formatMinutes(runCost.billableMinutes)} billable × tier rate${
+                                          runCost.unsettledJobs > 0
+                                              ? ` · ${pluralize(runCost.unsettledJobs, 'unsettled job')} excluded`
+                                              : ''
+                                      }`
+                                    : 'needs the job-level source'
+                            }
+                        />
+                    </div>
 
                     <div className="flex flex-col gap-2">
-                        <h3 className="mb-0">Jobs</h3>
+                        <div className="flex items-baseline gap-2">
+                            <h3 className="mb-0">Jobs</h3>
+                            <span className="text-xs text-tertiary">
+                                grouped by matrix — failing groups first, expand a group for its shards
+                            </span>
+                        </div>
                         <GroupedJobsTable jobs={jobs} loading={jobsLoading} />
                     </div>
 
                     {isDecisiveFailure(run.conclusion) && (
                         <div className="flex flex-col gap-2">
-                            <h3 className="mb-0">Failures</h3>
+                            <div className="flex items-baseline gap-2">
+                                <h3 className="mb-0">Failure logs</h3>
+                                <span className="text-xs text-tertiary">
+                                    thinned to the lines that matter — full logs on GitHub
+                                </span>
+                            </div>
                             <FailureLogGroups
                                 jobs={failureLogs === 'unavailable' ? [] : failureLogs?.jobs}
                                 logsAvailable={failureLogs !== 'unavailable' && (failureLogs?.logs_available ?? false)}
                                 loading={failureLogsLoading}
+                                jobNames={jobNamesById}
                                 emptyState={
                                     failureLogs === 'unavailable'
                                         ? 'Failure logs are unavailable for this run.'

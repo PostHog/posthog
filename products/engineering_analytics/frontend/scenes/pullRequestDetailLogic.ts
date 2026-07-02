@@ -20,6 +20,7 @@ import type {
     WorkflowJobApi,
     WorkflowRunDetailApi,
 } from '../generated/api.schemas'
+import { failedShardsLabel, groupJobs } from '../lib/jobGroups'
 import { jobCacheKey } from '../lib/jobs'
 import {
     LifecycleSummary,
@@ -46,6 +47,55 @@ export function sortRunsForTriage(runs: WorkflowRun[]): WorkflowRun[] {
     const rank = (run: WorkflowRun): number =>
         run.conclusion === null ? 1 : isPassingConclusion(run.conclusion) ? 2 : 0
     return [...runs].sort((a, b) => rank(a) - rank(b) || a.workflow.localeCompare(b.workflow))
+}
+
+// Bound the eager "what failed" job fetches — a PR rarely has more than a couple of failing
+// workflows, but a broken push shouldn't fan out into dozens of requests.
+const MAX_FAILING_JOB_FETCHES = 6
+
+/** The latest run per workflow on the newest push — what the "CI verdict · latest push" tile counts. */
+export interface LatestPushStats {
+    headSha: string
+    total: number
+    green: number
+    running: number
+    failingWorkflows: string[]
+}
+
+export function computeLatestPushStats(group: PrCommitRuns | undefined): LatestPushStats | null {
+    if (!group) {
+        return null
+    }
+    const latestByWorkflow = new Map<string, WorkflowRun>()
+    for (const run of group.runs) {
+        const seen = latestByWorkflow.get(run.workflow)
+        if (!seen || (run.startedAt ?? '') > (seen.startedAt ?? '')) {
+            latestByWorkflow.set(run.workflow, run)
+        }
+    }
+    const latest = Array.from(latestByWorkflow.values())
+    return {
+        headSha: group.headSha,
+        total: latest.length,
+        green: latest.filter((run) => run.conclusion != null && isPassingConclusion(run.conclusion)).length,
+        running: latest.filter((run) => run.conclusion == null).length,
+        failingWorkflows: latest
+            .filter((run) => run.conclusion != null && !isPassingConclusion(run.conclusion))
+            .map((run) => run.workflow)
+            .sort(),
+    }
+}
+
+/** Each workflow's latest run on the PR (across pushes) — drives the CI-runs table's verdict column. */
+export function latestRunPerWorkflow(runs: PrRunRow[]): Map<string, PrRunRow> {
+    const latest = new Map<string, PrRunRow>()
+    for (const run of runs) {
+        const seen = latest.get(run.workflow)
+        if (!seen || (run.startedAt ?? '') > (seen.startedAt ?? '')) {
+            latest.set(run.workflow, run)
+        }
+    }
+    return latest
 }
 
 /** A PR's runs for one commit (head SHA) — used to bucket the progression sparkline by push. */
@@ -244,6 +294,16 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
             if (values.prRuns.some((run) => isDecisiveFailure(run.conclusion))) {
                 actions.loadFailureLogs()
             }
+            // Eagerly fetch the jobs of each failing workflow's latest run so the CI-runs table can
+            // name what failed (bounded — a broken push shouldn't fan out into dozens of requests).
+            Array.from(latestRunPerWorkflow(values.filteredRuns).values())
+                .filter((run) => run.conclusion != null && !isPassingConclusion(run.conclusion))
+                .slice(0, MAX_FAILING_JOB_FETCHES)
+                .forEach((run) => {
+                    if (run.runId != null && !(jobCacheKey(run.runId, run.runAttempt) in values.runJobs)) {
+                        actions.loadJobs({ runId: run.runId, runAttempt: run.runAttempt })
+                    }
+                })
         },
     })),
 
@@ -376,6 +436,37 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
             (rows: WorkflowHealthRow[], workflowFilter: string): WorkflowHealthRow[] => {
                 const query = workflowFilter.trim().toLowerCase()
                 return query ? rows.filter((row) => row.workflowName.toLowerCase().includes(query)) : rows
+            },
+        ],
+        // The newest push's per-workflow verdicts — the "CI verdict · latest push" tile.
+        latestPushStats: [
+            (s) => [s.commitGroups],
+            (commitGroups): LatestPushStats | null => computeLatestPushStats(commitGroups[0]),
+        ],
+        // workflow → "what failed" label (de-sharded failing job names) from the eagerly-fetched jobs
+        // of each failing workflow's latest run. Missing entries mean the jobs aren't loaded (yet).
+        failingJobLabelByWorkflow: [
+            (s) => [s.filteredRuns, s.runJobs],
+            (filteredRuns, runJobs): Record<string, string> => {
+                const labels: Record<string, string> = {}
+                for (const [workflow, run] of latestRunPerWorkflow(filteredRuns)) {
+                    if (run.conclusion == null || isPassingConclusion(run.conclusion) || run.runId == null) {
+                        continue
+                    }
+                    const jobs = runJobs[jobCacheKey(run.runId, run.runAttempt)]
+                    if (!jobs) {
+                        continue
+                    }
+                    const failing = groupJobs(jobs).filter((group) => group.failed.length > 0)
+                    if (failing.length) {
+                        labels[workflow] = failing
+                            .map((group) =>
+                                group.jobs.length > 1 ? `${group.base} (${failedShardsLabel(group)})` : group.base
+                            )
+                            .join(' · ')
+                    }
+                }
+                return labels
             },
         ],
         // CI triggers: distinct head SHAs across the PR's runs (matches the backend `pushes` definition).

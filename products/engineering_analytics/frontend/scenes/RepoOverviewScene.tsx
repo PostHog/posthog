@@ -15,6 +15,7 @@ import { urls } from 'scenes/urls'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
+import { EntityHeader, VerdictPill } from '../components/EntityHeader'
 import { FailureLogGroups } from '../components/FailureLogs'
 import { DeltaBadge, MetricTile, percentChange, pointChange } from '../components/MetricTile'
 import { PullRequestTable } from '../components/PullRequestTable'
@@ -22,7 +23,7 @@ import { ScopeBar, SourceScopeChip } from '../components/ScopeBar'
 import { Section, SectionNav } from '../components/Section'
 import { ShareRow } from '../components/ShareRow'
 import { WorkflowHealthTable } from '../components/WorkflowHealthTable'
-import type { MasterFailureGroupApi } from '../generated/api.schemas'
+import type { GitHubSourceApi, MasterFailureGroupApi } from '../generated/api.schemas'
 import { compactCount, compactHours, compactHoursUnit, compactMinutes, compactUsd, percent } from '../lib/format'
 import { engineeringAnalyticsLogic } from './engineeringAnalyticsLogic'
 import { repoOverviewLogic } from './repoOverviewLogic'
@@ -31,6 +32,50 @@ const SHARE_COLORS = ['var(--brand-blue)', 'var(--success)', 'var(--warning)', '
 
 function withSource(url: string, sourceId: string | null): string {
     return combineUrl(url, sourceId ? { source: sourceId } : {}).url
+}
+
+function RepoEntityHeader({
+    repoFullName,
+    failingWorkflowCount,
+    failuresLoading,
+    defaultBranch,
+}: {
+    repoFullName: string
+    failingWorkflowCount: number
+    failuresLoading: boolean
+    defaultBranch: string
+}): JSX.Element {
+    const name = repoFullName.split('/')[1] || repoFullName || 'Repository'
+    return (
+        <EntityHeader
+            icon="📦"
+            title={name}
+            slug={
+                <>
+                    {repoFullName || 'connected GitHub source'}
+                    {repoFullName && (
+                        <>
+                            {' · '}
+                            <Link to={`https://github.com/${repoFullName}`} target="_blank" targetBlankIcon>
+                                View on GitHub
+                            </Link>
+                        </>
+                    )}
+                </>
+            }
+            right={
+                failuresLoading ? undefined : failingWorkflowCount > 0 ? (
+                    <VerdictPill kind="danger">
+                        {failingWorkflowCount === 1
+                            ? `1 workflow failing on ${defaultBranch}`
+                            : `${failingWorkflowCount} workflows failing on ${defaultBranch}`}
+                    </VerdictPill>
+                ) : (
+                    <VerdictPill kind="success">Nothing failing on {defaultBranch}</VerdictPill>
+                )
+            }
+        />
+    )
 }
 
 function MasterFailuresSection(): JSX.Element {
@@ -184,9 +229,18 @@ export function RepoOverviewScene(): JSX.Element {
         defaultBranch,
         notConnected,
         overviewFailed,
+        failingWorkflowCount,
+        masterFailuresLoading,
     } = useValues(repoOverviewLogic)
-    const { cards, pullRequestsLoading, workflowHealth, workflowHealthLoading, sourceId, costLensEnabled } =
-        useValues(engineeringAnalyticsLogic)
+    const {
+        cards,
+        pullRequestsLoading,
+        workflowHealth,
+        workflowHealthLoading,
+        sourceId,
+        costLensEnabled,
+        githubSources,
+    } = useValues(engineeringAnalyticsLogic)
     const { loadOverview, loadMasterFailures } = useActions(repoOverviewLogic)
 
     if (notConnected) {
@@ -211,6 +265,17 @@ export function RepoOverviewScene(): JSX.Element {
                     { label: 'pr', to: withSource(urls.engineeringAnalyticsPullRequestList(), sourceId) },
                     { label: 'author', to: withSource(urls.engineeringAnalyticsAuthors(), sourceId) },
                 ]}
+            />
+
+            <RepoEntityHeader
+                repoFullName={
+                    (sourceId
+                        ? githubSources.find((source: GitHubSourceApi) => source.id === sourceId)?.repo
+                        : githubSources[0]?.repo) || ''
+                }
+                failingWorkflowCount={failingWorkflowCount}
+                failuresLoading={masterFailuresLoading}
+                defaultBranch={defaultBranch}
             />
 
             <div className="flex flex-wrap gap-2.5">

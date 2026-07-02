@@ -183,6 +183,11 @@ export const repoOverviewLogic = kea<repoOverviewLogicType>([
     selectors({
         jobsAvailable: [(s) => [s.overview], (overview): boolean => overview?.jobs_available ?? false],
         defaultBranch: [(s) => [s.overview], (overview): string => overview?.default_branch ?? 'master'],
+        // Distinct workflows currently failing on the default branch — the hub's one-glance verdict.
+        failingWorkflowCount: [
+            (s) => [s.masterFailures],
+            (masterFailures): number => new Set(masterFailures.map((group) => group.workflow_name)).size,
+        ],
         masterHealth: [
             (s) => [s.overview],
             (overview): MasterHealthSeries | null => {
