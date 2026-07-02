@@ -142,7 +142,9 @@ export function DashboardsTree(): JSX.Element {
                                                     setExpandedFolders(
                                                         allExpanded
                                                             ? {}
-                                                            : Object.fromEntries(expandablePaths.map((id) => [id, true]))
+                                                            : Object.fromEntries(
+                                                                  expandablePaths.map((id) => [id, true])
+                                                              )
                                                     )
                                                 }}
                                                 className="ml-auto shrink-0 opacity-0 group-hover/lemon-tree-button:opacity-100"
@@ -168,7 +170,9 @@ export function DashboardsTree(): JSX.Element {
                                 // keyboard collapses where a parent and its expanded children change at once;
                                 // rebuilding from the live set also drops stale paths of since-deleted folders.)
                                 const expanded = new Set(newIds)
-                                setExpandedFolders(Object.fromEntries(expandablePaths.map((id) => [id, expanded.has(id)])))
+                                setExpandedFolders(
+                                    Object.fromEntries(expandablePaths.map((id) => [id, expanded.has(id)]))
+                                )
                             }}
                             onFolderClick={(folder) => {
                                 if (!folder) {
