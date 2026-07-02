@@ -578,7 +578,7 @@ export function ProjectTree({
                             {suggestedProductBaseTooltipText}
                             <br />
                             <br />
-                            Open the three dot menu to remove from the sidebar.
+                            Open the three-dot menu to remove from the sidebar.
                             <br />
                             <br />
                         </>
