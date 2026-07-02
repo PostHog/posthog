@@ -46,4 +46,21 @@ class Migration(migrations.Migration):
                 fields=["repo", "run_type", "story_stem"], name="unique_story_threshold_override"
             ),
         ),
+        # Choices-only change (adds the story_override reason). No SQL — Django
+        # doesn't enforce choices in Postgres — just keeps migration state in sync.
+        migrations.AlterField(
+            model_name="runsnapshot",
+            name="classification_reason",
+            field=models.CharField(
+                blank=True,
+                choices=[
+                    ("exact", "exact"),
+                    ("tolerated_hash", "tolerated_hash"),
+                    ("below_threshold", "below_threshold"),
+                    ("story_override", "story_override"),
+                ],
+                default="",
+                max_length=20,
+            ),
+        ),
     ]
