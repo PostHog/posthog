@@ -31,15 +31,19 @@ if (baseBytes === null) {
     console.warn('No base dist size measurement found — the section will not show a vs-base delta.')
 }
 
+// Without a baseline every value looks "new" — a misleading 🔺 delta — so drop the
+// comparison and say so, matching the bundle-size section's no-baseline handling.
 const body = [
     'Total size of the built `frontend/dist` folder (all assets), compared against the base branch.',
     '',
-    `**Total:** ${formatBytes(prBytes)} · ${formatDelta(prBytes, baseBytes)}`,
+    baseBytes !== null
+        ? `**Total:** ${formatBytes(prBytes)} · ${formatDelta(prBytes, baseBytes)}`
+        : `**Total:** ${formatBytes(prBytes)} _(no base branch measurement to compare against yet)_`,
 ].join('\n')
 
 await postSection({
     id: 'dist-size',
     status: deltaStatus(prBytes - (baseBytes ?? 0), baseBytes !== null),
-    summary: formatDelta(prBytes, baseBytes),
+    summary: baseBytes !== null ? formatDelta(prBytes, baseBytes) : 'no base branch to compare',
     body,
 })
