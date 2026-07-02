@@ -7,8 +7,10 @@ const reportUrl = process.env.DEPLOYMENT_URL
 
 let failed = []
 let flaky = []
+let resultsRead = false
 try {
     const results = JSON.parse(fs.readFileSync('playwright/results.json', 'utf8'))
+    resultsRead = true
     const collect = (suites) => {
         for (const suite of suites || []) {
             for (const spec of suite.specs || []) {
@@ -25,7 +27,7 @@ try {
     }
     collect(results.suites)
 } catch {
-    // results.json is absent on setup failure/cancellation — treat as no failures found.
+    // results.json is absent on setup failure/cancellation — handled below.
 }
 
 let flakeVerificationLines = ''
@@ -38,6 +40,14 @@ try {
     }
 } catch {
     // No flake-verification-results.json — nothing to add.
+}
+
+// No results and no flake-verification verdict means the run never got as far as
+// testing (setup failure, cancellation) — leave the existing section untouched
+// rather than overwrite a previous run's real failures with "all passed".
+if (!resultsRead && !flakeVerificationLines) {
+    console.info('No Playwright results found — leaving the existing section untouched.')
+    process.exit(0)
 }
 
 const reportLink = reportUrl ? ` · [View test results →](${reportUrl})` : ''
