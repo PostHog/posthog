@@ -4,7 +4,7 @@ import { Redis } from 'ioredis'
 import { RedisPool } from '~/types'
 
 import { parseJSON } from './json-parse'
-import { logger } from './logger'
+import { logger, serializeError } from './logger'
 import { PromiseScheduler } from './promise-scheduler'
 
 export class PubSub {
@@ -37,16 +37,38 @@ export class PubSub {
         }
 
         await this.promises.waitForAll()
-        await this.redisSubscriber.unsubscribe()
+
+        // Redis teardown can fail transiently during shutdown (e.g. `write ETIMEDOUT` when the
+        // socket is slow or unreachable). The process is going down anyway, so tolerate it:
+        // log and swallow rather than letting an unhandled rejection reach error tracking.
+        try {
+            await this.redisSubscriber.unsubscribe()
+        } catch (error) {
+            logger.warn('🛑', 'Failed to unsubscribe Redis subscriber during PubSub shutdown', {
+                error: serializeError(error),
+            })
+        }
 
         if (this.redisSubscriber) {
             this.redisSubscriber.removeAllListeners('message')
-            await this.redisPool.release(this.redisSubscriber)
+            try {
+                await this.redisPool.release(this.redisSubscriber)
+            } catch (error) {
+                logger.warn('🛑', 'Failed to release Redis subscriber during PubSub shutdown', {
+                    error: serializeError(error),
+                })
+            }
         }
         this.redisSubscriber = undefined
 
         if (this.redisPublisher) {
-            await this.redisPool.release(this.redisPublisher)
+            try {
+                await this.redisPool.release(this.redisPublisher)
+            } catch (error) {
+                logger.warn('🛑', 'Failed to release Redis publisher during PubSub shutdown', {
+                    error: serializeError(error),
+                })
+            }
             this.redisPublisher = undefined
         }
 
