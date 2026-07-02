@@ -1574,7 +1574,8 @@ class HuntrSourceConfig(config.Config):
 
 @config.config
 class IP2WhoisSourceConfig(config.Config):
-    pass
+    api_key: str
+    domains: str
 
 
 @config.config
@@ -2158,7 +2159,8 @@ class NinjaOneRMMSourceConfig(config.Config):
 
 @config.config
 class NoCRMSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
@@ -2224,7 +2226,7 @@ class OnepagecrmSourceConfig(config.Config):
 
 @config.config
 class OnfleetSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2434,7 +2436,8 @@ class PersonioSourceConfig(config.Config):
 
 @config.config
 class PexelsSourceConfig(config.Config):
-    pass
+    api_key: str
+    search_query: str | None = None
 
 
 @config.config
