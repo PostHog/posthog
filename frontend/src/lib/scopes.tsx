@@ -15,6 +15,16 @@ export type APIScope = {
     warnings?: Partial<Record<'read' | 'write', string | JSX.Element>>
 }
 
+// Scopes whose write action also writes a feature flag as a side effect (survey targeting flag,
+// early access feature linked flag), so they imply `feature_flag:write`. Single source of truth for
+// both the picker warning (attached below) and the auto-select in personalAPIKeysLogic, so the rule
+// and the copy can't drift. `ScopeAccessRow` renders warnings as plain text — no markdown formatting.
+export const SCOPES_IMPLYING_FEATURE_FLAG_WRITE: Partial<Record<APIScopeObject, string>> = {
+    survey: 'Surveys with targeting also manage a feature flag, so this key needs feature_flag:write too.',
+    early_access_feature:
+        'Early access features manage a linked feature flag, so this key needs feature_flag:write too.',
+}
+
 export const API_SCOPES: APIScope[] = [
     { key: 'action', objectName: 'Action', objectPlural: 'actions' },
     { key: 'access_control', objectName: 'Access control', objectPlural: 'access controls' },
@@ -46,7 +56,7 @@ export const API_SCOPES: APIScope[] = [
         objectName: 'Early access feature',
         objectPlural: 'early access features',
         warnings: {
-            write: 'Early access features are backed by a feature flag, so `feature_flag:write` is selected automatically — creating or updating one also writes that flag.',
+            write: SCOPES_IMPLYING_FEATURE_FLAG_WRITE.early_access_feature,
         },
     },
     { key: 'element', objectName: 'Element', objectPlural: 'elements' },
@@ -150,7 +160,7 @@ export const API_SCOPES: APIScope[] = [
         objectName: 'Survey',
         objectPlural: 'surveys',
         warnings: {
-            write: 'Surveys with targeting also write a feature flag, so `feature_flag:write` is selected automatically. You can remove it if this key only manages surveys without targeting.',
+            write: SCOPES_IMPLYING_FEATURE_FLAG_WRITE.survey,
         },
     },
     { key: 'tagger', objectName: 'Tagger', objectPlural: 'taggers' },

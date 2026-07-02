@@ -10,7 +10,13 @@ import { CodeSnippet } from 'lib/components/CodeSnippet'
 import { FEATURE_FLAGS, OrganizationMembershipLevel } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-import { APIScope, API_SCOPES, scopesArrayToObject, scopesObjectToArray } from 'lib/scopes'
+import {
+    APIScope,
+    API_SCOPES,
+    SCOPES_IMPLYING_FEATURE_FLAG_WRITE,
+    scopesArrayToObject,
+    scopesObjectToArray,
+} from 'lib/scopes'
 import { hasMembershipLevelOrHigher, organizationAllowsPersonalApiKeysForMembers } from 'lib/utils/permissioning'
 import { urls } from 'scenes/urls'
 import { userLogic } from 'scenes/userLogic'
@@ -469,11 +475,12 @@ export const personalAPIKeysLogic = kea<personalAPIKeysLogicType>([
             }
 
             // Survey and early access feature writes also write a feature flag (targeting / linked flag),
-            // which requires feature_flag:write. Auto-select it so the key works out of the box. It stays
-            // visible and the user can lower it again if the key only manages plain surveys.
+            // so they imply feature_flag:write (see SCOPES_IMPLYING_FEATURE_FLAG_WRITE). Auto-select it so
+            // the key works out of the box. Scoped to this toggle action only — not every scopes change —
+            // so it stays visible and removable if the key only manages plain surveys.
             if (
-                (key === 'survey' || key === 'early_access_feature') &&
                 action === 'write' &&
+                key in SCOPES_IMPLYING_FEATURE_FLAG_WRITE &&
                 scopesObject['feature_flag'] !== 'write'
             ) {
                 scopesObject['feature_flag'] = 'write'
