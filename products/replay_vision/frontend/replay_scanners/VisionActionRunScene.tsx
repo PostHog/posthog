@@ -41,15 +41,13 @@ function RecordingsIncluded({ observations }: { observations: readonly RunObserv
         {
             title: 'Person',
             key: 'person',
+            // Plain text, not a link: the observation carries no reliable person distinct id (only the
+            // subject email), so a person-page link would land on "person not found" whenever the id differs.
             render: (_, obs) =>
                 obs.recording_subject_email ? (
-                    <Link
-                        className="truncate max-w-xs inline-block align-bottom"
-                        to={urls.personByDistinctId(obs.recording_subject_email)}
-                        title={obs.recording_subject_email}
-                    >
+                    <span className="truncate max-w-xs inline-block align-bottom" title={obs.recording_subject_email}>
                         {obs.recording_subject_email}
-                    </Link>
+                    </span>
                 ) : (
                     <Tooltip title="No person is associated with this recording">
                         <span className="text-muted">No person</span>
