@@ -368,6 +368,8 @@ export interface RunsTableProps<T extends RunRowBase> {
     showCost?: boolean
     /** Render onto the canonical CI_GRID so columns line up under the workflow table (PR detail). */
     aligned?: boolean
+    /** Override the expanded-row job view (e.g. the matrix-grouped table); defaults to RunJobsTable. */
+    renderJobs?: (jobs: WorkflowJobApi[] | null | undefined, loading: boolean) => ReactNode
     defaultSorting?: { columnKey: string; order: 1 | -1 }
     emptyState?: ReactNode
     dataAttr?: string
@@ -390,6 +392,7 @@ export function RunsTable<T extends RunRowBase>({
     runCostByKey,
     showCost = false,
     aligned = false,
+    renderJobs,
     defaultSorting = { columnKey: 'started', order: 1 },
     emptyState = 'No CI runs match.',
     dataAttr = 'engineering-analytics-runs-table',
@@ -505,14 +508,14 @@ export function RunsTable<T extends RunRowBase>({
                 noIndent: true,
                 rowExpandable: (run) => run.runId != null,
                 isRowExpanded: (run) => expandedKeys.includes(rowKey(run)),
-                expandedRowRender: (run) => (
-                    <RunJobsTable
-                        jobs={run.runId != null ? runJobs[jobCacheKey(run.runId, run.runAttempt)] : undefined}
-                        loading={runJobsLoading}
-                        embedded
-                        aligned={aligned}
-                    />
-                ),
+                expandedRowRender: (run) => {
+                    const jobs = run.runId != null ? runJobs[jobCacheKey(run.runId, run.runAttempt)] : undefined
+                    return renderJobs ? (
+                        <>{renderJobs(jobs, runJobsLoading)}</>
+                    ) : (
+                        <RunJobsTable jobs={jobs} loading={runJobsLoading} embedded aligned={aligned} />
+                    )
+                },
             }}
             emptyState={emptyState}
             nouns={['workflow run', 'workflow runs']}

@@ -1,0 +1,83 @@
+// Thinned CI failure logs, grouped by failed job — the Logs-product-style excerpt rows used by the
+// repo hub's "failing on master" expansion, the run page, and the PR page's failures section. The
+// lines come pre-thinned from the backend; omission markers (original_line == null) render muted so
+// the elision is visible, never silent.
+
+import { ReactNode } from 'react'
+
+import { LemonTag } from '@posthog/lemon-ui'
+
+import { cn } from 'lib/utils/css-classes'
+
+import type { CIJobFailureLogApi } from '../generated/api.schemas'
+
+function JobFailureLog({ job }: { job: CIJobFailureLogApi }): JSX.Element {
+    return (
+        <div className="overflow-hidden rounded border border-primary bg-surface-primary">
+            <div className="flex items-center gap-2 border-b border-primary px-3 py-2 text-xs font-semibold">
+                <LemonTag type="danger" size="small">
+                    {job.conclusion === 'timed_out' ? 'TIMED OUT' : 'FAILED'}
+                </LemonTag>
+                <span className="font-mono font-normal text-tertiary">job {job.job_id}</span>
+                {job.branch && <span className="font-mono font-normal text-tertiary">· {job.branch}</span>}
+                <span className="ml-auto font-normal text-tertiary">
+                    {job.line_count} of {job.original_total_lines || '?'} lines
+                    {job.truncated ? ' · truncated' : ''}
+                </span>
+            </div>
+            <table className="w-full border-collapse">
+                <tbody>
+                    {job.lines.map((line, i) => (
+                        <tr key={i} className={cn(i > 0 && 'border-t border-primary')}>
+                            <td className="w-14 px-3 py-1 align-top text-right font-mono text-[11px] tabular-nums text-tertiary whitespace-nowrap">
+                                {line.original_line ?? '⋯'}
+                            </td>
+                            <td
+                                className={cn(
+                                    'px-3 py-1 align-top font-mono text-[11.5px] leading-relaxed break-all',
+                                    line.original_line == null && 'italic text-tertiary'
+                                )}
+                            >
+                                {line.text}
+                            </td>
+                        </tr>
+                    ))}
+                </tbody>
+            </table>
+        </div>
+    )
+}
+
+/**
+ * A set of failed jobs with their log excerpts. ``jobs == null`` is the not-loaded state; an empty
+ * list with ``logsAvailable === false`` means the run didn't fail or its logs aged out of retention.
+ */
+export function FailureLogGroups({
+    jobs,
+    logsAvailable,
+    loading,
+    emptyState,
+}: {
+    jobs: CIJobFailureLogApi[] | null | undefined
+    logsAvailable: boolean
+    loading: boolean
+    emptyState?: ReactNode
+}): JSX.Element {
+    if (jobs == null) {
+        return <div className="px-1 py-2 text-xs text-secondary">{loading ? 'Loading failure logs…' : '—'}</div>
+    }
+    if (!logsAvailable || jobs.length === 0) {
+        return (
+            <div className="px-1 py-2 text-xs text-secondary">
+                {emptyState ?? 'No failure logs — nothing failed, or the logs aged out of the short Logs retention.'}
+            </div>
+        )
+    }
+    return (
+        <div className="flex flex-col gap-2">
+            {jobs.map((job) => (
+                <JobFailureLog key={`${job.run_id}:${job.job_id}`} job={job} />
+            ))}
+        </div>
+    )
+}
