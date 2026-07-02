@@ -80,7 +80,11 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
     selectors({
         shouldPoll: [
             (s) => [s.visibleSessionIds, s.observationBySession, s.pendingId],
-            (visibleSessionIds, observationBySession, pendingId): boolean =>
+            (
+                visibleSessionIds: string[],
+                observationBySession: Record<string, RowObservation>,
+                pendingId: string | null
+            ): boolean =>
                 pendingId !== null ||
                 visibleSessionIds.some((id) => {
                     const observation = observationBySession[id]
