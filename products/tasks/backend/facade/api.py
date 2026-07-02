@@ -2592,9 +2592,7 @@ async def select_repository_for_message(team_id: int, user_id: int, message: str
     )
 
 
-def _list_tasks_queryset(
-    team_id: int, user_id: int | None, *, filters: dict, is_debug_or_staff: bool
-) -> QuerySet[Task]:
+def _list_tasks_queryset(team_id: int, user_id: int | None, *, filters: dict) -> QuerySet[Task]:
     latest_run = TaskRun.objects.filter(task=OuterRef("pk"), team_id=team_id).order_by("-created_at", "-id")
     qs = _visible_task_qs(team_id, user_id).order_by("-created_at", "-id")
 
@@ -2641,12 +2639,12 @@ def _list_tasks_queryset(
         qs = qs.annotate(_latest_run_status=Subquery(latest_run_status)).filter(_latest_run_status=status_filter)
 
     # `internal` controls default visibility, not access — task visibility (applied above) is the real
-    # authorization boundary. `all` returns both and is open to any team member; `true` (only-internal)
-    # stays a staff/debug view; the default excludes internal tasks so the main task list stays clean.
+    # authorization boundary, open to any team member. `all` returns both, `true` returns only-internal,
+    # and the default excludes internal tasks so the main task list stays clean.
     internal_param = filters.get("internal")
     if internal_param == "all":
         pass
-    elif internal_param == "true" and is_debug_or_staff:
+    elif internal_param == "true":
         qs = qs.filter(internal=True)
     else:
         qs = qs.filter(internal=False)
@@ -2691,13 +2689,9 @@ def _tasks_to_dtos(tasks: Iterable[Task], team_id: int) -> list[contracts.TaskDe
     return dtos
 
 
-def list_tasks(
-    team_id: int, user_id: int | None, *, filters: dict, is_debug_or_staff: bool
-) -> list[contracts.TaskDetailDTO]:
+def list_tasks(team_id: int, user_id: int | None, *, filters: dict) -> list[contracts.TaskDetailDTO]:
     """All visible tasks for the team as DTOs, mirroring the task list view filters."""
-    return _tasks_to_dtos(
-        _list_tasks_queryset(team_id, user_id, filters=filters, is_debug_or_staff=is_debug_or_staff), team_id
-    )
+    return _tasks_to_dtos(_list_tasks_queryset(team_id, user_id, filters=filters), team_id)
 
 
 def list_task_repositories(team_id: int, user_id: int | None) -> list[str]:
