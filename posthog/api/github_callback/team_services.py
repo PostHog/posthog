@@ -35,7 +35,12 @@ from posthog.models.integration import (
 )
 from posthog.models.organization import Organization
 from posthog.models.user import User
-from posthog.models.user_integration import UserIntegration, user_github_integration_from_installation
+from posthog.models.user_integration import (
+    ReauthorizationRequired,
+    UserGitHubIntegration,
+    UserIntegration,
+    user_github_integration_from_installation,
+)
 from posthog.utils import is_relative_url
 
 logger = structlog.get_logger(__name__)
@@ -73,6 +78,56 @@ def _validation_error_code(exc: ValidationError) -> str | None:
 def _connect_from_for_next(next_url: str) -> str | None:
     connect_from = dict(parse_qsl(urlparse(next_url).query)).get("connect_from")
     return connect_from if connect_from == "posthog_code" else None
+
+
+def _ensure_user_installation_access(user: User, installation_id: str) -> None:
+    """Confirm the requesting user has access to the installation on GitHub itself,
+    so cross-team admin access alone can't mint tokens for repos they can't see.
+
+    GitHub's user-scoped installation endpoint only accepts a user-to-server token, so the
+    check needs the user's personal GitHub link and its ``user_access_token`` (refreshed on
+    demand) — the link's installation-level ``access_token`` won't do. Raises with
+    ``GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED`` when there is no usable personal
+    link; callers route that code into the personal OAuth flow to mint a fresh token.
+    """
+    user_github_integration = UserIntegration.objects.filter(user=user, kind="github").order_by("-created_at").first()
+    if user_github_integration is None:
+        raise ValidationError(
+            PERSONAL_GITHUB_REQUIRED_MESSAGE,
+            code=GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
+        )
+
+    try:
+        user_access_token = UserGitHubIntegration(user_github_integration).get_usable_user_access_token()
+    except ReauthorizationRequired:
+        raise ValidationError(
+            PERSONAL_GITHUB_REQUIRED_MESSAGE,
+            code=GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
+        )
+    except Exception:
+        logger.warning(
+            "github_installation_access: user token refresh failed",
+            installation_id=installation_id,
+            user_id=user.id,
+            exc_info=True,
+        )
+        raise ValidationError("Failed to verify installation access")
+
+    try:
+        has_access = GitHubIntegration.verify_user_installation_access(installation_id, user_access_token)
+    except requests.RequestException:
+        logger.warning(
+            "github_installation_access: installation ownership check failed",
+            installation_id=installation_id,
+            user_id=user.id,
+            exc_info=True,
+        )
+        raise ValidationError("Failed to verify installation access")
+    if not has_access:
+        raise ValidationError(
+            PERSONAL_GITHUB_REQUIRED_MESSAGE,
+            code=GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
+        )
 
 
 def create_team_github_integration_from_oauth_code(
@@ -212,28 +267,7 @@ def execute_team_github_finish_setup(
             if not source_installation_id:
                 raise ValidationError("Source integration is missing installation_id")
 
-            user_github_integration = (
-                UserIntegration.objects.filter(user=user, kind="github").order_by("-created_at").first()
-            )
-            user_access_token = (
-                user_github_integration.sensitive_config.get("access_token") if user_github_integration else None
-            )
-            if not user_access_token:
-                raise ValidationError(
-                    PERSONAL_GITHUB_REQUIRED_MESSAGE,
-                    code=GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
-                )
-            try:
-                has_access = GitHubIntegration.verify_user_installation_access(
-                    str(source_installation_id), user_access_token
-                )
-            except requests.RequestException:
-                raise ValidationError("Failed to verify installation access")
-            if not has_access:
-                raise ValidationError(
-                    PERSONAL_GITHUB_REQUIRED_MESSAGE,
-                    code=GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
-                )
+            _ensure_user_installation_access(user, str(source_installation_id))
 
             integration = GitHubIntegration.integration_from_installation_id(str(source_installation_id), team.id, user)
 
@@ -408,24 +442,7 @@ def link_existing_team_github_integration(
     if not installation_id:
         raise ValidationError("Source integration is missing installation_id")
 
-    user_github_integration = UserIntegration.objects.filter(user=user, kind="github").order_by("-created_at").first()
-    user_access_token = (
-        user_github_integration.sensitive_config.get("access_token") if user_github_integration else None
-    )
-    if not user_access_token:
-        raise ValidationError(
-            PERSONAL_GITHUB_REQUIRED_MESSAGE,
-            code=GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
-        )
-    try:
-        has_access = GitHubIntegration.verify_user_installation_access(str(installation_id), user_access_token)
-    except requests.RequestException:
-        raise ValidationError("Failed to verify installation access")
-    if not has_access:
-        raise ValidationError(
-            PERSONAL_GITHUB_REQUIRED_MESSAGE,
-            code=GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED,
-        )
+    _ensure_user_installation_access(user, str(installation_id))
 
     instance = GitHubIntegration.integration_from_installation_id(str(installation_id), team_id, user)
 

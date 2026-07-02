@@ -2655,6 +2655,114 @@ class TestGitHubTeamIntegrationComplete:
         assert response["Location"].startswith("https://github.com/login/oauth/authorize")
         mock_build_oauth_url.assert_called_once()
 
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
+    def test_second_team_link_verifies_with_stored_user_token(self, mock_verify, mock_from_install, client: HttpClient):
+        client.force_login(self.user)
+        self._team_github_integration()
+        second_team = Team.objects.create(organization=self.organization, name="Second Team")
+        UserIntegration.objects.create(
+            user=self.user,
+            kind="github",
+            integration_id="12345",
+            config={"installation_id": "12345"},
+            sensitive_config={"access_token": "ghs_installation", "user_access_token": "ghu_user"},
+        )
+        mock_verify.return_value = True
+        mock_from_install.return_value = Integration.objects.create(
+            team=second_team,
+            kind="github",
+            integration_id="12345",
+            config={"installation_id": "12345"},
+            sensitive_config={"access_token": "ghs_test"},
+        )
+        next_path = f"/project/{second_team.pk}/integrations/github"
+        state_token = "second-team-token"
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=state_token,
+                flow=FlowKind.TEAM_INSTALL,
+                user_id=self.user.id,
+                team_id=second_team.pk,
+                next_url=next_path,
+            ),
+        )
+
+        response = client.get(
+            "/integrations/github/callback/",
+            {
+                "installation_id": "12345",
+                "setup_action": "update",
+                "state": urlencode({"next": next_path, "token": state_token}),
+            },
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert "github_setup_error" not in response["Location"]
+        assert "integration_id=" in response["Location"]
+        # The ownership check must send the user-to-server token, never the personal link's
+        # installation token — GitHub's /user/installations endpoint rejects the latter.
+        mock_verify.assert_called_once_with("12345", "ghu_user")
+        mock_from_install.assert_called_once_with("12345", second_team.pk, self.user)
+
+    @pytest.mark.parametrize(
+        "row_config,row_sensitive_config",
+        [
+            pytest.param(None, None, id="no-personal-link"),
+            pytest.param(
+                {"installation_id": "12345"},
+                {"access_token": "ghs_installation"},
+                id="no-user-token",
+            ),
+            pytest.param(
+                {"installation_id": "12345", "user_refresh_token_expires_at": 1},
+                {"access_token": "ghs_installation", "user_access_token": "ghu_user", "user_refresh_token": "ghr_x"},
+                id="expired-refresh-token",
+            ),
+        ],
+    )
+    @patch("posthog.api.github_callback.team_services.build_team_github_oauth_authorize_url")
+    def test_second_team_link_without_usable_user_token_bounces_to_oauth(
+        self, mock_build_oauth_url, row_config, row_sensitive_config, client: HttpClient
+    ):
+        mock_build_oauth_url.return_value = "https://github.com/login/oauth/authorize?client_id=test"
+        client.force_login(self.user)
+        self._team_github_integration()
+        second_team = Team.objects.create(organization=self.organization, name="Second Team")
+        if row_sensitive_config is not None:
+            UserIntegration.objects.create(
+                user=self.user,
+                kind="github",
+                integration_id="12345",
+                config=row_config,
+                sensitive_config=row_sensitive_config,
+            )
+        next_path = f"/project/{second_team.pk}/integrations/github"
+        state_token = "second-team-token"
+        store_unified_authorize_state(
+            GitHubAuthorizeState(
+                token=state_token,
+                flow=FlowKind.TEAM_INSTALL,
+                user_id=self.user.id,
+                team_id=second_team.pk,
+                next_url=next_path,
+            ),
+        )
+
+        response = client.get(
+            "/integrations/github/callback/",
+            {
+                "installation_id": "12345",
+                "setup_action": "update",
+                "state": urlencode({"next": next_path, "token": state_token}),
+            },
+        )
+
+        assert response.status_code == status.HTTP_302_FOUND
+        assert response["Location"].startswith("https://github.com/login/oauth/authorize")
+        mock_build_oauth_url.assert_called_once()
+        assert not Integration.objects.filter(team=second_team, kind="github").exists()
+
     def test_cross_user_state_rejected_on_unified_callback(self, client: HttpClient):
         # State tokens are bound to a user via the pending-pointer cache key.
         # Another admin in the same team must not be able to finish a callback
@@ -2751,6 +2859,98 @@ class TestGitHubTeamIntegrationComplete:
         assert "github_link_success" not in response["Location"]
         assert f"integration_id={team_integration.id}" in response["Location"]
         mock_refresh.assert_called_once()
+
+
+class TestGitHubLinkExisting:
+    @pytest.fixture(autouse=True)
+    def setup_environment(self, db):
+        self.organization = Organization.objects.create(name="Test Org")
+        self.source_team = Team.objects.create(organization=self.organization, name="Source Team")
+        self.dest_team = Team.objects.create(organization=self.organization, name="Dest Team")
+        self.user = User.objects.create_and_join(
+            self.organization, "test@posthog.com", "test", level=OrganizationMembership.Level.ADMIN
+        )
+        self.source_integration = Integration.objects.create(
+            team=self.source_team,
+            kind="github",
+            integration_id="12345",
+            config={"installation_id": "12345"},
+            sensitive_config={"access_token": "ghs_source"},
+            created_by=self.user,
+        )
+
+    @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
+    def test_link_existing_verifies_with_stored_user_token(self, mock_verify, mock_from_install, client: HttpClient):
+        client.force_login(self.user)
+        UserIntegration.objects.create(
+            user=self.user,
+            kind="github",
+            integration_id="12345",
+            config={"installation_id": "12345"},
+            sensitive_config={"access_token": "ghs_installation", "user_access_token": "ghu_user"},
+        )
+        mock_verify.return_value = True
+        mock_from_install.return_value = Integration.objects.create(
+            team=self.dest_team,
+            kind="github",
+            integration_id="12345",
+            config={"installation_id": "12345"},
+            sensitive_config={"access_token": "ghs_cloned"},
+        )
+
+        response = client.post(
+            f"/api/environments/{self.dest_team.pk}/integrations/github/link_existing/",
+            {"source_team_id": self.source_team.id},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        # The ownership check must send the user-to-server token, never the personal link's
+        # installation token — GitHub's /user/installations endpoint rejects the latter.
+        mock_verify.assert_called_once_with("12345", "ghu_user")
+        mock_from_install.assert_called_once_with("12345", self.dest_team.id, self.user)
+
+    @pytest.mark.parametrize(
+        "row_config,row_sensitive_config",
+        [
+            pytest.param(None, None, id="no-personal-link"),
+            pytest.param(
+                {"installation_id": "12345"},
+                {"access_token": "ghs_installation"},
+                id="no-user-token",
+            ),
+            pytest.param(
+                {"installation_id": "12345", "user_refresh_token_expires_at": 1},
+                {"access_token": "ghs_installation", "user_access_token": "ghu_user", "user_refresh_token": "ghr_x"},
+                id="expired-refresh-token",
+            ),
+        ],
+    )
+    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
+    def test_link_existing_without_usable_user_token_requires_personal_github(
+        self, mock_verify, row_config, row_sensitive_config, client: HttpClient
+    ):
+        client.force_login(self.user)
+        if row_sensitive_config is not None:
+            UserIntegration.objects.create(
+                user=self.user,
+                kind="github",
+                integration_id="12345",
+                config=row_config,
+                sensitive_config=row_sensitive_config,
+            )
+
+        response = client.post(
+            f"/api/environments/{self.dest_team.pk}/integrations/github/link_existing/",
+            {"source_team_id": self.source_team.id},
+            content_type="application/json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json()["code"] == "github_link_existing_personal_github_required"
+        mock_verify.assert_not_called()
+        assert not Integration.objects.filter(team=self.dest_team, kind="github").exists()
 
 
 class TestStripeIntegration:
