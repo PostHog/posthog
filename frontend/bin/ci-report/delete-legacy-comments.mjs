@@ -1,11 +1,15 @@
 #!/usr/bin/env node
 import { gh, listPrComments, resolvePrContext } from './update-ci-report.mjs'
 
-// The frontend checks used to each post their own PR comment. They now share one
+// The CI checks used to each post their own PR comment. They now share one
 // ci-report comment, so delete any leftover standalone comments once, on the first
 // consolidated run, to stop a PR from showing both. Transitional — safe to remove
 // after all open PRs have re-run.
-const LEGACY_MARKERS = ['<!-- posthog-eager-graph-check -->', '<!-- posthog-bundle-size-check -->']
+const LEGACY_MARKERS = [
+    '<!-- posthog-eager-graph-check -->',
+    '<!-- posthog-bundle-size-check -->',
+    '<!-- mcp-ui-apps-size-report -->',
+]
 
 const context = resolvePrContext('cleanup')
 if (!context) {

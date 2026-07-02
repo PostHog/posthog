@@ -17,6 +17,7 @@ export const SECTIONS = [
     { id: 'bundle-size', title: 'Bundle size' },
     { id: 'eager-graph', title: 'Eager graph' },
     { id: 'dist-size', title: 'Dist folder size' },
+    { id: 'mcp-ui-apps', title: 'MCP UI apps size' },
 ]
 
 export const STATUS_EMOJI = { ok: '✅', warn: '⚠️', fail: '❌', info: 'ℹ️' }
