@@ -2136,7 +2136,9 @@ class NewYorkTimesSourceConfig(config.Config):
 
 @config.config
 class NewsApiSourceConfig(config.Config):
-    pass
+    api_key: str
+    query: str
+    language: str | None = None
 
 
 @config.config

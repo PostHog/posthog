@@ -214,6 +214,7 @@ the row lists both.
 | mux                     | HTTP                        | requests                                                        | ✅                          |
 | mysql                   | DB protocol                 | pymysql                                                         | ➖                          |
 | new_york_times          | HTTP                        | requests                                                        | ✅                          |
+| news_api                | HTTP                        | requests                                                        | ✅                          |
 | okta                    | HTTP                        | requests                                                        | ✅                          |
 | nocrm                   | HTTP                        | requests                                                        | ✅                          |
 | northpass_lms           | HTTP                        | requests                                                        | ✅                          |
