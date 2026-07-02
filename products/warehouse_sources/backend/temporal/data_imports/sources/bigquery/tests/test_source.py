@@ -28,11 +28,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     _get_query,
     _get_rows_to_sync,
     _has_duplicate_primary_keys,
+    _is_transient_job_not_found,
     _resolve_dataset_id,
     _resolve_dataset_project_id,
     _resolve_project_id,
     _resolve_query_project,
     _resolve_region,
+    _run_destination_query_with_job_retry,
     delete_all_temp_destination_tables,
     resolve_bigquery_auth,
     validate_bigquery_credentials,
@@ -831,11 +833,12 @@ def _run_delete_all_temp_destination_tables(side_effect, logger):
     [
         Forbidden("Access Denied: Permission bigquery.tables.list denied on dataset"),
         NotFound("Dataset not found (or it may not exist)"),
+        RefreshError(("invalid_grant: Invalid JWT Signature.", {"error": "invalid_grant"})),
     ],
 )
 def test_delete_all_temp_destination_tables_swallows_expected_errors_quietly(exception):
-    """Lost permissions or a deleted dataset during best-effort cleanup must NOT be
-    captured to error tracking — it's expected and fires on every sync otherwise."""
+    """Lost permissions, a deleted dataset, or rejected credentials during best-effort cleanup
+    must NOT be captured to error tracking — it's expected and fires on every sync otherwise."""
     logger = mock.MagicMock()
 
     mock_capture = _run_delete_all_temp_destination_tables(exception, logger)
@@ -1322,6 +1325,88 @@ def test_bigquery_get_primary_keys_for_table_passes_job_retry():
     _get_primary_keys_for_table(table, client)
 
     assert client.query.return_value.result.call_args.kwargs["job_retry"] is BIGQUERY_QUERY_JOB_RETRY
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        "404 GET https://bigquery.googleapis.com/.../jobs/abc?projection=full: Not found: Job prj:US.abc",
+        "Not found: Job prj:EU.job_xyz",
+        "Job not found: job_xyz",
+    ],
+)
+def test_is_transient_job_not_found_matches_job_race(message):
+    assert _is_transient_job_not_found(NotFound(message)) is True
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        # A missing dataset/table (or a dataset absent from the queried region) is genuinely
+        # non-retryable and must not be mistaken for the job race, even though the raw dataset 404
+        # can carry a trailing "Job ID:".
+        "404 Not found: Dataset prj:ds was not found in location US Job ID: b3abc342-16a7",
+        "404 Not found: Table prj:ds.tbl",
+    ],
+)
+def test_is_transient_job_not_found_ignores_other_not_found(message):
+    assert _is_transient_job_not_found(NotFound(message)) is False
+
+
+@mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.time.sleep")
+def test_run_destination_query_retries_transient_job_not_found(mock_sleep):
+    """The copy-into-temp-table query is where the production sync crashed on BigQuery's job-metadata
+    race; a transient job-not-found must be retried with a fresh job instead of aborting the import."""
+    client = mock.MagicMock()
+    ok_job = mock.MagicMock()
+    client.query.side_effect = [NotFound("404 Not found: Job prj:US.abc"), ok_job]
+
+    _run_destination_query_with_job_retry(
+        client, "SELECT 1", destination_table=mock.MagicMock(), query_parameters=[], project="prj"
+    )
+
+    assert client.query.call_count == 2
+    ok_job.result.assert_called_once()
+    mock_sleep.assert_called_once()
+    # WRITE_TRUNCATE keeps the re-run idempotent against a temp table a lost first attempt populated.
+    assert client.query.call_args.kwargs["job_config"].write_disposition == "WRITE_TRUNCATE"
+
+
+@mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.time.sleep")
+def test_run_destination_query_does_not_retry_genuine_not_found(mock_sleep):
+    """A genuine `NotFound` (missing dataset/table) is not the job race, so it surfaces immediately
+    rather than looping until the attempt cap."""
+    client = mock.MagicMock()
+    client.query.side_effect = NotFound("404 Not found: Table prj:ds.tbl")
+
+    with pytest.raises(NotFound):
+        _run_destination_query_with_job_retry(
+            client, "SELECT 1", destination_table=mock.MagicMock(), query_parameters=[], project="prj"
+        )
+
+    assert client.query.call_count == 1
+    mock_sleep.assert_not_called()
+
+
+@mock.patch(
+    "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery._JOB_NOT_FOUND_MAX_ATTEMPTS",
+    4,
+)
+@mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.time.sleep")
+def test_run_destination_query_gives_up_after_max_attempts(mock_sleep):
+    """The race almost always clears within moments, but a persistent job-not-found must still stop
+    at the attempt cap and surface the error instead of retrying forever."""
+    client = mock.MagicMock()
+    client.query.side_effect = [NotFound("404 Not found: Job prj:US.abc") for _ in range(4)]
+
+    with pytest.raises(NotFound):
+        _run_destination_query_with_job_retry(
+            client, "SELECT 1", destination_table=mock.MagicMock(), query_parameters=[], project="prj"
+        )
+
+    assert client.query.call_count == 4
+    # No back-off after the final, failed attempt.
+    assert mock_sleep.call_count == 3
 
 
 @pytest.mark.parametrize(
