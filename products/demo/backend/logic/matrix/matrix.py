@@ -12,11 +12,11 @@ import tiktoken
 import mimesis.random
 
 from posthog.constants import GROUP_TYPES_LIMIT
-from posthog.demo.matrix.randomization import PropertiesProvider
 from posthog.helpers.tiktoken_encoding import LLM_TOKEN_COUNT_PROXY_MODEL, get_tiktoken_encoding_for_model
 from posthog.models import Team, User
 from posthog.models.utils import UUIDT, uuid7
 
+from products.demo.backend.logic.matrix.randomization import PropertiesProvider
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 
 from .models import Effect, SimPerson, SimServerClient

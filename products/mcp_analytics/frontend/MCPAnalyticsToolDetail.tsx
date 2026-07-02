@@ -35,12 +35,14 @@ import { teamLogic } from 'scenes/teamLogic'
 import { urls } from 'scenes/urls'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { FeaturePreviewSceneGate } from '~/layout/scenes/components/FeaturePreviewSceneGate'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { SceneExport } from '~/scenes/sceneTypes'
 
 import { formatMs, formatMsAsSeconds } from './dashboard/formatters'
 import { HarnessLogo, HarnessPill } from './dashboard/harness'
+import { mcpAnalyticsFeaturePreviewGate } from './featurePreviewGate'
 import {
     type DailyChartData,
     IntentCoverage,
@@ -463,6 +465,14 @@ function TrendChart({
 }
 
 export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.Element {
+    return (
+        <FeaturePreviewSceneGate config={mcpAnalyticsFeaturePreviewGate}>
+            <MCPAnalyticsToolDetailContent toolName={toolName} />
+        </FeaturePreviewSceneGate>
+    )
+}
+
+function MCPAnalyticsToolDetailContent({ toolName }: { toolName: string }): JSX.Element {
     const {
         summary,
         summaryLoading,
