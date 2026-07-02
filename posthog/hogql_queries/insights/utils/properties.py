@@ -1,5 +1,7 @@
 from typing import TypeGuard
 
+import structlog
+
 from posthog.schema import PropertyGroupFilter, PropertyGroupFilterValue
 
 from posthog.hogql import ast
@@ -7,6 +9,8 @@ from posthog.hogql.property import property_to_expr
 
 from posthog.hogql_queries.insights.query_context import QueryContext
 from posthog.types import AnyPropertyFilter
+
+logger = structlog.get_logger(__name__)
 
 type PropertiesType = list[AnyPropertyFilter] | PropertyGroupFilter | None
 
@@ -77,7 +81,18 @@ class Properties:
             and len(team.test_account_filters) > 0
         ):
             for property in team.test_account_filters:
-                exprs.append(property_to_expr(property, team))
+                # Isolate each filter so one malformed entry can't fail the whole query.
+                # A bad test account filter is a team-config problem, not a reason to block
+                # every insight that opts into "Filter out internal and test users".
+                try:
+                    exprs.append(property_to_expr(property, team))
+                except Exception:
+                    logger.warning(
+                        "Skipping invalid test account filter",
+                        team_id=team.pk,
+                        property=property,
+                        exc_info=True,
+                    )
 
         # Properties
         if has_any_property_filters(query.properties):
