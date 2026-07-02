@@ -20,7 +20,13 @@
         color: var(--muted-foreground);
         user-select: none;
         background-color: var(--muted);
-        border-radius: 9999px;
+        border-radius: var(--radius-sm);
+    }
+
+    .quill-avatar[data-size='xs'] {
+        --avatar-size: 1.25rem;
+
+        font-size: var(--text-xxs, 0.625rem);
     }
 
     .quill-avatar[data-size='sm'] {
@@ -29,8 +35,8 @@
         font-size: var(--text-xxs, 0.625rem);
     }
 
-    .quill-avatar[data-size='xs'] {
-        --avatar-size: 1.25rem;
+    .quill-avatar[data-size='lg'] {
+        --avatar-size: 2.35rem;
 
         font-size: var(--text-xxs, 0.625rem);
     }
@@ -66,7 +72,7 @@
         --avatar-overlap: 0.625rem;
 
         /* Gap between avatars when inline, and the gap the stack spreads back to. */
-        --avatar-gap: 0.5rem;
+        --avatar-gap: 0.25rem;
 
         position: relative;
         display: inline-flex;
