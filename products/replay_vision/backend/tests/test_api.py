@@ -328,6 +328,30 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "just a string",
                 "Scanner configuration must be a JSON object.",
             ),
+            (
+                "oversized_prompt",
+                ScannerType.MONITOR,
+                {"prompt": "p" * 20_001},
+                "Prompt can be at most 20,000 characters.",
+            ),
+            (
+                "too_many_tags",
+                ScannerType.CLASSIFIER,
+                {"prompt": "p", "tags": [f"tag-{i}" for i in range(101)]},
+                "Tag vocabulary can have at most 100 tags.",
+            ),
+            (
+                "overlong_tag",
+                ScannerType.CLASSIFIER,
+                {"prompt": "p", "tags": ["ok", "x" * 101]},
+                "Tags can be at most 100 characters.",
+            ),
+            (
+                "unknown_config_key",
+                ScannerType.MONITOR,
+                {"prompt": "p", "alow_inconclusive": True},
+                "Unknown scanner configuration keys: alow_inconclusive.",
+            ),
         ]
     )
     def test_validation_returns_specific_message_per_invalid_config(

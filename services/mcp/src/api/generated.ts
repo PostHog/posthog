@@ -32753,7 +32753,10 @@ export namespace Schemas {
          * @maxLength 255
          */
       name: string;
-      /** Free-form description shown in the scanner management UI. */
+      /**
+         * Free-form description shown in the scanner management UI.
+         * @maxLength 1000
+         */
       description?: string;
       /** What the scanner does: monitor, classifier, scorer, or summarizer.
        *
@@ -40384,7 +40387,10 @@ export namespace Schemas {
          * @maxLength 255
          */
       name?: string;
-      /** Free-form description shown in the scanner management UI. */
+      /**
+         * Free-form description shown in the scanner management UI.
+         * @maxLength 1000
+         */
       description?: string;
       /** What the scanner does: monitor, classifier, scorer, or summarizer.
        *

@@ -70,6 +70,12 @@ from products.replay_vision.backend.temporal.types import ApplyScannerInputs
 # Date is set by the schedule at trigger time, not by the user — strip on save.
 _QUERY_FIELDS_TO_STRIP = ("date_from", "date_to")
 
+# Size caps enforced at the write boundary; scanner_config is copied into every observation's snapshot.
+_MAX_PROMPT_LENGTH = 20_000
+_MAX_TAGS = 100
+_MAX_TAG_LENGTH = 100
+_MAX_DESCRIPTION_LENGTH = 1_000
+
 logger = structlog.get_logger(__name__)
 
 
@@ -87,12 +93,18 @@ def _scanner_config_error_message(scanner_type: ScannerType, scanner_config: Any
     prompt = scanner_config.get("prompt")
     if not isinstance(prompt, str) or not prompt.strip():
         return "Prompt is required."
+    if len(prompt) > _MAX_PROMPT_LENGTH:
+        return f"Prompt can be at most {_MAX_PROMPT_LENGTH:,} characters."
     if scanner_type == ScannerType.CLASSIFIER:
         tags = scanner_config.get("tags") or []
         if len(tags) == 0:
             return "Tag vocabulary must have at least one tag."
+        if len(tags) > _MAX_TAGS:
+            return f"Tag vocabulary can have at most {_MAX_TAGS} tags."
         if any(not isinstance(t, str) or not t.strip() for t in tags):
             return "Tags can't be blank."
+        if any(len(t) > _MAX_TAG_LENGTH for t in tags):
+            return f"Tags can be at most {_MAX_TAG_LENGTH} characters."
         normalized = {t.strip().lower() for t in tags}
         if len(normalized) != len(tags):
             return "Tags must be unique."
@@ -106,9 +118,13 @@ def _scanner_config_error_message(scanner_type: ScannerType, scanner_config: Any
         if min_v >= max_v:
             return "Scale max must be greater than min."
     try:
-        validate_scanner_config(scanner_config=scanner_config, scanner_type=scanner_type)
+        scanner = validate_scanner_config(scanner_config=scanner_config, scanner_type=scanner_type)
     except (ValueError, PydanticValidationError):
         return "Scanner configuration is invalid."
+    # The pydantic models ignore extra keys — reject here so typos and junk don't snapshot onto every observation.
+    unknown = set(scanner_config) - set(type(scanner).model_fields)
+    if unknown:
+        return f"Unknown scanner configuration keys: {', '.join(sorted(unknown))}."
     return None
 
 
@@ -120,6 +136,7 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
     description = serializers.CharField(
         required=False,
         allow_blank=True,
+        max_length=_MAX_DESCRIPTION_LENGTH,
         help_text="Free-form description shown in the scanner management UI.",
     )
     scanner_type = serializers.ChoiceField(

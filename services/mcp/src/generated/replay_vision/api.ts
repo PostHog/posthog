@@ -100,6 +100,8 @@ export const VisionScannersCreateParams = /* @__PURE__ */ zod.object({
 
 export const visionScannersCreateBodyNameMax = 255
 
+export const visionScannersCreateBodyDescriptionMax = 1000
+
 export const visionScannersCreateBodySamplingRateMin = 0
 export const visionScannersCreateBodySamplingRateMax = 1
 
@@ -108,7 +110,11 @@ export const VisionScannersCreateBody = /* @__PURE__ */ zod.object({
         .string()
         .max(visionScannersCreateBodyNameMax)
         .describe('Human-readable scanner name. Unique within the team.'),
-    description: zod.string().optional().describe('Free-form description shown in the scanner management UI.'),
+    description: zod
+        .string()
+        .max(visionScannersCreateBodyDescriptionMax)
+        .optional()
+        .describe('Free-form description shown in the scanner management UI.'),
     scanner_type: zod
         .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
         .describe(
@@ -187,6 +193,8 @@ export const VisionScannersPartialUpdateParams = /* @__PURE__ */ zod.object({
 
 export const visionScannersPartialUpdateBodyNameMax = 255
 
+export const visionScannersPartialUpdateBodyDescriptionMax = 1000
+
 export const visionScannersPartialUpdateBodySamplingRateMin = 0
 export const visionScannersPartialUpdateBodySamplingRateMax = 1
 
@@ -196,7 +204,11 @@ export const VisionScannersPartialUpdateBody = /* @__PURE__ */ zod.object({
         .max(visionScannersPartialUpdateBodyNameMax)
         .optional()
         .describe('Human-readable scanner name. Unique within the team.'),
-    description: zod.string().optional().describe('Free-form description shown in the scanner management UI.'),
+    description: zod
+        .string()
+        .max(visionScannersPartialUpdateBodyDescriptionMax)
+        .optional()
+        .describe('Free-form description shown in the scanner management UI.'),
     scanner_type: zod
         .enum(['monitor', 'classifier', 'scorer', 'summarizer'])
         .describe(
