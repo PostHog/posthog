@@ -111,7 +111,7 @@ async def store_video_session_summary_activity(
             distinct_id = None
 
         # Get user
-        user = await User.objects.aget(id=inputs.user_id)
+        user = await database_sync_to_async(User.objects.get)(id=inputs.user_id)
 
         # Store the summary in the database
         stored_summary = await database_sync_to_async(SingleSessionSummary.objects.add_summary, thread_sensitive=False)(

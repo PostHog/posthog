@@ -55,7 +55,7 @@ async def prep_session_video_asset_activity(
     )
     if existing_summary is not None:
         return None
-    team = await Team.objects.aget(id=inputs.team_id)
+    team = await database_sync_to_async(Team.objects.get)(id=inputs.team_id)
     metadata = await database_sync_to_async(SessionReplayEvents().get_metadata)(
         session_id=inputs.session_id,
         team=team,
@@ -76,12 +76,14 @@ async def prep_session_video_asset_activity(
     # TODO: attach Gemini Files API id to the asset with an expiration date so we can reuse it.
     # Scope reuse to summary-owned assets (`is_system=True`) so user-triggered exports of the
     # same recording aren't matched and overwritten by the AI render path.
-    existing_asset = await ExportedAsset.objects.filter(
-        team_id=inputs.team_id,
-        export_format=FULL_VIDEO_EXPORT_FORMAT,
-        export_context__session_recording_id=inputs.session_id,
-        is_system=True,
-    ).afirst()
+    existing_asset = await database_sync_to_async(
+        ExportedAsset.objects.filter(
+            team_id=inputs.team_id,
+            export_format=FULL_VIDEO_EXPORT_FORMAT,
+            export_context__session_recording_id=inputs.session_id,
+            is_system=True,
+        ).first
+    )()
 
     if existing_asset:
         # Row-locked refresh so the fingerprint update doesn't race finalize_rasterization.
@@ -101,7 +103,7 @@ async def prep_session_video_asset_activity(
         )
 
     created_at = now()
-    exported_asset = await ExportedAsset.objects.acreate(
+    exported_asset = await database_sync_to_async(ExportedAsset.objects.create)(
         team_id=inputs.team_id,
         export_format=FULL_VIDEO_EXPORT_FORMAT,
         export_context={

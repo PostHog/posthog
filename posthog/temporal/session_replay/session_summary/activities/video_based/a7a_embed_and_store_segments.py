@@ -27,7 +27,7 @@ async def embed_and_store_segments_activity(
     The actual embedding computation happens asynchronously in the embedding worker,
     so this activity just enqueues requests and returns quickly.
     """
-    team = await Team.objects.aget(id=inputs.team_id)
+    team = await database_sync_to_async(Team.objects.get)(id=inputs.team_id)
     session_metadata = await database_sync_to_async(
         SessionReplayEvents().get_metadata
     )(

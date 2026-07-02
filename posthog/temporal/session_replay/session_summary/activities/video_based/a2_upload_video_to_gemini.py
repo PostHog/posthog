@@ -16,6 +16,7 @@ from google.genai import (
 from posthog.schema import ReplayInactivityPeriod
 
 from posthog.storage import object_storage
+from posthog.sync import database_sync_to_async
 from posthog.temporal.session_replay.gemini_cleanup_sweep.tracking import track_uploaded_file
 from posthog.temporal.session_replay.session_summary.types.video import (
     UploadedVideo,
@@ -48,7 +49,7 @@ async def upload_video_to_gemini_activity(
     if workflow_id is None:
         raise RuntimeError("activity has no workflow_id")
     try:
-        asset = await ExportedAsset.objects.aget(id=asset_id)
+        asset = await database_sync_to_async(ExportedAsset.objects.get)(id=asset_id)
 
         video_bytes: bytes | None = None
         if asset.content:

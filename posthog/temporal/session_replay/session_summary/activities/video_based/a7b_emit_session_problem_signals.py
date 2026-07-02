@@ -33,7 +33,7 @@ async def emit_session_problem_signals_activity(
     if not problems:
         return 0
 
-    team = await Team.objects.select_related("organization").aget(id=inputs.team_id)
+    team = await database_sync_to_async(Team.objects.select_related("organization").get)(id=inputs.team_id)
 
     if not team.organization.is_ai_data_processing_approved:
         return 0
