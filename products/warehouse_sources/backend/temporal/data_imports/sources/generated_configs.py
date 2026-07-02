@@ -1360,7 +1360,7 @@ class GojiberrySourceConfig(config.Config):
 
 @config.config
 class GoldcastSourceConfig(config.Config):
-    pass
+    access_key: str
 
 
 @config.config

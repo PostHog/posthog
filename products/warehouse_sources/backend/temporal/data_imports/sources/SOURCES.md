@@ -156,6 +156,7 @@ the row lists both.
 | gitlab                  | HTTP                        | requests                                                        | ✅                          |
 | gladly                  | HTTP                        | requests                                                        | ✅                          |
 | gocardless              | HTTP                        | requests                                                        | ✅                          |
+| goldcast                | HTTP                        | requests                                                        | ✅                          |
 | gong                    | HTTP                        | requests                                                        | ✅                          |
 | google_ads              | gRPC                        | google-ads (googleads.client)                                   | ✅                          |
 | google_analytics        | HTTP                        | requests (`AuthorizedSession` + `TrackedHTTPAdapter`)           | ✅                          |
