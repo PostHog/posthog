@@ -65,7 +65,7 @@ export function buildImproveScannerPromptMessage({
     return lines.join('\n')
 }
 
-/** "Ask PostHog AI to improve this prompt" button on an observation; opens the side panel pre-loaded with the prompt + outcome. */
+/** "Improve prompt" button on an observation; opens the side panel pre-loaded with the prompt + outcome. */
 export function ImproveScannerPromptButton({
     scannerName,
     scannerType,
@@ -86,6 +86,7 @@ export function ImproveScannerPromptButton({
             size="xsmall"
             type="secondary"
             icon={<IconAI />}
+            tooltip="Opens PostHog AI pre-loaded with this scanner's prompt and this result's outcome and reasoning, asking it to rewrite the prompt so it handles cases like this one"
             // Seed a draft, no `!` auto-run: the outcome/reasoning can include session-recording text, so the
             // reviewer reviews and sends. The side panel carries the message via kea state (not the URL).
             onClick={() =>
@@ -96,7 +97,7 @@ export function ImproveScannerPromptButton({
             }
             data-attr="replay-vision-improve-prompt-with-ai"
         >
-            Ask PostHog AI to improve this prompt
+            Improve prompt
         </LemonButton>
     )
 }
