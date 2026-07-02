@@ -971,7 +971,7 @@ def match(args: list[Any], team: Optional["Team"], stdout: Optional[list[str]], 
     input_string = _require_string(args[0], "input", "match")
     pattern = _require_string(args[1], "pattern", "match")
     try:
-        return re.search(re.compile(pattern), input_string) is not None
+        return re.search(pattern, input_string) is not None
     except re.error as e:
         raise HogVMException(f"Invalid regex pattern: {e}") from e
 

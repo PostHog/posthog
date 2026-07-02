@@ -52,11 +52,17 @@ def _require_string(value: Any, name: str, function_name: str) -> str:
     return value
 
 
+def _format_regex_error(error: Exception) -> str:
+    if error.args and isinstance(error.args[0], bytes):
+        return error.args[0].decode("utf-8", errors="replace")
+    return str(error)
+
+
 def _compile_regex(pattern: str, case_insensitive: bool = False) -> Any:
     try:
         return re2.compile(pattern, options=_CASE_INSENSITIVE_OPTS) if case_insensitive else re2.compile(pattern)
     except re2.error as e:
-        raise HogVMException(f"Invalid regex pattern: {e}") from e
+        raise HogVMException(f"Invalid regex pattern: {_format_regex_error(e)}") from e
 
 
 def regex_match(string: Any, pattern: Any, case_insensitive: bool = False) -> bool:

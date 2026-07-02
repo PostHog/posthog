@@ -121,16 +121,18 @@ class TestBytecodeExecute:
                 "operator_invalid_pattern",
                 "'tool_call' =~ properties.pattern",
                 {"pattern": "\\u"},
-                "Invalid regex pattern",
+                "Invalid regex pattern: invalid escape sequence: \\u",
             ),
         ]
     )
     def test_regex_errors_raise_hogvm_exception(self, _name, expr, properties, expected_message):
-        globals = {"properties": properties}
+        globals_dict = {"properties": properties}
         bytecode = create_bytecode(parse_expr(expr)).bytecode
 
-        with pytest.raises(HogVMException, match=expected_message):
-            execute_bytecode(bytecode, globals)
+        with pytest.raises(HogVMException) as exc_info:
+            execute_bytecode(bytecode, globals_dict)
+
+        assert expected_message in str(exc_info.value)
 
     def test_nested_value(self):
         my_dict = {
