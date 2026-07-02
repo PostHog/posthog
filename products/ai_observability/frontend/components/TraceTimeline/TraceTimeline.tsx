@@ -7,7 +7,7 @@ import { cn } from 'lib/utils/css-classes'
 
 import { LLMTraceEvent } from '~/queries/schema/schema-general'
 
-import { TraceBarKind, TraceTimelineBar, buildTraceTimeline } from './buildTraceTimeline'
+import { TraceBarKind, buildTraceTimeline } from './buildTraceTimeline'
 
 // Same hues as the tree's EventTypeTag: generation green, embedding amber,
 // span neutral, trace purple. Highlight fills keep the labels inside readable.
@@ -17,7 +17,10 @@ const KIND_CLASS: Record<TraceBarKind, string> = {
     embedding: 'bg-warning-highlight border-warning text-warning',
     trace: 'bg-fill-highlight-100 border-purple text-purple',
 }
-const ERROR_CLASS = 'bg-danger-highlight border-danger text-danger'
+// State rings around the kind-colored pill: blue = selected, red = errored —
+// the fill keeps saying what kind of event it is either way.
+const SELECTED_RING = 'ring-2 ring-blue z-10'
+const ERROR_RING = 'ring-2 ring-danger'
 
 const BAR_H = 16
 // Wide enough for the nesting connectors drawn in the gap to stay legible.
@@ -70,24 +73,7 @@ export function TraceTimeline({
 }): JSX.Element | null {
     const [collapsed, setCollapsed] = useState(false)
     const { bars, totalMs, laneCount } = useMemo(() => buildTraceTimeline(events), [events])
-    // Directory-style nesting connectors: a rail along each parent's underside out
-    // to its last child's start, plus a drop-tick at each child's start. A bar
-    // without a connector is a concurrent sibling, not a nested child.
-    const { barById, rails } = useMemo(() => {
-        const byId = new Map(bars.map((b) => [b.id, b]))
-        const railEnds = new Map<string, number>()
-        for (const bar of bars) {
-            if (bar.parentEventId) {
-                railEnds.set(bar.parentEventId, Math.max(railEnds.get(bar.parentEventId) ?? -Infinity, bar.startMs))
-            }
-        }
-        return {
-            barById: byId,
-            rails: [...railEnds.entries()]
-                .map(([parentId, endMs]) => ({ parent: byId.get(parentId), endMs }))
-                .filter((r): r is { parent: TraceTimelineBar; endMs: number } => !!r.parent),
-        }
-    }, [bars])
+    const barById = useMemo(() => new Map(bars.map((b) => [b.id, b])), [bars])
 
     // A single bar spanning the full width says nothing — only render when the
     // timeline can actually show how the trace's latency breaks down.
@@ -124,7 +110,12 @@ export function TraceTimeline({
                         ))}
                         {hasErrors && (
                             <span className="flex items-center gap-1">
-                                <span className={cn('w-2.5 h-2.5 rounded-[3px] border', ERROR_CLASS)} />
+                                <span
+                                    className={cn(
+                                        'w-2 h-2 rounded-[2px] border border-primary bg-fill-highlight-100',
+                                        ERROR_RING
+                                    )}
+                                />
                                 error
                             </span>
                         )}
@@ -145,10 +136,13 @@ export function TraceTimeline({
                             </span>
                         ))}
                     </div>
+                    {/* The negative margin + matching padding move the clip edge out by
+                        2px without shifting the canvas, so the outer state rings on bars
+                        at the chart's edges don't get clipped. */}
                     <div
-                        className="relative overflow-y-auto"
+                        className="relative overflow-y-auto -m-0.5 p-0.5"
                         // eslint-disable-next-line react/forbid-dom-props
-                        style={{ maxHeight: MAX_VISIBLE_LANES * LANE_H - LANE_GAP }}
+                        style={{ maxHeight: MAX_VISIBLE_LANES * LANE_H - LANE_GAP + 4 }}
                     >
                         {/* eslint-disable-next-line react/forbid-dom-props */}
                         <div className="relative" style={{ height: chartHeight }}>
@@ -161,25 +155,12 @@ export function TraceTimeline({
                                     style={{ left: `${pct(tick)}%` }}
                                 />
                             ))}
-                            {rails.map(({ parent, endMs }) => (
-                                <div
-                                    key={`rail-${parent.id}`}
-                                    aria-hidden
-                                    className="absolute border-t border-border-bold"
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    style={{
-                                        left: `${pct(parent.startMs)}%`,
-                                        width: `${pct(endMs - parent.startMs)}%`,
-                                        top: parent.lane * LANE_H + BAR_H + 1,
-                                    }}
-                                />
-                            ))}
                             {bars.map((bar) => {
                                 const parent = bar.parentEventId ? barById.get(bar.parentEventId) : undefined
                                 if (!parent || parent.lane >= bar.lane) {
                                     return null
                                 }
-                                const railTop = parent.lane * LANE_H + BAR_H + 1
+                                const elbowTop = parent.lane * LANE_H + BAR_H + 1
                                 return (
                                     // └-shaped elbow from the parent's underside into the
                                     // child's left edge, directory-tree style.
@@ -190,8 +171,8 @@ export function TraceTimeline({
                                         // eslint-disable-next-line react/forbid-dom-props
                                         style={{
                                             left: `calc(${pct(bar.startMs)}% - 4px)`,
-                                            top: railTop,
-                                            height: bar.lane * LANE_H + BAR_H / 2 - railTop,
+                                            top: elbowTop,
+                                            height: bar.lane * LANE_H + BAR_H / 2 - elbowTop,
                                         }}
                                     />
                                 )
@@ -211,10 +192,8 @@ export function TraceTimeline({
                                             aria-label={tooltip}
                                             className={cn(
                                                 'absolute flex items-center overflow-hidden rounded-[3px] border cursor-pointer',
-                                                bar.isError ? ERROR_CLASS : KIND_CLASS[bar.kind],
-                                                // Inset so the ring survives the container clipping bars
-                                                // that touch the chart's edges.
-                                                selected && 'ring-2 ring-inset ring-accent z-10'
+                                                KIND_CLASS[bar.kind],
+                                                selected ? SELECTED_RING : bar.isError && ERROR_RING
                                             )}
                                             // eslint-disable-next-line react/forbid-dom-props
                                             style={{
