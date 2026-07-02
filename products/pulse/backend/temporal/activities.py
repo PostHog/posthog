@@ -58,7 +58,14 @@ async def gather_brief_inputs_activity(inputs: GenerateBriefWorkflowInputs) -> l
     config = await database_sync_to_async(_get_config, thread_sensitive=False)(team, inputs.brief_config_id)
     items: list[SourceItem] = []
     for source in get_sources():
-        gathered = await database_sync_to_async(source.gather, thread_sensitive=False)(team, config, inputs.period_days)
+        try:
+            gathered = await database_sync_to_async(source.gather, thread_sensitive=False)(
+                team, config, inputs.period_days
+            )
+        except Exception:
+            # One broken source must not kill the brief; the other sources still contribute.
+            logger.exception("pulse_source_gather_failed", team_id=team.id, source=source.name)
+            continue
         items.extend(gathered)
     # Keep the activity payload small — well under Temporal's ~2 MiB cap.
     return [dataclasses.asdict(item) for item in items[:MAX_ITEMS]]

@@ -8,11 +8,18 @@ from posthog.models.team import Team
 
 from products.annotations.backend.models import Annotation
 from products.pulse.backend.models import BriefConfig
-from products.pulse.backend.sources.base import EvidenceRef, SourceItem
+from products.pulse.backend.sources.base import EvidenceRef, SourceItem, build_fingerprint_hint
 
 MAX_ANNOTATIONS = 20
 TITLE_MAX_CHARS = 100
 DESCRIPTION_MAX_CHARS = 500
+
+# Annotation content is user-authored free text headed into the synthesize prompt. Mirrors
+# format_annotations_for_prompt (products/annotations/backend/api/annotation_context.py):
+# strip every Unicode line terminator so hand-crafted content can't fake a new input item,
+# and neutralize angle brackets so it can't forge tag-scoped prompt structure.
+_LINE_BREAK_CHARS = "\n\r\u2028\u2029\u0085\v\f"
+_PROMPT_SAFE_TRANSLATION = str.maketrans({**dict.fromkeys(_LINE_BREAK_CHARS, " "), "<": "‹", ">": "›"})
 
 
 class AnnotationsSource:
@@ -33,8 +40,7 @@ class AnnotationsSource:
         )
         items: list[SourceItem] = []
         for annotation in annotations:
-            content = annotation.content or ""
-            effective_date = annotation.date_marker or annotation.created_at or now
+            content = annotation.content.translate(_PROMPT_SAFE_TRANSLATION)
             items.append(
                 SourceItem(
                     source=self.name,
@@ -42,11 +48,11 @@ class AnnotationsSource:
                     title=content[:TITLE_MAX_CHARS],
                     description=(
                         f"{content[:DESCRIPTION_MAX_CHARS]} — annotation marked "
-                        f"{effective_date:%Y-%m-%d} ({annotation.get_scope_display()} scope)."
+                        f"{annotation.effective_date:%Y-%m-%d} ({annotation.get_scope_display()} scope)."
                     ),
                     numbers={},
                     evidence=[EvidenceRef(type="annotation", ref=str(annotation.id), label=content[:TITLE_MAX_CHARS])],
-                    fingerprint_hint=f"annotation:{annotation.id}",
+                    fingerprint_hint=build_fingerprint_hint(self.name, str(annotation.id)),
                 )
             )
         return items

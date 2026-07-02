@@ -127,7 +127,7 @@ class TestRenderItems:
                 title="Shipped v2.3",
                 description="d",
                 evidence=[EvidenceRef(type="annotation", ref="42", label="Shipped v2.3")],
-                fingerprint_hint="annotation:42",
+                fingerprint_hint="annotations:42",
             ),
             SourceItem(
                 source="resource_health",
@@ -135,7 +135,7 @@ class TestRenderItems:
                 title="Alert 'Signups' is failing to run",
                 description="d",
                 evidence=[EvidenceRef(type="alert", ref="a1", label="Signups")],
-                fingerprint_hint="health:alert:a1",
+                fingerprint_hint="resource_health:alert:a1",
             ),
         ]
 
@@ -145,7 +145,7 @@ class TestRenderItems:
             "[anchored_insights/movement]",
             "[annotations/context]",
             "[resource_health/health]",
-            "annotation:42",
-            "health:alert:a1",
+            "annotations:42",
+            "resource_health:alert:a1",
         ):
             assert marker in rendered

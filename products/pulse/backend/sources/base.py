@@ -1,13 +1,16 @@
 from dataclasses import dataclass, field
-from typing import Protocol, TypedDict
+from typing import Literal, Protocol, TypedDict
 
 from posthog.models.team import Team
 
 from products.pulse.backend.models import BriefConfig
 
+SourceItemKind = Literal["movement", "context", "health"]
+EvidenceType = Literal["insight", "dashboard", "annotation", "alert", "subscription"]
+
 
 class EvidenceRef(TypedDict):
-    type: str  # "insight" | "dashboard" | "annotation" | ...
+    type: EvidenceType
     ref: str
     label: str
 
@@ -23,10 +26,19 @@ def parse_evidence_ref(ref: str) -> EvidenceRef:
     return EvidenceRef(type=prefix, ref=rest if sep else prefix, label="")
 
 
+def build_fingerprint_hint(source_name: str, *refs: str) -> str:
+    """Canonical fingerprint grammar: `{source.name}:{stable-ref}[:{stable-ref}...]`.
+
+    Dismissal suppression keys off persisted fingerprints, so every source must mint
+    hints through this helper — changing the grammar later orphans suppressions.
+    """
+    return ":".join([source_name, *refs])
+
+
 @dataclass(frozen=True)
 class SourceItem:
     source: str
-    kind: str  # "movement" | "context" | "health" | ...
+    kind: SourceItemKind
     title: str
     description: str
     numbers: dict[str, float | int | str] = field(default_factory=dict)
