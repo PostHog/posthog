@@ -803,14 +803,12 @@ class GitHubOAuthAuthorizeResponseSerializer(serializers.Serializer):
     oauth_url = serializers.CharField(help_text="GitHub User OAuth URL the client should redirect to.")
 
 
-def github_rate_limited_response(exc: Exception) -> Response | None:
-    """A 429 + Retry-After response when ``exc`` is a GitHub rate limit, else ``None``.
+def github_rate_limited_response(exc: GitHubRateLimitError) -> Response:
+    """The 429 + Retry-After response for a GitHub rate limit.
 
-    Shared by the integration and user-integration viewsets so every GitHub-backed endpoint maps
-    the egress ``GitHubRateLimitError`` the same way instead of surfacing a 500.
+    Shared by every GitHub-backed endpoint (integration and user-integration viewsets, signals)
+    so the egress ``GitHubRateLimitError`` maps the same way everywhere instead of surfacing a 500.
     """
-    if not isinstance(exc, GitHubRateLimitError):
-        return None
     response = Response(
         {"detail": "GitHub API rate limit exceeded. Please retry later.", "code": "rate_limited"},
         status=status.HTTP_429_TOO_MANY_REQUESTS,
@@ -868,9 +866,8 @@ class IntegrationViewSet(
     def handle_exception(self, exc: Exception) -> Response:
         # GitHub rate limits surface from any GitHub-backed action (teams, repos, branches, refresh);
         # map them to 429 + Retry-After once here instead of per action.
-        rate_limited = github_rate_limited_response(exc)
-        if rate_limited is not None:
-            return rate_limited
+        if isinstance(exc, GitHubRateLimitError):
+            return github_rate_limited_response(exc)
         return super().handle_exception(exc)
 
     def dangerously_get_permissions(self):

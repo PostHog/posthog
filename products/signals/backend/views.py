@@ -41,6 +41,7 @@ from rest_framework.views import APIView
 from temporalio.common import RetryPolicy, WorkflowIDConflictPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
+from posthog.api.integration import github_rate_limited_response
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import InternalAPIAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
@@ -1999,13 +2000,7 @@ class SignalReportArtefactViewSet(
         try:
             github = GitHubIntegration.first_for_team_repository(self.team.id, repository)
         except GitHubRateLimitError as e:
-            response = Response(
-                {"error": "GitHub is rate limiting requests for this integration. Retry shortly."},
-                status=status.HTTP_429_TOO_MANY_REQUESTS,
-            )
-            if e.retry_after:
-                response["Retry-After"] = str(e.retry_after)
-            return response
+            return github_rate_limited_response(e)
         if github is None:
             return Response(
                 {"error": f"No GitHub integration can access '{repository}'."},
@@ -2017,6 +2012,8 @@ class SignalReportArtefactViewSet(
             # commit was recorded — e.g. after PR babysitting or customer tweaks.
             base_branch = github.get_default_branch(repository)
             result = github.get_diff(repository, target_branch=str(branch), base_branch=base_branch)
+        except GitHubRateLimitError as e:
+            return github_rate_limited_response(e)
         except Exception:  # noqa: BLE001 — never let an upstream GitHub failure 500 this endpoint
             logger.warning(
                 "signals branch diff fetch errored",

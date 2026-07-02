@@ -44,7 +44,7 @@ from posthog.api.integration import (
     validate_github_repository_name,
 )
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
-from posthog.egress.github.transport import github_request
+from posthog.egress.github.transport import GitHubRateLimitError, github_request
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS, Integration
 from posthog.models.user import User
@@ -233,9 +233,8 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
     def handle_exception(self, exc: Exception) -> Response:
         # Personal-GitHub actions (repos, branches, refresh) raise the same egress
         # GitHubRateLimitError as the team integration endpoints — same 429 mapping.
-        rate_limited = github_rate_limited_response(exc)
-        if rate_limited is not None:
-            return rate_limited
+        if isinstance(exc, GitHubRateLimitError):
+            return github_rate_limited_response(exc)
         return super().handle_exception(exc)
 
     def _get_user(self) -> User:
