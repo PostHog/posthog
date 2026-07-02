@@ -90,7 +90,10 @@ def _ensure_user_installation_access(user: User, installation_id: str) -> None:
     ``GITHUB_LINK_EXISTING_ERROR_PERSONAL_GITHUB_REQUIRED`` when there is no usable personal
     link; callers route that code into the personal OAuth flow to mint a fresh token.
     """
-    user_github_integration = UserIntegration.objects.filter(user=user, kind="github").order_by("-created_at").first()
+    # Any GitHub identity the user has linked can prove access, but prefer the link for this
+    # installation — its account is the one known to have had access when it was linked.
+    personal_links = UserIntegration.objects.filter(user=user, kind="github").order_by("-created_at")
+    user_github_integration = personal_links.filter(integration_id=installation_id).first() or personal_links.first()
     if user_github_integration is None:
         raise ValidationError(
             PERSONAL_GITHUB_REQUIRED_MESSAGE,

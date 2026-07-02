@@ -2879,17 +2879,34 @@ class TestGitHubLinkExisting:
             created_by=self.user,
         )
 
+    @pytest.mark.parametrize(
+        "personal_links,expected_token",
+        [
+            pytest.param([("12345", "ghu_user")], "ghu_user", id="uses-user-token-not-installation-token"),
+            pytest.param(
+                [("12345", "ghu_user"), ("99999", "ghu_other")],
+                "ghu_user",
+                id="prefers-link-for-requested-installation",
+            ),
+            pytest.param([("99999", "ghu_other")], "ghu_other", id="falls-back-to-any-linked-identity"),
+        ],
+    )
     @patch("posthog.models.integration.GitHubIntegration.integration_from_installation_id")
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.verify_user_installation_access")
-    def test_link_existing_verifies_with_stored_user_token(self, mock_verify, mock_from_install, client: HttpClient):
+    def test_link_existing_verifies_with_stored_user_token(
+        self, mock_verify, mock_from_install, personal_links, expected_token, client: HttpClient
+    ):
         client.force_login(self.user)
-        UserIntegration.objects.create(
-            user=self.user,
-            kind="github",
-            integration_id="12345",
-            config={"installation_id": "12345"},
-            sensitive_config={"access_token": "ghs_installation", "user_access_token": "ghu_user"},
-        )
+        for position, (installation_id, user_token) in enumerate(personal_links):
+            link = UserIntegration.objects.create(
+                user=self.user,
+                kind="github",
+                integration_id=installation_id,
+                config={"installation_id": installation_id},
+                sensitive_config={"access_token": f"ghs_{installation_id}", "user_access_token": user_token},
+            )
+            # auto_now_add ignores values passed to create(); later list entries must be newer
+            UserIntegration.objects.filter(pk=link.pk).update(created_at=timezone.now() + timedelta(minutes=position))
         mock_verify.return_value = True
         mock_from_install.return_value = Integration.objects.create(
             team=self.dest_team,
@@ -2906,9 +2923,9 @@ class TestGitHubLinkExisting:
         )
 
         assert response.status_code == status.HTTP_200_OK
-        # The ownership check must send the user-to-server token, never the personal link's
+        # The ownership check must send a user-to-server token, never the personal link's
         # installation token — GitHub's /user/installations endpoint rejects the latter.
-        mock_verify.assert_called_once_with("12345", "ghu_user")
+        mock_verify.assert_called_once_with("12345", expected_token)
         mock_from_install.assert_called_once_with("12345", self.dest_team.id, self.user)
 
     @pytest.mark.parametrize(
