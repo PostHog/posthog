@@ -95,3 +95,25 @@ class TestDesktopCanvasPublishAPI(APIBaseTest):
         bad = self.client.patch(self._canvas_url(item_id), {"prompt": "only a prompt"})
         self.assertEqual(bad.status_code, status.HTTP_400_BAD_REQUEST, bad.json())
         self.assertIn("code", bad.json())
+
+    def test_delete_canvas_removes_ref_less_dashboard_row(self):
+        # Desktop canvases are `dashboard`-typed rows with no ref; deleting one must not
+        # trip the "without a reference" guard meant for real object-backed rows.
+        item_id = self._create_dashboard()
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/desktop_file_system/{item_id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT, response.content)
+        self.assertFalse(FileSystem.objects.filter(id=item_id).exists())
+
+    def test_delete_channel_folder_cascades_to_ref_less_canvas(self):
+        # Deleting a channel folder cascades into its ref-less canvas children, which must
+        # bare-delete rather than raise in `_ensure_can_delete`.
+        item_id = self._create_dashboard(path="MyChannel/MyCanvas")
+        folder = FileSystem.objects.get(team=self.team, path="MyChannel", type="folder")
+
+        response = self.client.delete(f"/api/projects/{self.team.id}/desktop_file_system/{folder.id}/")
+
+        self.assertEqual(response.status_code, status.HTTP_204_NO_CONTENT, response.content)
+        self.assertFalse(FileSystem.objects.filter(id=folder.id).exists())
+        self.assertFalse(FileSystem.objects.filter(id=item_id).exists())
