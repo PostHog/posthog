@@ -1,4 +1,5 @@
 import dagster
+import pydantic
 from clickhouse_driver import Client
 
 from posthog import settings
@@ -99,7 +100,11 @@ ONE_GB = 1024 * 1024 * 1024
 
 
 class QueryLogArchiveExportConfig(dagster.Config):
-    max_threads: int = dagster.Field(int, default_value=24, description="ClickHouse max_threads for the export scan. Must be ≥ 1 (0 means auto/all-cores in ClickHouse and will re-enable the OOM risk).")  # type: ignore[assignment]
+    max_threads: int = pydantic.Field(
+        default=24,
+        ge=1,
+        description="ClickHouse max_threads for the export scan. Must be ≥ 1 (0 means auto/all-cores in ClickHouse and will re-enable the OOM risk).",
+    )
     s3_prefix: str = "query_log_archive"
     s3_bucket: str = settings.QUERY_LOG_ARCHIVE_EXPORT_S3_BUCKET
 
