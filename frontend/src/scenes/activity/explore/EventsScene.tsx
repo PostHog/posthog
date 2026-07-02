@@ -12,6 +12,7 @@ import { ProductKey } from '~/queries/schema/schema-general'
 import { ActivityTab } from '~/types'
 
 import { eventsSceneLogic } from './eventsSceneLogic'
+import { getExploreEmptyStateContext } from './exploreEmptyState'
 
 export function EventsScene(): JSX.Element {
     const { query } = useValues(eventsSceneLogic())
@@ -36,6 +37,7 @@ export function EventsScene(): JSX.Element {
                     showOpenEditorButton: true,
                     extraDataTableQueryFeatures: [QueryFeature.highlightExceptionEventRows],
                     dataTableMaxPaginationLimit: 200,
+                    ...getExploreEmptyStateContext(query, setQuery),
                 }}
             />
         </SceneContent>
