@@ -71,7 +71,9 @@ def _build_url(path: str, single_object: bool, next_cursor: str | None = None) -
 def validate_credentials(api_key: str) -> bool:
     """Probe the cheapest always-available endpoint (`/users/me`) to confirm the token is genuine."""
     try:
-        with make_tracked_session() as session:
+        # redact_values masks the token in logged URLs and captured HTTP samples — the sampler's
+        # name-based header denylist doesn't recognise `X-API-Token`.
+        with make_tracked_session(redact_values=(api_key,)) as session:
             response = session.get(f"{MIXMAX_BASE_URL}/users/me", headers=_get_headers(api_key), timeout=10)
             return response.status_code == 200
     except Exception:
@@ -128,7 +130,6 @@ def get_rows(
 ) -> Iterator[list[dict]]:
     config = MIXMAX_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
-    session = make_tracked_session()
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     if resume is not None and resume.next_url:
@@ -137,21 +138,24 @@ def get_rows(
     else:
         url = _build_url(config.path, config.single_object)
 
-    while True:
-        data = _fetch_page(session, url, headers, logger)
-        rows, next_cursor = _extract_page(data)
+    # redact_values masks the token in logged URLs and captured HTTP samples; the `with` block
+    # closes the session's pooled connections once the generator is exhausted.
+    with make_tracked_session(redact_values=(api_key,)) as session:
+        while True:
+            data = _fetch_page(session, url, headers, logger)
+            rows, next_cursor = _extract_page(data)
 
-        if rows:
-            yield rows
+            if rows:
+                yield rows
 
-        if not next_cursor:
-            break
+            if not next_cursor:
+                break
 
-        next_url = _build_url(config.path, config.single_object, next_cursor)
-        # Save AFTER yielding so a crash re-yields the last page rather than skipping it — merge
-        # dedupes the re-pulled rows on the primary key.
-        resumable_source_manager.save_state(MixmaxResumeConfig(next_url=next_url))
-        url = next_url
+            next_url = _build_url(config.path, config.single_object, next_cursor)
+            # Save AFTER yielding so a crash re-yields the last page rather than skipping it — merge
+            # dedupes the re-pulled rows on the primary key.
+            resumable_source_manager.save_state(MixmaxResumeConfig(next_url=next_url))
+            url = next_url
 
 
 def mixmax_source(
