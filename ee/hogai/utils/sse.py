@@ -1,6 +1,8 @@
 import json
 from typing import cast
 
+from prometheus_client import Histogram
+
 from posthog.schema import AssistantEventType, AssistantGenerationStatusEvent, AssistantUpdateEvent, SubagentUpdateEvent
 
 from posthog.sync import database_sync_to_async
@@ -8,20 +10,40 @@ from posthog.sync import database_sync_to_async
 from products.posthog_ai.backend.models.assistant import Conversation
 
 from ee.hogai.api.serializers import ConversationMinimalSerializer
+from ee.hogai.utils.aio import OFFLOAD_LATENCY_BUCKETS, run_maybe_offloaded
 from ee.hogai.utils.types import AssistantMessageUnion, AssistantOutput
+
+SSE_SERIALIZE_LATENCY_HISTOGRAM = Histogram(
+    "posthog_ai_sse_serialize_latency_seconds",
+    "Time spent serializing an SSE event payload (model_dump_json), labeled by whether it ran off the event loop",
+    ["offloaded"],
+    buckets=OFFLOAD_LATENCY_BUCKETS,
+)
 
 
 class AssistantSSESerializer:
     async def dumps(self, event: AssistantOutput) -> str:
         event_type, event_data = event
         if event_type == AssistantEventType.MESSAGE:
-            return self._serialize_message(cast(AssistantMessageUnion, event_data))
+            return await run_maybe_offloaded(
+                self._serialize_message,
+                cast(AssistantMessageUnion, event_data),
+                histogram=SSE_SERIALIZE_LATENCY_HISTOGRAM,
+            )
         elif event_type == AssistantEventType.CONVERSATION:
             return await self._serialize_conversation(cast(Conversation, event_data))
         elif event_type == AssistantEventType.STATUS:
-            return self._serialize_status(cast(AssistantGenerationStatusEvent, event_data))
+            return await run_maybe_offloaded(
+                self._serialize_status,
+                cast(AssistantGenerationStatusEvent, event_data),
+                histogram=SSE_SERIALIZE_LATENCY_HISTOGRAM,
+            )
         elif event_type == AssistantEventType.UPDATE:
-            return self._serialize_update(cast(AssistantUpdateEvent | SubagentUpdateEvent, event_data))
+            return await run_maybe_offloaded(
+                self._serialize_update,
+                cast(AssistantUpdateEvent | SubagentUpdateEvent, event_data),
+                histogram=SSE_SERIALIZE_LATENCY_HISTOGRAM,
+            )
         else:
             raise ValueError(f"Unknown event type: {event_type}")
 

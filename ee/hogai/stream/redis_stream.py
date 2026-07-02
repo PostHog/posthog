@@ -25,6 +25,7 @@ from posthog.redis import get_async_client
 
 from products.posthog_ai.backend.models.assistant import Conversation
 
+from ee.hogai.utils.aio import OFFLOAD_LATENCY_BUCKETS, run_maybe_offloaded
 from ee.hogai.utils.types import AssistantOutput
 from ee.hogai.utils.types.base import ApprovalPayload, AssistantStreamedMessageUnion
 
@@ -53,6 +54,13 @@ REDIS_STREAM_INIT_ITERATION_LATENCY_HISTOGRAM = Histogram(
     "posthog_ai_redis_stream_init_iteration_latency_seconds",
     "Time between iterations in the stream initialization wait loop",
     buckets=[0.001, 0.005, 0.01, 0.025, 0.05, 0.1, 0.25, 0.5, 1.0, 2.5, 5.0, 10.0, float("inf")],
+)
+
+REDIS_DESERIALIZE_LATENCY_HISTOGRAM = Histogram(
+    "posthog_ai_redis_deserialize_latency_seconds",
+    "Time spent deserializing (pickle.loads) a Redis stream chunk, labeled by whether it ran off the event loop",
+    ["offloaded"],
+    buckets=OFFLOAD_LATENCY_BUCKETS,
 )
 
 # Redis stream configuration
@@ -322,7 +330,12 @@ class ConversationRedisStream:
                 for _, stream_messages in messages:
                     for stream_id, message in stream_messages:
                         current_id = stream_id
-                        data = self._serializer.deserialize(message)
+                        # pickle.loads is CPU-bound and runs on the ASGI loop that also answers
+                        # the liveness probe; run_maybe_offloaded can push it to a worker thread.
+                        # Ordering is preserved: we await before yielding.
+                        data = await run_maybe_offloaded(
+                            self._serializer.deserialize, message, histogram=REDIS_DESERIALIZE_LATENCY_HISTOGRAM
+                        )
 
                         latency = time.time() - data.timestamp
                         REDIS_TO_CLIENT_LATENCY_HISTOGRAM.observe(latency)
