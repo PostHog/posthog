@@ -20,6 +20,7 @@ function mockCanvasContext(): jest.Mocked<CanvasRenderingContext2D> {
         stroke: jest.fn(),
         fill: jest.fn(),
         closePath: jest.fn(),
+        bezierCurveTo: jest.fn(),
         arc: jest.fn(),
         fillRect: jest.fn(),
         strokeRect: jest.fn(),
@@ -127,6 +128,73 @@ describe('hog-charts canvas-renderer', () => {
             drawLine(makeDrawContext(ctx, labels), series, [10, 90])
             expect(ctx.moveTo).toHaveBeenCalledTimes(1)
             expect(ctx.lineTo).toHaveBeenCalledTimes(1)
+        })
+    })
+
+    describe('drawLine — monotone smoothing and yFloor', () => {
+        it('emits one bezier segment per point pair and no interior lineTo when smooth', () => {
+            const ctx = mockCanvasContext()
+            const labels = ['a', 'b', 'c', 'd']
+            const series = makeSeries({ key: 's1', data: [10, 90, 30, 60] })
+            drawLine({ ...makeDrawContext(ctx, labels), smooth: true }, series)
+            expect(ctx.moveTo).toHaveBeenCalledTimes(1)
+            expect(ctx.bezierCurveTo).toHaveBeenCalledTimes(3)
+            expect(ctx.lineTo).not.toHaveBeenCalled()
+        })
+
+        it('keeps every bezier control point within the data extremes (no overshoot past a peak)', () => {
+            const ctx = mockCanvasContext()
+            const labels = ['a', 'b', 'c']
+            const series = makeSeries({ key: 's1', data: [10, 90, 10] })
+            const drawCtx = { ...makeDrawContext(ctx, labels), smooth: true }
+            drawLine(drawCtx, series)
+            const pointYs = [10, 90, 10].map((v) => drawCtx.yScale(v))
+            const [minY, maxY] = [Math.min(...pointYs), Math.max(...pointYs)]
+            for (const [, cp1y, , cp2y, , endY] of ctx.bezierCurveTo.mock.calls) {
+                for (const y of [cp1y, cp2y, endY]) {
+                    expect(y).toBeGreaterThanOrEqual(minY)
+                    expect(y).toBeLessThanOrEqual(maxY)
+                }
+            }
+        })
+
+        it('splits the smooth curve into separate subpaths at gaps', () => {
+            const ctx = mockCanvasContext()
+            const labels = ['a', 'b', 'c', 'd', 'e']
+            const series = makeSeries({ key: 's1', data: [10, 20, 50, 70, 90] })
+            drawLine({ ...makeDrawContextWithGaps(ctx, labels, new Set([50])), smooth: true }, series)
+            expect(ctx.moveTo).toHaveBeenCalledTimes(2)
+            expect(ctx.bezierCurveTo).toHaveBeenCalledTimes(2)
+        })
+
+        it.each([{ smooth: false }, { smooth: true }])(
+            'clamps drawn y coordinates to yFloor (smooth: $smooth)',
+            ({ smooth }) => {
+                const ctx = mockCanvasContext()
+                const labels = ['a', 'b', 'c']
+                const series = makeSeries({ key: 's1', data: [0, 80, 0] })
+                const drawCtx = makeDrawContext(ctx, labels)
+                const yFloor = drawCtx.yScale(0) - 1
+                drawLine({ ...drawCtx, smooth, yFloor }, series)
+                const drawnYs = [
+                    ...ctx.moveTo.mock.calls.map(([, y]) => y),
+                    ...ctx.lineTo.mock.calls.map(([, y]) => y),
+                    ...ctx.bezierCurveTo.mock.calls.flatMap(([, cp1y, , cp2y, , endY]) => [cp1y, cp2y, endY]),
+                ]
+                expect(drawnYs.length).toBeGreaterThan(0)
+                for (const y of drawnYs) {
+                    expect(y).toBeLessThanOrEqual(yFloor)
+                }
+            }
+        )
+
+        it('smooths both area edges with bezier segments so stacked bottoms match the curve below', () => {
+            const ctx = mockCanvasContext()
+            const labels = ['a', 'b', 'c']
+            const series = makeSeries({ key: 's1', data: [10, 90, 30], fill: { opacity: 0.5 } })
+            drawArea({ ...makeDrawContext(ctx, labels), smooth: true }, series)
+            expect(ctx.bezierCurveTo).toHaveBeenCalledTimes(4)
+            expect(ctx.fill).toHaveBeenCalled()
         })
     })
 

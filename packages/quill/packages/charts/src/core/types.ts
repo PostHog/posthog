@@ -229,6 +229,9 @@ export interface ChartConfig {
     /** Draw only the L-shaped axis baselines (left + bottom) without interior grid lines. Ignored
      *  when `showGrid` is true, since the grid already frames the plot. */
     showAxisLines?: boolean
+    /** Line/area interpolation. `linear` (default) draws straight segments; `monotone` smooths the
+     *  line with monotone-cubic curves that pass through every point without overshooting. */
+    curve?: 'linear' | 'monotone'
     /** Tooltip behaviour. Defaults to enabled with no pinning and `follow-data` placement. */
     tooltip?: TooltipConfig
     /** Show a vertical crosshair line that follows the cursor. */

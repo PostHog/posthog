@@ -2,7 +2,13 @@ import React, { useCallback, useMemo } from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
 import { useChartLegend } from '../../components/Legend/useChartLegend'
-import { drawAxes, drawGrid, drawLineHoverPoints, drawLineSeriesLayer } from '../../core/canvas-renderer'
+import {
+    LINE_STROKE_WIDTH,
+    drawAxes,
+    drawGrid,
+    drawLineHoverPoints,
+    drawLineSeriesLayer,
+} from '../../core/canvas-renderer'
 import type { DrawContext } from '../../core/canvas-renderer'
 import { Chart } from '../../core/Chart'
 import { ChartErrorBoundary } from '../../core/ChartErrorBoundary'
@@ -82,7 +88,9 @@ function LineChartInner<Meta = unknown>({
         valueDomain,
         floatBaseline = false,
         yAxes,
+        curve,
     } = config ?? {}
+    const smooth = curve === 'monotone'
 
     const { visibleSeries, legendProps } = useChartLegend(series, theme, config?.legend)
 
@@ -196,9 +204,16 @@ function LineChartInner<Meta = unknown>({
                 bottomFor: (s) => s.fill?.lowerData ?? stackedData?.get(s.key)?.bottom,
                 shouldFill: (s) => !!s.fill,
                 zOrder: 'per-series',
+                smooth,
+                // Rest baseline-hugging strokes on the axis line, and trim the first point's
+                // stroke at the y-axis, instead of straddling either axis line.
+                yFloor: showAxisLines
+                    ? dimensions.plotTop + dimensions.plotHeight - LINE_STROKE_WIDTH / 2
+                    : undefined,
+                clipLeftEdge: showAxisLines,
             })
         },
-        [showGrid, showAxisLines, stackedData]
+        [showGrid, showAxisLines, stackedData, smooth]
     )
 
     const drawHover = useCallback(

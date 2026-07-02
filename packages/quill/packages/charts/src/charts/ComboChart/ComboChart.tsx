@@ -5,6 +5,7 @@ import { bandCenter, buildBarLayers, computeBarAtIndex, groupedBarCenter } from 
 import {
     BAR_HIGHLIGHT_DARKEN,
     DEFAULT_BAR_CORNER_RADIUS,
+    LINE_STROKE_WIDTH,
     drawAxes,
     drawBarHighlight,
     drawBars,
@@ -89,7 +90,9 @@ function ComboChartInner<Meta = unknown>({
         defaultSeriesType = DEFAULT_SERIES_TYPE,
         xTickFormatter,
         valueDomain,
+        curve,
     } = config ?? {}
+    const smooth = curve === 'monotone'
 
     const seriesTypeOf = useCallback(
         (s: Pick<Series, 'type'>): SeriesType => resolveSeriesType(s, defaultSeriesType),
@@ -221,6 +224,13 @@ function ComboChartInner<Meta = unknown>({
                 shouldFill: (s) => seriesTypeOf(s) === 'area' || !!s.fill,
                 bottomFor: (s) => s.fill?.lowerData,
                 zOrder: 'areas-first',
+                smooth,
+                // Rest baseline-hugging strokes on the axis line, and trim the first point's
+                // stroke at the y-axis, instead of straddling either axis line.
+                yFloor: showAxisLines
+                    ? dimensions.plotTop + dimensions.plotHeight - LINE_STROKE_WIDTH / 2
+                    : undefined,
+                clipLeftEdge: showAxisLines,
             })
         },
         [
@@ -232,6 +242,7 @@ function ComboChartInner<Meta = unknown>({
             barStackedData,
             topStackedKeyByAxis,
             barCornerRadius,
+            smooth,
         ]
     )
 
