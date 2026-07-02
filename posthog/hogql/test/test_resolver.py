@@ -803,7 +803,10 @@ class TestResolver(BaseTest):
         assert isinstance(first_branch, ast.SelectQuery) and first_branch.ctes is not None
         base_cte = first_branch.ctes["base"].expr
         assert isinstance(base_cte, ast.SelectQuery)
-        cte_cols = {col.alias if isinstance(col, ast.Alias) else col.chain[-1] for col in base_cte.select}
+        cte_cols: set[str] = set()
+        for col in base_cte.select:
+            assert isinstance(col, ast.Alias | ast.Field)
+            cte_cols.add(col.alias if isinstance(col, ast.Alias) else str(col.chain[-1]))
         assert cte_cols == {"a", "b", "d"}, f"CTE dropped columns referenced by sibling UNION branches: got {cte_cols}"
 
     def test_ctes_with_aliases_in_joins(self):
