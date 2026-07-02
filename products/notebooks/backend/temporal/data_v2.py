@@ -7,9 +7,9 @@ existing sync helpers; the shared kernel-start flow used by other node types is
 untouched.
 """
 
+from dataclasses import dataclass
 from datetime import timedelta
 
-from pydantic import BaseModel
 from temporalio import activity, common, workflow
 
 from posthog.models.user import User
@@ -20,13 +20,15 @@ from products.notebooks.backend.kernel_runtime import get_kernel_runtime
 from products.notebooks.backend.models import Notebook, NotebookNodeRun
 
 
-class DataV2StartInput(BaseModel):
+@dataclass
+class DataV2StartInput:
     notebook_short_id: str
     team_id: int
     user_id: int | None = None
 
 
-class DataV2RunInput(BaseModel):
+@dataclass
+class DataV2RunInput:
     run_id: str
     notebook_short_id: str
     team_id: int
