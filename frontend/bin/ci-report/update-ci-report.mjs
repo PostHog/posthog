@@ -133,7 +133,11 @@ export async function gh(token, url, options = {}) {
         },
     })
     if (!response.ok) {
-        throw new Error(`GitHub API ${options.method || 'GET'} ${url} -> ${response.status}: ${await response.text()}`)
+        const error = new Error(
+            `GitHub API ${options.method || 'GET'} ${url} -> ${response.status}: ${await response.text()}`
+        )
+        error.status = response.status
+        throw error
     }
     return response.status === 204 ? null : response.json()
 }
@@ -174,6 +178,21 @@ function sectionEquals(a, b) {
     return !!a && !!b && a.status === b.status && a.summary === b.summary && a.inner === b.inner
 }
 
+// Only the report comments this tooling wrote itself. The marker alone is not enough:
+// anyone can comment on a public-repo PR, and a human "Quote reply" of the report keeps
+// the marker inside `> ` prefixes — matching on substring would adopt, merge, or DELETE
+// comments we do not own.
+function isReportComment(comment) {
+    return comment.user?.login === 'github-actions[bot]' && comment.body?.startsWith(MARKER)
+}
+
+// A concurrent writer racing us can delete or replace the comment between our read and
+// write — that conflict surfaces as a 404 and is retryable. Anything else (403 on a
+// fork's read-only token, 5xx) is not worth retrying for a nicety comment.
+function isWriteConflict(err) {
+    return err.status === 404
+}
+
 // Post or update this run's section into the shared comment. Fork PRs run with a
 // read-only token, so a failure to read or write is warned and swallowed — the comment
 // is a nicety, never worth a red job.
@@ -182,8 +201,9 @@ function sectionEquals(a, b) {
 // compare-and-set, so this is read-modify-write plus verify-and-retry: after writing,
 // re-read and check this section survived; if a concurrent writer clobbered it (they
 // read before our write and wrote after), merge again and rewrite. Two writers racing
-// to CREATE the comment can leave duplicates — every attempt merges all marker
-// comments' sections into the oldest and deletes the rest.
+// to CREATE the comment can leave duplicates — every attempt merges all report
+// comments' sections into the oldest and deletes the rest, writing the merged content
+// BEFORE deleting so a cancelled job never loses sections that lived only in a duplicate.
 export async function postSection({ id, status, summary, body }, { maxAttempts = 3, retryDelayMs = 1000 } = {}) {
     const context = resolvePrContext('comment')
     if (!context) {
@@ -198,7 +218,7 @@ export async function postSection({ id, status, summary, body }, { maxAttempts =
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         let reportComments
         try {
-            reportComments = (await listPrComments(context)).filter((c) => c.body?.includes(MARKER))
+            reportComments = (await listPrComments(context)).filter(isReportComment)
         } catch (err) {
             console.warn(`Could not read PR comments (read-only token on fork PRs?): ${err.message}`)
             return
@@ -214,10 +234,6 @@ export async function postSection({ id, status, summary, body }, { maxAttempts =
         const [primary, ...duplicates] = reportComments
 
         try {
-            for (const duplicate of duplicates) {
-                await gh(token, `/repos/${repo}/issues/comments/${duplicate.id}`, { method: 'DELETE' })
-                console.info(`Merged and deleted duplicate CI report comment ${duplicate.id} (PR #${prNumber}).`)
-            }
             if (primary) {
                 await gh(token, `/repos/${repo}/issues/comments/${primary.id}`, {
                     method: 'PATCH',
@@ -230,12 +246,27 @@ export async function postSection({ id, status, summary, body }, { maxAttempts =
                 })
             }
         } catch (err) {
+            if (isWriteConflict(err)) {
+                console.info(`CI report comment changed under section "${id}" — re-reading and retrying.`)
+                continue
+            }
             console.warn(`Could not post CI report (read-only token on fork PRs?): ${err.message}`)
             return
         }
 
+        for (const duplicate of duplicates) {
+            try {
+                await gh(token, `/repos/${repo}/issues/comments/${duplicate.id}`, { method: 'DELETE' })
+                console.info(`Merged and deleted duplicate CI report comment ${duplicate.id} (PR #${prNumber}).`)
+            } catch (err) {
+                if (!isWriteConflict(err)) {
+                    console.warn(`Could not delete duplicate CI report comment ${duplicate.id}: ${err.message}`)
+                }
+            }
+        }
+
         try {
-            const after = (await listPrComments(context)).filter((c) => c.body?.includes(MARKER))
+            const after = (await listPrComments(context)).filter(isReportComment)
             if (after.length === 1 && sectionEquals(parseSections(after[0].body).get(id), expected)) {
                 console.info(`Wrote CI report section "${id}" on PR #${prNumber} (attempt ${attempt}).`)
                 return
@@ -247,8 +278,12 @@ export async function postSection({ id, status, summary, body }, { maxAttempts =
 
         if (attempt < maxAttempts) {
             console.info(`CI report section "${id}" was clobbered by a concurrent writer — retrying.`)
-            await sleep(retryDelayMs)
+            // Jitter so two writers that clobbered each other do not retry in lockstep
+            // and re-collide on every attempt.
+            await sleep(retryDelayMs * (0.5 + Math.random()))
         }
     }
-    console.warn(`Gave up writing CI report section "${id}" after ${maxAttempts} attempts — a later run will heal it.`)
+    console.warn(
+        `Gave up writing CI report section "${id}" after ${maxAttempts} attempts — its next run will restore it.`
+    )
 }
