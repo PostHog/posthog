@@ -56,8 +56,8 @@ export const CATEGORY_DETAIL_CONFIG: Partial<Record<HealthIssueCategory, Categor
         tableComponent: DataModelingHealthTable,
     },
     error_tracking: {
-        docsUrl: 'https://posthog.com/docs/error-tracking/upload-source-maps',
-        guidance: 'Without source maps, JavaScript stack traces show minified code instead of your original source.',
+        docsUrl: 'https://posthog.com/docs/error-tracking',
+        guidance: 'These checks ensure your error tracking setup captures exceptions with readable stack traces.',
         redirectUrl: urls.errorTracking({ activeTab: 'recommendations' }),
         tableComponent: ErrorTrackingHealthTable,
     },

@@ -70,8 +70,8 @@ export const HEALTH_CATEGORY_CONFIG: Record<HealthIssueCategory, CategoryConfig>
     },
     error_tracking: {
         label: 'Error tracking',
-        description: 'Exception capture and stack trace resolution',
-        healthyDescription: 'Stack traces resolving',
+        description: 'Error tracking setup and configuration',
+        healthyDescription: 'All healthy',
         icon: <IconBug className="size-5" />,
         showInSummary: true,
     },
