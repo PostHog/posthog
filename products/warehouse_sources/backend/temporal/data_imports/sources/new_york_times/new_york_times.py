@@ -2,7 +2,7 @@ import time
 import dataclasses
 from collections.abc import Iterator
 from datetime import UTC, date, datetime, timedelta
-from typing import Any, Optional
+from typing import Any
 from urllib.parse import urlencode
 
 import requests
@@ -118,11 +118,13 @@ def _fetch_page(
 
 
 def validate_credentials(api_key: str) -> bool:
-    # The cheapest single-request probe that requires a valid key.
+    # Probe a cheap endpoint. A 401 means the key itself is bad or missing; anything else — including a
+    # 403 from an app that has this particular API disabled — means the key is genuine. Users may enable
+    # only the APIs they intend to sync, so a 403 must not block source creation.
     url = _build_url("/svc/mostpopular/v2/viewed/1.json", api_key, {})
     try:
         response = make_tracked_session(redact_values=(api_key,)).get(url, headers=_get_headers(), timeout=10)
-        return response.status_code == 200
+        return response.status_code != 401
     except Exception:
         return False
 
@@ -237,7 +239,7 @@ def new_york_times_source(
     resumable_source_manager: ResumableSourceManager[NewYorkTimesResumeConfig],
     query: str | None = None,
     should_use_incremental_field: bool = False,
-    db_incremental_field_last_value: Optional[Any] = None,
+    db_incremental_field_last_value: Any = None,
 ) -> SourceResponse:
     config = NEW_YORK_TIMES_ENDPOINTS[endpoint]
 

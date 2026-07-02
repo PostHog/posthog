@@ -96,7 +96,15 @@ class TestBuildUrl:
 
 
 class TestValidateCredentials:
-    @parameterized.expand([("ok", 200, True), ("unauthorized", 401, False), ("forbidden", 403, False)])
+    @parameterized.expand(
+        [
+            ("ok", 200, True),
+            ("unauthorized", 401, False),
+            # A 403 means the key is genuine but the app hasn't enabled this API — must not block create.
+            ("forbidden", 403, True),
+            ("rate_limited", 429, True),
+        ]
+    )
     def test_status_mapping(self, _name: str, status_code: int, expected: bool) -> None:
         response = MagicMock()
         response.status_code = status_code
