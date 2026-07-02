@@ -558,18 +558,25 @@ class BatchConsumer:
             resource_name=batch.resource_name,
         )
 
-        # Pre-increment: if we OOM here, recovery sees attempt=N+1 and knows this attempt was consumed.
-        await self._adapter.update_status(
-            status_conn,
-            batch_id=batch.id,
-            job_state=self._adapter.executing_state,
-            attempt=attempt,
-        )
-
         heartbeat_task: asyncio.Task[None] | None = None
         try:
             start = time.monotonic()
+            # BEFORE the executing write: adapters read the batch's latest
+            # status here (e.g. the duckgres mid-claim retire check), and our
+            # own 'executing' row would mask a terminal 'failed' written while
+            # the batch waited in this claim — and would un-retire it in every
+            # latest-status consumer.
             should_process = await self._adapter.should_process_batch(status_conn, batch=batch)
+
+            # Pre-increment: if we OOM during processing, recovery sees attempt=N+1
+            # and knows this attempt was consumed.
+            await self._adapter.update_status(
+                status_conn,
+                batch_id=batch.id,
+                job_state=self._adapter.executing_state,
+                attempt=attempt,
+            )
+
             if should_process:
                 if lock_conn is not None:
                     heartbeat_task = asyncio.create_task(self._batch_heartbeat(lock_conn, batch, attempt))

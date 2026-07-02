@@ -342,24 +342,34 @@ class TestDuckgresEnablementGating:
 
 class TestMidClaimRetire:
     @pytest.mark.asyncio
-    async def test_should_process_batch_aborts_group_on_terminally_retired_batch(self):
+    async def test_terminally_retired_batch_aborts_group_without_any_status_write(self):
         # A co-claimed chunk retired mid-group (superseded by a replace run)
-        # must abort the whole group with no status write; processing it could
-        # swap stale backfill data over a table the replace has rebuilt.
+        # must abort the whole group WITHOUT writing any status: processing it
+        # could swap stale backfill data over a table the replace has rebuilt,
+        # and even an 'executing' row would mask the terminal 'failed' from
+        # every latest-status consumer (un-retiring the run).
         from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
             OwnershipLostError,
         )
 
-        adapter = DuckgresBatchConsumerAdapter()
-        conn = _make_healthy_conn()
+        consumer = _make_consumer()
 
-        with patch(
-            "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.is_failed",
-            new_callable=AsyncMock,
-            return_value=True,
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.is_failed",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.update_status",
+                new_callable=AsyncMock,
+            ) as mock_status,
+            pytest.raises(OwnershipLostError),
         ):
-            with pytest.raises(OwnershipLostError):
-                await adapter.should_process_batch(conn, batch=_make_batch())
+            await consumer._process_single(_make_batch())
+
+        consumer._process_batch.assert_not_called()
+        mock_status.assert_not_called()
 
 
 class TestGroupLeaseRenewal:
