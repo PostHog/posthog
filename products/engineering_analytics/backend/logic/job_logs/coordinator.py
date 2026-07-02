@@ -56,7 +56,8 @@ def _query_failed_jobs(team: Team, prefix: str, cutoff_iso: str) -> list[dict[st
     # suffix); user values flow through the placeholder, never the f-string.
     table = f"{prefix}github_workflow_jobs"
     sql = f"""
-        SELECT id AS job_id, run_id, head_branch AS branch, conclusion
+        SELECT id AS job_id, run_id, head_branch AS branch, conclusion,
+               name AS job_name, workflow_name, run_attempt, head_sha
         FROM {table}
         WHERE conclusion = 'failure' AND completed_at > {{cutoff}}
         ORDER BY completed_at DESC
@@ -141,6 +142,10 @@ def _discover_failed_jobs(cutoff_iso: str) -> list[dict[str, Any]]:
                             run_id=row.get("run_id"),
                             branch=row.get("branch"),
                             conclusion=row.get("conclusion"),
+                            job_name=row.get("job_name"),
+                            workflow_name=row.get("workflow_name"),
+                            run_attempt=row.get("run_attempt"),
+                            head_sha=row.get("head_sha"),
                         )
                     )
                 )
