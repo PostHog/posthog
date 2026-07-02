@@ -219,3 +219,11 @@ tasks:
       expected_tools: [query-mcp-tool-sample-intents]
       acceptable_tools: [execute-sql, mcp-analytics-sessions-list]
       success_criteria: 'Surfaces recent agent intents from MCP analytics rather than guessing.'
+
+    # --- metrics ----------------------------------------------------------------------------
+    - id: metrics-api-error-rate
+      category: metrics
+      intent: 'What does the error-rate metric for our API service look like over the last day?'
+      expected_tools: [metric-names-list, query-metrics]
+      acceptable_tools: [execute-sql]
+      success_criteria: 'Resolves the exact metric name first (names match exactly), then queries a rate over the last 24h — does not guess the metric name.'
