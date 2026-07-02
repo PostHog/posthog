@@ -1477,7 +1477,7 @@ class GridlySourceConfig(config.Config):
 
 @config.config
 class GuardianSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
