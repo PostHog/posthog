@@ -14,7 +14,7 @@ export function CustomPropertySourceModal(): JSX.Element {
         customPropertySourceForm,
         isCustomPropertySourceFormSubmitting,
         materializedViews,
-        selectedSourceColumns,
+        sourceModalColumns,
         savedQueriesLoading,
         definitionsLoading,
     } = useValues(customPropertyDefinitionsLogic)
@@ -99,7 +99,7 @@ export function CustomPropertySourceModal(): JSX.Element {
                             <LemonSearchableSelect
                                 value={value}
                                 onChange={onChange}
-                                options={selectedSourceColumns.map((column) => ({ value: column, label: column }))}
+                                options={sourceModalColumns.map((column) => ({ value: column, label: column }))}
                                 loading={savedQueriesLoading}
                                 disabledReason={
                                     !customPropertySourceForm.savedQuery ? 'Select a view first' : undefined
@@ -118,7 +118,7 @@ export function CustomPropertySourceModal(): JSX.Element {
                             <LemonSearchableSelect
                                 value={value}
                                 onChange={onChange}
-                                options={selectedSourceColumns.map((column) => ({ value: column, label: column }))}
+                                options={sourceModalColumns.map((column) => ({ value: column, label: column }))}
                                 loading={savedQueriesLoading}
                                 disabledReason={
                                     !customPropertySourceForm.savedQuery ? 'Select a view first' : undefined
