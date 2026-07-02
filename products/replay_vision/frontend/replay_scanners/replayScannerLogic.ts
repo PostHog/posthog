@@ -897,6 +897,9 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
             },
 
+            // An observe consumes quota immediately (in-flight rows count), so keep the meter and guards fresh.
+            triggerOnDemandObservationSuccess: () => visionQuotaLogic.findMounted()?.actions.loadQuota(),
+
             refreshObservations: () => reloadObservationsAndStats(),
 
             loadObservations: async (_, breakpoint) => {

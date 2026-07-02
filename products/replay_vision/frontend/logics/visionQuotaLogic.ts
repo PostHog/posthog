@@ -17,7 +17,7 @@ export const visionQuotaLogic = kea<visionQuotaLogicType>([
         adjustProjectedMonthly: (delta: number) => ({ delta }),
     }),
 
-    loaders({
+    loaders(({ values }) => ({
         quota: [
             null as VisionQuotaApi | null,
             {
@@ -26,17 +26,18 @@ export const visionQuotaLogic = kea<visionQuotaLogicType>([
                     await breakpoint(50)
                     const teamId = teamLogic.values.currentTeamId
                     if (!teamId) {
-                        return null
+                        return values.quota
                     }
                     try {
                         return await environmentVisionQuotaRetrieve(String(teamId))
                     } catch {
-                        return null
+                        // Keep the last-known snapshot — nulling it would silently drop the exhausted-quota guards.
+                        return values.quota
                     }
                 },
             },
         ],
-    }),
+    })),
 
     reducers({
         quota: {

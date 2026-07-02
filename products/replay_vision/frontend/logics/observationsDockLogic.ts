@@ -7,6 +7,7 @@ import { visionScannersObserveCreate, visionObservationsList } from '../generate
 import type { ReplayScannerApi, ReplayObservationApi } from '../generated/api.schemas'
 import { scheduleObservationPoll } from './observationPolling'
 import type { observationsDockLogicType } from './observationsDockLogicType'
+import { visionQuotaLogic } from './visionQuotaLogic'
 import { visionScannersListLogic } from './visionScannersListLogic'
 
 // The observe endpoint only starts the workflow; its row is created a moment later. Keep polling
@@ -156,6 +157,8 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
                 actions.observeSuccess()
                 actions.setDockOpen(true)
                 actions.loadObservations()
+                // An observe consumes quota immediately (in-flight rows count), so keep the guards fresh.
+                visionQuotaLogic.findMounted()?.actions.loadQuota()
             } catch (error: any) {
                 lemonToast.error(`Failed to start observation${error.detail ? `: ${error.detail}` : ''}`)
                 actions.observeFailure()
