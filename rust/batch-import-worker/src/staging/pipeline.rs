@@ -1,6 +1,6 @@
 use std::fs::File as StdFile;
 use std::io::Read;
-use std::path::PathBuf;
+use std::path::{Path, PathBuf};
 
 use anyhow::{Context, Error};
 use bytes::Bytes;
@@ -37,13 +37,15 @@ pub fn open_plaintext_stream(
     max_plaintext_bytes: u64,
 ) -> PlaintextStream {
     let (tx, rx) = mpsc::channel(CHANNEL_CAPACITY);
-    tokio::task::spawn_blocking(move || match extractor {
+    let handle = tokio::task::spawn_blocking(move || match extractor {
         ExtractorType::PlainGzip => run_plain_gzip_producer(raw_path, max_plaintext_bytes, &tx),
         ExtractorType::ZipGzipJson => {
             run_zip_gzip_json_producer(raw_path, max_plaintext_bytes, &tx)
         }
     });
-    PlaintextStream::new(rx)
+    // Attach the producer handle so a panic in flate2/zip is surfaced as a stream error at
+    // EOF instead of masquerading as a clean end-of-stream (silent truncation).
+    PlaintextStream::from_producer(rx, handle)
 }
 
 /// Build the user-facing ceiling-breach error (classifies as Pause). Returned once the
@@ -209,7 +211,7 @@ fn run_zip_gzip_json_producer(
 
 /// List the `*.json.gz` members of a zip archive in natural-sort order (matching the
 /// extractor's `natord` ordering).
-fn collect_json_gz_members(raw_path: &PathBuf) -> Result<Vec<String>, Error> {
+fn collect_json_gz_members(raw_path: &Path) -> Result<Vec<String>, Error> {
     let file = StdFile::open(raw_path).context("Failed to open zip file")?;
     let mut archive = ZipArchive::new(file).context("Failed to read and create zip archive")?;
 
