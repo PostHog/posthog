@@ -33,6 +33,7 @@ def _make_query(**kwargs) -> ScannerCandidateQuery:
         query=kwargs.pop("query", RecordingsQuery()),
         last_swept_at=kwargs.pop("last_swept_at", _NOW - dt.timedelta(hours=1)),
         sampling_rate=kwargs.pop("sampling_rate", 1.0),
+        sampling_salt=kwargs.pop("sampling_salt", "scanner-1"),
         **kwargs,
     )
 
@@ -135,6 +136,10 @@ def test_sampling_predicate_emits_modulo_compare_at_partial_rate(rate, expected_
     assert isinstance(modulo, ast.Call) and modulo.name == "modulo"
     city = modulo.args[0]
     assert isinstance(city, ast.Call) and city.name == "cityHash64"
+    concat = city.args[0]
+    assert isinstance(concat, ast.Call) and concat.name == "concat"
+    # The per-scanner salt makes scanners draw independent samples instead of the identical session subset.
+    assert isinstance(concat.args[1], ast.Constant) and concat.args[1].value == "scanner-1"
 
 
 # Integration: actual ClickHouse query.
@@ -563,6 +568,7 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
         last_swept_at: dt.datetime,
         query: RecordingsQuery | None = None,
         sampling_rate: float = 1.0,
+        sampling_salt: str = "scanner-1",
         candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
         last_seen_session_id: str | None = None,
     ):
@@ -571,6 +577,7 @@ class TestScannerCandidateQueryAgainstClickHouse(ClickhouseTestMixin):
             query=query if query is not None else RecordingsQuery(),
             last_swept_at=last_swept_at,
             sampling_rate=sampling_rate,
+            sampling_salt=sampling_salt,
             candidate_limit=candidate_limit,
             last_seen_session_id=last_seen_session_id,
         ).run()

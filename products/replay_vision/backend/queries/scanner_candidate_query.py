@@ -82,6 +82,9 @@ class ScannerCandidateQuery:
         query: RecordingsQuery,
         last_swept_at: dt.datetime,
         sampling_rate: float,
+        # Salts the sampling hash (pass the scanner id) so each scanner draws an independent sample; must be
+        # stable across sweeps of the same scanner or sessions would flip in/out behind the watermark.
+        sampling_salt: str,
         last_seen_session_id: str | None = None,
         candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
         max_execution_time_seconds: int = DEFAULT_MAX_EXECUTION_SECONDS,
@@ -99,6 +102,7 @@ class ScannerCandidateQuery:
         self._last_swept_at = last_swept_at
         self._last_seen_session_id = last_seen_session_id
         self._sampling_rate = max(0.0, min(1.0, sampling_rate))
+        self._sampling_salt = sampling_salt
         self._candidate_limit = candidate_limit
         self._max_execution_time_seconds = max_execution_time_seconds
 
@@ -187,7 +191,16 @@ class ScannerCandidateQuery:
             left=ast.Call(
                 name="modulo",
                 args=[
-                    ast.Call(name="cityHash64", args=[ast.Field(chain=["s", "session_id"])]),
+                    # concat rather than a second cityHash64 arg — HogQL pins cityHash64 to a single argument.
+                    ast.Call(
+                        name="cityHash64",
+                        args=[
+                            ast.Call(
+                                name="concat",
+                                args=[ast.Field(chain=["s", "session_id"]), ast.Constant(value=self._sampling_salt)],
+                            )
+                        ],
+                    ),
                     ast.Constant(value=SAMPLE_RATE_PRECISION),
                 ],
             ),
