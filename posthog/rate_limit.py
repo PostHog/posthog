@@ -69,10 +69,6 @@ def _recycle_unusable_db_connections() -> None:
 
 
 @lru_cache(maxsize=1)
-def _read_rate_limit_enabled(_ttl: int) -> bool:
-    return get_instance_setting("RATE_LIMIT_ENABLED")
-
-
 def is_rate_limit_enabled(_ttl: int) -> bool:
     """
     The setting will change way less frequently than it will be called
@@ -81,18 +77,15 @@ def is_rate_limit_enabled(_ttl: int) -> bool:
     This is the first DB query in the request lifecycle, so a transient Postgres connection
     drop here (server restart, pgbouncer recycle, network blip) must not 500 every endpoint
     at once. On a connection error we recycle the broken connection so the view reconnects,
-    then fail open — skipping the rate-limit check for this one request is far better than an
-    unhandled 500 across the whole API.
+    then fail open — skipping the rate-limit check is far better than an unhandled 500 across
+    the whole API. The fail-open result is cached under the current _ttl bucket, so rate
+    limiting stays off for at most that bucket before the next call re-reads the setting.
     """
     try:
-        return _read_rate_limit_enabled(_ttl)
+        return get_instance_setting("RATE_LIMIT_ENABLED")
     except (OperationalError, InterfaceError):
         _recycle_unusable_db_connections()
         return False
-
-
-# Preserve the lru_cache `.cache_clear()` interface that tests (posthog/test/base.py) rely on.
-is_rate_limit_enabled.cache_clear = _read_rate_limit_enabled.cache_clear  # type: ignore[attr-defined]
 
 
 path_by_env_pattern = re.compile(r"^/api/environments/(\d+)/")
