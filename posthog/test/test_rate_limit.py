@@ -7,6 +7,8 @@ from posthog.test.base import APIBaseTest
 from unittest.mock import ANY, Mock, call, patch
 
 from django.core.cache import cache
+from django.db import InterfaceError, OperationalError
+from django.test import SimpleTestCase
 from django.utils.timezone import now
 
 from parameterized import parameterized
@@ -34,6 +36,36 @@ from products.feature_flags.backend.api.feature_flag import (
     RemoteConfigProjectSecretApiKeyTeamThrottle,
     RemoteConfigThrottle,
 )
+
+
+class TestIsRateLimitEnabled(SimpleTestCase):
+    def setUp(self):
+        super().setUp()
+        rate_limit.is_rate_limit_enabled.cache_clear()
+
+    def tearDown(self):
+        rate_limit.is_rate_limit_enabled.cache_clear()
+        super().tearDown()
+
+    @parameterized.expand(
+        [
+            ("operational_error", OperationalError("server closed the connection unexpectedly")),
+            ("interface_error", InterfaceError("connection already closed")),
+        ]
+    )
+    @patch("posthog.rate_limit._recycle_unusable_db_connections")
+    def test_fails_open_when_setting_lookup_hits_a_dropped_connection(self, _name, error, mock_recycle):
+        # This is the first DB query in the request lifecycle; a transient connection drop
+        # here must recycle the broken connection and fail open, not 500 every endpoint.
+        with patch("posthog.rate_limit.get_instance_setting", side_effect=error):
+            self.assertFalse(rate_limit.is_rate_limit_enabled(1))
+        mock_recycle.assert_called_once()
+
+    @patch("posthog.rate_limit._recycle_unusable_db_connections")
+    def test_returns_setting_value_when_lookup_succeeds(self, mock_recycle):
+        with patch("posthog.rate_limit.get_instance_setting", return_value=True):
+            self.assertTrue(rate_limit.is_rate_limit_enabled(2))
+        mock_recycle.assert_not_called()
 
 
 class TestUserAPI(APIBaseTest):

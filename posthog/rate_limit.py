@@ -6,6 +6,7 @@ from contextlib import suppress
 from functools import lru_cache
 
 from django.conf import settings
+from django.db import InterfaceError, OperationalError, connections
 from django.urls import resolve
 
 from prometheus_client import Counter
@@ -52,13 +53,46 @@ def team_is_allowed_to_bypass_throttle(team_id: int | None) -> bool:
     return team_id is not None and str(team_id) in allow_list
 
 
+def _recycle_unusable_db_connections() -> None:
+    """Drop request-thread DB connections that a transient failure left broken.
+
+    After an ``OperationalError`` the psycopg2 connection is dead but Django keeps the
+    handle, so the next query in the same request would reuse it and fail again.
+    ``close_if_unusable_or_obsolete()`` closes exactly those connections (it health-checks
+    ``errors_occurred`` regardless of ``CONN_MAX_AGE``), so the view reconnects cleanly on
+    its next query. Connections inside an atomic block are skipped — severing an open
+    transaction corrupts it — but this path is the first query in the request, before any.
+    """
+    for conn in connections.all(initialized_only=True):
+        if not conn.in_atomic_block:
+            conn.close_if_unusable_or_obsolete()
+
+
 @lru_cache(maxsize=1)
+def _read_rate_limit_enabled(_ttl: int) -> bool:
+    return get_instance_setting("RATE_LIMIT_ENABLED")
+
+
 def is_rate_limit_enabled(_ttl: int) -> bool:
     """
     The setting will change way less frequently than it will be called
     _ttl is passed an infrequently changing value to ensure the cache is invalidated after some delay
+
+    This is the first DB query in the request lifecycle, so a transient Postgres connection
+    drop here (server restart, pgbouncer recycle, network blip) must not 500 every endpoint
+    at once. On a connection error we recycle the broken connection so the view reconnects,
+    then fail open — skipping the rate-limit check for this one request is far better than an
+    unhandled 500 across the whole API.
     """
-    return get_instance_setting("RATE_LIMIT_ENABLED")
+    try:
+        return _read_rate_limit_enabled(_ttl)
+    except (OperationalError, InterfaceError):
+        _recycle_unusable_db_connections()
+        return False
+
+
+# Preserve the lru_cache `.cache_clear()` interface that tests (posthog/test/base.py) rely on.
+is_rate_limit_enabled.cache_clear = _read_rate_limit_enabled.cache_clear  # type: ignore[attr-defined]
 
 
 path_by_env_pattern = re.compile(r"^/api/environments/(\d+)/")
