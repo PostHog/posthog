@@ -1786,7 +1786,8 @@ class LaunchDarklySourceConfig(config.Config):
 
 @config.config
 class LeadfeederSourceConfig(config.Config):
-    pass
+    api_token: str
+    start_date: str | None = None
 
 
 @config.config

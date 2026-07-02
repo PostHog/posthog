@@ -183,6 +183,7 @@ the row lists both.
 | launchdarkly            | HTTP                        | requests                                                        | ✅                          |
 | kustomer                | HTTP                        | requests                                                        | ✅                          |
 | lattice                 | HTTP                        | requests                                                        | ✅                          |
+| leadfeeder              | HTTP                        | requests                                                        | ✅                          |
 | lemlist                 | HTTP                        | requests                                                        | ✅                          |
 | lightspeed_retail       | HTTP                        | requests                                                        | ✅                          |
 | linear                  | HTTP                        | requests                                                        | ✅                          |
@@ -487,7 +488,6 @@ doesn't conflict with concurrent PRs.
 - klaus
 - knock
 - kyve
-- leadfeeder
 - leexi
 - lemon_squeezy
 - less_annoying_crm
