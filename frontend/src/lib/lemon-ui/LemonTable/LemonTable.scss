@@ -383,8 +383,9 @@ body:not(.storybook-test-runner) {
 
     // Pin the header row to the top while the body scrolls. The header th needs its own
     // background so scrolling rows don't show through, and a z-index above the sticky/pinned
-    // body cells (z-index 6) so it stays on top as rows pass underneath.
-    .LemonTable--sticky-header .LemonTable__content > table > thead > tr > th {
+    // body cells (z-index 6) so it stays on top as rows pass underneath. Only the last header
+    // row sticks — when column groups add a second row, both pinning to top: 0 would overlap.
+    .LemonTable--sticky-header .LemonTable__content > table > thead > tr:last-child > th {
         position: sticky;
         top: 0;
         z-index: 7;
