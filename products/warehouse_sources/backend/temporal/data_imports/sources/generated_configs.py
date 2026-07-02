@@ -2124,7 +2124,8 @@ class NewRelicSourceConfig(config.Config):
 
 @config.config
 class NewYorkTimesSourceConfig(config.Config):
-    pass
+    api_key: str
+    article_search_query: str | None = None
 
 
 @config.config
