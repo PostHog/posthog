@@ -202,6 +202,17 @@ pub const PARTITIONS_ACTIVE: &str = "partitions_active";
 pub const PARTITION_ROUTE_DROPPED_TOTAL: &str = "partition_route_dropped_total";
 /// Sub-batches queued in a partition worker's channel, labelled by `partition` (gauge).
 pub const PARTITION_CHANNEL_DEPTH: &str = "partition_channel_depth";
+/// Events held back because a partition worker's channel was full, labelled by `partition` (counter).
+/// Backpressure, not loss: the partition is paused and its events are redispatched once the channel
+/// drains. Rising counts are the signal that once crash-looped the pod; **alert paired with lag**.
+pub const PARTITION_CHANNEL_FULL_TOTAL: &str = "partition_channel_full_total";
+/// Partitions currently paused on the events consumer to shed downstream backpressure (gauge). A
+/// sustained non-zero level means overload is being expressed as lag rather than a crash — the
+/// replacement signal for the former "crash = overload".
+pub const PARTITIONS_PAUSED: &str = "partitions_paused";
+/// Events currently held across all paused partitions, awaiting redispatch (gauge). Bounded — a
+/// paused partition stops fetching — so a monotonically climbing value flags a stuck worker.
+pub const PENDING_SUBBATCHES: &str = "pending_subbatches";
 
 /// Non-empty rebalance callbacks, labelled by `event_type` (`assign`|`revoke`) (counter).
 pub const REBALANCES_TOTAL: &str = "rebalances_total";
@@ -553,6 +564,13 @@ mod tests {
         assert_eq!(TOKIO_BLOCKING_THREADS, "tokio_blocking_threads");
         assert_eq!(TOKIO_IDLE_BLOCKING_THREADS, "tokio_idle_blocking_threads");
         assert_eq!(TOKIO_BLOCKING_QUEUE_DEPTH, "tokio_blocking_queue_depth");
+    }
+
+    #[test]
+    fn partition_backpressure_metric_names_are_stable() {
+        assert_eq!(PARTITION_CHANNEL_FULL_TOTAL, "partition_channel_full_total");
+        assert_eq!(PARTITIONS_PAUSED, "partitions_paused");
+        assert_eq!(PENDING_SUBBATCHES, "pending_subbatches");
     }
 
     #[test]

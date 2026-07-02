@@ -35,12 +35,15 @@ use crate::observability::metrics::{
     COHORT_STREAM_TRANSFERS_SKIPPED_NOT_OWNED, COHORT_STREAM_WORKERS_SPAWNED,
     DURABLE_RESTORE_PARTITIONS_KEPT_TOTAL, DURABLE_RESTORE_PARTITIONS_WIPED_STALE_TOTAL,
     DURABLE_RESTORE_PENDING_TRANSFERS_RECOVERED_PARTITIONS_TOTAL, MERGE_HELD_OFFSET_GAUGE,
-    MERGE_PENDING_TRANSFERS_GAUGE, PARTITIONS_ASSIGNED_TOTAL, PARTITIONS_REVOKED_TOTAL,
-    PARTITION_STATE_DELETED_TOTAL, REBALANCE_CLEANUP_SKIPPED_TOTAL, REVOKE_DRAIN_DURATION_SECONDS,
+    MERGE_PENDING_TRANSFERS_GAUGE, PARTITIONS_ASSIGNED_TOTAL, PARTITIONS_PAUSED,
+    PARTITIONS_REVOKED_TOTAL, PARTITION_STATE_DELETED_TOTAL, PENDING_SUBBATCHES,
+    REBALANCE_CLEANUP_SKIPPED_TOTAL, REVOKE_DRAIN_DURATION_SECONDS,
 };
+use crate::partitions::backpressure::Backpressure;
 use crate::partitions::offset_tracker::OffsetTracker;
+use crate::partitions::pause::{ConsumerPauser, PartitionPauser};
 use crate::partitions::rebalance::{CohortConsumerContext, ConsumerCommandReceiver};
-use crate::partitions::router::PartitionRouter;
+use crate::partitions::router::{PartitionRouter, SendOutcome};
 use crate::partitions::shuffle_message::ShuffleMessage;
 use crate::producer::MembershipSink;
 use crate::store::durability::OffsetManifest;
@@ -219,6 +222,113 @@ impl EventDispatcher {
         let stats = self.dispatch_to_workers(items, &self.tracker).await;
         counter!(COHORT_STREAM_EVENTS_SKIPPED_NOT_OWNED).increment(stats.not_owned_skipped);
         counter!(COHORT_STREAM_EVENTS_DISPATCHED).increment(stats.dispatched);
+    }
+
+    /// Non-blocking events dispatch: the hot-path sibling of [`dispatch`](Self::dispatch) that never
+    /// awaits, so the consume loop's liveness heartbeat is never gated on a full worker channel.
+    ///
+    /// Owns-filters, ensures a worker, and `try_send`s each non-held partition's sub-batch, raising the
+    /// dispatch ceiling only for what actually lands. Events for a partition in `held` (already paused
+    /// behind an older holdover) skip the send and are returned to queue behind it — never leapfrog.
+    /// Returns the un-dispatched events per partition (held-deferred plus any that just filled a
+    /// channel); the caller appends them to that partition's holdover and pauses it.
+    pub fn dispatch_events_nonblocking(
+        &self,
+        batch: Vec<ConsumedEvent>,
+        held: &HashSet<i32>,
+    ) -> HashMap<i32, Vec<ShuffleMessage>> {
+        if self.draining.load(Ordering::SeqCst) {
+            if !batch.is_empty() {
+                counter!(COHORT_STREAM_EVENTS_SKIPPED_NOT_OWNED).increment(batch.len() as u64);
+                debug!(
+                    dropped = batch.len(),
+                    "dispatch after shutdown began; dropping batch for replay"
+                );
+            }
+            return HashMap::new();
+        }
+
+        let mut full: HashMap<i32, Vec<ShuffleMessage>> = HashMap::new();
+        let mut fresh: Vec<(i32, ShuffleMessage)> = Vec::with_capacity(batch.len());
+        let mut not_owned = 0u64;
+        for consumed in batch {
+            let partition = consumed.partition;
+            if !self.owned.contains(&partition) {
+                not_owned += 1;
+                continue;
+            }
+            self.ensure_worker(partition);
+            let message = ShuffleMessage::Event {
+                event: Box::new(consumed.event),
+                cse_offset: consumed.offset,
+            };
+            // librdkafka can still deliver a few already-fetched stragglers just after a pause; queue
+            // them behind the partition's holdover rather than racing them ahead of older offsets.
+            if held.contains(&partition) {
+                full.entry(partition).or_default().push(message);
+            } else {
+                fresh.push((partition, message));
+            }
+        }
+        counter!(COHORT_STREAM_EVENTS_SKIPPED_NOT_OWNED).increment(not_owned);
+
+        self.route_fresh(fresh, &mut full);
+        full
+    }
+
+    /// Retry-send held sub-batches (paused partitions) before polling, raising the ceiling for any that
+    /// flush. Returns the partitions still full (their retained holdover) so the caller keeps them
+    /// paused; a flushed or worker-gone partition is absent, so the caller resumes it (a dropped one
+    /// replays from the pinned commit).
+    pub fn redispatch_held(
+        &self,
+        held: Vec<(i32, Vec<ShuffleMessage>)>,
+    ) -> HashMap<i32, Vec<ShuffleMessage>> {
+        // Flatten to one grouped route; each partition's Vec is contiguous, so offset order is kept.
+        let mut messages: Vec<(i32, ShuffleMessage)> = Vec::new();
+        for (partition, batch) in held {
+            for message in batch {
+                messages.push((partition, message));
+            }
+        }
+        let mut still_full = HashMap::new();
+        self.route_fresh(messages, &mut still_full);
+        still_full
+    }
+
+    /// `try_send` owned, worker-ensured events and fold the per-partition outcomes: raise the ceiling
+    /// for what landed, collect the un-sent sub-batch of a full channel into `full`, and count a
+    /// missing/closed worker as a route error (the router already recorded the drop).
+    fn route_fresh(
+        &self,
+        messages: Vec<(i32, ShuffleMessage)>,
+        full: &mut HashMap<i32, Vec<ShuffleMessage>>,
+    ) {
+        let mut dispatched = 0u64;
+        let mut route_errors = 0u64;
+        for (partition, outcome) in self.router.try_route_batch(messages) {
+            match outcome {
+                SendOutcome::Sent { max_offset, count } => {
+                    self.tracker.mark_dispatched(partition, max_offset + 1);
+                    dispatched += count as u64;
+                }
+                SendOutcome::Full(returned) => {
+                    full.entry(partition).or_default().extend(returned);
+                }
+                SendOutcome::NoWorker | SendOutcome::ChannelClosed => route_errors += 1,
+            }
+        }
+        if dispatched > 0 {
+            counter!(COHORT_STREAM_EVENTS_DISPATCHED).increment(dispatched);
+        }
+        if route_errors > 0 {
+            counter!(COHORT_STREAM_ROUTE_ERRORS).increment(route_errors);
+        }
+    }
+
+    /// Snapshot of the partitions currently owned, for the backpressure prune/reconcile pass.
+    pub fn owned_set(&self) -> HashSet<i32> {
+        self.owned.iter().map(|entry| *entry).collect()
     }
 
     /// Route a consumed `person_merge_events` batch to per-partition workers, ceiling on the merge
@@ -779,6 +889,9 @@ pub struct CohortStreamEventsConsumer {
     topic: String,
     dispatcher: Arc<EventDispatcher>,
     handle: Handle,
+    /// Pauses/resumes events partitions to express downstream backpressure as lag on the hot
+    /// partition, keeping the consume loop non-blocking.
+    pauser: Arc<dyn PartitionPauser>,
     recv_batch_size: usize,
     recv_batch_timeout: Duration,
     offset_commit_interval: Duration,
@@ -805,11 +918,15 @@ impl CohortStreamEventsConsumer {
         consumer_command_rx: ConsumerCommandReceiver,
         restore_manifest: Option<OffsetManifest>,
     ) -> Self {
+        let consumer = Arc::new(consumer);
+        let pauser: Arc<dyn PartitionPauser> =
+            Arc::new(ConsumerPauser::new(consumer.clone(), topic.clone()));
         Self {
-            consumer: Arc::new(consumer),
+            consumer,
             topic,
             dispatcher,
             handle,
+            pauser,
             recv_batch_size,
             recv_batch_timeout,
             offset_commit_interval,
@@ -823,7 +940,8 @@ impl CohortStreamEventsConsumer {
     ///
     /// Offset commit runs on its own interval task so a CPU-saturated consume loop or worker backlog
     /// can't block offset advancement; it shares the shutdown signal and is awaited before the final
-    /// synchronous commit. Liveness is reported inline from `handle_outcome`.
+    /// synchronous commit. Liveness is reported inline from the non-blocking backpressure cycle, so a
+    /// full worker channel becomes paused partitions and lag, never a stalled heartbeat.
     pub async fn process(self) {
         let _guard = self.handle.process_scope();
         info!(topic = %self.topic, "cohort_stream_events consume loop starting");
@@ -841,6 +959,9 @@ impl CohortStreamEventsConsumer {
         let mut eager_redrive_done = !self.dispatcher.durable_restore_enabled();
         let mut restore_seek_done = self.restore_manifest.is_none();
         let mut prev_assignment: Option<HashSet<i32>> = None;
+        // Per-partition holdover + pause state. Untouched until boot recovery completes below, so a
+        // partition is never paused during boot.
+        let mut backpressure = Backpressure::new();
 
         loop {
             tokio::select! {
@@ -872,7 +993,7 @@ impl CohortStreamEventsConsumer {
                         restore_seek_done = self.run_restore_seek();
                         continue;
                     }
-                    self.handle_outcome(outcome).await;
+                    self.dispatch_with_backpressure(outcome, &mut backpressure).await;
                 }
             }
         }
@@ -975,7 +1096,15 @@ impl CohortStreamEventsConsumer {
         }
     }
 
-    async fn handle_outcome(&self, outcome: ConsumeOutcome) {
+    /// One steady-state cycle: prune revoked holdover, retry-flush held partitions, dispatch the freshly
+    /// polled batch, then reconcile pauses/resumes. Every step is non-blocking (`try_send`, sync
+    /// pause/resume), so the heartbeat below fires each iteration regardless of downstream drain — the
+    /// crux of the fix: a saturated worker channel becomes a paused partition and lag, never a stall.
+    async fn dispatch_with_backpressure(
+        &self,
+        outcome: ConsumeOutcome,
+        backpressure: &mut Backpressure,
+    ) {
         histogram!(COHORT_STREAM_CONSUME_BATCH_SIZE).record(outcome.events.len() as f64);
         if !outcome.events.is_empty() {
             counter!(COHORT_STREAM_EVENTS_CONSUMED).increment(outcome.events.len() as u64);
@@ -987,7 +1116,24 @@ impl CohortStreamEventsConsumer {
             counter!(COHORT_STREAM_EMPTY_PAYLOAD).increment(outcome.empty_payloads);
         }
 
-        self.dispatcher.dispatch(outcome.events).await;
+        let owned = self.dispatcher.owned_set();
+        // 1. Drop holdover for revoked partitions (their range replays on the next owner).
+        backpressure.prune_revoked(&owned);
+        // 2. Retry-flush existing holdovers before dispatching new events, so an older held offset can
+        //    never be leapfrogged by a newer one on the same partition.
+        let still_full = self.dispatcher.redispatch_held(backpressure.take_held());
+        backpressure.set_pending(still_full);
+        // 3. Dispatch the freshly polled batch, queueing new events behind any still-held partition.
+        let full = self
+            .dispatcher
+            .dispatch_events_nonblocking(outcome.events, &backpressure.held_partitions());
+        backpressure.absorb(full);
+        // 4. Reconcile the paused set and apply the deltas to Kafka.
+        let deltas = backpressure.reconcile();
+        self.pauser.pause(&deltas.pause);
+        self.pauser.resume(&deltas.resume);
+        gauge!(PARTITIONS_PAUSED).set(backpressure.paused_count() as f64);
+        gauge!(PENDING_SUBBATCHES).set(backpressure.held_event_count() as f64);
 
         if outcome.transport_error {
             tokio::time::sleep(RECV_ERROR_BACKOFF).await;
@@ -1173,6 +1319,7 @@ mod tests {
         MergeStateTransfer, PendingTransfer, PersonMergeEvent, Tombstone, TransferLeaf,
         MERGE_EVENT_SCHEMA_VERSION,
     };
+    use crate::partitions::offset_tracker::MarkOutcome;
     use crate::partitions::partitioner::{partition_of, COHORT_PARTITION_COUNT};
     use crate::producer::{
         CaptureSink, CaptureStreamEventSink, CaptureTransferSink, MembershipStatus,
@@ -1786,6 +1933,122 @@ mod tests {
         assert_eq!(dispatcher.workers.len(), 0);
         assert!(dispatcher.tracker().committable_offsets().is_empty());
         let _tracker = dispatcher.shutdown().await;
+    }
+
+    /// A dispatcher whose router has `buffer` channel slots and drains through no real worker, so a
+    /// pre-filled channel deterministically exercises the non-blocking `try_send`-full path.
+    fn dispatcher_with_buffer(
+        store: &CohortStore,
+        catalog: Arc<CatalogHandle>,
+        buffer: usize,
+    ) -> EventDispatcher {
+        let sink: Arc<dyn MembershipSink> = Arc::new(CaptureSink::new());
+        EventDispatcher::new(
+            PartitionRouter::new(buffer),
+            Arc::new(OffsetTracker::new()),
+            store.clone(),
+            catalog,
+            sink,
+            MergeWorkerDeps::capture(),
+        )
+    }
+
+    fn held_offsets(messages: &[ShuffleMessage]) -> Vec<i64> {
+        messages
+            .iter()
+            .filter_map(ShuffleMessage::event_offset)
+            .collect()
+    }
+
+    #[tokio::test]
+    async fn nonblocking_dispatch_holds_a_full_channel_and_advances_the_offset_only_after_flush() {
+        let (_dir, store) = temp_store();
+        let dispatcher = dispatcher_with_buffer(&store, behavioral_catalog(), 1);
+        dispatcher.assign_partition(0);
+        // Hold the receiver so nothing drains; ensure_worker finds the channel registered and spawns no
+        // worker, leaving this rx the only consumer.
+        let mut rx = dispatcher.router.add_partition(0).unwrap();
+        let no_held = HashSet::new();
+
+        // Batch A fills the one slot and raises the ceiling to 105.
+        assert!(dispatcher
+            .dispatch_events_nonblocking(vec![consumed(person(1), 0, 104)], &no_held)
+            .is_empty());
+        // Batch B finds the channel full: held verbatim, ceiling unchanged.
+        let mut full =
+            dispatcher.dispatch_events_nonblocking(vec![consumed(person(2), 0, 105)], &no_held);
+        let held = full.remove(&0).expect("partition 0 was held");
+        assert_eq!(held_offsets(&held), vec![105]);
+        assert!(
+            dispatcher.workers.is_empty(),
+            "no worker drained the channel"
+        );
+
+        // The hole at 105 can't be committed past: a worker marking beyond the ceiling clamps to it.
+        assert_eq!(
+            dispatcher.tracker().mark_processed(0, 106),
+            MarkOutcome::CappedAheadOfDispatch,
+        );
+        assert_eq!(
+            dispatcher.tracker().committable_offsets().get(&0),
+            Some(&105),
+            "committable pinned at the sent ceiling while 105 is held",
+        );
+
+        // Drain A; the retry-flush now sends B and the ceiling advances past it.
+        let _a = rx.recv().await.unwrap();
+        assert!(
+            dispatcher.redispatch_held(vec![(0, held)]).is_empty(),
+            "the holdover flushed once the channel had room",
+        );
+        assert_eq!(
+            dispatcher.tracker().mark_processed(0, 106),
+            MarkOutcome::WithinDispatch,
+        );
+        assert_eq!(
+            dispatcher.tracker().committable_offsets().get(&0),
+            Some(&106)
+        );
+    }
+
+    #[tokio::test]
+    async fn nonblocking_dispatch_defers_events_for_a_held_partition_even_with_room() {
+        let (_dir, store) = temp_store();
+        let dispatcher = dispatcher_with_buffer(&store, behavioral_catalog(), 16);
+        dispatcher.assign_partition(0);
+        let mut rx = dispatcher.router.add_partition(0).unwrap();
+
+        // Partition 0 is already held (paused behind an older holdover): its fresh events queue behind
+        // it rather than racing onto the channel, even though there is room — the ordering invariant.
+        let held: HashSet<i32> = [0].into_iter().collect();
+        let mut full =
+            dispatcher.dispatch_events_nonblocking(vec![consumed(person(1), 0, 200)], &held);
+
+        assert_eq!(held_offsets(&full.remove(&0).unwrap()), vec![200]);
+        assert!(rx.try_recv().is_err(), "nothing was sent to the channel");
+        assert!(
+            !dispatcher.tracker().committable_offsets().contains_key(&0),
+            "a deferred event never raised the ceiling",
+        );
+    }
+
+    #[tokio::test]
+    async fn nonblocking_dispatch_returns_promptly_when_the_channel_is_saturated() {
+        let (_dir, store) = temp_store();
+        let dispatcher = dispatcher_with_buffer(&store, behavioral_catalog(), 1);
+        dispatcher.assign_partition(0);
+        let _rx = dispatcher.router.add_partition(0).unwrap();
+        let no_held = HashSet::new();
+
+        dispatcher.dispatch_events_nonblocking(vec![consumed(person(1), 0, 0)], &no_held);
+        // The second dispatch onto the saturated channel returns the holdover synchronously instead of
+        // awaiting a drain — the property that keeps the consume loop's heartbeat firing under overload.
+        let full =
+            dispatcher.dispatch_events_nonblocking(vec![consumed(person(2), 0, 1)], &no_held);
+        assert!(
+            full.contains_key(&0),
+            "the saturated partition's events are held, never blocked on",
+        );
     }
 
     #[tokio::test]
