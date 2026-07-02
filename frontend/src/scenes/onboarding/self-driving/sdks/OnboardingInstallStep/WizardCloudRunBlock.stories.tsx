@@ -5,7 +5,7 @@ import { useMountedLogic } from 'kea'
 import { router } from 'kea-router'
 
 import { FEATURE_FLAGS } from 'lib/constants'
-import { useDelayedOnMountEffect } from 'lib/hooks/useOnMountEffect'
+import { useDelayedOnMountEffect, useOnMountEffect } from 'lib/hooks/useOnMountEffect'
 import { App } from 'scenes/App'
 import { urls } from 'scenes/urls'
 
@@ -16,6 +16,7 @@ import { IntegrationType } from '~/types'
 
 import { onboardingLogic } from '../../../legacy/onboardingLogic'
 import { activeCloudRunLogic } from './activeCloudRunLogic'
+import { WizardCloudRunBlock } from './WizardCloudRunBlock'
 import { wizardCloudRunLogic } from './wizardCloudRunLogic'
 
 /**
@@ -215,27 +216,38 @@ export const RepoPickerOpen: Story = cloudRunStory({
     },
 })
 
-/** Run kicked off — non-blocking confirmation; the FAB takes over from here. */
-export const PullRequestQueued: Story = cloudRunStory({
-    integrations: [githubIntegration],
-    waitForSelector: '[data-attr="wizard-cloud-run-queued"]',
-    // Fired after "Get started" resolves rather than from `drive` (which races the delayed-mount
-    // effect against the click): the toast + status flip need the install step already mounted.
-    extraPlay: async () => {
-        await waitFor(() => {
-            if (!document.querySelector('[data-attr="wizard-cloud-run-open-pr"]')) {
-                throw new Error('install step not ready')
-            }
+/**
+ * Run kicked off — non-blocking confirmation; the FAB takes over from here. Renders the block directly
+ * (not through the full click-through `<App />` flow the other stories use): the queued state only
+ * needs cloudRunStatus/selectedRepository seeded before mount, and going through "Get started" plus the
+ * install step's own async setup raced the delayed-mount effect that drives every other story here.
+ */
+export const PullRequestQueued: Story = {
+    render: () => {
+        useMountedLogic(onboardingLogic)
+        useMountedLogic(wizardCloudRunLogic)
+        useMountedLogic(activeCloudRunLogic)
+
+        useStorybookMocks({
+            get: {
+                '/api/environments/:team_id/integrations': { results: [githubIntegration] },
+            },
         })
-        wizardCloudRunLogic.actions.setSelectedRepository('web')
-        wizardCloudRunLogic.actions.startCloudRunSuccess()
-        await waitFor(() => {
-            if (!document.querySelector('[data-attr="wizard-cloud-run-queued"]')) {
-                throw new Error(`queued banner not shown; body snippet: ${document.body.innerHTML.slice(0, 500)}`)
-            }
+
+        useOnMountEffect(() => {
+            activeCloudRunLogic.actions.clearActiveCloudRun()
+            wizardCloudRunLogic.actions.setSelectedRepository('web')
+            wizardCloudRunLogic.actions.startCloudRunSuccess()
         })
+
+        return (
+            <div className="max-w-xl">
+                <WizardCloudRunBlock />
+            </div>
+        )
     },
-})
+    parameters: { testOptions: { waitForSelector: '[data-attr="wizard-cloud-run-queued"]' } },
+}
 
 /** The other half of the same wizard — toggling to "Run it yourself" reveals the CLI command. */
 export const RunItYourself: Story = cloudRunStory({
