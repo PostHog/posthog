@@ -63,7 +63,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     normalize_table_column_names,
     observed_schema_metadata_columns,
     setup_partitioning,
-    source_handles_column_projection,
+    source_uses_delta_write_column_selection,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import (
     set_initial_sync_complete,
@@ -196,9 +196,9 @@ class PipelineNonDLT(Generic[ResumableData]):
             schema.incremental_field_earliest_value, schema.incremental_field_type
         )
         # SQL sources project enabled_columns in their SELECT and own schema_metadata via
-        # introspection; everything else gets the Delta-write-side drop plus observed-columns
-        # capture so the column picker has a catalog to offer.
-        self._source_handles_column_projection = source_handles_column_projection(source.source_type)
+        # introspection; managed-schema sources don't allow selection. Everything else gets the
+        # Delta-write-side drop plus observed-columns capture so the column picker has a catalog.
+        self._uses_delta_write_column_selection = source_uses_delta_write_column_selection(source.source_type)
         self._observed_columns: dict[str, dict[str, Any]] = {}
 
     async def run(self) -> PipelineResult:
@@ -340,7 +340,7 @@ class PipelineNonDLT(Generic[ResumableData]):
         pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
         pa_table = normalize_table_column_names(pa_table)
 
-        if not self._source_handles_column_projection:
+        if self._uses_delta_write_column_selection:
             for observed_column in observed_schema_metadata_columns(pa_table.schema):
                 self._observed_columns[observed_column["name"]] = observed_column
 

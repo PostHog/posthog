@@ -49,7 +49,7 @@ def _make_pipeline() -> PipelineV3:
     pipeline._batch_results = []
     pipeline._shutdown_monitor = MagicMock()
     pipeline._attempt = 1
-    pipeline._source_handles_column_projection = True
+    pipeline._uses_delta_write_column_selection = False
     pipeline._observed_columns = {}
 
     return pipeline

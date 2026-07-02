@@ -411,12 +411,16 @@ def apply_enabled_columns_projection(
     return table.select(kept_names), dropped_names
 
 
-def source_handles_column_projection(source_type: str) -> bool:
-    """True when the source applies `enabled_columns` itself (SQL SELECT projection).
+def source_uses_delta_write_column_selection(source_type: str) -> bool:
+    """True when the pipeline applies `enabled_columns` by dropping columns before the Delta
+    write (and captures the observed columns into `schema_metadata`).
 
-    Those sources also own `schema_metadata["columns"]` via schema introspection, so the
-    pipeline skips both the Delta-write-side drop bookkeeping and the observed-columns
-    capture for them.
+    False for:
+    - SQL sources — they project `enabled_columns` into their SELECT and own
+      `schema_metadata["columns"]` via schema introspection;
+    - managed-schema sources (Stripe/Paddle/Zendesk) — column selection is disabled for them
+      (their canonical HogQL schema needs the full physical column set), so the pipeline must
+      never drop their columns even if a stale `enabled_columns` is still persisted.
     """
     # Imported lazily: the registry pulls in every source's (often heavy) dependencies on first use.
     from products.warehouse_sources.backend.temporal.data_imports.sources.common.registry import (
@@ -428,7 +432,7 @@ def source_handles_column_projection(source_type: str) -> bool:
         source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
     except Exception:
         return False
-    return bool(source.supports_column_selection)
+    return not source.supports_column_selection and not source.has_managed_hogql_schema
 
 
 def observed_schema_metadata_columns(schema: pa.Schema) -> list[dict[str, Any]]:

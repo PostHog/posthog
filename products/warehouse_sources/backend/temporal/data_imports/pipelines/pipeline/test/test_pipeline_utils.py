@@ -25,6 +25,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     normalize_table_column_names,
     observed_schema_metadata_columns,
     setup_partitioning,
+    source_uses_delta_write_column_selection,
     table_from_py_list,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.test_mocks import mock_delta_table
@@ -1118,3 +1119,22 @@ def test_merge_observed_columns_unions_and_refreshes():
         {"name": "brand_new", "data_type": "string", "is_nullable": True},
     ]
     assert config["schema_metadata"]["source_table_name"] == "customers"
+
+
+@pytest.mark.parametrize(
+    "source_type,expected",
+    [
+        # SQL sources project enabled_columns in their SELECT — no Delta-write drop.
+        ("Postgres", False),
+        # Managed-schema sources must never drop columns (canonical HogQL schema needs them all),
+        # even if a stale enabled_columns is still persisted.
+        ("Stripe", False),
+        ("Zendesk", False),
+        # Generic API sources get the generic Delta-write drop.
+        ("Hubspot", True),
+        # Unknown source types fail closed.
+        ("NotARealSource", False),
+    ],
+)
+def test_source_uses_delta_write_column_selection(source_type, expected):
+    assert source_uses_delta_write_column_selection(source_type) is expected

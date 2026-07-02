@@ -68,13 +68,16 @@ logger = structlog.get_logger(__name__)
 def source_supports_column_selection(source_type: str) -> bool:
     """Column selection is available for every registered source: SQL sources project the
     selection into their SELECT, everything else is projected generically just before the
-    Delta write. Unknown source types stay False so the UI fails closed."""
+    Delta write. Unknown source types stay False so the UI fails closed.
+
+    Excludes managed-schema sources (Stripe, Paddle, Zendesk): their HogQL tables expose a
+    fixed canonical schema, so dropping a referenced column breaks the query."""
     try:
-        SourceRegistry.get_source(ExternalDataSourceType(source_type))
+        source = SourceRegistry.get_source(ExternalDataSourceType(source_type))
     except Exception as e:
         capture_exception(e)
         return False
-    return True
+    return not source.has_managed_hogql_schema
 
 
 def source_supports_row_filters(source_type: str) -> bool:
@@ -574,6 +577,10 @@ class ExternalDataSchemaSerializer(serializers.ModelSerializer):
         if "enabled_columns" in validated_data:
             enabled_columns = validated_data["enabled_columns"]
             if enabled_columns is not None:
+                # Managed-schema sources expose a fixed canonical HogQL schema; dropping a
+                # referenced column breaks the query, so column selection isn't offered for them.
+                if not source_supports_column_selection(instance.source.source_type):
+                    raise ValidationError("Column selection is not supported for this source type.")
                 if not isinstance(enabled_columns, list) or not all(isinstance(c, str) for c in enabled_columns):
                     raise ValidationError("enabled_columns must be a list of column-name strings or null.")
                 metadata = instance.schema_metadata or {}

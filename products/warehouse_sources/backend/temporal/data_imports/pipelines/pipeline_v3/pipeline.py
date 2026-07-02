@@ -60,7 +60,7 @@ from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline
     merge_observed_columns_into_schema_metadata,
     normalize_table_column_names,
     observed_schema_metadata_columns,
-    source_handles_column_projection,
+    source_uses_delta_write_column_selection,
 )
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_sync import set_initial_sync_complete
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.metrics import (
@@ -175,9 +175,9 @@ class PipelineV3(Generic[ResumableData]):
         is_first_ever_sync = self._schema.table is None
 
         # SQL sources project enabled_columns in their SELECT and own schema_metadata via
-        # introspection; everything else gets the write-side drop plus observed-columns capture
-        # so the column picker has a catalog to offer.
-        self._source_handles_column_projection = source_handles_column_projection(source.source_type)
+        # introspection; managed-schema sources don't allow selection. Everything else gets the
+        # write-side drop plus observed-columns capture so the column picker has a catalog.
+        self._uses_delta_write_column_selection = source_uses_delta_write_column_selection(source.source_type)
         self._observed_columns: dict[str, dict[str, Any]] = {}
 
         is_resume = resumable_source_manager is not None and resumable_source_manager.can_resume()
@@ -371,7 +371,7 @@ class PipelineV3(Generic[ResumableData]):
         pa_table = _append_debug_column_to_pyarrows_table(pa_table, self._load_id)
         pa_table = normalize_table_column_names(pa_table)
 
-        if not self._source_handles_column_projection:
+        if self._uses_delta_write_column_selection:
             for observed_column in observed_schema_metadata_columns(pa_table.schema):
                 self._observed_columns[observed_column["name"]] = observed_column
 
