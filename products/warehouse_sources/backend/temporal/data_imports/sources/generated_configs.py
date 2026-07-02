@@ -1604,6 +1604,11 @@ class InstagramSourceConfig(config.Config):
 
 
 @config.config
+class InstantlySourceConfig(config.Config):
+    pass
+
+
+@config.config
 class InstatusSourceConfig(config.Config):
     pass
 
@@ -3900,6 +3905,7 @@ def get_config_for_source(source: ExternalDataSourceType):
         ExternalDataSourceType.INSIGHTFUL: InsightfulSourceConfig,
         ExternalDataSourceType.INSIGHTLY: InsightlySourceConfig,
         ExternalDataSourceType.INSTAGRAM: InstagramSourceConfig,
+        ExternalDataSourceType.INSTANTLY: InstantlySourceConfig,
         ExternalDataSourceType.INSTATUS: InstatusSourceConfig,
         ExternalDataSourceType.INTERCOM: IntercomSourceConfig,
         ExternalDataSourceType.INTERZOID: InterzoidSourceConfig,

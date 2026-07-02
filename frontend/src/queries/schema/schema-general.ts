@@ -6898,6 +6898,7 @@ export const externalDataSources = [
     'InforNexus',
     'Insightful',
     'Insightly',
+    'Instantly',
     'Instatus',
     'Intruder',
     'Invoiced',

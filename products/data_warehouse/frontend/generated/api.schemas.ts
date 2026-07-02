@@ -1291,6 +1291,7 @@ export interface CredentialApi {
  * * `InforNexus` - InforNexus
  * * `Insightful` - Insightful
  * * `Insightly` - Insightly
+ * * `Instantly` - Instantly
  * * `Instatus` - Instatus
  * * `Intruder` - Intruder
  * * `Invoiced` - Invoiced
@@ -1946,6 +1947,7 @@ export const ExternalDataSourceTypeEnumApi = {
     InforNexus: 'InforNexus',
     Insightful: 'Insightful',
     Insightly: 'Insightly',
+    Instantly: 'Instantly',
     Instatus: 'Instatus',
     Intruder: 'Intruder',
     Invoiced: 'Invoiced',
