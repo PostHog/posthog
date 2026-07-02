@@ -95,7 +95,7 @@ export const manifest: ProductManifest = {
         '/data-warehouse/sources/:id/:tab': ({ id, tab }) => urls.dataWarehouseSource(id, tab as SourceSceneTab),
     },
     urls: {
-        dataOps: (tab?: string): string => (tab ? `/data-warehouse?tab=${tab}` : '/data-ops'),
+        dataOps: (tab?: string): string => (tab ? `/data-ops?tab=${tab}` : '/data-ops'),
         models: (tab?: ModelsSceneTab): string => `/models${tab ? `/${tab}` : ''}`,
         nodeDetail: (id: string): string => `/models/${id}`,
         sources: (): string => '/data-management/sources',

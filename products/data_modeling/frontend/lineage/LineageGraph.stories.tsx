@@ -72,8 +72,10 @@ export const Full: Story = {
     ),
 }
 
-export const Compact: Story = {
-    render: () => <LineageGraph nodes={GRAPH_NODES} edges={GRAPH_EDGES} currentNodeId="4" variant="compact" />,
+export const Canvas: Story = {
+    render: () => (
+        <LineageGraph nodes={GRAPH_NODES} edges={GRAPH_EDGES} variant="canvas" showControls showMinimap interactive />
+    ),
 }
 
 export const SingleNode: Story = {

@@ -36,7 +36,6 @@ import {
 export type { LineageVariant, LineageNodeState, LineageNodeCallbacks } from './LineageNode'
 
 const NODE_SIZES: Record<LineageVariant, { width: number; height: number }> = {
-    compact: { width: 160, height: 55 },
     full: { width: 200, height: 90 },
     canvas: { width: 180, height: 120 },
 }
@@ -77,7 +76,7 @@ async function layoutGraph(props: LineageGraphProps): Promise<{ nodes: ReactFlow
     const {
         nodes,
         edges,
-        variant = 'compact',
+        variant = 'full',
         direction = 'RIGHT',
         currentNodeId,
         nodeState,

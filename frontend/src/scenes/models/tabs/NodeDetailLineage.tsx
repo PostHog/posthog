@@ -59,12 +59,15 @@ export function NodeDetailLineage({ id }: { id: string }): JSX.Element | null {
     return (
         <div className="space-y-2 mt-4">
             <h3 className="text-lg font-semibold">Lineage</h3>
-            <div className="h-72 w-full border rounded bg-bg-light">
+            <div className="h-[500px] w-full border rounded bg-bg-light">
                 <LineageGraph
                     nodes={nodes}
                     edges={lineageGraph?.edges ?? []}
                     currentNodeId={lineageGraph?.currentNodeId}
-                    variant="compact"
+                    variant="full"
+                    interactive
+                    showControls
+                    showMinimap
                     onNodeClick={(node) => router.actions.push(urls.nodeDetail(node.id))}
                     panels={
                         <div className="flex flex-col gap-1">

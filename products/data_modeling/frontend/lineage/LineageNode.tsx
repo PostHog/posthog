@@ -14,7 +14,21 @@ import { syncIntervalToShorthand } from 'products/data_warehouse/frontend/utils'
 
 import { NODE_TYPE_TAG_SETTINGS } from './nodeStyles'
 
-export type LineageVariant = 'compact' | 'full' | 'canvas'
+export type LineageVariant = 'full' | 'canvas'
+
+/** Fields the node renders — a superset caller (DataModelingNode) satisfies this structurally. */
+export type LineageNodeShape = Pick<
+    DataModelingNode,
+    | 'id'
+    | 'name'
+    | 'type'
+    | 'sync_interval'
+    | 'last_run_at'
+    | 'last_run_status'
+    | 'upstream_count'
+    | 'downstream_count'
+    | 'user_tag'
+>
 
 export interface LineageNodeState {
     isCurrent?: boolean
@@ -36,7 +50,7 @@ export interface LineageNodeCallbacks {
 }
 
 export interface LineageNodeData extends Record<string, unknown> {
-    node: DataModelingNode
+    node: LineageNodeShape
     variant: LineageVariant
     direction: ElkDirection
     state: LineageNodeState
@@ -121,7 +135,7 @@ function RunArrow({
     )
 }
 
-function MetadataBar({ node }: { node: DataModelingNode }): JSX.Element {
+function MetadataBar({ node }: { node: LineageNodeShape }): JSX.Element {
     return (
         <div className="flex items-center bg-primary dark:bg-primary/60 rounded-b-lg px-2.5 py-1.5 justify-between">
             <div className="flex gap-1 text-[10px] items-center">
@@ -151,9 +165,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
     const { node, variant, direction, state, callbacks } = data
     const [isHovered, setIsHovered] = useState(false)
 
-    const showMetadata =
-        (variant === 'full' || variant === 'canvas') && (node.type === 'matview' || node.type === 'endpoint')
-    const showHeaderDot = variant === 'compact' && (node.type === 'matview' || node.type === 'endpoint')
+    const showMetadata = node.type === 'matview' || node.type === 'endpoint'
     const showRunArrows = variant === 'canvas' && isHovered && !state.isRunning
     const { color } = NODE_TYPE_TAG_SETTINGS[node.type]
 
@@ -174,8 +186,7 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
     return (
         <div
             className={clsx(
-                'relative rounded-lg border bg-bg-light cursor-pointer',
-                variant === 'compact' ? 'min-w-[140px] px-3 py-2' : 'min-w-[180px]',
+                'relative rounded-lg border bg-bg-light cursor-pointer min-w-[180px]',
                 state.isRunning && 'border-warning ring-2 ring-warning/30 animate-pulse',
                 !state.isRunning && state.isHighlighted && 'border-link ring-2 ring-link/30',
                 !state.isRunning && !state.isHighlighted && !state.isCurrent && 'border-border',
@@ -212,29 +223,24 @@ export function LineageNode({ data }: { data: LineageNodeData }): JSX.Element {
                 />
             )}
 
-            <div className={clsx(variant !== 'compact' && 'px-3 pt-3')}>
+            <div className="px-3 pt-3">
                 <div className="flex items-center justify-between gap-2">
                     <div className="flex items-center gap-1 min-w-0">
-                        {state.isCurrent && variant !== 'compact' && (
+                        {state.isCurrent && (
                             <Tooltip title="This is the currently viewed node">
                                 <IconTarget className="text-warning text-sm shrink-0" />
                             </Tooltip>
                         )}
                         <NodeTypeTag type={node.type} />
                     </div>
-                    {showHeaderDot && <StatusDot status={node.last_run_status} />}
                     {node.user_tag && (
                         <span className="text-[10px] text-muted lowercase tracking-wide px-1 rounded bg-primary dark:bg-primary/20 border-1 border-black/20">
                             #{node.user_tag}
                         </span>
                     )}
                 </div>
-                <div
-                    className={clsx('flex items-center justify-between gap-2', variant === 'compact' ? 'mt-1' : 'py-2')}
-                >
-                    <Tooltip title={node.name}>
-                        <span className="font-medium text-sm truncate">{node.name}</span>
-                    </Tooltip>
+                <div className="flex items-center justify-between gap-2 py-2">
+                    <span className="font-medium text-sm truncate">{node.name}</span>
                     {callbacks.onEdit && (
                         <LemonButton
                             size="xxsmall"
