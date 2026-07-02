@@ -8,10 +8,10 @@
 # dep set, so the image stays lean. kafkajs is pure JS (no librdkafka), sharp ships prebuilt libvips,
 # and there is no browser or ML runtime here.
 #
-# Major-only node tag so a rebuild picks up the latest 24.x (node + bundled OpenSSL/V8 patches);
-# -bookworm-slim so glibc matches sharp's prebuilt binaries. (No weekly cron yet — the base only
-# refreshes when the image is rebuilt; add a schedule trigger to the workflow if that's not enough.)
-FROM node:24-bookworm-slim
+# Exact node version pinned to .nvmrc (24.13.0), matching the main Dockerfile's node stages, so the
+# build is reproducible instead of drifting with the floating major tag; renovate bumps it. -bookworm-slim
+# so glibc matches sharp's prebuilt binaries.
+FROM node:24.13.0-bookworm-slim
 WORKDIR /code/app
 SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
 
