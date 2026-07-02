@@ -88,12 +88,14 @@ export interface VirtualizedThreadRootProps<T> {
     /** Follow the bottom as rows grow/append; unpins when the user scrolls up. */
     stickToBottom?: boolean
     /**
-     * When this key changes to a new non-null value after the thread is first populated (e.g. the id of a
-     * just-sent human message), the matching row is scrolled to the top of the viewport, with bottom
-     * padding reserved so it can anchor there — the "sent message pins to the top, the response streams
-     * into the space below" chat pattern. The reserve also moves the true end below the viewport, so
-     * stick-to-bottom stops following until the user deliberately returns to the bottom. Pass `null`
-     * whenever the last item isn't an anchor candidate; the reserve persists until the next anchor.
+     * Key of the row the reader's attention anchors to — the last human message, typically. Two behaviors
+     * hang off it. Open: the thread opens with this row at the top of the viewport (the last meaningful
+     * turn, its response below) instead of the absolute bottom; clamping degrades to the bottom when
+     * little content follows. Change to a new non-null value (a fresh send): the row is scrolled to the
+     * top with bottom padding reserved so it can anchor there — the "sent message pins to the top, the
+     * response streams into the space below" chat pattern. The reserve also moves the true end below the
+     * viewport, so stick-to-bottom stops following until the user deliberately returns to the bottom, and
+     * it persists until the next anchor.
      */
     anchorItemKey?: string | null
     maxWidthClassName?: string
@@ -184,6 +186,19 @@ function Root<T>({
         [items, getItemKey, hasHeader]
     )
 
+    const findVirtualIndexForKey = useCallback(
+        (key: string): number => {
+            // Scan from the end — the anchor (a recent human message) is near the tail in practice.
+            for (let i = rowCount - 1; i >= 0; i--) {
+                if (getVirtualItemKey(i) === key) {
+                    return i
+                }
+            }
+            return -1
+        },
+        [rowCount, getVirtualItemKey]
+    )
+
     // Measured heights include the gap padding (see `Row`), so estimates must too — otherwise every first
     // measurement carries a built-in error that gets compensated as a scroll-position correction.
     const estimateVirtualRow = useCallback(
@@ -223,13 +238,15 @@ function Root<T>({
                   anchorTo: 'end' as const,
                   followOnAppend: 'auto' as const,
                   scrollEndThreshold: BOTTOM_THRESHOLD,
-                  // Seed the virtual offset past the end so the very first render window already emits the
-                  // bottom rows (not a blank top frame); the pre-paint `scrollToIndex` below lands them
-                  // exactly in view. Summing the row estimates keeps this exact whatever `estimateItemHeight`
-                  // returns — a flat multiplier would undershoot and flash a mid-thread window.
+                  // Seed the virtual offset so the very first render window already emits the right rows
+                  // (not a blank top frame): the anchor row's estimated start when opening onto an anchor,
+                  // past the end for a plain bottom open. Summing the row estimates keeps this exact
+                  // whatever `estimateItemHeight` returns; the pre-paint `scrollToIndex` below lands it.
                   initialOffset: () => {
+                      const anchorIndex = anchorItemKey != null ? findVirtualIndexForKey(anchorItemKey) : -1
+                      const limit = anchorIndex >= 0 ? anchorIndex : rowCount
                       let total = 0
-                      for (let i = 0; i < rowCount; i++) {
+                      for (let i = 0; i < limit; i++) {
                           total += estimateVirtualRow(i)
                       }
                       return total
@@ -238,23 +255,31 @@ function Root<T>({
             : {}),
     })
 
-    // Initial open (once): land at the last row before the browser paints, so a long thread never shows a
-    // top-frame flicker or a visible crawl. `initialOffset` makes render #1 already emit the bottom window;
-    // this pre-paint `scrollToIndex` snaps to the exact bottom, and TanStack's built-in RAF reconciliation
-    // corrects the landing as rows below the fold measure — replacing the old settle loop.
+    // Initial open (once): land before the browser paints, so a long thread never shows a top-frame
+    // flicker or a visible crawl. Reopen where the reader left off: with an anchor (the last human
+    // message) the thread opens on the last meaningful turn — anchor row at the top, its response below —
+    // not the absolute bottom; scroll clamping degrades this to the bottom when little content follows the
+    // anchor. No anchor ⇒ plain bottom open. TanStack's built-in RAF reconciliation holds the landing
+    // steady as rows measure — replacing the old settle loop.
     useLayoutEffect(() => {
         if (!virtualized || !stickToBottom || didInitialScrollRef.current || rowCount === 0) {
             return
         }
         didInitialScrollRef.current = true
-        virtualizer.scrollToIndex(rowCount - 1, { align: 'end' })
-    }, [virtualized, stickToBottom, rowCount, virtualizer])
+        const anchorIndex = anchorItemKey != null ? findVirtualIndexForKey(anchorItemKey) : -1
+        if (anchorIndex >= 0) {
+            virtualizer.scrollToIndex(anchorIndex, { align: 'start' })
+        } else {
+            virtualizer.scrollToIndex(rowCount - 1, { align: 'end' })
+        }
+    }, [virtualized, stickToBottom, rowCount, virtualizer, anchorItemKey, findVirtualIndexForKey])
 
-    // Anchor-on-send (see `anchorItemKey`): a key change means a new anchor row (a just-sent message)
-    // landed. Reserve enough bottom padding for that row to reach the top of the viewport, then scroll it
-    // there (via the paired effect below, once the padding is in the DOM). The first populated commit only
-    // adopts the current key, so opening an existing thread still lands at the bottom rather than at its
-    // trailing message.
+    // Anchor-on-change (see `anchorItemKey`): a key change means a new anchor row landed. A *trailing*
+    // anchor (nothing after it yet) is a fresh send — reserve enough bottom padding for the row to reach
+    // the top of the viewport (via the paired effect below, once the padding is in the DOM) so the
+    // response streams into the space below. An anchor that already has content after it (a replayed
+    // turn) just scrolls — reserving there would leave dead whitespace under a finished response. The
+    // first populated commit only adopts the key: the initial-open effect above owns that scroll.
     useLayoutEffect(() => {
         if (!virtualized || items.length === 0) {
             return
@@ -268,17 +293,19 @@ function Root<T>({
             return
         }
         prevAnchorKeyRef.current = anchorItemKey
-        let anchorIndex = -1
-        for (let i = rowCount - 1; i >= 0; i--) {
-            if (getVirtualItemKey(i) === anchorItemKey) {
-                anchorIndex = i
-                break
-            }
+        const anchorIndex = findVirtualIndexForKey(anchorItemKey)
+        if (anchorIndex < 0) {
+            return
+        }
+        const isTrailingItem = anchorIndex === (hasHeader ? 1 : 0) + items.length - 1
+        if (!isTrailingItem) {
+            virtualizer.scrollToIndex(anchorIndex, { align: 'start' })
+            return
         }
         // `getTotalSize()` first: it recomputes the measurements, so the `measurementsCache` read below
         // reflects this commit's rows (including the anchor row's just-taken first measurement).
         const totalSize = virtualizer.getTotalSize()
-        const anchorStart = anchorIndex >= 0 ? virtualizer.measurementsCache[anchorIndex]?.start : undefined
+        const anchorStart = virtualizer.measurementsCache[anchorIndex]?.start
         const viewport = scrollRef.current?.clientHeight ?? 0
         if (anchorStart === undefined || viewport === 0) {
             return
@@ -289,7 +316,7 @@ function Root<T>({
         const padding = Math.max(0, Math.ceil(viewport - contentBelow))
         pendingAnchorScrollRef.current = { index: anchorIndex, padding }
         setAnchorPadding(padding)
-    }, [virtualized, items.length, anchorItemKey, rowCount, getVirtualItemKey, virtualizer, anchorPadding])
+    }, [virtualized, items.length, anchorItemKey, findVirtualIndexForKey, virtualizer, anchorPadding, hasHeader])
 
     // Runs every commit: performs the pending anchor scroll only once the reserved padding is committed to
     // the DOM — scrolling earlier would clamp against the un-padded scroll range and land short of the top.

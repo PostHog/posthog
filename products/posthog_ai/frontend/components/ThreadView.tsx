@@ -90,12 +90,13 @@ export function ThreadView({
         runConnectionState,
     } = useValues(runStreamLogic)
     const turnCancelled = currentRunStatus === 'cancelled'
-    // Anchor-on-send: a send appends the optimistic human message as the last thread item, so "last item is
-    // a human message" identifies the send commit. The virtualized thread then pins that message to the top
-    // of the viewport and lets the response stream into the reserved space below (instead of following the
-    // bottom). Null while the agent responds keeps the anchor and its reserve untouched.
-    const lastThreadItem = threadItems[threadItems.length - 1]
-    const anchorItemKey = lastThreadItem?.type === 'human_message' ? lastThreadItem.id : null
+    // The last human message anchors the thread. Reopening a saved conversation lands on it — the last
+    // meaningful turn, response below — rather than the absolute bottom; a fresh send (the key changing)
+    // pins it to the top of the viewport with space reserved below for the streaming response.
+    const anchorItemKey = useMemo(
+        () => threadItems.findLast((item) => item.type === 'human_message')?.id ?? null,
+        [threadItems]
+    )
     const hasActiveProgressItem = threadItems.some(
         (item) => item.type === 'progress' && item.progressSteps?.some((step) => step.status === 'in_progress')
     )
