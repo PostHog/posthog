@@ -127,7 +127,7 @@ pub struct Job {
 
     // The job maintains a copy of the job state, outside of the model,
     // because process in a pipelined fashion, and to do that we need to
-    // seperate "in-memory job state" from "database job state"
+    // separate "in-memory job state" from "database job state"
     pub state: Mutex<JobState>,
     // We also maintain a copy of the model. This and the above are wrapped in a mutex
     // because we simultaneously modify both, modifying our in-memory state when we

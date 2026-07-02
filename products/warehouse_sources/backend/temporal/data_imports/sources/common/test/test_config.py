@@ -277,7 +277,7 @@ def test_nested_to_config_with_flat_dict_default_prefix():
 
 
 def test_to_config_override_alias():
-    """Test `config.to_config` with overriden lookup names.
+    """Test `config.to_config` with overridden lookup names.
 
     Lookup names in the flat dictionary can be specified when using
     `config.value`.
@@ -304,8 +304,8 @@ def test_to_config_override_alias():
 
 
 def test_to_config_override_alias_fallback():
-    """Test `config.to_config` with overriden lookup names but
-    fallback to the original name if the alias key os missing.
+    """Test `config.to_config` with overridden lookup names but
+    fallback to the original name if the alias key is missing.
 
     Lookup names in the flat dictionary can be specified when using
     `config.value`.
