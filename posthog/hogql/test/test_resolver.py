@@ -776,8 +776,6 @@ class TestResolver(BaseTest):
     def test_star_cte_shared_by_union_branches_projects_all_columns(self):
         # Regression: pushdown pruned a `SELECT *` CTE to the first UNION branch's column, and
         # the cached CTE table (built pre-prune) masked the failure into silently broken SQL.
-        from posthog.schema import HogQLQueryModifiers
-
         query = self._select(
             "with base as (select * from (select 1 as a, 2 as b, 3 as d)) "
             "select a as v from base "
