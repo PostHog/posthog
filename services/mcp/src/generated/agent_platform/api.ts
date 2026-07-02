@@ -159,7 +159,7 @@ export const AgentApplicationsRevisionsCreateParams = /* @__PURE__ */ zod.object
 export const agentApplicationsRevisionsCreateBodyBundleUriDefault = ``
 
 export const AgentApplicationsRevisionsCreateBody = /* @__PURE__ */ zod.object({
-    parent_revision: zod.uuid().nullish(),
+    parent_revision: zod.string().nullish(),
     bundle_uri: zod
         .string()
         .default(agentApplicationsRevisionsCreateBodyBundleUriDefault)
@@ -244,7 +244,7 @@ export const AgentApplicationsRevisionsPartialUpdateParams = /* @__PURE__ */ zod
 })
 
 export const AgentApplicationsRevisionsPartialUpdateBody = /* @__PURE__ */ zod.object({
-    parent_revision: zod.uuid().nullish(),
+    parent_revision: zod.string().nullish(),
     bundle_uri: zod
         .string()
         .optional()

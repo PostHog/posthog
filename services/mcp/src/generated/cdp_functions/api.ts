@@ -942,7 +942,7 @@ export const HogFunctionsInvocationsCreateBody = /* @__PURE__ */ zod.object({
                 .nullish()
                 .describe('Execution priority for transformations. Lower values run first.'),
             _create_in_folder: zod.string().optional(),
-            batch_export_id: zod.uuid().nullish(),
+            batch_export_id: zod.string().nullish(),
             search_match_type: zod
                 .union([zod.enum(['exact', 'similar']), zod.null()])
                 .optional()

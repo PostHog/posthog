@@ -207,10 +207,10 @@ export const WarehouseSavedQueriesCreateBody = /* @__PURE__ */ zod
                 "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available.\n\n* `never` - never\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day"
             ),
         folder_id: zod
-            .uuid()
+            .string()
             .nullish()
             .describe('Optional folder ID used to organize this view in the SQL editor sidebar.'),
-        dag_id: zod.uuid().nullish().describe('Optional DAG to place this view into'),
+        dag_id: zod.string().nullish().describe('Optional DAG to place this view into'),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
     .describe(
@@ -277,14 +277,14 @@ export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
                 "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available.\n\n* `never` - never\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day"
             ),
         folder_id: zod
-            .uuid()
+            .string()
             .nullish()
             .describe('Optional folder ID used to organize this view in the SQL editor sidebar.'),
         edited_history_id: zod
             .string()
             .nullish()
             .describe('Activity log ID from the last known edit. Used for conflict detection.'),
-        dag_id: zod.uuid().nullish().describe('Optional DAG to place this view into'),
+        dag_id: zod.string().nullish().describe('Optional DAG to place this view into'),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
     .describe(
@@ -350,7 +350,7 @@ export const WarehouseSavedQueriesMaterializeCreateBody = /* @__PURE__ */ zod
                 "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available.\n\n* `never` - never\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day"
             ),
         folder_id: zod
-            .uuid()
+            .string()
             .nullish()
             .describe('Optional folder ID used to organize this view in the SQL editor sidebar.'),
         edited_history_id: zod
@@ -361,7 +361,7 @@ export const WarehouseSavedQueriesMaterializeCreateBody = /* @__PURE__ */ zod
             .boolean()
             .nullish()
             .describe('If true, skip column inference and validation. For saving drafts.'),
-        dag_id: zod.uuid().nullish().describe('Optional DAG to place this view into'),
+        dag_id: zod.string().nullish().describe('Optional DAG to place this view into'),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
     .describe(
@@ -418,7 +418,7 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__
                 "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available.\n\n* `never` - never\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day"
             ),
         folder_id: zod
-            .uuid()
+            .string()
             .nullish()
             .describe('Optional folder ID used to organize this view in the SQL editor sidebar.'),
         edited_history_id: zod
@@ -429,7 +429,7 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__
             .boolean()
             .nullish()
             .describe('If true, skip column inference and validation. For saving drafts.'),
-        dag_id: zod.uuid().nullish().describe('Optional DAG to place this view into'),
+        dag_id: zod.string().nullish().describe('Optional DAG to place this view into'),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
     .describe(
@@ -483,7 +483,7 @@ export const WarehouseSavedQueriesRunCreateBody = /* @__PURE__ */ zod
                 "How often to materialize this view. One of '15min', '30min', '1hour', '6hour', '12hour', '24hour', '7day', '30day', or 'never' to pause scheduled materialization. 15min is the fastest cadence available.\n\n* `never` - never\n* `15min` - 15min\n* `30min` - 30min\n* `1hour` - 1hour\n* `6hour` - 6hour\n* `12hour` - 12hour\n* `24hour` - 24hour\n* `7day` - 7day\n* `30day` - 30day"
             ),
         folder_id: zod
-            .uuid()
+            .string()
             .nullish()
             .describe('Optional folder ID used to organize this view in the SQL editor sidebar.'),
         edited_history_id: zod
@@ -494,7 +494,7 @@ export const WarehouseSavedQueriesRunCreateBody = /* @__PURE__ */ zod
             .boolean()
             .nullish()
             .describe('If true, skip column inference and validation. For saving drafts.'),
-        dag_id: zod.uuid().nullish().describe('Optional DAG to place this view into'),
+        dag_id: zod.string().nullish().describe('Optional DAG to place this view into'),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
     .describe(
