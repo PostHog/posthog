@@ -458,16 +458,34 @@ function SQLEditorSceneTitle(): JSX.Element | null {
             return ['Views must be a single query — remove extra statements to update', IconDownload]
         }
 
-        if (!response) {
-            return ['Run query to update', IconDownload]
-        }
-
         if (!changesToSave) {
             return ['No changes to save', IconDownload]
         }
 
+        // Require the current (edited) query to have been run successfully before updating — a stale
+        // response from a previous run must not enable the button after further edits.
+        if (!isSourceQueryLastRun) {
+            return ['Run the latest query before updating the view', IconDownload]
+        }
+
+        if (responseLoading) {
+            return ['Running query...', Spinner]
+        }
+
+        if (responseError || !response) {
+            return ['Run the query successfully before updating the view', IconDownload]
+        }
+
         return [undefined, IconDownload]
-    }, [updatingDataWarehouseSavedQuery, changesToSave, response, isMultiQuery])
+    }, [
+        updatingDataWarehouseSavedQuery,
+        changesToSave,
+        isSourceQueryLastRun,
+        responseLoading,
+        responseError,
+        response,
+        isMultiQuery,
+    ])
 
     const isMaterializedView = editingView?.is_materialized === true
     const closeObjectTooltip = editingInsight
