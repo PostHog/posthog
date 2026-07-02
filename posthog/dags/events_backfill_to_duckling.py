@@ -604,7 +604,13 @@ BACKFILL_PERSONS_S3_PREFIX = "backfill/persons"
 # [1, MAX_S3_FILE_FANOUT]. Row count (not bytes) is the signal because it's the
 # dominant driver of file size and the only one ClickHouse estimates cheaply from
 # the primary key without scanning the wide columns; wide-row teams can be tuned via
-# the per-run config. At ~4KB/event-row, 1M rows lands a file near ~4GB.
+# the per-run config. At ~4KB/event-row, 5M rows lands a file near ~20GB.
+#
+# Larger files also mean fewer per-file DuckLake catalog commits: each Parquet
+# file registered via `ducklake_add_data_files` is its own autocommit'd
+# transaction, so the fan-out target directly sets the write-side commit rate
+# a downstream reader (e.g. viaduck) has to contend with under DuckLake's
+# per-table OCC.
 #
 # MAX_S3_FILE_FANOUT is bounded by WRITER MEMORY, not file count: ClickHouse's
 # PartitionedSink keeps one Parquet writer open per active bucket for the whole
@@ -615,7 +621,7 @@ BACKFILL_PERSONS_S3_PREFIX = "backfill/persons"
 # 256 × 128 MiB ≈ 32 GiB stays comfortably under the 100 GiB max_memory_usage ceiling.
 # N may exceed ClickHouse's max_partitions_per_insert_block (default 100) safely —
 # that limit gates MergeTree part creation, not the s3() PartitionedSink.
-TARGET_ROWS_PER_FILE = 1_000_000
+TARGET_ROWS_PER_FILE = 5_000_000
 MAX_S3_FILE_FANOUT = 256
 
 # Parquet writer settings shared by every export. The byte cap is the load-bearing one:

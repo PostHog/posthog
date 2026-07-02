@@ -1,6 +1,7 @@
 import { connect, kea, key, path, props, selectors } from 'kea'
 
 import { isPropertyFilterWithOperator } from 'lib/components/PropertyFilters/utils'
+import { stringifyWithBigInts } from 'lib/utils/json'
 
 import { cohortsModel } from '~/models/cohortsModel'
 import { AnyPropertyFilter, CohortType, FeatureFlagEvaluationRuntime, PropertyFilterType } from '~/types'
@@ -19,7 +20,7 @@ const REGEX_BACKREFERENCE = /(?<!\\)\\[1-9]/ // \1 through \9
 export const featureFlagConditionWarningLogic = kea<featureFlagConditionWarningLogicType>([
     path(['scenes', 'feature-flags', 'featureFlagConditionWarningLogic']),
     props({} as FeatureFlagConditionWarningLogicProps),
-    key((props) => JSON.stringify(props.properties)),
+    key((props) => stringifyWithBigInts(props.properties)),
     connect(() => ({
         values: [cohortsModel, ['cohortsById']],
     })),

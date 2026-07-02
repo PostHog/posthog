@@ -149,8 +149,12 @@ export interface TooltipContext<Meta = unknown> {
         value: number
         color: string
         fraction?: number
-        /** Canvas y-pixel of this series at the hovered x — used for cursor-proximity sorting. */
+        /** Canvas y-pixel of the value-axis anchor for this series (top of bar segment, or dot for lines). */
         yPixel?: number
+        /** Canvas y-pixel of the bottom of this series's bar segment. When both yPixel and
+         *  yPixelBottom are present, hover detection uses range containment rather than
+         *  distance-to-midpoint, giving correct results regardless of segment size differences. */
+        yPixelBottom?: number
     }[]
     /** Pixel position (relative to the chart container) for anchoring the tooltip.
      *  `width` (optional) is the horizontal data-extent centered on `x` — bar charts
@@ -402,15 +406,13 @@ export interface LineChartConfig extends ChartConfig {
 }
 
 /** Config for {@link ComboChart}, which draws bar, line, and area series together. `axisOrientation`
- *  is omitted on purpose — bars require a band x-axis, so combo charts are vertical-only. Percent
- *  layout is also unsupported: stack-as-percent is only meaningful when every series participates,
- *  but lines/areas draw unstacked. */
+ *  is omitted on purpose — bars require a band x-axis, so combo charts are vertical-only. */
 export interface ComboChartConfig extends Omit<ChartConfig, 'axisOrientation'> {
     /** Type used for series that don't set {@link Series.type}. Defaults to `'line'`. */
     defaultSeriesType?: SeriesType
     /** Layout applied to *bar* series only — lines and areas never stack or group. Defaults to
-     *  `'stacked'`. */
-    barLayout?: 'stacked' | 'grouped'
+     *  `'stacked'`. `'percent'` stacks bars to 100%; line/area series still plot at raw values. */
+    barLayout?: 'stacked' | 'grouped' | 'percent'
     /** Corner radius for the cap of bar segments. Stacked bars only round the topmost segment. */
     barCornerRadius?: number
     /** Value-axis domain control for the primary axis — omit for data-derived auto-scaling. Used

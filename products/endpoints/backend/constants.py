@@ -23,3 +23,7 @@ VALID_DATA_FRESHNESS_SECONDS: frozenset[int] = frozenset(DATA_FRESHNESS_BUCKETS)
 DEFAULT_DATA_FRESHNESS_SECONDS = 86400
 
 ENDPOINT_NAME_REGEX = r"^[a-zA-Z][a-zA-Z0-9_-]{0,127}$"
+
+# Matches the `log_source` column written for endpoint execution logs in the `log_entries`
+# ClickHouse table. The Logs tab and the `endpoints_logs_retrieve` API both read by this value.
+ENDPOINTS_LOG_SOURCE = "endpoints"
