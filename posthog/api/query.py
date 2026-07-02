@@ -1,5 +1,6 @@
 import re
 from time import perf_counter
+from typing import NoReturn
 
 from django.core.cache import cache
 from django.http import JsonResponse, StreamingHttpResponse
@@ -73,6 +74,11 @@ from common.hogvm.python.utils import HogVMException
 logger = structlog.get_logger(__name__)
 
 tracer = trace.get_tracer(__name__)
+
+# Shown to the user when the org's concurrent-query limiter rejects a request. The raw limiter
+# exception embeds an internal Redis key + task id, so we log that for debugging and surface this
+# friendly message instead of leaking implementation details into the UI.
+CONCURRENCY_LIMIT_USER_MESSAGE = "Too many queries are running right now — please try again in a moment."
 
 QUERY_VALIDATION_ERROR_TOTAL = Counter(
     "posthog_query_validation_error_total",
@@ -161,6 +167,11 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             cache.set(cache_key, new_val)
             return new_val
         return False
+
+    def _raise_concurrency_throttled(self, exc: ConcurrencyLimitExceeded) -> NoReturn:
+        # Log the raw detail (Redis key + task id) for Loki, but surface a clean message to the user.
+        logger.warning("query_concurrency_limit_exceeded", detail=str(exc))
+        raise Throttled(detail=CONCURRENCY_LIMIT_USER_MESSAGE)
 
     @extend_schema(
         request=QueryRequest,
@@ -282,7 +293,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             ).inc()
             raise
         except ConcurrencyLimitExceeded as c:
-            raise Throttled(detail=str(c))
+            self._raise_concurrency_throttled(c)
         except Exception as e:
             capture_exception(e)
             raise
@@ -384,7 +395,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             result = hogql_runner.calculate()
             return Response(result.model_dump(), status=200)
         except ConcurrencyLimitExceeded as c:
-            raise Throttled(detail=str(c))
+            self._raise_concurrency_throttled(c)
         except Exception as e:
             capture_exception(e)
             raise
