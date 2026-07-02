@@ -30,6 +30,19 @@ const HIDDEN_EVENTS = new Set(['$ai_feedback', '$ai_metric'])
 // Instant events still occupy a sliver of time when resolving lane collisions.
 const OVERLAP_MIN_MS = 1
 
+/**
+ * Epoch ms when the operation behind an event began. PostHog AI SDKs capture an
+ * event when the operation finishes (timestamp = end, $ai_latency = duration),
+ * while OTel-ingested spans keep the span's start time. Shared by the timeline,
+ * the trace tree, and the drawer's event list so they all order events the same way.
+ */
+export function operationStartMs(event: LLMTraceEvent): number {
+    const t = new Date(event.createdAt).getTime()
+    const latencySec = Number(event.properties?.$ai_latency)
+    const latencyMs = isFinite(latencySec) && latencySec > 0 ? latencySec * 1000 : 0
+    return event.properties?.$ai_ingestion_source === 'otel' ? t : t - latencyMs
+}
+
 // Mirrors getEventType in ../../utils.ts so bar colors match the tree's tags.
 function kindOf(event: string): TraceBarKind {
     switch (event) {
@@ -76,10 +89,7 @@ export function buildTraceTimeline(events: LLMTraceEvent[]): TraceTimelineData {
         timed.push({
             idx: timed.length,
             event,
-            // PostHog AI SDKs capture an event when the operation finishes, so its
-            // timestamp is the END and $ai_latency the duration — while OTel-ingested
-            // spans (marked with $ai_ingestion_source) keep the span's START time.
-            startAt: p.$ai_ingestion_source === 'otel' ? t : t - latencyMs,
+            startAt: operationStartMs(event),
             latencyMs,
             nodeId: p.$ai_generation_id ?? p.$ai_span_id ?? event.id,
             parentId: p.$ai_parent_id ?? p.$ai_trace_id ?? null,

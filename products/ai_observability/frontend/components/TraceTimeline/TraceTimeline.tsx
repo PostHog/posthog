@@ -10,17 +10,15 @@ import { LLMTraceEvent } from '~/queries/schema/schema-general'
 import { TraceBarKind, TraceTimelineBar, buildTraceTimeline } from './buildTraceTimeline'
 
 // Same hues as the tree's EventTypeTag: generation green, embedding amber,
-// span neutral, trace purple. Highlight fills keep the labels inside readable.
-const KIND_CLASS: Record<TraceBarKind, string> = {
-    generation: 'bg-success-highlight border-success text-success',
-    span: 'bg-fill-highlight-100 border-primary text-secondary',
-    embedding: 'bg-warning-highlight border-warning text-warning',
-    trace: 'bg-fill-highlight-100 border-purple text-purple',
+// span neutral, trace purple. Opaque fills so the gridlines don't show through
+// the bars; selecting a bar amplifies its own hue with a ring, and an error
+// swaps the border to red (amplified the same way when selected).
+const KIND_BAR: Record<TraceBarKind, { fill: string; border: string; ring: string }> = {
+    generation: { fill: 'bg-fill-success-secondary text-success', border: 'border-success', ring: 'ring-success' },
+    span: { fill: 'bg-fill-secondary text-secondary', border: 'border-primary', ring: 'ring-[var(--border-bold)]' },
+    embedding: { fill: 'bg-fill-warning-secondary text-warning', border: 'border-warning', ring: 'ring-warning' },
+    trace: { fill: 'bg-fill-secondary text-purple', border: 'border-purple', ring: 'ring-[var(--purple)]' },
 }
-// State rings around the kind-colored pill: blue = selected, red = errored —
-// the fill keeps saying what kind of event it is either way.
-const SELECTED_RING = 'ring-2 ring-blue z-10'
-const ERROR_RING = 'ring-2 ring-danger'
 
 const BAR_H = 16
 // Wide enough for the nesting connectors drawn in the gap to stay legible.
@@ -124,18 +122,19 @@ export function TraceTimeline({
                     <div className="hidden sm:flex items-center gap-3 pr-1 text-xs text-muted">
                         {presentKinds.map((kind) => (
                             <span key={kind} className="flex items-center gap-1">
-                                <span className={cn('w-2.5 h-2.5 rounded-[3px] border', KIND_CLASS[kind])} />
+                                <span
+                                    className={cn(
+                                        'w-2.5 h-2.5 rounded-[3px] border',
+                                        KIND_BAR[kind].fill,
+                                        KIND_BAR[kind].border
+                                    )}
+                                />
                                 {kind}
                             </span>
                         ))}
                         {hasErrors && (
                             <span className="flex items-center gap-1">
-                                <span
-                                    className={cn(
-                                        'w-2 h-2 rounded-[2px] border border-primary bg-fill-highlight-100',
-                                        ERROR_RING
-                                    )}
-                                />
+                                <span className="w-2.5 h-2.5 rounded-[3px] border border-danger bg-fill-secondary" />
                                 error
                             </span>
                         )}
@@ -208,8 +207,12 @@ export function TraceTimeline({
                                             aria-label={tooltip}
                                             className={cn(
                                                 'absolute flex items-center overflow-hidden rounded-[3px] border cursor-pointer',
-                                                KIND_CLASS[bar.kind],
-                                                selected ? SELECTED_RING : bar.isError && ERROR_RING
+                                                KIND_BAR[bar.kind].fill,
+                                                bar.isError ? 'border-danger' : KIND_BAR[bar.kind].border,
+                                                selected && [
+                                                    'ring-2 z-10',
+                                                    bar.isError ? 'ring-danger' : KIND_BAR[bar.kind].ring,
+                                                ]
                                             )}
                                             // eslint-disable-next-line react/forbid-dom-props
                                             style={{
