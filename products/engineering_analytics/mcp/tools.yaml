@@ -43,15 +43,15 @@ tools:
         list: true
         title: Flaky test leaderboard
         description: >
-            Backend tests ranked by flakiness signal over a window (date_from default -7d, maximum 30 days), from
-            the per-test CI spans. A test qualifies by passing on an automatic retry at least min_rerun_passes
-            times (default 1) OR failing on at least min_failed_prs distinct pull requests (default 3). Use this
-            for "which tests are flaky right now" and to pick quarantine candidates. Read the counts as absolute
-            signal, never rates — fast passing runs are not emitted, so there is no honest denominator.
-            rerun_passed_count only flows from CI lanes running with retries enabled; in other lanes a flake
-            surfaces as a plain failure, which failed_pr_count catches. xfailed_count > 0 means the test is
-            already quarantined but still failing. nodeid is a best-effort reconstruction (no '.py' suffix, the
-            file/class boundary folded into '/'), so convert before using it as a pytest selector.
+            Backend tests ranked by flakiness signal over a window (date_from default -7d, maximum 30 days), from the
+            per-test CI spans. A test qualifies by passing on an automatic retry at least min_rerun_passes times
+            (default 1) OR failing on at least min_failed_prs distinct pull requests (default 3). Use this for "which
+            tests are flaky right now" and to pick quarantine candidates. Read the counts as absolute signal, never
+            rates — fast passing runs are not emitted, so there is no honest denominator. rerun_passed_count only flows
+            from CI lanes running with retries enabled; in other lanes a flake surfaces as a plain failure, which
+            failed_pr_count catches. xfailed_count > 0 means the test is already quarantined but still failing. nodeid
+            is a best-effort reconstruction (no '.py' suffix, the file/class boundary folded into '/'), so convert
+            before using it as a pytest selector.
     engineering-analytics-pr-cost:
         operation: engineering_analytics_pr_cost
         enabled: true
