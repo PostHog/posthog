@@ -314,7 +314,7 @@ class TestEndpointMapping(BaseTest):
             0,
             0,
             0,
-            [],
+            list[str](),
             0,
             0,
         )
