@@ -534,6 +534,12 @@ def _get_primary_keys_for_table(table: bigquery.Table, client: bigquery.Client) 
     return primary_keys
 
 
+# Stable wording BigQuery puts in a `resourcesExceeded` query failure's message. Shared between
+# `_is_bigquery_resource_exceeded` and `BigQuerySource.get_non_retryable_errors` so the two sites
+# stay in lockstep if BigQuery ever adjusts the phrasing.
+BIGQUERY_RESOURCES_EXCEEDED_ERROR = "Resources exceeded during query execution"
+
+
 def _is_bigquery_resource_exceeded(error: BadRequest) -> bool:
     """True for BigQuery's `resourcesExceeded` query failures.
 
@@ -544,7 +550,7 @@ def _is_bigquery_resource_exceeded(error: BadRequest) -> bool:
     crash.
     """
     reasons = {err.get("reason") for err in (getattr(error, "errors", None) or [])}
-    return "resourcesExceeded" in reasons or "Resources exceeded during query execution" in str(error)
+    return "resourcesExceeded" in reasons or BIGQUERY_RESOURCES_EXCEEDED_ERROR in str(error)
 
 
 def _has_duplicate_primary_keys(table: bigquery.Table, client: bigquery.Client, primary_keys: list[str] | None) -> bool:
