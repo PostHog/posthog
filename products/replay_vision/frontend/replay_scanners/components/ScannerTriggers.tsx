@@ -24,8 +24,9 @@ import { defaultRecordingDurationFilter } from 'scenes/session-recordings/playli
 
 import { AndOrFilterSelect } from '~/queries/nodes/InsightViz/PropertyGroupFilters/AndOrFilterSelect'
 import { RecordingsQuery } from '~/queries/schema/schema-general'
-import { DurationType, RecordingDurationFilter, RecordingUniversalFilters, UniversalFiltersGroup } from '~/types'
+import { RecordingUniversalFilters, UniversalFiltersGroup } from '~/types'
 
+import { clampDurationFilter, durationFilterError, MAX_ACTIVE_LABEL } from '../durationBounds'
 import { replayScannerLogic } from '../replayScannerLogic'
 import { SAMPLING_MODE_OPTIONS, SamplingMode } from '../types'
 import { ScannerQuotaForecast } from './ScannerQuotaForecast'
@@ -42,31 +43,6 @@ const SCANNER_FILTER_TYPES: TaxonomicFilterGroupType[] = [
     TaxonomicFilterGroupType.PersonProperties,
     TaxonomicFilterGroupType.SessionProperties,
 ]
-
-// Vision only analyzes recordings within these server-enforced duration bounds (see backend constants.py).
-const DURATION_BOUNDS: Partial<Record<DurationType, { min?: number; max?: number }>> = {
-    duration: { min: 15 },
-    active_seconds: { min: 10, max: 3600 },
-}
-
-function clampDurationFilter(filter: RecordingDurationFilter): RecordingDurationFilter {
-    const bounds = DURATION_BOUNDS[filter.key]
-    if (!bounds) {
-        return filter
-    }
-    let value = Number(filter.value) || 0
-    if (bounds.min != null) {
-        value = Math.max(value, bounds.min)
-    }
-    if (bounds.max != null) {
-        value = Math.min(value, bounds.max)
-    }
-    return value === filter.value ? filter : { ...filter, value }
-}
-
-// The hard ceiling Vision enforces on active interaction time — recordings above it are always skipped.
-const MAX_ACTIVE_SECONDS = DURATION_BOUNDS.active_seconds?.max ?? 3600
-const MAX_ACTIVE_LABEL = `${Math.round(MAX_ACTIVE_SECONDS / 3600)}h`
 
 // Renders the bound universal-filter group's values; adding is handled by the search bar above, not an inline button.
 function ScannerFilterGroup(): JSX.Element {
@@ -189,6 +165,7 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                         })
                     }
                     const durationFilter = clampDurationFilter(universal.duration[0] ?? defaultRecordingDurationFilter)
+                    const durationError = durationFilterError(durationFilter)
                     return (
                         <LemonCard hoverEffect={false} className="p-3 space-y-3">
                             <div className="flex items-start justify-between gap-2">
@@ -286,10 +263,14 @@ export function ScannerTriggers({ scannerId }: { scannerId: string }): JSX.Eleme
                                             </LemonTag>
                                         </Tooltip>
                                     </div>
-                                    <div className="text-xs text-muted">
-                                        Vision only scans recordings up to {MAX_ACTIVE_LABEL} of active time. Longer
-                                        sessions are always skipped.
-                                    </div>
+                                    {durationError ? (
+                                        <div className="text-danger text-xs">{durationError}</div>
+                                    ) : (
+                                        <div className="text-xs text-muted">
+                                            Vision only scans recordings up to {MAX_ACTIVE_LABEL} of active time. Longer
+                                            sessions are always skipped.
+                                        </div>
+                                    )}
                                 </div>
                             </UniversalFilters>
                         </LemonCard>
