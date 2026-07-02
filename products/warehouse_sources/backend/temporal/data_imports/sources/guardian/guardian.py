@@ -198,6 +198,8 @@ def guardian_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        # `order-by=oldest` returns ascending `webPublicationDate`, matching the watermark direction.
-        sort_mode="asc",
+        # Only `content` guarantees an order: `order-by=oldest` returns ascending `webPublicationDate`,
+        # matching the watermark direction. The full-refresh reference endpoints have no `order-by`, so
+        # their row order is unspecified — leave `sort_mode` unset rather than claim ascending.
+        sort_mode="asc" if config.supports_incremental else None,
     )

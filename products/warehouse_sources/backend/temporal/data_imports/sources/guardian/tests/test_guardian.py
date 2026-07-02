@@ -241,3 +241,5 @@ class TestGuardianSourceResponse:
         assert response.primary_keys == ["id"]
         assert response.partition_keys is None
         assert response.partition_mode is None
+        # Full-refresh endpoints carry no order-by, so their order is unspecified.
+        assert response.sort_mode is None
