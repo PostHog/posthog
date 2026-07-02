@@ -143,6 +143,10 @@ class HogQLGlobalSettings(HogQLQuerySettings):
     allow_experimental_object_type: Optional[bool] = True
     max_ast_elements: Optional[int] = 4_000_000  # default value 50000
     max_expanded_ast_elements: Optional[int] = 4_000_000
+    # We raise max_ast_elements far above ClickHouse's default, so large HogQL queries can compile to plans that
+    # exceed the optimizer's default 10000-pass ceiling and fail with TOO_MANY_QUERY_PLAN_OPTIMIZATIONS (code 572).
+    # Lift the ceiling proportionally so legitimately large plans still optimize instead of erroring.
+    query_plan_max_optimizations_to_apply: Optional[int] = 100_000  # default value 10000
     max_bytes_before_external_group_by: Optional[int] = 0  # default value means we don't swap ordering by to disk
     enable_analyzer: Optional[bool] = None
     transform_null_in: Optional[bool] = True

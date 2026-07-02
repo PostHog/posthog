@@ -779,7 +779,9 @@ CLICKHOUSE_ERROR_CODE_LOOKUP: dict[int, ErrorCodeMeta] = {
     570: ErrorCodeMeta("DATA_TYPE_INCOMPATIBLE_WITH_PROTOBUF_FIELD"),
     571: ErrorCodeMeta("DATABASE_REPLICATION_FAILED"),
     572: ErrorCodeMeta(
-        "TOO_MANY_QUERY_PLAN_OPTIMIZATIONS", category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR
+        "TOO_MANY_QUERY_PLAN_OPTIMIZATIONS",
+        user_safe="This query is too complex to run. Try reducing its scope, e.g. by narrowing the time range or removing breakdowns.",
+        category=QueryErrorCategory.QUERY_PERFORMANCE_ERROR,
     ),  # optimizer exceeded max iteration passes
     573: ErrorCodeMeta("EPOLL_ERROR"),
     574: ErrorCodeMeta("DISTRIBUTED_TOO_MANY_PENDING_BYTES"),

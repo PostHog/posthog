@@ -150,6 +150,16 @@ from posthog.errors import clickhouse_error_type, wrap_clickhouse_query_error
             60,
             "CHQueryErrorUnknownTable",
         ),
+        (
+            ServerException(
+                "Code: 572. DB::Exception: Too many optimizations applied to query plan. Current limit 10000. (TOO_MANY_QUERY_PLAN_OPTIMIZATIONS)",
+                code=572,
+            ),
+            "CHQueryErrorTooManyQueryPlanOptimizations",
+            "This query is too complex to run. Try reducing its scope, e.g. by narrowing the time range or removing breakdowns.",
+            572,
+            "CHQueryErrorTooManyQueryPlanOptimizations",
+        ),
     ],
 )
 def test_wrap_clickhouse_query_error(error, expected_type, expected_message, expected_code, expected_ch_error):
