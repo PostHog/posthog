@@ -1207,9 +1207,15 @@ class GitHubIntegrationBase:
         return result, default_branch, has_more
 
     def get_access_token(self) -> str:
-        """Return a valid installation access token, refreshing it if expired."""
+        """Return a valid installation access token, refreshing it past the half-life threshold."""
         if self.access_token_expired():
-            self.refresh_access_token()
+            try:
+                self.refresh_access_token()
+            except Exception:
+                # The refresh threshold is the token's half-life, so the stored token is typically
+                # still valid — use it rather than failing the request on a transient App-endpoint
+                # error; a genuinely dead token gets the 401 refresh-retry as the backstop.
+                logger.warning("GitHubIntegration: proactive token refresh failed, using stored token", exc_info=True)
         token = (self.integration.sensitive_config or {}).get("access_token")
         if not token:
             raise GitHubIntegrationError("Access token unavailable after refresh")
