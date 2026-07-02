@@ -5612,7 +5612,6 @@ class LLMTrace(BaseModel):
     person: LLMTracePerson | None = None
     requestCost: float | None = None
     sentiment: LLMSentimentResult | None = None
-    stepCount: float | None = None
     tools: list[str] | None = None
     totalCost: float | None = None
     totalLatency: float | None = None

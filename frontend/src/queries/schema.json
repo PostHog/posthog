@@ -26113,9 +26113,6 @@
                 "sentiment": {
                     "$ref": "#/definitions/LLMSentimentResult"
                 },
-                "stepCount": {
-                    "type": "number"
-                },
                 "tools": {
                     "items": {
                         "type": "string"

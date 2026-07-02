@@ -5416,7 +5416,6 @@ export namespace Schemas {
       person?: LLMTracePerson | null;
       requestCost?: number | null;
       sentiment?: LLMSentimentResult | null;
-      stepCount?: number | null;
       tools?: string[] | null;
       totalCost?: number | null;
       totalLatency?: number | null;

@@ -4008,7 +4008,6 @@ export interface LLMTraceApi {
     person?: LLMTracePersonApi | null
     requestCost?: number | null
     sentiment?: LLMSentimentResultApi | null
-    stepCount?: number | null
     tools?: string[] | null
     totalCost?: number | null
     totalLatency?: number | null

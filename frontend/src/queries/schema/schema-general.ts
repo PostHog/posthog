@@ -5560,7 +5560,6 @@ export interface LLMTrace {
     outputState?: any
     traceName?: string
     errorCount?: number
-    stepCount?: number
     events: LLMTraceEvent[]
     isSupportTrace?: boolean
     tools?: string[]

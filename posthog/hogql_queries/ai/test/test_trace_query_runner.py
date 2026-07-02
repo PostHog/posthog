@@ -758,8 +758,6 @@ class TestTraceQueryRunner(ClickhouseTestMixin, BaseTest):
         )
         # Should return all events except $ai_trace
         self.assertEqual(len(response.results[0].events), 3)
-        # Steps = generations + spans + embeddings; the $ai_trace event doesn't count
-        self.assertEqual(response.results[0].stepCount, 3)
 
         self.assertEqual(response.results[0].events[0].event, "$ai_span")
         self.assertEqual(response.results[0].events[0].properties["$ai_trace_id"], "trace1")

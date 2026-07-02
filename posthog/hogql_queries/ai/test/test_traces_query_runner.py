@@ -1076,51 +1076,6 @@ class TestTracesQueryRunner(ClickhouseTestMixin, BaseTest):
         self.assertEqual(response.results[0].events[0].event, "$ai_metric")
         self.assertEqual(response.results[0].events[1].event, "$ai_feedback")
 
-    def test_step_count_includes_nested_and_parentless_steps(self):
-        _create_person(distinct_ids=["person1"], team=self.team)
-        # Top-level generation without $ai_parent_id — the list's events payload omits it
-        _create_ai_generation_event(
-            distinct_id="person1",
-            trace_id="trace1",
-            team=self.team,
-            timestamp=datetime(2024, 12, 1, 0, 0),
-        )
-        _create_ai_span_event(
-            distinct_id="person1",
-            trace_id="trace1",
-            span_id="span1",
-            input_state={},
-            output_state={},
-            team=self.team,
-            timestamp=datetime(2024, 12, 1, 0, 1),
-        )
-        # Nested generation — also absent from the list's events payload
-        _create_ai_generation_event(
-            distinct_id="person1",
-            trace_id="trace1",
-            team=self.team,
-            timestamp=datetime(2024, 12, 1, 0, 2),
-            properties={"$ai_parent_id": "span1"},
-        )
-        _create_event(
-            distinct_id="person1",
-            team=self.team,
-            timestamp=datetime(2024, 12, 1, 0, 3),
-            event="$ai_feedback",
-            properties={"$ai_trace_id": "trace1"},
-        )
-
-        response = TracesQueryRunner(
-            team=self.team,
-            query=TracesQuery(
-                dateRange=DateRange(date_from="2024-12-01T00:00:00Z", date_to="2024-12-01T00:10:00Z"),
-            ),
-        ).calculate()
-        self.assertEqual(len(response.results), 1)
-        # 2 generations + 1 span; the feedback annotation doesn't count. The events
-        # payload only carries top-level events, so it cannot answer this itself.
-        self.assertEqual(response.results[0].stepCount, 3)
-
     def test_aggregates_full_trace_events_with_property_filters(self):
         trace_id = str(uuid.uuid4())
 
