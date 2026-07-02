@@ -1423,6 +1423,9 @@ function sanitizingStreamFn(base: StreamFn, safeToOriginal: Map<string, string>)
 export function sanitizeOutboundContext<T extends { tools?: Array<{ name: string }>; messages?: Message[] }>(
     context: T
 ): T {
+    // Provider-wire projection (the tool schemas the model sees), NOT the
+    // executable dispatch array — the `{ ...t }` spread drops the gate brand.
+    // If you ever dispatch off this result, re-gate it first.
     return {
         ...context,
         tools: context.tools?.map((t) => ({ ...t, name: providerSafeName(t.name) })),

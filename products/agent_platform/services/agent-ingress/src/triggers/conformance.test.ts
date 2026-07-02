@@ -409,6 +409,43 @@ describe('trigger-module conformance suite', () => {
         })
     })
 
+    // The inner suites filter fixtures with `.filter(f => f.<edge>)`, but that
+    // predicate is a hidden hand-list — a trigger that omits an edge key is
+    // silently uncovered and green. Double-entry guards it: EXPECTED (below) is
+    // reconciled against the fixtures both ways. `signing` is derived from the
+    // live modules (a `slack_signing` route auto-appears); the bespoke edges are
+    // declared explicitly, keeping "is this list complete?" a visible judgment.
+    describe('edge-class membership (double-entry over the filter-predicate hand-lists)', () => {
+        type EdgeKey = 'signing' | 'mislabeledRequest' | 'allowlist' | 'dedup'
+        const declares = (edge: EdgeKey): Set<TriggerType> =>
+            new Set(
+                Object.values(CONFORMANCE_FIXTURES)
+                    .filter((f): f is ConformanceFixture => Boolean(f?.[edge]))
+                    .map((f) => f.type)
+            )
+        const EXPECTED: Record<EdgeKey, Set<TriggerType>> = {
+            signing: new Set(
+                TRIGGER_MODULES.filter((m) => m.routes.some((r) => r.auth === 'slack_signing')).map((m) => m.type)
+            ),
+            mislabeledRequest: new Set<TriggerType>(['chat', 'webhook', 'mcp', 'slack']),
+            allowlist: new Set<TriggerType>(['slack']),
+            dedup: new Set<TriggerType>(['webhook', 'slack']),
+        }
+        const edges = Object.keys(EXPECTED) as EdgeKey[]
+
+        it.each(edges)('%s: in scope for at least one trigger (floor — never vacuous)', (edge) => {
+            expect(EXPECTED[edge].size).toBeGreaterThanOrEqual(1)
+        })
+        it.each(edges)('%s: every trigger in scope declares a fixture (no silent under-coverage)', (edge) => {
+            const missing = [...EXPECTED[edge]].filter((t) => !declares(edge).has(t))
+            expect(missing, `in scope for ${edge} but no fixture declares it: ${missing.join(', ')}`).toEqual([])
+        })
+        it.each(edges)('%s: every fixture that declares it is in scope (no stray/misclassified case)', (edge) => {
+            const stray = [...declares(edge)].filter((t) => !EXPECTED[edge].has(t))
+            expect(stray, `fixture declares ${edge} but it is not classified in scope: ${stray.join(', ')}`).toEqual([])
+        })
+    })
+
     describe('signing fail-closed', () => {
         const fixtures = Object.values(CONFORMANCE_FIXTURES).filter(
             (f): f is ConformanceFixture & { signing: NonNullable<ConformanceFixture['signing']> } =>

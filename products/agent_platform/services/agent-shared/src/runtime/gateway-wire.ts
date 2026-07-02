@@ -28,13 +28,20 @@ export function gatewayAuthHeader(token: string): { Authorization: string } {
 export const GATEWAY_REQUEST_ID_HEADER = 'x-request-id'
 
 /**
- * Pull the gateway's settlement id off a dispatch response's headers.
- * Returns `undefined` when the gateway didn't stamp one (misroute, header
- * stripped by an intermediary) — callers must treat that as "skip the
- * settled-cost fetch for this turn", never fall back to a locally-chosen id.
+ * Safe charset for the settlement id before it's interpolated into the authed
+ * `GET /v1/usage/{id}` path. Server-minted, so this is defense-in-depth: a `/`,
+ * `?`, whitespace or control char must not reshape the URL.
+ */
+const GATEWAY_REQUEST_ID_PATTERN = /^[A-Za-z0-9._-]+$/
+
+/**
+ * Pull the gateway's settlement id off response headers. Returns `undefined` if
+ * absent or failing the charset check — callers must skip the settled-cost
+ * fetch, never fall back to a locally-chosen id.
  */
 export function extractGatewayRequestId(headers: Record<string, string | undefined>): string | undefined {
-    return headers[GATEWAY_REQUEST_ID_HEADER] || undefined
+    const id = headers[GATEWAY_REQUEST_ID_HEADER]
+    return id && GATEWAY_REQUEST_ID_PATTERN.test(id) ? id : undefined
 }
 
 /**
@@ -56,27 +63,25 @@ export interface GatewaySettledCost {
 }
 
 /**
- * Parse a settled-usage response into a provenance-tagged cost. Returns
- * `null` on a non-finite wire value (NaN, empty string) — callers already
- * treat a failed/empty usage fetch as "this turn's cost stays unknown",
- * never as "fall back to an estimate".
+ * Parse a settled-usage response into a provenance-tagged cost; `null` if
+ * absent/blank/non-numeric/negative. Blank matters because `Number('') === 0`
+ * would settle as a real $0; negatives aren't settlements we model.
  */
 export function gatewaySettledCost(usage: Pick<GatewayUsage, 'cost_usd'>): GatewaySettledCost | null {
+    if (typeof usage.cost_usd === 'string' && usage.cost_usd.trim() === '') {
+        return null
+    }
     const usd = Number(usage.cost_usd)
-    return Number.isFinite(usd) ? { source: 'gateway', usd } : null
+    return Number.isFinite(usd) && usd >= 0 ? { source: 'gateway', usd } : null
 }
 
 /**
- * The single point that decides whether a cost figure is allowed to reach
- * analytics. Throws on anything that isn't `source: 'gateway'` with a finite
- * `usd` — including a plausible-looking object that bypassed the type system
- * via a cast — so the pi-estimate-leak bug class can't come back through an
- * `as GatewaySettledCost`. Callers (the analytics sinks) catch around this
- * the same way they already catch-and-log capture failures, so a rejected
- * event is dropped, not fatal to the whole batch.
+ * The single point deciding whether a cost may reach analytics. Throws on
+ * anything not `source: 'gateway'` with finite non-negative `usd` — including a
+ * cast-in object — so the pi-estimate leak can't return. Sinks catch around it.
  */
 export function assertGatewayProvenance(cost: { source?: unknown; usd?: unknown }): GatewaySettledCost {
-    if (cost.source !== 'gateway' || typeof cost.usd !== 'number' || !Number.isFinite(cost.usd)) {
+    if (cost.source !== 'gateway' || typeof cost.usd !== 'number' || !Number.isFinite(cost.usd) || cost.usd < 0) {
         throw new Error(`gateway-wire: refusing non-gateway cost provenance (source=${String(cost.source)})`)
     }
     return { source: 'gateway', usd: cost.usd }

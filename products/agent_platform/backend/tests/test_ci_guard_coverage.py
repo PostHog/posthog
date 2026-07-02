@@ -10,6 +10,14 @@ _REPO_ROOT = Path(__file__).resolve().parents[4]
 _CI_AGENTS = _REPO_ROOT / ".github" / "workflows" / "ci-agents.yml"
 _GENERATED_DIR = Path(__file__).resolve().parent.parent / "logic"
 
+# Named, not counted, so a path break or dropped artifact reds by name. Add new artifacts here.
+_EXPECTED_ARTIFACTS = {
+    "approval_request_states.generated.json",
+    "assistant_stop_reasons.generated.json",
+    "trigger_required_secrets.generated.json",
+    "trigger_routes.generated.json",
+}
+
 
 def _glob_match(path: str, pattern: str) -> bool:
     # fnmatch's `*` crosses `/`, but the CI gate (dorny/paths-filter → picomatch) treats `*` as
@@ -49,7 +57,8 @@ def _agents_filter_patterns() -> list[str]:
 def test_ci_agents_filter_covers_every_generated_artifact() -> None:
     patterns = _agents_filter_patterns()
     generated = sorted(p.name for p in _GENERATED_DIR.glob("*.generated.json"))
-    assert len(generated) >= 4, "generated artifacts missing — did the path change?"
+    missing = _EXPECTED_ARTIFACTS - set(generated)
+    assert not missing, f"expected generated artifacts absent (path change or deletion?): {sorted(missing)}"
 
     for name in generated:
         rel = f"products/agent_platform/backend/logic/{name}"

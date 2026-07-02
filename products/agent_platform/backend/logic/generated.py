@@ -14,7 +14,7 @@ from django.core.exceptions import ImproperlyConfigured
 _DIR = Path(__file__).parent
 
 
-def _load(name: str) -> Any:
+def _load(name: str, expected: type) -> Any:
     # Runs at django.setup(); fail closed but legibly on a missing/corrupt artifact. Read
     # UTF-8 explicitly — the trigger-secret registry contains `→`, which a C/POSIX default decode chokes on.
     path = _DIR / name
@@ -25,26 +25,26 @@ def _load(name: str) -> Any:
             f"agent_platform: generated vocabulary '{name}' is missing or corrupt ({e}). "
             "Regenerate with: UPDATE_GENERATED=1 npx vitest run src/spec/spec-codegen.test.ts"
         ) from e
-    # Fail closed on a syntactically-valid but wrong-shaped artifact (e.g. a list
-    # where a dict is expected) so it surfaces here, not as an AttributeError deep
-    # in the promote path.
-    if not isinstance(value, list | dict):
+    # Fail closed on a wrong-container artifact so it surfaces here by name, not later
+    # as an AttributeError on `.get()` deep in the promote path.
+    if not isinstance(value, expected):
         raise ImproperlyConfigured(
-            f"agent_platform: generated vocabulary '{name}' has unexpected shape {type(value).__name__}"
+            f"agent_platform: generated vocabulary '{name}' has unexpected shape "
+            f"{type(value).__name__}, expected {expected.__name__}"
         )
     return value
 
 
 # Per-trigger-type required secrets (source: trigger-secrets.ts).
-TRIGGER_REQUIRED_SECRETS: dict[str, list[dict[str, Any]]] = _load("trigger_required_secrets.generated.json")
+TRIGGER_REQUIRED_SECRETS: dict[str, list[dict[str, Any]]] = _load("trigger_required_secrets.generated.json", dict)
 
 # Per-trigger ingress route catalogue `{route_name: path}`, `{}` for triggers with no
 # inbound HTTP route (cron). Source: trigger-routes.ts, also imported by agent-ingress so the two can't drift.
-TRIGGER_ROUTES: dict[str, dict[str, str]] = _load("trigger_routes.generated.json")
+TRIGGER_ROUTES: dict[str, dict[str, str]] = _load("trigger_routes.generated.json", dict)
 
 # States the runner writes to `agent_tool_approval_request.state` (source: approval-store.ts).
 # Consumed by the DRF serializer choices and the model's DB CheckConstraint.
-APPROVAL_REQUEST_STATES: list[str] = _load("approval_request_states.generated.json")
+APPROVAL_REQUEST_STATES: list[str] = _load("approval_request_states.generated.json", list)
 
 # Assistant turn stop reasons (source: spec.ts). Consumed by the assistant-message serializer's `stopReason` choices.
-ASSISTANT_STOP_REASONS: list[str] = _load("assistant_stop_reasons.generated.json")
+ASSISTANT_STOP_REASONS: list[str] = _load("assistant_stop_reasons.generated.json", list)
