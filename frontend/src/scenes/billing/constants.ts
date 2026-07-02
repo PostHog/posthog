@@ -1,3 +1,5 @@
+import { urls } from 'scenes/urls'
+
 // sync with ee/hogai/tools/read_billing_tool/tool.py
 // Values are sent to the `billing` repo as `usage_types`; keep in sync with accepted types in `billing/types/usage.py`.
 export const USAGE_TYPES = [
@@ -35,6 +37,20 @@ export const CODE_PLAN_ALPHA_PRO = 'posthog-code-pro-0-20260422'
 
 export const CODE_PRO_PLAN_PREFIX = 'posthog-code-pro-'
 export const CODE_FREE_PLAN_PREFIX = 'posthog-code-free'
+
+/**
+ * In-app management surfaces for products whose bill is driven by configurable behavior.
+ * Surfaced as a "Manage" deep link on the billing product card so users can reach the
+ * settings that actually influence their spend (e.g. pausing self-driving agents) without
+ * hunting through the app. Keyed by billing product `type`.
+ */
+export const PRODUCT_MANAGEMENT_LINKS: Record<string, { to: string; label: string; tooltip: string }> = {
+    [CODE_PRODUCT_KEY]: {
+        to: urls.inbox('config'),
+        label: 'Manage agents',
+        tooltip: 'Configure scouts and how autonomously agents open PRs – the settings that drive this spend.',
+    },
+}
 
 // Date after which billing for data pipelines ends and add-on upgrades/downgrades are disabled,
 // in sync with billing_end_date of data_pipelines in billing plans config

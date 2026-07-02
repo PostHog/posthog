@@ -2,7 +2,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useRef } from 'react'
 
-import { IconChevronDown, IconDocument, IconInfo } from '@posthog/icons'
+import { IconChevronDown, IconDocument, IconGear, IconInfo } from '@posthog/icons'
 import { IconChevronRight } from '@posthog/icons'
 import { LemonButton, LemonTag, Link } from '@posthog/lemon-ui'
 
@@ -32,7 +32,7 @@ import { billingLogic } from './billingLogic'
 import { BillingProductAddon } from './BillingProductAddon'
 import { billingProductLogic } from './billingProductLogic'
 import { BillingProductPricingTable } from './BillingProductPricingTable'
-import { REALTIME_DESTINATIONS_BILLING_START_DATE } from './constants'
+import { PRODUCT_MANAGEMENT_LINKS, REALTIME_DESTINATIONS_BILLING_START_DATE } from './constants'
 import { paymentEntryLogic } from './paymentEntryLogic'
 import { PlatformAddonComparison } from './PlatformAddonComparison'
 import { ProductPricingModal } from './ProductPricingModal'
@@ -93,6 +93,7 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
         workflows_emails: 'Workflows',
     }
     const displayProductName = productDisplayNameOverrides[product.type] || product.name
+    const managementLink = PRODUCT_MANAGEMENT_LINKS[product.type]
     const isPlatformProduct = product.type === 'platform_and_support'
     const addonSectionLabel = isPlatformProduct ? 'Packages' : 'Add-ons'
 
@@ -158,6 +159,17 @@ export const BillingProduct = ({ product }: { product: BillingProductV2Type }): 
 
                         {/* Product actions */}
                         <div className="flex grow justify-end gap-x-2 items-center">
+                            {managementLink && (
+                                <LemonButton
+                                    type="secondary"
+                                    icon={<IconGear />}
+                                    size="small"
+                                    to={managementLink.to}
+                                    tooltip={managementLink.tooltip}
+                                >
+                                    {managementLink.label}
+                                </LemonButton>
+                            )}
                             {product.docs_url && (
                                 <LemonButton
                                     icon={<IconDocument />}
