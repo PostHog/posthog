@@ -2149,7 +2149,7 @@ class NewsApiSourceConfig(config.Config):
 
 @config.config
 class NewsDataSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config

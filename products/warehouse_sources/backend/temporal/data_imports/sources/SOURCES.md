@@ -216,6 +216,7 @@ the row lists both.
 | mysql                   | DB protocol                 | pymysql                                                         | ➖                          |
 | new_york_times          | HTTP                        | requests                                                        | ✅                          |
 | news_api                | HTTP                        | requests                                                        | ✅                          |
+| newsdata                | HTTP                        | requests                                                        | ✅                          |
 | okta                    | HTTP                        | requests                                                        | ✅                          |
 | nocrm                   | HTTP                        | requests                                                        | ✅                          |
 | northpass_lms           | HTTP                        | requests                                                        | ✅                          |
@@ -536,7 +537,6 @@ doesn't conflict with concurrent PRs.
 - netsuite
 - new_relic
 - news_api
-- newsdata
 - nexiopay
 - ninjaone_rmm
 - nocrm
