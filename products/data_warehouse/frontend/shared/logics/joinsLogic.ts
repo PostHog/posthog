@@ -26,8 +26,16 @@ export const joinsLogic = kea<joinsLogicType>([
             [] as DataWarehouseViewLink[],
             {
                 loadJoins: async () => {
-                    const joins = await api.dataWarehouseViewLinks.list()
-                    return joins.results
+                    try {
+                        const joins = await api.dataWarehouseViewLinks.list()
+                        return joins.results
+                    } catch (e: any) {
+                        // Users without warehouse access get a 403; treat it as no joins rather than throwing.
+                        if (e.status === 403) {
+                            return []
+                        }
+                        throw e
+                    }
                 },
             },
         ],
