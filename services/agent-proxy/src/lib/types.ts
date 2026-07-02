@@ -62,6 +62,17 @@ export class EventIngestPayloadTooLarge extends Error {
     }
 }
 
+export class ClientDisconnected extends Error {
+    constructor(
+        public accepted: number = 0,
+        public duplicate: number = 0,
+        public lastAcceptedSeq: number = 0
+    ) {
+        super('Client disconnected during event ingest')
+        this.name = 'ClientDisconnected'
+    }
+}
+
 // ---------------------------------------------------------------------------
 // Redis stream types
 // ---------------------------------------------------------------------------

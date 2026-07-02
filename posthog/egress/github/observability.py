@@ -17,7 +17,7 @@ from urllib.parse import urlparse
 import requests
 from prometheus_client import Counter, Gauge
 
-from posthog.rate_limiting.observability import (
+from posthog.egress.observability.observability import (
     EgressMetrics,
     EgressObservability,
     RateLimitSnapshot,

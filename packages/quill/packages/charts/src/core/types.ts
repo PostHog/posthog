@@ -149,8 +149,12 @@ export interface TooltipContext<Meta = unknown> {
         value: number
         color: string
         fraction?: number
-        /** Canvas y-pixel of this series at the hovered x — used for cursor-proximity sorting. */
+        /** Canvas y-pixel of the value-axis anchor for this series (top of bar segment, or dot for lines). */
         yPixel?: number
+        /** Canvas y-pixel of the bottom of this series's bar segment. When both yPixel and
+         *  yPixelBottom are present, hover detection uses range containment rather than
+         *  distance-to-midpoint, giving correct results regardless of segment size differences. */
+        yPixelBottom?: number
     }[]
     /** Pixel position (relative to the chart container) for anchoring the tooltip.
      *  `width` (optional) is the horizontal data-extent centered on `x` — bar charts

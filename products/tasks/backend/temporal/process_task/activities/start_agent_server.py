@@ -123,6 +123,7 @@ class _LaunchParams:
     protected_base_branch: str | None
     event_ingest_token: str | None
     event_ingest_url: str | None
+    event_ingest_keep_stream_open: bool
 
 
 def _agentsh_domains_for(ctx: TaskProcessingContext) -> list[str] | None:
@@ -221,6 +222,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _La
         protected_base_branch=protected_base_branch,
         event_ingest_token=event_ingest_token,
         event_ingest_url=event_ingest_url,
+        event_ingest_keep_stream_open=ctx.agent_proxy_keep_stream_open,
     )
 
 
@@ -249,6 +251,7 @@ def _invoke_start_agent_server(
             allowed_domains=params.agentsh_domains,
             event_ingest_token=params.event_ingest_token,
             event_ingest_url=params.event_ingest_url,
+            event_ingest_keep_stream_open=params.event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
             wait_for_health=wait_for_health,
         )
