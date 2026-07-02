@@ -97,6 +97,14 @@ class TestValidateCredentials:
         assert expected_substring.lower() in error.lower()
 
     @patch.object(papersign, "make_tracked_session")
+    def test_redacts_token_in_tracked_session(self, mock_session: MagicMock) -> None:
+        # The bearer token must be passed to redact_values so it's masked in logged URLs and captured
+        # HTTP samples. Dropping this would leak customers' API keys into the capture pipeline.
+        mock_session.return_value.get.return_value = _ok_json_response({"results": {"spaces": []}})
+        validate_credentials("secret-token")
+        assert mock_session.call_args.kwargs.get("redact_values") == ("secret-token",)
+
+    @patch.object(papersign, "make_tracked_session")
     def test_returns_false_on_network_error(self, mock_session: MagicMock) -> None:
         mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
 
@@ -118,7 +126,7 @@ class TestGetRows:
         queue = list(pages)
         recorded: list[dict[str, Any]] = []
 
-        def fake_fetch(session: Any, url: str, headers: dict[str, str], logger: Any) -> dict[str, Any]:
+        def fake_fetch(session: Any, url: str, logger: Any) -> dict[str, Any]:
             query = parse_qs(urlparse(url).query)
             recorded.append(
                 {

@@ -37,11 +37,13 @@ class PapersignResumeConfig:
     skip: int = 0
 
 
-def _get_headers(api_token: str) -> dict[str, str]:
-    return {
-        "Authorization": f"Bearer {api_token}",
-        "Accept": "application/json",
-    }
+def _get_session(api_token: str) -> requests.Session:
+    # `redact_values` masks the bearer token in logged URLs and captured HTTP samples, so an
+    # operator-enabled capture never persists a customer's API key.
+    return make_tracked_session(
+        headers={"Authorization": f"Bearer {api_token}", "Accept": "application/json"},
+        redact_values=(api_token,),
+    )
 
 
 def _build_url(path: str, params: dict[str, Any]) -> str:
@@ -59,7 +61,7 @@ def validate_credentials(api_token: str) -> tuple[bool, str | None]:
     """
     url = _build_url("/papersign/spaces", {"limit": 1})
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_token), timeout=10)
+        response = _get_session(api_token).get(url, timeout=10)
     except Exception:
         return False, "Could not reach Paperform. Check your network and try again."
 
@@ -82,10 +84,8 @@ def validate_credentials(api_token: str) -> tuple[bool, str | None]:
     wait=wait_exponential_jitter(initial=1, max=30),
     reraise=True,
 )
-def _fetch_page(
-    session: requests.Session, url: str, headers: dict[str, str], logger: FilteringBoundLogger
-) -> dict[str, Any]:
-    response = session.get(url, headers=headers, timeout=REQUEST_TIMEOUT_SECONDS)
+def _fetch_page(session: requests.Session, url: str, logger: FilteringBoundLogger) -> dict[str, Any]:
+    response = session.get(url, timeout=REQUEST_TIMEOUT_SECONDS)
 
     # Paperform is rate limited per minute and returns 429 with a Retry-After header when exceeded.
     # The exact threshold is undocumented, so we back off exponentially rather than trusting the
@@ -107,9 +107,8 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[PapersignResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
     config = PAPERSIGN_ENDPOINTS[endpoint]
-    headers = _get_headers(api_token)
     # One session reused across every page so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    session = _get_session(api_token)
 
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
     skip: int = resume.skip if resume is not None else 0
@@ -123,8 +122,12 @@ def get_rows(
             # append at the end rather than shifting the offsets of pages we've already read.
             params["sort"] = "ASC"
 
-        data = _fetch_page(session, _build_url(config.path, params), headers, logger)
-        rows = data.get("results", {}).get(config.results_key, [])
+        data = _fetch_page(session, _build_url(config.path, params), logger)
+        # Index strictly rather than `.get(..., [])`: `results` and its resource key are required
+        # fields of the documented response. A malformed 200 (e.g. during an upstream incident) must
+        # raise KeyError and fail the sync loudly, not silently yield zero rows — on a full-refresh
+        # table that would replace all previously synced data with an empty table.
+        rows = data["results"][config.results_key]
         if not rows:
             break
 
