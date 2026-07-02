@@ -190,6 +190,7 @@ the row lists both.
 | matomo                  | HTTP                        | requests                                                        | ✅                          |
 | meta_ads                | HTTP                        | requests                                                        | ✅                          |
 | metabase                | HTTP                        | requests                                                        | ✅                          |
+| mixmax                  | HTTP                        | requests                                                        | ✅                          |
 | mixpanel                | HTTP                        | requests                                                        | ✅                          |
 | mollie                  | HTTP                        | requests                                                        | ✅                          |
 | monday                  | HTTP (GraphQL)              | requests                                                        | ✅                          |
@@ -514,7 +515,6 @@ doesn't conflict with concurrent PRs.
 - microsoft_teams
 - miro
 - missive
-- mixmax
 - mode
 - my_hours
 - n8n
