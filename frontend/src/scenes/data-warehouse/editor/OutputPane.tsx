@@ -7,6 +7,7 @@ import { useCallback, useMemo, useRef, useState } from 'react'
 import DataGrid, { DataGridProps, RenderHeaderCellProps, SortColumn } from 'react-data-grid'
 
 import {
+    IconClock,
     IconCode,
     IconColumns,
     IconCopy,
@@ -26,6 +27,7 @@ import { JSONViewer } from 'lib/components/JSONViewer'
 import { Resizer } from 'lib/components/Resizer/Resizer'
 import { type ResizerLogicProps, resizerLogic } from 'lib/components/Resizer/resizerLogic'
 import { TZLabel } from 'lib/components/TZLabel'
+import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { IconTableChart } from 'lib/lemon-ui/icons'
 import { LoadingBar } from 'lib/lemon-ui/LoadingBar'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
@@ -60,6 +62,7 @@ import {
     copyTableToMarkdown,
 } from '../../../queries/nodes/DataTable/clipboardUtils'
 import { FixErrorButton } from './components/FixErrorButton'
+import { QueryLog } from './output-pane-tabs/QueryLog'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
 import TabScroller from './TabScroller'
@@ -146,6 +149,12 @@ const outputTabs: OutputTabConfig[] = [
         icon: <IconGraph />,
     },
 ]
+
+const queryLogTab: OutputTabConfig = {
+    key: OutputTab.QueryLog,
+    label: 'Query log',
+    icon: <IconClock />,
+}
 
 const cleanClickhouseType = (type: string | undefined): string | undefined => {
     if (!type) {
@@ -533,11 +542,15 @@ interface OutputPaneProps {
 }
 
 export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPaneProps): JSX.Element {
-    const { activeTab } = useValues(outputPaneLogic)
+    const { activeTab: rawActiveTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
+    const queryHistoryEnabled = useFeatureFlag('SQL_EDITOR_QUERY_HISTORY')
+    // With the flag off, a query_log tab in the URL should not render a hidden tab
+    const activeTab = !queryHistoryEnabled && rawActiveTab === OutputTab.QueryLog ? OutputTab.Results : rawActiveTab
+    const visibleTabs = queryHistoryEnabled ? [...outputTabs, queryLogTab] : outputTabs
 
     const { sourceQuery, exportContext, insightLoading, hasQueryInput, isEmbeddedMode } = useValues(sqlEditorLogic)
-    const { setSourceQuery } = useActions(sqlEditorLogic)
+    const { setSourceQuery, setQueryInput } = useActions(sqlEditorLogic)
     const { isDarkModeOn } = useValues(themeLogic)
     const {
         response: dataNodeResponse,
@@ -744,6 +757,8 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
         progress: queryId ? progressCache[queryId] : undefined,
         showVisualizationSettings: showToolbar && isChartSettingsPanelOpen,
         isEmbeddedMode,
+        tabId,
+        setQueryInput,
     }
     const sharedActionsProps = {
         response,
@@ -803,7 +818,7 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
                 <div className="flex flex-row justify-between align-center w-full min-h-[41px] overflow-y-auto">
                     <div className="flex min-h-[41px] gap-2 ml-4">
                         {splitToggle}
-                        {outputTabs.map((tab) => (
+                        {visibleTabs.map((tab) => (
                             <OutputTabLabel
                                 key={tab.key}
                                 tab={tab}
@@ -989,6 +1004,8 @@ const Content = ({
     insightLoading,
     showVisualizationSettings,
     isEmbeddedMode,
+    tabId,
+    setQueryInput,
 }: any): JSX.Element | null => {
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
 
@@ -1019,6 +1036,17 @@ const Content = ({
         })
     }, [rows, sortColumns])
     const hasError = queryCancelled || !!responseError || !!(response && 'error' in response && !!response.error)
+
+    // The query log is independent of the current query's response state, so it renders before error/loading branches
+    if (activeTab === OutputTab.QueryLog) {
+        return (
+            <TabScroller data-attr="sql-editor-output-pane-query-log">
+                <div className="px-4 py-2 border-t">
+                    <QueryLog tabId={tabId} onLoadQuery={setQueryInput} />
+                </div>
+            </TabScroller>
+        )
+    }
 
     if (hasError) {
         return (

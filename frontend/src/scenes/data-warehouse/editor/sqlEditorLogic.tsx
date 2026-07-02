@@ -86,6 +86,12 @@ import {
     aiSuggestionOnReject,
     aiSuggestionOnRejectText,
 } from './suggestions/aiSuggestion'
+import {
+    queryHistorySuggestionOnAccept,
+    queryHistorySuggestionOnAcceptText,
+    queryHistorySuggestionOnReject,
+    queryHistorySuggestionOnRejectText,
+} from './suggestions/queryHistorySuggestion'
 import { ViewEmptyState } from './ViewLoadingState'
 
 export interface SqlEditorLogicProps {
@@ -182,7 +188,7 @@ export interface SuggestionPayload {
     acceptText?: string
     rejectText?: string
     diffShowRunButton?: boolean
-    source?: 'max_ai' | 'hogql_fixer'
+    source?: 'max_ai' | 'hogql_fixer' | 'query_history'
     onAccept: (
         shouldRunQuery: boolean,
         actions: sqlEditorLogicType['actions'],
@@ -887,16 +893,18 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     return
                 }
 
+                const isQueryHistory = source === 'query_history'
+
                 // Always create suggestion payload when a new suggestion comes in, even for consecutive suggestions
                 // Only skip diff mode if the editor is completely empty
                 if (values.queryInput && values.queryInput.trim() !== '') {
                     actions._setSuggestionPayload({
                         suggestedValue: suggestedQueryInput,
                         originalValue: values.queryInput, // Store the current content as original for diff mode
-                        acceptText: aiSuggestionOnAcceptText,
-                        rejectText: aiSuggestionOnRejectText,
-                        onAccept: aiSuggestionOnAccept,
-                        onReject: aiSuggestionOnReject,
+                        acceptText: isQueryHistory ? queryHistorySuggestionOnAcceptText : aiSuggestionOnAcceptText,
+                        rejectText: isQueryHistory ? queryHistorySuggestionOnRejectText : aiSuggestionOnRejectText,
+                        onAccept: isQueryHistory ? queryHistorySuggestionOnAccept : aiSuggestionOnAccept,
+                        onReject: isQueryHistory ? queryHistorySuggestionOnReject : aiSuggestionOnReject,
                         source,
                         diffShowRunButton: true,
                     })
@@ -1210,6 +1218,13 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     query,
                 })
 
+                // Tag only the executed query — keeping tags out of sourceQuery so saved
+                // insights/views and change detection never pick them up
+                const executedSource: HogQLQuery = {
+                    ...newSource,
+                    tags: { ...newSource.tags, productKey: 'sql_editor' },
+                }
+
                 actions.setSourceQuery({
                     ...values.sourceQuery,
                     source: newSource,
@@ -1221,14 +1236,19 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                 if (!cache.umountDataNode) {
                     cache.umountDataNode = dataNodeLogic({
                         key: values.dataLogicKey,
-                        query: newSource,
+                        query: executedSource,
                     }).mount()
                 }
 
                 dataNodeLogic({
                     key: values.dataLogicKey,
-                    query: newSource,
-                }).actions.loadData(!switchTab ? 'force_async' : 'async', undefined, newSource)
+                    query: executedSource,
+                }).actions.loadData(!switchTab ? 'force_async' : 'async', undefined, executedSource)
+
+                // Running from the query log tab should surface the results; other tabs (incl. split view) stay put
+                if (values.outputActiveTab === OutputTab.QueryLog) {
+                    actions.setActiveTab(OutputTab.Results)
+                }
 
                 // Mark the first query task as complete when the query is run
                 globalSetupLogic.findMounted()?.actions.markTaskAsCompleted(SetupTaskId.RunFirstQuery)
