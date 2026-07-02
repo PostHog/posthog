@@ -1,4 +1,5 @@
 import time
+import asyncio
 from collections.abc import AsyncIterable, AsyncIterator, Iterable, Iterator
 from http import HTTPStatus
 
@@ -58,7 +59,8 @@ async def _instrumented_aiter(stream: AsyncIterable[bytes | str], endpoint: str)
 
     Metric work happens only at stream start and end — nothing is added per
     chunk. A client disconnect surfaces here as cancellation of the generator
-    (``GeneratorExit`` / ``CancelledError``), which is why it gets its own
+    (``GeneratorExit`` from ``aclose()``, or ``asyncio.CancelledError`` when the
+    ASGI handler cancels the streaming task), which is why both get their own
     outcome rather than folding into ``error``.
     """
     SSE_STREAM_OPENED_COUNTER.labels(endpoint=endpoint).inc()
@@ -68,7 +70,7 @@ async def _instrumented_aiter(stream: AsyncIterable[bytes | str], endpoint: str)
     try:
         async for chunk in stream:
             yield chunk
-    except GeneratorExit:
+    except (GeneratorExit, asyncio.CancelledError):
         outcome = "client_disconnect"
         raise
     except BaseException:

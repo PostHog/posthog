@@ -60,12 +60,18 @@ async def _event_loop_lag_heartbeat() -> None:
             await asyncio.sleep(_LOOP_LAG_HEARTBEAT_SECONDS)
 
 
+# Strong reference so the heartbeat task cannot be garbage-collected mid-flight
+# (the event loop only keeps weak references to tasks).
+_loop_lag_heartbeat_task: "asyncio.Task[None] | None" = None
+
+
 def _start_event_loop_lag_heartbeat() -> None:
+    global _loop_lag_heartbeat_task
     try:
         loop = asyncio.get_running_loop()
     except RuntimeError:
         return  # not on an event loop (e.g. WSGI import path); nothing to measure
-    loop.create_task(_event_loop_lag_heartbeat())
+    _loop_lag_heartbeat_task = loop.create_task(_event_loop_lag_heartbeat())
 
 
 def _ensure_post_fork_init():

@@ -1,3 +1,4 @@
+import asyncio
 from collections.abc import AsyncIterator, Iterator
 from http import HTTPStatus
 from typing import cast
@@ -144,3 +145,31 @@ class TestStreamingResponse:
         assert response.headers["Content-Type"] == "audio/mpeg"
         assert "X-Accel-Buffering" not in response.headers
         assert response.status_code == HTTPStatus.OK
+
+
+class TestSSEAsyncCancellation:
+    async def test_task_cancellation_counts_client_disconnect_not_error(self):
+        first_chunk_pulled = asyncio.Event()
+
+        async def blocking():
+            yield b": ping\n\n"
+            await asyncio.Event().wait()  # park forever; cancellation lands here
+
+        stream = _instrument_stream(blocking(), "test_async_cancel")
+        assert isinstance(stream, AsyncIterator)
+
+        async def consume():
+            async for _ in stream:
+                first_chunk_pulled.set()
+
+        task = asyncio.ensure_future(consume())
+        await first_chunk_pulled.wait()
+        assert _open_connections("test_async_cancel") == 1.0
+        task.cancel()
+        try:
+            await task
+        except asyncio.CancelledError:
+            pass
+        assert _open_connections("test_async_cancel") == 0.0
+        assert _closed_total("test_async_cancel", "client_disconnect") == 1.0
+        assert _closed_total("test_async_cancel", "error") == 0.0
