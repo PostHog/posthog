@@ -22,7 +22,7 @@ from django.utils import timezone
 import posthoganalytics
 
 from posthog.exceptions_capture import capture_exception
-from posthog.llm.gateway_client import get_llm_client
+from posthog.llm.gateway_client import Product, get_llm_client
 from posthog.models import Team
 
 DEFAULT_ENRICHMENT_MODEL = "claude-haiku-4-5"
@@ -125,7 +125,7 @@ def get_team_business_context(team: Team) -> str:
 
 def generate_json_completion(
     *,
-    product: str,
+    product: Product,
     team_id: int,
     prompt: str,
     model: str = DEFAULT_ENRICHMENT_MODEL,
