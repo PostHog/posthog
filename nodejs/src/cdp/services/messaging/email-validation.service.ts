@@ -45,8 +45,9 @@ const DNS_TIMEOUT_MS = 3000
 const DNS_TRIES = 1
 
 // Bounds worker memory against lists full of unique garbage domains; evicted
-// domains just fall back to Valkey/DNS on their next send.
-export const MAX_LOCAL_CACHE_DOMAINS = 10_000
+// domains just fall back to Valkey/DNS on their next send. ~150 B per entry,
+// so this caps the cache at roughly 15 MB per worker.
+export const MAX_LOCAL_CACHE_DOMAINS = 100_000
 
 // Same key style as the SES rate limiter's '@posthog/ses/global' on the shared Valkey.
 const VALKEY_KEY_PREFIX = '@posthog/ses/email-mx/'
