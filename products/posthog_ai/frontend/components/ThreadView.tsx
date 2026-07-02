@@ -103,7 +103,7 @@ export function ThreadView({
 
     // Header/footer are kept as memoized leaf components with stable element identity so they don't rebuild
     // `VirtualizedThread`'s `renderRow` (and re-sweep visible rows) on every streamed frame. Each is wrapped
-    // in `VirtualizedThread.Row` like the item rows so it gets react-window positioning + height measurement.
+    // in `VirtualizedThread.Row` like the item rows so it gets virtualized positioning + height measurement.
     const { branch, baseBranch, repo } = runArtifacts
     const header = useMemo(
         () =>
