@@ -12,7 +12,7 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
-from products.slack_app.backend.models import SlackThreadTaskMapping
+from products.slack_app.backend.models import SlackThreadMessage, SlackThreadTaskMapping
 from products.tasks.backend.models import Task, TaskRun
 from products.tasks.backend.temporal.slack_relay.activities import (
     SLACK_MESSAGE_TEXT_LIMIT,
@@ -111,38 +111,71 @@ class TestRelaySlackMessage(TestCase):
 
     @parameterized.expand(
         [
-            # ``mentioning_slack_user_id`` is the immutable thread creator;
-            # ``latest_actor_slack_user_id`` is set by the follow-up handler
-            # when someone else (or the creator themselves) replies. The bot
-            # tags the latest actor when present, otherwise the creator.
-            ("no_actor_falls_back_to_mentioner", None, "<@U123> "),
-            ("actor_overrides_mentioner", "UBOB", "<@UBOB> "),
+            # No triggering ts (e.g. a proactive relay) → tag the thread creator.
+            ("no_ts_falls_back_to_mentioner", None, "<@U123> "),
+            # A ts we never recorded (message predates the feature) → creator.
+            ("unrecorded_ts_falls_back_to_mentioner", "9999.9", "<@U123> "),
         ]
     )
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
     @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
-    def test_mention_prefix_uses_latest_actor_then_mentioner(
+    def test_mention_prefix_falls_back_to_mentioner(
         self,
         _name,
-        latest_actor,
+        user_message_ts,
         expected_prefix,
         _mock_delete_progress,
         mock_post,
         _mock_update,
     ):
-        SlackThreadTaskMapping.objects.filter(task_run=self.task_run).update(latest_actor_slack_user_id=latest_actor)
-
         relay_slack_message(
             RelaySlackMessageInput(
                 run_id=str(self.task_run.id),
                 relay_id=f"relay-mention-{_name}",
                 text="agent reply",
+                user_message_ts=user_message_ts,
             )
         )
 
         mock_post.assert_called_once()
         assert mock_post.call_args.args[0].startswith(expected_prefix)
+
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.update_reaction")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.post_thread_message")
+    @patch("products.slack_app.backend.slack_thread.SlackThreadHandler.delete_progress")
+    def test_mention_prefix_tags_author_of_the_answered_message(
+        self,
+        _mock_delete_progress,
+        mock_post,
+        _mock_update,
+    ):
+        # Two people ask in the same thread. Each agent reply must tag the author of
+        # the specific message it answers, resolved by `user_message_ts` — not a shared
+        # "latest actor" scalar that the second asker would overwrite (the race we fix).
+        mapping = SlackThreadTaskMapping.objects.get(task_run=self.task_run)
+        SlackThreadMessage.record(mapping, "U_ALICE", "2001.1")
+        SlackThreadMessage.record(mapping, "U_BOB", "2002.2")
+
+        relay_slack_message(
+            RelaySlackMessageInput(
+                run_id=str(self.task_run.id),
+                relay_id="relay-answer-alice",
+                text="reply to alice",
+                user_message_ts="2001.1",
+            )
+        )
+        relay_slack_message(
+            RelaySlackMessageInput(
+                run_id=str(self.task_run.id),
+                relay_id="relay-answer-bob",
+                text="reply to bob",
+                user_message_ts="2002.2",
+            )
+        )
+
+        prefixes = [call.args[0][:10] for call in mock_post.call_args_list]
+        assert prefixes == ["<@U_ALICE>", "<@U_BOB> r"]
 
 
 class TestMarkdownToSlackMrkdwn(unittest.TestCase):

@@ -27,6 +27,10 @@ class SlackThreadTaskMapping(UUIDModel):
         related_name="slack_thread_mappings",
     )
     mentioning_slack_user_id = models.CharField(max_length=64)
+    # Deprecated: superseded by SlackThreadMessage, which records the author of every
+    # forwarded message so replies can tag the person who asked. A single scalar can't
+    # attribute concurrent follow-ups correctly. No longer read or written; drop in a
+    # follow-up once this has deployed.
     latest_actor_slack_user_id = models.CharField(max_length=64, null=True, blank=True)
     # Slack `ts` of the most recent message we've already shown to the agent (either
     # in the original `<slack_thread_context>` block at task creation, or in a follow-up
@@ -44,6 +48,57 @@ class SlackThreadTaskMapping(UUIDModel):
                 name="uniq_slack_thread_task_mapping",
             )
         ]
+
+
+class SlackThreadMessage(UUIDModel):
+    """Author of each message forwarded to the agent within a Slack thread.
+
+    Async reply paths (the agent's response, the PR-opened card) tag the author of the
+    specific message they answer — resolved by ``message_ts`` — instead of a single
+    mutable "latest actor", which mis-tags when several people collaborate in one thread.
+    The distinct ``slack_user_id`` values on a thread are its participant set.
+
+    Scoped through ``mapping``, which carries the team; rows are only ever read via it.
+    """
+
+    mapping = models.ForeignKey(
+        SlackThreadTaskMapping,
+        on_delete=models.CASCADE,
+        related_name="messages",
+    )
+    slack_user_id = models.CharField(max_length=64)
+    # Slack `ts` of the message this row attributes; unique per thread mapping.
+    message_ts = models.CharField(max_length=64)
+    created_at = models.DateTimeField(auto_now_add=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(
+                fields=["mapping", "message_ts"],
+                name="uniq_slack_thread_message",
+            )
+        ]
+
+    @classmethod
+    def record(cls, mapping: "SlackThreadTaskMapping", slack_user_id: str, message_ts: str) -> None:
+        """Attribute a forwarded message to its author. Idempotent — activities retry."""
+        cls.objects.get_or_create(
+            mapping=mapping,
+            message_ts=message_ts,
+            defaults={"slack_user_id": slack_user_id},
+        )
+
+    @classmethod
+    def author_of(cls, mapping: "SlackThreadTaskMapping", message_ts: str) -> str | None:
+        """The Slack user who authored ``message_ts`` in this thread, or None if unrecorded."""
+        row = cls.objects.filter(mapping=mapping, message_ts=message_ts).only("slack_user_id").first()
+        return row.slack_user_id if row else None
+
+    @classmethod
+    def latest_participant(cls, mapping: "SlackThreadTaskMapping") -> str | None:
+        """The most recent message author in this thread, or None if none recorded."""
+        row = cls.objects.filter(mapping=mapping).order_by("-message_ts").only("slack_user_id").first()
+        return row.slack_user_id if row else None
 
 
 class SlackUserProfileCache(UUIDModel):

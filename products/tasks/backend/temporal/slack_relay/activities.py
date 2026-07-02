@@ -284,7 +284,7 @@ class RelaySlackMessageInput:
 @activity.defn
 @close_db_connections
 def relay_slack_message(input: RelaySlackMessageInput) -> None:
-    from products.slack_app.backend.models import SlackThreadTaskMapping
+    from products.slack_app.backend.models import SlackThreadMessage, SlackThreadTaskMapping
     from products.slack_app.backend.slack_thread import SlackThreadContext, SlackThreadHandler
     from products.tasks.backend.models import TaskRun
 
@@ -325,7 +325,13 @@ def relay_slack_message(input: RelaySlackMessageInput) -> None:
     )
     handler = SlackThreadHandler(context)
 
-    target = mapping.latest_actor_slack_user_id or mapping.mentioning_slack_user_id
+    # Tag the author of the specific message this reply answers (resolved per message,
+    # so concurrent follow-ups from different people each get the right mention),
+    # falling back to the thread's original mentioner.
+    target = None
+    if input.user_message_ts:
+        target = SlackThreadMessage.author_of(mapping, input.user_message_ts)
+    target = target or mapping.mentioning_slack_user_id
     mention_prefix = f"<@{target}> " if target else ""
     if input.delete_progress:
         handler.delete_progress()

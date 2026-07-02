@@ -324,7 +324,7 @@ def create_posthog_code_task_for_repo_activity(
 ) -> None:
     from posthog.models.integration import Integration, SlackIntegration
 
-    from products.slack_app.backend.models import SlackThreadTaskMapping
+    from products.slack_app.backend.models import SlackThreadMessage, SlackThreadTaskMapping
     from products.slack_app.backend.slack_thread import SlackThreadContext
     from products.tasks.backend.facade import api as tasks_facade
     from products.tasks.backend.facade.temporal import execute_task_processing_workflow
@@ -478,7 +478,7 @@ def create_posthog_code_task_for_repo_activity(
             thread_ts,
             *(m.get("ts") or "" for m in thread_messages),
         )
-        SlackThreadTaskMapping.objects.update_or_create(
+        mapping, _ = SlackThreadTaskMapping.objects.update_or_create(
             integration=integration,
             channel=channel,
             thread_ts=thread_ts,
@@ -491,6 +491,9 @@ def create_posthog_code_task_for_repo_activity(
                 "last_forwarded_ts": initial_watermark,
             },
         )
+        # Attribute the opening mention to its author so the first reply tags the creator.
+        if user_message_ts:
+            SlackThreadMessage.record(mapping, slack_user_id, user_message_ts)
         # Track the workflow to link Temporal jobs to Slack threads
         state_updates: dict[str, str] = {"slack_mention_workflow_id": derive_mention_workflow_id(inputs)}
         if repo_research_task_id and repo_research_run_id:
@@ -537,7 +540,7 @@ def forward_posthog_code_followup_activity(
     from posthog.models.integration import Integration, SlackIntegration
 
     from products.slack_app.backend.api import _parse_rules_command, resolve_slack_user
-    from products.slack_app.backend.models import SlackThreadTaskMapping
+    from products.slack_app.backend.models import SlackThreadMessage, SlackThreadTaskMapping
     from products.tasks.backend.facade import api as tasks_facade
 
     if _parse_rules_command(event_text):
@@ -603,11 +606,11 @@ def forward_posthog_code_followup_activity(
     ):
         return True
 
-    # Record the live actor so async reply paths tag them instead of the
-    # thread's original mentioner. Concurrent follow-ups can race here; see PR.
-    if slack_user_id != mapping.latest_actor_slack_user_id:
-        mapping.latest_actor_slack_user_id = slack_user_id
-        mapping.save(update_fields=["latest_actor_slack_user_id", "updated_at"])
+    # Attribute this follow-up to its author so the async reply tags the person who
+    # asked — resolved per message by `user_message_ts`, so concurrent follow-ups from
+    # different people each get the right mention instead of racing on a shared scalar.
+    if user_message_ts:
+        SlackThreadMessage.record(mapping, slack_user_id, user_message_ts)
 
     if task_run.is_terminal:
         return _resume_task_with_new_run(

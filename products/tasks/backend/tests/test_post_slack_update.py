@@ -194,9 +194,8 @@ class TestPostSlackUpdate(TestCase):
             state={},
         )
         mock_task_run_class.objects.select_related.return_value.get.return_value = mock_run
-        # Reply target now resolves from the live mapping, not the workflow context.
+        # A PR opening tags the task creator, not whoever spoke most recently.
         mock_mapping = MagicMock()
-        mock_mapping.latest_actor_slack_user_id = "U123"
         mock_mapping.mentioning_slack_user_id = "U_ORIG"
         mock_mapping_class.objects.filter.return_value.first.return_value = mock_mapping
 
@@ -213,7 +212,7 @@ class TestPostSlackUpdate(TestCase):
         mock_post_pr_opened.assert_called_once_with(
             "https://github.com/org/repo/pull/1",
             "http://localhost:8000/project/1/tasks/10?runId=run-1",
-            reply_target_slack_user_id="U123",
+            reply_target_slack_user_id="U_ORIG",
         )
         mock_update_reaction.assert_called_once_with("eyes")
         mock_post_progress.assert_not_called()

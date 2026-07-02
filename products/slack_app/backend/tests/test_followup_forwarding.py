@@ -23,7 +23,7 @@ from posthog.temporal.ai.slack_app import (
 from posthog.temporal.ai.slack_app.helpers import safe_react
 
 from products.slack_app.backend.api import SlackUserContext
-from products.slack_app.backend.models import SlackThreadTaskMapping
+from products.slack_app.backend.models import SlackThreadMessage, SlackThreadTaskMapping
 
 
 def _make_inputs(integration_id: int, slack_team_id: str = "T_SLACK") -> PostHogCodeSlackMentionWorkflowInputs:
@@ -855,13 +855,10 @@ class TestForwardPostHogCodeFollowupActivity(TestCase):
         mock_slack_instance.client.reactions_remove.assert_not_called()
         # Response is delivered by relayAgentResponse from the agent-server, not by this activity.
         mock_slack_instance.client.chat_postMessage.assert_not_called()
-        # The follow-up sender is recorded on the mapping so async reply paths
-        # tag the latest actor instead of the original thread creator
-        # (multiplayer support). The creator (``mentioning_slack_user_id``)
-        # remains immutable; the latest-actor field receives the live actor
-        # even when it's the same person as the creator (one-time seed).
+        # The follow-up is attributed to its author, keyed by the message ts, so the
+        # async reply can tag the person who asked. The creator remains immutable.
+        assert SlackThreadMessage.author_of(mapping, "1234.5679") == "U_ALICE"
         mapping.refresh_from_db()
-        assert mapping.latest_actor_slack_user_id == "U_ALICE"
         assert mapping.mentioning_slack_user_id == "U_ALICE"
 
     @patch(
