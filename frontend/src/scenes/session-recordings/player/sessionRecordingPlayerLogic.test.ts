@@ -860,6 +860,42 @@ describe('sessionRecordingPlayerLogic', () => {
         })
     })
 
+    describe('buffering stuck detection', () => {
+        beforeEach(() => {
+            jest.useFakeTimers()
+            logic.unmount()
+            logic = sessionRecordingPlayerLogic({
+                sessionRecordingId: '2',
+                playerKey: 'test',
+                blobV2PollingDisabled: true,
+            })
+            logic.mount()
+        })
+
+        afterEach(() => {
+            jest.useRealTimers()
+        })
+
+        it('flags buffering as stuck only once it persists, and resets on re-buffer', () => {
+            // A buffer that resolves before the threshold never counts as stuck
+            logic.actions.startBuffer()
+            expect(logic.values.bufferingStuck).toBe(false)
+            jest.advanceTimersByTime(1000)
+            logic.actions.endBuffer()
+            jest.advanceTimersByTime(60000)
+            expect(logic.values.bufferingStuck).toBe(false)
+
+            // A buffer that persists past the threshold is flagged stuck
+            logic.actions.startBuffer()
+            jest.advanceTimersByTime(8000)
+            expect(logic.values.bufferingStuck).toBe(true)
+
+            // Re-buffering clears the flag so a fresh, still-loading recording doesn't inherit it
+            logic.actions.startBuffer()
+            expect(logic.values.bufferingStuck).toBe(false)
+        })
+    })
+
     describe('recording viewed summary event', () => {
         describe('play_time_ms tracking', () => {
             const startPlaying = (): void => {

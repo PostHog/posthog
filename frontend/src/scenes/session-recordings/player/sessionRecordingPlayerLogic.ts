@@ -170,6 +170,12 @@ const LATE_FULL_SNAPSHOT_THRESHOLD_MS = 20000
 // not a tuned value: worst case is ~2 min of "Still processing…" after grace has already lapsed.
 const BUFFERING_REEVALUATION_INTERVAL_MS = 120000
 
+// How long playback can stay buffering before we treat it as stuck rather than transient. A
+// playable recording resolves its initial buffer well within this window; a persistent buffer
+// past it is the signal we lean on to surface a dead-end (e.g. an over-limit org whose snapshot
+// data never arrives) instead of spinning on "Buffering…" forever.
+const BUFFERING_STUCK_THRESHOLD_MS = 8000
+
 export type SeekRenderability =
     // a FullSnapshot exists at or before the timestamp for its window
     | { kind: 'renderable' }
@@ -588,6 +594,7 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         setEndReached: (reached: boolean = true) => ({ reached }),
         startBuffer: true,
         endBuffer: true,
+        markBufferingStuck: true,
         startScrub: true,
         endScrub: true,
         setPlayerError: (reason: string) => ({ reason }),
@@ -824,6 +831,9 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
             },
         ],
         isBuffering: [true, { startBuffer: () => true, endBuffer: () => false }],
+        // True once buffering has persisted past BUFFERING_STUCK_THRESHOLD_MS — distinguishes a
+        // dead-end from the brief buffer a playable recording shows while its data loads.
+        bufferingStuck: [false, { markBufferingStuck: () => true, startBuffer: () => false, endBuffer: () => false }],
         playerError: [
             null as string | null,
             {
@@ -1857,6 +1867,14 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
         },
         startBuffer: () => {
             actions.stopAnimation()
+            // Same key auto-disposes the previous timer, so rapid re-buffers restart the clock.
+            cache.disposables.add(() => {
+                const timerId = setTimeout(() => actions.markBufferingStuck(), BUFFERING_STUCK_THRESHOLD_MS)
+                return () => clearTimeout(timerId)
+            }, 'bufferingStuckTimer')
+        },
+        endBuffer: () => {
+            cache.disposables.dispose('bufferingStuckTimer')
         },
         setPlayerError: () => {
             actions.incrementErrorCount()
