@@ -3,6 +3,7 @@ import { useActions, useValues } from 'kea'
 import { IconPencil, IconPlusSmall, IconPulse, IconTrash } from '@posthog/icons'
 
 import { NotFound } from 'lib/components/NotFound'
+import { ProductIntroduction } from 'lib/components/ProductIntroduction/ProductIntroduction'
 import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -23,14 +24,15 @@ import { InsightShortId } from '~/types'
 import { BriefConfigModal } from './BriefConfigModal'
 import type { ProductBriefListApi } from './generated/api.schemas'
 import { ProductBriefStatusEnumApi } from './generated/api.schemas'
-import { BriefSection, pulseLogic } from './pulseLogic'
+import { BRIEF_ALREADY_GENERATING_MESSAGE, BriefCitation, BriefSection, pulseLogic } from './pulseLogic'
 
 export const scene: SceneExport = {
     component: PulseScene,
     logic: pulseLogic,
 }
 
-const STATUS_TAG_TYPES: Record<string, LemonTagType> = {
+// Exhaustive over the enum so a new backend status fails compilation here instead of rendering unstyled.
+const STATUS_TAG_TYPES: Record<ProductBriefStatusEnumApi, LemonTagType> = {
     [ProductBriefStatusEnumApi.Generating]: 'warning',
     [ProductBriefStatusEnumApi.Ready]: 'success',
     [ProductBriefStatusEnumApi.Quiet]: 'default',
@@ -39,18 +41,12 @@ const STATUS_TAG_TYPES: Record<string, LemonTagType> = {
 
 export function PulseScene(): JSX.Element {
     const isEnabled = useFeatureFlag('PULSE')
+    const { aiConsentRequired, briefConfigs, selectedConfigId } = useValues(pulseLogic)
+    const { selectConfig, openConfigModal } = useActions(pulseLogic)
 
     if (!isEnabled) {
         return <NotFound object="Pulse" caption="This feature is not enabled for your project." />
     }
-
-    return <PulseSceneContent />
-}
-
-function PulseSceneContent(): JSX.Element {
-    const { aiConsentRequired, briefConfigs, selectedConfigId, isGenerating, generatedBriefLoading } =
-        useValues(pulseLogic)
-    const { generateBrief, selectConfig, openConfigModal } = useActions(pulseLogic)
 
     return (
         <SceneContent>
@@ -63,18 +59,7 @@ function PulseSceneContent(): JSX.Element {
                         <LemonButton type="secondary" icon={<IconPlusSmall />} onClick={() => openConfigModal(null)}>
                             New config
                         </LemonButton>
-                        <LemonButton
-                            type="primary"
-                            loading={generatedBriefLoading}
-                            disabledReason={
-                                isGenerating && !generatedBriefLoading
-                                    ? 'A brief is already being generated'
-                                    : undefined
-                            }
-                            onClick={() => generateBrief({ configId: selectedConfigId })}
-                        >
-                            Run brief now
-                        </LemonButton>
+                        <RunBriefButton />
                     </>
                 }
             />
@@ -109,6 +94,22 @@ function PulseSceneContent(): JSX.Element {
             <BriefsView />
             <BriefConfigModal />
         </SceneContent>
+    )
+}
+
+function RunBriefButton(): JSX.Element {
+    const { isGenerating, generatedBriefLoading, selectedConfigId } = useValues(pulseLogic)
+    const { generateBrief } = useActions(pulseLogic)
+
+    return (
+        <LemonButton
+            type="primary"
+            loading={generatedBriefLoading}
+            disabledReason={isGenerating && !generatedBriefLoading ? BRIEF_ALREADY_GENERATING_MESSAGE : undefined}
+            onClick={() => generateBrief({ configId: selectedConfigId })}
+        >
+            Run brief now
+        </LemonButton>
     )
 }
 
@@ -166,7 +167,16 @@ function BriefsView(): JSX.Element {
     }
 
     if (visibleBriefs.length === 0) {
-        return <BriefsEmptyState />
+        return (
+            <ProductIntroduction
+                productName="Pulse"
+                thingName="brief"
+                titleOverride="No briefs yet"
+                description="Run your first brief to see what happened in your product, why it happened, and what to build next."
+                isEmpty
+                actionElementOverride={<RunBriefButton />}
+            />
+        )
     }
 
     return (
@@ -175,30 +185,6 @@ function BriefsView(): JSX.Element {
             <div className="flex-1 min-w-0">
                 <BriefDetail />
             </div>
-        </div>
-    )
-}
-
-function BriefsEmptyState(): JSX.Element {
-    const { isGenerating, generatedBriefLoading, selectedConfigId } = useValues(pulseLogic)
-    const { generateBrief } = useActions(pulseLogic)
-
-    return (
-        <div className="flex flex-col items-center gap-2 border rounded p-8 text-center">
-            <h3 className="mb-0">No briefs yet</h3>
-            <p className="text-muted mb-2">
-                Run your first brief to see what happened in your product, why it happened, and what to build next.
-            </p>
-            <LemonButton
-                type="primary"
-                loading={generatedBriefLoading}
-                disabledReason={
-                    isGenerating && !generatedBriefLoading ? 'A brief is already being generated' : undefined
-                }
-                onClick={() => generateBrief({ configId: selectedConfigId })}
-            >
-                Run brief now
-            </LemonButton>
         </div>
     )
 }
@@ -218,7 +204,7 @@ function BriefHistoryList({ briefs }: { briefs: ProductBriefListApi[] }): JSX.El
                 >
                     <div className="flex items-center justify-between gap-2 w-full">
                         <TZLabel time={brief.created_at} />
-                        <LemonTag type={STATUS_TAG_TYPES[brief.status] ?? 'default'}>{brief.status}</LemonTag>
+                        <LemonTag type={STATUS_TAG_TYPES[brief.status]}>{brief.status}</LemonTag>
                     </div>
                 </LemonButton>
             ))}
@@ -252,10 +238,6 @@ function BriefDetail(): JSX.Element | null {
         )
     }
 
-    if (briefDetailLoading && briefDetailSections.length === 0) {
-        return <Spinner />
-    }
-
     return (
         <div className="flex flex-col gap-6">
             {briefDetailSections.map((section, index) => (
@@ -273,7 +255,7 @@ function BriefSectionCard({ section }: { section: BriefSection }): JSX.Element {
             {section.citations.length > 0 && (
                 <div className="flex flex-wrap gap-1">
                     {section.citations.map((citation) => (
-                        <CitationTag key={citation} citation={citation} />
+                        <CitationTag key={`${citation.type}:${citation.ref}`} citation={citation} />
                     ))}
                 </div>
             )}
@@ -281,10 +263,8 @@ function BriefSectionCard({ section }: { section: BriefSection }): JSX.Element {
     )
 }
 
-function CitationTag({ citation }: { citation: string }): JSX.Element {
-    const separatorIndex = citation.indexOf(':')
-    const type = separatorIndex > 0 ? citation.slice(0, separatorIndex) : ''
-    const ref = separatorIndex > 0 ? citation.slice(separatorIndex + 1) : citation
+function CitationTag({ citation }: { citation: BriefCitation }): JSX.Element {
+    const { type, ref } = citation
 
     if (type === 'insight' && ref) {
         return (
@@ -300,5 +280,5 @@ function CitationTag({ citation }: { citation: string }): JSX.Element {
             </Link>
         )
     }
-    return <LemonTag>{citation}</LemonTag>
+    return <LemonTag>{type ? `${type}:${ref}` : ref}</LemonTag>
 }
