@@ -19,7 +19,7 @@ export function ResourcesBar(): JSX.Element | null {
     }
 
     return (
-        <div className="flex flex-wrap items-center gap-x-1.5 px-3" data-attr="max-sandbox-resources-bar">
+        <div className="flex flex-wrap items-center gap-1.5 px-3" data-attr="max-sandbox-resources-bar">
             <span className="text-xs text-muted mr-0.5">PostHog resources used:</span>
             {resourcesUsed.map((product) => {
                 const { label, Icon } = resolveProductMeta(product.id, product.label)
