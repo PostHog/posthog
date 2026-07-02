@@ -16,7 +16,7 @@ from prometheus_client import CollectorRegistry, Gauge, multiprocess, start_http
 logger = logging.getLogger(__name__)
 
 
-def create_granian_metrics(registry: CollectorRegistry) -> None:
+def create_granian_metrics() -> None:
     """
     Create Granian-equivalent metrics to maintain compatibility with existing Grafana dashboards.
 
@@ -27,19 +27,24 @@ def create_granian_metrics(registry: CollectorRegistry) -> None:
     workers = int(os.environ.get("GRANIAN_WORKERS", 4))
     threads = int(os.environ.get("GRANIAN_THREADS", 2))
 
-    # Expose static configuration as gauges
-    # These provide equivalent metrics to what gunicorn/unit previously exposed
+    # Expose static configuration as gauges. With PROMETHEUS_MULTIPROC_DIR set,
+    # gauge writes land in the shared mmap files that MultiProcessCollector
+    # already exports — registering them on the scrape registry as well would
+    # export duplicate families, so registry stays None. multiprocess_mode="max"
+    # yields one pid-less sample (only this process sets them).
     max_worker_threads = Gauge(
         "granian_max_worker_threads",
         "Maximum number of threads per worker",
-        registry=registry,
+        registry=None,
+        multiprocess_mode="max",
     )
     max_worker_threads.set(threads)
 
     total_workers = Gauge(
         "granian_workers_total",
         "Total number of Granian workers configured",
-        registry=registry,
+        registry=None,
+        multiprocess_mode="max",
     )
     total_workers.set(workers)
 
@@ -53,7 +58,7 @@ def create_granian_metrics(registry: CollectorRegistry) -> None:
     ):
         value = os.environ.get(env_var)
         if value is not None:
-            gauge = Gauge(metric_name, help_text, registry=registry)
+            gauge = Gauge(metric_name, help_text, registry=None, multiprocess_mode="max")
             gauge.set(int(value))
 
 
@@ -62,8 +67,9 @@ def main():
     registry = CollectorRegistry()
     multiprocess.MultiProcessCollector(registry)
 
-    # Create Granian-specific metrics for dashboard compatibility
-    create_granian_metrics(registry)
+    # Create Granian-specific metrics for dashboard compatibility (they reach
+    # the scrape via the multiprocess mmap files, not this registry)
+    create_granian_metrics()
 
     port = int(os.environ.get("PROMETHEUS_METRICS_EXPORT_PORT", 8001))
 
