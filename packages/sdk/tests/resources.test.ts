@@ -54,6 +54,12 @@ const CASES: Case[] = [
     ['experiments.list', (c) => c.experiments.list(), 'GET', '/api/projects/42/experiments/'],
     ['cohorts.list', (c) => c.cohorts.list(), 'GET', '/api/projects/42/cohorts/'],
     ['organization.get', (c) => c.organization.get({ id: 'org_1' }), 'GET', '/api/organizations/org_1/'],
+    [
+        'query.run',
+        (c) => c.query.run({ query: { kind: 'HogQLQuery', query: 'select 1' } }),
+        'POST',
+        '/api/environments/42/query/',
+    ],
 ]
 
 describe('@posthog/sdk generated resource surface', () => {
@@ -66,6 +72,41 @@ describe('@posthog/sdk generated resource surface', () => {
     it('featureFlags.delete sends the soft-delete body', async () => {
         await client().featureFlags.delete({ id: 3 })
         expect(lastBody).toEqual({ deleted: true })
+    })
+
+    it('query.trends injects the query kind and posts to the environments query endpoint', async () => {
+        await client().query.trends({ series: [{ event: '$pageview' }], dateRange: { date_from: '-7d' } })
+        expect(lastPath).toBe('/api/environments/42/query/')
+        expect(lastBody).toEqual({
+            query: {
+                kind: 'TrendsQuery',
+                series: [{ event: '$pageview' }],
+                dateRange: { date_from: '-7d' },
+            },
+        })
+    })
+
+    it('query.trendsActors wraps the source in an ActorsQuery with the trends projection', async () => {
+        await client().query.trendsActors({
+            source: { kind: 'TrendsQuery', series: [{ event: '$pageview' }] },
+            day: '2024-01-15',
+            series: 0,
+        })
+        expect(lastPath).toBe('/api/environments/42/query/')
+        expect(lastBody).toEqual({
+            query: {
+                kind: 'ActorsQuery',
+                source: {
+                    kind: 'InsightActorsQuery',
+                    source: { kind: 'TrendsQuery', series: [{ event: '$pageview' }] },
+                    day: '2024-01-15',
+                    series: 0,
+                },
+                select: ['actor', 'event_count'],
+                orderBy: ['event_count DESC', 'actor_id DESC'],
+                limit: 100,
+            },
+        })
     })
 
     it('exposes many resources, each a class instance with async methods', () => {

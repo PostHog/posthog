@@ -62,6 +62,14 @@ await client.featureFlags.delete({ id: created.id })
 const dashboard = await client.dashboards.get({ id: 7 })
 const org = await client.organization.get({ id: 'org_abc' })
 
+// Insight queries (POST /api/environments/{projectId}/query/) — the query `kind` is injected
+const trends = await client.query.trends({ series: [{ event: '$pageview' }] })
+const funnel = await client.query.funnel({ series: [{ event: 'signup' }, { event: 'activate' }] })
+// Actors drill-down — the insight query is wrapped in an ActorsQuery automatically
+const actors = await client.query.trendsActors({ source: { kind: 'TrendsQuery', series: [] }, day: '2024-01-15' })
+// Escape hatch for any query node the API accepts (sent verbatim)
+const rows = await client.query.run({ query: { kind: 'HogQLQuery', query: 'select count() from events' } })
+
 // Per-call overrides: projectId / organizationId / signal / headers
 await client.insights.list({}, { projectId: 999, signal: controller.signal })
 ```
@@ -96,7 +104,7 @@ Generated output is committed. Don't edit it by hand — change the Django seria
 
 ### Coverage
 
-Every MCP tool with a standard single-request handler becomes an SDK method. Tools built from custom multi-step factories (the `query-*` insight/actors wrappers) are not yet generated — use `client.query` primitives or the query endpoints directly for those.
+Every MCP tool becomes an SDK method, through one of two emitter paths: standard single-request handlers are parsed directly, and the `query-*` insight/actors wrapper tools are emitted onto `client.query.*` backed by the handwritten wrapper runtime in `src/core/query.ts` (kind injection, ActorsQuery wrapping, retention interval projection). `client.query.run({ query })` remains available for query kinds without a dedicated method.
 
 ## Scripts
 

@@ -3,11 +3,40 @@
 // Regenerate with: hogli build:openapi  (or: pnpm --filter=@posthog/sdk run generate)
 
 import type { RequestOptions } from '../../core/config'
-import { Resource } from '../../core/resource'
-import type { QueryApmSpansParams, QueryLogsParams, QueryMetricsParams } from '../inputs'
+import { QueryBase, type ActorsQueryResponse, type QueryResponse } from '../../core/query'
+import type {
+    QueryApmSpansParams,
+    QueryFunnelActorsParams,
+    QueryFunnelParams,
+    QueryLifecycleActorsParams,
+    QueryLifecycleParams,
+    QueryLlmTraceParams,
+    QueryLlmTracesListParams,
+    QueryLogsParams,
+    QueryMcpHarnessBreakdownParams,
+    QueryMcpToolDailyStatsParams,
+    QueryMcpToolDescriptionsParams,
+    QueryMcpToolFailuresParams,
+    QueryMcpToolNeighborsParams,
+    QueryMcpToolSampleIntentsParams,
+    QueryMcpToolStatsParams,
+    QueryMcpToolTopUsersParams,
+    QueryMetricsParams,
+    QueryPathsActorsParams,
+    QueryPathsParams,
+    QueryRetentionActorsParams,
+    QueryRetentionParams,
+    QuerySessionRecordingsListParams,
+    QueryStickinessActorsParams,
+    QueryStickinessParams,
+    QueryTrendsActorsParams,
+    QueryTrendsParams,
+    QueryWebOverviewParams,
+    QueryWebStatsParams,
+} from '../inputs'
 import type { Schemas } from '../schemas'
 
-export class QueryResource extends Resource {
+export class QueryResource extends QueryBase {
     /** Query trace spans with filtering by service name, status code, date range, and structured attribute filters. */
     async apmSpans(params: QueryApmSpansParams, opts?: RequestOptions): Promise<unknown> {
         const projectId = await this.scope.projectId(opts)
@@ -21,6 +50,36 @@ export class QueryResource extends Resource {
             body,
             opts,
         })
+    }
+
+    /** Run a funnel query to analyze conversion rates through a sequence of steps. */
+    async funnel(params: QueryFunnelParams, opts?: RequestOptions): Promise<QueryResponse> {
+        return this.runWrapped<QueryResponse>('FunnelsQuery', params, opts)
+    }
+
+    /** List the persons behind one step of a funnel insight — either those who converted through it or those who dropped off at it. */
+    async funnelActors(params: QueryFunnelActorsParams, opts?: RequestOptions): Promise<ActorsQueryResponse> {
+        return this.runActorsWrapped<ActorsQueryResponse>('FunnelsActorsQuery', params, opts)
+    }
+
+    /** Run a lifecycle query to categorize users into lifecycle stages based on their activity pattern relative to a single event or action. */
+    async lifecycle(params: QueryLifecycleParams, opts?: RequestOptions): Promise<QueryResponse> {
+        return this.runWrapped<QueryResponse>('LifecycleQuery', params, opts)
+    }
+
+    /** List the persons in a specific bucket of a lifecycle insight. */
+    async lifecycleActors(params: QueryLifecycleActorsParams, opts?: RequestOptions): Promise<ActorsQueryResponse> {
+        return this.runActorsWrapped<ActorsQueryResponse>('InsightActorsQuery', params, opts)
+    }
+
+    /** Fetch a single LLM trace by its trace ID for deep inspection. */
+    async llmTrace(params: QueryLlmTraceParams, opts?: RequestOptions): Promise<QueryResponse> {
+        return this.runWrapped<QueryResponse>('TraceQuery', params, opts)
+    }
+
+    /** List LLM traces to inspect AI/LLM usage across your application. */
+    async llmTracesList(params: QueryLlmTracesListParams = {}, opts?: RequestOptions): Promise<QueryResponse> {
+        return this.runWrapped<QueryResponse>('TracesQuery', params, opts)
     }
 
     /** Query log entries with filtering by severity, service name, date range, search term, and structured attribute filters. */
@@ -38,6 +97,49 @@ export class QueryResource extends Resource {
         })
     }
 
+    /** Group this project's MCP tool-call activity by the resolved client harness — the friendly product label for the MCP client (Claude Agent SDK, Claude Code, OpenAI Codex, Cursor, Claude.ai, …). */
+    async mcpHarnessBreakdown(
+        params: QueryMcpHarnessBreakdownParams = {},
+        opts?: RequestOptions
+    ): Promise<QueryResponse> {
+        return this.runWrapped<QueryResponse>('MCPHarnessBreakdownQuery', params, opts)
+    }
+
+    /** Return a day-by-day time series for a single MCP tool: calls, errors, p50/p95 latency, unique users, and unique sessions per day. */
+    async mcpToolDailyStats(params: QueryMcpToolDailyStatsParams, opts?: RequestOptions): Promise<QueryResponse> {
+        return this.runWrapped<QueryResponse>('MCPToolDailyStatsQuery', params, opts)
+    }
+
+    /** Return the distinct effective tool-description strings seen for a single MCP tool over the window. */
+    async mcpToolDescriptions(params: QueryMcpToolDescriptionsParams, opts?: RequestOptions): Promise<QueryResponse> {
+        return this.runWrapped<QueryResponse>('MCPToolDescriptionsQuery', params, opts)
+    }
+
+    /** Return the most common error messages for a single MCP tool, each with the resolved client harness it came from. */
+    async mcpToolFailures(params: QueryMcpToolFailuresParams, opts?: RequestOptions): Promise<QueryResponse> {
+        return this.runWrapped<QueryResponse>('MCPToolFailuresQuery', params, opts)
+    }
+
+    /** Return the tools most often called immediately before or after a single MCP tool within the same conversation. */
+    async mcpToolNeighbors(params: QueryMcpToolNeighborsParams, opts?: RequestOptions): Promise<QueryResponse> {
+        return this.runWrapped<QueryResponse>('MCPToolNeighborsQuery', params, opts)
+    }
+
+    /** Return recent sample agent intents recorded for a single MCP tool, each with its resolved client harness. */
+    async mcpToolSampleIntents(params: QueryMcpToolSampleIntentsParams, opts?: RequestOptions): Promise<QueryResponse> {
+        return this.runWrapped<QueryResponse>('MCPToolSampleIntentsQuery', params, opts)
+    }
+
+    /** Return the headline numbers for a single MCP tool over the window: total calls, error count, p50 and p95 latency, unique users, unique sessions, and how many calls carried an intent. */
+    async mcpToolStats(params: QueryMcpToolStatsParams, opts?: RequestOptions): Promise<QueryResponse> {
+        return this.runWrapped<QueryResponse>('MCPToolStatsQuery', params, opts)
+    }
+
+    /** Return the top callers of a single MCP tool: per caller, the call count, error rate, resolved harness labels, last-seen time, and the caller's display name and email. */
+    async mcpToolTopUsers(params: QueryMcpToolTopUsersParams, opts?: RequestOptions): Promise<QueryResponse> {
+        return this.runWrapped<QueryResponse>('MCPToolTopUsersQuery', params, opts)
+    }
+
     /** Query server/infrastructure metrics (OTel- or Prometheus-ingested) as bucketed time series. */
     async metrics(params: QueryMetricsParams, opts?: RequestOptions): Promise<Schemas._MetricQueryResponse> {
         const projectId = await this.scope.projectId(opts)
@@ -51,5 +153,63 @@ export class QueryResource extends Resource {
             body,
             opts,
         })
+    }
+
+    /** Run a paths query to analyze the most common sequences of events or pages that users navigate through. */
+    async paths(params: QueryPathsParams, opts?: RequestOptions): Promise<QueryResponse> {
+        return this.runWrapped<QueryResponse>('PathsQuery', params, opts)
+    }
+
+    /** List the persons behind a paths insight — either everyone who traversed the path, or those at one specific node/edge. */
+    async pathsActors(params: QueryPathsActorsParams, opts?: RequestOptions): Promise<ActorsQueryResponse> {
+        return this.runActorsWrapped<ActorsQueryResponse>('InsightActorsQuery', params, opts)
+    }
+
+    /** Run a retention query to analyze how many users return over time after performing an initial action. */
+    async retention(params: QueryRetentionParams, opts?: RequestOptions): Promise<QueryResponse> {
+        return this.runWrapped<QueryResponse>('RetentionQuery', params, opts)
+    }
+
+    /** List the persons in one retention acquisition cohort and show, for each, which subsequent intervals they came back in. */
+    async retentionActors(params: QueryRetentionActorsParams, opts?: RequestOptions): Promise<ActorsQueryResponse> {
+        return this.runActorsWrapped<ActorsQueryResponse>('InsightActorsQuery', params, opts)
+    }
+
+    /** List session recordings in the project. */
+    async sessionRecordingsList(
+        params: QuerySessionRecordingsListParams = {},
+        opts?: RequestOptions
+    ): Promise<QueryResponse> {
+        return this.runWrapped<QueryResponse>('RecordingsQuery', params, opts)
+    }
+
+    /** Run a stickiness query to measure how many intervals (e.g. */
+    async stickiness(params: QueryStickinessParams, opts?: RequestOptions): Promise<QueryResponse> {
+        return this.runWrapped<QueryResponse>('StickinessQuery', params, opts)
+    }
+
+    /** List the persons behind one bar of a stickiness insight — the users who were active in a given number of intervals. */
+    async stickinessActors(params: QueryStickinessActorsParams, opts?: RequestOptions): Promise<ActorsQueryResponse> {
+        return this.runActorsWrapped<ActorsQueryResponse>('InsightActorsQuery', params, opts)
+    }
+
+    /** Run a trends query to analyze metrics over time. */
+    async trends(params: QueryTrendsParams, opts?: RequestOptions): Promise<QueryResponse> {
+        return this.runWrapped<QueryResponse>('TrendsQuery', params, opts)
+    }
+
+    /** List the persons behind a specific data point in a trends insight. */
+    async trendsActors(params: QueryTrendsActorsParams, opts?: RequestOptions): Promise<ActorsQueryResponse> {
+        return this.runActorsWrapped<ActorsQueryResponse>('InsightActorsQuery', params, opts)
+    }
+
+    /** Run a web analytics overview query — high-level KPIs over a period: visitors, pageviews, sessions, average session duration, and bounce rate. */
+    async webOverview(params: QueryWebOverviewParams = {}, opts?: RequestOptions): Promise<QueryResponse> {
+        return this.runWrapped<QueryResponse>('WebOverviewQuery', params, opts)
+    }
+
+    /** Run a web analytics breakdown table query — top pages, UTMs, devices, browsers, countries, etc. */
+    async webStats(params: QueryWebStatsParams, opts?: RequestOptions): Promise<QueryResponse> {
+        return this.runWrapped<QueryResponse>('WebStatsTableQuery', params, opts)
     }
 }

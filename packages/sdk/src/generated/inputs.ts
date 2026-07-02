@@ -20158,6 +20158,3362 @@ export interface QueryApmSpansParams {
     }
 }
 
+export interface QueryFunnelParams {
+    /** Use this field to define the aggregation by a specific group from the provided group mapping, which is NOT users or sessions. */
+    aggregation_group_type_index?: number
+    /** A breakdown is used to segment data by a single property value. They divide all defined funnel series into multiple subseries based on the values of the property. Include a breakdown **only when it is essential to directly answer the user’s question**. You must not add a breakdown if the question can be addressed without additional segmentation. When using breakdowns, you must: - **Identify the property group** and name for a breakdown. - **Provide the property name** for a breakdown. - **Validate that the property value accurately reflects the intended criteria**. Examples of using a breakdown: - page views to sign up funnel by country: you need to find a property such as `$geoip_country_code` and set it as a breakdown. - conversion rate of users who have completed onboarding after signing up by an organization: you need to find a property such as `organization name` and set it as a breakdown. */
+    breakdownFilter?: {
+        /** The entity property to break down by. */
+        breakdown: string
+        /** If `breakdown_type` is `group`, this is the index of the group. Use the index from the group mapping. */
+        breakdown_group_type_index?: number | null
+        /** How many distinct values to show. */
+        breakdown_limit?: number
+        /** Type of the entity to break down by. If `group` is used, you must also provide `breakdown_group_type_index` from the group mapping. */
+        breakdown_type?: 'person' | 'event' | 'group' | 'session'
+    }
+    /** Date range for the query */
+    dateRange?:
+        | {
+              /** ISO8601 date string. */
+              date_from: string
+              /** ISO8601 date string. */
+              date_to?: string | null
+          }
+        | {
+              /** Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start. */
+              date_from: string
+          }
+    /** Exclude internal and test users by applying the respective filters */
+    filterTestAccounts?: boolean
+    /** Properties specific to the funnels insight */
+    funnelsFilter?: {
+        /** Use this setting only when `funnelVizType` is `time_to_convert`: number of bins to show in histogram. */
+        binCount?: number
+        /** Controls how the breakdown value is attributed to a specific step. `first_touch` - the breakdown value is the first property value found in the entire funnel. `last_touch` - the breakdown value is the last property value found in the entire funnel. `all_events` - the breakdown value must be present in all steps of the funnel. `step` - the breakdown value is the property value found at a specific step defined by `breakdownAttributionValue`. */
+        breakdownAttributionType?: 'first_touch' | 'last_touch' | 'all_events' | 'step'
+        /** When `breakdownAttributionType` is `step`, this is the step number (0-indexed) to attribute the breakdown value to. */
+        breakdownAttributionValue?: number
+        /** Users may want to use exclusion events to filter out conversions in which a particular event occurred between specific steps. These events must not be included in the main sequence. This doesn't exclude users who have completed the event before or after the funnel sequence, but often this is what users want. (If not sure, worth clarifying.) You must include start and end indexes for each exclusion where the minimum index is one and the maximum index is the number of steps in the funnel. For example, there is a sequence with three steps: sign up, finish onboarding, purchase. If the user wants to exclude all conversions in which users left the page before finishing the onboarding, the exclusion step would be the event `$pageleave` with start index 2 and end index 3. When exclusion steps appear needed when you're planning the query, make sure to explicitly state this in the plan. */
+        exclusions?: Array<{
+            event: string
+            funnelFromStep: number
+            funnelToStep: number
+            kind?: 'EventsNode'
+        }>
+        /** Use this field only if the user explicitly asks to aggregate the funnel by unique sessions. */
+        funnelAggregateByHogQL?: 'properties.$session_id' | null
+        /** Defines the behavior of event matching between steps. Prefer the `strict` option unless explicitly told to use a different one. `ordered` - defines a sequential funnel. Step B must happen after Step A, but any number of events can happen between A and B. `strict` - defines a funnel where all events must happen in order. Step B must happen directly after Step A without any events in between. `any` - order doesn't matter. Steps can be completed in any sequence. */
+        funnelOrderType?: 'strict' | 'unordered' | 'ordered'
+        /** Whether conversion shown in the graph should be across all steps or just relative to the previous step. */
+        funnelStepReference?: 'total' | 'previous'
+        /** Defines the type of visualization to use. The `steps` option is recommended. `steps` - shows a step-by-step funnel. Perfect to show a conversion rate of a sequence of events (default). `time_to_convert` - shows a histogram of the time it took to complete the funnel. `trends` - shows trends of the conversion rate of the whole sequence over time. */
+        funnelVizType?: 'steps' | 'time_to_convert' | 'trends' | 'flow'
+        /** Controls a time frame value for a conversion to be considered. Select a reasonable value based on the user's query. If needed, this can be practically unlimited by setting a large value, though it's rare to need that. Use in combination with `funnelWindowIntervalUnit`. The default value is 14 days. */
+        funnelWindowInterval?: number
+        /** Controls a time frame interval for a conversion to be considered. Select a reasonable value based on the user's query. Use in combination with `funnelWindowInterval`. The default value is 14 days. */
+        funnelWindowIntervalUnit?: 'second' | 'minute' | 'hour' | 'day' | 'week' | 'month'
+        /** Controls how the funnel chart is displayed: vertically (preferred) or horizontally. */
+        layout?: 'horizontal' | 'vertical'
+    }
+    /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
+    interval?: 'second' | 'minute' | 'hour' | 'day' | 'week' | 'month'
+    kind?: 'FunnelsQuery'
+    /** Property filters for all series */
+    properties?: Array<
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+              operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+              type: 'event' | 'person' | 'session' | 'feature'
+              /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+              value: string
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'exact' | 'gt' | 'lt'
+              type: 'event' | 'person' | 'session' | 'feature'
+              value: number
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+              operator: 'exact' | 'is_not'
+              type: 'event' | 'person' | 'session' | 'feature'
+              /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+              value: Array<string>
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+              type: 'event' | 'person' | 'session' | 'feature'
+              /** Value must be a date in ISO 8601 format. */
+              value: string
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+              operator: 'is_set' | 'is_not_set'
+              type: 'event' | 'person' | 'session' | 'feature'
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+              operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+              type?: 'group'
+              /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+              value: string
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'exact' | 'gt' | 'lt'
+              type?: 'group'
+              value: number
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+              operator: 'exact' | 'is_not'
+              type?: 'group'
+              /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+              value: Array<string>
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+              type?: 'group'
+              /** Value must be a date in ISO 8601 format. */
+              value: string
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+              operator: 'is_set' | 'is_not_set'
+              type?: 'group'
+          }
+        | {
+              key?: 'id'
+              operator?: 'in' | 'not_in'
+              /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+              type?: 'cohort'
+              /** The cohort ID to filter by. */
+              value: number
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+              operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+              value: string
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              operator: 'exact' | 'gt' | 'lt'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              value: number
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+              operator: 'exact' | 'is_not'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+              value: Array<string>
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              /** Value must be a date in ISO 8601 format. */
+              value: string
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+              operator: 'is_set' | 'is_not_set'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+          }
+        | {
+              /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+              key: string
+              /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+              type?: 'hogql'
+          }
+        | {
+              /** The feature flag key. */
+              key: string
+              operator?: 'flag_evaluates_to'
+              /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+              type?: 'flag'
+              /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+              value: boolean | string
+          }
+    >
+    /** Events or actions to include. Prioritize the more popular and fresh events and actions. */
+    series: Array<
+        | {
+              /** Optional custom name for the event if it is needed to be renamed. */
+              custom_name?: string
+              /** Name of the event. */
+              event: string
+              kind?: 'EventsNode'
+              /** Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time. */
+              math?: 'first_time_for_user' | 'first_time_for_user_with_filters'
+              /** If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required). */
+              optionalInFunnel?: boolean
+              properties?: Array<
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                        operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                        /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                        value: string
+                    }
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        operator: 'exact' | 'gt' | 'lt'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                        value: number
+                    }
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                        operator: 'exact' | 'is_not'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                        /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                        value: Array<string>
+                    }
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                        /** Value must be a date in ISO 8601 format. */
+                        value: string
+                    }
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                        operator: 'is_set' | 'is_not_set'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                        operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                        type?: 'group'
+                        /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                        value: string
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        operator: 'exact' | 'gt' | 'lt'
+                        type?: 'group'
+                        value: number
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                        operator: 'exact' | 'is_not'
+                        type?: 'group'
+                        /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                        value: Array<string>
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                        type?: 'group'
+                        /** Value must be a date in ISO 8601 format. */
+                        value: string
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                        operator: 'is_set' | 'is_not_set'
+                        type?: 'group'
+                    }
+                  | {
+                        key?: 'id'
+                        operator?: 'in' | 'not_in'
+                        /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                        type?: 'cohort'
+                        /** The cohort ID to filter by. */
+                        value: number
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                        operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                        /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                        value: string
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        operator: 'exact' | 'gt' | 'lt'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                        value: number
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                        operator: 'exact' | 'is_not'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                        /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                        value: Array<string>
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                        /** Value must be a date in ISO 8601 format. */
+                        value: string
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                        operator: 'is_set' | 'is_not_set'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                    }
+                  | {
+                        /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                        key: string
+                        /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                        type?: 'hogql'
+                    }
+                  | {
+                        /** The feature flag key. */
+                        key: string
+                        operator?: 'flag_evaluates_to'
+                        /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                        type?: 'flag'
+                        /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                        value: boolean | string
+                    }
+              >
+              /** version of the node, used for schema migrations */
+              version?: number
+          }
+        | {
+              /** Action ID from the plan. */
+              id: number
+              kind?: 'ActionsNode'
+              /** Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time. */
+              math?: 'first_time_for_user' | 'first_time_for_user_with_filters'
+              /** Action name from the plan. */
+              name: string
+              /** If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required). */
+              optionalInFunnel?: boolean
+              properties?: Array<
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                        operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                        /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                        value: string
+                    }
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        operator: 'exact' | 'gt' | 'lt'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                        value: number
+                    }
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                        operator: 'exact' | 'is_not'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                        /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                        value: Array<string>
+                    }
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                        /** Value must be a date in ISO 8601 format. */
+                        value: string
+                    }
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                        operator: 'is_set' | 'is_not_set'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                        operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                        type?: 'group'
+                        /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                        value: string
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        operator: 'exact' | 'gt' | 'lt'
+                        type?: 'group'
+                        value: number
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                        operator: 'exact' | 'is_not'
+                        type?: 'group'
+                        /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                        value: Array<string>
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                        type?: 'group'
+                        /** Value must be a date in ISO 8601 format. */
+                        value: string
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                        operator: 'is_set' | 'is_not_set'
+                        type?: 'group'
+                    }
+                  | {
+                        key?: 'id'
+                        operator?: 'in' | 'not_in'
+                        /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                        type?: 'cohort'
+                        /** The cohort ID to filter by. */
+                        value: number
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                        operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                        /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                        value: string
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        operator: 'exact' | 'gt' | 'lt'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                        value: number
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                        operator: 'exact' | 'is_not'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                        /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                        value: Array<string>
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                        /** Value must be a date in ISO 8601 format. */
+                        value: string
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                        operator: 'is_set' | 'is_not_set'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                    }
+                  | {
+                        /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                        key: string
+                        /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                        type?: 'hogql'
+                    }
+                  | {
+                        /** The feature flag key. */
+                        key: string
+                        operator?: 'flag_evaluates_to'
+                        /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                        type?: 'flag'
+                        /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                        value: boolean | string
+                    }
+              >
+              /** version of the node, used for schema migrations */
+              version?: number
+          }
+        | {
+              custom_name?: string
+              kind?: 'GroupNode'
+              /** Display name for the combined step. */
+              name?: string
+              /** Events and actions combined into the step. Use per-node `properties` to filter each event; there is no step-wide filter on a grouped step. */
+              nodes: Array<
+                  | {
+                        /** Optional custom name for the event if it is needed to be renamed. */
+                        custom_name?: string
+                        /** Name of the event. */
+                        event: string
+                        kind?: 'EventsNode'
+                        /** Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time. */
+                        math?: 'first_time_for_user' | 'first_time_for_user_with_filters'
+                        /** If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required). */
+                        optionalInFunnel?: boolean
+                        properties?: Array<
+                            | {
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                  operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                                  type: 'event' | 'person' | 'session' | 'feature'
+                                  /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                  value: string
+                              }
+                            | {
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  operator: 'exact' | 'gt' | 'lt'
+                                  type: 'event' | 'person' | 'session' | 'feature'
+                                  value: number
+                              }
+                            | {
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                  operator: 'exact' | 'is_not'
+                                  type: 'event' | 'person' | 'session' | 'feature'
+                                  /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                  value: Array<string>
+                              }
+                            | {
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                  type: 'event' | 'person' | 'session' | 'feature'
+                                  /** Value must be a date in ISO 8601 format. */
+                                  value: string
+                              }
+                            | {
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                  operator: 'is_set' | 'is_not_set'
+                                  type: 'event' | 'person' | 'session' | 'feature'
+                              }
+                            | {
+                                  /** Index of the group type from the group mapping. */
+                                  group_type_index: number
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                  operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                                  type?: 'group'
+                                  /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                  value: string
+                              }
+                            | {
+                                  /** Index of the group type from the group mapping. */
+                                  group_type_index: number
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  operator: 'exact' | 'gt' | 'lt'
+                                  type?: 'group'
+                                  value: number
+                              }
+                            | {
+                                  /** Index of the group type from the group mapping. */
+                                  group_type_index: number
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                  operator: 'exact' | 'is_not'
+                                  type?: 'group'
+                                  /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                  value: Array<string>
+                              }
+                            | {
+                                  /** Index of the group type from the group mapping. */
+                                  group_type_index: number
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                  type?: 'group'
+                                  /** Value must be a date in ISO 8601 format. */
+                                  value: string
+                              }
+                            | {
+                                  /** Index of the group type from the group mapping. */
+                                  group_type_index: number
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                  operator: 'is_set' | 'is_not_set'
+                                  type?: 'group'
+                              }
+                            | {
+                                  key?: 'id'
+                                  operator?: 'in' | 'not_in'
+                                  /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                                  type?: 'cohort'
+                                  /** The cohort ID to filter by. */
+                                  value: number
+                              }
+                            | {
+                                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                                  /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                  operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                  type?: 'element'
+                                  /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                  value: string
+                              }
+                            | {
+                                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                                  operator: 'exact' | 'gt' | 'lt'
+                                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                  type?: 'element'
+                                  value: number
+                              }
+                            | {
+                                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                                  /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                  operator: 'exact' | 'is_not'
+                                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                  type?: 'element'
+                                  /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                  value: Array<string>
+                              }
+                            | {
+                                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                                  operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                  type?: 'element'
+                                  /** Value must be a date in ISO 8601 format. */
+                                  value: string
+                              }
+                            | {
+                                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                                  /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                  operator: 'is_set' | 'is_not_set'
+                                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                  type?: 'element'
+                              }
+                            | {
+                                  /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                                  key: string
+                                  /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                                  type?: 'hogql'
+                              }
+                            | {
+                                  /** The feature flag key. */
+                                  key: string
+                                  operator?: 'flag_evaluates_to'
+                                  /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                                  type?: 'flag'
+                                  /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                                  value: boolean | string
+                              }
+                        >
+                        /** version of the node, used for schema migrations */
+                        version?: number
+                    }
+                  | {
+                        /** Action ID from the plan. */
+                        id: number
+                        kind?: 'ActionsNode'
+                        /** Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time. */
+                        math?: 'first_time_for_user' | 'first_time_for_user_with_filters'
+                        /** Action name from the plan. */
+                        name: string
+                        /** If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required). */
+                        optionalInFunnel?: boolean
+                        properties?: Array<
+                            | {
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                  operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                                  type: 'event' | 'person' | 'session' | 'feature'
+                                  /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                  value: string
+                              }
+                            | {
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  operator: 'exact' | 'gt' | 'lt'
+                                  type: 'event' | 'person' | 'session' | 'feature'
+                                  value: number
+                              }
+                            | {
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                  operator: 'exact' | 'is_not'
+                                  type: 'event' | 'person' | 'session' | 'feature'
+                                  /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                  value: Array<string>
+                              }
+                            | {
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                  type: 'event' | 'person' | 'session' | 'feature'
+                                  /** Value must be a date in ISO 8601 format. */
+                                  value: string
+                              }
+                            | {
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                  operator: 'is_set' | 'is_not_set'
+                                  type: 'event' | 'person' | 'session' | 'feature'
+                              }
+                            | {
+                                  /** Index of the group type from the group mapping. */
+                                  group_type_index: number
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                  operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                                  type?: 'group'
+                                  /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                  value: string
+                              }
+                            | {
+                                  /** Index of the group type from the group mapping. */
+                                  group_type_index: number
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  operator: 'exact' | 'gt' | 'lt'
+                                  type?: 'group'
+                                  value: number
+                              }
+                            | {
+                                  /** Index of the group type from the group mapping. */
+                                  group_type_index: number
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                  operator: 'exact' | 'is_not'
+                                  type?: 'group'
+                                  /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                  value: Array<string>
+                              }
+                            | {
+                                  /** Index of the group type from the group mapping. */
+                                  group_type_index: number
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                  type?: 'group'
+                                  /** Value must be a date in ISO 8601 format. */
+                                  value: string
+                              }
+                            | {
+                                  /** Index of the group type from the group mapping. */
+                                  group_type_index: number
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                  operator: 'is_set' | 'is_not_set'
+                                  type?: 'group'
+                              }
+                            | {
+                                  key?: 'id'
+                                  operator?: 'in' | 'not_in'
+                                  /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                                  type?: 'cohort'
+                                  /** The cohort ID to filter by. */
+                                  value: number
+                              }
+                            | {
+                                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                                  /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                  operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                  type?: 'element'
+                                  /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                  value: string
+                              }
+                            | {
+                                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                                  operator: 'exact' | 'gt' | 'lt'
+                                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                  type?: 'element'
+                                  value: number
+                              }
+                            | {
+                                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                                  /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                  operator: 'exact' | 'is_not'
+                                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                  type?: 'element'
+                                  /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                  value: Array<string>
+                              }
+                            | {
+                                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                                  operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                  type?: 'element'
+                                  /** Value must be a date in ISO 8601 format. */
+                                  value: string
+                              }
+                            | {
+                                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                                  /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                  operator: 'is_set' | 'is_not_set'
+                                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                  type?: 'element'
+                              }
+                            | {
+                                  /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                                  key: string
+                                  /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                                  type?: 'hogql'
+                              }
+                            | {
+                                  /** The feature flag key. */
+                                  key: string
+                                  operator?: 'flag_evaluates_to'
+                                  /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                                  type?: 'flag'
+                                  /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                                  value: boolean | string
+                              }
+                        >
+                        /** version of the node, used for schema migrations */
+                        version?: number
+                    }
+              >
+              /** Only `OR` is supported. */
+              operator?: 'OR'
+          }
+    >
+}
+
+export interface QueryFunnelActorsParams {
+    /** Step mode only (source `funnelVizType: "steps"`). The 1-based index of the step to drill into. **Positive** lists actors who converted through that step; **negative** lists actors who dropped off at it. E.g. `2` = converted through step 2, `-2` = dropped off at step 2. The smallest negative value is `-2` (no one can drop off at the entry step). */
+    funnelStep?: number
+    /** Step mode only. Scope the actors to a single breakdown series. Pass the breakdown value(s) from the matching `query-funnel` result row verbatim (an array, e.g. `["Chrome"]`). Omit for the baseline (non-breakdown) series. */
+    funnelStepBreakdown?: Array<string>
+    /** Trends-dropoff mode only (source `funnelVizType: "trends"`). When `true`, list the actors who dropped off; when `false`, list those who converted. Use together with `funnelTrendsEntrancePeriodStart`. */
+    funnelTrendsDropOff?: boolean
+    /** Trends-dropoff mode only. The entrance period to drill into, as a `YYYY-MM-DD HH:mm:ss` string (e.g. `'2024-01-15 00:00:00'`), taken from the funnel-trends point the user is asking about. Use together with `funnelTrendsDropOff`. */
+    funnelTrendsEntrancePeriodStart?: string
+    /** Whether to include matched session recordings for each actor. */
+    includeRecordings?: boolean
+    kind?: 'FunnelsActorsQuery'
+    /** The source funnel insight query whose step (or trends point) we are drilling into. */
+    source: {
+        /** Use this field to define the aggregation by a specific group from the provided group mapping, which is NOT users or sessions. */
+        aggregation_group_type_index?: number
+        /** A breakdown is used to segment data by a single property value. They divide all defined funnel series into multiple subseries based on the values of the property. Include a breakdown **only when it is essential to directly answer the user’s question**. You must not add a breakdown if the question can be addressed without additional segmentation. When using breakdowns, you must: - **Identify the property group** and name for a breakdown. - **Provide the property name** for a breakdown. - **Validate that the property value accurately reflects the intended criteria**. Examples of using a breakdown: - page views to sign up funnel by country: you need to find a property such as `$geoip_country_code` and set it as a breakdown. - conversion rate of users who have completed onboarding after signing up by an organization: you need to find a property such as `organization name` and set it as a breakdown. */
+        breakdownFilter?: {
+            /** The entity property to break down by. */
+            breakdown: string
+            /** If `breakdown_type` is `group`, this is the index of the group. Use the index from the group mapping. */
+            breakdown_group_type_index?: number | null
+            /** How many distinct values to show. */
+            breakdown_limit?: number
+            /** Type of the entity to break down by. If `group` is used, you must also provide `breakdown_group_type_index` from the group mapping. */
+            breakdown_type?: 'person' | 'event' | 'group' | 'session'
+        }
+        /** Date range for the query */
+        dateRange?:
+            | {
+                  /** ISO8601 date string. */
+                  date_from: string
+                  /** ISO8601 date string. */
+                  date_to?: string | null
+              }
+            | {
+                  /** Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start. */
+                  date_from: string
+              }
+        /** Exclude internal and test users by applying the respective filters */
+        filterTestAccounts?: boolean
+        /** Properties specific to the funnels insight */
+        funnelsFilter?: {
+            /** Use this setting only when `funnelVizType` is `time_to_convert`: number of bins to show in histogram. */
+            binCount?: number
+            /** Controls how the breakdown value is attributed to a specific step. `first_touch` - the breakdown value is the first property value found in the entire funnel. `last_touch` - the breakdown value is the last property value found in the entire funnel. `all_events` - the breakdown value must be present in all steps of the funnel. `step` - the breakdown value is the property value found at a specific step defined by `breakdownAttributionValue`. */
+            breakdownAttributionType?: 'first_touch' | 'last_touch' | 'all_events' | 'step'
+            /** When `breakdownAttributionType` is `step`, this is the step number (0-indexed) to attribute the breakdown value to. */
+            breakdownAttributionValue?: number
+            /** Users may want to use exclusion events to filter out conversions in which a particular event occurred between specific steps. These events must not be included in the main sequence. This doesn't exclude users who have completed the event before or after the funnel sequence, but often this is what users want. (If not sure, worth clarifying.) You must include start and end indexes for each exclusion where the minimum index is one and the maximum index is the number of steps in the funnel. For example, there is a sequence with three steps: sign up, finish onboarding, purchase. If the user wants to exclude all conversions in which users left the page before finishing the onboarding, the exclusion step would be the event `$pageleave` with start index 2 and end index 3. When exclusion steps appear needed when you're planning the query, make sure to explicitly state this in the plan. */
+            exclusions?: Array<{
+                event: string
+                funnelFromStep: number
+                funnelToStep: number
+                kind?: 'EventsNode'
+            }>
+            /** Use this field only if the user explicitly asks to aggregate the funnel by unique sessions. */
+            funnelAggregateByHogQL?: 'properties.$session_id' | null
+            /** Defines the behavior of event matching between steps. Prefer the `strict` option unless explicitly told to use a different one. `ordered` - defines a sequential funnel. Step B must happen after Step A, but any number of events can happen between A and B. `strict` - defines a funnel where all events must happen in order. Step B must happen directly after Step A without any events in between. `any` - order doesn't matter. Steps can be completed in any sequence. */
+            funnelOrderType?: 'strict' | 'unordered' | 'ordered'
+            /** Whether conversion shown in the graph should be across all steps or just relative to the previous step. */
+            funnelStepReference?: 'total' | 'previous'
+            /** Defines the type of visualization to use. The `steps` option is recommended. `steps` - shows a step-by-step funnel. Perfect to show a conversion rate of a sequence of events (default). `time_to_convert` - shows a histogram of the time it took to complete the funnel. `trends` - shows trends of the conversion rate of the whole sequence over time. */
+            funnelVizType?: 'steps' | 'time_to_convert' | 'trends' | 'flow'
+            /** Controls a time frame value for a conversion to be considered. Select a reasonable value based on the user's query. If needed, this can be practically unlimited by setting a large value, though it's rare to need that. Use in combination with `funnelWindowIntervalUnit`. The default value is 14 days. */
+            funnelWindowInterval?: number
+            /** Controls a time frame interval for a conversion to be considered. Select a reasonable value based on the user's query. Use in combination with `funnelWindowInterval`. The default value is 14 days. */
+            funnelWindowIntervalUnit?: 'second' | 'minute' | 'hour' | 'day' | 'week' | 'month'
+            /** Controls how the funnel chart is displayed: vertically (preferred) or horizontally. */
+            layout?: 'horizontal' | 'vertical'
+        }
+        /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
+        interval?: 'second' | 'minute' | 'hour' | 'day' | 'week' | 'month'
+        kind?: 'FunnelsQuery'
+        /** Property filters for all series */
+        properties?: Array<
+            | {
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                  operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                  type: 'event' | 'person' | 'session' | 'feature'
+                  /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                  value: string
+              }
+            | {
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  operator: 'exact' | 'gt' | 'lt'
+                  type: 'event' | 'person' | 'session' | 'feature'
+                  value: number
+              }
+            | {
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                  operator: 'exact' | 'is_not'
+                  type: 'event' | 'person' | 'session' | 'feature'
+                  /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                  value: Array<string>
+              }
+            | {
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                  type: 'event' | 'person' | 'session' | 'feature'
+                  /** Value must be a date in ISO 8601 format. */
+                  value: string
+              }
+            | {
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                  operator: 'is_set' | 'is_not_set'
+                  type: 'event' | 'person' | 'session' | 'feature'
+              }
+            | {
+                  /** Index of the group type from the group mapping. */
+                  group_type_index: number
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                  operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                  type?: 'group'
+                  /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                  value: string
+              }
+            | {
+                  /** Index of the group type from the group mapping. */
+                  group_type_index: number
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  operator: 'exact' | 'gt' | 'lt'
+                  type?: 'group'
+                  value: number
+              }
+            | {
+                  /** Index of the group type from the group mapping. */
+                  group_type_index: number
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                  operator: 'exact' | 'is_not'
+                  type?: 'group'
+                  /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                  value: Array<string>
+              }
+            | {
+                  /** Index of the group type from the group mapping. */
+                  group_type_index: number
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                  type?: 'group'
+                  /** Value must be a date in ISO 8601 format. */
+                  value: string
+              }
+            | {
+                  /** Index of the group type from the group mapping. */
+                  group_type_index: number
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                  operator: 'is_set' | 'is_not_set'
+                  type?: 'group'
+              }
+            | {
+                  key?: 'id'
+                  operator?: 'in' | 'not_in'
+                  /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                  type?: 'cohort'
+                  /** The cohort ID to filter by. */
+                  value: number
+              }
+            | {
+                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                  /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                  operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                  type?: 'element'
+                  /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                  value: string
+              }
+            | {
+                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                  operator: 'exact' | 'gt' | 'lt'
+                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                  type?: 'element'
+                  value: number
+              }
+            | {
+                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                  /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                  operator: 'exact' | 'is_not'
+                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                  type?: 'element'
+                  /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                  value: Array<string>
+              }
+            | {
+                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                  operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                  type?: 'element'
+                  /** Value must be a date in ISO 8601 format. */
+                  value: string
+              }
+            | {
+                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                  /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                  operator: 'is_set' | 'is_not_set'
+                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                  type?: 'element'
+              }
+            | {
+                  /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                  key: string
+                  /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                  type?: 'hogql'
+              }
+            | {
+                  /** The feature flag key. */
+                  key: string
+                  operator?: 'flag_evaluates_to'
+                  /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                  type?: 'flag'
+                  /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                  value: boolean | string
+              }
+        >
+        /** Events or actions to include. Prioritize the more popular and fresh events and actions. */
+        series: Array<
+            | {
+                  /** Optional custom name for the event if it is needed to be renamed. */
+                  custom_name?: string
+                  /** Name of the event. */
+                  event: string
+                  kind?: 'EventsNode'
+                  /** Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time. */
+                  math?: 'first_time_for_user' | 'first_time_for_user_with_filters'
+                  /** If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required). */
+                  optionalInFunnel?: boolean
+                  properties?: Array<
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'exact' | 'gt' | 'lt'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            value: number
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            type?: 'group'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'exact' | 'gt' | 'lt'
+                            type?: 'group'
+                            value: number
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            type?: 'group'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            type?: 'group'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            type?: 'group'
+                        }
+                      | {
+                            key?: 'id'
+                            operator?: 'in' | 'not_in'
+                            /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                            type?: 'cohort'
+                            /** The cohort ID to filter by. */
+                            value: number
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            operator: 'exact' | 'gt' | 'lt'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            value: number
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                        }
+                      | {
+                            /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                            key: string
+                            /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                            type?: 'hogql'
+                        }
+                      | {
+                            /** The feature flag key. */
+                            key: string
+                            operator?: 'flag_evaluates_to'
+                            /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                            type?: 'flag'
+                            /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                            value: boolean | string
+                        }
+                  >
+                  /** version of the node, used for schema migrations */
+                  version?: number
+              }
+            | {
+                  /** Action ID from the plan. */
+                  id: number
+                  kind?: 'ActionsNode'
+                  /** Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time. */
+                  math?: 'first_time_for_user' | 'first_time_for_user_with_filters'
+                  /** Action name from the plan. */
+                  name: string
+                  /** If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required). */
+                  optionalInFunnel?: boolean
+                  properties?: Array<
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'exact' | 'gt' | 'lt'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            value: number
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            type?: 'group'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'exact' | 'gt' | 'lt'
+                            type?: 'group'
+                            value: number
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            type?: 'group'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            type?: 'group'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            type?: 'group'
+                        }
+                      | {
+                            key?: 'id'
+                            operator?: 'in' | 'not_in'
+                            /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                            type?: 'cohort'
+                            /** The cohort ID to filter by. */
+                            value: number
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            operator: 'exact' | 'gt' | 'lt'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            value: number
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                        }
+                      | {
+                            /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                            key: string
+                            /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                            type?: 'hogql'
+                        }
+                      | {
+                            /** The feature flag key. */
+                            key: string
+                            operator?: 'flag_evaluates_to'
+                            /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                            type?: 'flag'
+                            /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                            value: boolean | string
+                        }
+                  >
+                  /** version of the node, used for schema migrations */
+                  version?: number
+              }
+            | {
+                  custom_name?: string
+                  kind?: 'GroupNode'
+                  /** Display name for the combined step. */
+                  name?: string
+                  /** Events and actions combined into the step. Use per-node `properties` to filter each event; there is no step-wide filter on a grouped step. */
+                  nodes: Array<
+                      | {
+                            /** Optional custom name for the event if it is needed to be renamed. */
+                            custom_name?: string
+                            /** Name of the event. */
+                            event: string
+                            kind?: 'EventsNode'
+                            /** Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time. */
+                            math?: 'first_time_for_user' | 'first_time_for_user_with_filters'
+                            /** If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required). */
+                            optionalInFunnel?: boolean
+                            properties?: Array<
+                                | {
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                      operator:
+                                          | 'exact'
+                                          | 'is_not'
+                                          | 'icontains'
+                                          | 'not_icontains'
+                                          | 'regex'
+                                          | 'not_regex'
+                                      type: 'event' | 'person' | 'session' | 'feature'
+                                      /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                      value: string
+                                  }
+                                | {
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      operator: 'exact' | 'gt' | 'lt'
+                                      type: 'event' | 'person' | 'session' | 'feature'
+                                      value: number
+                                  }
+                                | {
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                      operator: 'exact' | 'is_not'
+                                      type: 'event' | 'person' | 'session' | 'feature'
+                                      /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                      value: Array<string>
+                                  }
+                                | {
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                      type: 'event' | 'person' | 'session' | 'feature'
+                                      /** Value must be a date in ISO 8601 format. */
+                                      value: string
+                                  }
+                                | {
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                      operator: 'is_set' | 'is_not_set'
+                                      type: 'event' | 'person' | 'session' | 'feature'
+                                  }
+                                | {
+                                      /** Index of the group type from the group mapping. */
+                                      group_type_index: number
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                      operator:
+                                          | 'exact'
+                                          | 'is_not'
+                                          | 'icontains'
+                                          | 'not_icontains'
+                                          | 'regex'
+                                          | 'not_regex'
+                                      type?: 'group'
+                                      /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                      value: string
+                                  }
+                                | {
+                                      /** Index of the group type from the group mapping. */
+                                      group_type_index: number
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      operator: 'exact' | 'gt' | 'lt'
+                                      type?: 'group'
+                                      value: number
+                                  }
+                                | {
+                                      /** Index of the group type from the group mapping. */
+                                      group_type_index: number
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                      operator: 'exact' | 'is_not'
+                                      type?: 'group'
+                                      /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                      value: Array<string>
+                                  }
+                                | {
+                                      /** Index of the group type from the group mapping. */
+                                      group_type_index: number
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                      type?: 'group'
+                                      /** Value must be a date in ISO 8601 format. */
+                                      value: string
+                                  }
+                                | {
+                                      /** Index of the group type from the group mapping. */
+                                      group_type_index: number
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                      operator: 'is_set' | 'is_not_set'
+                                      type?: 'group'
+                                  }
+                                | {
+                                      key?: 'id'
+                                      operator?: 'in' | 'not_in'
+                                      /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                                      type?: 'cohort'
+                                      /** The cohort ID to filter by. */
+                                      value: number
+                                  }
+                                | {
+                                      /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                      key: 'tag_name' | 'text' | 'href' | 'selector'
+                                      /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                      operator:
+                                          | 'exact'
+                                          | 'is_not'
+                                          | 'icontains'
+                                          | 'not_icontains'
+                                          | 'regex'
+                                          | 'not_regex'
+                                      /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                      type?: 'element'
+                                      /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                      value: string
+                                  }
+                                | {
+                                      /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                      key: 'tag_name' | 'text' | 'href' | 'selector'
+                                      operator: 'exact' | 'gt' | 'lt'
+                                      /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                      type?: 'element'
+                                      value: number
+                                  }
+                                | {
+                                      /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                      key: 'tag_name' | 'text' | 'href' | 'selector'
+                                      /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                      operator: 'exact' | 'is_not'
+                                      /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                      type?: 'element'
+                                      /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                      value: Array<string>
+                                  }
+                                | {
+                                      /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                      key: 'tag_name' | 'text' | 'href' | 'selector'
+                                      operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                      /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                      type?: 'element'
+                                      /** Value must be a date in ISO 8601 format. */
+                                      value: string
+                                  }
+                                | {
+                                      /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                      key: 'tag_name' | 'text' | 'href' | 'selector'
+                                      /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                      operator: 'is_set' | 'is_not_set'
+                                      /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                      type?: 'element'
+                                  }
+                                | {
+                                      /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                                      key: string
+                                      /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                                      type?: 'hogql'
+                                  }
+                                | {
+                                      /** The feature flag key. */
+                                      key: string
+                                      operator?: 'flag_evaluates_to'
+                                      /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                                      type?: 'flag'
+                                      /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                                      value: boolean | string
+                                  }
+                            >
+                            /** version of the node, used for schema migrations */
+                            version?: number
+                        }
+                      | {
+                            /** Action ID from the plan. */
+                            id: number
+                            kind?: 'ActionsNode'
+                            /** Optional math aggregation type for the series. Only specify this math type if the user wants one of these. `first_time_for_user` - counts the number of users who have completed the event for the first time ever. `first_time_for_user_with_filters` - counts the number of users who have completed the event with specified filters for the first time. */
+                            math?: 'first_time_for_user' | 'first_time_for_user_with_filters'
+                            /** Action name from the plan. */
+                            name: string
+                            /** If true, this step can be skipped without breaking the funnel — conversion between the surrounding required steps still counts even if this step didn't happen. Set this when the user asks for a non-required, skippable, or optional step in the funnel. Do not set it on the first or last step (those must be required). */
+                            optionalInFunnel?: boolean
+                            properties?: Array<
+                                | {
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                      operator:
+                                          | 'exact'
+                                          | 'is_not'
+                                          | 'icontains'
+                                          | 'not_icontains'
+                                          | 'regex'
+                                          | 'not_regex'
+                                      type: 'event' | 'person' | 'session' | 'feature'
+                                      /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                      value: string
+                                  }
+                                | {
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      operator: 'exact' | 'gt' | 'lt'
+                                      type: 'event' | 'person' | 'session' | 'feature'
+                                      value: number
+                                  }
+                                | {
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                      operator: 'exact' | 'is_not'
+                                      type: 'event' | 'person' | 'session' | 'feature'
+                                      /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                      value: Array<string>
+                                  }
+                                | {
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                      type: 'event' | 'person' | 'session' | 'feature'
+                                      /** Value must be a date in ISO 8601 format. */
+                                      value: string
+                                  }
+                                | {
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                      operator: 'is_set' | 'is_not_set'
+                                      type: 'event' | 'person' | 'session' | 'feature'
+                                  }
+                                | {
+                                      /** Index of the group type from the group mapping. */
+                                      group_type_index: number
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                      operator:
+                                          | 'exact'
+                                          | 'is_not'
+                                          | 'icontains'
+                                          | 'not_icontains'
+                                          | 'regex'
+                                          | 'not_regex'
+                                      type?: 'group'
+                                      /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                      value: string
+                                  }
+                                | {
+                                      /** Index of the group type from the group mapping. */
+                                      group_type_index: number
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      operator: 'exact' | 'gt' | 'lt'
+                                      type?: 'group'
+                                      value: number
+                                  }
+                                | {
+                                      /** Index of the group type from the group mapping. */
+                                      group_type_index: number
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                      operator: 'exact' | 'is_not'
+                                      type?: 'group'
+                                      /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                      value: Array<string>
+                                  }
+                                | {
+                                      /** Index of the group type from the group mapping. */
+                                      group_type_index: number
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                      type?: 'group'
+                                      /** Value must be a date in ISO 8601 format. */
+                                      value: string
+                                  }
+                                | {
+                                      /** Index of the group type from the group mapping. */
+                                      group_type_index: number
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                      operator: 'is_set' | 'is_not_set'
+                                      type?: 'group'
+                                  }
+                                | {
+                                      key?: 'id'
+                                      operator?: 'in' | 'not_in'
+                                      /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                                      type?: 'cohort'
+                                      /** The cohort ID to filter by. */
+                                      value: number
+                                  }
+                                | {
+                                      /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                      key: 'tag_name' | 'text' | 'href' | 'selector'
+                                      /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                      operator:
+                                          | 'exact'
+                                          | 'is_not'
+                                          | 'icontains'
+                                          | 'not_icontains'
+                                          | 'regex'
+                                          | 'not_regex'
+                                      /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                      type?: 'element'
+                                      /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                      value: string
+                                  }
+                                | {
+                                      /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                      key: 'tag_name' | 'text' | 'href' | 'selector'
+                                      operator: 'exact' | 'gt' | 'lt'
+                                      /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                      type?: 'element'
+                                      value: number
+                                  }
+                                | {
+                                      /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                      key: 'tag_name' | 'text' | 'href' | 'selector'
+                                      /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                      operator: 'exact' | 'is_not'
+                                      /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                      type?: 'element'
+                                      /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                      value: Array<string>
+                                  }
+                                | {
+                                      /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                      key: 'tag_name' | 'text' | 'href' | 'selector'
+                                      operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                      /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                      type?: 'element'
+                                      /** Value must be a date in ISO 8601 format. */
+                                      value: string
+                                  }
+                                | {
+                                      /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                      key: 'tag_name' | 'text' | 'href' | 'selector'
+                                      /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                      operator: 'is_set' | 'is_not_set'
+                                      /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                      type?: 'element'
+                                  }
+                                | {
+                                      /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                                      key: string
+                                      /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                                      type?: 'hogql'
+                                  }
+                                | {
+                                      /** The feature flag key. */
+                                      key: string
+                                      operator?: 'flag_evaluates_to'
+                                      /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                                      type?: 'flag'
+                                      /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                                      value: boolean | string
+                                  }
+                            >
+                            /** version of the node, used for schema migrations */
+                            version?: number
+                        }
+                  >
+                  /** Only `OR` is supported. */
+                  operator?: 'OR'
+              }
+        >
+    }
+}
+
+export interface QueryLifecycleParams {
+    /** Groups aggregation */
+    aggregation_group_type_index?: number | null
+    /** Date range for the query */
+    dateRange?:
+        | {
+              /** ISO8601 date string. */
+              date_from: string
+              /** ISO8601 date string. */
+              date_to?: string | null
+          }
+        | {
+              /** Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start. */
+              date_from: string
+          }
+    /** Exclude internal and test users by applying the respective filters */
+    filterTestAccounts?: boolean
+    /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
+    interval?: 'second' | 'minute' | 'hour' | 'day' | 'week' | 'month'
+    kind?: 'LifecycleQuery'
+    /** Properties specific to the lifecycle insight */
+    lifecycleFilter?: {
+        /** Whether to show the legend describing series. */
+        showLegend?: boolean
+        /** Whether to show a value on each data point. */
+        showValuesOnSeries?: boolean
+        /** Whether the lifecycle bars should be stacked. */
+        stacked?: boolean
+        /** Lifecycles that have been removed from display are not included in this array. Available values: `new`, `returning`, `resurrecting`, `dormant`. - `new` - users who performed the event for the first time during the period. - `returning` - users who were active in the previous period and are active in the current period. - `resurrecting` - users who were inactive for one or more periods and became active again. - `dormant` - users who were active in the previous period but are inactive in the current period. */
+        toggledLifecycles?: Array<'new' | 'resurrecting' | 'returning' | 'dormant'>
+    }
+    /** Property filters for all series */
+    properties?: Array<
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+              operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+              type: 'event' | 'person' | 'session' | 'feature'
+              /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+              value: string
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'exact' | 'gt' | 'lt'
+              type: 'event' | 'person' | 'session' | 'feature'
+              value: number
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+              operator: 'exact' | 'is_not'
+              type: 'event' | 'person' | 'session' | 'feature'
+              /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+              value: Array<string>
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+              type: 'event' | 'person' | 'session' | 'feature'
+              /** Value must be a date in ISO 8601 format. */
+              value: string
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+              operator: 'is_set' | 'is_not_set'
+              type: 'event' | 'person' | 'session' | 'feature'
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+              operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+              type?: 'group'
+              /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+              value: string
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'exact' | 'gt' | 'lt'
+              type?: 'group'
+              value: number
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+              operator: 'exact' | 'is_not'
+              type?: 'group'
+              /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+              value: Array<string>
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+              type?: 'group'
+              /** Value must be a date in ISO 8601 format. */
+              value: string
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+              operator: 'is_set' | 'is_not_set'
+              type?: 'group'
+          }
+        | {
+              key?: 'id'
+              operator?: 'in' | 'not_in'
+              /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+              type?: 'cohort'
+              /** The cohort ID to filter by. */
+              value: number
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+              operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+              value: string
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              operator: 'exact' | 'gt' | 'lt'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              value: number
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+              operator: 'exact' | 'is_not'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+              value: Array<string>
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              /** Value must be a date in ISO 8601 format. */
+              value: string
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+              operator: 'is_set' | 'is_not_set'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+          }
+        | {
+              /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+              key: string
+              /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+              type?: 'hogql'
+          }
+        | {
+              /** The feature flag key. */
+              key: string
+              operator?: 'flag_evaluates_to'
+              /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+              type?: 'flag'
+              /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+              value: boolean | string
+          }
+    >
+    /** Event or action to analyze. Lifecycle insights only support a single series. */
+    series: Array<
+        | {
+              custom_name?: string
+              /** The event or `null` for all events. */
+              event?: string | null
+              /** Defines the event series for the lifecycle insight. Lifecycle does not support math aggregations. */
+              kind?: 'EventsNode'
+              name?: string
+              properties?: Array<
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                        operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                        /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                        value: string
+                    }
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        operator: 'exact' | 'gt' | 'lt'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                        value: number
+                    }
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                        operator: 'exact' | 'is_not'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                        /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                        value: Array<string>
+                    }
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                        /** Value must be a date in ISO 8601 format. */
+                        value: string
+                    }
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                        operator: 'is_set' | 'is_not_set'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                        operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                        type?: 'group'
+                        /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                        value: string
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        operator: 'exact' | 'gt' | 'lt'
+                        type?: 'group'
+                        value: number
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                        operator: 'exact' | 'is_not'
+                        type?: 'group'
+                        /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                        value: Array<string>
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                        type?: 'group'
+                        /** Value must be a date in ISO 8601 format. */
+                        value: string
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                        operator: 'is_set' | 'is_not_set'
+                        type?: 'group'
+                    }
+                  | {
+                        key?: 'id'
+                        operator?: 'in' | 'not_in'
+                        /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                        type?: 'cohort'
+                        /** The cohort ID to filter by. */
+                        value: number
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                        operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                        /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                        value: string
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        operator: 'exact' | 'gt' | 'lt'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                        value: number
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                        operator: 'exact' | 'is_not'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                        /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                        value: Array<string>
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                        /** Value must be a date in ISO 8601 format. */
+                        value: string
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                        operator: 'is_set' | 'is_not_set'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                    }
+                  | {
+                        /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                        key: string
+                        /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                        type?: 'hogql'
+                    }
+                  | {
+                        /** The feature flag key. */
+                        key: string
+                        operator?: 'flag_evaluates_to'
+                        /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                        type?: 'flag'
+                        /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                        value: boolean | string
+                    }
+              >
+          }
+        | {
+              custom_name?: string
+              id: number
+              /** Defines the action series for the lifecycle insight. Lifecycle does not support math aggregations. You must provide the action ID in the `id` field and the name in the `name` field. */
+              kind?: 'ActionsNode'
+              /** Action name from the plan. */
+              name: string
+              properties?: Array<
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                        operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                        /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                        value: string
+                    }
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        operator: 'exact' | 'gt' | 'lt'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                        value: number
+                    }
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                        operator: 'exact' | 'is_not'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                        /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                        value: Array<string>
+                    }
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                        /** Value must be a date in ISO 8601 format. */
+                        value: string
+                    }
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                        operator: 'is_set' | 'is_not_set'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                        operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                        type?: 'group'
+                        /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                        value: string
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        operator: 'exact' | 'gt' | 'lt'
+                        type?: 'group'
+                        value: number
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                        operator: 'exact' | 'is_not'
+                        type?: 'group'
+                        /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                        value: Array<string>
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                        type?: 'group'
+                        /** Value must be a date in ISO 8601 format. */
+                        value: string
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                        operator: 'is_set' | 'is_not_set'
+                        type?: 'group'
+                    }
+                  | {
+                        key?: 'id'
+                        operator?: 'in' | 'not_in'
+                        /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                        type?: 'cohort'
+                        /** The cohort ID to filter by. */
+                        value: number
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                        operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                        /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                        value: string
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        operator: 'exact' | 'gt' | 'lt'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                        value: number
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                        operator: 'exact' | 'is_not'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                        /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                        value: Array<string>
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                        /** Value must be a date in ISO 8601 format. */
+                        value: string
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                        operator: 'is_set' | 'is_not_set'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                    }
+                  | {
+                        /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                        key: string
+                        /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                        type?: 'hogql'
+                    }
+                  | {
+                        /** The feature flag key. */
+                        key: string
+                        operator?: 'flag_evaluates_to'
+                        /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                        type?: 'flag'
+                        /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                        value: boolean | string
+                    }
+              >
+          }
+    >
+}
+
+export interface QueryLifecycleActorsParams {
+    /** Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'. */
+    day: string
+    kind?: 'InsightActorsQuery'
+    /** The source lifecycle insight query whose bucket we are drilling into. */
+    source: {
+        /** Groups aggregation */
+        aggregation_group_type_index?: number | null
+        /** Date range for the query */
+        dateRange?:
+            | {
+                  /** ISO8601 date string. */
+                  date_from: string
+                  /** ISO8601 date string. */
+                  date_to?: string | null
+              }
+            | {
+                  /** Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start. */
+                  date_from: string
+              }
+        /** Exclude internal and test users by applying the respective filters */
+        filterTestAccounts?: boolean
+        /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
+        interval?: 'second' | 'minute' | 'hour' | 'day' | 'week' | 'month'
+        kind?: 'LifecycleQuery'
+        /** Properties specific to the lifecycle insight */
+        lifecycleFilter?: {
+            /** Whether to show the legend describing series. */
+            showLegend?: boolean
+            /** Whether to show a value on each data point. */
+            showValuesOnSeries?: boolean
+            /** Whether the lifecycle bars should be stacked. */
+            stacked?: boolean
+            /** Lifecycles that have been removed from display are not included in this array. Available values: `new`, `returning`, `resurrecting`, `dormant`. - `new` - users who performed the event for the first time during the period. - `returning` - users who were active in the previous period and are active in the current period. - `resurrecting` - users who were inactive for one or more periods and became active again. - `dormant` - users who were active in the previous period but are inactive in the current period. */
+            toggledLifecycles?: Array<'new' | 'resurrecting' | 'returning' | 'dormant'>
+        }
+        /** Property filters for all series */
+        properties?: Array<
+            | {
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                  operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                  type: 'event' | 'person' | 'session' | 'feature'
+                  /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                  value: string
+              }
+            | {
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  operator: 'exact' | 'gt' | 'lt'
+                  type: 'event' | 'person' | 'session' | 'feature'
+                  value: number
+              }
+            | {
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                  operator: 'exact' | 'is_not'
+                  type: 'event' | 'person' | 'session' | 'feature'
+                  /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                  value: Array<string>
+              }
+            | {
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                  type: 'event' | 'person' | 'session' | 'feature'
+                  /** Value must be a date in ISO 8601 format. */
+                  value: string
+              }
+            | {
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                  operator: 'is_set' | 'is_not_set'
+                  type: 'event' | 'person' | 'session' | 'feature'
+              }
+            | {
+                  /** Index of the group type from the group mapping. */
+                  group_type_index: number
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                  operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                  type?: 'group'
+                  /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                  value: string
+              }
+            | {
+                  /** Index of the group type from the group mapping. */
+                  group_type_index: number
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  operator: 'exact' | 'gt' | 'lt'
+                  type?: 'group'
+                  value: number
+              }
+            | {
+                  /** Index of the group type from the group mapping. */
+                  group_type_index: number
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                  operator: 'exact' | 'is_not'
+                  type?: 'group'
+                  /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                  value: Array<string>
+              }
+            | {
+                  /** Index of the group type from the group mapping. */
+                  group_type_index: number
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                  type?: 'group'
+                  /** Value must be a date in ISO 8601 format. */
+                  value: string
+              }
+            | {
+                  /** Index of the group type from the group mapping. */
+                  group_type_index: number
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                  operator: 'is_set' | 'is_not_set'
+                  type?: 'group'
+              }
+            | {
+                  key?: 'id'
+                  operator?: 'in' | 'not_in'
+                  /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                  type?: 'cohort'
+                  /** The cohort ID to filter by. */
+                  value: number
+              }
+            | {
+                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                  /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                  operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                  type?: 'element'
+                  /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                  value: string
+              }
+            | {
+                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                  operator: 'exact' | 'gt' | 'lt'
+                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                  type?: 'element'
+                  value: number
+              }
+            | {
+                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                  /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                  operator: 'exact' | 'is_not'
+                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                  type?: 'element'
+                  /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                  value: Array<string>
+              }
+            | {
+                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                  operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                  type?: 'element'
+                  /** Value must be a date in ISO 8601 format. */
+                  value: string
+              }
+            | {
+                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                  /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                  operator: 'is_set' | 'is_not_set'
+                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                  type?: 'element'
+              }
+            | {
+                  /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                  key: string
+                  /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                  type?: 'hogql'
+              }
+            | {
+                  /** The feature flag key. */
+                  key: string
+                  operator?: 'flag_evaluates_to'
+                  /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                  type?: 'flag'
+                  /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                  value: boolean | string
+              }
+        >
+        /** Event or action to analyze. Lifecycle insights only support a single series. */
+        series: Array<
+            | {
+                  custom_name?: string
+                  /** The event or `null` for all events. */
+                  event?: string | null
+                  /** Defines the event series for the lifecycle insight. Lifecycle does not support math aggregations. */
+                  kind?: 'EventsNode'
+                  name?: string
+                  properties?: Array<
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'exact' | 'gt' | 'lt'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            value: number
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            type?: 'group'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'exact' | 'gt' | 'lt'
+                            type?: 'group'
+                            value: number
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            type?: 'group'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            type?: 'group'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            type?: 'group'
+                        }
+                      | {
+                            key?: 'id'
+                            operator?: 'in' | 'not_in'
+                            /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                            type?: 'cohort'
+                            /** The cohort ID to filter by. */
+                            value: number
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            operator: 'exact' | 'gt' | 'lt'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            value: number
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                        }
+                      | {
+                            /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                            key: string
+                            /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                            type?: 'hogql'
+                        }
+                      | {
+                            /** The feature flag key. */
+                            key: string
+                            operator?: 'flag_evaluates_to'
+                            /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                            type?: 'flag'
+                            /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                            value: boolean | string
+                        }
+                  >
+              }
+            | {
+                  custom_name?: string
+                  id: number
+                  /** Defines the action series for the lifecycle insight. Lifecycle does not support math aggregations. You must provide the action ID in the `id` field and the name in the `name` field. */
+                  kind?: 'ActionsNode'
+                  /** Action name from the plan. */
+                  name: string
+                  properties?: Array<
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'exact' | 'gt' | 'lt'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            value: number
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            type?: 'group'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'exact' | 'gt' | 'lt'
+                            type?: 'group'
+                            value: number
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            type?: 'group'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            type?: 'group'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            type?: 'group'
+                        }
+                      | {
+                            key?: 'id'
+                            operator?: 'in' | 'not_in'
+                            /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                            type?: 'cohort'
+                            /** The cohort ID to filter by. */
+                            value: number
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            operator: 'exact' | 'gt' | 'lt'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            value: number
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                        }
+                      | {
+                            /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                            key: string
+                            /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                            type?: 'hogql'
+                        }
+                      | {
+                            /** The feature flag key. */
+                            key: string
+                            operator?: 'flag_evaluates_to'
+                            /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                            type?: 'flag'
+                            /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                            value: boolean | string
+                        }
+                  >
+              }
+        >
+    }
+    /** Lifecycle status to drill into for the given day. Must be one of the bucket names visible in the source's `lifecycleFilter.toggledLifecycles` (defaults to all four when omitted). */
+    status: 'new' | 'returning' | 'resurrecting' | 'dormant'
+}
+
+export interface QueryLlmTraceParams {
+    /** Date range for the query. */
+    dateRange?:
+        | {
+              /** ISO8601 date string. */
+              date_from: string
+              /** ISO8601 date string. */
+              date_to?: string | null
+          }
+        | {
+              /** Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start. */
+              date_from: string
+          }
+    kind?: 'TraceQuery'
+    /** Property filters to narrow events within the trace. */
+    properties?: Array<
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+              operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+              type: 'event' | 'person' | 'session' | 'feature'
+              /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+              value: string
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'exact' | 'gt' | 'lt'
+              type: 'event' | 'person' | 'session' | 'feature'
+              value: number
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+              operator: 'exact' | 'is_not'
+              type: 'event' | 'person' | 'session' | 'feature'
+              /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+              value: Array<string>
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+              type: 'event' | 'person' | 'session' | 'feature'
+              /** Value must be a date in ISO 8601 format. */
+              value: string
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+              operator: 'is_set' | 'is_not_set'
+              type: 'event' | 'person' | 'session' | 'feature'
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+              operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+              type?: 'group'
+              /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+              value: string
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'exact' | 'gt' | 'lt'
+              type?: 'group'
+              value: number
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+              operator: 'exact' | 'is_not'
+              type?: 'group'
+              /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+              value: Array<string>
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+              type?: 'group'
+              /** Value must be a date in ISO 8601 format. */
+              value: string
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+              operator: 'is_set' | 'is_not_set'
+              type?: 'group'
+          }
+        | {
+              key?: 'id'
+              operator?: 'in' | 'not_in'
+              /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+              type?: 'cohort'
+              /** The cohort ID to filter by. */
+              value: number
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+              operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+              value: string
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              operator: 'exact' | 'gt' | 'lt'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              value: number
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+              operator: 'exact' | 'is_not'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+              value: Array<string>
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              /** Value must be a date in ISO 8601 format. */
+              value: string
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+              operator: 'is_set' | 'is_not_set'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+          }
+        | {
+              /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+              key: string
+              /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+              type?: 'hogql'
+          }
+        | {
+              /** The feature flag key. */
+              key: string
+              operator?: 'flag_evaluates_to'
+              /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+              type?: 'flag'
+              /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+              value: boolean | string
+          }
+    >
+    /** The trace ID to fetch (the `id` field from a trace in `query-llm-traces-list` results). */
+    traceId: string
+}
+
+export interface QueryLlmTracesListParams {
+    /** Date range for the query. */
+    dateRange?:
+        | {
+              /** ISO8601 date string. */
+              date_from: string
+              /** ISO8601 date string. */
+              date_to?: string | null
+          }
+        | {
+              /** Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start. */
+              date_from: string
+          }
+    /** Exclude support impersonation traces. */
+    filterSupportTraces?: boolean
+    /** Exclude internal and test users by applying the respective filters. */
+    filterTestAccounts?: boolean
+    /** Filter traces by group key. Requires `groupTypeIndex` to be set. */
+    groupKey?: string
+    /** Group type index when filtering by group. */
+    groupTypeIndex?: number
+    kind?: 'TracesQuery'
+    /** Maximum number of traces to return. */
+    limit?: number
+    /** Number of traces to skip for pagination. */
+    offset?: number
+    /** Filter traces by a specific person UUID. */
+    personId?: string
+    /** Property filters to narrow results. Use event properties like `$ai_model`, `$ai_provider`, `$ai_trace_id`, etc. to filter traces. */
+    properties?: Array<
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+              operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+              type: 'event' | 'person' | 'session' | 'feature'
+              /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+              value: string
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'exact' | 'gt' | 'lt'
+              type: 'event' | 'person' | 'session' | 'feature'
+              value: number
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+              operator: 'exact' | 'is_not'
+              type: 'event' | 'person' | 'session' | 'feature'
+              /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+              value: Array<string>
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+              type: 'event' | 'person' | 'session' | 'feature'
+              /** Value must be a date in ISO 8601 format. */
+              value: string
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+              operator: 'is_set' | 'is_not_set'
+              type: 'event' | 'person' | 'session' | 'feature'
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+              operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+              type?: 'group'
+              /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+              value: string
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'exact' | 'gt' | 'lt'
+              type?: 'group'
+              value: number
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+              operator: 'exact' | 'is_not'
+              type?: 'group'
+              /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+              value: Array<string>
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+              type?: 'group'
+              /** Value must be a date in ISO 8601 format. */
+              value: string
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+              operator: 'is_set' | 'is_not_set'
+              type?: 'group'
+          }
+        | {
+              key?: 'id'
+              operator?: 'in' | 'not_in'
+              /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+              type?: 'cohort'
+              /** The cohort ID to filter by. */
+              value: number
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+              operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+              value: string
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              operator: 'exact' | 'gt' | 'lt'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              value: number
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+              operator: 'exact' | 'is_not'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+              value: Array<string>
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              /** Value must be a date in ISO 8601 format. */
+              value: string
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+              operator: 'is_set' | 'is_not_set'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+          }
+        | {
+              /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+              key: string
+              /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+              type?: 'hogql'
+          }
+        | {
+              /** The feature flag key. */
+              key: string
+              operator?: 'flag_evaluates_to'
+              /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+              type?: 'flag'
+              /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+              value: boolean | string
+          }
+    >
+    /** Use random ordering instead of timestamp DESC. Useful for representative sampling to avoid recency bias. */
+    randomOrder?: boolean
+}
+
 export interface QueryLogsParams {
     /** The logs query to execute. */
     query: {
@@ -20207,6 +23563,897 @@ export interface QueryLogsParams {
         /** Filter by log severity levels. */
         severityLevels?: Array<'trace' | 'debug' | 'info' | 'warn' | 'error' | 'fatal'>
     }
+}
+
+export interface QueryMcpHarnessBreakdownParams {
+    dateRange?: {
+        /** Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago), -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year). */
+        date_from?: string | null
+        /** End of the date range. Same format as date_from. Omit or null for "now". */
+        date_to?: string | null
+        /** Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period. */
+        explicitDate?: boolean | null
+    }
+    filterTestAccounts?: boolean
+    kind?: 'MCPHarnessBreakdownQuery'
+    properties?: Array<
+        | {
+              key: string
+              label?: string
+              operator?:
+                  | 'exact'
+                  | 'is_not'
+                  | 'icontains'
+                  | 'not_icontains'
+                  | 'regex'
+                  | 'not_regex'
+                  | 'gt'
+                  | 'gte'
+                  | 'lt'
+                  | 'lte'
+                  | 'is_set'
+                  | 'is_not_set'
+                  | 'is_date_exact'
+                  | 'is_date_before'
+                  | 'is_date_after'
+                  | 'between'
+                  | 'not_between'
+                  | 'min'
+                  | 'max'
+                  | 'in'
+                  | 'not_in'
+                  | 'is_cleaned_path_exact'
+                  | 'flag_evaluates_to'
+                  | 'semver_eq'
+                  | 'semver_neq'
+                  | 'semver_gt'
+                  | 'semver_gte'
+                  | 'semver_lt'
+                  | 'semver_lte'
+                  | 'semver_tilde'
+                  | 'semver_caret'
+                  | 'semver_wildcard'
+                  | 'icontains_multi'
+                  | 'not_icontains_multi'
+              /** Event properties */
+              type?: 'event'
+              value?: string | number | boolean | Array<string | number | boolean> | null
+          }
+        | {
+              key: string
+              label?: string
+              operator:
+                  | 'exact'
+                  | 'is_not'
+                  | 'icontains'
+                  | 'not_icontains'
+                  | 'regex'
+                  | 'not_regex'
+                  | 'gt'
+                  | 'gte'
+                  | 'lt'
+                  | 'lte'
+                  | 'is_set'
+                  | 'is_not_set'
+                  | 'is_date_exact'
+                  | 'is_date_before'
+                  | 'is_date_after'
+                  | 'between'
+                  | 'not_between'
+                  | 'min'
+                  | 'max'
+                  | 'in'
+                  | 'not_in'
+                  | 'is_cleaned_path_exact'
+                  | 'flag_evaluates_to'
+                  | 'semver_eq'
+                  | 'semver_neq'
+                  | 'semver_gt'
+                  | 'semver_gte'
+                  | 'semver_lt'
+                  | 'semver_lte'
+                  | 'semver_tilde'
+                  | 'semver_caret'
+                  | 'semver_wildcard'
+                  | 'icontains_multi'
+                  | 'not_icontains_multi'
+              /** Person properties */
+              type?: 'person'
+              value?: string | number | boolean | Array<string | number | boolean> | null
+          }
+        | {
+              key: string
+              label?: string
+              operator:
+                  | 'exact'
+                  | 'is_not'
+                  | 'icontains'
+                  | 'not_icontains'
+                  | 'regex'
+                  | 'not_regex'
+                  | 'gt'
+                  | 'gte'
+                  | 'lt'
+                  | 'lte'
+                  | 'is_set'
+                  | 'is_not_set'
+                  | 'is_date_exact'
+                  | 'is_date_before'
+                  | 'is_date_after'
+                  | 'between'
+                  | 'not_between'
+                  | 'min'
+                  | 'max'
+                  | 'in'
+                  | 'not_in'
+                  | 'is_cleaned_path_exact'
+                  | 'flag_evaluates_to'
+                  | 'semver_eq'
+                  | 'semver_neq'
+                  | 'semver_gt'
+                  | 'semver_gte'
+                  | 'semver_lt'
+                  | 'semver_lte'
+                  | 'semver_tilde'
+                  | 'semver_caret'
+                  | 'semver_wildcard'
+                  | 'icontains_multi'
+                  | 'not_icontains_multi'
+              /** Top-level columns on the persons table (e.g. created_at), not properties JSON */
+              type?: 'person_metadata'
+              value?: string | number | boolean | Array<string | number | boolean> | null
+          }
+        | {
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              label?: string
+              operator:
+                  | 'exact'
+                  | 'is_not'
+                  | 'icontains'
+                  | 'not_icontains'
+                  | 'regex'
+                  | 'not_regex'
+                  | 'gt'
+                  | 'gte'
+                  | 'lt'
+                  | 'lte'
+                  | 'is_set'
+                  | 'is_not_set'
+                  | 'is_date_exact'
+                  | 'is_date_before'
+                  | 'is_date_after'
+                  | 'between'
+                  | 'not_between'
+                  | 'min'
+                  | 'max'
+                  | 'in'
+                  | 'not_in'
+                  | 'is_cleaned_path_exact'
+                  | 'flag_evaluates_to'
+                  | 'semver_eq'
+                  | 'semver_neq'
+                  | 'semver_gt'
+                  | 'semver_gte'
+                  | 'semver_lt'
+                  | 'semver_lte'
+                  | 'semver_tilde'
+                  | 'semver_caret'
+                  | 'semver_wildcard'
+                  | 'icontains_multi'
+                  | 'not_icontains_multi'
+              type?: 'element'
+              value?: string | number | boolean | Array<string | number | boolean> | null
+          }
+        | {
+              key: string
+              label?: string
+              operator:
+                  | 'exact'
+                  | 'is_not'
+                  | 'icontains'
+                  | 'not_icontains'
+                  | 'regex'
+                  | 'not_regex'
+                  | 'gt'
+                  | 'gte'
+                  | 'lt'
+                  | 'lte'
+                  | 'is_set'
+                  | 'is_not_set'
+                  | 'is_date_exact'
+                  | 'is_date_before'
+                  | 'is_date_after'
+                  | 'between'
+                  | 'not_between'
+                  | 'min'
+                  | 'max'
+                  | 'in'
+                  | 'not_in'
+                  | 'is_cleaned_path_exact'
+                  | 'flag_evaluates_to'
+                  | 'semver_eq'
+                  | 'semver_neq'
+                  | 'semver_gt'
+                  | 'semver_gte'
+                  | 'semver_lt'
+                  | 'semver_lte'
+                  | 'semver_tilde'
+                  | 'semver_caret'
+                  | 'semver_wildcard'
+                  | 'icontains_multi'
+                  | 'not_icontains_multi'
+              type?: 'event_metadata'
+              value?: string | number | boolean | Array<string | number | boolean> | null
+          }
+        | {
+              key: string
+              label?: string
+              operator:
+                  | 'exact'
+                  | 'is_not'
+                  | 'icontains'
+                  | 'not_icontains'
+                  | 'regex'
+                  | 'not_regex'
+                  | 'gt'
+                  | 'gte'
+                  | 'lt'
+                  | 'lte'
+                  | 'is_set'
+                  | 'is_not_set'
+                  | 'is_date_exact'
+                  | 'is_date_before'
+                  | 'is_date_after'
+                  | 'between'
+                  | 'not_between'
+                  | 'min'
+                  | 'max'
+                  | 'in'
+                  | 'not_in'
+                  | 'is_cleaned_path_exact'
+                  | 'flag_evaluates_to'
+                  | 'semver_eq'
+                  | 'semver_neq'
+                  | 'semver_gt'
+                  | 'semver_gte'
+                  | 'semver_lt'
+                  | 'semver_lte'
+                  | 'semver_tilde'
+                  | 'semver_caret'
+                  | 'semver_wildcard'
+                  | 'icontains_multi'
+                  | 'not_icontains_multi'
+              type?: 'session'
+              value?: string | number | boolean | Array<string | number | boolean> | null
+          }
+        | {
+              cohort_name?: string
+              key?: 'id'
+              label?: string
+              operator?:
+                  | 'exact'
+                  | 'is_not'
+                  | 'icontains'
+                  | 'not_icontains'
+                  | 'regex'
+                  | 'not_regex'
+                  | 'gt'
+                  | 'gte'
+                  | 'lt'
+                  | 'lte'
+                  | 'is_set'
+                  | 'is_not_set'
+                  | 'is_date_exact'
+                  | 'is_date_before'
+                  | 'is_date_after'
+                  | 'between'
+                  | 'not_between'
+                  | 'min'
+                  | 'max'
+                  | 'in'
+                  | 'not_in'
+                  | 'is_cleaned_path_exact'
+                  | 'flag_evaluates_to'
+                  | 'semver_eq'
+                  | 'semver_neq'
+                  | 'semver_gt'
+                  | 'semver_gte'
+                  | 'semver_lt'
+                  | 'semver_lte'
+                  | 'semver_tilde'
+                  | 'semver_caret'
+                  | 'semver_wildcard'
+                  | 'icontains_multi'
+                  | 'not_icontains_multi'
+              type?: 'cohort'
+              value: number
+          }
+        | {
+              key:
+                  | 'duration'
+                  | 'active_seconds'
+                  | 'inactive_seconds'
+                  | 'snapshot_source'
+                  | 'visited_page'
+                  | 'comment_text'
+                  | 'click_count'
+                  | 'keypress_count'
+                  | 'mouse_activity_count'
+              label?: string
+              operator:
+                  | 'exact'
+                  | 'is_not'
+                  | 'icontains'
+                  | 'not_icontains'
+                  | 'regex'
+                  | 'not_regex'
+                  | 'gt'
+                  | 'gte'
+                  | 'lt'
+                  | 'lte'
+                  | 'is_set'
+                  | 'is_not_set'
+                  | 'is_date_exact'
+                  | 'is_date_before'
+                  | 'is_date_after'
+                  | 'between'
+                  | 'not_between'
+                  | 'min'
+                  | 'max'
+                  | 'in'
+                  | 'not_in'
+                  | 'is_cleaned_path_exact'
+                  | 'flag_evaluates_to'
+                  | 'semver_eq'
+                  | 'semver_neq'
+                  | 'semver_gt'
+                  | 'semver_gte'
+                  | 'semver_lt'
+                  | 'semver_lte'
+                  | 'semver_tilde'
+                  | 'semver_caret'
+                  | 'semver_wildcard'
+                  | 'icontains_multi'
+                  | 'not_icontains_multi'
+              type?: 'recording'
+              value?: string | number | boolean | Array<string | number | boolean> | null
+          }
+        | {
+              key: string
+              label?: string
+              operator:
+                  | 'exact'
+                  | 'is_not'
+                  | 'icontains'
+                  | 'not_icontains'
+                  | 'regex'
+                  | 'not_regex'
+                  | 'gt'
+                  | 'gte'
+                  | 'lt'
+                  | 'lte'
+                  | 'is_set'
+                  | 'is_not_set'
+                  | 'is_date_exact'
+                  | 'is_date_before'
+                  | 'is_date_after'
+                  | 'between'
+                  | 'not_between'
+                  | 'min'
+                  | 'max'
+                  | 'in'
+                  | 'not_in'
+                  | 'is_cleaned_path_exact'
+                  | 'flag_evaluates_to'
+                  | 'semver_eq'
+                  | 'semver_neq'
+                  | 'semver_gt'
+                  | 'semver_gte'
+                  | 'semver_lt'
+                  | 'semver_lte'
+                  | 'semver_tilde'
+                  | 'semver_caret'
+                  | 'semver_wildcard'
+                  | 'icontains_multi'
+                  | 'not_icontains_multi'
+              type?: 'log_entry'
+              value?: string | number | boolean | Array<string | number | boolean> | null
+          }
+        | {
+              group_key_names?: Record<string, string>
+              group_type_index?: number | null
+              key: string
+              label?: string
+              operator:
+                  | 'exact'
+                  | 'is_not'
+                  | 'icontains'
+                  | 'not_icontains'
+                  | 'regex'
+                  | 'not_regex'
+                  | 'gt'
+                  | 'gte'
+                  | 'lt'
+                  | 'lte'
+                  | 'is_set'
+                  | 'is_not_set'
+                  | 'is_date_exact'
+                  | 'is_date_before'
+                  | 'is_date_after'
+                  | 'between'
+                  | 'not_between'
+                  | 'min'
+                  | 'max'
+                  | 'in'
+                  | 'not_in'
+                  | 'is_cleaned_path_exact'
+                  | 'flag_evaluates_to'
+                  | 'semver_eq'
+                  | 'semver_neq'
+                  | 'semver_gt'
+                  | 'semver_gte'
+                  | 'semver_lt'
+                  | 'semver_lte'
+                  | 'semver_tilde'
+                  | 'semver_caret'
+                  | 'semver_wildcard'
+                  | 'icontains_multi'
+                  | 'not_icontains_multi'
+              type?: 'group'
+              value?: string | number | boolean | Array<string | number | boolean> | null
+          }
+        | {
+              key: string
+              label?: string
+              operator:
+                  | 'exact'
+                  | 'is_not'
+                  | 'icontains'
+                  | 'not_icontains'
+                  | 'regex'
+                  | 'not_regex'
+                  | 'gt'
+                  | 'gte'
+                  | 'lt'
+                  | 'lte'
+                  | 'is_set'
+                  | 'is_not_set'
+                  | 'is_date_exact'
+                  | 'is_date_before'
+                  | 'is_date_after'
+                  | 'between'
+                  | 'not_between'
+                  | 'min'
+                  | 'max'
+                  | 'in'
+                  | 'not_in'
+                  | 'is_cleaned_path_exact'
+                  | 'flag_evaluates_to'
+                  | 'semver_eq'
+                  | 'semver_neq'
+                  | 'semver_gt'
+                  | 'semver_gte'
+                  | 'semver_lt'
+                  | 'semver_lte'
+                  | 'semver_tilde'
+                  | 'semver_caret'
+                  | 'semver_wildcard'
+                  | 'icontains_multi'
+                  | 'not_icontains_multi'
+              /** Event property with "$feature/" prepended */
+              type?: 'feature'
+              value?: string | number | boolean | Array<string | number | boolean> | null
+          }
+        | {
+              /** The key should be the flag ID */
+              key: string
+              label?: string
+              /** Only flag_evaluates_to operator is allowed for flag dependencies */
+              operator?: 'flag_evaluates_to'
+              /** Feature flag dependency */
+              type?: 'flag'
+              /** The value can be true, false, or a variant name */
+              value: boolean | string
+          }
+        | {
+              key: string
+              label?: string
+              type?: 'hogql'
+              value?: string | number | boolean | Array<string | number | boolean> | null
+          }
+        | {
+              type?: 'empty'
+          }
+        | {
+              key: string
+              label?: string
+              operator:
+                  | 'exact'
+                  | 'is_not'
+                  | 'icontains'
+                  | 'not_icontains'
+                  | 'regex'
+                  | 'not_regex'
+                  | 'gt'
+                  | 'gte'
+                  | 'lt'
+                  | 'lte'
+                  | 'is_set'
+                  | 'is_not_set'
+                  | 'is_date_exact'
+                  | 'is_date_before'
+                  | 'is_date_after'
+                  | 'between'
+                  | 'not_between'
+                  | 'min'
+                  | 'max'
+                  | 'in'
+                  | 'not_in'
+                  | 'is_cleaned_path_exact'
+                  | 'flag_evaluates_to'
+                  | 'semver_eq'
+                  | 'semver_neq'
+                  | 'semver_gt'
+                  | 'semver_gte'
+                  | 'semver_lt'
+                  | 'semver_lte'
+                  | 'semver_tilde'
+                  | 'semver_caret'
+                  | 'semver_wildcard'
+                  | 'icontains_multi'
+                  | 'not_icontains_multi'
+              type?: 'data_warehouse'
+              value?: string | number | boolean | Array<string | number | boolean> | null
+          }
+        | {
+              key: string
+              label?: string
+              operator:
+                  | 'exact'
+                  | 'is_not'
+                  | 'icontains'
+                  | 'not_icontains'
+                  | 'regex'
+                  | 'not_regex'
+                  | 'gt'
+                  | 'gte'
+                  | 'lt'
+                  | 'lte'
+                  | 'is_set'
+                  | 'is_not_set'
+                  | 'is_date_exact'
+                  | 'is_date_before'
+                  | 'is_date_after'
+                  | 'between'
+                  | 'not_between'
+                  | 'min'
+                  | 'max'
+                  | 'in'
+                  | 'not_in'
+                  | 'is_cleaned_path_exact'
+                  | 'flag_evaluates_to'
+                  | 'semver_eq'
+                  | 'semver_neq'
+                  | 'semver_gt'
+                  | 'semver_gte'
+                  | 'semver_lt'
+                  | 'semver_lte'
+                  | 'semver_tilde'
+                  | 'semver_caret'
+                  | 'semver_wildcard'
+                  | 'icontains_multi'
+                  | 'not_icontains_multi'
+              type?: 'data_warehouse_person_property'
+              value?: string | number | boolean | Array<string | number | boolean> | null
+          }
+        | {
+              key: string
+              label?: string
+              operator:
+                  | 'exact'
+                  | 'is_not'
+                  | 'icontains'
+                  | 'not_icontains'
+                  | 'regex'
+                  | 'not_regex'
+                  | 'gt'
+                  | 'gte'
+                  | 'lt'
+                  | 'lte'
+                  | 'is_set'
+                  | 'is_not_set'
+                  | 'is_date_exact'
+                  | 'is_date_before'
+                  | 'is_date_after'
+                  | 'between'
+                  | 'not_between'
+                  | 'min'
+                  | 'max'
+                  | 'in'
+                  | 'not_in'
+                  | 'is_cleaned_path_exact'
+                  | 'flag_evaluates_to'
+                  | 'semver_eq'
+                  | 'semver_neq'
+                  | 'semver_gt'
+                  | 'semver_gte'
+                  | 'semver_lt'
+                  | 'semver_lte'
+                  | 'semver_tilde'
+                  | 'semver_caret'
+                  | 'semver_wildcard'
+                  | 'icontains_multi'
+                  | 'not_icontains_multi'
+              type?: 'error_tracking_issue'
+              value?: string | number | boolean | Array<string | number | boolean> | null
+          }
+        | {
+              key: string
+              label?: string
+              operator:
+                  | 'exact'
+                  | 'is_not'
+                  | 'icontains'
+                  | 'not_icontains'
+                  | 'regex'
+                  | 'not_regex'
+                  | 'gt'
+                  | 'gte'
+                  | 'lt'
+                  | 'lte'
+                  | 'is_set'
+                  | 'is_not_set'
+                  | 'is_date_exact'
+                  | 'is_date_before'
+                  | 'is_date_after'
+                  | 'between'
+                  | 'not_between'
+                  | 'min'
+                  | 'max'
+                  | 'in'
+                  | 'not_in'
+                  | 'is_cleaned_path_exact'
+                  | 'flag_evaluates_to'
+                  | 'semver_eq'
+                  | 'semver_neq'
+                  | 'semver_gt'
+                  | 'semver_gte'
+                  | 'semver_lt'
+                  | 'semver_lte'
+                  | 'semver_tilde'
+                  | 'semver_caret'
+                  | 'semver_wildcard'
+                  | 'icontains_multi'
+                  | 'not_icontains_multi'
+              type: 'log' | 'log_attribute' | 'log_resource_attribute'
+              value?: string | number | boolean | Array<string | number | boolean> | null
+          }
+        | {
+              key: string
+              label?: string
+              operator:
+                  | 'exact'
+                  | 'is_not'
+                  | 'icontains'
+                  | 'not_icontains'
+                  | 'regex'
+                  | 'not_regex'
+                  | 'gt'
+                  | 'gte'
+                  | 'lt'
+                  | 'lte'
+                  | 'is_set'
+                  | 'is_not_set'
+                  | 'is_date_exact'
+                  | 'is_date_before'
+                  | 'is_date_after'
+                  | 'between'
+                  | 'not_between'
+                  | 'min'
+                  | 'max'
+                  | 'in'
+                  | 'not_in'
+                  | 'is_cleaned_path_exact'
+                  | 'flag_evaluates_to'
+                  | 'semver_eq'
+                  | 'semver_neq'
+                  | 'semver_gt'
+                  | 'semver_gte'
+                  | 'semver_lt'
+                  | 'semver_lte'
+                  | 'semver_tilde'
+                  | 'semver_caret'
+                  | 'semver_wildcard'
+                  | 'icontains_multi'
+                  | 'not_icontains_multi'
+              type: 'span' | 'span_attribute' | 'span_resource_attribute'
+              value?: string | number | boolean | Array<string | number | boolean> | null
+          }
+        | {
+              key: string
+              label?: string
+              operator:
+                  | 'exact'
+                  | 'is_not'
+                  | 'icontains'
+                  | 'not_icontains'
+                  | 'regex'
+                  | 'not_regex'
+                  | 'gt'
+                  | 'gte'
+                  | 'lt'
+                  | 'lte'
+                  | 'is_set'
+                  | 'is_not_set'
+                  | 'is_date_exact'
+                  | 'is_date_before'
+                  | 'is_date_after'
+                  | 'between'
+                  | 'not_between'
+                  | 'min'
+                  | 'max'
+                  | 'in'
+                  | 'not_in'
+                  | 'is_cleaned_path_exact'
+                  | 'flag_evaluates_to'
+                  | 'semver_eq'
+                  | 'semver_neq'
+                  | 'semver_gt'
+                  | 'semver_gte'
+                  | 'semver_lt'
+                  | 'semver_lte'
+                  | 'semver_tilde'
+                  | 'semver_caret'
+                  | 'semver_wildcard'
+                  | 'icontains_multi'
+                  | 'not_icontains_multi'
+              type?: 'revenue_analytics'
+              value?: string | number | boolean | Array<string | number | boolean> | null
+          }
+        | {
+              key: string
+              label?: string
+              operator:
+                  | 'exact'
+                  | 'is_not'
+                  | 'icontains'
+                  | 'not_icontains'
+                  | 'regex'
+                  | 'not_regex'
+                  | 'gt'
+                  | 'gte'
+                  | 'lt'
+                  | 'lte'
+                  | 'is_set'
+                  | 'is_not_set'
+                  | 'is_date_exact'
+                  | 'is_date_before'
+                  | 'is_date_after'
+                  | 'between'
+                  | 'not_between'
+                  | 'min'
+                  | 'max'
+                  | 'in'
+                  | 'not_in'
+                  | 'is_cleaned_path_exact'
+                  | 'flag_evaluates_to'
+                  | 'semver_eq'
+                  | 'semver_neq'
+                  | 'semver_gt'
+                  | 'semver_gte'
+                  | 'semver_lt'
+                  | 'semver_lte'
+                  | 'semver_tilde'
+                  | 'semver_caret'
+                  | 'semver_wildcard'
+                  | 'icontains_multi'
+                  | 'not_icontains_multi'
+              type?: 'workflow_variable'
+              value?: string | number | boolean | Array<string | number | boolean> | null
+          }
+    >
+    /** When set, scope to a single effective tool's new-SDK calls (the per-tool "By harness" table). */
+    toolName?: string
+}
+
+export interface QueryMcpToolDailyStatsParams {
+    dateRange?: {
+        /** Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago), -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year). */
+        date_from?: string | null
+        /** End of the date range. Same format as date_from. Omit or null for "now". */
+        date_to?: string | null
+        /** Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period. */
+        explicitDate?: boolean | null
+    }
+    kind?: 'MCPToolDailyStatsQuery'
+    /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
+    toolName: string
+}
+
+export interface QueryMcpToolDescriptionsParams {
+    dateRange?: {
+        /** Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago), -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year). */
+        date_from?: string | null
+        /** End of the date range. Same format as date_from. Omit or null for "now". */
+        date_to?: string | null
+        /** Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period. */
+        explicitDate?: boolean | null
+    }
+    kind?: 'MCPToolDescriptionsQuery'
+    /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
+    toolName: string
+}
+
+export interface QueryMcpToolFailuresParams {
+    dateRange?: {
+        /** Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago), -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year). */
+        date_from?: string | null
+        /** End of the date range. Same format as date_from. Omit or null for "now". */
+        date_to?: string | null
+        /** Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period. */
+        explicitDate?: boolean | null
+    }
+    kind?: 'MCPToolFailuresQuery'
+    /** The raw $mcp_tool_name to scope $exception events to. */
+    toolName: string
+}
+
+export interface QueryMcpToolNeighborsParams {
+    dateRange?: {
+        /** Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago), -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year). */
+        date_from?: string | null
+        /** End of the date range. Same format as date_from. Omit or null for "now". */
+        date_to?: string | null
+        /** Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period. */
+        explicitDate?: boolean | null
+    }
+    kind?: 'MCPToolNeighborsQuery'
+    /** Whether to count tools called immediately before or after the target tool. */
+    neighborDirection: 'before' | 'after'
+    /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
+    toolName: string
+}
+
+export interface QueryMcpToolSampleIntentsParams {
+    dateRange?: {
+        /** Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago), -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year). */
+        date_from?: string | null
+        /** End of the date range. Same format as date_from. Omit or null for "now". */
+        date_to?: string | null
+        /** Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period. */
+        explicitDate?: boolean | null
+    }
+    kind?: 'MCPToolSampleIntentsQuery'
+    /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
+    toolName: string
+}
+
+export interface QueryMcpToolStatsParams {
+    dateRange?: {
+        /** Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago), -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year). */
+        date_from?: string | null
+        /** End of the date range. Same format as date_from. Omit or null for "now". */
+        date_to?: string | null
+        /** Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period. */
+        explicitDate?: boolean | null
+    }
+    kind?: 'MCPToolStatsQuery'
+    /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
+    toolName: string
+}
+
+export interface QueryMcpToolTopUsersParams {
+    dateRange?: {
+        /** Start of the date range. Accepts ISO 8601 timestamps (e.g., 2024-01-15T00:00:00Z) or relative formats: -7d (7 days ago), -2w (2 weeks ago), -1m (1 month ago), -1h (1 hour ago), -1mStart (start of last month), -1yStart (start of last year). */
+        date_from?: string | null
+        /** End of the date range. Same format as date_from. Omit or null for "now". */
+        date_to?: string | null
+        /** Whether the date_from and date_to should be used verbatim. Disables rounding to the start and end of period. */
+        explicitDate?: boolean | null
+    }
+    kind?: 'MCPToolTopUsersQuery'
+    /** The effective tool name to scope to (matched against the single-exec-resolved tool name). */
+    toolName: string
 }
 
 export interface QueryMetricsParams {
@@ -20274,6 +24521,6759 @@ export interface QueryMetricsParams {
         /** Quantile in (0, 1) for 'histogram_quantile' (e.g. 0.95). Ignored for other aggregations. */
         quantile?: number | null
     }
+}
+
+export interface QueryPathsParams {
+    /** Groups aggregation */
+    aggregation_group_type_index?: number | null
+    /** Date range for the query */
+    dateRange?:
+        | {
+              /** ISO8601 date string. */
+              date_from: string
+              /** ISO8601 date string. */
+              date_to?: string | null
+          }
+        | {
+              /** Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start. */
+              date_from: string
+          }
+    /** Exclude internal and test users by applying the respective filters */
+    filterTestAccounts?: boolean
+    kind?: 'PathsQuery'
+    /** Properties specific to the paths insight. Paths show the most common sequences of events or pages that users navigate through, helping identify popular user flows and drop-off points. */
+    pathsFilter: {
+        /** Maximum number of path edges (connections between steps) to return. Higher values show more detail but can make the visualization harder to read. */
+        edgeLimit?: number
+        /** Filter to only show paths that end at this specific step. Same format as `startPoint`. */
+        endPoint?: string
+        /** Event names or URLs to exclude from the path analysis entirely. Excluded events are filtered out before building the path visualization. Useful for removing noise from common but uninteresting events. */
+        excludeEvents?: Array<string>
+        /** Which event types to include in the path analysis. Available values: `$pageview` - web page views. Path values are page URLs (from `$current_url`), with trailing slashes stripped. `$screen` - mobile screen views. Path values are screen names (from `$screen_name`). `custom_event` - custom events (any event not starting with `$`). Path values are event names. `hogql` - custom HogQL expression defined in `pathsHogQLExpression`. Path values come from evaluating the expression. You can combine multiple types. If not specified, all events are included without type filtering. */
+        includeEventTypes?: Array<'$pageview' | '$screen' | 'custom_event' | 'hogql'>
+        /** ClickHouse regex-based rules to clean and normalize path values at the query level. Each rule applies `replaceRegexpAll(path, regex, alias)` in sequence. Useful for removing dynamic IDs or parameters from URLs. */
+        localPathCleaningFilters?: Array<{
+            /** A human-readable alias that replaces matched path patterns in the visualization. For example, `/user/:id/profile` to replace `/user/123/profile`. Uses ClickHouse `replaceRegexpAll` replacement syntax — use `\\1` for capture group back-references. */
+            alias: string
+            /** A ClickHouse regex pattern to match against path values. Matched paths will be replaced with the alias. For example, `\/user\/\d+\/profile` to match any user profile URL. */
+            regex: string
+        }>
+        /** Maximum number of users who traversed an edge for it to be displayed. Filters out high-traffic paths to focus on less common journeys. */
+        maxEdgeWeight?: number
+        /** Minimum number of users who traversed an edge for it to be displayed. Filters out low-traffic paths to reduce visual noise. */
+        minEdgeWeight?: number
+        /** Actors drilldown only. Restrict the returned persons to those who **dropped off** at a specific node (reached it but did not continue). Format is `<stepIndex>_<value>`. Mutually exclusive with `pathStartKey` / `pathEndKey`. Ignored by non-actors paths queries. */
+        pathDropoffKey?: string
+        /** Actors drilldown only. Restrict the returned persons to those who **arrived at** a specific node in the path graph. Format is `<stepIndex>_<value>`, e.g. `"3_https://example.com/checkout"`. Take the value verbatim from a `target` field of a `query-paths` result row. Combine with `pathStartKey` to pin a single edge. Leave unset to return every actor on the path. Ignored by non-actors paths queries. */
+        pathEndKey?: string
+        /** Glob-like patterns to group multiple path items into a single step. Use `*` as a wildcard. The patterns are auto-escaped, so only `*` has special meaning. For example, `/product/*` to group all product pages into one node. */
+        pathGroupings?: Array<string>
+        /** Actors drilldown only. Restrict the returned persons to those who **departed from** a specific node in the path graph. Format is `<stepIndex>_<value>`, e.g. `"2_https://example.com/pricing"`. Take the value verbatim from a `source` field of a `query-paths` result row. Combine with `pathEndKey` to pin a single edge (source → target). Leave unset to return every actor on the path (constrained only by `startPoint` / `endPoint`). Ignored by non-actors paths queries. */
+        pathStartKey?: string
+        /** A HogQL expression to use as the path item. Required when `hogql` is included in `includeEventTypes`. For example, `properties.$current_url` to use the current URL as the path item. */
+        pathsHogQLExpression?: string
+        /** Filter to only show paths that start from this specific step. The value format depends on the included event types: For `$pageview` paths, use page URLs like `/login` or `/dashboard`. For `$screen` paths, use screen names. For `custom_event` paths, use event names. */
+        startPoint?: string
+        /** Maximum number of steps (path depth) to show in the visualization. Controls how deep the path analysis goes from the start. */
+        stepLimit?: number
+    }
+    /** Property filters for all series */
+    properties?: Array<
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+              operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+              type: 'event' | 'person' | 'session' | 'feature'
+              /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+              value: string
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'exact' | 'gt' | 'lt'
+              type: 'event' | 'person' | 'session' | 'feature'
+              value: number
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+              operator: 'exact' | 'is_not'
+              type: 'event' | 'person' | 'session' | 'feature'
+              /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+              value: Array<string>
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+              type: 'event' | 'person' | 'session' | 'feature'
+              /** Value must be a date in ISO 8601 format. */
+              value: string
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+              operator: 'is_set' | 'is_not_set'
+              type: 'event' | 'person' | 'session' | 'feature'
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+              operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+              type?: 'group'
+              /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+              value: string
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'exact' | 'gt' | 'lt'
+              type?: 'group'
+              value: number
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+              operator: 'exact' | 'is_not'
+              type?: 'group'
+              /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+              value: Array<string>
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+              type?: 'group'
+              /** Value must be a date in ISO 8601 format. */
+              value: string
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+              operator: 'is_set' | 'is_not_set'
+              type?: 'group'
+          }
+        | {
+              key?: 'id'
+              operator?: 'in' | 'not_in'
+              /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+              type?: 'cohort'
+              /** The cohort ID to filter by. */
+              value: number
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+              operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+              value: string
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              operator: 'exact' | 'gt' | 'lt'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              value: number
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+              operator: 'exact' | 'is_not'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+              value: Array<string>
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              /** Value must be a date in ISO 8601 format. */
+              value: string
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+              operator: 'is_set' | 'is_not_set'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+          }
+        | {
+              /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+              key: string
+              /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+              type?: 'hogql'
+          }
+        | {
+              /** The feature flag key. */
+              key: string
+              operator?: 'flag_evaluates_to'
+              /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+              type?: 'flag'
+              /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+              value: boolean | string
+          }
+    >
+}
+
+export interface QueryPathsActorsParams {
+    /** Whether to include matched session recordings for each actor. */
+    includeRecordings?: boolean
+    kind?: 'InsightActorsQuery'
+    /** The source paths insight query whose actors we are listing. */
+    source: {
+        /** Groups aggregation */
+        aggregation_group_type_index?: number | null
+        /** Date range for the query */
+        dateRange?:
+            | {
+                  /** ISO8601 date string. */
+                  date_from: string
+                  /** ISO8601 date string. */
+                  date_to?: string | null
+              }
+            | {
+                  /** Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start. */
+                  date_from: string
+              }
+        /** Exclude internal and test users by applying the respective filters */
+        filterTestAccounts?: boolean
+        kind?: 'PathsQuery'
+        /** Properties specific to the paths insight. Paths show the most common sequences of events or pages that users navigate through, helping identify popular user flows and drop-off points. */
+        pathsFilter: {
+            /** Maximum number of path edges (connections between steps) to return. Higher values show more detail but can make the visualization harder to read. */
+            edgeLimit?: number
+            /** Filter to only show paths that end at this specific step. Same format as `startPoint`. */
+            endPoint?: string
+            /** Event names or URLs to exclude from the path analysis entirely. Excluded events are filtered out before building the path visualization. Useful for removing noise from common but uninteresting events. */
+            excludeEvents?: Array<string>
+            /** Which event types to include in the path analysis. Available values: `$pageview` - web page views. Path values are page URLs (from `$current_url`), with trailing slashes stripped. `$screen` - mobile screen views. Path values are screen names (from `$screen_name`). `custom_event` - custom events (any event not starting with `$`). Path values are event names. `hogql` - custom HogQL expression defined in `pathsHogQLExpression`. Path values come from evaluating the expression. You can combine multiple types. If not specified, all events are included without type filtering. */
+            includeEventTypes?: Array<'$pageview' | '$screen' | 'custom_event' | 'hogql'>
+            /** ClickHouse regex-based rules to clean and normalize path values at the query level. Each rule applies `replaceRegexpAll(path, regex, alias)` in sequence. Useful for removing dynamic IDs or parameters from URLs. */
+            localPathCleaningFilters?: Array<{
+                /** A human-readable alias that replaces matched path patterns in the visualization. For example, `/user/:id/profile` to replace `/user/123/profile`. Uses ClickHouse `replaceRegexpAll` replacement syntax — use `\\1` for capture group back-references. */
+                alias: string
+                /** A ClickHouse regex pattern to match against path values. Matched paths will be replaced with the alias. For example, `\/user\/\d+\/profile` to match any user profile URL. */
+                regex: string
+            }>
+            /** Maximum number of users who traversed an edge for it to be displayed. Filters out high-traffic paths to focus on less common journeys. */
+            maxEdgeWeight?: number
+            /** Minimum number of users who traversed an edge for it to be displayed. Filters out low-traffic paths to reduce visual noise. */
+            minEdgeWeight?: number
+            /** Actors drilldown only. Restrict the returned persons to those who **dropped off** at a specific node (reached it but did not continue). Format is `<stepIndex>_<value>`. Mutually exclusive with `pathStartKey` / `pathEndKey`. Ignored by non-actors paths queries. */
+            pathDropoffKey?: string
+            /** Actors drilldown only. Restrict the returned persons to those who **arrived at** a specific node in the path graph. Format is `<stepIndex>_<value>`, e.g. `"3_https://example.com/checkout"`. Take the value verbatim from a `target` field of a `query-paths` result row. Combine with `pathStartKey` to pin a single edge. Leave unset to return every actor on the path. Ignored by non-actors paths queries. */
+            pathEndKey?: string
+            /** Glob-like patterns to group multiple path items into a single step. Use `*` as a wildcard. The patterns are auto-escaped, so only `*` has special meaning. For example, `/product/*` to group all product pages into one node. */
+            pathGroupings?: Array<string>
+            /** Actors drilldown only. Restrict the returned persons to those who **departed from** a specific node in the path graph. Format is `<stepIndex>_<value>`, e.g. `"2_https://example.com/pricing"`. Take the value verbatim from a `source` field of a `query-paths` result row. Combine with `pathEndKey` to pin a single edge (source → target). Leave unset to return every actor on the path (constrained only by `startPoint` / `endPoint`). Ignored by non-actors paths queries. */
+            pathStartKey?: string
+            /** A HogQL expression to use as the path item. Required when `hogql` is included in `includeEventTypes`. For example, `properties.$current_url` to use the current URL as the path item. */
+            pathsHogQLExpression?: string
+            /** Filter to only show paths that start from this specific step. The value format depends on the included event types: For `$pageview` paths, use page URLs like `/login` or `/dashboard`. For `$screen` paths, use screen names. For `custom_event` paths, use event names. */
+            startPoint?: string
+            /** Maximum number of steps (path depth) to show in the visualization. Controls how deep the path analysis goes from the start. */
+            stepLimit?: number
+        }
+        /** Property filters for all series */
+        properties?: Array<
+            | {
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                  operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                  type: 'event' | 'person' | 'session' | 'feature'
+                  /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                  value: string
+              }
+            | {
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  operator: 'exact' | 'gt' | 'lt'
+                  type: 'event' | 'person' | 'session' | 'feature'
+                  value: number
+              }
+            | {
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                  operator: 'exact' | 'is_not'
+                  type: 'event' | 'person' | 'session' | 'feature'
+                  /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                  value: Array<string>
+              }
+            | {
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                  type: 'event' | 'person' | 'session' | 'feature'
+                  /** Value must be a date in ISO 8601 format. */
+                  value: string
+              }
+            | {
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                  operator: 'is_set' | 'is_not_set'
+                  type: 'event' | 'person' | 'session' | 'feature'
+              }
+            | {
+                  /** Index of the group type from the group mapping. */
+                  group_type_index: number
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                  operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                  type?: 'group'
+                  /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                  value: string
+              }
+            | {
+                  /** Index of the group type from the group mapping. */
+                  group_type_index: number
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  operator: 'exact' | 'gt' | 'lt'
+                  type?: 'group'
+                  value: number
+              }
+            | {
+                  /** Index of the group type from the group mapping. */
+                  group_type_index: number
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                  operator: 'exact' | 'is_not'
+                  type?: 'group'
+                  /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                  value: Array<string>
+              }
+            | {
+                  /** Index of the group type from the group mapping. */
+                  group_type_index: number
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                  type?: 'group'
+                  /** Value must be a date in ISO 8601 format. */
+                  value: string
+              }
+            | {
+                  /** Index of the group type from the group mapping. */
+                  group_type_index: number
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                  operator: 'is_set' | 'is_not_set'
+                  type?: 'group'
+              }
+            | {
+                  key?: 'id'
+                  operator?: 'in' | 'not_in'
+                  /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                  type?: 'cohort'
+                  /** The cohort ID to filter by. */
+                  value: number
+              }
+            | {
+                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                  /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                  operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                  type?: 'element'
+                  /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                  value: string
+              }
+            | {
+                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                  operator: 'exact' | 'gt' | 'lt'
+                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                  type?: 'element'
+                  value: number
+              }
+            | {
+                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                  /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                  operator: 'exact' | 'is_not'
+                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                  type?: 'element'
+                  /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                  value: Array<string>
+              }
+            | {
+                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                  operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                  type?: 'element'
+                  /** Value must be a date in ISO 8601 format. */
+                  value: string
+              }
+            | {
+                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                  /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                  operator: 'is_set' | 'is_not_set'
+                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                  type?: 'element'
+              }
+            | {
+                  /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                  key: string
+                  /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                  type?: 'hogql'
+              }
+            | {
+                  /** The feature flag key. */
+                  key: string
+                  operator?: 'flag_evaluates_to'
+                  /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                  type?: 'flag'
+                  /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                  value: boolean | string
+              }
+        >
+    }
+}
+
+export interface QueryRetentionParams {
+    /** Groups aggregation */
+    aggregation_group_type_index?: number | null
+    /** Date range for the query */
+    dateRange?:
+        | {
+              /** ISO8601 date string. */
+              date_from: string
+              /** ISO8601 date string. */
+              date_to?: string | null
+          }
+        | {
+              /** Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start. */
+              date_from: string
+          }
+    /** Exclude internal and test users by applying the respective filters */
+    filterTestAccounts?: boolean
+    kind?: 'RetentionQuery'
+    /** Property filters for all series */
+    properties?: Array<
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+              operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+              type: 'event' | 'person' | 'session' | 'feature'
+              /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+              value: string
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'exact' | 'gt' | 'lt'
+              type: 'event' | 'person' | 'session' | 'feature'
+              value: number
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+              operator: 'exact' | 'is_not'
+              type: 'event' | 'person' | 'session' | 'feature'
+              /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+              value: Array<string>
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+              type: 'event' | 'person' | 'session' | 'feature'
+              /** Value must be a date in ISO 8601 format. */
+              value: string
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+              operator: 'is_set' | 'is_not_set'
+              type: 'event' | 'person' | 'session' | 'feature'
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+              operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+              type?: 'group'
+              /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+              value: string
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'exact' | 'gt' | 'lt'
+              type?: 'group'
+              value: number
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+              operator: 'exact' | 'is_not'
+              type?: 'group'
+              /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+              value: Array<string>
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+              type?: 'group'
+              /** Value must be a date in ISO 8601 format. */
+              value: string
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+              operator: 'is_set' | 'is_not_set'
+              type?: 'group'
+          }
+        | {
+              key?: 'id'
+              operator?: 'in' | 'not_in'
+              /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+              type?: 'cohort'
+              /** The cohort ID to filter by. */
+              value: number
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+              operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+              value: string
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              operator: 'exact' | 'gt' | 'lt'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              value: number
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+              operator: 'exact' | 'is_not'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+              value: Array<string>
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              /** Value must be a date in ISO 8601 format. */
+              value: string
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+              operator: 'is_set' | 'is_not_set'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+          }
+        | {
+              /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+              key: string
+              /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+              type?: 'hogql'
+          }
+        | {
+              /** The feature flag key. */
+              key: string
+              operator?: 'flag_evaluates_to'
+              /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+              type?: 'flag'
+              /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+              value: boolean | string
+          }
+    >
+    /** Properties specific to the retention insight */
+    retentionFilter: {
+        /** The event or person property to aggregate when aggregationType is sum or avg. */
+        aggregationProperty?: string
+        /** The type of property to aggregate on (event or person). Defaults to event. */
+        aggregationPropertyType?: 'event' | 'person' | 'data_warehouse'
+        /** The aggregation type to use for retention. */
+        aggregationType?: 'count' | 'sum' | 'avg'
+        /** Whether retention should be rolling (aka unbounded, cumulative). Rolling retention means that a user coming back in period 5 makes them count towards all the previous periods. */
+        cumulative?: boolean
+        /** Whether an additional series should be shown, showing the mean conversion for each period across cohorts. */
+        meanRetentionCalculation?: 'simple' | 'weighted' | 'none'
+        /** Minimum number of times an event must occur to count towards retention. */
+        minimumOccurrences?: number
+        /** Retention period, the interval to track cohorts by. */
+        period?: 'Hour' | 'Day' | 'Week' | 'Month'
+        /** Custom brackets for retention calculations. */
+        retentionCustomBrackets?: Array<number>
+        /** Whether retention is with regard to initial cohort size, or that of the previous period. */
+        retentionReference?: 'total' | 'previous'
+        /** Retention type: recurring or first time. Recurring retention counts a user as part of a cohort if they performed the cohort event during that time period, irrespective of it was their first time or not. First time retention only counts a user as part of the cohort if it was their first time performing the cohort event. */
+        retentionType?: 'retention_recurring' | 'retention_first_time' | 'retention_first_ever_occurrence'
+        /** Retention event (event marking the user coming back). */
+        returningEntity:
+            | {
+                  /** Custom name for the event if it is needed to be renamed. */
+                  custom_name?: string
+                  /** The event name from the plan as a string. This is the field the retention query engine uses to match events, so it must be populated exactly as the event appears in the plan. For actions use `AssistantRetentionActionsNode` instead, where `id` is the numeric action ID. */
+                  id: string
+                  /** Optional human-readable label for the event, used for display only. Defaults to `id` if omitted and is never used for event matching. */
+                  name?: string
+                  /** Property filters for the event. */
+                  properties?: Array<
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'exact' | 'gt' | 'lt'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            value: number
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            type?: 'group'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'exact' | 'gt' | 'lt'
+                            type?: 'group'
+                            value: number
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            type?: 'group'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            type?: 'group'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            type?: 'group'
+                        }
+                      | {
+                            key?: 'id'
+                            operator?: 'in' | 'not_in'
+                            /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                            type?: 'cohort'
+                            /** The cohort ID to filter by. */
+                            value: number
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            operator: 'exact' | 'gt' | 'lt'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            value: number
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                        }
+                      | {
+                            /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                            key: string
+                            /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                            type?: 'hogql'
+                        }
+                      | {
+                            /** The feature flag key. */
+                            key: string
+                            operator?: 'flag_evaluates_to'
+                            /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                            type?: 'flag'
+                            /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                            value: boolean | string
+                        }
+                  >
+                  type?: 'events'
+              }
+            | {
+                  /** The numeric action ID from the plan. This is the field the retention query engine uses to look up the action definition. For events use `AssistantRetentionEventsNode` instead, where `id` is the event name string. */
+                  id: number
+                  /** Optional human-readable label for the action, used for display only. Defaults to the action's stored name if omitted and is never used for action matching. */
+                  name?: string
+                  /** Property filters for the action. */
+                  properties?: Array<
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'exact' | 'gt' | 'lt'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            value: number
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            type?: 'group'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'exact' | 'gt' | 'lt'
+                            type?: 'group'
+                            value: number
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            type?: 'group'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            type?: 'group'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            type?: 'group'
+                        }
+                      | {
+                            key?: 'id'
+                            operator?: 'in' | 'not_in'
+                            /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                            type?: 'cohort'
+                            /** The cohort ID to filter by. */
+                            value: number
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            operator: 'exact' | 'gt' | 'lt'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            value: number
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                        }
+                      | {
+                            /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                            key: string
+                            /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                            type?: 'hogql'
+                        }
+                      | {
+                            /** The feature flag key. */
+                            key: string
+                            operator?: 'flag_evaluates_to'
+                            /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                            type?: 'flag'
+                            /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                            value: boolean | string
+                        }
+                  >
+                  type?: 'actions'
+              }
+        /** Activation event (event putting the actor into the initial cohort). */
+        targetEntity:
+            | {
+                  /** Custom name for the event if it is needed to be renamed. */
+                  custom_name?: string
+                  /** The event name from the plan as a string. This is the field the retention query engine uses to match events, so it must be populated exactly as the event appears in the plan. For actions use `AssistantRetentionActionsNode` instead, where `id` is the numeric action ID. */
+                  id: string
+                  /** Optional human-readable label for the event, used for display only. Defaults to `id` if omitted and is never used for event matching. */
+                  name?: string
+                  /** Property filters for the event. */
+                  properties?: Array<
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'exact' | 'gt' | 'lt'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            value: number
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            type?: 'group'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'exact' | 'gt' | 'lt'
+                            type?: 'group'
+                            value: number
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            type?: 'group'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            type?: 'group'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            type?: 'group'
+                        }
+                      | {
+                            key?: 'id'
+                            operator?: 'in' | 'not_in'
+                            /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                            type?: 'cohort'
+                            /** The cohort ID to filter by. */
+                            value: number
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            operator: 'exact' | 'gt' | 'lt'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            value: number
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                        }
+                      | {
+                            /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                            key: string
+                            /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                            type?: 'hogql'
+                        }
+                      | {
+                            /** The feature flag key. */
+                            key: string
+                            operator?: 'flag_evaluates_to'
+                            /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                            type?: 'flag'
+                            /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                            value: boolean | string
+                        }
+                  >
+                  type?: 'events'
+              }
+            | {
+                  /** The numeric action ID from the plan. This is the field the retention query engine uses to look up the action definition. For events use `AssistantRetentionEventsNode` instead, where `id` is the event name string. */
+                  id: number
+                  /** Optional human-readable label for the action, used for display only. Defaults to the action's stored name if omitted and is never used for action matching. */
+                  name?: string
+                  /** Property filters for the action. */
+                  properties?: Array<
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'exact' | 'gt' | 'lt'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            value: number
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            type?: 'group'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'exact' | 'gt' | 'lt'
+                            type?: 'group'
+                            value: number
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            type?: 'group'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            type?: 'group'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            type?: 'group'
+                        }
+                      | {
+                            key?: 'id'
+                            operator?: 'in' | 'not_in'
+                            /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                            type?: 'cohort'
+                            /** The cohort ID to filter by. */
+                            value: number
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            operator: 'exact' | 'gt' | 'lt'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            value: number
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                        }
+                      | {
+                            /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                            key: string
+                            /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                            type?: 'hogql'
+                        }
+                      | {
+                            /** The feature flag key. */
+                            key: string
+                            operator?: 'flag_evaluates_to'
+                            /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                            type?: 'flag'
+                            /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                            value: boolean | string
+                        }
+                  >
+                  type?: 'actions'
+              }
+        /** The time window mode to use for retention calculations. */
+        timeWindowMode?: 'strict_calendar_dates' | '24_hour_windows'
+        /** How many intervals to show in the chart. The default value is 8 (meaning 7 periods after initial cohort). */
+        totalIntervals?: number
+    }
+}
+
+export interface QueryRetentionActorsParams {
+    /** Which acquisition cohort to drill into, 0-based. `0` is the acquisition interval itself (every actor who entered the cohort); `1` is the cohort that entered one interval later, and so on. Defaults to `0` when omitted. */
+    interval?: number
+    kind?: 'InsightActorsQuery'
+    /** The source retention insight query whose cohort we are drilling into. */
+    source: {
+        /** Groups aggregation */
+        aggregation_group_type_index?: number | null
+        /** Date range for the query */
+        dateRange?:
+            | {
+                  /** ISO8601 date string. */
+                  date_from: string
+                  /** ISO8601 date string. */
+                  date_to?: string | null
+              }
+            | {
+                  /** Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start. */
+                  date_from: string
+              }
+        /** Exclude internal and test users by applying the respective filters */
+        filterTestAccounts?: boolean
+        kind?: 'RetentionQuery'
+        /** Property filters for all series */
+        properties?: Array<
+            | {
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                  operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                  type: 'event' | 'person' | 'session' | 'feature'
+                  /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                  value: string
+              }
+            | {
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  operator: 'exact' | 'gt' | 'lt'
+                  type: 'event' | 'person' | 'session' | 'feature'
+                  value: number
+              }
+            | {
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                  operator: 'exact' | 'is_not'
+                  type: 'event' | 'person' | 'session' | 'feature'
+                  /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                  value: Array<string>
+              }
+            | {
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                  type: 'event' | 'person' | 'session' | 'feature'
+                  /** Value must be a date in ISO 8601 format. */
+                  value: string
+              }
+            | {
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                  operator: 'is_set' | 'is_not_set'
+                  type: 'event' | 'person' | 'session' | 'feature'
+              }
+            | {
+                  /** Index of the group type from the group mapping. */
+                  group_type_index: number
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                  operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                  type?: 'group'
+                  /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                  value: string
+              }
+            | {
+                  /** Index of the group type from the group mapping. */
+                  group_type_index: number
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  operator: 'exact' | 'gt' | 'lt'
+                  type?: 'group'
+                  value: number
+              }
+            | {
+                  /** Index of the group type from the group mapping. */
+                  group_type_index: number
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                  operator: 'exact' | 'is_not'
+                  type?: 'group'
+                  /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                  value: Array<string>
+              }
+            | {
+                  /** Index of the group type from the group mapping. */
+                  group_type_index: number
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                  type?: 'group'
+                  /** Value must be a date in ISO 8601 format. */
+                  value: string
+              }
+            | {
+                  /** Index of the group type from the group mapping. */
+                  group_type_index: number
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                  operator: 'is_set' | 'is_not_set'
+                  type?: 'group'
+              }
+            | {
+                  key?: 'id'
+                  operator?: 'in' | 'not_in'
+                  /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                  type?: 'cohort'
+                  /** The cohort ID to filter by. */
+                  value: number
+              }
+            | {
+                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                  /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                  operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                  type?: 'element'
+                  /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                  value: string
+              }
+            | {
+                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                  operator: 'exact' | 'gt' | 'lt'
+                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                  type?: 'element'
+                  value: number
+              }
+            | {
+                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                  /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                  operator: 'exact' | 'is_not'
+                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                  type?: 'element'
+                  /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                  value: Array<string>
+              }
+            | {
+                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                  operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                  type?: 'element'
+                  /** Value must be a date in ISO 8601 format. */
+                  value: string
+              }
+            | {
+                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                  /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                  operator: 'is_set' | 'is_not_set'
+                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                  type?: 'element'
+              }
+            | {
+                  /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                  key: string
+                  /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                  type?: 'hogql'
+              }
+            | {
+                  /** The feature flag key. */
+                  key: string
+                  operator?: 'flag_evaluates_to'
+                  /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                  type?: 'flag'
+                  /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                  value: boolean | string
+              }
+        >
+        /** Properties specific to the retention insight */
+        retentionFilter: {
+            /** The event or person property to aggregate when aggregationType is sum or avg. */
+            aggregationProperty?: string
+            /** The type of property to aggregate on (event or person). Defaults to event. */
+            aggregationPropertyType?: 'event' | 'person' | 'data_warehouse'
+            /** The aggregation type to use for retention. */
+            aggregationType?: 'count' | 'sum' | 'avg'
+            /** Whether retention should be rolling (aka unbounded, cumulative). Rolling retention means that a user coming back in period 5 makes them count towards all the previous periods. */
+            cumulative?: boolean
+            /** Whether an additional series should be shown, showing the mean conversion for each period across cohorts. */
+            meanRetentionCalculation?: 'simple' | 'weighted' | 'none'
+            /** Minimum number of times an event must occur to count towards retention. */
+            minimumOccurrences?: number
+            /** Retention period, the interval to track cohorts by. */
+            period?: 'Hour' | 'Day' | 'Week' | 'Month'
+            /** Custom brackets for retention calculations. */
+            retentionCustomBrackets?: Array<number>
+            /** Whether retention is with regard to initial cohort size, or that of the previous period. */
+            retentionReference?: 'total' | 'previous'
+            /** Retention type: recurring or first time. Recurring retention counts a user as part of a cohort if they performed the cohort event during that time period, irrespective of it was their first time or not. First time retention only counts a user as part of the cohort if it was their first time performing the cohort event. */
+            retentionType?: 'retention_recurring' | 'retention_first_time' | 'retention_first_ever_occurrence'
+            /** Retention event (event marking the user coming back). */
+            returningEntity:
+                | {
+                      /** Custom name for the event if it is needed to be renamed. */
+                      custom_name?: string
+                      /** The event name from the plan as a string. This is the field the retention query engine uses to match events, so it must be populated exactly as the event appears in the plan. For actions use `AssistantRetentionActionsNode` instead, where `id` is the numeric action ID. */
+                      id: string
+                      /** Optional human-readable label for the event, used for display only. Defaults to `id` if omitted and is never used for event matching. */
+                      name?: string
+                      /** Property filters for the event. */
+                      properties?: Array<
+                          | {
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                                type: 'event' | 'person' | 'session' | 'feature'
+                                /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                value: string
+                            }
+                          | {
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                operator: 'exact' | 'gt' | 'lt'
+                                type: 'event' | 'person' | 'session' | 'feature'
+                                value: number
+                            }
+                          | {
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                operator: 'exact' | 'is_not'
+                                type: 'event' | 'person' | 'session' | 'feature'
+                                /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                value: Array<string>
+                            }
+                          | {
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                type: 'event' | 'person' | 'session' | 'feature'
+                                /** Value must be a date in ISO 8601 format. */
+                                value: string
+                            }
+                          | {
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                operator: 'is_set' | 'is_not_set'
+                                type: 'event' | 'person' | 'session' | 'feature'
+                            }
+                          | {
+                                /** Index of the group type from the group mapping. */
+                                group_type_index: number
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                                type?: 'group'
+                                /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                value: string
+                            }
+                          | {
+                                /** Index of the group type from the group mapping. */
+                                group_type_index: number
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                operator: 'exact' | 'gt' | 'lt'
+                                type?: 'group'
+                                value: number
+                            }
+                          | {
+                                /** Index of the group type from the group mapping. */
+                                group_type_index: number
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                operator: 'exact' | 'is_not'
+                                type?: 'group'
+                                /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                value: Array<string>
+                            }
+                          | {
+                                /** Index of the group type from the group mapping. */
+                                group_type_index: number
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                type?: 'group'
+                                /** Value must be a date in ISO 8601 format. */
+                                value: string
+                            }
+                          | {
+                                /** Index of the group type from the group mapping. */
+                                group_type_index: number
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                operator: 'is_set' | 'is_not_set'
+                                type?: 'group'
+                            }
+                          | {
+                                key?: 'id'
+                                operator?: 'in' | 'not_in'
+                                /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                                type?: 'cohort'
+                                /** The cohort ID to filter by. */
+                                value: number
+                            }
+                          | {
+                                /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                key: 'tag_name' | 'text' | 'href' | 'selector'
+                                /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                                /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                type?: 'element'
+                                /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                value: string
+                            }
+                          | {
+                                /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                key: 'tag_name' | 'text' | 'href' | 'selector'
+                                operator: 'exact' | 'gt' | 'lt'
+                                /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                type?: 'element'
+                                value: number
+                            }
+                          | {
+                                /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                key: 'tag_name' | 'text' | 'href' | 'selector'
+                                /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                operator: 'exact' | 'is_not'
+                                /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                type?: 'element'
+                                /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                value: Array<string>
+                            }
+                          | {
+                                /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                key: 'tag_name' | 'text' | 'href' | 'selector'
+                                operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                type?: 'element'
+                                /** Value must be a date in ISO 8601 format. */
+                                value: string
+                            }
+                          | {
+                                /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                key: 'tag_name' | 'text' | 'href' | 'selector'
+                                /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                operator: 'is_set' | 'is_not_set'
+                                /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                type?: 'element'
+                            }
+                          | {
+                                /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                                key: string
+                                /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                                type?: 'hogql'
+                            }
+                          | {
+                                /** The feature flag key. */
+                                key: string
+                                operator?: 'flag_evaluates_to'
+                                /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                                type?: 'flag'
+                                /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                                value: boolean | string
+                            }
+                      >
+                      type?: 'events'
+                  }
+                | {
+                      /** The numeric action ID from the plan. This is the field the retention query engine uses to look up the action definition. For events use `AssistantRetentionEventsNode` instead, where `id` is the event name string. */
+                      id: number
+                      /** Optional human-readable label for the action, used for display only. Defaults to the action's stored name if omitted and is never used for action matching. */
+                      name?: string
+                      /** Property filters for the action. */
+                      properties?: Array<
+                          | {
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                                type: 'event' | 'person' | 'session' | 'feature'
+                                /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                value: string
+                            }
+                          | {
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                operator: 'exact' | 'gt' | 'lt'
+                                type: 'event' | 'person' | 'session' | 'feature'
+                                value: number
+                            }
+                          | {
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                operator: 'exact' | 'is_not'
+                                type: 'event' | 'person' | 'session' | 'feature'
+                                /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                value: Array<string>
+                            }
+                          | {
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                type: 'event' | 'person' | 'session' | 'feature'
+                                /** Value must be a date in ISO 8601 format. */
+                                value: string
+                            }
+                          | {
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                operator: 'is_set' | 'is_not_set'
+                                type: 'event' | 'person' | 'session' | 'feature'
+                            }
+                          | {
+                                /** Index of the group type from the group mapping. */
+                                group_type_index: number
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                                type?: 'group'
+                                /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                value: string
+                            }
+                          | {
+                                /** Index of the group type from the group mapping. */
+                                group_type_index: number
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                operator: 'exact' | 'gt' | 'lt'
+                                type?: 'group'
+                                value: number
+                            }
+                          | {
+                                /** Index of the group type from the group mapping. */
+                                group_type_index: number
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                operator: 'exact' | 'is_not'
+                                type?: 'group'
+                                /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                value: Array<string>
+                            }
+                          | {
+                                /** Index of the group type from the group mapping. */
+                                group_type_index: number
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                type?: 'group'
+                                /** Value must be a date in ISO 8601 format. */
+                                value: string
+                            }
+                          | {
+                                /** Index of the group type from the group mapping. */
+                                group_type_index: number
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                operator: 'is_set' | 'is_not_set'
+                                type?: 'group'
+                            }
+                          | {
+                                key?: 'id'
+                                operator?: 'in' | 'not_in'
+                                /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                                type?: 'cohort'
+                                /** The cohort ID to filter by. */
+                                value: number
+                            }
+                          | {
+                                /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                key: 'tag_name' | 'text' | 'href' | 'selector'
+                                /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                                /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                type?: 'element'
+                                /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                value: string
+                            }
+                          | {
+                                /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                key: 'tag_name' | 'text' | 'href' | 'selector'
+                                operator: 'exact' | 'gt' | 'lt'
+                                /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                type?: 'element'
+                                value: number
+                            }
+                          | {
+                                /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                key: 'tag_name' | 'text' | 'href' | 'selector'
+                                /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                operator: 'exact' | 'is_not'
+                                /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                type?: 'element'
+                                /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                value: Array<string>
+                            }
+                          | {
+                                /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                key: 'tag_name' | 'text' | 'href' | 'selector'
+                                operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                type?: 'element'
+                                /** Value must be a date in ISO 8601 format. */
+                                value: string
+                            }
+                          | {
+                                /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                key: 'tag_name' | 'text' | 'href' | 'selector'
+                                /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                operator: 'is_set' | 'is_not_set'
+                                /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                type?: 'element'
+                            }
+                          | {
+                                /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                                key: string
+                                /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                                type?: 'hogql'
+                            }
+                          | {
+                                /** The feature flag key. */
+                                key: string
+                                operator?: 'flag_evaluates_to'
+                                /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                                type?: 'flag'
+                                /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                                value: boolean | string
+                            }
+                      >
+                      type?: 'actions'
+                  }
+            /** Activation event (event putting the actor into the initial cohort). */
+            targetEntity:
+                | {
+                      /** Custom name for the event if it is needed to be renamed. */
+                      custom_name?: string
+                      /** The event name from the plan as a string. This is the field the retention query engine uses to match events, so it must be populated exactly as the event appears in the plan. For actions use `AssistantRetentionActionsNode` instead, where `id` is the numeric action ID. */
+                      id: string
+                      /** Optional human-readable label for the event, used for display only. Defaults to `id` if omitted and is never used for event matching. */
+                      name?: string
+                      /** Property filters for the event. */
+                      properties?: Array<
+                          | {
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                                type: 'event' | 'person' | 'session' | 'feature'
+                                /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                value: string
+                            }
+                          | {
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                operator: 'exact' | 'gt' | 'lt'
+                                type: 'event' | 'person' | 'session' | 'feature'
+                                value: number
+                            }
+                          | {
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                operator: 'exact' | 'is_not'
+                                type: 'event' | 'person' | 'session' | 'feature'
+                                /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                value: Array<string>
+                            }
+                          | {
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                type: 'event' | 'person' | 'session' | 'feature'
+                                /** Value must be a date in ISO 8601 format. */
+                                value: string
+                            }
+                          | {
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                operator: 'is_set' | 'is_not_set'
+                                type: 'event' | 'person' | 'session' | 'feature'
+                            }
+                          | {
+                                /** Index of the group type from the group mapping. */
+                                group_type_index: number
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                                type?: 'group'
+                                /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                value: string
+                            }
+                          | {
+                                /** Index of the group type from the group mapping. */
+                                group_type_index: number
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                operator: 'exact' | 'gt' | 'lt'
+                                type?: 'group'
+                                value: number
+                            }
+                          | {
+                                /** Index of the group type from the group mapping. */
+                                group_type_index: number
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                operator: 'exact' | 'is_not'
+                                type?: 'group'
+                                /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                value: Array<string>
+                            }
+                          | {
+                                /** Index of the group type from the group mapping. */
+                                group_type_index: number
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                type?: 'group'
+                                /** Value must be a date in ISO 8601 format. */
+                                value: string
+                            }
+                          | {
+                                /** Index of the group type from the group mapping. */
+                                group_type_index: number
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                operator: 'is_set' | 'is_not_set'
+                                type?: 'group'
+                            }
+                          | {
+                                key?: 'id'
+                                operator?: 'in' | 'not_in'
+                                /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                                type?: 'cohort'
+                                /** The cohort ID to filter by. */
+                                value: number
+                            }
+                          | {
+                                /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                key: 'tag_name' | 'text' | 'href' | 'selector'
+                                /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                                /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                type?: 'element'
+                                /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                value: string
+                            }
+                          | {
+                                /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                key: 'tag_name' | 'text' | 'href' | 'selector'
+                                operator: 'exact' | 'gt' | 'lt'
+                                /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                type?: 'element'
+                                value: number
+                            }
+                          | {
+                                /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                key: 'tag_name' | 'text' | 'href' | 'selector'
+                                /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                operator: 'exact' | 'is_not'
+                                /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                type?: 'element'
+                                /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                value: Array<string>
+                            }
+                          | {
+                                /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                key: 'tag_name' | 'text' | 'href' | 'selector'
+                                operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                type?: 'element'
+                                /** Value must be a date in ISO 8601 format. */
+                                value: string
+                            }
+                          | {
+                                /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                key: 'tag_name' | 'text' | 'href' | 'selector'
+                                /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                operator: 'is_set' | 'is_not_set'
+                                /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                type?: 'element'
+                            }
+                          | {
+                                /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                                key: string
+                                /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                                type?: 'hogql'
+                            }
+                          | {
+                                /** The feature flag key. */
+                                key: string
+                                operator?: 'flag_evaluates_to'
+                                /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                                type?: 'flag'
+                                /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                                value: boolean | string
+                            }
+                      >
+                      type?: 'events'
+                  }
+                | {
+                      /** The numeric action ID from the plan. This is the field the retention query engine uses to look up the action definition. For events use `AssistantRetentionEventsNode` instead, where `id` is the event name string. */
+                      id: number
+                      /** Optional human-readable label for the action, used for display only. Defaults to the action's stored name if omitted and is never used for action matching. */
+                      name?: string
+                      /** Property filters for the action. */
+                      properties?: Array<
+                          | {
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                                type: 'event' | 'person' | 'session' | 'feature'
+                                /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                value: string
+                            }
+                          | {
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                operator: 'exact' | 'gt' | 'lt'
+                                type: 'event' | 'person' | 'session' | 'feature'
+                                value: number
+                            }
+                          | {
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                operator: 'exact' | 'is_not'
+                                type: 'event' | 'person' | 'session' | 'feature'
+                                /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                value: Array<string>
+                            }
+                          | {
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                type: 'event' | 'person' | 'session' | 'feature'
+                                /** Value must be a date in ISO 8601 format. */
+                                value: string
+                            }
+                          | {
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                operator: 'is_set' | 'is_not_set'
+                                type: 'event' | 'person' | 'session' | 'feature'
+                            }
+                          | {
+                                /** Index of the group type from the group mapping. */
+                                group_type_index: number
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                                type?: 'group'
+                                /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                value: string
+                            }
+                          | {
+                                /** Index of the group type from the group mapping. */
+                                group_type_index: number
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                operator: 'exact' | 'gt' | 'lt'
+                                type?: 'group'
+                                value: number
+                            }
+                          | {
+                                /** Index of the group type from the group mapping. */
+                                group_type_index: number
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                operator: 'exact' | 'is_not'
+                                type?: 'group'
+                                /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                value: Array<string>
+                            }
+                          | {
+                                /** Index of the group type from the group mapping. */
+                                group_type_index: number
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                type?: 'group'
+                                /** Value must be a date in ISO 8601 format. */
+                                value: string
+                            }
+                          | {
+                                /** Index of the group type from the group mapping. */
+                                group_type_index: number
+                                /** Use one of the properties the user has provided in the plan. */
+                                key: string
+                                /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                operator: 'is_set' | 'is_not_set'
+                                type?: 'group'
+                            }
+                          | {
+                                key?: 'id'
+                                operator?: 'in' | 'not_in'
+                                /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                                type?: 'cohort'
+                                /** The cohort ID to filter by. */
+                                value: number
+                            }
+                          | {
+                                /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                key: 'tag_name' | 'text' | 'href' | 'selector'
+                                /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                                /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                type?: 'element'
+                                /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                value: string
+                            }
+                          | {
+                                /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                key: 'tag_name' | 'text' | 'href' | 'selector'
+                                operator: 'exact' | 'gt' | 'lt'
+                                /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                type?: 'element'
+                                value: number
+                            }
+                          | {
+                                /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                key: 'tag_name' | 'text' | 'href' | 'selector'
+                                /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                operator: 'exact' | 'is_not'
+                                /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                type?: 'element'
+                                /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                value: Array<string>
+                            }
+                          | {
+                                /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                key: 'tag_name' | 'text' | 'href' | 'selector'
+                                operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                type?: 'element'
+                                /** Value must be a date in ISO 8601 format. */
+                                value: string
+                            }
+                          | {
+                                /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                key: 'tag_name' | 'text' | 'href' | 'selector'
+                                /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                operator: 'is_set' | 'is_not_set'
+                                /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                type?: 'element'
+                            }
+                          | {
+                                /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                                key: string
+                                /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                                type?: 'hogql'
+                            }
+                          | {
+                                /** The feature flag key. */
+                                key: string
+                                operator?: 'flag_evaluates_to'
+                                /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                                type?: 'flag'
+                                /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                                value: boolean | string
+                            }
+                      >
+                      type?: 'actions'
+                  }
+            /** The time window mode to use for retention calculations. */
+            timeWindowMode?: 'strict_calendar_dates' | '24_hour_windows'
+            /** How many intervals to show in the chart. The default value is 8 (meaning 7 periods after initial cohort). */
+            totalIntervals?: number
+        }
+    }
+}
+
+export interface QuerySessionRecordingsListParams {
+    /** Cursor for pagination from a previous response's next_cursor field. */
+    after?: string
+    /** Start of the date range. Supports relative dates like "-7d", "-24h" or ISO 8601 format. Default: "-3d". */
+    date_from?: string | null
+    /** End of the date range. Supports relative dates or ISO 8601 format. Default: now. */
+    date_to?: string | null
+    /** Exclude internal and test users. Default: false. */
+    filter_test_accounts?: boolean
+    kind?: 'RecordingsQuery'
+    /** Maximum number of recordings to return. */
+    limit?: number
+    /** Sort field. Options: "start_time", "duration", "activity_score", "console_error_count", "click_count". Default: "start_time". */
+    order?:
+        | 'duration'
+        | 'recording_duration'
+        | 'inactive_seconds'
+        | 'active_seconds'
+        | 'start_time'
+        | 'console_error_count'
+        | 'click_count'
+        | 'keypress_count'
+        | 'mouse_activity_count'
+        | 'activity_score'
+        | 'recording_ttl'
+        | 'surfacing_score'
+    /** Sort direction: "ASC" or "DESC". Default: "DESC". */
+    order_direction?: 'ASC' | 'DESC'
+    /** Filter recordings to a specific person by their UUID. */
+    person_uuid?: string
+    /** Property filters to narrow results. Each filter has a `key`, `value`, `operator`, and `type`. Supported types: - `person`: Filter by person properties (e.g. email, country). - `session`: Filter by session properties (e.g. $session_duration, $channel_type, $entry_current_url). - `event`: Filter by properties of events in the session (e.g. $current_url, $browser). - `recording`: Filter by recording metrics (e.g. console_error_count, click_count, activity_score). - `cohort`: Filter recordings to persons belonging to a cohort. Example: `{ type: "cohort", key: "id", value: 42, operator: "in" }`. */
+    properties?: Array<
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+              operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+              type: 'event' | 'person' | 'session' | 'feature'
+              /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+              value: string
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'exact' | 'gt' | 'lt'
+              type: 'event' | 'person' | 'session' | 'feature'
+              value: number
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+              operator: 'exact' | 'is_not'
+              type: 'event' | 'person' | 'session' | 'feature'
+              /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+              value: Array<string>
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+              type: 'event' | 'person' | 'session' | 'feature'
+              /** Value must be a date in ISO 8601 format. */
+              value: string
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+              operator: 'is_set' | 'is_not_set'
+              type: 'event' | 'person' | 'session' | 'feature'
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+              operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+              type?: 'group'
+              /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+              value: string
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'exact' | 'gt' | 'lt'
+              type?: 'group'
+              value: number
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+              operator: 'exact' | 'is_not'
+              type?: 'group'
+              /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+              value: Array<string>
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+              type?: 'group'
+              /** Value must be a date in ISO 8601 format. */
+              value: string
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+              operator: 'is_set' | 'is_not_set'
+              type?: 'group'
+          }
+        | {
+              key?: 'id'
+              operator?: 'in' | 'not_in'
+              /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+              type?: 'cohort'
+              /** The cohort ID to filter by. */
+              value: number
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+              operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+              value: string
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              operator: 'exact' | 'gt' | 'lt'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              value: number
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+              operator: 'exact' | 'is_not'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+              value: Array<string>
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              /** Value must be a date in ISO 8601 format. */
+              value: string
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+              operator: 'is_set' | 'is_not_set'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+          }
+        | {
+              /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+              key: string
+              /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+              type?: 'hogql'
+          }
+        | {
+              /** The feature flag key. */
+              key: string
+              operator?: 'flag_evaluates_to'
+              /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+              type?: 'flag'
+              /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+              value: boolean | string
+          }
+        | {
+              /** Recording metric to filter on. - `duration` — total recording duration in seconds. - `active_seconds` — seconds with user activity. - `inactive_seconds` — seconds without user activity. - `console_error_count` — number of console errors. - `console_log_count` — number of console log entries. - `console_warn_count` — number of console warnings. - `click_count` — number of clicks. - `keypress_count` — number of key presses. - `activity_score` — computed activity score (0-100). - `visited_page` — URL visited during the session. - `snapshot_source` — the recording source (e.g. "web", "mobile"). */
+              key:
+                  | 'duration'
+                  | 'active_seconds'
+                  | 'inactive_seconds'
+                  | 'console_error_count'
+                  | 'console_log_count'
+                  | 'console_warn_count'
+                  | 'click_count'
+                  | 'keypress_count'
+                  | 'activity_score'
+                  | 'visited_page'
+                  | 'snapshot_source'
+              /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+              operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+              type?: 'recording'
+              /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+              value: string
+          }
+        | {
+              /** Recording metric to filter on. - `duration` — total recording duration in seconds. - `active_seconds` — seconds with user activity. - `inactive_seconds` — seconds without user activity. - `console_error_count` — number of console errors. - `console_log_count` — number of console log entries. - `console_warn_count` — number of console warnings. - `click_count` — number of clicks. - `keypress_count` — number of key presses. - `activity_score` — computed activity score (0-100). - `visited_page` — URL visited during the session. - `snapshot_source` — the recording source (e.g. "web", "mobile"). */
+              key:
+                  | 'duration'
+                  | 'active_seconds'
+                  | 'inactive_seconds'
+                  | 'console_error_count'
+                  | 'console_log_count'
+                  | 'console_warn_count'
+                  | 'click_count'
+                  | 'keypress_count'
+                  | 'activity_score'
+                  | 'visited_page'
+                  | 'snapshot_source'
+              operator: 'exact' | 'gt' | 'lt'
+              type?: 'recording'
+              value: number
+          }
+        | {
+              /** Recording metric to filter on. - `duration` — total recording duration in seconds. - `active_seconds` — seconds with user activity. - `inactive_seconds` — seconds without user activity. - `console_error_count` — number of console errors. - `console_log_count` — number of console log entries. - `console_warn_count` — number of console warnings. - `click_count` — number of clicks. - `keypress_count` — number of key presses. - `activity_score` — computed activity score (0-100). - `visited_page` — URL visited during the session. - `snapshot_source` — the recording source (e.g. "web", "mobile"). */
+              key:
+                  | 'duration'
+                  | 'active_seconds'
+                  | 'inactive_seconds'
+                  | 'console_error_count'
+                  | 'console_log_count'
+                  | 'console_warn_count'
+                  | 'click_count'
+                  | 'keypress_count'
+                  | 'activity_score'
+                  | 'visited_page'
+                  | 'snapshot_source'
+              /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+              operator: 'exact' | 'is_not'
+              type?: 'recording'
+              /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+              value: Array<string>
+          }
+        | {
+              /** Recording metric to filter on. - `duration` — total recording duration in seconds. - `active_seconds` — seconds with user activity. - `inactive_seconds` — seconds without user activity. - `console_error_count` — number of console errors. - `console_log_count` — number of console log entries. - `console_warn_count` — number of console warnings. - `click_count` — number of clicks. - `keypress_count` — number of key presses. - `activity_score` — computed activity score (0-100). - `visited_page` — URL visited during the session. - `snapshot_source` — the recording source (e.g. "web", "mobile"). */
+              key:
+                  | 'duration'
+                  | 'active_seconds'
+                  | 'inactive_seconds'
+                  | 'console_error_count'
+                  | 'console_log_count'
+                  | 'console_warn_count'
+                  | 'click_count'
+                  | 'keypress_count'
+                  | 'activity_score'
+                  | 'visited_page'
+                  | 'snapshot_source'
+              operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+              type?: 'recording'
+              /** Value must be a date in ISO 8601 format. */
+              value: string
+          }
+        | {
+              /** Recording metric to filter on. - `duration` — total recording duration in seconds. - `active_seconds` — seconds with user activity. - `inactive_seconds` — seconds without user activity. - `console_error_count` — number of console errors. - `console_log_count` — number of console log entries. - `console_warn_count` — number of console warnings. - `click_count` — number of clicks. - `keypress_count` — number of key presses. - `activity_score` — computed activity score (0-100). - `visited_page` — URL visited during the session. - `snapshot_source` — the recording source (e.g. "web", "mobile"). */
+              key:
+                  | 'duration'
+                  | 'active_seconds'
+                  | 'inactive_seconds'
+                  | 'console_error_count'
+                  | 'console_log_count'
+                  | 'console_warn_count'
+                  | 'click_count'
+                  | 'keypress_count'
+                  | 'activity_score'
+                  | 'visited_page'
+                  | 'snapshot_source'
+              /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+              operator: 'is_set' | 'is_not_set'
+              type?: 'recording'
+          }
+    >
+    /** Filter to specific session recording IDs. Use this when you have known session IDs (e.g., from $session_id on events) to fetch multiple recordings in a single call. */
+    session_ids?: Array<string>
+}
+
+export interface QueryStickinessParams {
+    /** Groups aggregation */
+    aggregation_group_type_index?: number | null
+    /** Compare to date range. When enabled, shows the current and previous period side by side. */
+    compareFilter?: {
+        /** Whether to compare the current date range to a previous date range. */
+        compare?: boolean
+        /** The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago. */
+        compare_to?: string
+    }
+    /** Date range for the query */
+    dateRange?:
+        | {
+              /** ISO8601 date string. */
+              date_from: string
+              /** ISO8601 date string. */
+              date_to?: string | null
+          }
+        | {
+              /** Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start. */
+              date_from: string
+          }
+    /** Exclude internal and test users by applying the respective filters */
+    filterTestAccounts?: boolean
+    /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month`. This determines what counts as one "interval" for stickiness measurement. For example, with `day` interval over a 30-day range, the X-axis shows 1 through 30 days, and each bar/point shows how many users performed the event on exactly that many days. */
+    interval?: 'second' | 'minute' | 'hour' | 'day' | 'week' | 'month'
+    /** How many base intervals comprise one stickiness period. Defaults to 1. For example, `interval: "day"` with `intervalCount: 7` groups by 7-day periods. */
+    intervalCount?: number
+    kind?: 'StickinessQuery'
+    /** Property filters for all series */
+    properties?: Array<
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+              operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+              type: 'event' | 'person' | 'session' | 'feature'
+              /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+              value: string
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'exact' | 'gt' | 'lt'
+              type: 'event' | 'person' | 'session' | 'feature'
+              value: number
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+              operator: 'exact' | 'is_not'
+              type: 'event' | 'person' | 'session' | 'feature'
+              /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+              value: Array<string>
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+              type: 'event' | 'person' | 'session' | 'feature'
+              /** Value must be a date in ISO 8601 format. */
+              value: string
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+              operator: 'is_set' | 'is_not_set'
+              type: 'event' | 'person' | 'session' | 'feature'
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+              operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+              type?: 'group'
+              /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+              value: string
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'exact' | 'gt' | 'lt'
+              type?: 'group'
+              value: number
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+              operator: 'exact' | 'is_not'
+              type?: 'group'
+              /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+              value: Array<string>
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+              type?: 'group'
+              /** Value must be a date in ISO 8601 format. */
+              value: string
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+              operator: 'is_set' | 'is_not_set'
+              type?: 'group'
+          }
+        | {
+              key?: 'id'
+              operator?: 'in' | 'not_in'
+              /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+              type?: 'cohort'
+              /** The cohort ID to filter by. */
+              value: number
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+              operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+              value: string
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              operator: 'exact' | 'gt' | 'lt'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              value: number
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+              operator: 'exact' | 'is_not'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+              value: Array<string>
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              /** Value must be a date in ISO 8601 format. */
+              value: string
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+              operator: 'is_set' | 'is_not_set'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+          }
+        | {
+              /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+              key: string
+              /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+              type?: 'hogql'
+          }
+        | {
+              /** The feature flag key. */
+              key: string
+              operator?: 'flag_evaluates_to'
+              /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+              type?: 'flag'
+              /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+              value: boolean | string
+          }
+    >
+    /** Events or actions to include. Each series measures how many intervals (e.g. days) within the date range a user performed the event. Prioritize the more popular and fresh events and actions. When the `math` field is omitted on a series, it defaults to counting unique persons. */
+    series: Array<
+        | {
+              custom_name?: string
+              /** The event or `null` for all events. */
+              event?: string | null
+              kind?: 'EventsNode'
+              math?:
+                  | 'total'
+                  | 'dau'
+                  | 'weekly_active'
+                  | 'monthly_active'
+                  | 'unique_session'
+                  | 'first_time_for_user'
+                  | 'first_matching_event_for_user'
+                  | 'total'
+                  | 'first_time_for_user'
+                  | 'first_time_for_user_with_filters'
+                  | 'avg'
+                  | 'sum'
+                  | 'min'
+                  | 'max'
+                  | 'median'
+                  | 'p75'
+                  | 'p90'
+                  | 'p95'
+                  | 'p99'
+                  | 'avg_count_per_actor'
+                  | 'min_count_per_actor'
+                  | 'max_count_per_actor'
+                  | 'median_count_per_actor'
+                  | 'p75_count_per_actor'
+                  | 'p90_count_per_actor'
+                  | 'p95_count_per_actor'
+                  | 'p99_count_per_actor'
+                  | 'unique_group'
+                  | 'hogql'
+                  | 'total'
+                  | 'sum'
+                  | 'unique_session'
+                  | 'min'
+                  | 'max'
+                  | 'avg'
+                  | 'dau'
+                  | 'unique_group'
+                  | 'hogql'
+                  | 'total'
+                  | 'dau'
+              math_group_type_index?: 0 | 1 | 2 | 3 | 4
+              /** Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`. Examples: - Sum a numeric property: `sum(toFloat(properties.$revenue))` - Average of a property: `avg(toFloat(properties.load_time))` - Count distinct values: `count(distinct properties.$session_id)` - Conditional count: `countIf(toFloat(properties.duration) > 30)` - Percentile: `quantile(0.95)(toFloat(properties.response_time))` */
+              math_hogql?: string
+              math_multiplier?: number
+              math_property?: string
+              math_property_type?: string
+              name?: string
+              properties?: Array<
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                        operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                        /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                        value: string
+                    }
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        operator: 'exact' | 'gt' | 'lt'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                        value: number
+                    }
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                        operator: 'exact' | 'is_not'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                        /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                        value: Array<string>
+                    }
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                        /** Value must be a date in ISO 8601 format. */
+                        value: string
+                    }
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                        operator: 'is_set' | 'is_not_set'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                        operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                        type?: 'group'
+                        /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                        value: string
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        operator: 'exact' | 'gt' | 'lt'
+                        type?: 'group'
+                        value: number
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                        operator: 'exact' | 'is_not'
+                        type?: 'group'
+                        /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                        value: Array<string>
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                        type?: 'group'
+                        /** Value must be a date in ISO 8601 format. */
+                        value: string
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                        operator: 'is_set' | 'is_not_set'
+                        type?: 'group'
+                    }
+                  | {
+                        key?: 'id'
+                        operator?: 'in' | 'not_in'
+                        /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                        type?: 'cohort'
+                        /** The cohort ID to filter by. */
+                        value: number
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                        operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                        /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                        value: string
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        operator: 'exact' | 'gt' | 'lt'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                        value: number
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                        operator: 'exact' | 'is_not'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                        /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                        value: Array<string>
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                        /** Value must be a date in ISO 8601 format. */
+                        value: string
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                        operator: 'is_set' | 'is_not_set'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                    }
+                  | {
+                        /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                        key: string
+                        /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                        type?: 'hogql'
+                    }
+                  | {
+                        /** The feature flag key. */
+                        key: string
+                        operator?: 'flag_evaluates_to'
+                        /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                        type?: 'flag'
+                        /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                        value: boolean | string
+                    }
+              >
+          }
+        | {
+              custom_name?: string
+              id: number
+              kind?: 'ActionsNode'
+              math?:
+                  | 'total'
+                  | 'dau'
+                  | 'weekly_active'
+                  | 'monthly_active'
+                  | 'unique_session'
+                  | 'first_time_for_user'
+                  | 'first_matching_event_for_user'
+                  | 'total'
+                  | 'first_time_for_user'
+                  | 'first_time_for_user_with_filters'
+                  | 'avg'
+                  | 'sum'
+                  | 'min'
+                  | 'max'
+                  | 'median'
+                  | 'p75'
+                  | 'p90'
+                  | 'p95'
+                  | 'p99'
+                  | 'avg_count_per_actor'
+                  | 'min_count_per_actor'
+                  | 'max_count_per_actor'
+                  | 'median_count_per_actor'
+                  | 'p75_count_per_actor'
+                  | 'p90_count_per_actor'
+                  | 'p95_count_per_actor'
+                  | 'p99_count_per_actor'
+                  | 'unique_group'
+                  | 'hogql'
+                  | 'total'
+                  | 'sum'
+                  | 'unique_session'
+                  | 'min'
+                  | 'max'
+                  | 'avg'
+                  | 'dau'
+                  | 'unique_group'
+                  | 'hogql'
+                  | 'total'
+                  | 'dau'
+              math_group_type_index?: 0 | 1 | 2 | 3 | 4
+              /** Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`. Examples: - Sum a numeric property: `sum(toFloat(properties.$revenue))` - Average of a property: `avg(toFloat(properties.load_time))` - Count distinct values: `count(distinct properties.$session_id)` - Conditional count: `countIf(toFloat(properties.duration) > 30)` - Percentile: `quantile(0.95)(toFloat(properties.response_time))` */
+              math_hogql?: string
+              math_multiplier?: number
+              math_property?: string
+              math_property_type?: string
+              /** Action name from the plan. */
+              name: string
+              properties?: Array<
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                        operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                        /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                        value: string
+                    }
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        operator: 'exact' | 'gt' | 'lt'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                        value: number
+                    }
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                        operator: 'exact' | 'is_not'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                        /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                        value: Array<string>
+                    }
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                        /** Value must be a date in ISO 8601 format. */
+                        value: string
+                    }
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                        operator: 'is_set' | 'is_not_set'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                        operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                        type?: 'group'
+                        /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                        value: string
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        operator: 'exact' | 'gt' | 'lt'
+                        type?: 'group'
+                        value: number
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                        operator: 'exact' | 'is_not'
+                        type?: 'group'
+                        /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                        value: Array<string>
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                        type?: 'group'
+                        /** Value must be a date in ISO 8601 format. */
+                        value: string
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                        operator: 'is_set' | 'is_not_set'
+                        type?: 'group'
+                    }
+                  | {
+                        key?: 'id'
+                        operator?: 'in' | 'not_in'
+                        /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                        type?: 'cohort'
+                        /** The cohort ID to filter by. */
+                        value: number
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                        operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                        /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                        value: string
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        operator: 'exact' | 'gt' | 'lt'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                        value: number
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                        operator: 'exact' | 'is_not'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                        /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                        value: Array<string>
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                        /** Value must be a date in ISO 8601 format. */
+                        value: string
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                        operator: 'is_set' | 'is_not_set'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                    }
+                  | {
+                        /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                        key: string
+                        /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                        type?: 'hogql'
+                    }
+                  | {
+                        /** The feature flag key. */
+                        key: string
+                        operator?: 'flag_evaluates_to'
+                        /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                        type?: 'flag'
+                        /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                        value: boolean | string
+                    }
+              >
+          }
+    >
+    /** Properties specific to the stickiness insight */
+    stickinessFilter?: {
+        /** Computation mode. `non_cumulative` (default) shows users active on exactly N intervals. `cumulative` shows users active on N or more intervals. */
+        computedAs?: 'non_cumulative' | 'cumulative'
+        /** Visualization type for the stickiness chart. `ActionsLineGraph` - line chart (default). `ActionsBar` - bar chart. `ActionsAreaGraph` - area chart. */
+        display?: 'ActionsLineGraph' | 'ActionsBar' | 'ActionsAreaGraph'
+        /** Whether to show the legend describing series. */
+        showLegend?: boolean
+        /** Whether to show a value on each data point. */
+        showValuesOnSeries?: boolean
+        /** Filter which intervals count based on event frequency within each interval. For example, only count intervals where the user performed the event >= 3 times. */
+        stickinessCriteria?: {
+            operator: 'gte' | 'lte' | 'exact'
+            value: number
+        }
+    }
+}
+
+export interface QueryStickinessActorsParams {
+    /** Whether to pull from the previous period when `compareFilter` is enabled in the source. */
+    compare?: 'current' | 'previous'
+    /** The number of active intervals to drill into — the X-axis value of the stickiness bar. Despite the name, this is an interval **count**, not a date: for a daily insight, `day: 13` lists the users who were active on exactly 13 days within the source's date range. */
+    day: number
+    kind?: 'InsightActorsQuery'
+    /** 0-based index of the series to drill into when the source has multiple series. Defaults to 0. */
+    series?: number
+    /** The source stickiness insight query whose bar we are drilling into. */
+    source: {
+        /** Groups aggregation */
+        aggregation_group_type_index?: number | null
+        /** Compare to date range. When enabled, shows the current and previous period side by side. */
+        compareFilter?: {
+            /** Whether to compare the current date range to a previous date range. */
+            compare?: boolean
+            /** The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago. */
+            compare_to?: string
+        }
+        /** Date range for the query */
+        dateRange?:
+            | {
+                  /** ISO8601 date string. */
+                  date_from: string
+                  /** ISO8601 date string. */
+                  date_to?: string | null
+              }
+            | {
+                  /** Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start. */
+                  date_from: string
+              }
+        /** Exclude internal and test users by applying the respective filters */
+        filterTestAccounts?: boolean
+        /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month`. This determines what counts as one "interval" for stickiness measurement. For example, with `day` interval over a 30-day range, the X-axis shows 1 through 30 days, and each bar/point shows how many users performed the event on exactly that many days. */
+        interval?: 'second' | 'minute' | 'hour' | 'day' | 'week' | 'month'
+        /** How many base intervals comprise one stickiness period. Defaults to 1. For example, `interval: "day"` with `intervalCount: 7` groups by 7-day periods. */
+        intervalCount?: number
+        kind?: 'StickinessQuery'
+        /** Property filters for all series */
+        properties?: Array<
+            | {
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                  operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                  type: 'event' | 'person' | 'session' | 'feature'
+                  /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                  value: string
+              }
+            | {
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  operator: 'exact' | 'gt' | 'lt'
+                  type: 'event' | 'person' | 'session' | 'feature'
+                  value: number
+              }
+            | {
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                  operator: 'exact' | 'is_not'
+                  type: 'event' | 'person' | 'session' | 'feature'
+                  /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                  value: Array<string>
+              }
+            | {
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                  type: 'event' | 'person' | 'session' | 'feature'
+                  /** Value must be a date in ISO 8601 format. */
+                  value: string
+              }
+            | {
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                  operator: 'is_set' | 'is_not_set'
+                  type: 'event' | 'person' | 'session' | 'feature'
+              }
+            | {
+                  /** Index of the group type from the group mapping. */
+                  group_type_index: number
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                  operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                  type?: 'group'
+                  /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                  value: string
+              }
+            | {
+                  /** Index of the group type from the group mapping. */
+                  group_type_index: number
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  operator: 'exact' | 'gt' | 'lt'
+                  type?: 'group'
+                  value: number
+              }
+            | {
+                  /** Index of the group type from the group mapping. */
+                  group_type_index: number
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                  operator: 'exact' | 'is_not'
+                  type?: 'group'
+                  /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                  value: Array<string>
+              }
+            | {
+                  /** Index of the group type from the group mapping. */
+                  group_type_index: number
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                  type?: 'group'
+                  /** Value must be a date in ISO 8601 format. */
+                  value: string
+              }
+            | {
+                  /** Index of the group type from the group mapping. */
+                  group_type_index: number
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                  operator: 'is_set' | 'is_not_set'
+                  type?: 'group'
+              }
+            | {
+                  key?: 'id'
+                  operator?: 'in' | 'not_in'
+                  /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                  type?: 'cohort'
+                  /** The cohort ID to filter by. */
+                  value: number
+              }
+            | {
+                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                  /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                  operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                  type?: 'element'
+                  /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                  value: string
+              }
+            | {
+                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                  operator: 'exact' | 'gt' | 'lt'
+                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                  type?: 'element'
+                  value: number
+              }
+            | {
+                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                  /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                  operator: 'exact' | 'is_not'
+                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                  type?: 'element'
+                  /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                  value: Array<string>
+              }
+            | {
+                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                  operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                  type?: 'element'
+                  /** Value must be a date in ISO 8601 format. */
+                  value: string
+              }
+            | {
+                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                  /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                  operator: 'is_set' | 'is_not_set'
+                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                  type?: 'element'
+              }
+            | {
+                  /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                  key: string
+                  /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                  type?: 'hogql'
+              }
+            | {
+                  /** The feature flag key. */
+                  key: string
+                  operator?: 'flag_evaluates_to'
+                  /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                  type?: 'flag'
+                  /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                  value: boolean | string
+              }
+        >
+        /** Events or actions to include. Each series measures how many intervals (e.g. days) within the date range a user performed the event. Prioritize the more popular and fresh events and actions. When the `math` field is omitted on a series, it defaults to counting unique persons. */
+        series: Array<
+            | {
+                  custom_name?: string
+                  /** The event or `null` for all events. */
+                  event?: string | null
+                  kind?: 'EventsNode'
+                  math?:
+                      | 'total'
+                      | 'dau'
+                      | 'weekly_active'
+                      | 'monthly_active'
+                      | 'unique_session'
+                      | 'first_time_for_user'
+                      | 'first_matching_event_for_user'
+                      | 'total'
+                      | 'first_time_for_user'
+                      | 'first_time_for_user_with_filters'
+                      | 'avg'
+                      | 'sum'
+                      | 'min'
+                      | 'max'
+                      | 'median'
+                      | 'p75'
+                      | 'p90'
+                      | 'p95'
+                      | 'p99'
+                      | 'avg_count_per_actor'
+                      | 'min_count_per_actor'
+                      | 'max_count_per_actor'
+                      | 'median_count_per_actor'
+                      | 'p75_count_per_actor'
+                      | 'p90_count_per_actor'
+                      | 'p95_count_per_actor'
+                      | 'p99_count_per_actor'
+                      | 'unique_group'
+                      | 'hogql'
+                      | 'total'
+                      | 'sum'
+                      | 'unique_session'
+                      | 'min'
+                      | 'max'
+                      | 'avg'
+                      | 'dau'
+                      | 'unique_group'
+                      | 'hogql'
+                      | 'total'
+                      | 'dau'
+                  math_group_type_index?: 0 | 1 | 2 | 3 | 4
+                  /** Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`. Examples: - Sum a numeric property: `sum(toFloat(properties.$revenue))` - Average of a property: `avg(toFloat(properties.load_time))` - Count distinct values: `count(distinct properties.$session_id)` - Conditional count: `countIf(toFloat(properties.duration) > 30)` - Percentile: `quantile(0.95)(toFloat(properties.response_time))` */
+                  math_hogql?: string
+                  math_multiplier?: number
+                  math_property?: string
+                  math_property_type?: string
+                  name?: string
+                  properties?: Array<
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'exact' | 'gt' | 'lt'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            value: number
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            type?: 'group'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'exact' | 'gt' | 'lt'
+                            type?: 'group'
+                            value: number
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            type?: 'group'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            type?: 'group'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            type?: 'group'
+                        }
+                      | {
+                            key?: 'id'
+                            operator?: 'in' | 'not_in'
+                            /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                            type?: 'cohort'
+                            /** The cohort ID to filter by. */
+                            value: number
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            operator: 'exact' | 'gt' | 'lt'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            value: number
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                        }
+                      | {
+                            /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                            key: string
+                            /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                            type?: 'hogql'
+                        }
+                      | {
+                            /** The feature flag key. */
+                            key: string
+                            operator?: 'flag_evaluates_to'
+                            /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                            type?: 'flag'
+                            /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                            value: boolean | string
+                        }
+                  >
+              }
+            | {
+                  custom_name?: string
+                  id: number
+                  kind?: 'ActionsNode'
+                  math?:
+                      | 'total'
+                      | 'dau'
+                      | 'weekly_active'
+                      | 'monthly_active'
+                      | 'unique_session'
+                      | 'first_time_for_user'
+                      | 'first_matching_event_for_user'
+                      | 'total'
+                      | 'first_time_for_user'
+                      | 'first_time_for_user_with_filters'
+                      | 'avg'
+                      | 'sum'
+                      | 'min'
+                      | 'max'
+                      | 'median'
+                      | 'p75'
+                      | 'p90'
+                      | 'p95'
+                      | 'p99'
+                      | 'avg_count_per_actor'
+                      | 'min_count_per_actor'
+                      | 'max_count_per_actor'
+                      | 'median_count_per_actor'
+                      | 'p75_count_per_actor'
+                      | 'p90_count_per_actor'
+                      | 'p95_count_per_actor'
+                      | 'p99_count_per_actor'
+                      | 'unique_group'
+                      | 'hogql'
+                      | 'total'
+                      | 'sum'
+                      | 'unique_session'
+                      | 'min'
+                      | 'max'
+                      | 'avg'
+                      | 'dau'
+                      | 'unique_group'
+                      | 'hogql'
+                      | 'total'
+                      | 'dau'
+                  math_group_type_index?: 0 | 1 | 2 | 3 | 4
+                  /** Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`. Examples: - Sum a numeric property: `sum(toFloat(properties.$revenue))` - Average of a property: `avg(toFloat(properties.load_time))` - Count distinct values: `count(distinct properties.$session_id)` - Conditional count: `countIf(toFloat(properties.duration) > 30)` - Percentile: `quantile(0.95)(toFloat(properties.response_time))` */
+                  math_hogql?: string
+                  math_multiplier?: number
+                  math_property?: string
+                  math_property_type?: string
+                  /** Action name from the plan. */
+                  name: string
+                  properties?: Array<
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'exact' | 'gt' | 'lt'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            value: number
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            type?: 'group'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'exact' | 'gt' | 'lt'
+                            type?: 'group'
+                            value: number
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            type?: 'group'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            type?: 'group'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            type?: 'group'
+                        }
+                      | {
+                            key?: 'id'
+                            operator?: 'in' | 'not_in'
+                            /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                            type?: 'cohort'
+                            /** The cohort ID to filter by. */
+                            value: number
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            operator: 'exact' | 'gt' | 'lt'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            value: number
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                        }
+                      | {
+                            /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                            key: string
+                            /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                            type?: 'hogql'
+                        }
+                      | {
+                            /** The feature flag key. */
+                            key: string
+                            operator?: 'flag_evaluates_to'
+                            /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                            type?: 'flag'
+                            /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                            value: boolean | string
+                        }
+                  >
+              }
+        >
+        /** Properties specific to the stickiness insight */
+        stickinessFilter?: {
+            /** Computation mode. `non_cumulative` (default) shows users active on exactly N intervals. `cumulative` shows users active on N or more intervals. */
+            computedAs?: 'non_cumulative' | 'cumulative'
+            /** Visualization type for the stickiness chart. `ActionsLineGraph` - line chart (default). `ActionsBar` - bar chart. `ActionsAreaGraph` - area chart. */
+            display?: 'ActionsLineGraph' | 'ActionsBar' | 'ActionsAreaGraph'
+            /** Whether to show the legend describing series. */
+            showLegend?: boolean
+            /** Whether to show a value on each data point. */
+            showValuesOnSeries?: boolean
+            /** Filter which intervals count based on event frequency within each interval. For example, only count intervals where the user performed the event >= 3 times. */
+            stickinessCriteria?: {
+                operator: 'gte' | 'lte' | 'exact'
+                value: number
+            }
+        }
+    }
+}
+
+export interface QueryTrendsParams {
+    /** Groups aggregation */
+    aggregation_group_type_index?: number | null
+    /** Breakdowns are used to segment data by property values of maximum three properties. They divide all defined trends series to multiple subseries based on the values of the property. Include breakdowns **only when they are essential to directly answer the user’s question**. You must not add breakdowns if the question can be addressed without additional segmentation. Always use the minimum set of breakdowns needed to answer the question. When using breakdowns, you must: - **Identify the property group** and name for each breakdown. - **Provide the property name** for each breakdown. - **Validate that the property value accurately reflects the intended criteria**. Examples of using breakdowns: - page views trend by country: you need to find a property such as `$geoip_country_code` and set it as a breakdown. - number of users who have completed onboarding by an organization: you need to find a property such as `organization name` and set it as a breakdown. */
+    breakdownFilter?: {
+        /** How many distinct values to show. */
+        breakdown_limit?: number
+        /** When `true`, applies the project's configured path cleaning rules to URL or path breakdown values (e.g. `$pathname`, `$current_url`). Use this whenever the user asks for a breakdown by a URL or path property and there is no specific reason to keep the raw values. The user does not need to provide a regex — path cleaning rules come from the project's settings. */
+        breakdown_path_cleaning?: boolean
+        /** Use this field to define breakdowns. */
+        breakdowns: Array<
+            | {
+                  /** Index of the group type from the group mapping. */
+                  group_type_index?: number | null
+                  /** Property name from the plan to break down by. */
+                  property: string
+                  type?: 'group'
+              }
+            | {
+                  /** Property name from the plan to break down by. */
+                  property: string
+                  type:
+                      | 'person'
+                      | 'event'
+                      | 'event_metadata'
+                      | 'session'
+                      | 'hogql'
+                      | 'cohort'
+                      | 'revenue_analytics'
+                      | 'data_warehouse'
+                      | 'data_warehouse_person_property'
+              }
+        >
+    }
+    /** Compare to date range */
+    compareFilter?: {
+        /** Whether to compare the current date range to a previous date range. */
+        compare?: boolean
+        /** The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago. */
+        compare_to?: string
+    }
+    /** Date range for the query */
+    dateRange?:
+        | {
+              /** ISO8601 date string. */
+              date_from: string
+              /** ISO8601 date string. */
+              date_to?: string | null
+          }
+        | {
+              /** Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start. */
+              date_from: string
+          }
+    /** Exclude internal and test users by applying the respective filters */
+    filterTestAccounts?: boolean
+    /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
+    interval?: 'second' | 'minute' | 'hour' | 'day' | 'week' | 'month'
+    kind?: 'TrendsQuery'
+    /** Property filters for all series */
+    properties?: Array<
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+              operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+              type: 'event' | 'person' | 'session' | 'feature'
+              /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+              value: string
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'exact' | 'gt' | 'lt'
+              type: 'event' | 'person' | 'session' | 'feature'
+              value: number
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+              operator: 'exact' | 'is_not'
+              type: 'event' | 'person' | 'session' | 'feature'
+              /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+              value: Array<string>
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+              type: 'event' | 'person' | 'session' | 'feature'
+              /** Value must be a date in ISO 8601 format. */
+              value: string
+          }
+        | {
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+              operator: 'is_set' | 'is_not_set'
+              type: 'event' | 'person' | 'session' | 'feature'
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+              operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+              type?: 'group'
+              /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+              value: string
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'exact' | 'gt' | 'lt'
+              type?: 'group'
+              value: number
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+              operator: 'exact' | 'is_not'
+              type?: 'group'
+              /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+              value: Array<string>
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+              type?: 'group'
+              /** Value must be a date in ISO 8601 format. */
+              value: string
+          }
+        | {
+              /** Index of the group type from the group mapping. */
+              group_type_index: number
+              /** Use one of the properties the user has provided in the plan. */
+              key: string
+              /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+              operator: 'is_set' | 'is_not_set'
+              type?: 'group'
+          }
+        | {
+              key?: 'id'
+              operator?: 'in' | 'not_in'
+              /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+              type?: 'cohort'
+              /** The cohort ID to filter by. */
+              value: number
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+              operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+              value: string
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              operator: 'exact' | 'gt' | 'lt'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              value: number
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+              operator: 'exact' | 'is_not'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+              value: Array<string>
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+              /** Value must be a date in ISO 8601 format. */
+              value: string
+          }
+        | {
+              /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+              key: 'tag_name' | 'text' | 'href' | 'selector'
+              /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+              operator: 'is_set' | 'is_not_set'
+              /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+              type?: 'element'
+          }
+        | {
+              /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+              key: string
+              /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+              type?: 'hogql'
+          }
+        | {
+              /** The feature flag key. */
+              key: string
+              operator?: 'flag_evaluates_to'
+              /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+              type?: 'flag'
+              /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+              value: boolean | string
+          }
+    >
+    /** Events, actions, or groups of events/actions to include. Prioritize the more popular and fresh events and actions. Use a top-level `EventsNode` or `ActionsNode` entry for each independent series (one line per entry on the chart). Use an `AssistantTrendsGroupNode` to combine multiple events or actions into a single series joined by `OR` — for example, treating "Pageview OR Pageleave" as one line. Only `OR` grouping is supported; pick groups only when the user wants the events counted together, otherwise prefer separate series. */
+    series: Array<
+        | {
+              custom_name?: string
+              /** The event or `null` for all events. */
+              event?: string | null
+              kind?: 'EventsNode'
+              math?:
+                  | 'total'
+                  | 'dau'
+                  | 'weekly_active'
+                  | 'monthly_active'
+                  | 'unique_session'
+                  | 'first_time_for_user'
+                  | 'first_matching_event_for_user'
+                  | 'total'
+                  | 'first_time_for_user'
+                  | 'first_time_for_user_with_filters'
+                  | 'avg'
+                  | 'sum'
+                  | 'min'
+                  | 'max'
+                  | 'median'
+                  | 'p75'
+                  | 'p90'
+                  | 'p95'
+                  | 'p99'
+                  | 'avg_count_per_actor'
+                  | 'min_count_per_actor'
+                  | 'max_count_per_actor'
+                  | 'median_count_per_actor'
+                  | 'p75_count_per_actor'
+                  | 'p90_count_per_actor'
+                  | 'p95_count_per_actor'
+                  | 'p99_count_per_actor'
+                  | 'unique_group'
+                  | 'hogql'
+                  | 'total'
+                  | 'sum'
+                  | 'unique_session'
+                  | 'min'
+                  | 'max'
+                  | 'avg'
+                  | 'dau'
+                  | 'unique_group'
+                  | 'hogql'
+                  | 'total'
+                  | 'dau'
+              math_group_type_index?: 0 | 1 | 2 | 3 | 4
+              /** Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`. Examples: - Sum a numeric property: `sum(toFloat(properties.$revenue))` - Average of a property: `avg(toFloat(properties.load_time))` - Count distinct values: `count(distinct properties.$session_id)` - Conditional count: `countIf(toFloat(properties.duration) > 30)` - Percentile: `quantile(0.95)(toFloat(properties.response_time))` */
+              math_hogql?: string
+              math_multiplier?: number
+              math_property?: string
+              math_property_type?: string
+              name?: string
+              optionalInFunnel?: boolean
+              properties?: Array<
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                        operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                        /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                        value: string
+                    }
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        operator: 'exact' | 'gt' | 'lt'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                        value: number
+                    }
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                        operator: 'exact' | 'is_not'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                        /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                        value: Array<string>
+                    }
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                        /** Value must be a date in ISO 8601 format. */
+                        value: string
+                    }
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                        operator: 'is_set' | 'is_not_set'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                        operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                        type?: 'group'
+                        /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                        value: string
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        operator: 'exact' | 'gt' | 'lt'
+                        type?: 'group'
+                        value: number
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                        operator: 'exact' | 'is_not'
+                        type?: 'group'
+                        /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                        value: Array<string>
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                        type?: 'group'
+                        /** Value must be a date in ISO 8601 format. */
+                        value: string
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                        operator: 'is_set' | 'is_not_set'
+                        type?: 'group'
+                    }
+                  | {
+                        key?: 'id'
+                        operator?: 'in' | 'not_in'
+                        /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                        type?: 'cohort'
+                        /** The cohort ID to filter by. */
+                        value: number
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                        operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                        /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                        value: string
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        operator: 'exact' | 'gt' | 'lt'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                        value: number
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                        operator: 'exact' | 'is_not'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                        /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                        value: Array<string>
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                        /** Value must be a date in ISO 8601 format. */
+                        value: string
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                        operator: 'is_set' | 'is_not_set'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                    }
+                  | {
+                        /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                        key: string
+                        /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                        type?: 'hogql'
+                    }
+                  | {
+                        /** The feature flag key. */
+                        key: string
+                        operator?: 'flag_evaluates_to'
+                        /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                        type?: 'flag'
+                        /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                        value: boolean | string
+                    }
+              >
+              /** version of the node, used for schema migrations */
+              version?: number
+          }
+        | {
+              custom_name?: string
+              id: number
+              kind?: 'ActionsNode'
+              math?:
+                  | 'total'
+                  | 'dau'
+                  | 'weekly_active'
+                  | 'monthly_active'
+                  | 'unique_session'
+                  | 'first_time_for_user'
+                  | 'first_matching_event_for_user'
+                  | 'total'
+                  | 'first_time_for_user'
+                  | 'first_time_for_user_with_filters'
+                  | 'avg'
+                  | 'sum'
+                  | 'min'
+                  | 'max'
+                  | 'median'
+                  | 'p75'
+                  | 'p90'
+                  | 'p95'
+                  | 'p99'
+                  | 'avg_count_per_actor'
+                  | 'min_count_per_actor'
+                  | 'max_count_per_actor'
+                  | 'median_count_per_actor'
+                  | 'p75_count_per_actor'
+                  | 'p90_count_per_actor'
+                  | 'p95_count_per_actor'
+                  | 'p99_count_per_actor'
+                  | 'unique_group'
+                  | 'hogql'
+                  | 'total'
+                  | 'sum'
+                  | 'unique_session'
+                  | 'min'
+                  | 'max'
+                  | 'avg'
+                  | 'dau'
+                  | 'unique_group'
+                  | 'hogql'
+                  | 'total'
+                  | 'dau'
+              math_group_type_index?: 0 | 1 | 2 | 3 | 4
+              /** Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`. Examples: - Sum a numeric property: `sum(toFloat(properties.$revenue))` - Average of a property: `avg(toFloat(properties.load_time))` - Count distinct values: `count(distinct properties.$session_id)` - Conditional count: `countIf(toFloat(properties.duration) > 30)` - Percentile: `quantile(0.95)(toFloat(properties.response_time))` */
+              math_hogql?: string
+              math_multiplier?: number
+              math_property?: string
+              math_property_type?: string
+              /** Action name from the plan. */
+              name: string
+              optionalInFunnel?: boolean
+              properties?: Array<
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                        operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                        /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                        value: string
+                    }
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        operator: 'exact' | 'gt' | 'lt'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                        value: number
+                    }
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                        operator: 'exact' | 'is_not'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                        /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                        value: Array<string>
+                    }
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                        /** Value must be a date in ISO 8601 format. */
+                        value: string
+                    }
+                  | {
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                        operator: 'is_set' | 'is_not_set'
+                        type: 'event' | 'person' | 'session' | 'feature'
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                        operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                        type?: 'group'
+                        /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                        value: string
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        operator: 'exact' | 'gt' | 'lt'
+                        type?: 'group'
+                        value: number
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                        operator: 'exact' | 'is_not'
+                        type?: 'group'
+                        /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                        value: Array<string>
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                        type?: 'group'
+                        /** Value must be a date in ISO 8601 format. */
+                        value: string
+                    }
+                  | {
+                        /** Index of the group type from the group mapping. */
+                        group_type_index: number
+                        /** Use one of the properties the user has provided in the plan. */
+                        key: string
+                        /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                        operator: 'is_set' | 'is_not_set'
+                        type?: 'group'
+                    }
+                  | {
+                        key?: 'id'
+                        operator?: 'in' | 'not_in'
+                        /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                        type?: 'cohort'
+                        /** The cohort ID to filter by. */
+                        value: number
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                        operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                        /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                        value: string
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        operator: 'exact' | 'gt' | 'lt'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                        value: number
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                        operator: 'exact' | 'is_not'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                        /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                        value: Array<string>
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                        /** Value must be a date in ISO 8601 format. */
+                        value: string
+                    }
+                  | {
+                        /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                        key: 'tag_name' | 'text' | 'href' | 'selector'
+                        /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                        operator: 'is_set' | 'is_not_set'
+                        /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                        type?: 'element'
+                    }
+                  | {
+                        /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                        key: string
+                        /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                        type?: 'hogql'
+                    }
+                  | {
+                        /** The feature flag key. */
+                        key: string
+                        operator?: 'flag_evaluates_to'
+                        /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                        type?: 'flag'
+                        /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                        value: boolean | string
+                    }
+              >
+              /** version of the node, used for schema migrations */
+              version?: number
+          }
+        | {
+              custom_name?: string
+              kind?: 'GroupNode'
+              /** Math aggregation for the combined series. The engine reads aggregation from here, not from inner nodes. */
+              math?:
+                  | 'total'
+                  | 'dau'
+                  | 'weekly_active'
+                  | 'monthly_active'
+                  | 'unique_session'
+                  | 'first_time_for_user'
+                  | 'first_matching_event_for_user'
+                  | 'total'
+                  | 'first_time_for_user'
+                  | 'first_time_for_user_with_filters'
+                  | 'avg'
+                  | 'sum'
+                  | 'min'
+                  | 'max'
+                  | 'median'
+                  | 'p75'
+                  | 'p90'
+                  | 'p95'
+                  | 'p99'
+                  | 'avg_count_per_actor'
+                  | 'min_count_per_actor'
+                  | 'max_count_per_actor'
+                  | 'median_count_per_actor'
+                  | 'p75_count_per_actor'
+                  | 'p90_count_per_actor'
+                  | 'p95_count_per_actor'
+                  | 'p99_count_per_actor'
+                  | 'unique_group'
+                  | 'hogql'
+                  | 'total'
+                  | 'sum'
+                  | 'unique_session'
+                  | 'min'
+                  | 'max'
+                  | 'avg'
+                  | 'dau'
+                  | 'unique_group'
+                  | 'hogql'
+                  | 'total'
+                  | 'dau'
+              math_group_type_index?: 0 | 1 | 2 | 3 | 4
+              /** Custom HogQL aggregation. When set, `math` must be `hogql`. */
+              math_hogql?: string
+              math_multiplier?: number
+              math_property?: string
+              math_property_type?: string
+              /** Display name for the combined series. */
+              name?: string
+              /** Events and actions combined into the series. Mirror the group's `math*` on each node for UI round-trip; they're ignored at execution time. */
+              nodes: Array<
+                  | {
+                        custom_name?: string
+                        /** The event or `null` for all events. */
+                        event?: string | null
+                        kind?: 'EventsNode'
+                        math?:
+                            | 'total'
+                            | 'dau'
+                            | 'weekly_active'
+                            | 'monthly_active'
+                            | 'unique_session'
+                            | 'first_time_for_user'
+                            | 'first_matching_event_for_user'
+                            | 'total'
+                            | 'first_time_for_user'
+                            | 'first_time_for_user_with_filters'
+                            | 'avg'
+                            | 'sum'
+                            | 'min'
+                            | 'max'
+                            | 'median'
+                            | 'p75'
+                            | 'p90'
+                            | 'p95'
+                            | 'p99'
+                            | 'avg_count_per_actor'
+                            | 'min_count_per_actor'
+                            | 'max_count_per_actor'
+                            | 'median_count_per_actor'
+                            | 'p75_count_per_actor'
+                            | 'p90_count_per_actor'
+                            | 'p95_count_per_actor'
+                            | 'p99_count_per_actor'
+                            | 'unique_group'
+                            | 'hogql'
+                            | 'total'
+                            | 'sum'
+                            | 'unique_session'
+                            | 'min'
+                            | 'max'
+                            | 'avg'
+                            | 'dau'
+                            | 'unique_group'
+                            | 'hogql'
+                            | 'total'
+                            | 'dau'
+                        math_group_type_index?: 0 | 1 | 2 | 3 | 4
+                        /** Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`. Examples: - Sum a numeric property: `sum(toFloat(properties.$revenue))` - Average of a property: `avg(toFloat(properties.load_time))` - Count distinct values: `count(distinct properties.$session_id)` - Conditional count: `countIf(toFloat(properties.duration) > 30)` - Percentile: `quantile(0.95)(toFloat(properties.response_time))` */
+                        math_hogql?: string
+                        math_multiplier?: number
+                        math_property?: string
+                        math_property_type?: string
+                        name?: string
+                        optionalInFunnel?: boolean
+                        properties?: Array<
+                            | {
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                  operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                                  type: 'event' | 'person' | 'session' | 'feature'
+                                  /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                  value: string
+                              }
+                            | {
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  operator: 'exact' | 'gt' | 'lt'
+                                  type: 'event' | 'person' | 'session' | 'feature'
+                                  value: number
+                              }
+                            | {
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                  operator: 'exact' | 'is_not'
+                                  type: 'event' | 'person' | 'session' | 'feature'
+                                  /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                  value: Array<string>
+                              }
+                            | {
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                  type: 'event' | 'person' | 'session' | 'feature'
+                                  /** Value must be a date in ISO 8601 format. */
+                                  value: string
+                              }
+                            | {
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                  operator: 'is_set' | 'is_not_set'
+                                  type: 'event' | 'person' | 'session' | 'feature'
+                              }
+                            | {
+                                  /** Index of the group type from the group mapping. */
+                                  group_type_index: number
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                  operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                                  type?: 'group'
+                                  /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                  value: string
+                              }
+                            | {
+                                  /** Index of the group type from the group mapping. */
+                                  group_type_index: number
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  operator: 'exact' | 'gt' | 'lt'
+                                  type?: 'group'
+                                  value: number
+                              }
+                            | {
+                                  /** Index of the group type from the group mapping. */
+                                  group_type_index: number
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                  operator: 'exact' | 'is_not'
+                                  type?: 'group'
+                                  /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                  value: Array<string>
+                              }
+                            | {
+                                  /** Index of the group type from the group mapping. */
+                                  group_type_index: number
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                  type?: 'group'
+                                  /** Value must be a date in ISO 8601 format. */
+                                  value: string
+                              }
+                            | {
+                                  /** Index of the group type from the group mapping. */
+                                  group_type_index: number
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                  operator: 'is_set' | 'is_not_set'
+                                  type?: 'group'
+                              }
+                            | {
+                                  key?: 'id'
+                                  operator?: 'in' | 'not_in'
+                                  /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                                  type?: 'cohort'
+                                  /** The cohort ID to filter by. */
+                                  value: number
+                              }
+                            | {
+                                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                                  /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                  operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                  type?: 'element'
+                                  /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                  value: string
+                              }
+                            | {
+                                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                                  operator: 'exact' | 'gt' | 'lt'
+                                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                  type?: 'element'
+                                  value: number
+                              }
+                            | {
+                                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                                  /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                  operator: 'exact' | 'is_not'
+                                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                  type?: 'element'
+                                  /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                  value: Array<string>
+                              }
+                            | {
+                                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                                  operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                  type?: 'element'
+                                  /** Value must be a date in ISO 8601 format. */
+                                  value: string
+                              }
+                            | {
+                                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                                  /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                  operator: 'is_set' | 'is_not_set'
+                                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                  type?: 'element'
+                              }
+                            | {
+                                  /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                                  key: string
+                                  /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                                  type?: 'hogql'
+                              }
+                            | {
+                                  /** The feature flag key. */
+                                  key: string
+                                  operator?: 'flag_evaluates_to'
+                                  /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                                  type?: 'flag'
+                                  /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                                  value: boolean | string
+                              }
+                        >
+                        /** version of the node, used for schema migrations */
+                        version?: number
+                    }
+                  | {
+                        custom_name?: string
+                        id: number
+                        kind?: 'ActionsNode'
+                        math?:
+                            | 'total'
+                            | 'dau'
+                            | 'weekly_active'
+                            | 'monthly_active'
+                            | 'unique_session'
+                            | 'first_time_for_user'
+                            | 'first_matching_event_for_user'
+                            | 'total'
+                            | 'first_time_for_user'
+                            | 'first_time_for_user_with_filters'
+                            | 'avg'
+                            | 'sum'
+                            | 'min'
+                            | 'max'
+                            | 'median'
+                            | 'p75'
+                            | 'p90'
+                            | 'p95'
+                            | 'p99'
+                            | 'avg_count_per_actor'
+                            | 'min_count_per_actor'
+                            | 'max_count_per_actor'
+                            | 'median_count_per_actor'
+                            | 'p75_count_per_actor'
+                            | 'p90_count_per_actor'
+                            | 'p95_count_per_actor'
+                            | 'p99_count_per_actor'
+                            | 'unique_group'
+                            | 'hogql'
+                            | 'total'
+                            | 'sum'
+                            | 'unique_session'
+                            | 'min'
+                            | 'max'
+                            | 'avg'
+                            | 'dau'
+                            | 'unique_group'
+                            | 'hogql'
+                            | 'total'
+                            | 'dau'
+                        math_group_type_index?: 0 | 1 | 2 | 3 | 4
+                        /** Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`. Examples: - Sum a numeric property: `sum(toFloat(properties.$revenue))` - Average of a property: `avg(toFloat(properties.load_time))` - Count distinct values: `count(distinct properties.$session_id)` - Conditional count: `countIf(toFloat(properties.duration) > 30)` - Percentile: `quantile(0.95)(toFloat(properties.response_time))` */
+                        math_hogql?: string
+                        math_multiplier?: number
+                        math_property?: string
+                        math_property_type?: string
+                        /** Action name from the plan. */
+                        name: string
+                        optionalInFunnel?: boolean
+                        properties?: Array<
+                            | {
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                  operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                                  type: 'event' | 'person' | 'session' | 'feature'
+                                  /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                  value: string
+                              }
+                            | {
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  operator: 'exact' | 'gt' | 'lt'
+                                  type: 'event' | 'person' | 'session' | 'feature'
+                                  value: number
+                              }
+                            | {
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                  operator: 'exact' | 'is_not'
+                                  type: 'event' | 'person' | 'session' | 'feature'
+                                  /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                  value: Array<string>
+                              }
+                            | {
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                  type: 'event' | 'person' | 'session' | 'feature'
+                                  /** Value must be a date in ISO 8601 format. */
+                                  value: string
+                              }
+                            | {
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                  operator: 'is_set' | 'is_not_set'
+                                  type: 'event' | 'person' | 'session' | 'feature'
+                              }
+                            | {
+                                  /** Index of the group type from the group mapping. */
+                                  group_type_index: number
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                  operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                                  type?: 'group'
+                                  /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                  value: string
+                              }
+                            | {
+                                  /** Index of the group type from the group mapping. */
+                                  group_type_index: number
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  operator: 'exact' | 'gt' | 'lt'
+                                  type?: 'group'
+                                  value: number
+                              }
+                            | {
+                                  /** Index of the group type from the group mapping. */
+                                  group_type_index: number
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                  operator: 'exact' | 'is_not'
+                                  type?: 'group'
+                                  /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                  value: Array<string>
+                              }
+                            | {
+                                  /** Index of the group type from the group mapping. */
+                                  group_type_index: number
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                  type?: 'group'
+                                  /** Value must be a date in ISO 8601 format. */
+                                  value: string
+                              }
+                            | {
+                                  /** Index of the group type from the group mapping. */
+                                  group_type_index: number
+                                  /** Use one of the properties the user has provided in the plan. */
+                                  key: string
+                                  /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                  operator: 'is_set' | 'is_not_set'
+                                  type?: 'group'
+                              }
+                            | {
+                                  key?: 'id'
+                                  operator?: 'in' | 'not_in'
+                                  /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                                  type?: 'cohort'
+                                  /** The cohort ID to filter by. */
+                                  value: number
+                              }
+                            | {
+                                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                                  /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                  operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                  type?: 'element'
+                                  /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                  value: string
+                              }
+                            | {
+                                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                                  operator: 'exact' | 'gt' | 'lt'
+                                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                  type?: 'element'
+                                  value: number
+                              }
+                            | {
+                                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                                  /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                  operator: 'exact' | 'is_not'
+                                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                  type?: 'element'
+                                  /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                  value: Array<string>
+                              }
+                            | {
+                                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                                  operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                  type?: 'element'
+                                  /** Value must be a date in ISO 8601 format. */
+                                  value: string
+                              }
+                            | {
+                                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                                  /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                  operator: 'is_set' | 'is_not_set'
+                                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                  type?: 'element'
+                              }
+                            | {
+                                  /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                                  key: string
+                                  /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                                  type?: 'hogql'
+                              }
+                            | {
+                                  /** The feature flag key. */
+                                  key: string
+                                  operator?: 'flag_evaluates_to'
+                                  /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                                  type?: 'flag'
+                                  /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                                  value: boolean | string
+                              }
+                        >
+                        /** version of the node, used for schema migrations */
+                        version?: number
+                    }
+              >
+              /** Only `OR` is supported. */
+              operator?: 'OR'
+          }
+    >
+    /** Properties specific to the trends insight */
+    trendsFilter?: {
+        /** Formats the trends value axis. Do not use the formatting unless you are absolutely sure that formatting will match the data. `numeric` - no formatting. Prefer this option by default. `duration` - formats the value in seconds to a human-readable duration, e.g., `132` becomes `2 minutes 12 seconds`. Use this option only if you are sure that the values are in seconds. `duration_ms` - formats the value in miliseconds to a human-readable duration, e.g., `1050` becomes `1 second 50 milliseconds`. Use this option only if you are sure that the values are in miliseconds. `percentage` - adds a percentage sign to the value, e.g., `50` becomes `50%`. `percentage_scaled` - formats the value as a percentage scaled to 0-100, e.g., `0.5` becomes `50%`. `currency` - formats the value as a currency, e.g., `1000` becomes `$1,000`. */
+        aggregationAxisFormat?:
+            | 'numeric'
+            | 'duration'
+            | 'duration_ms'
+            | 'percentage'
+            | 'percentage_scaled'
+            | 'currency'
+            | 'short'
+        /** Custom postfix to add to the aggregation axis, e.g., ` clicks` to format 5 as `5 clicks`. You may need to add a space before postfix. Never set a postfix that `aggregationAxisFormat` already renders: `percentage` and `percentage_scaled` already append the `%` sign, so a `%` postfix would render values as `50%%`. */
+        aggregationAxisPostfix?: string
+        /** Custom prefix to add to the aggregation axis, e.g., `$` for USD dollars. You may need to add a space after prefix. */
+        aggregationAxisPrefix?: string
+        /** Number of decimal places to show. Do not add this unless you are sure that values will have a decimal point. */
+        decimalPlaces?: number
+        /** Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `BoldNumber` - total value single large number. Use when user explicitly asks for a single output number. You CANNOT use this with breakdown or if the insight has more than one series. `Metric` - single large number with a period-over-period change pill and a sparkline. Like `BoldNumber` but trend-aware; configure it with the `metric*` fields below. Single series, no breakdown. `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data. `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then. */
+        display?:
+            | 'Auto'
+            | 'ActionsLineGraph'
+            | 'ActionsBar'
+            | 'ActionsUnstackedBar'
+            | 'ActionsAreaGraph'
+            | 'ActionsLineGraphCumulative'
+            | 'BoldNumber'
+            | 'Metric'
+            | 'ActionsPie'
+            | 'ActionsBarValue'
+            | 'ActionsTable'
+            | 'WorldMap'
+            | 'CalendarHeatmap'
+            | 'TwoDimensionalHeatmap'
+            | 'BoxPlot'
+            | 'SlopeGraph'
+        /** Use custom formulas to perform mathematical operations like calculating percentages or metrics. Use the following syntax: `A/B`, where `A` and `B` are the names of the series. You can combine math aggregations and formulas. When using a formula, you must: - Identify and specify **all** events and actions needed to solve the formula. - Carefully review the list of available events and actions to find appropriate entities for each part of the formula. - Ensure that you find events and actions corresponding to both the numerator and denominator in ratio calculations. Examples of using math formulas: - If you want to calculate the percentage of users who have completed onboarding, you need to find and use events or actions similar to `$identify` and `onboarding complete`, so the formula will be `A / B`, where `A` is `onboarding complete` (unique users) and `B` is `$identify` (unique users). */
+        formulaNodes?: Array<{
+            /** Optional user-defined name for the formula */
+            custom_name?: string
+            formula: string
+        }>
+        /** Only applies when `display` is `Metric`. Hex color (e.g. `#db3707`) for the change pill when the metric went DOWN. Defaults to red (`#db3707`). For a "lower is better" metric (latency, error rate, cost), set this to a green (e.g. `#388600`) so a decrease reads as good. */
+        metricChangeDecreaseColor?: string
+        /** Only applies when `display` is `Metric`. Hex color (e.g. `#388600`) for the change pill when the metric went UP. Defaults to green (`#388600`). For a "lower is better" metric (latency, error rate, cost), set this to a red (e.g. `#db3707`) so an increase reads as bad. */
+        metricChangeIncreaseColor?: string
+        /** Only applies when `display` is `Metric`. Color the sparkline under the big number by whether the metric increased or decreased over the period (using the increase/decrease line colors). */
+        metricColorByDirection?: boolean
+        /** Only applies when `display` is `Metric` and `metricColorByDirection` is `true`. Hex color for the sparkline when the metric went DOWN. Defaults to red (`#db3707`). Flip to a green for a "lower is better" metric. */
+        metricLineDecreaseColor?: string
+        /** Only applies when `display` is `Metric` and `metricColorByDirection` is `true`. Hex color for the sparkline when the metric went UP. Defaults to green (`#388600`). Flip to a red for a "lower is better" metric. */
+        metricLineIncreaseColor?: string
+        /** Only applies when `display` is `Metric`. Show the change pill next to the big number. What it compares follows `metricSummary`: `total`/`average` compare against the previous period when "compare to previous" is on (otherwise first→last of the series), and `latest` is always first→last of the series. */
+        metricShowChange?: boolean
+        /** Only applies when `display` is `Metric`. Which summary the resting big number shows: `total` (sum over the period), `average` (mean of the points), or `latest` (last point). Hovering the sparkline always shows the hovered point's value regardless of this setting. Also drives the change pill: `total`/`average` compare against the previous period when "compare to previous" is on; `latest` compares first→last of the series. */
+        metricSummary?: 'total' | 'average' | 'latest'
+        /** Whether to show alert threshold lines on the chart. */
+        showAlertThresholdLines?: boolean
+        /** Whether to show labels on each series. */
+        showLabelsOnSeries?: boolean
+        /** Whether to show the legend describing series and breakdowns. */
+        showLegend?: boolean
+        /** Whether to show multiple y-axes for different series. */
+        showMultipleYAxes?: boolean
+        /** Whether to show a percentage of each series. Use only with */
+        showPercentStackView?: boolean
+        /** Whether to show a value on each data point. */
+        showValuesOnSeries?: boolean
+        /** Smoothing intervals for the trend line. */
+        smoothingIntervals?: number
+        /** Custom label rendered under the X axis. */
+        xAxisLabel?: string
+        /** Custom label rendered alongside the Y axis. */
+        yAxisLabel?: string
+        /** Whether to scale the y-axis. */
+        yAxisScaleType?: 'log10' | 'linear'
+    }
+}
+
+export interface QueryTrendsActorsParams {
+    /** Breakdown values, one per dimension in the source's `breakdownFilter.breakdowns`, in the same order. Array length must equal the number of breakdown dimensions. */
+    breakdown?: Array<string>
+    /** Whether to pull from the previous period when `compare` is enabled in the source. */
+    compare?: 'current' | 'previous'
+    /** Bucket date for the data point. Must be an ISO date string (YYYY-MM-DD), e.g. '2024-01-15'. */
+    day: string
+    /** Whether to include matched session recordings for each actor. */
+    includeRecordings?: boolean
+    kind?: 'InsightActorsQuery'
+    /** Series index (0-based) when the source has multiple series. */
+    series?: number
+    /** The source insight query whose data point we are drilling into. */
+    source: {
+        /** Groups aggregation */
+        aggregation_group_type_index?: number | null
+        /** Breakdowns are used to segment data by property values of maximum three properties. They divide all defined trends series to multiple subseries based on the values of the property. Include breakdowns **only when they are essential to directly answer the user’s question**. You must not add breakdowns if the question can be addressed without additional segmentation. Always use the minimum set of breakdowns needed to answer the question. When using breakdowns, you must: - **Identify the property group** and name for each breakdown. - **Provide the property name** for each breakdown. - **Validate that the property value accurately reflects the intended criteria**. Examples of using breakdowns: - page views trend by country: you need to find a property such as `$geoip_country_code` and set it as a breakdown. - number of users who have completed onboarding by an organization: you need to find a property such as `organization name` and set it as a breakdown. */
+        breakdownFilter?: {
+            /** How many distinct values to show. */
+            breakdown_limit?: number
+            /** When `true`, applies the project's configured path cleaning rules to URL or path breakdown values (e.g. `$pathname`, `$current_url`). Use this whenever the user asks for a breakdown by a URL or path property and there is no specific reason to keep the raw values. The user does not need to provide a regex — path cleaning rules come from the project's settings. */
+            breakdown_path_cleaning?: boolean
+            /** Use this field to define breakdowns. */
+            breakdowns: Array<
+                | {
+                      /** Index of the group type from the group mapping. */
+                      group_type_index?: number | null
+                      /** Property name from the plan to break down by. */
+                      property: string
+                      type?: 'group'
+                  }
+                | {
+                      /** Property name from the plan to break down by. */
+                      property: string
+                      type:
+                          | 'person'
+                          | 'event'
+                          | 'event_metadata'
+                          | 'session'
+                          | 'hogql'
+                          | 'cohort'
+                          | 'revenue_analytics'
+                          | 'data_warehouse'
+                          | 'data_warehouse_person_property'
+                  }
+            >
+        }
+        /** Compare to date range */
+        compareFilter?: {
+            /** Whether to compare the current date range to a previous date range. */
+            compare?: boolean
+            /** The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago. */
+            compare_to?: string
+        }
+        /** Date range for the query */
+        dateRange?:
+            | {
+                  /** ISO8601 date string. */
+                  date_from: string
+                  /** ISO8601 date string. */
+                  date_to?: string | null
+              }
+            | {
+                  /** Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start. */
+                  date_from: string
+              }
+        /** Exclude internal and test users by applying the respective filters */
+        filterTestAccounts?: boolean
+        /** Granularity of the response. Can be one of `hour`, `day`, `week` or `month` */
+        interval?: 'second' | 'minute' | 'hour' | 'day' | 'week' | 'month'
+        kind?: 'TrendsQuery'
+        /** Property filters for all series */
+        properties?: Array<
+            | {
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                  operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                  type: 'event' | 'person' | 'session' | 'feature'
+                  /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                  value: string
+              }
+            | {
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  operator: 'exact' | 'gt' | 'lt'
+                  type: 'event' | 'person' | 'session' | 'feature'
+                  value: number
+              }
+            | {
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                  operator: 'exact' | 'is_not'
+                  type: 'event' | 'person' | 'session' | 'feature'
+                  /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                  value: Array<string>
+              }
+            | {
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                  type: 'event' | 'person' | 'session' | 'feature'
+                  /** Value must be a date in ISO 8601 format. */
+                  value: string
+              }
+            | {
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                  operator: 'is_set' | 'is_not_set'
+                  type: 'event' | 'person' | 'session' | 'feature'
+              }
+            | {
+                  /** Index of the group type from the group mapping. */
+                  group_type_index: number
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                  operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                  type?: 'group'
+                  /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                  value: string
+              }
+            | {
+                  /** Index of the group type from the group mapping. */
+                  group_type_index: number
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  operator: 'exact' | 'gt' | 'lt'
+                  type?: 'group'
+                  value: number
+              }
+            | {
+                  /** Index of the group type from the group mapping. */
+                  group_type_index: number
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                  operator: 'exact' | 'is_not'
+                  type?: 'group'
+                  /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                  value: Array<string>
+              }
+            | {
+                  /** Index of the group type from the group mapping. */
+                  group_type_index: number
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                  type?: 'group'
+                  /** Value must be a date in ISO 8601 format. */
+                  value: string
+              }
+            | {
+                  /** Index of the group type from the group mapping. */
+                  group_type_index: number
+                  /** Use one of the properties the user has provided in the plan. */
+                  key: string
+                  /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                  operator: 'is_set' | 'is_not_set'
+                  type?: 'group'
+              }
+            | {
+                  key?: 'id'
+                  operator?: 'in' | 'not_in'
+                  /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                  type?: 'cohort'
+                  /** The cohort ID to filter by. */
+                  value: number
+              }
+            | {
+                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                  /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                  operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                  type?: 'element'
+                  /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                  value: string
+              }
+            | {
+                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                  operator: 'exact' | 'gt' | 'lt'
+                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                  type?: 'element'
+                  value: number
+              }
+            | {
+                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                  /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                  operator: 'exact' | 'is_not'
+                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                  type?: 'element'
+                  /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                  value: Array<string>
+              }
+            | {
+                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                  operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                  type?: 'element'
+                  /** Value must be a date in ISO 8601 format. */
+                  value: string
+              }
+            | {
+                  /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                  key: 'tag_name' | 'text' | 'href' | 'selector'
+                  /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                  operator: 'is_set' | 'is_not_set'
+                  /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                  type?: 'element'
+              }
+            | {
+                  /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                  key: string
+                  /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                  type?: 'hogql'
+              }
+            | {
+                  /** The feature flag key. */
+                  key: string
+                  operator?: 'flag_evaluates_to'
+                  /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                  type?: 'flag'
+                  /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                  value: boolean | string
+              }
+        >
+        /** Events, actions, or groups of events/actions to include. Prioritize the more popular and fresh events and actions. Use a top-level `EventsNode` or `ActionsNode` entry for each independent series (one line per entry on the chart). Use an `AssistantTrendsGroupNode` to combine multiple events or actions into a single series joined by `OR` — for example, treating "Pageview OR Pageleave" as one line. Only `OR` grouping is supported; pick groups only when the user wants the events counted together, otherwise prefer separate series. */
+        series: Array<
+            | {
+                  custom_name?: string
+                  /** The event or `null` for all events. */
+                  event?: string | null
+                  kind?: 'EventsNode'
+                  math?:
+                      | 'total'
+                      | 'dau'
+                      | 'weekly_active'
+                      | 'monthly_active'
+                      | 'unique_session'
+                      | 'first_time_for_user'
+                      | 'first_matching_event_for_user'
+                      | 'total'
+                      | 'first_time_for_user'
+                      | 'first_time_for_user_with_filters'
+                      | 'avg'
+                      | 'sum'
+                      | 'min'
+                      | 'max'
+                      | 'median'
+                      | 'p75'
+                      | 'p90'
+                      | 'p95'
+                      | 'p99'
+                      | 'avg_count_per_actor'
+                      | 'min_count_per_actor'
+                      | 'max_count_per_actor'
+                      | 'median_count_per_actor'
+                      | 'p75_count_per_actor'
+                      | 'p90_count_per_actor'
+                      | 'p95_count_per_actor'
+                      | 'p99_count_per_actor'
+                      | 'unique_group'
+                      | 'hogql'
+                      | 'total'
+                      | 'sum'
+                      | 'unique_session'
+                      | 'min'
+                      | 'max'
+                      | 'avg'
+                      | 'dau'
+                      | 'unique_group'
+                      | 'hogql'
+                      | 'total'
+                      | 'dau'
+                  math_group_type_index?: 0 | 1 | 2 | 3 | 4
+                  /** Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`. Examples: - Sum a numeric property: `sum(toFloat(properties.$revenue))` - Average of a property: `avg(toFloat(properties.load_time))` - Count distinct values: `count(distinct properties.$session_id)` - Conditional count: `countIf(toFloat(properties.duration) > 30)` - Percentile: `quantile(0.95)(toFloat(properties.response_time))` */
+                  math_hogql?: string
+                  math_multiplier?: number
+                  math_property?: string
+                  math_property_type?: string
+                  name?: string
+                  optionalInFunnel?: boolean
+                  properties?: Array<
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'exact' | 'gt' | 'lt'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            value: number
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            type?: 'group'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'exact' | 'gt' | 'lt'
+                            type?: 'group'
+                            value: number
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            type?: 'group'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            type?: 'group'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            type?: 'group'
+                        }
+                      | {
+                            key?: 'id'
+                            operator?: 'in' | 'not_in'
+                            /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                            type?: 'cohort'
+                            /** The cohort ID to filter by. */
+                            value: number
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            operator: 'exact' | 'gt' | 'lt'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            value: number
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                        }
+                      | {
+                            /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                            key: string
+                            /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                            type?: 'hogql'
+                        }
+                      | {
+                            /** The feature flag key. */
+                            key: string
+                            operator?: 'flag_evaluates_to'
+                            /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                            type?: 'flag'
+                            /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                            value: boolean | string
+                        }
+                  >
+                  /** version of the node, used for schema migrations */
+                  version?: number
+              }
+            | {
+                  custom_name?: string
+                  id: number
+                  kind?: 'ActionsNode'
+                  math?:
+                      | 'total'
+                      | 'dau'
+                      | 'weekly_active'
+                      | 'monthly_active'
+                      | 'unique_session'
+                      | 'first_time_for_user'
+                      | 'first_matching_event_for_user'
+                      | 'total'
+                      | 'first_time_for_user'
+                      | 'first_time_for_user_with_filters'
+                      | 'avg'
+                      | 'sum'
+                      | 'min'
+                      | 'max'
+                      | 'median'
+                      | 'p75'
+                      | 'p90'
+                      | 'p95'
+                      | 'p99'
+                      | 'avg_count_per_actor'
+                      | 'min_count_per_actor'
+                      | 'max_count_per_actor'
+                      | 'median_count_per_actor'
+                      | 'p75_count_per_actor'
+                      | 'p90_count_per_actor'
+                      | 'p95_count_per_actor'
+                      | 'p99_count_per_actor'
+                      | 'unique_group'
+                      | 'hogql'
+                      | 'total'
+                      | 'sum'
+                      | 'unique_session'
+                      | 'min'
+                      | 'max'
+                      | 'avg'
+                      | 'dau'
+                      | 'unique_group'
+                      | 'hogql'
+                      | 'total'
+                      | 'dau'
+                  math_group_type_index?: 0 | 1 | 2 | 3 | 4
+                  /** Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`. Examples: - Sum a numeric property: `sum(toFloat(properties.$revenue))` - Average of a property: `avg(toFloat(properties.load_time))` - Count distinct values: `count(distinct properties.$session_id)` - Conditional count: `countIf(toFloat(properties.duration) > 30)` - Percentile: `quantile(0.95)(toFloat(properties.response_time))` */
+                  math_hogql?: string
+                  math_multiplier?: number
+                  math_property?: string
+                  math_property_type?: string
+                  /** Action name from the plan. */
+                  name: string
+                  optionalInFunnel?: boolean
+                  properties?: Array<
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'exact' | 'gt' | 'lt'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            value: number
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            type: 'event' | 'person' | 'session' | 'feature'
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            type?: 'group'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'exact' | 'gt' | 'lt'
+                            type?: 'group'
+                            value: number
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            type?: 'group'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            type?: 'group'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** Index of the group type from the group mapping. */
+                            group_type_index: number
+                            /** Use one of the properties the user has provided in the plan. */
+                            key: string
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            type?: 'group'
+                        }
+                      | {
+                            key?: 'id'
+                            operator?: 'in' | 'not_in'
+                            /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                            type?: 'cohort'
+                            /** The cohort ID to filter by. */
+                            value: number
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                            operator: 'exact' | 'is_not' | 'icontains' | 'not_icontains' | 'regex' | 'not_regex'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                            value: string
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            operator: 'exact' | 'gt' | 'lt'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            value: number
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                            operator: 'exact' | 'is_not'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                            value: Array<string>
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                            /** Value must be a date in ISO 8601 format. */
+                            value: string
+                        }
+                      | {
+                            /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                            key: 'tag_name' | 'text' | 'href' | 'selector'
+                            /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                            operator: 'is_set' | 'is_not_set'
+                            /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                            type?: 'element'
+                        }
+                      | {
+                            /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                            key: string
+                            /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                            type?: 'hogql'
+                        }
+                      | {
+                            /** The feature flag key. */
+                            key: string
+                            operator?: 'flag_evaluates_to'
+                            /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                            type?: 'flag'
+                            /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                            value: boolean | string
+                        }
+                  >
+                  /** version of the node, used for schema migrations */
+                  version?: number
+              }
+            | {
+                  custom_name?: string
+                  kind?: 'GroupNode'
+                  /** Math aggregation for the combined series. The engine reads aggregation from here, not from inner nodes. */
+                  math?:
+                      | 'total'
+                      | 'dau'
+                      | 'weekly_active'
+                      | 'monthly_active'
+                      | 'unique_session'
+                      | 'first_time_for_user'
+                      | 'first_matching_event_for_user'
+                      | 'total'
+                      | 'first_time_for_user'
+                      | 'first_time_for_user_with_filters'
+                      | 'avg'
+                      | 'sum'
+                      | 'min'
+                      | 'max'
+                      | 'median'
+                      | 'p75'
+                      | 'p90'
+                      | 'p95'
+                      | 'p99'
+                      | 'avg_count_per_actor'
+                      | 'min_count_per_actor'
+                      | 'max_count_per_actor'
+                      | 'median_count_per_actor'
+                      | 'p75_count_per_actor'
+                      | 'p90_count_per_actor'
+                      | 'p95_count_per_actor'
+                      | 'p99_count_per_actor'
+                      | 'unique_group'
+                      | 'hogql'
+                      | 'total'
+                      | 'sum'
+                      | 'unique_session'
+                      | 'min'
+                      | 'max'
+                      | 'avg'
+                      | 'dau'
+                      | 'unique_group'
+                      | 'hogql'
+                      | 'total'
+                      | 'dau'
+                  math_group_type_index?: 0 | 1 | 2 | 3 | 4
+                  /** Custom HogQL aggregation. When set, `math` must be `hogql`. */
+                  math_hogql?: string
+                  math_multiplier?: number
+                  math_property?: string
+                  math_property_type?: string
+                  /** Display name for the combined series. */
+                  name?: string
+                  /** Events and actions combined into the series. Mirror the group's `math*` on each node for UI round-trip; they're ignored at execution time. */
+                  nodes: Array<
+                      | {
+                            custom_name?: string
+                            /** The event or `null` for all events. */
+                            event?: string | null
+                            kind?: 'EventsNode'
+                            math?:
+                                | 'total'
+                                | 'dau'
+                                | 'weekly_active'
+                                | 'monthly_active'
+                                | 'unique_session'
+                                | 'first_time_for_user'
+                                | 'first_matching_event_for_user'
+                                | 'total'
+                                | 'first_time_for_user'
+                                | 'first_time_for_user_with_filters'
+                                | 'avg'
+                                | 'sum'
+                                | 'min'
+                                | 'max'
+                                | 'median'
+                                | 'p75'
+                                | 'p90'
+                                | 'p95'
+                                | 'p99'
+                                | 'avg_count_per_actor'
+                                | 'min_count_per_actor'
+                                | 'max_count_per_actor'
+                                | 'median_count_per_actor'
+                                | 'p75_count_per_actor'
+                                | 'p90_count_per_actor'
+                                | 'p95_count_per_actor'
+                                | 'p99_count_per_actor'
+                                | 'unique_group'
+                                | 'hogql'
+                                | 'total'
+                                | 'sum'
+                                | 'unique_session'
+                                | 'min'
+                                | 'max'
+                                | 'avg'
+                                | 'dau'
+                                | 'unique_group'
+                                | 'hogql'
+                                | 'total'
+                                | 'dau'
+                            math_group_type_index?: 0 | 1 | 2 | 3 | 4
+                            /** Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`. Examples: - Sum a numeric property: `sum(toFloat(properties.$revenue))` - Average of a property: `avg(toFloat(properties.load_time))` - Count distinct values: `count(distinct properties.$session_id)` - Conditional count: `countIf(toFloat(properties.duration) > 30)` - Percentile: `quantile(0.95)(toFloat(properties.response_time))` */
+                            math_hogql?: string
+                            math_multiplier?: number
+                            math_property?: string
+                            math_property_type?: string
+                            name?: string
+                            optionalInFunnel?: boolean
+                            properties?: Array<
+                                | {
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                      operator:
+                                          | 'exact'
+                                          | 'is_not'
+                                          | 'icontains'
+                                          | 'not_icontains'
+                                          | 'regex'
+                                          | 'not_regex'
+                                      type: 'event' | 'person' | 'session' | 'feature'
+                                      /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                      value: string
+                                  }
+                                | {
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      operator: 'exact' | 'gt' | 'lt'
+                                      type: 'event' | 'person' | 'session' | 'feature'
+                                      value: number
+                                  }
+                                | {
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                      operator: 'exact' | 'is_not'
+                                      type: 'event' | 'person' | 'session' | 'feature'
+                                      /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                      value: Array<string>
+                                  }
+                                | {
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                      type: 'event' | 'person' | 'session' | 'feature'
+                                      /** Value must be a date in ISO 8601 format. */
+                                      value: string
+                                  }
+                                | {
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                      operator: 'is_set' | 'is_not_set'
+                                      type: 'event' | 'person' | 'session' | 'feature'
+                                  }
+                                | {
+                                      /** Index of the group type from the group mapping. */
+                                      group_type_index: number
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                      operator:
+                                          | 'exact'
+                                          | 'is_not'
+                                          | 'icontains'
+                                          | 'not_icontains'
+                                          | 'regex'
+                                          | 'not_regex'
+                                      type?: 'group'
+                                      /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                      value: string
+                                  }
+                                | {
+                                      /** Index of the group type from the group mapping. */
+                                      group_type_index: number
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      operator: 'exact' | 'gt' | 'lt'
+                                      type?: 'group'
+                                      value: number
+                                  }
+                                | {
+                                      /** Index of the group type from the group mapping. */
+                                      group_type_index: number
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                      operator: 'exact' | 'is_not'
+                                      type?: 'group'
+                                      /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                      value: Array<string>
+                                  }
+                                | {
+                                      /** Index of the group type from the group mapping. */
+                                      group_type_index: number
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                      type?: 'group'
+                                      /** Value must be a date in ISO 8601 format. */
+                                      value: string
+                                  }
+                                | {
+                                      /** Index of the group type from the group mapping. */
+                                      group_type_index: number
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                      operator: 'is_set' | 'is_not_set'
+                                      type?: 'group'
+                                  }
+                                | {
+                                      key?: 'id'
+                                      operator?: 'in' | 'not_in'
+                                      /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                                      type?: 'cohort'
+                                      /** The cohort ID to filter by. */
+                                      value: number
+                                  }
+                                | {
+                                      /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                      key: 'tag_name' | 'text' | 'href' | 'selector'
+                                      /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                      operator:
+                                          | 'exact'
+                                          | 'is_not'
+                                          | 'icontains'
+                                          | 'not_icontains'
+                                          | 'regex'
+                                          | 'not_regex'
+                                      /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                      type?: 'element'
+                                      /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                      value: string
+                                  }
+                                | {
+                                      /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                      key: 'tag_name' | 'text' | 'href' | 'selector'
+                                      operator: 'exact' | 'gt' | 'lt'
+                                      /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                      type?: 'element'
+                                      value: number
+                                  }
+                                | {
+                                      /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                      key: 'tag_name' | 'text' | 'href' | 'selector'
+                                      /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                      operator: 'exact' | 'is_not'
+                                      /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                      type?: 'element'
+                                      /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                      value: Array<string>
+                                  }
+                                | {
+                                      /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                      key: 'tag_name' | 'text' | 'href' | 'selector'
+                                      operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                      /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                      type?: 'element'
+                                      /** Value must be a date in ISO 8601 format. */
+                                      value: string
+                                  }
+                                | {
+                                      /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                      key: 'tag_name' | 'text' | 'href' | 'selector'
+                                      /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                      operator: 'is_set' | 'is_not_set'
+                                      /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                      type?: 'element'
+                                  }
+                                | {
+                                      /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                                      key: string
+                                      /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                                      type?: 'hogql'
+                                  }
+                                | {
+                                      /** The feature flag key. */
+                                      key: string
+                                      operator?: 'flag_evaluates_to'
+                                      /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                                      type?: 'flag'
+                                      /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                                      value: boolean | string
+                                  }
+                            >
+                            /** version of the node, used for schema migrations */
+                            version?: number
+                        }
+                      | {
+                            custom_name?: string
+                            id: number
+                            kind?: 'ActionsNode'
+                            math?:
+                                | 'total'
+                                | 'dau'
+                                | 'weekly_active'
+                                | 'monthly_active'
+                                | 'unique_session'
+                                | 'first_time_for_user'
+                                | 'first_matching_event_for_user'
+                                | 'total'
+                                | 'first_time_for_user'
+                                | 'first_time_for_user_with_filters'
+                                | 'avg'
+                                | 'sum'
+                                | 'min'
+                                | 'max'
+                                | 'median'
+                                | 'p75'
+                                | 'p90'
+                                | 'p95'
+                                | 'p99'
+                                | 'avg_count_per_actor'
+                                | 'min_count_per_actor'
+                                | 'max_count_per_actor'
+                                | 'median_count_per_actor'
+                                | 'p75_count_per_actor'
+                                | 'p90_count_per_actor'
+                                | 'p95_count_per_actor'
+                                | 'p99_count_per_actor'
+                                | 'unique_group'
+                                | 'hogql'
+                                | 'total'
+                                | 'sum'
+                                | 'unique_session'
+                                | 'min'
+                                | 'max'
+                                | 'avg'
+                                | 'dau'
+                                | 'unique_group'
+                                | 'hogql'
+                                | 'total'
+                                | 'dau'
+                            math_group_type_index?: 0 | 1 | 2 | 3 | 4
+                            /** Custom HogQL expression for aggregation. Use when the predefined `math` types are not sufficient. When set, `math` must be set to `hogql`. Examples: - Sum a numeric property: `sum(toFloat(properties.$revenue))` - Average of a property: `avg(toFloat(properties.load_time))` - Count distinct values: `count(distinct properties.$session_id)` - Conditional count: `countIf(toFloat(properties.duration) > 30)` - Percentile: `quantile(0.95)(toFloat(properties.response_time))` */
+                            math_hogql?: string
+                            math_multiplier?: number
+                            math_property?: string
+                            math_property_type?: string
+                            /** Action name from the plan. */
+                            name: string
+                            optionalInFunnel?: boolean
+                            properties?: Array<
+                                | {
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                      operator:
+                                          | 'exact'
+                                          | 'is_not'
+                                          | 'icontains'
+                                          | 'not_icontains'
+                                          | 'regex'
+                                          | 'not_regex'
+                                      type: 'event' | 'person' | 'session' | 'feature'
+                                      /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                      value: string
+                                  }
+                                | {
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      operator: 'exact' | 'gt' | 'lt'
+                                      type: 'event' | 'person' | 'session' | 'feature'
+                                      value: number
+                                  }
+                                | {
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                      operator: 'exact' | 'is_not'
+                                      type: 'event' | 'person' | 'session' | 'feature'
+                                      /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                      value: Array<string>
+                                  }
+                                | {
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                      type: 'event' | 'person' | 'session' | 'feature'
+                                      /** Value must be a date in ISO 8601 format. */
+                                      value: string
+                                  }
+                                | {
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                      operator: 'is_set' | 'is_not_set'
+                                      type: 'event' | 'person' | 'session' | 'feature'
+                                  }
+                                | {
+                                      /** Index of the group type from the group mapping. */
+                                      group_type_index: number
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                      operator:
+                                          | 'exact'
+                                          | 'is_not'
+                                          | 'icontains'
+                                          | 'not_icontains'
+                                          | 'regex'
+                                          | 'not_regex'
+                                      type?: 'group'
+                                      /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                      value: string
+                                  }
+                                | {
+                                      /** Index of the group type from the group mapping. */
+                                      group_type_index: number
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      operator: 'exact' | 'gt' | 'lt'
+                                      type?: 'group'
+                                      value: number
+                                  }
+                                | {
+                                      /** Index of the group type from the group mapping. */
+                                      group_type_index: number
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                      operator: 'exact' | 'is_not'
+                                      type?: 'group'
+                                      /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                      value: Array<string>
+                                  }
+                                | {
+                                      /** Index of the group type from the group mapping. */
+                                      group_type_index: number
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                      type?: 'group'
+                                      /** Value must be a date in ISO 8601 format. */
+                                      value: string
+                                  }
+                                | {
+                                      /** Index of the group type from the group mapping. */
+                                      group_type_index: number
+                                      /** Use one of the properties the user has provided in the plan. */
+                                      key: string
+                                      /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                      operator: 'is_set' | 'is_not_set'
+                                      type?: 'group'
+                                  }
+                                | {
+                                      key?: 'id'
+                                      operator?: 'in' | 'not_in'
+                                      /** Filter events by cohort membership. Use this to narrow down results to persons belonging to a specific cohort. Use `operator: "in"` to include cohort members, or `operator: "not_in"` to exclude them. Examples: - Include: `{ type: "cohort", key: "id", value: 42, operator: "in" }` - Exclude: `{ type: "cohort", key: "id", value: 42, operator: "not_in" }` */
+                                      type?: 'cohort'
+                                      /** The cohort ID to filter by. */
+                                      value: number
+                                  }
+                                | {
+                                      /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                      key: 'tag_name' | 'text' | 'href' | 'selector'
+                                      /** `icontains` - case insensitive contains. `not_icontains` - case insensitive does not contain. `regex` - matches the regex pattern. `not_regex` - does not match the regex pattern. */
+                                      operator:
+                                          | 'exact'
+                                          | 'is_not'
+                                          | 'icontains'
+                                          | 'not_icontains'
+                                          | 'regex'
+                                          | 'not_regex'
+                                      /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                      type?: 'element'
+                                      /** Only use property values from the plan. If the operator is `regex` or `not_regex`, the value must be a valid ClickHouse regex pattern to match against. Otherwise, the value must be a substring that will be matched against the property value. Use the string values `true` or `false` for boolean properties. */
+                                      value: string
+                                  }
+                                | {
+                                      /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                      key: 'tag_name' | 'text' | 'href' | 'selector'
+                                      operator: 'exact' | 'gt' | 'lt'
+                                      /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                      type?: 'element'
+                                      value: number
+                                  }
+                                | {
+                                      /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                      key: 'tag_name' | 'text' | 'href' | 'selector'
+                                      /** `exact` - exact match of any of the values. `is_not` - does not match any of the values. */
+                                      operator: 'exact' | 'is_not'
+                                      /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                      type?: 'element'
+                                      /** Only use property values from the plan. Always use strings as values. If you have a number, convert it to a string first. If you have a boolean, convert it to a string "true" or "false". */
+                                      value: Array<string>
+                                  }
+                                | {
+                                      /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                      key: 'tag_name' | 'text' | 'href' | 'selector'
+                                      operator: 'is_date_exact' | 'is_date_before' | 'is_date_after'
+                                      /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                      type?: 'element'
+                                      /** Value must be a date in ISO 8601 format. */
+                                      value: string
+                                  }
+                                | {
+                                      /** The element property to filter on. `tag_name` — HTML tag (e.g., `button`, `a`, `input`). `text` — visible text content of the element. `href` — the `href` attribute for links. `selector` — a CSS selector matching the element (e.g., `div.main > button.cta`). */
+                                      key: 'tag_name' | 'text' | 'href' | 'selector'
+                                      /** `is_set` - the property has any value. `is_not_set` - the property doesn't have a value or wasn't collected. */
+                                      operator: 'is_set' | 'is_not_set'
+                                      /** Filter by autocaptured HTML element properties (`$autocapture`, `$rageclick`). Example: `{ type: "element", key: "text", value: "Sign Up", operator: "exact" }` */
+                                      type?: 'element'
+                                  }
+                                | {
+                                      /** A HogQL boolean expression used as a filter condition. Examples: - Filter where a property exceeds a threshold: `toFloat(properties.load_time) > 5.0` - Filter with string matching: `properties.$current_url LIKE '%/pricing%'` - Filter with multiple conditions: `properties.$browser = 'Chrome' AND toFloat(properties.duration) > 30` */
+                                      key: string
+                                      /** Filter by a HogQL boolean expression for advanced filtering that can't be expressed with standard property filters. */
+                                      type?: 'hogql'
+                                  }
+                                | {
+                                      /** The feature flag key. */
+                                      key: string
+                                      operator?: 'flag_evaluates_to'
+                                      /** Filter events by feature flag state — only include events where a specific flag evaluated to a given value. Examples: - Flag enabled: `{ type: "flag", key: "new-onboarding", operator: "flag_evaluates_to", value: true }` - Specific variant: `{ type: "flag", key: "checkout-experiment", operator: "flag_evaluates_to", value: "variant-a" }` */
+                                      type?: 'flag'
+                                      /** `true`/`false` for boolean flags, or a variant name string for multivariate flags. */
+                                      value: boolean | string
+                                  }
+                            >
+                            /** version of the node, used for schema migrations */
+                            version?: number
+                        }
+                  >
+                  /** Only `OR` is supported. */
+                  operator?: 'OR'
+              }
+        >
+        /** Properties specific to the trends insight */
+        trendsFilter?: {
+            /** Formats the trends value axis. Do not use the formatting unless you are absolutely sure that formatting will match the data. `numeric` - no formatting. Prefer this option by default. `duration` - formats the value in seconds to a human-readable duration, e.g., `132` becomes `2 minutes 12 seconds`. Use this option only if you are sure that the values are in seconds. `duration_ms` - formats the value in miliseconds to a human-readable duration, e.g., `1050` becomes `1 second 50 milliseconds`. Use this option only if you are sure that the values are in miliseconds. `percentage` - adds a percentage sign to the value, e.g., `50` becomes `50%`. `percentage_scaled` - formats the value as a percentage scaled to 0-100, e.g., `0.5` becomes `50%`. `currency` - formats the value as a currency, e.g., `1000` becomes `$1,000`. */
+            aggregationAxisFormat?:
+                | 'numeric'
+                | 'duration'
+                | 'duration_ms'
+                | 'percentage'
+                | 'percentage_scaled'
+                | 'currency'
+                | 'short'
+            /** Custom postfix to add to the aggregation axis, e.g., ` clicks` to format 5 as `5 clicks`. You may need to add a space before postfix. Never set a postfix that `aggregationAxisFormat` already renders: `percentage` and `percentage_scaled` already append the `%` sign, so a `%` postfix would render values as `50%%`. */
+            aggregationAxisPostfix?: string
+            /** Custom prefix to add to the aggregation axis, e.g., `$` for USD dollars. You may need to add a space after prefix. */
+            aggregationAxisPrefix?: string
+            /** Number of decimal places to show. Do not add this unless you are sure that values will have a decimal point. */
+            decimalPlaces?: number
+            /** Visualization type. Available values: `ActionsLineGraph` - time-series line chart; most common option, as it shows change over time. `ActionsBar` - time-series bar chart. `ActionsAreaGraph` - time-series area chart. `ActionsLineGraphCumulative` - cumulative time-series line chart; good for cumulative metrics. `BoldNumber` - total value single large number. Use when user explicitly asks for a single output number. You CANNOT use this with breakdown or if the insight has more than one series. `Metric` - single large number with a period-over-period change pill and a sparkline. Like `BoldNumber` but trend-aware; configure it with the `metric*` fields below. Single series, no breakdown. `ActionsBarValue` - total value (NOT time-series) bar chart; good for categorical data. `ActionsPie` - total value pie chart; good for visualizing proportions. `ActionsTable` - total value table; good when using breakdown to list users or other entities. `WorldMap` - total value world map; use when breaking down by country name using property `$geoip_country_name`, and only then. */
+            display?:
+                | 'Auto'
+                | 'ActionsLineGraph'
+                | 'ActionsBar'
+                | 'ActionsUnstackedBar'
+                | 'ActionsAreaGraph'
+                | 'ActionsLineGraphCumulative'
+                | 'BoldNumber'
+                | 'Metric'
+                | 'ActionsPie'
+                | 'ActionsBarValue'
+                | 'ActionsTable'
+                | 'WorldMap'
+                | 'CalendarHeatmap'
+                | 'TwoDimensionalHeatmap'
+                | 'BoxPlot'
+                | 'SlopeGraph'
+            /** Use custom formulas to perform mathematical operations like calculating percentages or metrics. Use the following syntax: `A/B`, where `A` and `B` are the names of the series. You can combine math aggregations and formulas. When using a formula, you must: - Identify and specify **all** events and actions needed to solve the formula. - Carefully review the list of available events and actions to find appropriate entities for each part of the formula. - Ensure that you find events and actions corresponding to both the numerator and denominator in ratio calculations. Examples of using math formulas: - If you want to calculate the percentage of users who have completed onboarding, you need to find and use events or actions similar to `$identify` and `onboarding complete`, so the formula will be `A / B`, where `A` is `onboarding complete` (unique users) and `B` is `$identify` (unique users). */
+            formulaNodes?: Array<{
+                /** Optional user-defined name for the formula */
+                custom_name?: string
+                formula: string
+            }>
+            /** Only applies when `display` is `Metric`. Hex color (e.g. `#db3707`) for the change pill when the metric went DOWN. Defaults to red (`#db3707`). For a "lower is better" metric (latency, error rate, cost), set this to a green (e.g. `#388600`) so a decrease reads as good. */
+            metricChangeDecreaseColor?: string
+            /** Only applies when `display` is `Metric`. Hex color (e.g. `#388600`) for the change pill when the metric went UP. Defaults to green (`#388600`). For a "lower is better" metric (latency, error rate, cost), set this to a red (e.g. `#db3707`) so an increase reads as bad. */
+            metricChangeIncreaseColor?: string
+            /** Only applies when `display` is `Metric`. Color the sparkline under the big number by whether the metric increased or decreased over the period (using the increase/decrease line colors). */
+            metricColorByDirection?: boolean
+            /** Only applies when `display` is `Metric` and `metricColorByDirection` is `true`. Hex color for the sparkline when the metric went DOWN. Defaults to red (`#db3707`). Flip to a green for a "lower is better" metric. */
+            metricLineDecreaseColor?: string
+            /** Only applies when `display` is `Metric` and `metricColorByDirection` is `true`. Hex color for the sparkline when the metric went UP. Defaults to green (`#388600`). Flip to a red for a "lower is better" metric. */
+            metricLineIncreaseColor?: string
+            /** Only applies when `display` is `Metric`. Show the change pill next to the big number. What it compares follows `metricSummary`: `total`/`average` compare against the previous period when "compare to previous" is on (otherwise first→last of the series), and `latest` is always first→last of the series. */
+            metricShowChange?: boolean
+            /** Only applies when `display` is `Metric`. Which summary the resting big number shows: `total` (sum over the period), `average` (mean of the points), or `latest` (last point). Hovering the sparkline always shows the hovered point's value regardless of this setting. Also drives the change pill: `total`/`average` compare against the previous period when "compare to previous" is on; `latest` compares first→last of the series. */
+            metricSummary?: 'total' | 'average' | 'latest'
+            /** Whether to show alert threshold lines on the chart. */
+            showAlertThresholdLines?: boolean
+            /** Whether to show labels on each series. */
+            showLabelsOnSeries?: boolean
+            /** Whether to show the legend describing series and breakdowns. */
+            showLegend?: boolean
+            /** Whether to show multiple y-axes for different series. */
+            showMultipleYAxes?: boolean
+            /** Whether to show a percentage of each series. Use only with */
+            showPercentStackView?: boolean
+            /** Whether to show a value on each data point. */
+            showValuesOnSeries?: boolean
+            /** Smoothing intervals for the trend line. */
+            smoothingIntervals?: number
+            /** Custom label rendered under the X axis. */
+            xAxisLabel?: string
+            /** Custom label rendered alongside the Y axis. */
+            yAxisLabel?: string
+            /** Whether to scale the y-axis. */
+            yAxisScaleType?: 'log10' | 'linear'
+        }
+    }
+}
+
+export interface QueryWebOverviewParams {
+    /** Compare the current period to a prior period. Disabled by default. Enabling roughly doubles query cost — leave it off unless the user explicitly asks for a period-over-period comparison. */
+    compareFilter?: {
+        /** Whether to compare the current date range to a previous date range. */
+        compare?: boolean
+        /** The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago. */
+        compare_to?: string
+    }
+    /** Conversion goal — pass an `actionId` (must belong to the current project) or a `customEventName`. Adds conversion columns to the response. Disables the pre-aggregated fast path — only set when the user explicitly asks about a conversion. */
+    conversionGoal?:
+        | {
+              actionId: number
+          }
+        | {
+              customEventName: string
+          }
+        | null
+    /** Date range for the query. Defaults to the last 7 days when omitted. Keep ranges short — the backend has no upper bound and large windows on the slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be expensive. */
+    dateRange?:
+        | {
+              /** ISO8601 date string. */
+              date_from: string
+              /** ISO8601 date string. */
+              date_to?: string | null
+          }
+        | {
+              /** Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start. */
+              date_from: string
+          }
+    /** Apply the team's path-cleaning rules to URL-style breakdowns. */
+    doPathCleaning?: boolean
+    /** Exclude internal and test users by applying the team's test-account filter. */
+    filterTestAccounts?: boolean
+    kind?: 'WebOverviewQuery'
+    /** Property filters applied to the query. Accepts event, person, session, or cohort filters. */
+    properties?: Array<
+        | {
+              key: string
+              label?: string
+              operator?:
+                  | 'exact'
+                  | 'is_not'
+                  | 'icontains'
+                  | 'not_icontains'
+                  | 'regex'
+                  | 'not_regex'
+                  | 'gt'
+                  | 'gte'
+                  | 'lt'
+                  | 'lte'
+                  | 'is_set'
+                  | 'is_not_set'
+                  | 'is_date_exact'
+                  | 'is_date_before'
+                  | 'is_date_after'
+                  | 'between'
+                  | 'not_between'
+                  | 'min'
+                  | 'max'
+                  | 'in'
+                  | 'not_in'
+                  | 'is_cleaned_path_exact'
+                  | 'flag_evaluates_to'
+                  | 'semver_eq'
+                  | 'semver_neq'
+                  | 'semver_gt'
+                  | 'semver_gte'
+                  | 'semver_lt'
+                  | 'semver_lte'
+                  | 'semver_tilde'
+                  | 'semver_caret'
+                  | 'semver_wildcard'
+                  | 'icontains_multi'
+                  | 'not_icontains_multi'
+              /** Event properties */
+              type?: 'event'
+              value?: string | number | boolean | Array<string | number | boolean> | null
+          }
+        | {
+              key: string
+              label?: string
+              operator:
+                  | 'exact'
+                  | 'is_not'
+                  | 'icontains'
+                  | 'not_icontains'
+                  | 'regex'
+                  | 'not_regex'
+                  | 'gt'
+                  | 'gte'
+                  | 'lt'
+                  | 'lte'
+                  | 'is_set'
+                  | 'is_not_set'
+                  | 'is_date_exact'
+                  | 'is_date_before'
+                  | 'is_date_after'
+                  | 'between'
+                  | 'not_between'
+                  | 'min'
+                  | 'max'
+                  | 'in'
+                  | 'not_in'
+                  | 'is_cleaned_path_exact'
+                  | 'flag_evaluates_to'
+                  | 'semver_eq'
+                  | 'semver_neq'
+                  | 'semver_gt'
+                  | 'semver_gte'
+                  | 'semver_lt'
+                  | 'semver_lte'
+                  | 'semver_tilde'
+                  | 'semver_caret'
+                  | 'semver_wildcard'
+                  | 'icontains_multi'
+                  | 'not_icontains_multi'
+              /** Person properties */
+              type?: 'person'
+              value?: string | number | boolean | Array<string | number | boolean> | null
+          }
+        | {
+              key: string
+              label?: string
+              operator:
+                  | 'exact'
+                  | 'is_not'
+                  | 'icontains'
+                  | 'not_icontains'
+                  | 'regex'
+                  | 'not_regex'
+                  | 'gt'
+                  | 'gte'
+                  | 'lt'
+                  | 'lte'
+                  | 'is_set'
+                  | 'is_not_set'
+                  | 'is_date_exact'
+                  | 'is_date_before'
+                  | 'is_date_after'
+                  | 'between'
+                  | 'not_between'
+                  | 'min'
+                  | 'max'
+                  | 'in'
+                  | 'not_in'
+                  | 'is_cleaned_path_exact'
+                  | 'flag_evaluates_to'
+                  | 'semver_eq'
+                  | 'semver_neq'
+                  | 'semver_gt'
+                  | 'semver_gte'
+                  | 'semver_lt'
+                  | 'semver_lte'
+                  | 'semver_tilde'
+                  | 'semver_caret'
+                  | 'semver_wildcard'
+                  | 'icontains_multi'
+                  | 'not_icontains_multi'
+              type?: 'session'
+              value?: string | number | boolean | Array<string | number | boolean> | null
+          }
+        | {
+              cohort_name?: string
+              key?: 'id'
+              label?: string
+              operator?:
+                  | 'exact'
+                  | 'is_not'
+                  | 'icontains'
+                  | 'not_icontains'
+                  | 'regex'
+                  | 'not_regex'
+                  | 'gt'
+                  | 'gte'
+                  | 'lt'
+                  | 'lte'
+                  | 'is_set'
+                  | 'is_not_set'
+                  | 'is_date_exact'
+                  | 'is_date_before'
+                  | 'is_date_after'
+                  | 'between'
+                  | 'not_between'
+                  | 'min'
+                  | 'max'
+                  | 'in'
+                  | 'not_in'
+                  | 'is_cleaned_path_exact'
+                  | 'flag_evaluates_to'
+                  | 'semver_eq'
+                  | 'semver_neq'
+                  | 'semver_gt'
+                  | 'semver_gte'
+                  | 'semver_lt'
+                  | 'semver_lte'
+                  | 'semver_tilde'
+                  | 'semver_caret'
+                  | 'semver_wildcard'
+                  | 'icontains_multi'
+                  | 'not_icontains_multi'
+              type?: 'cohort'
+              value: number
+          }
+    >
+}
+
+export interface QueryWebStatsParams {
+    /** Required. Property to break down the table by. The full enum covers path-style (`Page`, `InitialPage`, `ExitPage`, `PreviousPage`), marketing/source (UTM source/medium/campaign/term/content, channel, referring domain), audience/device (browser, OS, device type, viewport), and geography (country, region, city, timezone, language). Path-style breakdowns pair naturally with `includeBounceRate` / `includeAvgTimeOnPage`. */
+    breakdownBy:
+        | 'Page'
+        | 'InitialPage'
+        | 'ExitPage'
+        | 'ExitClick'
+        | 'PreviousPage'
+        | 'ScreenName'
+        | 'InitialChannelType'
+        | 'InitialReferringDomain'
+        | 'InitialReferringURL'
+        | 'InitialUTMSource'
+        | 'InitialUTMCampaign'
+        | 'InitialUTMMedium'
+        | 'InitialUTMTerm'
+        | 'InitialUTMContent'
+        | 'InitialUTMSourceMediumCampaign'
+        | 'Browser'
+        | 'OS'
+        | 'Viewport'
+        | 'DeviceType'
+        | 'Country'
+        | 'Region'
+        | 'City'
+        | 'Timezone'
+        | 'Language'
+        | 'FrustrationMetrics'
+    /** Compare the current period to a prior period. Disabled by default. Enabling roughly doubles query cost — leave it off unless the user explicitly asks for a period-over-period comparison. */
+    compareFilter?: {
+        /** Whether to compare the current date range to a previous date range. */
+        compare?: boolean
+        /** The date range to compare to. The value is a relative date. Examples of relative dates are: `-1y` for 1 year ago, `-14m` for 14 months ago, `-100w` for 100 weeks ago, `-14d` for 14 days ago, `-30h` for 30 hours ago. */
+        compare_to?: string
+    }
+    /** Conversion goal — pass an `actionId` (must belong to the current project) or a `customEventName`. Adds conversion columns to the response. Disables the pre-aggregated fast path — only set when the user explicitly asks about a conversion. */
+    conversionGoal?:
+        | {
+              actionId: number
+          }
+        | {
+              customEventName: string
+          }
+        | null
+    /** Date range for the query. Defaults to the last 7 days when omitted. Keep ranges short — the backend has no upper bound and large windows on the slow path (e.g. with `conversionGoal` or `includeAvgTimeOnPage`) can be expensive. */
+    dateRange?:
+        | {
+              /** ISO8601 date string. */
+              date_from: string
+              /** ISO8601 date string. */
+              date_to?: string | null
+          }
+        | {
+              /** Duration in the past. Supported units are: `h` (hour), `d` (day), `w` (week), `m` (month), `y` (year), `all` (all time). Use the `Start` suffix to define the exact left date boundary. Examples: `-1d` last day from now, `-180d` last 180 days from now, `mStart` this month start, `-1dStart` yesterday's start. */
+              date_from: string
+          }
+    /** Apply the team's path-cleaning rules to URL-style breakdowns. */
+    doPathCleaning?: boolean
+    /** Exclude internal and test users by applying the team's test-account filter. */
+    filterTestAccounts?: boolean
+    /** Add an average-time-on-page column. Implies a Page-style breakdown. Disables the pre-aggregated fast path. */
+    includeAvgTimeOnPage?: boolean
+    /** Add a bounce-rate column. Most useful with a path-style breakdown. */
+    includeBounceRate?: boolean
+    /** When using a path-style breakdown (`Page`, `InitialPage`, `ExitPage`, `PreviousPage`), concatenate host + pathname so the same path on different hosts is counted separately. */
+    includeHost?: boolean
+    kind?: 'WebStatsTableQuery'
+    /** Maximum rows to return. Prefer 10–25 unless the user explicitly asks for more. Hard ceiling enforced at the wrapper. */
+    limit?: number
+    /** Pagination offset. */
+    offset?: number
+    /** Property filters applied to the query. Accepts event, person, session, or cohort filters. */
+    properties?: Array<
+        | {
+              key: string
+              label?: string
+              operator?:
+                  | 'exact'
+                  | 'is_not'
+                  | 'icontains'
+                  | 'not_icontains'
+                  | 'regex'
+                  | 'not_regex'
+                  | 'gt'
+                  | 'gte'
+                  | 'lt'
+                  | 'lte'
+                  | 'is_set'
+                  | 'is_not_set'
+                  | 'is_date_exact'
+                  | 'is_date_before'
+                  | 'is_date_after'
+                  | 'between'
+                  | 'not_between'
+                  | 'min'
+                  | 'max'
+                  | 'in'
+                  | 'not_in'
+                  | 'is_cleaned_path_exact'
+                  | 'flag_evaluates_to'
+                  | 'semver_eq'
+                  | 'semver_neq'
+                  | 'semver_gt'
+                  | 'semver_gte'
+                  | 'semver_lt'
+                  | 'semver_lte'
+                  | 'semver_tilde'
+                  | 'semver_caret'
+                  | 'semver_wildcard'
+                  | 'icontains_multi'
+                  | 'not_icontains_multi'
+              /** Event properties */
+              type?: 'event'
+              value?: string | number | boolean | Array<string | number | boolean> | null
+          }
+        | {
+              key: string
+              label?: string
+              operator:
+                  | 'exact'
+                  | 'is_not'
+                  | 'icontains'
+                  | 'not_icontains'
+                  | 'regex'
+                  | 'not_regex'
+                  | 'gt'
+                  | 'gte'
+                  | 'lt'
+                  | 'lte'
+                  | 'is_set'
+                  | 'is_not_set'
+                  | 'is_date_exact'
+                  | 'is_date_before'
+                  | 'is_date_after'
+                  | 'between'
+                  | 'not_between'
+                  | 'min'
+                  | 'max'
+                  | 'in'
+                  | 'not_in'
+                  | 'is_cleaned_path_exact'
+                  | 'flag_evaluates_to'
+                  | 'semver_eq'
+                  | 'semver_neq'
+                  | 'semver_gt'
+                  | 'semver_gte'
+                  | 'semver_lt'
+                  | 'semver_lte'
+                  | 'semver_tilde'
+                  | 'semver_caret'
+                  | 'semver_wildcard'
+                  | 'icontains_multi'
+                  | 'not_icontains_multi'
+              /** Person properties */
+              type?: 'person'
+              value?: string | number | boolean | Array<string | number | boolean> | null
+          }
+        | {
+              key: string
+              label?: string
+              operator:
+                  | 'exact'
+                  | 'is_not'
+                  | 'icontains'
+                  | 'not_icontains'
+                  | 'regex'
+                  | 'not_regex'
+                  | 'gt'
+                  | 'gte'
+                  | 'lt'
+                  | 'lte'
+                  | 'is_set'
+                  | 'is_not_set'
+                  | 'is_date_exact'
+                  | 'is_date_before'
+                  | 'is_date_after'
+                  | 'between'
+                  | 'not_between'
+                  | 'min'
+                  | 'max'
+                  | 'in'
+                  | 'not_in'
+                  | 'is_cleaned_path_exact'
+                  | 'flag_evaluates_to'
+                  | 'semver_eq'
+                  | 'semver_neq'
+                  | 'semver_gt'
+                  | 'semver_gte'
+                  | 'semver_lt'
+                  | 'semver_lte'
+                  | 'semver_tilde'
+                  | 'semver_caret'
+                  | 'semver_wildcard'
+                  | 'icontains_multi'
+                  | 'not_icontains_multi'
+              type?: 'session'
+              value?: string | number | boolean | Array<string | number | boolean> | null
+          }
+        | {
+              cohort_name?: string
+              key?: 'id'
+              label?: string
+              operator?:
+                  | 'exact'
+                  | 'is_not'
+                  | 'icontains'
+                  | 'not_icontains'
+                  | 'regex'
+                  | 'not_regex'
+                  | 'gt'
+                  | 'gte'
+                  | 'lt'
+                  | 'lte'
+                  | 'is_set'
+                  | 'is_not_set'
+                  | 'is_date_exact'
+                  | 'is_date_before'
+                  | 'is_date_after'
+                  | 'between'
+                  | 'not_between'
+                  | 'min'
+                  | 'max'
+                  | 'in'
+                  | 'not_in'
+                  | 'is_cleaned_path_exact'
+                  | 'flag_evaluates_to'
+                  | 'semver_eq'
+                  | 'semver_neq'
+                  | 'semver_gt'
+                  | 'semver_gte'
+                  | 'semver_lt'
+                  | 'semver_lte'
+                  | 'semver_tilde'
+                  | 'semver_caret'
+                  | 'semver_wildcard'
+                  | 'icontains_multi'
+                  | 'not_icontains_multi'
+              type?: 'cohort'
+              value: number
+          }
+    >
 }
 
 export interface QueryErrorTrackingIssueParams {

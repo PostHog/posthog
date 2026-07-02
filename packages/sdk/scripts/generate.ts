@@ -394,6 +394,177 @@ function unwrapResponseType(text: string): string {
 }
 
 // ---------------------------------------------------------------------------
+// Query wrapper tools (`createQueryWrapper` factories)
+// ---------------------------------------------------------------------------
+//
+// The `query-*` tools are not 1:1 request handlers: a shared factory
+// (services/mcp/src/tools/query-wrapper-factory.ts) injects `kind` into the
+// params and POSTs to /api/environments/{projectId}/query/ (actors kinds get
+// wrapped in an ActorsQuery first). The runtime semantics live in the
+// handwritten `src/core/query.ts` (QueryBase); here we parse each
+// `createQueryWrapper({ name, schema, kind })` call and evaluate its Zod
+// schema — the schemas are file-local consts, so we extract their declaration
+// closure into a temp module and import it.
+
+interface WrapperTool {
+    name: string
+    kind: string
+    methodName: string
+    schema: z.ZodType
+}
+
+function parseQueryWrappers(files: string[]): WrapperTool[] {
+    const wrappers: WrapperTool[] = []
+    const tmpDir = path.join(SDK_ROOT, '.tmp-generate-query-wrappers')
+    fs.rmSync(tmpDir, { recursive: true, force: true })
+    fs.mkdirSync(tmpDir, { recursive: true })
+    try {
+        for (const f of files.sort()) {
+            const filePath = path.join(TOOLS_DIR, f)
+            const src = fs.readFileSync(filePath, 'utf8')
+            if (!src.includes('createQueryWrapper(')) {
+                continue
+            }
+            wrappers.push(...parseQueryWrapperFile(filePath, src, tmpDir))
+        }
+    } finally {
+        fs.rmSync(tmpDir, { recursive: true, force: true })
+    }
+    wrappers.sort((a, b) => a.name.localeCompare(b.name))
+    return wrappers
+}
+
+function parseQueryWrapperFile(filePath: string, src: string, tmpDir: string): WrapperTool[] {
+    const sf = ts.createSourceFile(filePath, src, ts.ScriptTarget.Latest, true)
+    const fullSrc = sf.getFullText()
+
+    // Top-level const declarations (name → { initializer, statement text, order }).
+    const localConsts = new Map<string, { init: ts.Expression; text: string; order: number }>()
+    // Imported identifiers → module specifier.
+    const importSpecs = new Map<string, string>()
+    let order = 0
+    sf.forEachChild((node) => {
+        if (ts.isVariableStatement(node)) {
+            for (const d of node.declarationList.declarations) {
+                if (ts.isIdentifier(d.name) && d.initializer) {
+                    localConsts.set(d.name.text, {
+                        init: d.initializer,
+                        text: fullSrc.slice(node.getStart(sf), node.getEnd()),
+                        order: order++,
+                    })
+                }
+            }
+        }
+        if (ts.isImportDeclaration(node) && node.importClause?.namedBindings) {
+            const spec = (node.moduleSpecifier as ts.StringLiteral).text
+            const nb = node.importClause.namedBindings
+            if (ts.isNamedImports(nb)) {
+                for (const el of nb.elements) {
+                    importSpecs.set(el.name.text, spec)
+                }
+            }
+        }
+    })
+
+    // Collect createQueryWrapper({ name, schema, kind }) calls.
+    const calls: Array<{ name: string; kind: string; schemaExpr: ts.Expression }> = []
+    const visit = (n: ts.Node): void => {
+        if (ts.isCallExpression(n) && ts.isIdentifier(n.expression) && n.expression.text === 'createQueryWrapper') {
+            const arg = n.arguments[0]
+            if (!arg || !ts.isObjectLiteralExpression(arg)) {
+                throw new Error(`createQueryWrapper call without object literal in ${filePath}`)
+            }
+            const get = (key: string): ts.Expression | undefined =>
+                arg.properties.find(
+                    (p): p is ts.PropertyAssignment => ts.isPropertyAssignment(p) && p.name.getText(sf) === key
+                )?.initializer
+            const nameExpr = get('name')
+            const kindExpr = get('kind')
+            const schemaExpr = get('schema')
+            if (
+                !nameExpr ||
+                !ts.isStringLiteral(nameExpr) ||
+                !kindExpr ||
+                !ts.isStringLiteral(kindExpr) ||
+                !schemaExpr
+            ) {
+                throw new Error(`createQueryWrapper call with non-literal name/kind in ${filePath}`)
+            }
+            calls.push({ name: nameExpr.text, kind: kindExpr.text, schemaExpr })
+        }
+        n.forEachChild(visit)
+    }
+    visit(sf)
+    if (calls.length === 0) {
+        return []
+    }
+
+    // Declaration closure of the schema expressions over file-local consts.
+    const closure = new Set<string>()
+    const seen = new Set<string>()
+    const expand = (id: string): void => {
+        if (seen.has(id)) {
+            return
+        }
+        seen.add(id)
+        const local = localConsts.get(id)
+        if (local) {
+            closure.add(id)
+            const ids = new Set<string>()
+            collectIdentifiers(local.init, ids)
+            for (const ref of ids) {
+                expand(ref)
+            }
+            return
+        }
+        const spec = importSpecs.get(id)
+        if (spec && spec !== 'zod') {
+            throw new Error(`query wrapper schema in ${filePath} references non-zod import '${id}' from '${spec}'`)
+        }
+    }
+    for (const call of calls) {
+        const ids = new Set<string>()
+        collectIdentifiers(call.schemaExpr, ids)
+        for (const id of ids) {
+            expand(id)
+        }
+    }
+
+    // Emit a temp module: zod import + closure consts in source order + schema map.
+    const closureStatements = [...closure]
+        .map((id) => localConsts.get(id)!)
+        .sort((a, b) => a.order - b.order)
+        .map((c) => c.text)
+    const mapEntries = calls.map((c) => `    ${JSON.stringify(c.name)}: (${c.schemaExpr.getText(sf)}),`).join('\n')
+    const moduleText = [
+        `import { z } from 'zod'`,
+        '',
+        ...closureStatements,
+        '',
+        `export const __WRAPPER_SCHEMAS: Record<string, unknown> = {`,
+        mapEntries,
+        `}`,
+        '',
+    ].join('\n')
+    const tmpFile = path.join(tmpDir, `${path.basename(filePath, '.ts')}.eval.ts`)
+    fs.writeFileSync(tmpFile, moduleText)
+    const mod = require(tmpFile) as { __WRAPPER_SCHEMAS: Record<string, unknown> }
+
+    return calls.map((c) => {
+        const schema = mod.__WRAPPER_SCHEMAS[c.name]
+        if (!schema || typeof schema !== 'object' || !('_def' in (schema as object))) {
+            throw new Error(`evaluated schema for ${c.name} is not a Zod schema`)
+        }
+        return {
+            name: c.name,
+            kind: c.kind,
+            methodName: camelCase(c.name.replace(/^query-/, '')),
+            schema: schema as z.ZodType,
+        }
+    })
+}
+
+// ---------------------------------------------------------------------------
 // Input types: Zod schema → JSON Schema → plain TS
 // ---------------------------------------------------------------------------
 
@@ -462,6 +633,31 @@ function buildInputSchema(tool: ParsedTool): { properties: Record<string, JsonSc
     for (const key of [...tool.inlineExtendKeys, ...tool.referencedParamFields]) {
         if (!(key in properties) && !DROP_FIELDS.has(key)) {
             properties[key] = { type: 'object', __unknown: true } as JsonSchema & { __unknown: boolean }
+        }
+    }
+    return { properties, required }
+}
+
+// `output_format` is an MCP tool-level response control, not query input.
+const WRAPPER_DROP_FIELDS = new Set(['output_format'])
+
+/**
+ * Input schema for a query wrapper method: the evaluated Zod schema on its
+ * INPUT side (pre-parse — coercions/defaults leave fields optional), minus
+ * MCP-only controls.
+ */
+function buildWrapperInputSchema(schema: z.ZodType): { properties: Record<string, JsonSchema>; required: Set<string> } {
+    const js = z.toJSONSchema(schema, { unrepresentable: 'any', io: 'input' }) as JsonSchema
+    const properties: Record<string, JsonSchema> = {}
+    const required = new Set<string>()
+    for (const [key, val] of Object.entries(js.properties ?? {})) {
+        if (!WRAPPER_DROP_FIELDS.has(key)) {
+            properties[key] = val
+        }
+    }
+    for (const key of js.required ?? []) {
+        if (!WRAPPER_DROP_FIELDS.has(key)) {
+            required.add(key)
         }
     }
     return { properties, required }
@@ -544,7 +740,10 @@ function escapeComment(text: string): string {
 
 interface ResolvedMethod {
     method: string
-    tool: ParsedTool
+    /** Set for methods parsed from a standard 1:1 request handler. */
+    tool?: ParsedTool
+    /** Set for methods emitted from a `createQueryWrapper` factory. */
+    wrapper?: WrapperTool
     inputTypeName: string | undefined
     inputRequired: boolean
     jsdoc: string
@@ -642,12 +841,45 @@ function main(): void {
         methods.push({ method: finalMethod, tool: t, inputTypeName: inputName, inputRequired: false, jsdoc })
     }
 
+    // --- Query wrapper tools → methods on the `query` resource ---
+    // Kept out of the prefix-frequency pass so adding them can't re-shuffle the
+    // resource assignment of previously generated tools.
+    const wrapperTools = parseQueryWrappers(files)
+    {
+        let queryMethods = resources.get('query')
+        if (!queryMethods) {
+            queryMethods = []
+            resources.set('query', queryMethods)
+            usedMethodNames.set('query', new Set())
+        }
+        const used = usedMethodNames.get('query')!
+        // `run` is the handwritten escape hatch on QueryBase.
+        used.add('run')
+        for (const w of wrapperTools) {
+            if (used.has(w.methodName)) {
+                throw new Error(`query wrapper method name collision: query.${w.methodName} (${w.name})`)
+            }
+            used.add(w.methodName)
+            const jsdoc = firstSentences(toolDefs[w.name]?.description ?? '')
+            const inputName = `Query${pascalCase(w.methodName)}Params`
+            queryMethods.push({
+                method: w.methodName,
+                wrapper: w,
+                inputTypeName: inputName,
+                inputRequired: false,
+                jsdoc,
+            })
+        }
+    }
+
     // --- Build input types ---
     const inputBlocks: string[] = []
     for (const [resource, methods] of [...resources.entries()].sort()) {
         methods.sort((a, b) => a.method.localeCompare(b.method))
         for (const m of methods) {
-            const { properties, required } = buildInputSchema(m.tool)
+            const { properties, required } = m.wrapper
+                ? buildWrapperInputSchema(m.wrapper.schema)
+                : buildInputSchema(m.tool!)
             const keys = Object.keys(properties)
             if (keys.length === 0) {
                 m.inputTypeName = undefined
@@ -673,12 +905,12 @@ function main(): void {
     // even after the repo's oxfmt pre-commit hook runs (no drift on re-generate).
     formatOutput()
 
-    // Tools present in the definitions but not emitted (no parseable 1:1 handler
-    // — e.g. the query-* wrappers built from a shared factory).
-    const emitted = new Set(tools.map((t) => t.name))
+    // Tools present in the definitions but not emitted through either path
+    // (standard 1:1 handlers or query wrappers).
+    const emitted = new Set([...tools.map((t) => t.name), ...wrapperTools.map((w) => w.name)])
     for (const toolName of Object.keys(toolDefs)) {
         if (!emitted.has(toolName)) {
-            skipped.push({ name: toolName, reason: 'no inline handler object (custom factory, e.g. query wrappers)' })
+            skipped.push({ name: toolName, reason: 'no inline handler object and no createQueryWrapper call' })
         }
     }
 
@@ -688,10 +920,10 @@ function main(): void {
     const totalTools = Object.keys(toolDefs).length
     console.log('\n=== @posthog/sdk generation summary ===')
     console.log(`Total tools:    ${totalTools}`)
-    console.log(`Tools emitted:  ${tools.length}`)
+    console.log(`Tools emitted:  ${emitted.size} (${tools.length} handlers + ${wrapperTools.length} query wrappers)`)
     console.log(`Methods:        ${methodCount}`)
     console.log(`Resources:      ${resourceNames.length}`)
-    console.log(`Coverage:       ${((tools.length / totalTools) * 100).toFixed(1)}%`)
+    console.log(`Coverage:       ${((emitted.size / totalTools) * 100).toFixed(1)}%`)
     console.log(`Skipped tools:  ${genuineSkips.length}`)
     const byReason = new Map<string, number>()
     for (const s of genuineSkips) {
@@ -774,22 +1006,40 @@ function emitResource(resource: string, methods: ResolvedMethod[]): void {
     const inputImport = usedInputs.length
         ? `import type { ${[...new Set(usedInputs)].sort().join(', ')} } from '../inputs'\n`
         : ''
-    const usesSchemas = methods.some((m) => /\bSchemas\./.test(m.tool.responseType))
+    const usesSchemas = methods.some((m) => m.tool && /\bSchemas\./.test(m.tool.responseType))
     const schemasImport = usesSchemas ? `import type { Schemas } from '../schemas'\n` : ''
 
+    // Resources containing query-wrapper methods extend the handwritten
+    // QueryBase (raw `run` escape hatch + wrapper runtime) instead of Resource.
+    const hasWrappers = methods.some((m) => m.wrapper)
+    const hasActors = methods.some((m) => m.wrapper && isActorsKind(m.wrapper.kind))
+    const hasNonActors = methods.some((m) => m.wrapper && !isActorsKind(m.wrapper.kind))
+    const queryTypeImports = [...(hasActors ? ['ActorsQueryResponse'] : []), ...(hasNonActors ? ['QueryResponse'] : [])]
+    const baseImport = hasWrappers
+        ? `import { QueryBase${queryTypeImports.length ? `, type ${queryTypeImports.join(', type ')}` : ''} } from '../../core/query'`
+        : `import { Resource } from '../../core/resource'`
+    const baseClass = hasWrappers ? 'QueryBase' : 'Resource'
+
     const methodTexts = methods.map((m) => emitMethod(m))
-    const out = `${banner(`MCP tool handlers (resource: ${resource})`)}\nimport { Resource } from '../../core/resource'
+    const out = `${banner(`MCP tool handlers (resource: ${resource})`)}\n${baseImport}
 import type { RequestOptions } from '../../core/config'
 ${schemasImport}${inputImport}
-export class ${className} extends Resource {
+export class ${className} extends ${baseClass} {
 ${methodTexts.join('\n\n')}
 }
 `
     fs.writeFileSync(path.join(OUT_DIR, 'resources', `${resource}.ts`), out)
 }
 
+function isActorsKind(kind: string): boolean {
+    return kind.endsWith('ActorsQuery')
+}
+
 function emitMethod(m: ResolvedMethod): string {
-    const t = m.tool
+    if (m.wrapper) {
+        return emitWrapperMethod(m, m.wrapper)
+    }
+    const t = m.tool!
     const resp = t.responseType
     const jsdoc = m.jsdoc ? `    /** ${escapeComment(m.jsdoc)} */\n` : ''
     // Prelude (scope resolution + body/query construction) is captured from the
@@ -820,6 +1070,23 @@ function emitMethod(m: ResolvedMethod): string {
     lines.push(`        return this.http.request<${resp}>(${argText})`)
     lines.push('    }')
     return lines.join('\n')
+}
+
+function emitWrapperMethod(m: ResolvedMethod, w: WrapperTool): string {
+    const jsdoc = m.jsdoc ? `    /** ${escapeComment(m.jsdoc)} */\n` : ''
+    const actors = isActorsKind(w.kind)
+    const resp = actors ? 'ActorsQueryResponse' : 'QueryResponse'
+    const runner = actors ? 'runActorsWrapped' : 'runWrapped'
+    const paramSig = m.inputTypeName
+        ? m.inputRequired
+            ? `params: ${m.inputTypeName}, opts?: RequestOptions`
+            : `params: ${m.inputTypeName} = {}, opts?: RequestOptions`
+        : `params: Record<string, unknown> = {}, opts?: RequestOptions`
+    return [
+        `${jsdoc}    async ${m.method}(${paramSig}): Promise<${resp}> {`,
+        `        return this.${runner}<${resp}>(${JSON.stringify(w.kind)}, params, opts)`,
+        `    }`,
+    ].join('\n')
 }
 
 /** Append `opts,` as the last property of the request-arg object literal. */
