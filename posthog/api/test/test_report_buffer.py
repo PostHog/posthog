@@ -72,8 +72,10 @@ class TestCspReportBufferedView(BaseTest):
 
 
 class TestCspReportBufferLogic(SimpleTestCase):
-    def _buffer(self, maxsize: int = 10) -> CspReportBuffer:
-        return CspReportBuffer(maxsize=maxsize, flush_interval=0.01, flush_max_events=100)
+    def _buffer(self, maxsize: int = 10, max_token_share: float = 1.0) -> CspReportBuffer:
+        return CspReportBuffer(
+            maxsize=maxsize, flush_interval=0.01, flush_max_events=100, max_token_share=max_token_share
+        )
 
     # _ensure_sender is patched out so no sender thread runs — collect/flush are driven synchronously.
     @patch.object(CspReportBuffer, "_ensure_sender")
@@ -94,12 +96,32 @@ class TestCspReportBufferLogic(SimpleTestCase):
     @patch.object(CspReportBuffer, "_ensure_sender")
     def test_enqueue_on_full_buffer_drops_oldest_without_blocking(self, _mock_sender) -> None:
         buf = self._buffer(maxsize=2)
-        buf.enqueue([{"event": "a"}, {"event": "b"}, {"event": "c"}], token="token-1")
+        buf.enqueue([{"event": "a"}, {"event": "b"}], token="token-1")
+        buf.enqueue([{"event": "c"}], token="token-2")
 
-        remaining = [buf._queue.get_nowait()[1]["event"] for _ in range(2)]
-        assert remaining == ["b", "c"]
+        remaining = [(t, e["event"]) for t, e in (buf._queue.get_nowait() for _ in range(2))]
+        assert remaining == [("token-1", "b"), ("token-2", "c")]
         with self.assertRaises(queue.Empty):
             buf._queue.get_nowait()
+
+    @patch.object(CspReportBuffer, "_ensure_sender")
+    def test_one_token_cannot_evict_other_tokens_events(self, _mock_sender) -> None:
+        buf = self._buffer(maxsize=4, max_token_share=0.5)
+        buf.enqueue([{"event": f"noisy-{i}"} for i in range(4)], token="token-noisy")
+        buf.enqueue([{"event": "quiet-1"}, {"event": "quiet-2"}], token="token-quiet")
+
+        contents = [buf._queue.get_nowait() for _ in range(4)]
+        assert [e["event"] for t, e in contents if t == "token-noisy"] == ["noisy-0", "noisy-1"]
+        assert [e["event"] for t, e in contents if t == "token-quiet"] == ["quiet-1", "quiet-2"]
+
+    @patch.object(CspReportBuffer, "_ensure_sender")
+    def test_collect_frees_token_share_for_new_events(self, _mock_sender) -> None:
+        buf = self._buffer(maxsize=4, max_token_share=0.5)
+        buf.enqueue([{"event": "a"}, {"event": "b"}, {"event": "c"}], token="token-1")
+        assert len(buf._collect()) == 2
+
+        buf.enqueue([{"event": "d"}], token="token-1")
+        assert [e["event"] for _, e in buf._collect()] == ["d"]
 
     @patch("posthog.api.report_buffer.capture_exception")
     @patch("posthog.api.report_buffer.capture_batch_internal", side_effect=Exception("capture down"))

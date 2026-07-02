@@ -6,10 +6,11 @@ retry budget), which starves bounded worker pools when capture-rs degrades. This
 buffer decouples the two: the view enqueues and returns immediately, a background
 sender thread batches events to ``capture_batch_internal``.
 
-CSP reporting is best-effort by contract: on overflow the buffer drops the oldest
-events (counted in ``csp_report_buffer_dropped``), and buffered events are lost if
-the process dies before the final drain. Browsers never read report responses, so
-callers get no delivery guarantee either way.
+CSP reporting is best-effort by contract: events beyond a token's fair share of
+the buffer are dropped, on overflow the oldest queued events are evicted, and
+buffered events are lost if the process dies before the final drain (all drops
+counted in ``csp_report_buffer_dropped``). Browsers never read report responses,
+so callers get no delivery guarantee either way.
 """
 
 from __future__ import annotations
@@ -62,6 +63,7 @@ class CspReportBuffer:
         maxsize: int = CSP_REPORT_BUFFER_MAX_EVENTS,
         flush_interval: float = CSP_REPORT_BUFFER_FLUSH_INTERVAL_SECONDS,
         flush_max_events: int = CSP_REPORT_BUFFER_FLUSH_MAX_EVENTS,
+        max_token_share: float = 0.5,
     ) -> None:
         self.flush_interval = flush_interval
         self.flush_max_events = flush_max_events
@@ -73,26 +75,55 @@ class CspReportBuffer:
         # atexit doesn't deduplicate handlers, so register once per process even
         # if the sender thread gets restarted.
         self._atexit_pid: int | None = None
+        # Fairness: no single token may occupy more than its share of the buffer,
+        # so one team's report storm (or a bogus token — tokens are public and
+        # only capture-rs truly validates them) cannot evict other tokens'
+        # events on overflow.
+        self._token_cap = max(1, int(maxsize * max_token_share))
+        self._token_counts: dict[str, int] = {}
+        self._counts_lock = threading.Lock()
 
     def enqueue(self, events: list[dict[str, Any]], *, token: str) -> None:
         """Add events to the buffer without ever blocking the caller.
 
-        On overflow the oldest queued events are evicted so fresh reports win.
+        A token over its share drops its own incoming events; on overflow the
+        globally oldest events are evicted so fresh reports win across tokens.
         """
         self._ensure_sender()
+        accepted = 0
         for event in events:
+            if not self._reserve_slot(token):
+                CSP_BUFFER_DROPPED.labels(reason="token_share").inc()
+                continue
             while True:
                 try:
                     self._queue.put_nowait((token, event))
+                    accepted += 1
                     break
                 except queue.Full:
                     try:
-                        self._queue.get_nowait()
+                        evicted_token, _ = self._queue.get_nowait()
+                        self._release_slot(evicted_token)
                         CSP_BUFFER_DROPPED.labels(reason="overflow").inc()
                     except queue.Empty:
                         continue
-        CSP_BUFFER_ENQUEUED.inc(len(events))
+        CSP_BUFFER_ENQUEUED.inc(accepted)
         CSP_BUFFER_DEPTH.set(self._queue.qsize())
+
+    def _reserve_slot(self, token: str) -> bool:
+        with self._counts_lock:
+            if self._token_counts.get(token, 0) >= self._token_cap:
+                return False
+            self._token_counts[token] = self._token_counts.get(token, 0) + 1
+            return True
+
+    def _release_slot(self, token: str) -> None:
+        with self._counts_lock:
+            remaining = self._token_counts.get(token, 0) - 1
+            if remaining > 0:
+                self._token_counts[token] = remaining
+            else:
+                self._token_counts.pop(token, None)
 
     def _ensure_sender(self) -> None:
         if self._sender is not None and self._sender.is_alive() and self._sender_pid == os.getpid():
@@ -130,6 +161,8 @@ class CspReportBuffer:
                 items.append(self._queue.get_nowait())
             except queue.Empty:
                 break
+        for token, _ in items:
+            self._release_slot(token)
         return items
 
     def _flush(self, items: list[tuple[str, dict[str, Any]]]) -> None:
@@ -162,6 +195,8 @@ class CspReportBuffer:
                 items.append(self._queue.get_nowait())
             except queue.Empty:
                 break
+        for token, _ in items:
+            self._release_slot(token)
         if items:
             self._flush(items)
 
