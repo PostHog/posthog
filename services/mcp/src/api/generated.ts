@@ -18179,6 +18179,35 @@ export namespace Schemas {
       order?: number | null;
     }
 
+    export interface ElementStats {
+      /** Number of events matching this element chain */
+      count: number;
+      /**
+         * Always null; retained for backwards compatibility
+         * @nullable
+         */
+      hash: string | null;
+      /** Event type: $autocapture, $rageclick, or $dead_click */
+      type: string;
+      /** Parsed elements of the chain, clicked element first */
+      elements: Element[];
+    }
+
+    export interface ElementStatsResponse {
+      /** Element chains with event counts, ordered by count */
+      results: ElementStats[];
+      /**
+         * URL for the next page of results, if any
+         * @nullable
+         */
+      next: string | null;
+      /**
+         * URL for the previous page of results, if any
+         * @nullable
+         */
+      previous: string | null;
+    }
+
     export type ElementTypeAttributes = {[key: string]: string};
 
     export interface ElementType {
@@ -55830,6 +55859,29 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type EnvironmentsElementsStatsRetrieveParams = {
+    /**
+     * Comma-separated data attribute names (wildcards allowed, e.g. data-*). When provided, each element's attributes map is filtered to matching attr__* keys, shrinking the response.
+     */
+    data_attributes?: string;
+    /**
+     * Event types to include: $autocapture, $rageclick, $dead_click. Defaults to all three.
+     */
+    include?: string[];
+    /**
+     * Maximum rows per page
+     */
+    limit?: number;
+    /**
+     * Pagination offset
+     */
+    offset?: number;
+    /**
+     * Sampling factor between 0 and 1
+     */
+    sampling_factor?: number;
+    };
+
     export type EnvironmentsEndpointsListParams = {
     created_by?: number;
     is_active?: boolean;
@@ -61790,6 +61842,29 @@ export namespace Schemas {
      * The initial index from which to return the results.
      */
     offset?: number;
+    };
+
+    export type ElementsStatsRetrieveParams = {
+    /**
+     * Comma-separated data attribute names (wildcards allowed, e.g. data-*). When provided, each element's attributes map is filtered to matching attr__* keys, shrinking the response.
+     */
+    data_attributes?: string;
+    /**
+     * Event types to include: $autocapture, $rageclick, $dead_click. Defaults to all three.
+     */
+    include?: string[];
+    /**
+     * Maximum rows per page
+     */
+    limit?: number;
+    /**
+     * Pagination offset
+     */
+    offset?: number;
+    /**
+     * Sampling factor between 0 and 1
+     */
+    sampling_factor?: number;
     };
 
     export type EndpointsListParams = {

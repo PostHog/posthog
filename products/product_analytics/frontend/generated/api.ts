@@ -15,7 +15,9 @@ import type {
     ColumnConfigurationApi,
     ColumnConfigurationsListParams,
     ElementApi,
+    ElementStatsResponseApi,
     ElementsListParams,
+    ElementsStatsRetrieveParams,
     InsightApi,
     InsightViewedRequestApi,
     InsightsActivityRetrieveParams,
@@ -273,8 +275,20 @@ export const elementsDestroy = async (projectId: string, id: number, options?: R
     })
 }
 
-export const getElementsStatsRetrieveUrl = (projectId: string) => {
-    return `/api/projects/${projectId}/elements/stats/`
+export const getElementsStatsRetrieveUrl = (projectId: string, params?: ElementsStatsRetrieveParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/elements/stats/?${stringifiedParams}`
+        : `/api/projects/${projectId}/elements/stats/`
 }
 
 /**
@@ -283,8 +297,12 @@ export const getElementsStatsRetrieveUrl = (projectId: string) => {
  * Now, you can pass a combination of include query parameters to get different types of elements
  * Currently only $autocapture and $rageclick and $dead_click are supported
  */
-export const elementsStatsRetrieve = async (projectId: string, options?: RequestInit): Promise<void> => {
-    return apiMutator<void>(getElementsStatsRetrieveUrl(projectId), {
+export const elementsStatsRetrieve = async (
+    projectId: string,
+    params?: ElementsStatsRetrieveParams,
+    options?: RequestInit
+): Promise<ElementStatsResponseApi> => {
+    return apiMutator<ElementStatsResponseApi>(getElementsStatsRetrieveUrl(projectId, params), {
         ...options,
         method: 'GET',
     })
