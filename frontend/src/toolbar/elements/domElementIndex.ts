@@ -156,6 +156,16 @@ function filterByPosition(candidates: HTMLElement[], eventElement: ElementType, 
     })
 }
 
+// position disambiguates siblings that share an identifier, but must not exclude a sole
+// candidate (or all candidates) whose sibling position drifted since capture
+function preferPositionMatches(candidates: HTMLElement[], eventElement: ElementType, index: DOMIndex): HTMLElement[] {
+    if (candidates.length <= 1) {
+        return candidates
+    }
+    const positioned = filterByPosition(candidates, eventElement, index)
+    return positioned.length ? positioned : candidates
+}
+
 // derived once per chain level, not per candidate: matchesDataAttribute builds a RegExp per call
 function getMatchedDataAttribute(
     eventElement: ElementType,
@@ -177,19 +187,20 @@ function getCandidatesFromIndex(
 ): HTMLElement[] {
     // a configured data attribute or an id identifies the element on its own — mirroring
     // elementToSelector, which early-returns on these — so sibling-position drift from injected
-    // DOM must not exclude these candidates; the ancestor walk still disambiguates duplicates
+    // DOM must not exclude a uniquely identified candidate; position still breaks ties between
+    // siblings that share the identifier
     const matchedDataAttribute = getMatchedDataAttribute(eventElement, dataAttributes)
     if (matchedDataAttribute) {
         const candidates = index.byDataAttr.get(matchedDataAttribute.name)?.get(matchedDataAttribute.value) || []
         if (candidates.length) {
-            return candidates
+            return preferPositionMatches(candidates, eventElement, index)
         }
     }
 
     if (eventElement.attr_id) {
         const candidates = index.byId.get(eventElement.attr_id) || []
         if (candidates.length) {
-            return candidates
+            return preferPositionMatches(candidates, eventElement, index)
         }
     }
 
