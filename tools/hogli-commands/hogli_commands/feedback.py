@@ -154,8 +154,6 @@ def devex_feedback(message: tuple[str, ...], category: str | None, yes: bool) ->
     if not text:
         raise click.ClickException('nothing to send — provide a message: hogli devex:feedback "..."')
 
-    context = _context_properties()
-
     # Preview + confirm for interactive humans; agents and pipes send straight through.
     if interactive and not yes:
         click.echo()
@@ -170,6 +168,10 @@ def devex_feedback(message: tuple[str, ...], category: str | None, yes: bool) ->
         if not click.confirm("Send?", default=True):
             click.secho("Not sent.", fg="yellow")
             return
+
+    # Collect context only once we're committed to sending — the telemetry hooks can
+    # shell out (gh api) and persist cache, so a declined preview stays side-effect-free.
+    context = _context_properties()
 
     ok, err = _send(text, category, context)
     if ok:

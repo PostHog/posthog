@@ -87,7 +87,8 @@ def test_send_returns_error_on_network_failure(isolated_config: None) -> None:
 def test_interactive_confirm_gate(monkeypatch: pytest.MonkeyPatch, answer: str, should_send: bool) -> None:
     # On a TTY, the preview's "Send?" prompt gates the send: 'n' must not transmit.
     monkeypatch.setattr(feedback, "_stdin_is_tty", lambda: True)
-    monkeypatch.setattr(feedback, "_context_properties", dict)
+    ctx_calls: list[int] = []
+    monkeypatch.setattr(feedback, "_context_properties", lambda: (ctx_calls.append(1), {})[1])
     sent: list[str] = []
     monkeypatch.setattr(feedback, "_send", lambda msg, cat, ctx: (sent.append(msg), (True, ""))[1])
 
@@ -95,6 +96,8 @@ def test_interactive_confirm_gate(monkeypatch: pytest.MonkeyPatch, answer: str, 
 
     assert result.exit_code == 0
     assert bool(sent) is should_send
+    # Context collection can shell out / persist cache — it must only run when sending.
+    assert bool(ctx_calls) is should_send
 
 
 @pytest.mark.parametrize(
