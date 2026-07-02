@@ -1,5 +1,5 @@
+import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
 import { PipelineResultType } from '~/ingestion/framework/results'
-import { OverflowRedirectService } from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { createTestPipelineEvent } from '~/tests/helpers/pipeline-event'
 

@@ -8,6 +8,7 @@ from parameterized import parameterized
 from rest_framework import status
 from social_django.models import UserSocialAuth
 
+from posthog.models.activity_logging.activity_log import ActivityLog
 from posthog.models.organization import OrganizationMembership
 from posthog.models.team.team import Team
 from posthog.models.user import User
@@ -443,6 +444,59 @@ class TestSignalReportArtefactViewSet(APIBaseTest):
         assert self._latest_reviewers(report) == first_current
         # Original + two appended rows.
         assert self._reviewers_count(report) == 3
+
+    def test_put_reviewer_change_writes_activity_log_with_diff(self):
+        report = self._create_report()
+        artefact = self._create_artefact(report, content=[{"github_login": "alice"}])
+
+        response = self.client.put(
+            self._detail_url(str(report.id), str(artefact.id)),
+            data=json.dumps({"content": [{"github_login": "bob"}, {"github_login": "carol"}]}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+
+        log = ActivityLog.objects.get(team_id=self.team.id, scope="SignalReport")
+        assert log.activity == "suggested_reviewers_changed"
+        assert str(log.item_id) == str(report.id)
+        assert log.user == self.user
+        assert log.detail is not None
+        assert log.detail["name"] == "Test report"
+        (change,) = log.detail["changes"]
+        assert change["field"] == "suggested_reviewers"
+        assert change["before"] == ["alice"]
+        assert change["after"] == ["bob", "carol"]
+
+    def test_put_same_reviewer_set_writes_no_activity_log(self):
+        report = self._create_report()
+        artefact = self._create_artefact(report, content=[{"github_login": "alice"}, {"github_login": "bob"}])
+
+        response = self.client.put(
+            self._detail_url(str(report.id), str(artefact.id)),
+            data=json.dumps({"content": [{"github_login": "bob"}, {"github_login": "alice"}]}),
+            content_type="application/json",
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert not ActivityLog.objects.filter(team_id=self.team.id, scope="SignalReport").exists()
+
+    def test_put_task_attributed_reviewer_change_writes_no_activity_log(self):
+        report = self._create_report()
+        artefact = self._create_artefact(report, content=[{"github_login": "alice"}])
+        task = Task.objects.create(
+            team=self.team,
+            title="task",
+            description="desc",
+            origin_product=Task.OriginProduct.SIGNAL_REPORT,
+        )
+
+        response = self.client.put(
+            self._detail_url(str(report.id), str(artefact.id)),
+            data=json.dumps({"content": [{"github_login": "bob"}]}),
+            content_type="application/json",
+            headers={"X-PostHog-Task-Id": str(task.id)},
+        )
+        assert response.status_code == status.HTTP_200_OK
+        assert not ActivityLog.objects.filter(team_id=self.team.id, scope="SignalReport").exists()
 
     def test_put_response_is_enriched_with_user(self):
         member = self._create_org_member("alice@example.com", github_login="alice")

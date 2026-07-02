@@ -163,6 +163,7 @@ the row lists both.
 | granola                 | HTTP                        | requests                                                        | ✅                          |
 | gorgias                 | HTTP                        | requests                                                        | ✅                          |
 | greenhouse              | HTTP                        | requests                                                        | ✅                          |
+| guardian                | HTTP                        | requests                                                        | ✅                          |
 | guru                    | HTTP                        | requests                                                        | ✅                          |
 | hibob                   | HTTP                        | requests                                                        | ✅                          |
 | hubspot                 | HTTP                        | requests                                                        | ✅                          |
@@ -360,7 +361,6 @@ doesn't conflict with concurrent PRs.
 - cisco_meraki
 - clarifai
 - clazar
-- clockodo
 - cloudbeds
 - coassemble
 - cockroachdb
@@ -419,6 +419,7 @@ doesn't conflict with concurrent PRs.
 - glassfrog
 - gmail
 - gnews
+- gojiberry
 - goldcast
 - gologin
 - google_ad_manager
@@ -436,7 +437,6 @@ doesn't conflict with concurrent PRs.
 - grafana
 - greythr
 - gridly
-- guardian
 - gusto
 - harness
 - heap
@@ -454,7 +454,6 @@ doesn't conflict with concurrent PRs.
 - ikas
 - illumina_basespace
 - imagga
-- incident_io
 - inflowinventory
 - infor_nexus
 - insightful
@@ -505,6 +504,7 @@ doesn't conflict with concurrent PRs.
 - mendeley
 - mention
 - mercado_ads
+- mercury
 - merge
 - metricool
 - metronome
@@ -668,6 +668,7 @@ doesn't conflict with concurrent PRs.
 - systeme
 - tavus
 - tawk_to
+- teachable
 - teamtailor
 - tempo
 - testrail

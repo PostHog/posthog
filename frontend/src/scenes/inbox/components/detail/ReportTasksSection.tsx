@@ -4,13 +4,13 @@ import { IconChevronDown, IconChevronRight, IconTerminal } from '@posthog/icons'
 import { Spinner } from '@posthog/lemon-ui'
 
 import { isTerminalRunStatus } from 'products/posthog_ai/frontend/api/logics'
+import { TaskRunStatusDot } from 'products/posthog_ai/frontend/api/primitives'
 import { ReadonlyRunSurface } from 'products/posthog_ai/frontend/api/readableRun'
 import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 
 import { inboxReportDetailLogic, ReportTaskEntry } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
 import { DetailSection } from './DetailSection'
-import { TaskRunStatusDot } from './taskRunDisplay'
 
 /**
  * Renders the report's linked tasks inline (latest status + purpose). Each row expands in place to

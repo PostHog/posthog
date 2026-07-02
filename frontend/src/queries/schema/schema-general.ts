@@ -7206,6 +7206,9 @@ export const externalDataSources = [
     'Podium',
     'Loops',
     'Redis',
+    'Mercury',
+    'Gojiberry',
+    'Teachable',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]
