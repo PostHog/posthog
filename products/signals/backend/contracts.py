@@ -6,23 +6,30 @@
 import enum
 from typing import Annotated, Literal, get_args
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, ConfigDict, Field
 from pydantic.fields import FieldInfo
 
 from products.signals.backend.enums import ReportPriority, SignalSourceProduct, SignalSourceType
 
 
-class SignalRemediation(BaseModel):
+class ContractModel(BaseModel):
+    # Emitted payloads are validated against these models at the emit boundary; unknown fields are
+    # rejected rather than silently written to signal metadata (parity with the generated schema.py
+    # models these replaced, which all carried extra="forbid").
+    model_config = ConfigDict(extra="forbid")
+
+
+class SignalRemediation(ContractModel):
     human: str
     agent: str
     priority: ReportPriority | None = None
 
 
-class SignalExtraBase(BaseModel):
+class SignalExtraBase(ContractModel):
     pass
 
 
-class SignalInputBase(BaseModel):
+class SignalInputBase(ContractModel):
     source_id: str
     description: str
     weight: float
@@ -32,7 +39,7 @@ class SignalInputBase(BaseModel):
 # ── Session replay ──────────────────────────────────────────────────────────────
 
 
-class SessionProblemEventEntry(BaseModel):
+class SessionProblemEventEntry(ContractModel):
     event: str
     timestamp: str
     current_url: str | None = None
@@ -192,7 +199,7 @@ class ErrorTrackingSignalInput(SignalInputBase):
 # ── pganalyze ───────────────────────────────────────────────────────────────────
 
 
-class PgAnalyzeIssueReference(BaseModel):
+class PgAnalyzeIssueReference(ContractModel):
     kind: str | None
     name: str | None
     url: str | None
@@ -246,13 +253,13 @@ class EndpointBreakdownLimitExceededSignalInput(SignalInputBase):
 # ── Signals scout ───────────────────────────────────────────────────────────────
 
 
-class SignalsScoutEvidenceEntry(BaseModel):
+class SignalsScoutEvidenceEntry(ContractModel):
     source_product: str
     entity_id: str | None = None
     summary: str
 
 
-class SignalsScoutTimeRange(BaseModel):
+class SignalsScoutTimeRange(ContractModel):
     date_from: str
     date_to: str
 
@@ -355,13 +362,13 @@ class HealthCheckSignalInput(SignalInputBase):
 # ── Report reviewer types ───────────────────────────────────────────────────────
 
 
-class RelevantCommit(BaseModel):
+class RelevantCommit(ContractModel):
     sha: str
     url: str
     reason: str
 
 
-class SignalReviewerUserInfo(BaseModel):
+class SignalReviewerUserInfo(ContractModel):
     id: int
     uuid: str
     first_name: str
@@ -369,7 +376,7 @@ class SignalReviewerUserInfo(BaseModel):
     email: str
 
 
-class EnrichedReviewer(BaseModel):
+class EnrichedReviewer(ContractModel):
     github_login: str
     github_name: str | None
     relevant_commits: list[RelevantCommit]

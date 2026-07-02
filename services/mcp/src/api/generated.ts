@@ -47527,7 +47527,7 @@ export namespace Schemas {
     }
 
     /**
-     * Response body for GET /api/projects/:id/signal_reports/:id/signals/.
+     * Response body for GET /api/projects/:id/signals/reports/:id/signals/.
      */
     export interface ReportSignalsResponse {
       /** The report these signals were clustered into. */

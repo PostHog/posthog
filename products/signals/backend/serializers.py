@@ -515,7 +515,7 @@ class SignalNodeSerializer(serializers.Serializer):
 
 
 class ReportSignalsResponseSerializer(serializers.Serializer):
-    """Response body for GET /api/projects/:id/signal_reports/:id/signals/."""
+    """Response body for GET /api/projects/:id/signals/reports/:id/signals/."""
 
     report = SignalReportSerializer(help_text="The report these signals were clustered into.")
     signals = SignalNodeSerializer(many=True, help_text="All signals contributing to the report.")
