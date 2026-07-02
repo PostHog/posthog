@@ -116,48 +116,51 @@ export function copyIndexHtml(
         window.ESBUILD_LOAD_CHUNKS('index');
     `
 
-    // Fallback to non-hashed CSS (with cache-busting build ID) when the hashed
-    // version fails to load (e.g. CDN returns 403). Mirrors the JS fallback above.
+    // Emit the entry CSS as a real, render-blocking <link rel="stylesheet"> in <head> (below),
+    // rather than injecting it via script after the fact. A stylesheet link in <head> blocks
+    // the browser from painting until it settles, so React can't flash unstyled DOM. This closes
+    // the flash-of-unstyled-content window on both cold loads and the chunk-load-error full
+    // reload path (sceneLogic's reloadBrowserDueToImportError → window.location.reload()).
+    //
+    // `js_url` is the Django-rendered equivalent of `window.JS_URL` (see head.html), so the CDN
+    // origin is resolved at HTML render time and the href can be a static, render-blocking link.
+    const cssLink = cssFile
+        ? `<link rel="stylesheet" crossorigin="anonymous" id="ph-entry-stylesheet" href="{{ js_url|default:'' }}/static/${cssFile}">`
+        : ''
+
+    // Fallback to non-hashed CSS (with cache-busting build ID) when the hashed version fails to
+    // load (e.g. CDN returns 403 right after a deploy). Mirrors the JS fallback above. The link
+    // above is render-blocking, so a following inline <script> only runs once it has settled —
+    // at which point `link.sheet` is null iff the stylesheet failed, giving a reliable signal.
     const cssFileFallback = `${entry}.css?t=${buildId}`
-    const needsCssFallback = cssFile !== cssFileFallback
-    const cssLoader = `
-        const link = document.createElement("link");
-        link.rel = "stylesheet";
-        link.crossOrigin = "anonymous";
-        link.href = (window.JS_URL || '') + "/static/" + ${JSON.stringify(cssFile)};
-        ${
-            needsCssFallback
-                ? `link.onerror = function() {
-            link.onerror = null;
-            console.warn('Failed to load stylesheet "' + ${JSON.stringify(cssFile)} + '", trying fallback');
-            var fallbackLink = document.createElement("link");
-            fallbackLink.rel = "stylesheet";
-            fallbackLink.crossOrigin = "anonymous";
-            fallbackLink.href = (window.JS_URL || '') + "/static/" + ${JSON.stringify(cssFileFallback)};
-            document.head.appendChild(fallbackLink);
-        };`
-                : ''
-        }
-        document.head.appendChild(link)
-    `
+    const needsCssFallback = cssFile && cssFile !== cssFileFallback
+    const cssFallbackScript = needsCssFallback
+        ? `<script nonce="{{ request.csp_nonce }}" type="application/javascript">
+                    var phEntryStylesheet = document.getElementById("ph-entry-stylesheet");
+                    if (phEntryStylesheet && !phEntryStylesheet.sheet) {
+                        console.warn('Failed to load stylesheet "' + ${JSON.stringify(cssFile)} + '", trying fallback');
+                        var fallbackLink = document.createElement("link");
+                        fallbackLink.rel = "stylesheet";
+                        fallbackLink.crossOrigin = "anonymous";
+                        fallbackLink.href = (window.JS_URL || '') + "/static/" + ${JSON.stringify(cssFileFallback)};
+                        document.head.appendChild(fallbackLink);
+                    }
+                </script>`
+        : ''
 
     fse.writeFileSync(
         path.resolve(absWorkingDir, to),
         fse.readFileSync(path.resolve(absWorkingDir, from), { encoding: 'utf-8' }).replace(
             '</head>',
+            // The JS loader runs before the stylesheet link so the bundle downloads in parallel
+            // with the render-blocking CSS instead of waiting on it. React may mount into the DOM
+            // before the CSS lands, but the browser won't paint until the stylesheet has loaded.
             `   <script nonce="{{ request.csp_nonce }}" type="application/javascript">
-                    // NOTE: the link for the stylesheet will be added just
-                    // after this script block. The react code will need the
-                    // body to have been parsed before it is able to interact
-                    // with it and add anything to it.
-                    //
-                    // Fingers crossed the browser waits for the stylesheet to
-                    // load such that it's in place when react starts
-                    // adding elements to the DOM
-                    ${cssFile ? cssLoader : ''}
                     ${scriptCode}
                     ${Object.keys(chunks).length > 0 ? chunkCode : ''}
                 </script>
+                ${cssLink}
+                ${cssFallbackScript}
             </head>`
         )
     )
