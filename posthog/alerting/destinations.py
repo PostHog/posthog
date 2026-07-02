@@ -31,9 +31,9 @@ class AlertDestinationOwnershipError(Exception):
     """Raised when deleting destinations that do not all belong to an alert."""
 
 
-def create_alert_destination_hog_functions(configs: list[dict[str, Any]], *, request: Any) -> list[Any]:
+def create_alert_destination_hog_functions(configs: list[dict[str, Any]], *, request: Any) -> list[HogFunction]:
     """Create one HogFunction per config, atomically. Each config carries its `team`."""
-    created = []
+    created: list[HogFunction] = []
     with transaction.atomic():
         for config in configs:
             config = dict(config)
@@ -58,13 +58,14 @@ def soft_delete_alert_destinations(
     The filtered UPDATE is the ownership check: touching fewer rows than requested
     means something in the list doesn't belong to this alert — roll back.
     """
+    unique_ids = set(hog_function_ids)
     with transaction.atomic():
         updated = HogFunction.objects.filter(
             team_id=team_id,
-            id__in=hog_function_ids,
+            id__in=unique_ids,
             filters__properties__contains=[{"key": ALERT_ID_PROPERTY, "value": alert_id}],
         ).update(deleted=True, enabled=False)
-        if updated != len(hog_function_ids):
+        if updated != len(unique_ids):
             raise AlertDestinationOwnershipError
 
 
@@ -78,7 +79,7 @@ def soft_delete_all_alert_destinations(*, team_id: int, alert_id: str) -> int:
     ).update(deleted=True, enabled=False)
 
 
-def find_alert_destination_hog_functions(*, team_id: int, alert_id: str, event_id: str) -> list[Any]:
+def find_alert_destination_hog_functions(*, team_id: int, alert_id: str, event_id: str) -> list[HogFunction]:
     """The dispatch-side half of the linkage contract in common/alerting/destinations.py."""
     return list(
         HogFunction.objects.filter(
