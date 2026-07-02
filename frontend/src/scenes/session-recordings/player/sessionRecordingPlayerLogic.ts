@@ -1722,12 +1722,12 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
                     if (searchParams.fullscreen) {
                         actions.setIsFullScreen(true)
                     }
-                    if (searchParams.timestamp) {
-                        const desiredStartTime = Number(searchParams.timestamp)
-                        actions.seekToTimestamp(desiredStartTime, true)
-                    } else if (searchParams.t) {
-                        const desiredStartTime = Number(searchParams.t) * 1000
-                        actions.seekToTime(desiredStartTime)
+                    const timestampParam = Number(searchParams.timestamp)
+                    const tParam = Number(searchParams.t) * 1000
+                    if (searchParams.timestamp && Number.isFinite(timestampParam)) {
+                        actions.seekToTimestamp(timestampParam, true)
+                    } else if (searchParams.t && Number.isFinite(tParam)) {
+                        actions.seekToTime(tParam)
                     } else {
                         actions.setSkipToFirstMatchingEvent(true)
                     }
