@@ -26,8 +26,8 @@ export class MemoryCachedKeyStore implements KeyStore {
         await this.delegate.start()
     }
 
-    async generateKey(sessionId: string, teamId: number): Promise<SessionKey> {
-        const key = await this.delegate.generateKey(sessionId, teamId)
+    async generateKey(sessionId: string, teamId: number, retentionDays: number): Promise<SessionKey> {
+        const key = await this.delegate.generateKey(sessionId, teamId, retentionDays)
         this.cache.set(this.cacheKey(sessionId, teamId), key)
         return key
     }

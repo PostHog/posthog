@@ -11,6 +11,11 @@ import { TopHogRegistry } from '~/ingestion/framework/extensions/tophog'
 import { drop, ok, redirect } from '~/ingestion/framework/results'
 import { SessionBatchManager } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-manager'
 import { SessionBatchRecorder } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-recorder'
+import {
+    RetentionResolution,
+    RetentionService,
+} from '~/ingestion/pipelines/sessionreplay/shared/retention/retention-service'
+import { SessionMap, SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
 import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/team-service'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
@@ -25,6 +30,7 @@ jest.mock('~/ingestion/common/steps/event-preprocessing', () => ({
 function createMockSessionBatchManager(): jest.Mocked<SessionBatchManager> {
     const mockBatchRecorder = {
         record: jest.fn().mockResolvedValue(undefined),
+        getRetention: jest.fn().mockReturnValue(undefined),
     } as unknown as jest.Mocked<SessionBatchRecorder>
 
     return {
@@ -87,6 +93,17 @@ describe('session-replay-pipeline', () => {
 
     // Debug logging disabled by default in tests
     const isDebugLoggingEnabled = () => false
+
+    // Resolves every session to 30d so messages flow through to recording.
+    const retentionService = {
+        resolveSessionRetentions: jest.fn().mockImplementation((sessions: SessionSet) => {
+            const resolutions = new SessionMap<RetentionResolution>()
+            for (const s of sessions) {
+                resolutions.set(s.teamId, s.sessionId, { resolved: true, retentionPeriod: '30d' })
+            }
+            return Promise.resolve(resolutions)
+        }),
+    } as unknown as RetentionService
 
     const defaultTeam: TeamForReplay = {
         teamId: 1,
@@ -183,10 +200,13 @@ describe('session-replay-pipeline', () => {
         headers?: Record<string, string>
     ): Message {
         const actualSessionId = sessionId ?? `session-${offset}`
-        // Default to including token and session_id headers since they're required for metrics
+        // Default the headers the validate step requires; session_id/distinct_id must mirror the body.
         const headersWithDefaults = headers ?? { token: 'test-token' }
         if (!headersWithDefaults.session_id) {
             headersWithDefaults.session_id = actualSessionId
+        }
+        if (!headersWithDefaults.distinct_id) {
+            headersWithDefaults.distinct_id = 'user-123'
         }
         const kafkaHeaders = Object.entries(headersWithDefaults).map(([key, value]) => ({
             [key]: Buffer.from(value),
@@ -216,6 +236,9 @@ describe('session-replay-pipeline', () => {
         const headersWithDefaults = headers ?? { token: 'test-token' }
         if (!headersWithDefaults.session_id) {
             headersWithDefaults.session_id = sessionId
+        }
+        if (!headersWithDefaults.distinct_id) {
+            headersWithDefaults.distinct_id = 'user-123'
         }
         const kafkaHeaders = Object.entries(headersWithDefaults).map(([key, value]) => ({
             [key]: Buffer.from(value),
@@ -250,6 +273,7 @@ describe('session-replay-pipeline', () => {
                 overflowEnabled: true,
                 promiseScheduler,
                 teamService: mockTeamService,
+                retentionService,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -260,6 +284,7 @@ describe('session-replay-pipeline', () => {
             const offsets = await runSessionReplayPipeline(pipeline, messages)
 
             expect(recordedSessionIds()).toEqual(['session-1', 'session-2'])
+            // Highest offset reached on the partition is tracked.
             expect(offsets).toEqual(new Map([[0, 2]]))
         })
 
@@ -279,6 +304,7 @@ describe('session-replay-pipeline', () => {
                 overflowEnabled: true,
                 promiseScheduler,
                 teamService: mockTeamService,
+                retentionService,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -314,6 +340,7 @@ describe('session-replay-pipeline', () => {
                 overflowEnabled: true,
                 promiseScheduler,
                 teamService: mockTeamService,
+                retentionService,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -340,6 +367,7 @@ describe('session-replay-pipeline', () => {
                 overflowEnabled: true,
                 promiseScheduler,
                 teamService: mockTeamService,
+                retentionService,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -373,6 +401,7 @@ describe('session-replay-pipeline', () => {
                 overflowEnabled: true,
                 promiseScheduler,
                 teamService: mockTeamService,
+                retentionService,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -422,6 +451,7 @@ describe('session-replay-pipeline', () => {
                 overflowEnabled: true,
                 promiseScheduler,
                 teamService: mockTeamService,
+                retentionService,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -453,6 +483,7 @@ describe('session-replay-pipeline', () => {
                 overflowEnabled: true,
                 promiseScheduler,
                 teamService: mockTeamService,
+                retentionService,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -480,6 +511,7 @@ describe('session-replay-pipeline', () => {
                 overflowEnabled: true,
                 promiseScheduler,
                 teamService: mockTeamService,
+                retentionService,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -523,6 +555,7 @@ describe('session-replay-pipeline', () => {
                 overflowEnabled: true,
                 promiseScheduler,
                 teamService: mockTeamService,
+                retentionService,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -542,8 +575,13 @@ describe('session-replay-pipeline', () => {
                 token: 'team-token-123',
                 distinctId: 'user-456',
                 session_id: 'session-1',
+                distinct_id: 'user-123',
             })
-            expect(capturedHeaders[1]).toEqual({ token: 'team-token-789', session_id: 'session-2' })
+            expect(capturedHeaders[1]).toEqual({
+                token: 'team-token-789',
+                session_id: 'session-2',
+                distinct_id: 'user-123',
+            })
         })
 
         it('processes large batch with all messages passing through', async () => {
@@ -553,6 +591,7 @@ describe('session-replay-pipeline', () => {
                 overflowEnabled: true,
                 promiseScheduler,
                 teamService: mockTeamService,
+                retentionService,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -591,6 +630,7 @@ describe('session-replay-pipeline', () => {
                 overflowEnabled: true,
                 promiseScheduler,
                 teamService: teamServiceThatDropsSecond,
+                retentionService,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -616,6 +656,7 @@ describe('session-replay-pipeline', () => {
                 overflowEnabled: true,
                 promiseScheduler,
                 teamService: mockTeamService,
+                retentionService,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -638,6 +679,7 @@ describe('session-replay-pipeline', () => {
                 overflowEnabled: true,
                 promiseScheduler,
                 teamService: mockTeamService,
+                retentionService,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -675,6 +717,7 @@ describe('session-replay-pipeline', () => {
                 overflowEnabled: true,
                 promiseScheduler,
                 teamService: mockTeamService,
+                retentionService,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -695,6 +738,7 @@ describe('session-replay-pipeline', () => {
                 overflowEnabled: true,
                 promiseScheduler,
                 teamService: mockTeamService,
+                retentionService,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -715,6 +759,7 @@ describe('session-replay-pipeline', () => {
                 overflowEnabled: true,
                 promiseScheduler,
                 teamService: mockTeamService,
+                retentionService,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -751,6 +796,7 @@ describe('session-replay-pipeline', () => {
                 overflowEnabled: true,
                 promiseScheduler,
                 teamService: mockTeamService,
+                retentionService,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -769,7 +815,8 @@ describe('session-replay-pipeline', () => {
                     message: expect.objectContaining({
                         session_id: 'session-1',
                     }),
-                })
+                }),
+                '30d'
             )
         })
 
@@ -780,6 +827,7 @@ describe('session-replay-pipeline', () => {
                 overflowEnabled: true,
                 promiseScheduler,
                 teamService: mockTeamService,
+                retentionService,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -807,6 +855,7 @@ describe('session-replay-pipeline', () => {
                 overflowEnabled: true,
                 promiseScheduler,
                 teamService: mockTeamService,
+                retentionService,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -833,6 +882,7 @@ describe('session-replay-pipeline', () => {
                 overflowEnabled: true,
                 promiseScheduler,
                 teamService: teamServiceThatReturnsNull,
+                retentionService,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -855,6 +905,7 @@ describe('session-replay-pipeline', () => {
                 overflowEnabled: true,
                 promiseScheduler,
                 teamService: mockTeamService,
+                retentionService,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -881,6 +932,7 @@ describe('session-replay-pipeline', () => {
                 overflowEnabled: true,
                 promiseScheduler,
                 teamService: mockTeamService,
+                retentionService,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -907,6 +959,7 @@ describe('session-replay-pipeline', () => {
                 overflowEnabled: true,
                 promiseScheduler,
                 teamService: mockTeamService,
+                retentionService,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -933,6 +986,7 @@ describe('session-replay-pipeline', () => {
                 overflowEnabled: true,
                 promiseScheduler,
                 teamService: mockTeamService,
+                retentionService,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -980,6 +1034,7 @@ describe('session-replay-pipeline', () => {
                 overflowEnabled: true,
                 promiseScheduler,
                 teamService: mockTeamService,
+                retentionService,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,
@@ -1010,8 +1065,13 @@ describe('session-replay-pipeline', () => {
             // Override parse headers to not include token in parsed headers, but still have it in message headers
             mockCreateParseHeadersStep.mockReturnValue(
                 (input: { message: Message; headers?: Record<string, string> }) => {
-                    // Return empty headers (no token)
-                    return Promise.resolve(ok({ ...input, headers: { token: 'test-token' } }))
+                    // session_id/distinct_id must be present (validate) and mirror the body (parse consistency check)
+                    return Promise.resolve(
+                        ok({
+                            ...input,
+                            headers: { token: 'test-token', session_id: 'session-1', distinct_id: 'user-123' },
+                        })
+                    )
                 }
             )
 
@@ -1021,6 +1081,7 @@ describe('session-replay-pipeline', () => {
                 overflowEnabled: true,
                 promiseScheduler,
                 teamService: mockTeamService,
+                retentionService,
                 topHog,
                 sessionBatchManager: mockSessionBatchManager,
                 isDebugLoggingEnabled,

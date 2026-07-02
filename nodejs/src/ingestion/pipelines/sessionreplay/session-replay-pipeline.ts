@@ -12,6 +12,7 @@ import { createBatch } from '~/ingestion/framework/helpers'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { SessionBatchManager } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-manager'
+import { RetentionService } from '~/ingestion/pipelines/sessionreplay/shared/retention/retention-service'
 import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/team-service'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { ValueMatcher } from '~/types'
@@ -19,7 +20,9 @@ import { ValueMatcher } from '~/types'
 import { createLibVersionMonitorStep } from './lib-version-monitor-step'
 import { createParseMessageStep } from './parse-message-step'
 import { createRecordSessionEventStep } from './record-session-event-step'
+import { createResolveRetentionStep } from './session-batch-resolve-retention-step'
 import { createTeamFilterStep } from './team-filter-step'
+import { createValidateSessionReplayHeadersStep } from './validate-headers-step'
 
 export interface SessionReplayPipelineInput {
     message: Message
@@ -36,6 +39,8 @@ export interface SessionReplayPipelineConfig {
     overflowEnabled: boolean
     promiseScheduler: PromiseScheduler
     teamService: TeamService
+    /** Resolves per-session retention before recording, so keys and storage route correctly */
+    retentionService: RetentionService
     /** TopHog registry for tracking metrics. */
     topHog: TopHogRegistry
     /** Session batch manager for recording sessions. */
@@ -69,6 +74,7 @@ export function createSessionReplayPipeline(
         overflowEnabled,
         promiseScheduler,
         teamService,
+        retentionService,
         topHog,
         sessionBatchManager,
         isDebugLoggingEnabled,
@@ -94,9 +100,19 @@ export function createSessionReplayPipeline(
                                 preservePartitionLocality: true, // Sessions must stay on the same partition
                             })
                         )
+                        // Validate the headers capture guarantees (DLQ if missing) and narrow the type
+                        .pipe(createValidateSessionReplayHeadersStep())
                         // Validate team ownership and enrich with team context
                         .pipe(createTeamFilterStep(teamService))
                 )
+                // Resolve retention for the whole batch in one call, before the message is parsed and
+                // recorded — keyed on the (validated) session_id header. Sessions with unresolvable
+                // retention are dropped before any parse or write.
+                .gather()
+                .pipeBatchWithRetry(createResolveRetentionStep(retentionService, sessionBatchManager), {
+                    tries: 3,
+                    sleepMs: 100,
+                })
                 // Map TeamForReplay.teamId to context.team.id for handleIngestionWarnings
                 .filterMap(
                     (element) => ({
@@ -123,7 +139,6 @@ export function createSessionReplayPipeline(
                                             )
                                             // Monitor library version and emit warnings for old versions
                                             .pipe(createLibVersionMonitorStep())
-                                            // Record to session batch
                                             .pipe(
                                                 topHogWrapper(
                                                     createRecordSessionEventStep({
@@ -167,9 +182,8 @@ export function createSessionReplayPipeline(
  * Every message ends the pipeline with a terminal result — OK (recorded), DROP, DLQ, or REDIRECT —
  * and each result still carries its source message in the context. Draining them here and taking the
  * max offset per partition is the single place Kafka progress is tracked: the recorder no longer
- * tracks offsets while recording, and a message dropped before it reaches the recorder (restrictions,
- * team filter, parse failure) still has its offset accounted for. The caller feeds the returned
- * offsets to the offset manager, which commits them on the next flush.
+ * tracks offsets while recording, and drop/dlq steps no longer have to remember to. The caller feeds
+ * the returned offsets to the offset manager, which commits them on the next flush.
  *
  * Relies on the pipeline draining the whole fed batch before it returns null, so every fed message
  * yields exactly one terminal result here.

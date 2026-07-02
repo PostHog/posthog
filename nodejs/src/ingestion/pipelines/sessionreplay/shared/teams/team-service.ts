@@ -1,7 +1,7 @@
 import { BackgroundRefresher } from '~/common/utils/background-refresher'
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { logger } from '~/common/utils/logger'
-import { RetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
+import { RetentionPeriod, isValidRetentionPeriod } from '~/ingestion/pipelines/sessionreplay/shared/constants'
 import { Team, TeamId } from '~/types'
 
 import { TeamServiceMetrics } from './metrics'
@@ -9,7 +9,8 @@ import { TeamForReplay } from './types'
 
 interface TeamServiceData {
     tokenMap: Record<string, TeamForReplay>
-    retentionMap: Record<TeamId, RetentionPeriod>
+    // The raw DB value; validated to a RetentionPeriod on read in getRetentionPeriodByTeamId.
+    retentionMap: Record<TeamId, string>
 }
 
 export class TeamService {
@@ -45,6 +46,12 @@ export class TeamService {
         if (retentionPeriod === undefined) {
             return null
         }
+        if (!isValidRetentionPeriod(retentionPeriod)) {
+            // A retention value the DB should never hold — crash rather than record with a wrong
+            // (or silently dropped) retention. Thrown without isRetriable so it is not retried into
+            // a DLQ but propagates and takes the consumer down.
+            throw new Error(`Invalid session_recording_retention_period '${retentionPeriod}' for team ${teamId}`)
+        }
 
         return retentionPeriod
     }
@@ -58,7 +65,7 @@ export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Pro
     const selectResult = await client.query<
         {
             capture_console_log_opt_in: boolean
-            session_recording_retention_period: RetentionPeriod
+            session_recording_retention_period: string
             is_ai_training_opted_in: boolean
         } & Pick<Team, 'id' | 'api_token'>
     >(
@@ -95,7 +102,7 @@ export async function fetchTeamTokensWithRecordings(client: PostgresRouter): Pro
             acc[row.id] = row.session_recording_retention_period
             return acc
         },
-        {} as Record<TeamId, RetentionPeriod>
+        {} as Record<TeamId, string>
     )
 
     TeamServiceMetrics.incrementRefreshCount()

@@ -5,6 +5,7 @@ import { gzip } from 'zlib'
 import { PipelineResultType } from '~/ingestion/framework/results'
 
 import { ParseMessageStepInput, createParseMessageStep } from './parse-message-step'
+import { SessionReplayHeaders } from './validate-headers-step'
 
 const compressWithGzip = promisify(gzip)
 
@@ -82,15 +83,23 @@ describe('createParseMessageStep', () => {
         return { ...message, ...overrides }
     }
 
+    // The validate step guarantees these before parse; they must mirror the message body's
+    // session_id/distinct_id or parse DLQs the message as inconsistent.
+    function createReplayHeaders(overrides: Partial<SessionReplayHeaders> = {}): SessionReplayHeaders {
+        return { token: 'test-token', session_id: 'session-1', distinct_id: 'user-123', ...overrides }
+    }
+
     function createInput(
         partition: number,
         offset: number,
         payload?: string,
         headers?: Record<string, string>,
-        overrides?: Partial<Message>
+        overrides?: Partial<Message>,
+        replayHeaders: SessionReplayHeaders = createReplayHeaders()
     ): ParseMessageStepInput {
         return {
             message: createMessage(partition, offset, payload, headers, overrides),
+            headers: replayHeaders,
         }
     }
 
@@ -205,7 +214,7 @@ describe('createParseMessageStep', () => {
             size: gzippedPayload.length,
         }
 
-        const result = await step({ message })
+        const result = await step({ message, headers: createReplayHeaders({ session_id: 'session-gzip' }) })
 
         expect(result.type).toBe(PipelineResultType.OK)
         if (result.type === PipelineResultType.OK) {
@@ -213,10 +222,10 @@ describe('createParseMessageStep', () => {
         }
     })
 
-    it('should extract token from headers', async () => {
+    it('should set token from the validated session replay headers', async () => {
         const step = createParseMessageStep()
         const payload = createValidSnapshotPayload('session-1')
-        const input = createInput(0, 1, payload, { token: 'my-team-token' })
+        const input = createInput(0, 1, payload, undefined, undefined, createReplayHeaders({ token: 'my-team-token' }))
 
         const result = await step(input)
 
@@ -226,16 +235,36 @@ describe('createParseMessageStep', () => {
         }
     })
 
-    it('should set token to null when not in headers', async () => {
+    it('DLQs when the header session_id does not match the message body', async () => {
         const step = createParseMessageStep()
         const payload = createValidSnapshotPayload('session-1')
-        const input = createInput(0, 1, payload)
+        const input = createInput(0, 1, payload, undefined, undefined, createReplayHeaders({ session_id: 'session-2' }))
 
         const result = await step(input)
 
-        expect(result.type).toBe(PipelineResultType.OK)
-        if (result.type === PipelineResultType.OK) {
-            expect(result.value.parsedMessage.token).toBeNull()
+        expect(result.type).toBe(PipelineResultType.DLQ)
+        if (result.type === PipelineResultType.DLQ) {
+            expect(result.reason).toBe('session_id_header_body_mismatch')
+        }
+    })
+
+    it('DLQs when the header distinct_id does not match the message body', async () => {
+        const step = createParseMessageStep()
+        const payload = createValidSnapshotPayload('session-1') // body distinct_id is user-123
+        const input = createInput(
+            0,
+            1,
+            payload,
+            undefined,
+            undefined,
+            createReplayHeaders({ distinct_id: 'someone-else' })
+        )
+
+        const result = await step(input)
+
+        expect(result.type).toBe(PipelineResultType.DLQ)
+        if (result.type === PipelineResultType.DLQ) {
+            expect(result.reason).toBe('distinct_id_header_body_mismatch')
         }
     })
 
@@ -298,7 +327,7 @@ describe('createParseMessageStep', () => {
             size: 5,
         }
 
-        const result = await step({ message })
+        const result = await step({ message, headers: createReplayHeaders() })
 
         expect(result.type).toBe(PipelineResultType.DLQ)
         if (result.type === PipelineResultType.DLQ) {
@@ -547,7 +576,15 @@ describe('createParseMessageStep', () => {
             ],
             distinctId: 'user-123',
         })
-        const input = createInput(0, 1, payload)
+        // The header id is already normalized by the validate step; the body carries the raw id.
+        const input = createInput(
+            0,
+            1,
+            payload,
+            undefined,
+            undefined,
+            createReplayHeaders({ session_id: expectedSessionId })
+        )
 
         const result = await step(input)
 
