@@ -78,7 +78,7 @@ function RecordingsIncluded({ observations }: { observations: readonly RunObserv
 
     return (
         <div className="flex flex-col gap-2">
-            <h3 className="m-0">Recordings included</h3>
+            <h3 className="m-0">Recordings included: {observations.length}</h3>
             <LemonTable columns={columns} dataSource={[...observations]} rowKey="id" />
         </div>
     )
