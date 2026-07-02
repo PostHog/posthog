@@ -11,7 +11,7 @@ import {
     KAFKA_SESSION_REPLAY_ML_BLOCK_METADATA,
 } from '~/common/config/kafka-topics'
 import { isDevEnv } from '~/common/utils/env-utils'
-import { INGESTION_DOWNSTREAM_PRODUCER, type IngestionDownstreamProducer } from '~/ingestion/common/producers'
+import { INGESTION_DOWNSTREAM_PRODUCER, type IngestionDownstreamProducer } from '~/ingestion/common/outputs/producers'
 import {
     INGESTION_SESSIONREPLAY_PRODUCER,
     type IngestionSessionreplayProducer,
