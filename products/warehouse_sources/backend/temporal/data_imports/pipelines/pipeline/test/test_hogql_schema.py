@@ -24,7 +24,7 @@ class TestHogQLSchemaJsonDetection:
 
     def test_json_detection_across_chunk_boundary(self):
         # First chunk all-null, JSON only in a later chunk: scan must cross chunks, not stop at [0].
-        column = pa.chunked_array([pa.array([None, None], pa.string()), pa.array(['{"a": 1}'], pa.string())])
+        column = pa.chunked_array([pa.array([None, None], type=pa.string()), pa.array(['{"a": 1}'], type=pa.string())])
         schema = HogQLSchema()
         schema.add_pyarrow_table(pa.table({"col": column}))
         assert schema.schema["col"] == "StringJSONDatabaseField"
