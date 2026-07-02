@@ -1,6 +1,7 @@
 import json
 import random
 from datetime import timedelta
+from pathlib import Path
 from typing import Any
 
 from django.utils.timezone import now
@@ -11,7 +12,6 @@ from posthog.constants import TREND_FILTER_TYPE_ACTIONS
 from posthog.models import Person, PropertyDefinition
 from posthog.models.filters.mixins.utils import cached_property
 from posthog.models.utils import UUIDT
-from posthog.utils import get_absolute_path
 
 from products.actions.backend.models.action import Action
 from products.dashboards.backend.models.dashboard import Dashboard
@@ -19,6 +19,9 @@ from products.dashboards.backend.models.dashboard_tile import DashboardTile
 from products.product_analytics.backend.models.insight import Insight
 
 from .data_generator import DataGenerator
+
+# JSON fixtures live in this directory, beside this module.
+_LEGACY_DATA_DIR = Path(__file__).resolve().parent
 
 SCREEN_OPTIONS = ("settings", "profile", "movies", "downloads")
 
@@ -210,10 +213,10 @@ class WebDataGenerator(DataGenerator):
 
     @cached_property
     def demo_data(self) -> list[dict[str, Any]]:
-        with open(get_absolute_path("demo/legacy/demo_people.json")) as demo_data_file:
+        with open(_LEGACY_DATA_DIR / "demo_people.json") as demo_data_file:
             return json.load(demo_data_file)
 
     @cached_property
     def demo_recording(self) -> dict[str, Any]:
-        with open(get_absolute_path("demo/legacy/hogflix_session_recording.json")) as demo_session_file:
+        with open(_LEGACY_DATA_DIR / "hogflix_session_recording.json") as demo_session_file:
             return json.load(demo_session_file)

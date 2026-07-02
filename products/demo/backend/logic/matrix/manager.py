@@ -9,17 +9,17 @@ from django.core import exceptions
 from django.db import transaction
 
 from posthog.clickhouse.client import sync_execute
-from posthog.demo.matrix.persons_db_sync import (
+from posthog.models import Organization, OrganizationMembership, Team, User
+from posthog.models.utils import UUIDT, generate_random_token_project
+
+from products.cohorts.backend.models.cohort import Cohort
+from products.demo.backend.logic.matrix.persons_db_sync import (
     bulk_create_group_type_mappings,
     copy_group_type_mappings,
     delete_group_type_mappings,
     sync_persons_to_postgres,
 )
-from posthog.demo.matrix.taxonomy_inference import infer_taxonomy_for_team
-from posthog.models import Organization, OrganizationMembership, Team, User
-from posthog.models.utils import UUIDT, generate_random_token_project
-
-from products.cohorts.backend.models.cohort import Cohort
+from products.demo.backend.logic.matrix.taxonomy_inference import infer_taxonomy_for_team
 
 from .matrix import Matrix
 from .models import SimEvent, SimPerson

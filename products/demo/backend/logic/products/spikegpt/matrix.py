@@ -1,6 +1,5 @@
-from posthog.demo.matrix.matrix import Cluster, Matrix
-
 from products.cohorts.backend.models.cohort import Cohort
+from products.demo.backend.logic.matrix.matrix import Cluster, Matrix
 
 from .models import SpikeGPTPerson
 
