@@ -128,14 +128,13 @@ tools:
             idempotent: true
         title: Add a view column description
         description: >
-            Add or replace a semantic description for a data-modelling view (saved query) or one of its
-            columns. Use this ONLY for views — rows where table_type = 'view' in
-            system.information_schema.tables. For imported/physical warehouse tables (table_type =
-            'data_warehouse') use warehouse-column-annotations-create instead. Core PostHog tables
-            (events, persons, groups, sessions; table_type = 'posthog') cannot be described. Provide the
-            saved_query id, the column_name (empty string for a view-level description), and the
-            description. The annotation is recorded as user-edited, which prevents automatic enrichment
-            from overwriting it. Calling this again for the same column replaces the existing description.
+            Add or replace a semantic description for a data-modelling view (saved query) or one of its columns. Use
+            this ONLY for views — rows where table_type = 'view' in system.information_schema.tables. For
+            imported/physical warehouse tables (table_type = 'data_warehouse') use warehouse-column-annotations-create
+            instead. Core PostHog tables (events, persons, groups, sessions; table_type = 'posthog') cannot be
+            described. Provide the saved_query id, the column_name (empty string for a view-level description), and the
+            description. The annotation is recorded as user-edited, which prevents automatic enrichment from overwriting
+            it. Calling this again for the same column replaces the existing description.
         param_overrides:
             column_name:
                 description: Column to describe. Use an empty string to describe the view itself.
@@ -154,12 +153,11 @@ tools:
         list: true
         title: List view column descriptions
         description: >
-            List semantic descriptions of data-modelling views (saved queries) and their columns. Use this
-            for views (table_type = 'view' in system.information_schema.tables); for physical warehouse
-            tables use warehouse-column-annotations-list. Pass ?saved_query_id=<uuid> to scope to one view.
-            Each entry has the column_name (empty string = view-level description), the description, and its
-            source (ai_generated or user_edited). Use this to see what a view's columns mean before writing
-            SQL against it.
+            List semantic descriptions of data-modelling views (saved queries) and their columns. Use this for views
+            (table_type = 'view' in system.information_schema.tables); for physical warehouse tables use
+            warehouse-column-annotations-list. Pass ?saved_query_id=<uuid> to scope to one view. Each entry has the
+            column_name (empty string = view-level description), the description, and its source (ai_generated or
+            user_edited). Use this to see what a view's columns mean before writing SQL against it.
     saved-query-column-annotations-partial-update:
         operation: saved_query_column_annotations_partial_update
         enabled: false
