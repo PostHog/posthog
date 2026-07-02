@@ -617,7 +617,10 @@ export const DashboardsPartialUpdateBody = /* @__PURE__ */ zod
                                                 }),
                                                 zod.null(),
                                             ])
-                                            .optional(),
+                                            .optional()
+                                            .describe(
+                                                "Date range scoping both the stats and recent responses. Omit or set to null for all time (the survey's full lifetime); otherwise set date_from to a preset such as -7d."
+                                            ),
                                         surveyId: zod
                                             .union([zod.string(), zod.null()])
                                             .optional()
@@ -1821,7 +1824,10 @@ export const DashboardsWidgetsBatchCreateBody = /* @__PURE__ */ zod
                                         }),
                                         zod.null(),
                                     ])
-                                    .optional(),
+                                    .optional()
+                                    .describe(
+                                        "Date range scoping both the stats and recent responses. Omit or set to null for all time (the survey's full lifetime); otherwise set date_from to a preset such as -7d."
+                                    ),
                                 surveyId: zod
                                     .union([zod.string(), zod.null()])
                                     .optional()
@@ -2520,7 +2526,10 @@ export const DashboardsUpdateWidgetsBatchBody = /* @__PURE__ */ zod
                                         }),
                                         zod.null(),
                                     ])
-                                    .optional(),
+                                    .optional()
+                                    .describe(
+                                        "Date range scoping both the stats and recent responses. Omit or set to null for all time (the survey's full lifetime); otherwise set date_from to a preset such as -7d."
+                                    ),
                                 surveyId: zod
                                     .union([zod.string(), zod.null()])
                                     .optional()

@@ -12,6 +12,7 @@ from products.dashboards.backend.constants import (
 from products.dashboards.backend.widget_specs.common import (
     ActivityWidgetLimit,
     LogsWidgetLimit,
+    WidgetDateRange,
     WidgetDateRangeConfigBase,
     WidgetLimit,
     WidgetListConfigBase,
@@ -123,6 +124,14 @@ class ExperimentResultsWidgetConfig(BaseModel):
 
 
 class SurveyResultsWidgetConfig(WidgetDateRangeConfigBase):
+    # Override only to document the survey-specific all-time semantics; the base validator still applies.
+    dateRange: WidgetDateRange | None = Field(
+        default=None,
+        description=(
+            "Date range scoping both the stats and recent responses. Omit or set to null for all time "
+            "(the survey's full lifetime); otherwise set date_from to a preset such as -7d."
+        ),
+    )
     surveyId: str | None = Field(
         default=None,
         description="Survey to show performance stats and recent responses for. Null until the user picks one.",
