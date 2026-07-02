@@ -412,6 +412,13 @@ def signal_task_followup_message(workflow_id: str, message: str | None, artifact
     asyncio.run(handle.signal("send_followup_message", args=[message, artifact_ids]))
 
 
+def signal_agent_text_delta(workflow_id: str, text: str) -> None:
+    """Push text into the live agent-design plan-block stream for a running task."""
+    client = sync_connect()
+    handle = client.get_workflow_handle(workflow_id)
+    asyncio.run(handle.signal("agent_text_delta", text))
+
+
 def execute_posthog_code_agent_relay_workflow(
     run_id: str,
     text: str,

@@ -9,9 +9,9 @@ backing library, so the algorithm/backend stays swappable.
 
 import threading
 
-from posthog.rate_limiting.backends import LimitsBackend
-from posthog.rate_limiting.observability import record_outbound_decision
-from posthog.rate_limiting.policies import Priority, RatePolicy, resolve_policy
+from posthog.egress.limiter.backends import LimitsBackend
+from posthog.egress.limiter.policies import Priority, RatePolicy, resolve_policy
+from posthog.egress.observability.observability import record_outbound_decision
 
 
 def _domain_of(key: str) -> str:

@@ -20,6 +20,7 @@ import type {
     EngineeringAnalyticsQuarantineParams,
     EngineeringAnalyticsWorkflowHealthParams,
     EngineeringAnalyticsWorkflowJobsParams,
+    EngineeringAnalyticsWorkflowRunActivityParams,
     EngineeringAnalyticsWorkflowRunParams,
     EngineeringAnalyticsWorkflowRunnerCostsParams,
     EngineeringAnalyticsWorkflowRunsParams,
@@ -32,6 +33,7 @@ import type {
     QuarantineRequestResultApi,
     WorkflowHealthItemApi,
     WorkflowJobApi,
+    WorkflowRunActivityApi,
     WorkflowRunDetailApi,
     WorkflowRunnerCostApi,
 } from './api.schemas'
@@ -391,6 +393,39 @@ export const engineeringAnalyticsWorkflowRun = async (
     options?: RequestInit
 ): Promise<WorkflowRunDetailApi> => {
     return apiMutator<WorkflowRunDetailApi>(getEngineeringAnalyticsWorkflowRunUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getEngineeringAnalyticsWorkflowRunActivityUrl = (
+    projectId: string,
+    params: EngineeringAnalyticsWorkflowRunActivityParams
+) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/engineering_analytics/workflow_run_activity/?${stringifiedParams}`
+        : `/api/projects/${projectId}/engineering_analytics/workflow_run_activity/`
+}
+
+/**
+ * Compact per-run points for a single workflow over a window (date_from default -30d), newest first, for the run-activity chart: each run's start time, duration, conclusion, branch, and attributed PR. Optionally scope to a single git branch via `branch`, matching workflow_runs. Leaner and higher-capped than workflow_runs so the chart spans the full window even on busy workflows; `truncated` is true when the cap is hit, so the chart covers only the most recent runs.
+ */
+export const engineeringAnalyticsWorkflowRunActivity = async (
+    projectId: string,
+    params: EngineeringAnalyticsWorkflowRunActivityParams,
+    options?: RequestInit
+): Promise<WorkflowRunActivityApi> => {
+    return apiMutator<WorkflowRunActivityApi>(getEngineeringAnalyticsWorkflowRunActivityUrl(projectId, params), {
         ...options,
         method: 'GET',
     })

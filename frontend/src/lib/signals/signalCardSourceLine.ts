@@ -1,7 +1,30 @@
 import { errorTrackingSignalHeaderLine } from './errorTracking'
 
+/**
+ * Prettifies a scout skill slug for display: strips the `signals-scout-` prefix, turns separators
+ * into spaces, and Sentence-cases the result (e.g. `signals-scout-error-tracking` → "Error tracking").
+ * Returns null for a bare `signals-scout` / empty slug so callers can fall back.
+ */
+export function scoutDisplayName(skillName: string | null | undefined): string | null {
+    if (!skillName) {
+        return null
+    }
+    const rest = skillName
+        .replace(/^signals-scout-?/, '')
+        .replace(/[-_]/g, ' ')
+        .trim()
+    if (!rest) {
+        return null
+    }
+    return rest.charAt(0).toUpperCase() + rest.slice(1)
+}
+
 /** Human-readable "Product · Signal type" line for inbox / debug signal cards. */
-export function signalCardSourceLine(signal: { source_product: string; source_type: string }): string {
+export function signalCardSourceLine(signal: {
+    source_product: string
+    source_type: string
+    extra?: Record<string, unknown>
+}): string {
     const { source_product, source_type } = signal
 
     if (source_product === 'error_tracking') {
@@ -41,7 +64,9 @@ export function signalCardSourceLine(signal: { source_product: string; source_ty
         return 'Health checks · Instrumentation issue'
     }
     if (source_product === 'signals_scout') {
-        return 'Scout · Cross-source finding'
+        const skillName = typeof signal.extra?.skill_name === 'string' ? signal.extra.skill_name : undefined
+        const name = scoutDisplayName(skillName)
+        return name ? `Scout · ${name}` : 'Scout · Cross-source finding'
     }
 
     const productLabel = source_product.replace(/_/g, ' ')

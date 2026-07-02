@@ -19,7 +19,7 @@ from limits import RateLimitItemPerSecond
 from limits.storage import MemoryStorage, RedisStorage
 from limits.strategies import SlidingWindowCounterRateLimiter
 
-from posthog.rate_limiting.policies import Priority, RateLimit, RatePolicy
+from posthog.egress.limiter.policies import Priority, RateLimit, RatePolicy
 from posthog.redis import get_client
 
 logger = structlog.get_logger(__name__)

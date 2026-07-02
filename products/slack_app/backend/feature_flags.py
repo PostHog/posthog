@@ -18,6 +18,7 @@ logger = structlog.get_logger(__name__)
 
 SLACK_APP_OAUTH_FLAG = "slack-app-oauth"
 SLACK_APP_HOME_FLAG = "slack-app-home"
+SLACK_APP_AGENT_DESIGN_FLAG = "slack-app-agent-design"
 
 
 def slack_oauth_link_enabled(integration: Integration, slack_team_id: str) -> bool:
@@ -55,6 +56,24 @@ def slack_oauth_link_enabled(integration: Integration, slack_team_id: str) -> bo
             slack_team_id=slack_team_id,
             integration_id=integration.id,
         )
+        return False
+
+
+def is_slack_app_agent_design_enabled(integration_id: int) -> bool:
+    """Fail-closed agent-design gate. Per-integration key + region targeting.
+    Local-only eval — see ``slack_oauth_link_enabled``."""
+    try:
+        return bool(
+            posthoganalytics.feature_enabled(
+                SLACK_APP_AGENT_DESIGN_FLAG,
+                f"slack_integration:{integration_id}",
+                person_properties={"region": get_instance_region() or "unknown"},
+                only_evaluate_locally=True,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception:
+        logger.exception("slack_app_agent_design_feature_flag_check_failed", integration_id=integration_id)
         return False
 
 
