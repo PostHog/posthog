@@ -5,6 +5,7 @@ import { dimensions } from '../../../testing/jsdom'
 import {
     barContainsPoint,
     barContainsPointOnBandAxis,
+    cursorInInertTrackGap,
     cursorOutsideBarFillExtent,
     findVisibleStackedSegment,
     groupedBandSlotAtCursor,
@@ -197,5 +198,45 @@ describe('groupedBandSlotAtCursor', () => {
     it('returns undefined when there is no group scale (non-grouped layout)', () => {
         const stacked = createBarScales(series, labels, dimensions, { barLayout: 'stacked' })
         expect(groupedBandSlotAtCursor(stacked, 'x', start)).toBeUndefined()
+    })
+})
+
+describe('cursorInInertTrackGap', () => {
+    const labels = ['x']
+    // `a` is the tallest (domain max, uncapped); `b` fills to 20 with its track capped at 60, so above
+    // 60 is the blank volume gap (funnel compare) and 20–60 is ordinary drop-off; `c` is short and
+    // uncapped, so its track spans the whole axis.
+    const series: Series[] = [
+        { key: 'a', label: 'A', data: [100] },
+        { key: 'b', label: 'B', data: [20], trackData: [60] },
+        { key: 'c', label: 'C', data: [30] },
+    ]
+    const scales = createBarScales(series, labels, dimensions, { barLayout: 'grouped', axisOrientation: 'vertical' })
+    const subBandCenterX = (key: string): number =>
+        scales.band('x')! + scales.group!(key)! + scales.group!.bandwidth() / 2
+
+    const inGap = (key: string, value: number, layout: 'grouped' | 'stacked' = 'grouped'): boolean =>
+        cursorInInertTrackGap({
+            series,
+            label: 'x',
+            dataIndex: 0,
+            scales,
+            layout,
+            isHorizontal: false,
+            topStackedKeyByAxis: new Map(),
+            cursor: { x: subBandCenterX(key), y: scales.value(value) },
+        })
+
+    it.each<[string, string, number, boolean]>([
+        ['above a capped ceiling (the blank volume gap)', 'b', 80, true],
+        ['in the drop-off band below the ceiling', 'b', 40, false],
+        ['inside the bar fill', 'b', 10, false],
+        ['above an uncapped bar (track spans the axis)', 'c', 80, false],
+    ])('%s', (_desc, key, value, expected) => {
+        expect(inGap(key, value)).toBe(expected)
+    })
+
+    it('is false for non-grouped layouts (no capped track)', () => {
+        expect(inGap('b', 80, 'stacked')).toBe(false)
     })
 })

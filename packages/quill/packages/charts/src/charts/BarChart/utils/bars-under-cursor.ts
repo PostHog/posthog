@@ -116,6 +116,35 @@ export function* barsAtCursor<S extends Pick<Series, 'key' | 'visibility' | 'yAx
     }
 }
 
+/** True when the cursor sits in a grouped bar's inert volume gap — lined up on the band axis with a bar
+ *  whose capped `trackData` ceiling it has passed (a funnel compare period's blank space above its
+ *  track). Such a position takes no hover, tooltip, highlight, or click. Non-grouped layouts, and bars
+ *  whose track spans the full axis, are never a gap. */
+export function cursorInInertTrackGap(
+    args: Omit<BarsAtCursorArgs, 'series'> & {
+        // `trackData` beyond the base pick so the ceiling check sees each series' cap.
+        series: readonly Pick<Series, 'key' | 'visibility' | 'yAxisId' | 'data' | 'trackData'>[]
+        cursor: { x: number; y: number }
+    }
+): boolean {
+    const { cursor, isHorizontal, layout, scales } = args
+    if (layout !== 'grouped') {
+        return false
+    }
+    for (const { series: s, bar } of barsAtCursor(args)) {
+        if (!barContainsPointOnBandAxis(bar, cursor, isHorizontal)) {
+            continue
+        }
+        // The cursor lines up with this bar's column — it's in the gap only when it's both outside the
+        // bar's own fill and beyond that bar's track ceiling.
+        return (
+            cursorOutsideBarFillExtent(bar, cursor, isHorizontal) &&
+            cursorBeyondTrackCeiling(s, bar, scales, cursor, isHorizontal)
+        )
+    }
+    return false
+}
+
 export interface ResolveBarsAtCursorResult {
     /** Series keys whose bar slot contains the cursor on the band axis (every stacked segment). */
     hits: Set<string>
