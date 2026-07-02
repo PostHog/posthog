@@ -177,6 +177,7 @@ the row lists both.
 | incident_io             | HTTP                        | requests                                                        | ✅                          |
 | insightly               | HTTP                        | requests                                                        | ✅                          |
 | intercom                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| ip2whois                | HTTP                        | requests                                                        | ✅                          |
 | iterable                | HTTP                        | requests                                                        | ✅                          |
 | jira                    | HTTP                        | requests                                                        | ✅                          |
 | jotform                 | HTTP                        | requests                                                        | ✅                          |
@@ -473,7 +474,6 @@ doesn't conflict with concurrent PRs.
 - intruder
 - invoiced
 - invoiceninja
-- ip2whois
 - jamf_pro
 - jobber
 - jobnimbus

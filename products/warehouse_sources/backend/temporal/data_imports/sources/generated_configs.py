@@ -1574,7 +1574,8 @@ class HuntrSourceConfig(config.Config):
 
 @config.config
 class IP2WhoisSourceConfig(config.Config):
-    pass
+    api_key: str
+    domains: str
 
 
 @config.config
