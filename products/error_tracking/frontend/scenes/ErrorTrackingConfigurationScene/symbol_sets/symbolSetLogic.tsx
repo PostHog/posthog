@@ -1,5 +1,6 @@
 import { actions, afterMount, defaults, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
+import { urlToAction } from 'kea-router'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
@@ -121,6 +122,17 @@ export const symbolSetLogic = kea<symbolSetLogicType>([
         setSearchQuery: async (_, breakpoint) => {
             await breakpoint(300)
             actions.loadSymbolSets()
+        },
+    })),
+
+    urlToAction(({ actions, values }) => ({
+        // Deep-links from stack-frame warnings carry the frame's symbol set ref so the list lands
+        // pre-filtered on the set behind the frame the user was looking at.
+        '**/error_tracking': (_, searchParams) => {
+            const ref = searchParams.symbolSetRef
+            if (typeof ref === 'string' && ref.length > 0 && ref !== values.searchQuery) {
+                actions.setSearchQuery(ref)
+            }
         },
     })),
 

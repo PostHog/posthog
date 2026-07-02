@@ -6,10 +6,12 @@ import { useEffect, useRef } from 'react'
 import { P, match } from 'ts-pattern'
 
 import { IconBox, IconEllipsis, IconSpinner, IconWarning } from '@posthog/icons'
-import { Tooltip } from '@posthog/lemon-ui'
+import { Link, Tooltip } from '@posthog/lemon-ui'
 
 import { Collapsible } from 'lib/ui/Collapsible/Collapsible'
 import { cn } from 'lib/utils/css-classes'
+
+import { errorTrackingSymbolSetUrl } from 'products/error_tracking/frontend/scenes/ErrorTrackingScene/tabs/recommendations/configurationSettingUrl'
 
 import { errorPropertiesLogic } from '../errorPropertiesLogic'
 import { FingerprintRecordPartDisplay } from '../FingerprintRecordPartDisplay'
@@ -78,7 +80,9 @@ export function CollapsibleFrameHeader({
                         .with([false, P.any, P.any, P.any], () => <VendorIcon />)
                         .with([true, false, P.any, P.any], () => <UnresolvedIcon resolve_failure={resolve_failure} />)
                         .with([true, true, true, false], () => <SpinnerIcon />)
-                        .with([true, true, false, false], () => <NoContextIcon lang={lang} raw_id={raw_id} />)
+                        .with([true, true, false, false], () => (
+                            <NoContextIcon lang={lang} raw_id={raw_id} symbolSetRef={record?.symbol_set_ref} />
+                        ))
                         .otherwise(() => null)}
                 </div>
             </Collapsible.Trigger>
@@ -91,22 +95,39 @@ export function CollapsibleFrameHeader({
     )
 }
 
-function NoContextIcon({ lang, raw_id }: { lang: string; raw_id: string }): JSX.Element {
+function NoContextIcon({
+    lang,
+    raw_id,
+    symbolSetRef,
+}: {
+    lang: string
+    raw_id: string
+    symbolSetRef?: string
+}): JSX.Element {
     useEffect(() => {
         posthog.capture('error_tracking_frame_missing_content', {
             lang,
             raw_id,
+            symbol_set_ref: symbolSetRef,
         })
-    }, [raw_id, lang])
+    }, [raw_id, lang, symbolSetRef])
 
     return (
         <Tooltip
+            interactive
             title={
                 <>
-                    <h5>Missing Context</h5>
-                    <p>Frame is resolved but source code is not available.</p>
+                    <h5>Missing context</h5>
+                    <p>
+                        This frame was symbolicated, but its symbol set doesn't include the original source, so the code
+                        can't be shown. Re-upload the source map with the source contents included.
+                    </p>
+                    <Link to={errorTrackingSymbolSetUrl(symbolSetRef)}>
+                        {symbolSetRef ? 'View symbol set' : 'View symbol sets'}
+                    </Link>
                 </>
             }
+            docLink="https://posthog.com/docs/error-tracking/upload-source-maps"
         >
             <IconWarning className="text-red-500" fontSize={15} />
         </Tooltip>
@@ -132,6 +153,7 @@ function VendorIcon(): JSX.Element {
 function UnresolvedIcon({ resolve_failure }: { resolve_failure: string | null }): JSX.Element {
     return (
         <Tooltip
+            interactive
             title={
                 <>
                     <h5>Unresolved frame</h5>
@@ -140,6 +162,7 @@ function UnresolvedIcon({ resolve_failure }: { resolve_failure: string | null })
                         information.
                     </p>
                     <p className="text-xs text-secondary">{resolve_failure}</p>
+                    <Link to={errorTrackingSymbolSetUrl()}>Manage symbol sets</Link>
                 </>
             }
             docLink="https://posthog.com/docs/error-tracking/upload-source-maps"
