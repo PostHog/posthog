@@ -42,6 +42,10 @@ logger = structlog.get_logger(__name__)
 SYNTHESIS_MODEL = ScannerModel.GEMINI_3_FLASH.value
 # Cap how many observations feed one group summary — bounds context size and cost.
 MAX_OBSERVATIONS = 100
+# Upper bound on how many ids the sampling path pulls into memory. A very busy window (the case the
+# cap guards against) samples across its newest SAMPLE_SCAN_LIMIT observations rather than every row,
+# so this activity can't materialize an unbounded id list.
+SAMPLE_SCAN_LIMIT = 10_000
 # Stay comfortably under Slack's ~40k message-text limit; truncate the tail if a report runs long.
 SLACK_TEXT_MAX = 38_000
 
@@ -182,20 +186,24 @@ def _fetch_observations(team: Team, action: VisionAction, run: VisionActionRun) 
 
     # Cap how many observations feed the summary (bounds context size + LLM cost). Per-action, tunable
     # via Django admin; falls back to the module default. Fast path: one query fetches the newest `cap`
-    # rows. If it returns exactly `cap`, the window may hold more — only then scan all ids and sample
-    # evenly across it by recency rank, so a busy window reflects the whole period, not just its newest
-    # slice. Under the cap (the common case) this stays a single query.
+    # rows. If it returns exactly `cap`, the window may hold more — only then scan ids and sample evenly
+    # across them by recency rank, so a busy window reflects the period rather than just its newest slice.
+    # Under the cap (the common case) this stays a single query. `-id` breaks created_at ties (observations
+    # are often bulk-created with identical timestamps, which Postgres would otherwise order arbitrarily)
+    # so the slice, the sample, and the persisted observation_ids are stable run-to-run.
     cap = action.max_observations or MAX_OBSERVATIONS
-    ordered = observations_qs.order_by("-created_at")
+    ordered = observations_qs.order_by("-created_at", "-id")
     rows = list(ordered.values_list("id", "scanner_result", "created_at")[:cap])
     if len(rows) == cap:
-        ids = list(ordered.values_list("id", flat=True))
+        # Bound the scan so the guarded-against busy window can't pull an unbounded id list into memory;
+        # a window larger than SAMPLE_SCAN_LIMIT samples across its newest slice.
+        ids = list(ordered.values_list("id", flat=True)[:SAMPLE_SCAN_LIMIT])
         if len(ids) > cap:
             step = len(ids) / cap
             selected = {ids[int(i * step)] for i in range(cap)}
             rows = list(
                 observations_qs.filter(id__in=selected)
-                .order_by("-created_at")
+                .order_by("-created_at", "-id")
                 .values_list("id", "scanner_result", "created_at")
             )
 

@@ -175,6 +175,29 @@ class TestVisionActionSynthesis(BaseTest):
         run.refresh_from_db()
         self.assertEqual(run.observation_ids, [str(obs[0].id), str(obs[3].id), str(obs[6].id)])
 
+    def test_sample_is_deterministic_when_timestamps_tie(self) -> None:
+        # Observations are often bulk-created with identical created_at; without an `-id` tiebreaker
+        # Postgres orders ties arbitrarily and the sampled set (and persisted observation_ids) can drift
+        # run-to-run. With the tiebreak, the window is ordered by (-created_at, -id), so the sample is
+        # stable and predictable. Random UUIDs mean id-desc order differs from insertion order — asserting
+        # the id-desc picks fails if the tiebreak is dropped.
+        tied_at = datetime.now(UTC) - timedelta(hours=1)
+        obs = []
+        for i in range(6):
+            o = self._observation(f"obs {i}", session_id=f"s{i}")
+            ReplayObservation.objects.filter(pk=o.pk).update(created_at=tied_at)
+            obs.append(o)
+        action = self._action(max_observations=3)
+        run = self._run_for(action)
+
+        result = self._synthesize(action, run)
+
+        self.assertEqual(result.observation_count, 3)
+        # Ordered by -id (created_at all equal); stride 6/3=2 picks ranks 0, 2, 4 of that order.
+        by_id_desc = sorted((str(o.id) for o in obs), reverse=True)
+        run.refresh_from_db()
+        self.assertEqual(run.observation_ids, [by_id_desc[0], by_id_desc[2], by_id_desc[4]])
+
     def test_empty_model_output_skips_without_persisting(self) -> None:
         # An empty generation must not persist synthesized_markdown="" — that would read as "not done"
         # to the idempotency guard and re-bill the LLM on every retry.
