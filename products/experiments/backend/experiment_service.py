@@ -888,15 +888,40 @@ class ExperimentService:
             self._sync_saved_metrics(experiment, saved_metrics_ids, serializer_context)
 
         self._validate_metric_ordering_on_create(experiment)
-        self._report_experiment_created(
-            experiment,
-            serializer_context=serializer_context,
-            event_source=event_source,
-            allow_unknown_events=allow_unknown_events,
-            creation_mode=creation_mode,
+        # Defer the analytics capture until after commit so create_experiment's @transaction.atomic
+        # doesn't hold posthog_experiment / posthog_filesystem locks open across an external SDK call.
+        transaction.on_commit(
+            lambda: self._report_experiment_created_safe(
+                experiment,
+                serializer_context=serializer_context,
+                event_source=event_source,
+                allow_unknown_events=allow_unknown_events,
+                creation_mode=creation_mode,
+            )
         )
 
         return experiment
+
+    def _report_experiment_created_safe(
+        self,
+        experiment: Experiment,
+        *,
+        serializer_context: dict | None,
+        event_source: EventSource | None,
+        allow_unknown_events: bool,
+        creation_mode: ExperimentCreationMode,
+    ) -> None:
+        # Post-commit: the experiment is already persisted, so analytics failures must not break the request.
+        try:
+            self._report_experiment_created(
+                experiment,
+                serializer_context=serializer_context,
+                event_source=event_source,
+                allow_unknown_events=allow_unknown_events,
+                creation_mode=creation_mode,
+            )
+        except Exception:
+            logger.exception("experiment_created_analytics_failed", experiment_id=experiment.id)
 
     # ------------------------------------------------------------------
     # Private helpers

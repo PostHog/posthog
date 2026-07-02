@@ -42,7 +42,6 @@ pytestmark = [
 @pytest.mark.parametrize("interval", ["hour", "day"], indirect=True)
 @pytest.mark.parametrize("exclude_events", [None, ["test-exclude"]], indirect=True)
 @pytest.mark.parametrize("model", TEST_MODELS)
-@pytest.mark.parametrize("integration", [True, False], indirect=True)
 async def test_postgres_export_workflow(
     clickhouse_client,
     postgres_config,
@@ -56,7 +55,6 @@ async def test_postgres_export_workflow(
     generate_test_data,
     data_interval_start,
     data_interval_end,
-    integration,
 ):
     """Test Postgres Export Workflow end-to-end by using a local PG database.
 
@@ -77,13 +75,7 @@ async def test_postgres_export_workflow(
     elif model is not None:
         batch_export_schema = model
 
-    if integration is not None:
-        config = postgres_batch_export.destination.config.copy()
-        for conn_param in ("host", "port", "user", "password"):
-            # These should be present in the integration, so drop them to confirm
-            config.pop(conn_param)
-    else:
-        config = postgres_batch_export.destination.config
+    config = postgres_batch_export.destination.config
 
     workflow_id = str(uuid.uuid4())
     inputs = PostgresBatchExportInputs(
@@ -93,7 +85,6 @@ async def test_postgres_export_workflow(
         interval=interval,
         batch_export_schema=batch_export_schema,
         batch_export_model=batch_export_model,
-        integration_id=integration.id if integration is not None else None,
         **config,
     )
 
@@ -153,6 +144,89 @@ async def test_postgres_export_workflow(
         batch_export_model=model,
         exclude_events=exclude_events,
         sort_key=sort_key,
+    )
+
+
+@pytest.mark.parametrize("interval", ["hour"], indirect=True)
+@pytest.mark.parametrize("exclude_events", [None], indirect=True)
+@pytest.mark.parametrize("model", [BatchExportModel(name="events", schema=None)])
+@pytest.mark.parametrize("integration", [True], indirect=True)
+async def test_postgres_export_workflow_with_integration(
+    clickhouse_client,
+    postgres_config,
+    postgres_connection,
+    postgres_batch_export,
+    interval,
+    exclude_events,
+    ateam,
+    table_name,
+    model: BatchExportModel | None,
+    generate_test_data,
+    data_interval_start,
+    data_interval_end,
+    integration,
+):
+    """Test the workflow resolves destination connection params from an Integration end-to-end.
+
+    The connection params are dropped from the inline config and only reachable via the
+    integration, so a successful export proves the workflow plumbs ``integration_id`` through
+    to the insert activity (which is exercised across models in ``test_activity``).
+    """
+    assert integration is not None
+    config = postgres_batch_export.destination.config.copy()
+    for conn_param in ("host", "port", "user", "password"):
+        # These should be present in the integration, so drop them to confirm
+        config.pop(conn_param)
+
+    workflow_id = str(uuid.uuid4())
+    inputs = PostgresBatchExportInputs(
+        team_id=ateam.pk,
+        batch_export_id=str(postgres_batch_export.id),
+        data_interval_end=data_interval_end.isoformat(),
+        interval=interval,
+        batch_export_model=model,
+        integration_id=integration.id,
+        **config,
+    )
+
+    async with await WorkflowEnvironment.start_time_skipping() as activity_environment:
+        async with Worker(
+            activity_environment.client,
+            task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+            workflows=[PostgresBatchExportWorkflow],
+            activities=[
+                start_batch_export_run,
+                insert_into_internal_stage_activity,
+                insert_into_postgres_activity_from_stage,
+                finish_batch_export_run,
+            ],
+            workflow_runner=UnsandboxedWorkflowRunner(),
+        ):
+            with override_settings(BATCH_EXPORT_POSTGRES_UPLOAD_CHUNK_SIZE_BYTES=5 * 1024**2):
+                await activity_environment.client.execute_workflow(
+                    PostgresBatchExportWorkflow.run,
+                    inputs,
+                    id=workflow_id,
+                    task_queue=settings.BATCH_EXPORTS_TASK_QUEUE,
+                    retry_policy=RetryPolicy(maximum_attempts=1),
+                    execution_timeout=dt.timedelta(seconds=10),
+                )
+
+    runs = await afetch_batch_export_runs(batch_export_id=postgres_batch_export.id)
+    assert len(runs) == 1
+    assert runs[0].status == "Completed"
+
+    await assert_clickhouse_records_in_postgres(
+        postgres_connection=postgres_connection,
+        clickhouse_client=clickhouse_client,
+        schema_name=postgres_config["schema"],
+        table_name=table_name,
+        team_id=ateam.pk,
+        data_interval_start=data_interval_start,
+        data_interval_end=data_interval_end,
+        batch_export_model=model,
+        exclude_events=exclude_events,
+        sort_key="event",
     )
 
 
