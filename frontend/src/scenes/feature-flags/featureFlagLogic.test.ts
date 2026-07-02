@@ -403,6 +403,25 @@ describe('featureFlagLogic', () => {
             // that await (navigating away, or the auto-apply from a ?template= param racing a fast
             // unmount) must not touch a store path that no longer exists — that used to throw
             // "Can not find path ... in the store" and surface as an unhandled rejection.
+            useMocks({
+                get: {
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/2/`]: () => [
+                        200,
+                        { ...MOCK_FEATURE_FLAG, id: 2 },
+                    ],
+                    [`/api/projects/${MOCK_DEFAULT_PROJECT.id}/feature_flags/2/status`]: () => [
+                        200,
+                        MOCK_FEATURE_FLAG_STATUS,
+                    ],
+                },
+            })
+
+            // A dedicated instance so unmounting it (below) doesn't disturb the shared `logic`.
+            const raceLogic = featureFlagLogic({ id: 2 })
+            raceLogic.mount()
+            // Drain the on-mount loaders now so nothing async is left dangling after we unmount.
+            await expectLogic(raceLogic).toFinishAllListeners()
+
             let resolveRelease: (
                 value: defaultReleaseConditionsModule.DefaultReleaseConditionsResponse | null
             ) => void = () => {}
@@ -423,8 +442,8 @@ describe('featureFlagLogic', () => {
 
             try {
                 // Listener parks on the pending release conditions, then we navigate away.
-                logic.actions.applyTemplate('targeted')
-                logic.unmount()
+                raceLogic.actions.applyTemplate('targeted')
+                raceLogic.unmount()
 
                 // Resuming after unmount must bail instead of reading values.featureFlag.
                 resolveRelease(null)
@@ -433,8 +452,6 @@ describe('featureFlagLogic', () => {
             } finally {
                 process.off('unhandledRejection', onRejection)
                 spy.mockRestore()
-                // Re-balance the mount count consumed above so afterEach's unmount stays paired.
-                logic.mount()
             }
 
             expect(rejections).toEqual([])
