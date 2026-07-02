@@ -1,7 +1,7 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { IconArrowLeft, IconPlus } from '@posthog/icons'
-import { LemonButton } from '@posthog/lemon-ui'
+import { IconArrowLeft } from '@posthog/icons'
+import { LemonButton, LemonDivider } from '@posthog/lemon-ui'
 
 import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
 
@@ -32,7 +32,7 @@ export function SidePanelRunnerImpl({ panelId }: SidePanelRunnerImplProps): JSX.
 
 function SidePanelRunnerContent(): JSX.Element {
     const { activeCreation, historyExpanded } = useValues(taskTrackerSceneLogic)
-    const { clearActiveCreation, toggleHistory, updateActiveCreationRun } = useActions(taskTrackerSceneLogic)
+    const { toggleHistory, updateActiveCreationRun } = useActions(taskTrackerSceneLogic)
 
     if (!activeCreation && historyExpanded) {
         return (
@@ -66,11 +66,7 @@ function SidePanelRunnerContent(): JSX.Element {
 
     return (
         <div className="flex flex-col h-full min-h-0">
-            <div className="flex items-center justify-end shrink-0 border-b border-primary px-2 py-1">
-                <LemonButton size="small" icon={<IconPlus />} onClick={() => clearActiveCreation()}>
-                    New task
-                </LemonButton>
-            </div>
+            <LemonDivider className="my-0" />
             {activeCreation.taskId && activeCreation.runId ? (
                 // `TaskRunChat`'s inner container compensates for the `/tasks` scene's own horizontal margin
                 // with `-mx-4`; a `px-4` wrapper here neutralizes that bleed instead of editing the shared

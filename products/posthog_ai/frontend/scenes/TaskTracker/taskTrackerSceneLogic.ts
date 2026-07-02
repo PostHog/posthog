@@ -16,11 +16,14 @@ import {
 import { runStreamLogic } from '../../api/logics'
 import type { SuggestionGroup, SuggestionItem } from '../../api/primitives'
 import { DEFAULT_HEADLINES, pickHeadline } from '../../api/primitives'
+import { runnerPanelLogic } from '../../logics/runnerPanelLogic'
 import { tasksLogic } from '../../logics/tasksLogic'
 import type { RepositoryConfig, Task } from '../../types/taskTypes'
 import { OriginProduct, TaskUpsertProps } from '../../types/taskTypes'
 import { DEFAULT_COMPOSER_EFFORT, DEFAULT_COMPOSER_MODEL, resolveEffortForModel } from '../../utils/composerModels'
 import type { taskTrackerSceneLogicType } from './taskTrackerSceneLogicType'
+
+export type { ActiveCreation } from '../../logics/runnerPanelLogic'
 
 export interface TaskCreateForm {
     description: string
@@ -32,15 +35,6 @@ export interface TaskCreateForm {
 // The slice of the repo picker we remember across visits. Branch is deliberately excluded — on restore we
 // want the branch picker to re-derive the repo's actual default branch (from the GitHub API), not pin a stale one.
 export type PersistedRepositoryConfig = Pick<RepositoryConfig, 'integrationId' | 'repository'>
-
-// The optimistic run opened on send, before the task/run exist. `streamKey` is the client key the pending
-// `RunSurface` (and its seeded `runStreamLogic`) bind to; `taskId`/`runId` are filled once known (reserved
-// for a future zero-flash in-place handoff — today the scene navigates to the detail page once the run exists).
-export interface ActiveCreation {
-    streamKey: string
-    taskId?: string
-    runId?: string
-}
 
 // `panelId` is set only by an embedded instance (e.g. Max's side panel runner), which mounts this logic
 // under its own key rather than the scene's default singleton. Embedded instances stay in place on submit
@@ -70,9 +64,18 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
     // only an embedded caller that passes `panelId` gets its own instance.
     key((props) => props.panelId ?? 'scene'),
 
-    connect(() => ({
-        values: [tasksLogic, ['tasks', 'repositories', 'taskListParams'], integrationsLogic, ['integrations']],
+    connect((props: TaskTrackerSceneLogicProps) => ({
+        values: [
+            runnerPanelLogic(props),
+            ['activeCreation', 'historyExpanded'],
+            tasksLogic,
+            ['tasks', 'repositories', 'taskListParams'],
+            integrationsLogic,
+            ['integrations'],
+        ],
         actions: [
+            runnerPanelLogic(props),
+            ['setActiveCreation', 'clearActiveCreation', 'toggleHistory', 'setHistoryExpanded'],
             tasksLogic,
             ['loadTasks', 'loadRepositories', 'deleteTask'],
             integrationsLogic,
@@ -91,14 +94,10 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         applySuggestion: (item: SuggestionItem) => ({ item }),
         setHeadline: (headline: string) => ({ headline }),
         setPersistedRepositoryConfig: (config: PersistedRepositoryConfig) => ({ config }),
-        setActiveCreation: (creation: ActiveCreation) => ({ creation }),
-        clearActiveCreation: true,
         openExistingTask: (task: Task) => ({ task }),
         // Re-points the panel at a fresh run started from the composer on a reopened terminal task
         // (the run surface's own re-pointing targets the detail scene, which the panel doesn't render).
         updateActiveCreationRun: (runId: string) => ({ runId }),
-        toggleHistory: true,
-        setHistoryExpanded: (expanded: boolean) => ({ expanded }),
     }),
 
     reducers({
@@ -139,26 +138,6 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             DEFAULT_HEADLINES[0],
             {
                 setHeadline: (_, { headline }) => headline,
-            },
-        ],
-        // The in-flight optimistic create. While set (and no task is selected) the scene shows the pending
-        // run thread instead of the composer.
-        activeCreation: [
-            null as ActiveCreation | null,
-            {
-                setActiveCreation: (_, { creation }) => creation,
-                clearActiveCreation: () => null,
-            },
-        ],
-        // Whether the panel is showing the full task history list instead of the composer/run. Reset
-        // whenever a run takes over the panel, so returning to the composer never reopens stale history.
-        historyExpanded: [
-            false,
-            {
-                toggleHistory: (state) => !state,
-                setHistoryExpanded: (_, { expanded }) => expanded,
-                clearActiveCreation: () => false,
-                openExistingTask: () => false,
             },
         ],
     }),
@@ -306,6 +285,9 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 return
             }
             // Never-ran task (rare for this panel's posthog_ai origin) — fall back to the full detail page.
+            // No `setActiveCreation` on this branch, so collapse history explicitly (the runnerPanelLogic
+            // listener that normally does this only fires off that action).
+            actions.setHistoryExpanded(false)
             router.actions.push(`/tasks/${task.id}`)
         },
         updateActiveCreationRun: ({ runId }) => {

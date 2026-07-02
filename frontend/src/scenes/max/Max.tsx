@@ -27,10 +27,12 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { SidePanelTab } from '~/types'
 
+import { runnerPanelLogic } from 'products/posthog_ai/frontend/api/logics'
+
 import { AiFirstMaxInstance } from './components/AiFirstMaxInstance'
 import { AnimatedBackButton } from './components/AnimatedBackButton'
 import { MaxNotConfigured } from './components/MaxNotConfigured'
-import { PhaiSidePanelChat } from './components/PhaiSidePanelChat'
+import { MAX_SIDE_PANEL_ID, PhaiSidePanelChat } from './components/PhaiSidePanelChat'
 import { PhaiViewToggle } from './components/PhaiViewToggle'
 import { SidebarQuestionInput } from './components/SidebarQuestionInput'
 import { SidebarQuestionInputWithSuggestions } from './components/SidebarQuestionInputWithSuggestions'
@@ -99,6 +101,11 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
     const { startNewConversation, goBack } = useActions(maxLogic(logicProps))
     const { openSidePanelMax } = useActions(maxGlobalLogic)
     const { isMaxAvailable, effectivePhaiView } = useValues(maxGlobalLogic)
+    // The new posthog_ai view's back button walks its own panel view state (run -> history -> composer)
+    // rather than legacy Max's conversation stack — mounting this tiny headless logic in legacy view is
+    // harmless (unconditional hooks).
+    const { canGoBack: panelCanGoBack } = useValues(runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }))
+    const { goBack: panelGoBack } = useActions(runnerPanelLogic({ panelId: MAX_SIDE_PANEL_ID }))
 
     const threadProps: MaxThreadLogicProps = {
         ...logicProps,
@@ -107,6 +114,9 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
     }
 
     const { closeSidePanel } = useActions(sidePanelLogic)
+
+    const isNewView = effectivePhaiView === 'new'
+    const headerBackDisabled = isNewView ? !panelCanGoBack : backButtonDisabled
 
     const content = !isMaxAvailable ? (
         <MaxNotConfigured />
@@ -165,13 +175,13 @@ export const MaxInstance = React.memo(function MaxInstance({ sidePanel, tabId }:
         <SidePanelPaneHeader className="transition-all duration-200" showCloseButton={false}>
             <div className="flex flex-1 min-w-0 overflow-hidden">
                 <div className="flex items-center flex-1 min-w-0">
-                    <AnimatedBackButton in={!backButtonDisabled}>
+                    <AnimatedBackButton in={isNewView ? panelCanGoBack : !backButtonDisabled}>
                         <ButtonPrimitive
                             iconOnly
-                            onClick={() => goBack()}
+                            onClick={() => (isNewView ? panelGoBack() : goBack())}
                             tooltip="Go back"
                             tooltipPlacement="bottom-end"
-                            disabledReasons={backButtonDisabled ? { 'You are already at home': true } : undefined}
+                            disabledReasons={headerBackDisabled ? { 'You are already at home': true } : undefined}
                         >
                             <IconChevronLeft className="text-tertiary size-3 group-hover:text-primary z-10" />
                         </ButtonPrimitive>
