@@ -25,6 +25,10 @@
             "description": "Case-insensitive substring match against report title and summary.",
             "type": "string"
         },
+        "source_id": {
+            "description": "Comma-separated list of source record IDs (e.g. error tracking issue UUIDs). Reports are kept if at least one of their contributing signals comes from one of these records. Requires source_product to be set.",
+            "type": "string"
+        },
         "source_product": {
             "description": "Comma-separated list of source products to include. Reports are kept if at least one of their contributing signals comes from one of these products (e.g. error_tracking, session_replay).",
             "type": "string"
