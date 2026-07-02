@@ -39,7 +39,7 @@ use crate::observability::metrics::{
     PARTITIONS_REVOKED_TOTAL, PARTITION_STATE_DELETED_TOTAL, PENDING_HELD_EVENTS,
     REBALANCE_CLEANUP_SKIPPED_TOTAL, REVOKE_DRAIN_DURATION_SECONDS,
 };
-use crate::partitions::backpressure::{Backpressure, PauseDeltas};
+use crate::partitions::backpressure::Backpressure;
 use crate::partitions::offset_tracker::OffsetTracker;
 use crate::partitions::pause::{ConsumerPauser, PartitionPauser};
 use crate::partitions::rebalance::{CohortConsumerContext, ConsumerCommandReceiver};
@@ -269,7 +269,7 @@ impl EventDispatcher {
         }
         counter!(COHORT_STREAM_EVENTS_SKIPPED_NOT_OWNED).increment(not_owned);
 
-        self.route_fresh(fresh, &mut full);
+        self.route_and_fold(fresh, &mut full);
         full
     }
 
@@ -288,13 +288,14 @@ impl EventDispatcher {
             }
         }
         let mut still_full = HashMap::new();
-        self.route_fresh(messages, &mut still_full);
+        self.route_and_fold(messages, &mut still_full);
         still_full
     }
 
     /// `try_send` events and fold the outcomes: raise the ceiling for what landed, collect a full
     /// channel's un-sent sub-batch into `full`, and count a missing/closed worker as a route error.
-    fn route_fresh(
+    /// Folds for both the fresh dispatch and the [`redispatch_held`](Self::redispatch_held) retry.
+    fn route_and_fold(
         &self,
         messages: Vec<(i32, ShuffleMessage)>,
         full: &mut HashMap<i32, Vec<ShuffleMessage>>,
@@ -304,7 +305,15 @@ impl EventDispatcher {
         for (partition, outcome) in self.router.try_route_batch(messages) {
             match outcome {
                 SendOutcome::Sent { max_offset, count } => {
-                    self.tracker.mark_dispatched(partition, max_offset + 1);
+                    // Ceiling raised after `try_send`, so a worker could mark this batch processed first
+                    // and trip a spurious `CappedAheadOfDispatch`. Harmless (marks are monotonic and
+                    // commits derive from `processed`, so the next dispatch corrects it) and near
+                    // unreachable (per-event work is ~hundreds of reads; this mark is microseconds off).
+                    // Marking before the send would wrongly raise the ceiling for `Full`/dropped
+                    // sub-batches. `None` carries no offset, so it leaves the ceiling untouched.
+                    if let Some(max_offset) = max_offset {
+                        self.tracker.mark_dispatched(partition, max_offset + 1);
+                    }
                     dispatched += count as u64;
                 }
                 SendOutcome::Full(returned) => {
@@ -947,9 +956,10 @@ impl CohortStreamEventsConsumer {
             self.handle.clone(),
         ));
 
-        // Apply pause/resume off the consume loop: librdkafka `pause`/`resume` are synchronous, un-timed
-        // FFI calls, so a wedged client must never delay the liveness heartbeat.
-        let (pause_tx, pause_rx) = tokio::sync::mpsc::unbounded_channel::<PauseDeltas>();
+        // Apply pause/resume off the consume loop: librdkafka's are synchronous, un-timed FFI, so a
+        // wedged client must never delay the heartbeat. The loop hands over the paused *target* (the
+        // held-partition set); the pauser task owns re-asserting it.
+        let (pause_tx, pause_rx) = tokio::sync::mpsc::unbounded_channel::<HashSet<i32>>();
         let pauser_task = tokio::spawn(run_pauser_loop(self.pauser.clone(), pause_rx));
 
         // One-shot guards; each pre-marked done when its gate is off, keeping the non-durable path unchanged.
@@ -959,6 +969,9 @@ impl CohortStreamEventsConsumer {
         let mut prev_assignment: Option<HashSet<i32>> = None;
         // Untouched until boot recovery completes below, so nothing pauses during boot.
         let mut backpressure = Backpressure::new();
+        // Last paused target sent to the pauser task: lets us send only while backpressure is active
+        // (plus the cycle it clears) and stay silent otherwise.
+        let mut prev_paused_target: HashSet<i32> = HashSet::new();
 
         loop {
             tokio::select! {
@@ -990,7 +1003,13 @@ impl CohortStreamEventsConsumer {
                         restore_seek_done = self.run_restore_seek();
                         continue;
                     }
-                    self.dispatch_with_backpressure(outcome, &mut backpressure, &pause_tx).await;
+                    self.dispatch_with_backpressure(
+                        outcome,
+                        &mut backpressure,
+                        &mut prev_paused_target,
+                        &pause_tx,
+                    )
+                    .await;
                 }
             }
         }
@@ -1105,7 +1124,8 @@ impl CohortStreamEventsConsumer {
         &self,
         outcome: ConsumeOutcome,
         backpressure: &mut Backpressure,
-        pause_tx: &tokio::sync::mpsc::UnboundedSender<PauseDeltas>,
+        prev_paused_target: &mut HashSet<i32>,
+        pause_tx: &tokio::sync::mpsc::UnboundedSender<HashSet<i32>>,
     ) {
         histogram!(COHORT_STREAM_CONSUME_BATCH_SIZE).record(outcome.events.len() as f64);
         if !outcome.events.is_empty() {
@@ -1123,18 +1143,25 @@ impl CohortStreamEventsConsumer {
         // Retry-flush held partitions before dispatching new events, so a newer offset never leapfrogs
         // an older held one on the same partition.
         let still_full = self.dispatcher.redispatch_held(backpressure.take_held());
-        backpressure.set_pending(still_full);
+        backpressure.absorb(still_full);
         let full = self
             .dispatcher
             .dispatch_events_nonblocking(outcome.events, &backpressure.held_partitions());
         backpressure.absorb(full);
-        let deltas = backpressure.reconcile();
-        if (!deltas.pause.is_empty() || !deltas.resume.is_empty()) && pause_tx.send(deltas).is_err()
-        {
-            // The receiver is gone only at shutdown, where an unapplied delta is moot.
-            debug!("pauser task has exited; skipping a pause/resume delta");
+
+        // Hand the pauser task the paused target (the still-held partitions); it re-asserts pause
+        // idempotently, so no librdkafka call can delay the heartbeat below. Send every cycle the
+        // target is non-empty (re-asserting heals a swallowed pause error or a rebalance-reset toppar),
+        // plus the one cycle it clears (to resume); stay silent otherwise.
+        let target = backpressure.held_partitions();
+        if !target.is_empty() || !prev_paused_target.is_empty() {
+            if pause_tx.send(target.clone()).is_err() {
+                // The receiver is gone only at shutdown, where an unapplied target is moot.
+                debug!("pauser task has exited; skipping a pause/resume update");
+            }
+            *prev_paused_target = target;
         }
-        gauge!(PARTITIONS_PAUSED).set(backpressure.paused_count() as f64);
+        gauge!(PARTITIONS_PAUSED).set(backpressure.held_partition_count() as f64);
         gauge!(PENDING_HELD_EVENTS).set(backpressure.held_event_count() as f64);
 
         if outcome.transport_error {
@@ -1308,16 +1335,21 @@ async fn run_commit_loop(
     }
 }
 
-/// Applies pause/resume deltas off the consume loop, so a blocking librdkafka `pause`/`resume` can
-/// never delay the liveness heartbeat. Deltas are applied in the order received, preserving the
-/// paused-set transitions. Exits when the sender is dropped.
+/// Applies the paused-partition target off the consume loop, so blocking librdkafka `pause`/`resume`
+/// never delays the heartbeat. Re-asserts the full target every update — idempotent in librdkafka — so
+/// a swallowed pause error or a rebalance-reset toppar self-heals. `applied` tracks only which
+/// partitions to resume (those that left the target). Exits when the sender is dropped.
 async fn run_pauser_loop(
     pauser: Arc<dyn PartitionPauser>,
-    mut rx: tokio::sync::mpsc::UnboundedReceiver<PauseDeltas>,
+    mut rx: tokio::sync::mpsc::UnboundedReceiver<HashSet<i32>>,
 ) {
-    while let Some(deltas) = rx.recv().await {
-        pauser.pause(&deltas.pause);
-        pauser.resume(&deltas.resume);
+    let mut applied: HashSet<i32> = HashSet::new();
+    while let Some(target) = rx.recv().await {
+        let to_pause: Vec<i32> = target.iter().copied().collect();
+        let to_resume: Vec<i32> = applied.difference(&target).copied().collect();
+        pauser.pause(&to_pause);
+        pauser.resume(&to_resume);
+        applied = target;
     }
 }
 
@@ -1350,6 +1382,74 @@ mod tests {
     const TEAM: i32 = 7;
     const BEHAVIORAL_HASH: [u8; 16] = *b"0123456789abcdef";
     const BASE_TS: &str = "2026-05-26 12:34:56.789000";
+
+    /// Broker-free [`PartitionPauser`] recording every pause/resume call, to exercise the pauser task
+    /// without a Kafka client.
+    #[derive(Default)]
+    struct RecordingPauser {
+        paused: std::sync::Mutex<Vec<Vec<i32>>>,
+        resumed: std::sync::Mutex<Vec<Vec<i32>>>,
+    }
+
+    impl RecordingPauser {
+        /// The non-empty pause calls, in order (the pauser also issues empty no-ops each idle cycle).
+        fn nonempty_pauses(&self) -> Vec<Vec<i32>> {
+            Self::nonempty(&self.paused)
+        }
+
+        fn nonempty_resumes(&self) -> Vec<Vec<i32>> {
+            Self::nonempty(&self.resumed)
+        }
+
+        fn nonempty(calls: &std::sync::Mutex<Vec<Vec<i32>>>) -> Vec<Vec<i32>> {
+            calls
+                .lock()
+                .unwrap()
+                .iter()
+                .filter(|call| !call.is_empty())
+                .cloned()
+                .collect()
+        }
+    }
+
+    impl PartitionPauser for RecordingPauser {
+        fn pause(&self, partitions: &[i32]) {
+            self.paused.lock().unwrap().push(partitions.to_vec());
+        }
+
+        fn resume(&self, partitions: &[i32]) {
+            self.resumed.lock().unwrap().push(partitions.to_vec());
+        }
+    }
+
+    #[tokio::test]
+    async fn pauser_loop_reasserts_the_full_target_each_cycle_and_resumes_on_drop() {
+        let pauser = Arc::new(RecordingPauser::default());
+        let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<HashSet<i32>>();
+        let task = tokio::spawn(run_pauser_loop(pauser.clone(), rx));
+
+        // Stable target over two cycles: re-paused each time. That idempotent re-assertion is what
+        // heals a swallowed pause error or a rebalance-reset toppar.
+        tx.send(HashSet::from([5])).unwrap();
+        tx.send(HashSet::from([5])).unwrap();
+        // Partition 5 drains and 7 becomes held: 5 leaves the target (resumed), 7 is paused.
+        tx.send(HashSet::from([7])).unwrap();
+        // Target clears: 7 is resumed.
+        tx.send(HashSet::new()).unwrap();
+        drop(tx);
+        task.await.unwrap();
+
+        assert_eq!(
+            pauser.nonempty_pauses(),
+            vec![vec![5], vec![5], vec![7]],
+            "the full target is re-paused every cycle it is non-empty",
+        );
+        assert_eq!(
+            pauser.nonempty_resumes(),
+            vec![vec![5], vec![7]],
+            "a partition is resumed only once it leaves the target",
+        );
+    }
 
     #[test]
     fn deserializes_a_full_shuffler_envelope() {
@@ -1968,6 +2068,25 @@ mod tests {
         )
     }
 
+    /// Like [`dispatcher_with_buffer`] but with a per-partition event-intake `cap`, so a test can trip
+    /// the event budget while the mpsc slots stay free.
+    fn dispatcher_with_intake_cap(
+        store: &CohortStore,
+        catalog: Arc<CatalogHandle>,
+        buffer: usize,
+        cap: usize,
+    ) -> EventDispatcher {
+        let sink: Arc<dyn MembershipSink> = Arc::new(CaptureSink::new());
+        EventDispatcher::new(
+            PartitionRouter::with_intake_cap(buffer, cap),
+            Arc::new(OffsetTracker::new()),
+            store.clone(),
+            catalog,
+            sink,
+            MergeWorkerDeps::capture(),
+        )
+    }
+
     fn held_offsets(messages: &[ShuffleMessage]) -> Vec<i64> {
         messages
             .iter()
@@ -2023,6 +2142,46 @@ mod tests {
         assert_eq!(
             dispatcher.tracker().committable_offsets().get(&0),
             Some(&106)
+        );
+    }
+
+    #[tokio::test]
+    async fn nonblocking_dispatch_holds_on_the_event_cap_while_slots_stay_free() {
+        let (_dir, store) = temp_store();
+        // 16 mpsc slots but a one-event budget: the event cap, not the slots, is what holds batch B.
+        let dispatcher = dispatcher_with_intake_cap(&store, behavioral_catalog(), 16, 1);
+        dispatcher.assign_partition(0);
+        let mut rx = dispatcher.router.add_partition(0).unwrap();
+        let no_held = HashSet::new();
+
+        // Batch A fills the one-event budget and raises the ceiling to 105.
+        assert!(dispatcher
+            .dispatch_events_nonblocking(vec![consumed(person(1), 0, 104)], &no_held)
+            .is_empty());
+        // Batch B is refused by the event cap even though 15 slots remain free.
+        let mut full =
+            dispatcher.dispatch_events_nonblocking(vec![consumed(person(2), 0, 105)], &no_held);
+        let held = full.remove(&0).expect("partition 0 held on the event cap");
+        assert_eq!(held_offsets(&held), vec![105]);
+        assert_eq!(
+            dispatcher.tracker().mark_processed(0, 106),
+            MarkOutcome::CappedAheadOfDispatch,
+            "the held event stays above the dispatch ceiling",
+        );
+
+        // Drain A and step past it so the budget frees (release lands on the next recv), then B flushes.
+        let _a = rx.recv().await.unwrap();
+        assert!(
+            rx.try_recv().is_err(),
+            "channel drained; the recv released A's budget",
+        );
+        assert!(
+            dispatcher.redispatch_held(vec![(0, held)]).is_empty(),
+            "the held batch flushes once the event budget frees",
+        );
+        assert_eq!(
+            dispatcher.tracker().mark_processed(0, 106),
+            MarkOutcome::WithinDispatch,
         );
     }
 

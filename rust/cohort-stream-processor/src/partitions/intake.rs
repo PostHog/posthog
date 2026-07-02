@@ -34,9 +34,9 @@ pub enum Admission {
 
 /// Per-partition ceiling on un-drained events.
 ///
-/// Only the consume loop admits and only the owning worker releases, so the load-then-add on the
-/// admit side is race-free: between load and add the count can only fall, so an admit never
-/// overshoots `cap`.
+/// Releases (from the worker's [`MeteredReceiver`] and, on a failed send, the router) only ever lower
+/// the count, so [`try_admit`](Self::try_admit)'s plain load-then-add never overshoots `cap`: a
+/// concurrent release between its load and its add can only have freed room.
 pub struct PartitionIntake {
     cap: usize,
     in_flight_events: AtomicUsize,
@@ -54,11 +54,15 @@ impl PartitionIntake {
 
     /// Reserve `count` events if they fit under `cap`. An idle partition always admits — even an
     /// over-cap batch — so `cap` is a soft ceiling on the steady state, not a hard per-batch limit.
+    ///
+    /// Not a CAS: correct only because a single task (the consume loop) admits for a given partition.
+    /// Two concurrent admitters could both pass the check and overshoot `cap`.
     pub fn try_admit(&self, count: usize) -> Admission {
         let current = self.in_flight_events.load(Ordering::Acquire);
         if current == 0 || current + count <= self.cap {
-            let updated = self.in_flight_events.fetch_add(count, Ordering::AcqRel) + count;
-            self.set_gauge(updated);
+            self.in_flight_events.fetch_add(count, Ordering::AcqRel);
+            // Sample fresh: a concurrent release may have lowered the counter below the reserved total.
+            self.set_gauge(self.in_flight_events.load(Ordering::Acquire));
             Admission::Admitted
         } else {
             Admission::Rejected
@@ -119,6 +123,11 @@ impl MeteredReceiver {
             intake,
             outstanding: 0,
         }
+    }
+
+    /// Uncapped intake wrapper for tests: only the mpsc slots bound.
+    pub fn unmetered(receiver: mpsc::Receiver<Vec<ShuffleMessage>>) -> Self {
+        Self::new(receiver, Arc::new(PartitionIntake::new(0, usize::MAX)))
     }
 
     /// Release the previous batch, then await the next.

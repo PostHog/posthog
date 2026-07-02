@@ -14,7 +14,7 @@ import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { IngestionConsumerConfig } from '~/ingestion/config'
-import { BatchPipelineUnwrapper } from '~/ingestion/framework/batch-pipeline-unwrapper'
+import { BatchPipeline } from '~/ingestion/framework/batch-pipeline.interface'
 import { TopHog } from '~/ingestion/framework/tophog/tophog'
 import {
     SessionReplayPipelineConfig,
@@ -66,9 +66,10 @@ export type SessionRecordingIngesterConfig = SessionRecordingConfig &
 /** Builds the session replay pipeline for a deployment (default or ML mirror). */
 export type SessionReplayPipelineFactory = (
     config: SessionReplayPipelineConfig
-) => BatchPipelineUnwrapper<
+) => BatchPipeline<
     SessionReplayPipelineInput,
     SessionReplayPipelineOutput,
+    { message: Message },
     { message: Message },
     OverflowOutput
 >
@@ -101,9 +102,10 @@ export class SessionRecordingIngester {
     private readonly eventIngestionRestrictionManagerComponent: EventIngestionRestrictionManagerComponent
     private eventIngestionRestrictionManager!: EventIngestionRestrictionManager
     private stopEventIngestionRestrictionManager?: () => Promise<void>
-    private sessionReplayPipeline!: BatchPipelineUnwrapper<
+    private sessionReplayPipeline!: BatchPipeline<
         SessionReplayPipelineInput,
         SessionReplayPipelineOutput,
+        { message: Message },
         { message: Message },
         OverflowOutput
     >
@@ -276,13 +278,21 @@ export class SessionRecordingIngester {
         SessionRecordingIngesterMetrics.observeKafkaBatchSizeKb(batchSizeKb)
 
         // Run messages through the pipeline (handles restrictions, parsing, team filtering, and recording)
-        await instrumentFn(`recordingingesterv2.handleEachBatch.runPipeline`, async () =>
+        // and track the highest offset reached per partition — the single place Kafka progress is tracked.
+        const offsets = await instrumentFn(`recordingingesterv2.handleEachBatch.runPipeline`, async () =>
             runSessionReplayPipeline(this.sessionReplayPipeline, messages)
         )
+        this.sessionBatchManager.trackProcessedOffsets(offsets)
 
         this.kafkaConsumer.heartbeat()
 
         if (this.sessionBatchManager.shouldFlush()) {
+            // The pipeline schedules its side effects (DLQ and overflow produces) fire-and-forget on
+            // the promise scheduler. Drain them before flushing so we never commit a message's offset
+            // before its produce is durable — otherwise a crash in that window would lose it.
+            await instrumentFn(`recordingingesterv2.handleEachBatch.flush.awaitSideEffects`, async () => {
+                await this.promiseScheduler.waitForAllSettled()
+            })
             await instrumentFn(`recordingingesterv2.handleEachBatch.flush`, async () =>
                 this.sessionBatchManager.flush()
             )

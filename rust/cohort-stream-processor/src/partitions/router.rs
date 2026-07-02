@@ -45,9 +45,12 @@ pub enum RouteError {
 /// backpressure — the events are returned to be held and retried — not a drop.
 #[derive(Debug)]
 pub enum SendOutcome {
-    /// Delivered. `max_offset` is the highest event offset (for the dispatch ceiling); `count` the
-    /// number of messages delivered.
-    Sent { max_offset: i64, count: usize },
+    /// Delivered. `max_offset` is the highest event offset (raises the dispatch ceiling), or `None` if
+    /// the batch carries no events; `count` is the number delivered.
+    Sent {
+        max_offset: Option<i64>,
+        count: usize,
+    },
     /// Channel full: carries the un-sent sub-batch to hold, pause, and redispatch. No drop recorded.
     Full(Vec<ShuffleMessage>),
     /// No worker registered (never assigned, or revoked): dropped and recorded; Kafka replays.
@@ -77,7 +80,8 @@ pub struct PartitionRouter {
 }
 
 impl PartitionRouter {
-    /// Router with the event-intake budget disabled — only the mpsc slots bound.
+    /// Router with the event-intake budget disabled — only the mpsc slots bound. Tests only:
+    /// production must use [`with_intake_cap`](Self::with_intake_cap) so intake is always bounded.
     pub fn new(channel_buffer: usize) -> Self {
         Self::with_intake_cap(channel_buffer, usize::MAX)
     }
@@ -164,6 +168,10 @@ impl PartitionRouter {
 
     /// Group a batch by partition and dispatch each sub-batch to its worker, preserving
     /// per-partition order. Per-partition failures are collected rather than aborting the batch.
+    ///
+    /// This async path does **not** apply the event-intake cap, so it must carry only maintenance/
+    /// control messages (which carry no events). Events go through the bounded
+    /// [`try_route_batch`](Self::try_route_batch).
     pub async fn route_batch(&self, messages: Vec<(i32, ShuffleMessage)>) -> Vec<RouteError> {
         if messages.is_empty() {
             return Vec::new();
@@ -233,14 +241,12 @@ impl PartitionRouter {
             return SendOutcome::NoWorker;
         };
         let count = batch.len();
-        // Events-only path: every message carries an offset, so `max` is `Some` for a non-empty batch.
+        // `None` for an event-less batch — carried through, not defaulted to 0, so a non-Event caller
+        // can't fabricate a ceiling (the dispatcher only marks when `Some`).
         let max_offset = batch.iter().filter_map(ShuffleMessage::event_offset).max();
-        debug_assert!(
-            max_offset.is_some(),
-            "try_route_batch routes event messages only",
-        );
-        // Refuse (→ hold → pause) once the partition holds its event ceiling, before the batch
-        // reaches the mpsc slot. `count == events` on this events-only path.
+        // Refuse (→ hold → pause) once the partition holds its event ceiling, before the batch reaches
+        // the mpsc slot. Count events only, so an event-less batch reserves 0 and stays balanced with
+        // the receiver's release.
         let events = count_events(&batch);
         if channel.intake.try_admit(events) == Admission::Rejected {
             counter!(PARTITION_CHANNEL_FULL_TOTAL, "partition" => partition.to_string())
@@ -250,10 +256,7 @@ impl PartitionRouter {
         match channel.sender.try_send(batch) {
             Ok(()) => {
                 self.emit_channel_depth(partition, &channel.sender);
-                SendOutcome::Sent {
-                    max_offset: max_offset.unwrap_or_default(),
-                    count,
-                }
+                SendOutcome::Sent { max_offset, count }
             }
             Err(TrySendError::Full(returned)) => {
                 // Reserved above but the slot is full: release so the counter tracks only what landed.
@@ -547,13 +550,13 @@ mod tests {
 
         match outcomes.remove(&5) {
             Some(SendOutcome::Sent { max_offset, count }) => {
-                assert_eq!((max_offset, count), (3, 2));
+                assert_eq!((max_offset, count), (Some(3), 2));
             }
             other => panic!("expected Sent for 5, got {other:?}"),
         }
         match outcomes.remove(&6) {
             Some(SendOutcome::Sent { max_offset, count }) => {
-                assert_eq!((max_offset, count), (2, 1));
+                assert_eq!((max_offset, count), (Some(2), 1));
             }
             other => panic!("expected Sent for 6, got {other:?}"),
         }

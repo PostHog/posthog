@@ -866,6 +866,7 @@ def test_dispatch_sends_once_per_channel_when_reviewers_share_channel(org_and_te
         ("session_replay", "session_problem", "Session replay · Session problem"),
         ("session_replay", "session_analysis_cluster", "Session replay · Session analysis cluster"),
         ("llm_analytics", "evaluation", "AI observability · Evaluation"),
+        ("llm_analytics", "evaluation_report", "AI observability · Evaluation report"),
         ("github", "issue", "GitHub · Issue"),
         ("zendesk", "ticket", "Zendesk · Ticket"),
         ("linear", "issue", "Linear · Issue"),

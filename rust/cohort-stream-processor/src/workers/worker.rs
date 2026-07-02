@@ -938,7 +938,6 @@ mod tombstone_redirect_tests {
 
     use crate::filters::{CohortId, FilterCatalog, TeamFiltersBuilder};
     use crate::merge::transfer::Tombstone;
-    use crate::partitions::intake::PartitionIntake;
     use crate::partitions::partitioner::{partition_of, COHORT_PARTITION_COUNT};
     use crate::producer::{
         CaptureCascadeSink, CaptureSink, CaptureStreamEventSink, CaptureTransferSink,
@@ -1194,11 +1193,7 @@ mod tombstone_redirect_tests {
         batch: Vec<ShuffleMessage>,
     ) {
         let (tx, rx) = mpsc::channel(4);
-        // Uncapped intake: these tests exercise worker behaviour, not the event budget.
-        let rx = MeteredReceiver::new(
-            rx,
-            Arc::new(PartitionIntake::new(partition_id as i32, usize::MAX)),
-        );
+        let rx = MeteredReceiver::unmetered(rx);
         let worker = Stage1Worker::spawn(
             partition_id,
             rx,

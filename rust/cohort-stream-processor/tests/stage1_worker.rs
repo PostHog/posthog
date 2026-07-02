@@ -16,9 +16,7 @@ use cohort_stream_processor::consumers::CohortStreamEvent;
 use cohort_stream_processor::filters::{
     CatalogHandle, CohortId, FilterCatalog, TeamFilters, TeamFiltersBuilder, TeamId,
 };
-use cohort_stream_processor::partitions::{
-    MeteredReceiver, OffsetTracker, PartitionIntake, ShuffleMessage,
-};
+use cohort_stream_processor::partitions::{MeteredReceiver, OffsetTracker, ShuffleMessage};
 use cohort_stream_processor::producer::{CaptureSink, MembershipStatus};
 use cohort_stream_processor::stage1::bucket_tz::{day_idx_in_tz, start_of_day_ms_in_tz};
 use cohort_stream_processor::stage1::{
@@ -953,7 +951,7 @@ async fn spawned_worker_drains_a_batch_and_commits_state() {
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
-    let rx = MeteredReceiver::new(rx, std::sync::Arc::new(PartitionIntake::new(0, usize::MAX)));
+    let rx = MeteredReceiver::unmetered(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
@@ -1010,7 +1008,7 @@ async fn spawned_worker_composes_two_leaf_cohort_and_emits_single_leaf_independe
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
-    let rx = MeteredReceiver::new(rx, std::sync::Arc::new(PartitionIntake::new(0, usize::MAX)));
+    let rx = MeteredReceiver::unmetered(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
@@ -1078,7 +1076,7 @@ async fn spawned_worker_skips_events_for_unknown_teams() {
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
-    let rx = MeteredReceiver::new(rx, std::sync::Arc::new(PartitionIntake::new(0, usize::MAX)));
+    let rx = MeteredReceiver::unmetered(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
@@ -1130,7 +1128,7 @@ async fn worker_produces_changes_and_advances_offset() {
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
-    let rx = MeteredReceiver::new(rx, std::sync::Arc::new(PartitionIntake::new(0, usize::MAX)));
+    let rx = MeteredReceiver::unmetered(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
@@ -1165,7 +1163,7 @@ async fn worker_advances_offset_on_empty_transition_subbatch() {
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
-    let rx = MeteredReceiver::new(rx, std::sync::Arc::new(PartitionIntake::new(0, usize::MAX)));
+    let rx = MeteredReceiver::unmetered(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
@@ -1200,7 +1198,7 @@ async fn worker_holds_offset_when_the_only_flush_fails() {
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
-    let rx = MeteredReceiver::new(rx, std::sync::Arc::new(PartitionIntake::new(0, usize::MAX)));
+    let rx = MeteredReceiver::unmetered(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
@@ -1231,7 +1229,7 @@ async fn worker_keeps_processing_after_a_produce_failure() {
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
-    let rx = MeteredReceiver::new(rx, std::sync::Arc::new(PartitionIntake::new(0, usize::MAX)));
+    let rx = MeteredReceiver::unmetered(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
@@ -1670,7 +1668,7 @@ async fn daily_multiple_single_leaf_cohort_emits_entered_then_left_to_the_sink()
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
-    let rx = MeteredReceiver::new(rx, std::sync::Arc::new(PartitionIntake::new(0, usize::MAX)));
+    let rx = MeteredReceiver::unmetered(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,
@@ -2002,7 +2000,7 @@ async fn compressed_sweep_deletes_then_a_late_event_recreates_the_state() {
     let tracker = Arc::new(OffsetTracker::new());
 
     let (tx, rx) = mpsc::channel(16);
-    let rx = MeteredReceiver::new(rx, std::sync::Arc::new(PartitionIntake::new(0, usize::MAX)));
+    let rx = MeteredReceiver::unmetered(rx);
     let worker = Stage1Worker::spawn(
         PARTITION_ID,
         rx,

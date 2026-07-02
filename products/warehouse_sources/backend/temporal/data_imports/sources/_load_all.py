@@ -231,6 +231,7 @@ from .glassfrog.source import GlassfrogSource
 from .gmail.source import GmailSource
 from .gnews.source import GNewsSource
 from .gocardless.source import GoCardlessSource
+from .gojiberry.source import GojiberrySource
 from .goldcast.source import GoldcastSource
 from .gologin.source import GoLoginSource
 from .gong.source import GongSource
@@ -346,6 +347,7 @@ from .matomo.source import MatomoSource
 from .mendeley.source import MendeleySource
 from .mention.source import MentionSource
 from .mercado_ads.source import MercadoAdsSource
+from .mercury.source import MercurySource
 from .merge.source import MergeSource
 from .meta_ads.source import MetaAdsSource
 from .metabase.source import MetabaseSource
@@ -576,6 +578,7 @@ from .taboola.source import TaboolaSource
 from .talkwalker.source import TalkwalkerSource
 from .tavus.source import TavusSource
 from .tawk_to.source import TawkToSource
+from .teachable.source import TeachableSource
 from .teamtailor.source import TeamtailorSource
 from .teamwork.source import TeamworkSource
 from .tempo.source import TempoSource

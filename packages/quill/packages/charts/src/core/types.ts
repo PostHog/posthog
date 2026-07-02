@@ -156,6 +156,13 @@ export interface TooltipContext<Meta = unknown> {
          *  distance-to-midpoint, giving correct results regardless of segment size differences. */
         yPixelBottom?: number
     }[]
+    /** Key of the series whose bar/segment is under the cursor. Set only by BarChart's
+     *  cursor narrowing (stacked: the visible segment containing the cursor; grouped: the
+     *  band-slot hit) — `undefined` for other chart types and for pinned rebuilds with no
+     *  cursor. May reference a series hidden from `seriesData` via `visibility.tooltip:
+     *  false` (e.g. a drop-off filler segment), so callers must not assume a matching
+     *  `seriesData` entry exists. */
+    hoveredSeriesKey?: string
     /** Pixel position (relative to the chart container) for anchoring the tooltip.
      *  `width` (optional) is the horizontal data-extent centered on `x` — bar charts
      *  populate it with the band width so {@link Tooltip} can anchor at the band edge
