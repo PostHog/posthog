@@ -310,7 +310,6 @@ export function SurveyResultsWidget({
     }
 
     if (!payload || payload.needsConfiguration) {
-        // No surveys in the project yet: mirror the list widget's "create one" CTA.
         if (onUpdateConfig && payload && payload.hasSurveys === false) {
             return (
                 <SurveyResultsWidgetMessage

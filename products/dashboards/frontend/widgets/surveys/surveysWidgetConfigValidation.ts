@@ -29,7 +29,6 @@ export function parseSurveyResultsWidgetConfig(config: Record<string, unknown>):
     return parseWidgetConfig(surveyResultsWidgetConfigSchema, config)
 }
 
-/** Read the modal's date-range selection back into a select value, mapping a missing range to "All time". */
 export function dateFromValueForConfig(config: SurveyResultsWidgetConfig): SurveyWidgetDateFrom {
     return (config.dateRange?.date_from as WidgetDateFromValue | undefined) ?? SURVEY_DATE_ALL_TIME
 }
@@ -38,7 +37,6 @@ function dateRangeForSelection(dateFrom: SurveyWidgetDateFrom): { date_from: Wid
     return dateFrom === SURVEY_DATE_ALL_TIME ? null : { date_from: dateFrom }
 }
 
-/** Set the selected survey on an existing config, returning the full validated config. */
 export function patchSurveyResultsWidgetConfig(
     config: Record<string, unknown>,
     surveyId: string | null

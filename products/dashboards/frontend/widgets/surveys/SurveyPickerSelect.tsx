@@ -54,8 +54,6 @@ export function SurveyPickerSelect({
     dataAttr,
     onCreateNew,
 }: SurveyPickerSelectProps): JSX.Element {
-    // ensureSurveyId lets the logic resolve the selected label itself (even when it's outside the
-    // loaded/searched page), so we don't need a component effect to trigger the fetch.
     const logic = surveyPickerLogic({ pickerKey, ensureSurveyId: value })
     const { surveyOptions, surveyOptionsLoading, selectedSurvey, search } = useValues(logic)
     const { ensureOptionsLoaded, setSearch } = useActions(logic)

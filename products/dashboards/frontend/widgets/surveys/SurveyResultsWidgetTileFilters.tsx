@@ -10,7 +10,6 @@ import { SurveyPickerSelect } from './SurveyPickerSelect'
 import { parseSurveyResultsWidgetConfig, patchSurveyResultsWidgetConfig } from './surveysWidgetConfigValidation'
 
 function SurveyResultsReadOnlyValue({ tileId, surveyId }: { tileId: number; surveyId: string }): JSX.Element {
-    // The logic resolves the survey name itself via its ensureSurveyId prop, so no component effect is needed.
     const { selectedSurvey } = useValues(
         surveyPickerLogic({ pickerKey: `results-tile-${tileId}`, ensureSurveyId: surveyId })
     )
