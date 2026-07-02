@@ -321,11 +321,24 @@ function ComboChartInner<Meta = unknown>({
     const resolvePositionValue = useMemo(() => buildStackedPositionValue(barStackedData), [barStackedData])
     const resolveBottomValue = useMemo(() => buildStackedBottomValue(barStackedData), [barStackedData])
 
+    // Mirrors BarChart: flag the axis context as percent (drives ValueLabels' 0-1 fraction
+    // handling) and default the y-tick formatter to a percentage unless the caller overrides it.
+    const chartConfig = useMemo<ComboChartConfig>(() => {
+        const base = { ...config, isPercent: barLayout === 'percent' }
+        if (barLayout !== 'percent' || config?.yTickFormatter) {
+            return base
+        }
+        return {
+            ...base,
+            yTickFormatter: (v: number) => `${Math.round(v * 100)}%`,
+        }
+    }, [config, barLayout])
+
     return (
         <Chart
             series={series}
             labels={labels}
-            config={config}
+            config={chartConfig}
             theme={theme}
             createScales={createScales}
             drawStatic={drawStatic}
