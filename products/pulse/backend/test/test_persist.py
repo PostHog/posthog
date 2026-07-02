@@ -47,11 +47,13 @@ class TestPersistBriefOutput(BaseTest):
         return Opportunity.objects.for_team(self.team.pk)
 
     def test_persists_sections_and_resolved_opportunity_context(self) -> None:
-        brief = persist_brief_output(brief=self._brief(), out=_out(), items=[_item()])
+        brief = self._brief()
+        created = persist_brief_output(brief=brief, out=_out(), items=[_item()])
         assert brief.status == ProductBrief.Status.READY
         assert len(brief.sections) == 1
         assert brief.sources_used == ["anchored_insights"]
         opportunity = self._opportunities().get()
+        assert [o.id for o in created] == [opportunity.id]
         assert opportunity.evidence == [{"type": "insight", "ref": "abc", "label": "Pageviews"}]
         assert opportunity.baseline == {"pct_change": -30.0, "baseline_total": 700.0, "current_total": 490.0}
         assert opportunity.metric_ref == {"insight_short_id": "abc"}
@@ -64,9 +66,11 @@ class TestPersistBriefOutput(BaseTest):
         assert opportunity.metric_ref is None
 
     def test_same_fingerprint_does_not_duplicate(self) -> None:
-        persist_brief_output(brief=self._brief(), out=_out(), items=[_item()])
-        persist_brief_output(brief=self._brief(), out=_out(), items=[_item()])
+        first = persist_brief_output(brief=self._brief(), out=_out(), items=[_item()])
+        second = persist_brief_output(brief=self._brief(), out=_out(), items=[_item()])
         assert self._opportunities().count() == 1
+        assert len(first) == 1
+        assert second == []
 
     def test_dismissed_fingerprint_is_suppressed(self) -> None:
         persist_brief_output(brief=self._brief(), out=_out(), items=[_item()])
@@ -75,11 +79,13 @@ class TestPersistBriefOutput(BaseTest):
         assert self._opportunities().count() == 1
 
     def test_empty_output_marks_quiet(self) -> None:
-        brief = persist_brief_output(brief=self._brief(), out=BriefOut(sections=[], opportunities=[]), items=[])
+        brief = self._brief()
+        persist_brief_output(brief=brief, out=BriefOut(sections=[], opportunities=[]), items=[])
         assert brief.status == ProductBrief.Status.QUIET
         assert brief.sources_used == []
 
     def test_opportunity_only_output_marks_ready(self) -> None:
         out = BriefOut(sections=[], opportunities=_out().opportunities)
-        brief = persist_brief_output(brief=self._brief(), out=out, items=[_item()])
+        brief = self._brief()
+        persist_brief_output(brief=brief, out=out, items=[_item()])
         assert brief.status == ProductBrief.Status.READY

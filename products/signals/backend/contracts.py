@@ -361,6 +361,34 @@ class HealthCheckSignalInput(SignalInputBase):
     extra: HealthCheckSignalExtra
 
 
+# ── Pulse ───────────────────────────────────────────────────────────────────────
+# A ranked, evidence-backed recommendation from a generated product brief.
+
+
+class PulseOpportunityEvidenceEntry(ContractModel):
+    # `type` is kept open (plain str) so new evidence types don't fail emit-time validation.
+    type: str
+    ref: str
+    label: str
+
+
+class PulseOpportunitySignalExtra(SignalExtraBase):
+    brief_id: str
+    # Opportunity kind ("build" | "fix" | "instrument"); mirrors the source_type suffix.
+    kind: str
+    evidence: list[PulseOpportunityEvidenceEntry]
+
+
+class PulseOpportunitySignalInput(SignalInputBase):
+    source_type: Literal[
+        SignalSourceType.OPPORTUNITY_BUILD,
+        SignalSourceType.OPPORTUNITY_FIX,
+        SignalSourceType.OPPORTUNITY_INSTRUMENT,
+    ]
+    source_product: Literal[SignalSourceProduct.PULSE]
+    extra: PulseOpportunitySignalExtra
+
+
 # ── Report reviewer types ───────────────────────────────────────────────────────
 
 
@@ -406,7 +434,8 @@ SignalInput = Annotated[
     | SignalsScoutSignalInput
     | LogsAlertStateChangeSignalInput
     | HealthCheckSignalInput
-    | ReplayVisionScannerFindingSignalInput,
+    | ReplayVisionScannerFindingSignalInput
+    | PulseOpportunitySignalInput,
     Field(union_mode="left_to_right"),
 ]
 
@@ -426,6 +455,7 @@ SIGNAL_INPUT_VARIANTS: tuple[type[SignalInputBase], ...] = (
     LogsAlertStateChangeSignalInput,
     HealthCheckSignalInput,
     ReplayVisionScannerFindingSignalInput,
+    PulseOpportunitySignalInput,
 )
 
 

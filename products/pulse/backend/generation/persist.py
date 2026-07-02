@@ -8,7 +8,7 @@ _FINGERPRINT_MAX_LENGTH = Opportunity._meta.get_field("fingerprint").max_length 
 _TITLE_MAX_LENGTH = Opportunity._meta.get_field("title").max_length or 400
 
 
-def _fingerprint(kind: str, hint: str) -> str:
+def opportunity_fingerprint(kind: str, hint: str) -> str:
     return f"{kind}:{hint}"[:_FINGERPRINT_MAX_LENGTH]
 
 
@@ -45,11 +45,12 @@ def _build_opportunity(brief: ProductBrief, opp: OpportunityOut, item: SourceIte
         evidence=evidence,
         metric_ref=metric_ref,
         baseline=baseline,
-        fingerprint=_fingerprint(opp.kind, opp.fingerprint_hint),
+        fingerprint=opportunity_fingerprint(opp.kind, opp.fingerprint_hint),
     )
 
 
-def persist_brief_output(*, brief: ProductBrief, out: BriefOut, items: list[SourceItem]) -> ProductBrief:
+def persist_brief_output(*, brief: ProductBrief, out: BriefOut, items: list[SourceItem]) -> list[Opportunity]:
+    """Persist the brief output in place and return the newly created (non-deduped) opportunities."""
     team_opportunities = Opportunity.objects.for_team(brief.team_id)
     items_by_hint = {item.fingerprint_hint: item for item in items}
     with transaction.atomic():
@@ -61,12 +62,12 @@ def persist_brief_output(*, brief: ProductBrief, out: BriefOut, items: list[Sour
         brief.save(update_fields=["sections", "status", "sources_used", "updated_at"])
         seen = set(
             team_opportunities.filter(
-                fingerprint__in=[_fingerprint(o.kind, o.fingerprint_hint) for o in out.opportunities],
+                fingerprint__in=[opportunity_fingerprint(o.kind, o.fingerprint_hint) for o in out.opportunities],
             ).values_list("fingerprint", flat=True)
         )
         new_opportunities: list[Opportunity] = []
         for opp in out.opportunities:
-            fingerprint = _fingerprint(opp.kind, opp.fingerprint_hint)
+            fingerprint = opportunity_fingerprint(opp.kind, opp.fingerprint_hint)
             if fingerprint in seen:
                 continue  # open dupes AND dismissed fingerprints both suppress re-creation
             seen.add(fingerprint)
@@ -74,4 +75,4 @@ def persist_brief_output(*, brief: ProductBrief, out: BriefOut, items: list[Sour
         if new_opportunities:
             # ignore_conflicts: the (team, fingerprint) unique constraint absorbs concurrent-persist races.
             team_opportunities.bulk_create(new_opportunities, ignore_conflicts=True)
-    return brief
+    return new_opportunities
