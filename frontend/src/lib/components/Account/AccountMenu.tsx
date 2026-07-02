@@ -159,7 +159,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                 className="min-w-[var(--project-panel-width)]"
             >
                 <DropdownMenuGroup>
-                    <Label intent="menu" className="px-2">
+                    <Label intent="menu" className="px-2 cursor-default select-none">
                         Signed in as
                     </Label>
                     <DropdownMenuSeparator />
@@ -219,7 +219,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
                             Invite members
                         </ButtonPrimitive>
                     </DropdownMenuItem>
-                    <Label intent="menu" className="px-2 mt-2">
+                    <Label intent="menu" className="px-2 mt-2 cursor-default select-none">
                         Organizations
                     </Label>
                     <DropdownMenuSeparator />
@@ -274,7 +274,7 @@ export function AccountMenu({ trigger, ...props }: AccountMenuProps): JSX.Elemen
 
                     {billing?.account_owner?.email && billing?.account_owner?.name && (
                         <>
-                            <Label intent="menu" className="px-2 mt-2">
+                            <Label intent="menu" className="px-2 mt-2 cursor-default select-none">
                                 YOUR POSTHOG HUMAN
                             </Label>
                             <DropdownMenuSeparator />

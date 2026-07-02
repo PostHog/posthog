@@ -128,7 +128,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                             innerClassName="primitive-menu-content-inner p-1 "
                         >
                             <div className="flex flex-col gap-px">
-                                <Label intent="menu" className="px-2">
+                                <Label intent="menu" className="px-2 cursor-default select-none">
                                     Help
                                 </Label>
                                 <Menu.Item
@@ -173,7 +173,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                     )}
                                 />
 
-                                <Label intent="menu" className="px-2 mt-2">
+                                <Label intent="menu" className="px-2 mt-2 cursor-default select-none">
                                     Project
                                 </Label>
                                 <Menu.Item
@@ -216,7 +216,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                     )}
                                 />
 
-                                <Label intent="menu" className="px-2 mt-2">
+                                <Label intent="menu" className="px-2 mt-2 cursor-default select-none">
                                     PostHog
                                 </Label>
                                 <Menu.Item
@@ -362,7 +362,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                     </Menu.SubmenuRoot>
                                 )}
 
-                                <Label intent="menu" className="px-2 mt-2">
+                                <Label intent="menu" className="px-2 mt-2 cursor-default select-none">
                                     Display
                                 </Label>
                                 <Menu.Item
@@ -400,7 +400,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
 
                                 {billing?.account_owner?.email && billing?.account_owner?.name && (
                                     <>
-                                        <Label intent="menu" className="px-2 mt-4">
+                                        <Label intent="menu" className="px-2 mt-4 cursor-default select-none">
                                             YOUR POSTHOG HUMAN
                                         </Label>
                                         <Menu.Item

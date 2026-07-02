@@ -75,10 +75,7 @@ const CollapsibleTrigger = forwardRef<HTMLButtonElement, CollapsibleTriggerProps
                 >
                     <Label
                         intent="menu"
-                        className={cn(
-                            'text-xxs text-tertiary text-left group-hover:text-primary mr-1 cursor-pointer',
-                            labelClassName
-                        )}
+                        className={cn('text-xxs text-tertiary text-left group-hover:text-primary mr-1', labelClassName)}
                     >
                         {icon && <span className="size-3 mr-1">{icon}</span>}
                         {children}

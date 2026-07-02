@@ -137,7 +137,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                 className="flex flex-col gap-px overflow-x-hidden"
                                 innerClassName="primitive-menu-content-inner p-1 "
                             >
-                                <Label intent="menu" className="pl-2 relative">
+                                <Label intent="menu" className="pl-2 relative cursor-default select-none">
                                     Project
                                     {preflight?.can_create_org && (
                                         <ButtonPrimitive
@@ -237,7 +237,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                     />
                                 )}
 
-                                <Label intent="menu" className="px-2 mt-2 relative">
+                                <Label intent="menu" className="px-2 mt-2 relative cursor-default select-none">
                                     Organization
                                     {preflight?.can_create_org && (
                                         <ButtonPrimitive
@@ -348,7 +348,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
 
                                 {user?.is_staff && (
                                     <>
-                                        <Label intent="menu" className="px-2 mt-2">
+                                        <Label intent="menu" className="px-2 mt-2 cursor-default select-none">
                                             Staff
                                         </Label>
                                         <DropdownMenuSeparator />
@@ -401,7 +401,7 @@ export function NewAccountMenu({ isLayoutNavCollapsed }: AccountMenuProps): JSX.
                                     </>
                                 )}
 
-                                <Label intent="menu" className="px-2 mt-2">
+                                <Label intent="menu" className="px-2 mt-2 cursor-default select-none">
                                     Account
                                 </Label>
                                 <DropdownMenuSeparator />

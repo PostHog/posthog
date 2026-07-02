@@ -444,11 +444,11 @@ function IdleGrid(): JSX.Element {
                             className="flex-1 min-w-0 flex flex-col gap-px"
                             data-attr={`homepage-grid-column-${col.kind}`}
                         >
-                            {/* Static section caption. Label intent="menu" is non-interactive by
-                                default (no text/selection cue), so it doesn't read as a clickable header */}
+                            {/* Static section caption — the surrounding grid is menu-styled, so
+                                mark it non-interactive (no text/selection cue) to avoid reading as a clickable header */}
                             <Label
                                 id={`homepage-grid-column-label-${col.kind}`}
-                                className="px-2 mb-1 flex items-center gap-1"
+                                className="px-2 mb-1 flex items-center gap-1 cursor-default select-none"
                                 intent="menu"
                             >
                                 {col.icon}

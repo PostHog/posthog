@@ -37,7 +37,7 @@ export function ProjectCombobox(): JSX.Element | null {
         <Combobox>
             <Combobox.Search placeholder="Filter projects..." />
             <Combobox.Content>
-                <Label intent="menu" className="px-2">
+                <Label intent="menu" className="px-2 cursor-default select-none">
                     Current project
                 </Label>
                 <MenuSeparator />
@@ -81,7 +81,7 @@ export function ProjectCombobox(): JSX.Element | null {
                 {currentOrganization &&
                     currentOrganization?.teams?.filter((team) => team.id !== currentTeam?.id).length > 0 && (
                         <>
-                            <Label intent="menu" className="px-2 mt-2">
+                            <Label intent="menu" className="px-2 mt-2 cursor-default select-none">
                                 Other projects
                             </Label>
                             <MenuSeparator />
@@ -140,7 +140,7 @@ export function ProjectCombobox(): JSX.Element | null {
 
                 {pendingInvites.length > 0 && (
                     <>
-                        <Label intent="menu" className="px-2 mt-2">
+                        <Label intent="menu" className="px-2 mt-2 cursor-default select-none">
                             Pending invitations
                         </Label>
                         <MenuSeparator />

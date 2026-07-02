@@ -30,7 +30,7 @@ export function OrgCombobox({ allowCreate = true }: { allowCreate?: boolean }): 
         <Combobox>
             <Combobox.Search placeholder="Filter organizations..." />
             <Combobox.Content>
-                <Label intent="menu" className="px-2">
+                <Label intent="menu" className="px-2 cursor-default select-none">
                     Current organization
                 </Label>
                 <DropdownMenuSeparator />
@@ -65,7 +65,7 @@ export function OrgCombobox({ allowCreate = true }: { allowCreate?: boolean }): 
 
                 {otherOrganizations.length > 0 ? (
                     <>
-                        <Label intent="menu" className="px-2 mt-2">
+                        <Label intent="menu" className="px-2 mt-2 cursor-default select-none">
                             Other organizations
                         </Label>
                         <DropdownMenuSeparator />
