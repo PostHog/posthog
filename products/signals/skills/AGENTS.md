@@ -233,6 +233,18 @@ agent-enabled team's `LLMSkill` rows by `scout_harness/lazy_seed.py` — see
   `revenue-analytics` watches the lagging revenue/MRR signal; neither scores an
   individual account's engagement trajectory. Acquisition is the web-analytics
   scout's territory.
+- `signals-scout-csm-*/` — the customer-success fleet, provisioned per-team by the Slack
+  co-worker's persona onboarding rather than the general enrollment path, and the first scouts
+  to use the **Slack delivery** channel: each lists `send_slack_message` in `allowed_tools` and,
+  after filing an inbox report, calls `signals-scout-notify` to ping the scout config's Slack
+  channel tagging the account owner. `-account-pulse` watches per-account product engagement
+  (the CS delivery counterpart to `customer-analytics` — it relays/edits that scout's reports
+  when it is enabled rather than re-deriving); `-support-watch` watches support-ticket movement
+  (native conversations tickets or synced Zendesk / Intercom / Linear / Jira / Freshdesk); and
+  `-revenue-watch` watches billing/renewal risk (revenue-analytics views or synced Stripe),
+  deferring aggregate MRR movement to `revenue-analytics`. All three are report-channel scouts
+  whose findings are requires-human-input (a CSM acts on them; there is no code fix), and are
+  excluded from the `signals-scout` flag's `enabled_skills` so only onboarding enables them.
 - `signals-scout-mcp-tool-calls/` — tool-quality watcher for PostHog MCP usage. Reads
   `$mcp_tool_call` telemetry for tools that need improvement: high, broad-reach failure
   rates, per-session retry/hammering that betrays a confusing schema, slow or

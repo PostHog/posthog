@@ -85,7 +85,9 @@ it is exercised via the `run_signals_scout` management command (see `../manageme
   Runtime ceilings as module constants: `DEFAULT_MAX_RUNTIME_S` (per-run budget),
   `ACTIVITY_SLACK_S`, and `WORKFLOW_HARD_CEILING_S` (`= DEFAULT_MAX_RUNTIME_S +
 ACTIVITY_SLACK_S`, the activity-level ceiling that gates the workflow's
-  `start_to_close_timeout`).
+  `start_to_close_timeout`), plus `MAX_ENABLED_SCOUTS_PER_TEAM` (per-team enabled-config
+  cap) and `MAX_SLACK_NOTIFICATIONS_PER_RUN` (Slack alerts one run may deliver via the
+  `notify` tool).
 - `team_limits.py`
   Single source of truth for a team's effective scout caps + metadata, resolved from the
   `signals-scout` flag payload in one read. The same three-layer cap resolution
@@ -127,6 +129,12 @@ ACTIVITY_SLACK_S`, the activity-level ceiling that gates the workflow's
   mints config rows. The metadata viewset is the read-only `scout/metadata/current/`
   endpoint that reports enrollment + banner + enforced limits via
   `team_limits.resolve_team_metadata`.
+  `SignalScoutRunViewSet` also carries the run-scoped `notify` action (`signals-scout-notify`):
+  it delivers a confirmed finding to the scout config's `delivery_config` Slack channel — opt-in
+  via `send_slack_message` in the skill's `allowed_tools` (gated by the shared `_assert_tool_opted_in`
+  that also gates the report tools), destination taken from config not the request, owner tagged via
+  `users.lookupByEmail`, capped at `MAX_SLACK_NOTIFICATIONS_PER_RUN` and audited on
+  `SignalScoutRun.notifications`.
 
 ## Mental model
 
