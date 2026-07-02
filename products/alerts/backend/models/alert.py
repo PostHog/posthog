@@ -202,10 +202,6 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             AlertCalculationInterval.REAL_TIME,
         )
 
-    @property
-    def is_real_time_interval(self) -> bool:
-        return self.calculation_interval == AlertCalculationInterval.REAL_TIME
-
     def get_subscribed_users_emails(self) -> list[str]:
         return list(
             self.subscribed_users.filter(organization_membership__organization=self.team.organization).values_list(
@@ -343,10 +339,6 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
         return None
 
     @classmethod
-    def supports_real_time_intervals(cls, organization: Organization) -> bool:
-        return organization.is_feature_available(AvailableFeature.REAL_TIME_ALERTS)
-
-    @classmethod
     def real_time_interval_validation_error(
         cls,
         *,
@@ -355,7 +347,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
     ) -> str | None:
         if calculation_interval != AlertCalculationInterval.REAL_TIME:
             return None
-        if not cls.supports_real_time_intervals(organization):
+        if not organization.is_feature_available(AvailableFeature.REAL_TIME_ALERTS):
             return "Real-time alert intervals require a Scale or Enterprise plan."
         return None
 
