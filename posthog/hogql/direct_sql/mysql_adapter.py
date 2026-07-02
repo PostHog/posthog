@@ -1,9 +1,8 @@
+from functools import lru_cache
 from typing import TYPE_CHECKING, cast
 
-import pymysql
 import sqlparse
 from opentelemetry import trace
-from pymysql.constants import FIELD_TYPE as MYSQL_FIELD_TYPE
 from sqlparse import tokens as sqlparse_tokens
 from sqlparse.sql import Statement
 
@@ -22,45 +21,55 @@ if TYPE_CHECKING:
 DIRECT_MYSQL_DEFAULT_STATEMENT_TIMEOUT_SECONDS = 600
 RAW_MYSQL_READ_ONLY_ERROR = "Raw MySQL queries must be read-only SELECT statements."
 
-MYSQL_FIELD_TYPE_TO_CLICKHOUSE_TYPE: dict[int, str] = {
-    MYSQL_FIELD_TYPE.TINY: "Int8",
-    MYSQL_FIELD_TYPE.SHORT: "Int16",
-    MYSQL_FIELD_TYPE.INT24: "Int32",
-    MYSQL_FIELD_TYPE.LONG: "Int32",
-    MYSQL_FIELD_TYPE.LONGLONG: "Int64",
-    MYSQL_FIELD_TYPE.YEAR: "Int32",
-    MYSQL_FIELD_TYPE.FLOAT: "Float32",
-    MYSQL_FIELD_TYPE.DOUBLE: "Float64",
-    MYSQL_FIELD_TYPE.DECIMAL: "Decimal",
-    MYSQL_FIELD_TYPE.NEWDECIMAL: "Decimal",
-    MYSQL_FIELD_TYPE.DATE: "Date",
-    MYSQL_FIELD_TYPE.NEWDATE: "Date",
-    MYSQL_FIELD_TYPE.DATETIME: "DateTime",
-    MYSQL_FIELD_TYPE.TIMESTAMP: "DateTime",
-    MYSQL_FIELD_TYPE.TIME: "String",
-    MYSQL_FIELD_TYPE.BIT: "String",
-    MYSQL_FIELD_TYPE.JSON: "String",
-    MYSQL_FIELD_TYPE.ENUM: "String",
-    MYSQL_FIELD_TYPE.SET: "String",
-    MYSQL_FIELD_TYPE.TINY_BLOB: "String",
-    MYSQL_FIELD_TYPE.MEDIUM_BLOB: "String",
-    MYSQL_FIELD_TYPE.LONG_BLOB: "String",
-    MYSQL_FIELD_TYPE.BLOB: "String",
-    MYSQL_FIELD_TYPE.VAR_STRING: "String",
-    MYSQL_FIELD_TYPE.VARCHAR: "String",
-    MYSQL_FIELD_TYPE.STRING: "String",
-    MYSQL_FIELD_TYPE.GEOMETRY: "String",
-}
+
+@lru_cache(maxsize=1)
+def _mysql_field_type_to_clickhouse_type() -> dict[int, str]:
+    # Imported lazily: pymysql derives a default connection user via getpass.getuser() at import
+    # time, which crashes on containers where the running uid has no passwd entry. Keeping the
+    # import inside this function keeps it off Django's eager startup path.
+    from pymysql.constants import FIELD_TYPE as MYSQL_FIELD_TYPE  # noqa: PLC0415
+
+    return {
+        MYSQL_FIELD_TYPE.TINY: "Int8",
+        MYSQL_FIELD_TYPE.SHORT: "Int16",
+        MYSQL_FIELD_TYPE.INT24: "Int32",
+        MYSQL_FIELD_TYPE.LONG: "Int32",
+        MYSQL_FIELD_TYPE.LONGLONG: "Int64",
+        MYSQL_FIELD_TYPE.YEAR: "Int32",
+        MYSQL_FIELD_TYPE.FLOAT: "Float32",
+        MYSQL_FIELD_TYPE.DOUBLE: "Float64",
+        MYSQL_FIELD_TYPE.DECIMAL: "Decimal",
+        MYSQL_FIELD_TYPE.NEWDECIMAL: "Decimal",
+        MYSQL_FIELD_TYPE.DATE: "Date",
+        MYSQL_FIELD_TYPE.NEWDATE: "Date",
+        MYSQL_FIELD_TYPE.DATETIME: "DateTime",
+        MYSQL_FIELD_TYPE.TIMESTAMP: "DateTime",
+        MYSQL_FIELD_TYPE.TIME: "String",
+        MYSQL_FIELD_TYPE.BIT: "String",
+        MYSQL_FIELD_TYPE.JSON: "String",
+        MYSQL_FIELD_TYPE.ENUM: "String",
+        MYSQL_FIELD_TYPE.SET: "String",
+        MYSQL_FIELD_TYPE.TINY_BLOB: "String",
+        MYSQL_FIELD_TYPE.MEDIUM_BLOB: "String",
+        MYSQL_FIELD_TYPE.LONG_BLOB: "String",
+        MYSQL_FIELD_TYPE.BLOB: "String",
+        MYSQL_FIELD_TYPE.VAR_STRING: "String",
+        MYSQL_FIELD_TYPE.VARCHAR: "String",
+        MYSQL_FIELD_TYPE.STRING: "String",
+        MYSQL_FIELD_TYPE.GEOMETRY: "String",
+    }
 
 
 def mysql_field_type_to_clickhouse_type(type_code: int | None) -> str:
     if type_code is None:
         return "String"
-    return MYSQL_FIELD_TYPE_TO_CLICKHOUSE_TYPE.get(type_code, "String")
+    return _mysql_field_type_to_clickhouse_type().get(type_code, "String")
 
 
 def mysql_error_to_message(error: Exception) -> str:
-    if isinstance(error, pymysql.MySQLError):
+    from pymysql.err import MySQLError  # noqa: PLC0415
+
+    if isinstance(error, MySQLError):
         args = error.args
         if len(args) >= 2 and isinstance(args[1], str) and args[1].strip():
             return args[1].strip().splitlines()[0]
@@ -145,6 +154,8 @@ class MySQLAdapter:
         return ensure_read_only_raw_mysql_statement(sql)
 
     def execute(self, request: DirectQueryRequest) -> DirectQueryResult:
+        from pymysql.err import MySQLError  # noqa: PLC0415
+
         source = request.source
         mysql_implementation, source_config = self.validate_source_config(source, request.team)
         settings = request.settings
@@ -165,7 +176,7 @@ class MySQLAdapter:
                             # MySQL 8 only and SELECT-only; MariaDB uses a different variable.
                             # The read_timeout above is the backstop if this is unavailable.
                             cursor.execute(f"SET SESSION MAX_EXECUTION_TIME = {statement_timeout_seconds * 1000}")
-                        except pymysql.MySQLError:
+                        except MySQLError:
                             pass
                         cursor.execute("START TRANSACTION READ ONLY")
                         cursor.execute(  # nosemgrep: python.django.security.injection.sql.sql-injection-using-db-cursor-execute.sql-injection-db-cursor-execute
@@ -173,7 +184,7 @@ class MySQLAdapter:
                         )
                         results = cursor.fetchall()
                         description = cursor.description or []
-        except (pymysql.MySQLError, ExposedHogQLError) as error:
+        except (MySQLError, ExposedHogQLError) as error:
             span.set_attribute("error_type", error.__class__.__name__)
             if request.debug:
                 return DirectQueryResult(results=[], types=[], print_columns=[], error=mysql_error_to_message(error))

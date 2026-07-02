@@ -1,3 +1,4 @@
+import ast
 from typing import Any
 from uuid import uuid4
 
@@ -7,6 +8,7 @@ from unittest.mock import MagicMock, patch
 import pymysql
 from parameterized import parameterized
 
+from posthog.hogql.direct_sql import mysql_adapter
 from posthog.hogql.direct_sql.mysql_adapter import mysql_error_to_message, mysql_field_type_to_clickhouse_type
 from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.query import HogQLQueryExecutor
@@ -80,6 +82,19 @@ class TestDirectMySQLQuery(APIBaseTest):
 
     def test_mysql_error_to_message_falls_back_to_str(self):
         self.assertEqual(mysql_error_to_message(Exception("boom")), "boom")
+
+    def test_pymysql_is_not_imported_at_module_scope(self):
+        # pymysql calls getpass.getuser() at import time, which raises on containers where the
+        # running uid has no passwd entry. This module sits on Django's eager startup import path,
+        # so a module-scope pymysql import crashes manage.py and Celery beat before any work runs.
+        tree = ast.parse(open(mysql_adapter.__file__).read())
+        module_level_imports = {
+            alias.name.split(".")[0]
+            for node in tree.body
+            if isinstance(node, ast.Import | ast.ImportFrom)
+            for alias in (node.names if isinstance(node, ast.Import) else [ast.alias(name=node.module or "")])
+        }
+        self.assertNotIn("pymysql", module_level_imports)
 
     def test_generate_sql_uses_backticks_and_no_team_id(self):
         source = self._create_source()
