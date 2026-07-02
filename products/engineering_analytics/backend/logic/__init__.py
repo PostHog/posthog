@@ -17,9 +17,12 @@ from products.engineering_analytics.backend.facade.contracts import (
     CICardSummary,
     CIFailureLogs,
     GitHubSource,
+    MasterFailureGroup,
     PRCostSummary,
     PRLifecycle,
     PullRequestList,
+    RepoOverview,
+    RunFailureLogs,
     WorkflowHealthItem,
     WorkflowJob,
     WorkflowRunActivity,
@@ -32,11 +35,16 @@ from products.engineering_analytics.backend.logic.quarantine import (
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.ci_cards import query_ci_cards
-from products.engineering_analytics.backend.logic.queries.ci_failure_logs import query_ci_failure_logs
+from products.engineering_analytics.backend.logic.queries.ci_failure_logs import (
+    query_ci_failure_logs,
+    query_run_failure_logs,
+)
+from products.engineering_analytics.backend.logic.queries.master_failures import query_master_failures
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_cost, query_workflow_runner_costs
 from products.engineering_analytics.backend.logic.queries.pr_lifecycle import query_pr_lifecycle
 from products.engineering_analytics.backend.logic.queries.pr_runs import query_pr_runs
 from products.engineering_analytics.backend.logic.queries.pull_request_list import query_pull_request_list
+from products.engineering_analytics.backend.logic.queries.repo_overview import query_default_branch, query_repo_overview
 from products.engineering_analytics.backend.logic.queries.workflow_health import query_workflow_health
 from products.engineering_analytics.backend.logic.queries.workflow_jobs import query_workflow_jobs
 from products.engineering_analytics.backend.logic.queries.workflow_run import query_workflow_run
@@ -221,3 +229,40 @@ def _split_repo(repo: str | None) -> tuple[str | None, str | None]:
     if not (owner and name):
         raise ValueError(f"repo must be in 'owner/name' format, got: {repo!r}")
     return owner, name
+
+
+def build_repo_overview(
+    *,
+    curated: CuratedGitHubSource,
+    date_from: str | None = None,
+    date_to: str | None = None,
+) -> RepoOverview:
+    parsed_from = _parse_date(curated.team, date_from or _DEFAULT_WINDOW)
+    parsed_to = _parse_date(curated.team, date_to) if date_to else None
+    span_days = ((parsed_to or datetime.now(tz=parsed_from.tzinfo)) - parsed_from).days
+    if span_days > _MAX_WINDOW_DAYS:
+        raise ValueError(f"date window spans {span_days} days; the maximum is {_MAX_WINDOW_DAYS}")
+    return query_repo_overview(curated=curated, date_from=parsed_from, date_to=parsed_to)
+
+
+def build_master_failures(
+    *,
+    curated: CuratedGitHubSource,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    branch: str | None = None,
+) -> list[MasterFailureGroup]:
+    parsed_from = _parse_date(curated.team, date_from or _DEFAULT_WORKFLOW_WINDOW)
+    parsed_to = _parse_date(curated.team, date_to) if date_to else None
+    span_days = ((parsed_to or datetime.now(tz=parsed_from.tzinfo)) - parsed_from).days
+    if span_days > _MAX_WINDOW_DAYS:
+        raise ValueError(f"date window spans {span_days} days; the maximum is {_MAX_WINDOW_DAYS}")
+    resolved_branch = (branch or "").strip()
+    if not resolved_branch:
+        # No branch given: use the repo's default branch as observed in the window.
+        resolved_branch = query_default_branch(curated=curated, date_from=parsed_from, date_to=parsed_to)
+    return query_master_failures(curated=curated, date_from=parsed_from, date_to=parsed_to, branch=resolved_branch)
+
+
+def build_run_failure_logs(*, curated: CuratedGitHubSource, run_id: int) -> RunFailureLogs:
+    return query_run_failure_logs(curated=curated, run_id=run_id)

@@ -29498,6 +29498,23 @@ export namespace Schemas {
       recommended_actions: RecommendedAction[];
     }
 
+    export interface MasterFailureGroup {
+      /** Repository the failures occurred in. */
+      repo: RepoRef;
+      /** GitHub Actions workflow name the failing runs belong to. */
+      workflow_name: string;
+      /** De-sharded failing job name (matrix '(G/N)' suffix stripped) — the group's failure signature together with the workflow. '' when the job-level source isn't synced and the group degrades to workflow level. */
+      failed_job: string;
+      /** Distinct failing default-branch runs in this group within the window. */
+      run_count: number;
+      /** When the oldest failing run in the group started. */
+      first_seen: string;
+      /** When the newest failing run in the group started. */
+      last_seen: string;
+      /** Run id of the newest failing run — the drill-down anchor. */
+      latest_run_id: number;
+    }
+
     /**
      * * `key` - key
      * * `value` - value
@@ -47129,6 +47146,74 @@ export namespace Schemas {
       layout?: LayoutEnum;
     }
 
+    export interface RepoOverviewBucket {
+      /** Bucket start, aligned to the overview's granularity (top of hour, midnight, or Monday). */
+      bucket_start: string;
+      /** Runs that completed on the default branch in this bucket. */
+      completed: number;
+      /** Completed default-branch runs with conclusion 'success' in this bucket. */
+      successes: number;
+    }
+
+    export interface RepoOverview {
+      /** Completed-run history on the default branch across the window, oldest first, zero-filled. */
+      default_branch_buckets: RepoOverviewBucket[];
+      /** Workflow runs started in the window, all branches and workflows. */
+      run_count: number;
+      /** Same count over the equal-length window immediately before date_from — the delta baseline. */
+      run_count_prev: number;
+      /**
+         * Fraction of completed runs that succeeded (0-1) in the window. Null if none completed.
+         * @nullable
+         */
+      success_rate: number | null;
+      /**
+         * Success rate over the previous window. Null if none completed.
+         * @nullable
+         */
+      success_rate_prev: number | null;
+      /** Runs in the window that were a 2nd+ attempt (attempt > 1). */
+      rerun_cycles: number;
+      /** Re-run cycles over the previous window. */
+      rerun_cycles_prev: number;
+      /**
+         * Median merged_at - created_at over PRs merged in the window, bots and drafts excluded. Coarse by design: draft and ready-for-review time are fused. Null when nothing merged.
+         * @nullable
+         */
+      median_open_to_merge_seconds: number | null;
+      /**
+         * The same median over the previous window. Null when nothing merged.
+         * @nullable
+         */
+      median_open_to_merge_seconds_prev: number | null;
+      /**
+         * Billable (self-hosted) job minutes in the window; null when the job-level source isn't synced.
+         * @nullable
+         */
+      billable_minutes: number | null;
+      /**
+         * Billable minutes over the previous window; null when the job-level source isn't synced.
+         * @nullable
+         */
+      billable_minutes_prev: number | null;
+      /**
+         * Estimated CI cost in USD (billable minutes x runner-tier rate); null when the job-level source isn't synced.
+         * @nullable
+         */
+      estimated_cost_usd: number | null;
+      /**
+         * Estimated cost over the previous window; null when the job-level source isn't synced.
+         * @nullable
+         */
+      estimated_cost_usd_prev: number | null;
+      /** Whether the job-level source is synced (cost and queue figures exist). */
+      jobs_available: boolean;
+      /** 'master' or 'main', picked by observed run volume in the window. */
+      default_branch: string;
+      /** Bucket width of default_branch_buckets, chosen to fit the window: 'hour', 'day', or 'week'. */
+      granularity: string;
+    }
+
     export interface ScanEvidence {
       /** Number of files scanned */
       filesScanned: number;
@@ -47303,6 +47388,17 @@ export namespace Schemas {
     export interface RoleLookupResponse {
       /** Matching reference, or null if none exists. */
       reference: RoleExternalReference | null;
+    }
+
+    export interface RunFailureLogs {
+      /** Failed CI jobs of this run with their thinned failure logs, grouped by job. */
+      jobs: CIJobFailureLog[];
+      /** Workflow run id the failure logs are for. */
+      run_id: number;
+      /** False when no failure logs were found — the run didn't fail, or its logs aged out of the short Logs retention. */
+      logs_available: boolean;
+      /** True when the overall line cap across all jobs was hit. */
+      truncated: boolean;
     }
 
     export interface RunInsightsResponse {
@@ -61837,6 +61933,25 @@ export namespace Schemas {
     source_id?: string;
     };
 
+    export type EngineeringAnalyticsMasterFailuresParams = {
+    /**
+     * Optional exact git branch (head_branch) to scope results to, e.g. 'main'. Omit or leave blank to aggregate across all branches.
+     */
+    branch?: string;
+    /**
+     * Window start: relative ('-24h', '-7d') or ISO8601. Defaults to -24h.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
     export type EngineeringAnalyticsPrCostParams = {
     /**
      * Pull request number to estimate cost for.
@@ -61902,6 +62017,32 @@ export namespace Schemas {
      * Optional 'owner/name' repository to read the quarantine file from. Defaults to the connected GitHub source's most active repo over the last 30 days.
      */
     repo?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
+    export type EngineeringAnalyticsRepoOverviewParams = {
+    /**
+     * Window start: relative ('-30d', '-8w') or ISO8601. Defaults to -30d.
+     */
+    date_from?: string;
+    /**
+     * Window end: relative or ISO8601. Defaults to now.
+     */
+    date_to?: string;
+    /**
+     * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
+     */
+    source_id?: string;
+    };
+
+    export type EngineeringAnalyticsRunFailureLogsParams = {
+    /**
+     * Workflow run id whose failure logs to fetch.
+     */
+    run_id: number;
     /**
      * Connected GitHub data warehouse source to read from. Defaults to the oldest connected GitHub source when the team has more than one.
      */

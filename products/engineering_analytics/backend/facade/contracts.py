@@ -611,3 +611,73 @@ class WorkflowHealthItem:
     # the job-level source isn't synced (run-level health alone carries no runner tier).
     billable_minutes: float | None = None
     estimated_cost_usd: float | None = None
+
+
+@dataclass(frozen=True)
+class RepoOverviewBucket:
+    """One time bucket of the default branch's completed-run history; empty buckets are zero-filled."""
+
+    bucket_start: datetime
+    completed: int
+    successes: int
+
+
+@dataclass(frozen=True)
+class RepoOverview:
+    """Repo-level headline aggregates for the landing page, each with its previous-window twin
+    so the UI renders honest deltas. The previous window has the same length as the current one
+    and ends where it starts. Cost figures are None when the job-level source isn't synced
+    (``jobs_available``); the PR merge median excludes bots and drafts per the locked recipe.
+    """
+
+    run_count: int
+    run_count_prev: int
+    success_rate: float | None
+    success_rate_prev: float | None
+    rerun_cycles: int
+    rerun_cycles_prev: int
+    # Coarse by design: merged_at - created_at (draft + ready time fused), median over PRs merged in the window.
+    median_open_to_merge_seconds: float | None
+    median_open_to_merge_seconds_prev: float | None
+    billable_minutes: float | None
+    billable_minutes_prev: float | None
+    estimated_cost_usd: float | None
+    estimated_cost_usd_prev: float | None
+    jobs_available: bool
+    # 'master' or 'main', picked by observed run volume in the current window.
+    default_branch: str
+    # Bucket width of the history series: 'hour', 'day', or 'week'.
+    granularity: str
+    # Completed-run history on the default branch, oldest first, zero-filled.
+    default_branch_buckets: list[RepoOverviewBucket]
+
+
+@dataclass(frozen=True)
+class MasterFailureGroup:
+    """One group of default-branch failures: a (workflow, de-sharded failing job) signature with
+    its run count and first/last seen — the error-tracking-style triage row. ``failed_job`` is ''
+    when the job-level source isn't synced and the group degrades to workflow level.
+    """
+
+    repo: RepoRef
+    workflow_name: str
+    failed_job: str
+    run_count: int
+    first_seen: datetime
+    last_seen: datetime
+    # The most recent failing run in the group — the drill-down anchor.
+    latest_run_id: int
+
+
+@dataclass(frozen=True)
+class RunFailureLogs:
+    """Thinned CI failure logs for a single workflow run, grouped by failed job. Same log substrate
+    as ``CIFailureLogs`` but keyed directly by run id, for surfaces that aren't PR-scoped (the
+    default-branch failures feed and the run page). ``logs_available`` is False when no failure-log
+    records exist for the run — it didn't fail, or the logs aged out of the short Logs retention.
+    """
+
+    run_id: int
+    logs_available: bool
+    jobs: list[CIJobFailureLog]
+    truncated: bool

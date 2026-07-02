@@ -17,6 +17,7 @@ from products.engineering_analytics.backend.facade.contracts import (
     CIJobFailureLog,
     CIStatusRollup,
     GitHubSource,
+    MasterFailureGroup,
     PRCostSummary,
     PRLifecycle,
     PRLifecycleEvent,
@@ -27,8 +28,11 @@ from products.engineering_analytics.backend.facade.contracts import (
     QuarantineFile,
     QuarantineRequest,
     QuarantineRequestResult,
+    RepoOverview,
+    RepoOverviewBucket,
     RepoRef,
     RunCost,
+    RunFailureLogs,
     WorkflowCost,
     WorkflowHealthBucket,
     WorkflowHealthItem,
@@ -625,4 +629,110 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
                 "was costable or the job source isn't synced.",
                 "allow_null": True,
             },
+        }
+
+
+class RepoOverviewBucketSerializer(DataclassSerializer):
+    class Meta:
+        dataclass = RepoOverviewBucket
+        extra_kwargs = {
+            "bucket_start": {
+                "help_text": "Bucket start, aligned to the overview's granularity (top of hour, midnight, or Monday)."
+            },
+            "completed": {"help_text": "Runs that completed on the default branch in this bucket."},
+            "successes": {"help_text": "Completed default-branch runs with conclusion 'success' in this bucket."},
+        }
+
+
+class RepoOverviewSerializer(DataclassSerializer):
+    default_branch_buckets = RepoOverviewBucketSerializer(
+        many=True,
+        help_text="Completed-run history on the default branch across the window, oldest first, zero-filled.",
+    )
+
+    class Meta:
+        dataclass = RepoOverview
+        extra_kwargs = {
+            "run_count": {"help_text": "Workflow runs started in the window, all branches and workflows."},
+            "run_count_prev": {
+                "help_text": "Same count over the equal-length window immediately before date_from — the delta baseline."
+            },
+            "success_rate": {
+                "help_text": "Fraction of completed runs that succeeded (0-1) in the window. Null if none completed.",
+                "allow_null": True,
+            },
+            "success_rate_prev": {
+                "help_text": "Success rate over the previous window. Null if none completed.",
+                "allow_null": True,
+            },
+            "rerun_cycles": {"help_text": "Runs in the window that were a 2nd+ attempt (attempt > 1)."},
+            "rerun_cycles_prev": {"help_text": "Re-run cycles over the previous window."},
+            "median_open_to_merge_seconds": {
+                "help_text": "Median merged_at - created_at over PRs merged in the window, bots and drafts excluded. "
+                "Coarse by design: draft and ready-for-review time are fused. Null when nothing merged.",
+                "allow_null": True,
+            },
+            "median_open_to_merge_seconds_prev": {
+                "help_text": "The same median over the previous window. Null when nothing merged.",
+                "allow_null": True,
+            },
+            "billable_minutes": {
+                "help_text": "Billable (self-hosted) job minutes in the window; null when the job-level source "
+                "isn't synced.",
+                "allow_null": True,
+            },
+            "billable_minutes_prev": {
+                "help_text": "Billable minutes over the previous window; null when the job-level source isn't synced.",
+                "allow_null": True,
+            },
+            "estimated_cost_usd": {
+                "help_text": "Estimated CI cost in USD (billable minutes x runner-tier rate); null when the "
+                "job-level source isn't synced.",
+                "allow_null": True,
+            },
+            "estimated_cost_usd_prev": {
+                "help_text": "Estimated cost over the previous window; null when the job-level source isn't synced.",
+                "allow_null": True,
+            },
+            "jobs_available": {"help_text": "Whether the job-level source is synced (cost and queue figures exist)."},
+            "default_branch": {"help_text": "'master' or 'main', picked by observed run volume in the window."},
+            "granularity": {
+                "help_text": "Bucket width of default_branch_buckets, chosen to fit the window: 'hour', 'day', or 'week'."
+            },
+        }
+
+
+class MasterFailureGroupSerializer(DataclassSerializer):
+    repo = RepoRefSerializer(help_text="Repository the failures occurred in.")
+
+    class Meta:
+        dataclass = MasterFailureGroup
+        extra_kwargs = {
+            "workflow_name": {"help_text": "GitHub Actions workflow name the failing runs belong to."},
+            "failed_job": {
+                "help_text": "De-sharded failing job name (matrix '(G/N)' suffix stripped) — the group's failure "
+                "signature together with the workflow. '' when the job-level source isn't synced and the group "
+                "degrades to workflow level."
+            },
+            "run_count": {"help_text": "Distinct failing default-branch runs in this group within the window."},
+            "first_seen": {"help_text": "When the oldest failing run in the group started."},
+            "last_seen": {"help_text": "When the newest failing run in the group started."},
+            "latest_run_id": {"help_text": "Run id of the newest failing run — the drill-down anchor."},
+        }
+
+
+class RunFailureLogsSerializer(DataclassSerializer):
+    jobs = CIJobFailureLogSerializer(
+        many=True, help_text="Failed CI jobs of this run with their thinned failure logs, grouped by job."
+    )
+
+    class Meta:
+        dataclass = RunFailureLogs
+        extra_kwargs = {
+            "run_id": {"help_text": "Workflow run id the failure logs are for."},
+            "logs_available": {
+                "help_text": "False when no failure logs were found — the run didn't fail, or its logs aged out of "
+                "the short Logs retention.",
+            },
+            "truncated": {"help_text": "True when the overall line cap across all jobs was hit."},
         }
