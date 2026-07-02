@@ -103,8 +103,10 @@ class TestExperimentsCreateFromPrompt(APILicensedTest):
         self.assertEqual(prompt_metadata["templates"], [template_name])
         self.assertEqual(prompt_metadata["versions"], versions)
 
-        # Variant split distribution sums to 100 with the right shape
-        variants = experiment.parameters["feature_flag_variants"]
+        # Variant split distribution sums to 100 with the right shape. The flag is the source of
+        # truth for variants (parameters no longer mirrors them).
+        feature_flag = FeatureFlag.objects.get(key=experiment.feature_flag.key, team_id=self.team.id)
+        variants = feature_flag.filters["multivariate"]["variants"]
         self.assertEqual(len(variants), n)
         self.assertEqual(sum(_split_distribution(variants)), 100)
         self.assertEqual(_split_distribution(variants), _expected_splits(n))
@@ -116,11 +118,6 @@ class TestExperimentsCreateFromPrompt(APILicensedTest):
             expected_key = "test" if n == 2 else f"test-{i}"
             self.assertEqual(variant["key"], expected_key)
             self.assertEqual(variant["name"], f"v{versions[i]}")
-
-        # Feature flag was created with the variants
-        feature_flag = FeatureFlag.objects.get(key=experiment.feature_flag.key, team_id=self.team.id)
-        flag_variants = feature_flag.filters["multivariate"]["variants"]
-        self.assertEqual([v["key"] for v in flag_variants], [v["key"] for v in variants])
 
         # Each variant carries a JSON payload with {prompt_name, prompt_version} so the SDK can
         # read it via flags.get_flag_payload(...) without consulting any other state.
