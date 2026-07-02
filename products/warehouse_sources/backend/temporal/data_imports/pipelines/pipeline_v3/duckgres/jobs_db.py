@@ -661,28 +661,36 @@ class DuckgresBatchQueue:
         *,
         batch: PendingBatch,
         error_response: dict[str, Any],
+        grace_seconds: int,
     ) -> bool:
         """Flip a stale 'executing' batch to waiting_retry — fenced at write time.
 
         The recovery scan observes "stale executing, no live lease", but between
-        that read and this write another pod can reclaim the group (and a rival
-        sweep can requeue the same batch). The insert therefore re-checks both
-        in its own statement snapshot: the batch's latest status must still be
-        'executing' and the group must still carry no live lease. Returns False
-        when skipped — the batch is picked up by a later sweep once the group
-        is free again.
+        that read and this write another pod can reclaim the group, a rival
+        sweep can requeue the same batch, or a live worker without a lease (an
+        old advisory-lock pod during the mixed-version window) can heartbeat a
+        fresh 'executing' row. The insert therefore re-checks everything in its
+        own statement snapshot: the batch's latest status must still be
+        'executing', still older than ``grace_seconds``, and the group must
+        still carry no live lease. Returns False when skipped — the batch is
+        picked up by a later sweep once it is genuinely stale again.
         """
         cursor = await conn.execute(
             f"""
             INSERT INTO {DUCKGRES_STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
             SELECT %(batch_id)s, 'waiting_retry', %(attempt)s, now(), %(error_response)s, now()
-            WHERE (
-                SELECT cur.job_state
-                FROM {DUCKGRES_STATUS_TABLE} cur
-                WHERE cur.batch_id = %(batch_id)s
-                ORDER BY cur.created_at DESC, cur.id DESC
-                LIMIT 1
-            ) = 'executing'
+            WHERE EXISTS (
+                SELECT 1
+                FROM (
+                    SELECT cur.job_state, cur.created_at
+                    FROM {DUCKGRES_STATUS_TABLE} cur
+                    WHERE cur.batch_id = %(batch_id)s
+                    ORDER BY cur.created_at DESC, cur.id DESC
+                    LIMIT 1
+                ) latest
+                WHERE latest.job_state = 'executing'
+                    AND latest.created_at <= now() - make_interval(secs => %(grace)s)
+            )
             AND NOT EXISTS (
                 SELECT 1 FROM {DUCKGRES_LEASE_TABLE} l
                 WHERE l.team_id = %(team_id)s
@@ -696,6 +704,7 @@ class DuckgresBatchQueue:
                 "error_response": json.dumps(error_response),
                 "team_id": batch.team_id,
                 "schema_id": batch.schema_id,
+                "grace": grace_seconds,
             },
         )
         return bool(cursor.rowcount)
@@ -706,17 +715,20 @@ class DuckgresBatchQueue:
         *,
         batch: PendingBatch,
         reason: str,
+        grace_seconds: int,
     ) -> bool:
         """Terminally fail a run from recovery — fenced inside the insert itself.
 
         The stale scan is unlocked, so between it and this write a rival sweep
-        may have requeued the anchor batch or another pod may have reclaimed
-        the group. The failure rows are therefore inserted only while, in this
-        statement's own snapshot, the anchor batch's latest status is still
-        'executing' AND the group carries no live lease. Returns False (and
-        writes nothing) when the fence fails. The group error path uses
-        ``fail_run`` instead — it legitimately fails runs while holding its
-        own live lease.
+        may have requeued the anchor batch, another pod may have reclaimed the
+        group, or a live leaseless worker (old advisory-lock pod during the
+        mixed-version window) may have heartbeated a fresh 'executing' row.
+        The failure rows are therefore inserted only while, in this statement's
+        own snapshot, the anchor batch's latest status is still 'executing',
+        still older than ``grace_seconds``, AND the group carries no live
+        lease. Returns False (and writes nothing) when the fence fails. The
+        group error path uses ``fail_run`` instead — it legitimately fails
+        runs while holding its own live lease.
         """
         cursor = await conn.execute(
             f"""
@@ -730,13 +742,18 @@ class DuckgresBatchQueue:
                 AND b.run_uuid = %(run_uuid)s
                 AND ds.job_state = 'succeeded'
                 AND (dgs.batch_id IS NULL OR dgs.job_state IN ('waiting_retry', 'executing'))
-                AND (
-                    SELECT anchor.job_state
-                    FROM {DUCKGRES_STATUS_TABLE} anchor
-                    WHERE anchor.batch_id = %(anchor_batch_id)s
-                    ORDER BY anchor.created_at DESC, anchor.id DESC
-                    LIMIT 1
-                ) = 'executing'
+                AND EXISTS (
+                    SELECT 1
+                    FROM (
+                        SELECT anchor.job_state, anchor.created_at
+                        FROM {DUCKGRES_STATUS_TABLE} anchor
+                        WHERE anchor.batch_id = %(anchor_batch_id)s
+                        ORDER BY anchor.created_at DESC, anchor.id DESC
+                        LIMIT 1
+                    ) latest
+                    WHERE latest.job_state = 'executing'
+                        AND latest.created_at <= now() - make_interval(secs => %(grace)s)
+                )
                 AND NOT EXISTS (
                     SELECT 1 FROM {DUCKGRES_LEASE_TABLE} l
                     WHERE l.team_id = %(team_id)s
@@ -750,6 +767,7 @@ class DuckgresBatchQueue:
                 "team_id": batch.team_id,
                 "schema_id": batch.schema_id,
                 "error_response": json.dumps({"error": reason}),
+                "grace": grace_seconds,
             },
         )
         return bool(cursor.rowcount)

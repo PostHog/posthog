@@ -176,9 +176,11 @@ class BatchConsumerAdapter(Protocol):
         *,
         batch: PendingBatch,
         error_response: dict[str, Any],
+        grace_seconds: int,
     ) -> bool:
         """Requeue a stale 'executing' batch for retry. Returns False when skipped
-        (e.g. the group was reclaimed between the stale scan and this write)."""
+        (e.g. the group was reclaimed, or the batch heartbeated fresh 'executing',
+        between the stale scan and this write)."""
         ...
 
     async def fail_stale_run(
@@ -187,10 +189,12 @@ class BatchConsumerAdapter(Protocol):
         *,
         batch: PendingBatch,
         reason: str,
+        grace_seconds: int,
     ) -> bool:
         """Terminally fail a max-attempts recovery candidate's run. Returns False
-        when skipped (the batch moved or its group was reclaimed since the
-        unlocked stale scan) — implementations fence this in the write itself."""
+        when skipped (the batch moved, heartbeated fresh 'executing', or its group
+        was reclaimed since the unlocked stale scan) — implementations fence this
+        in the write itself."""
         ...
 
     async def reconcile_failed_runs(
@@ -859,7 +863,7 @@ class BatchConsumer:
                     # may have moved the batch since; the adapter fences the
                     # failure inside the write itself rather than check-then-act.
                     failed = await self._adapter.fail_stale_run(
-                        conn, batch=batch, reason="max retries exceeded (likely OOM)"
+                        conn, batch=batch, reason="max retries exceeded (likely OOM)", grace_seconds=grace_seconds
                     )
                     if failed:
                         logger.warning(
@@ -873,6 +877,7 @@ class BatchConsumer:
                         conn,
                         batch=batch,
                         error_response={"error": "executing timed out - pod restart or OOM"},
+                        grace_seconds=grace_seconds,
                     )
                     if requeued:
                         logger.warning(self._event("batch_recovered_for_retry"), attempt=batch.latest_attempt)

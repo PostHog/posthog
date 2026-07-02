@@ -210,6 +210,7 @@ class DeltaBatchConsumerAdapter:
         *,
         batch: PendingBatch,
         error_response: dict[str, Any],
+        grace_seconds: int,
     ) -> bool:
         # Unfenced (pre-existing behavior): get_stale_executing already excludes
         # live-leased groups, and the prod retry backoff makes a select-to-write
@@ -230,6 +231,7 @@ class DeltaBatchConsumerAdapter:
         *,
         batch: PendingBatch,
         reason: str,
+        grace_seconds: int,
     ) -> bool:
         # Unfenced (pre-existing behavior): see requeue_stale_batch above.
         # fail_run is documented no-raise, isolating its internal steps.

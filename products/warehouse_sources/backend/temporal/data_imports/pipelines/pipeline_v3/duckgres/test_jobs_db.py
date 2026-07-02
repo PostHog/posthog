@@ -873,22 +873,46 @@ class TestDuckgresGroupLease:
 
         # Live lease (owner-a) → requeue and terminal failure must refuse.
         assert not await DuckgresBatchQueue.requeue_stale_executing(
-            conn, batch=claimed[0], error_response={"error": "timed out"}
+            conn, batch=claimed[0], error_response={"error": "timed out"}, grace_seconds=0
         )
-        assert not await DuckgresBatchQueue.fail_run_if_stale(conn, batch=claimed[0], reason="timed out")
+        assert not await DuckgresBatchQueue.fail_run_if_stale(
+            conn, batch=claimed[0], reason="timed out", grace_seconds=0
+        )
         assert not await DuckgresBatchQueue.is_failed(conn, batch_id=batch_id)
 
         await conn.execute(f"UPDATE {DUCKGRES_LEASE_TABLE} SET expires_at = now() - interval '1 second'")
         assert await DuckgresBatchQueue.requeue_stale_executing(
-            conn, batch=claimed[0], error_response={"error": "timed out"}
+            conn, batch=claimed[0], error_response={"error": "timed out"}, grace_seconds=0
         )
 
         # Latest is now waiting_retry: a rival sweep's second requeue is a
         # no-op, and the fenced terminal failure no longer fires either.
         assert not await DuckgresBatchQueue.requeue_stale_executing(
-            conn, batch=claimed[0], error_response={"error": "timed out"}
+            conn, batch=claimed[0], error_response={"error": "timed out"}, grace_seconds=0
         )
-        assert not await DuckgresBatchQueue.fail_run_if_stale(conn, batch=claimed[0], reason="timed out")
+        assert not await DuckgresBatchQueue.fail_run_if_stale(
+            conn, batch=claimed[0], reason="timed out", grace_seconds=0
+        )
+
+    @pytest.mark.asyncio
+    async def test_fresh_executing_heartbeat_blocks_recovery_writes(self, conn):
+        # During the mixed-version window an old advisory-lock pod processes
+        # without any lease row, heartbeating fresh 'executing' statuses. The
+        # recovery writes must re-check the status AGE at write time or they
+        # would requeue/fail a batch that is demonstrably alive.
+        batch_id = await _insert_batch(conn)
+        await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
+        claimed = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a")
+        await DuckgresBatchQueue.update_status(conn, batch_id=batch_id, job_state="executing", attempt=1)
+        await conn.execute(f"UPDATE {DUCKGRES_LEASE_TABLE} SET expires_at = now() - interval '1 second'")
+
+        assert not await DuckgresBatchQueue.requeue_stale_executing(
+            conn, batch=claimed[0], error_response={"error": "timed out"}, grace_seconds=3600
+        )
+        assert not await DuckgresBatchQueue.fail_run_if_stale(
+            conn, batch=claimed[0], reason="max retries exceeded", grace_seconds=3600
+        )
+        assert not await DuckgresBatchQueue.is_failed(conn, batch_id=batch_id)
 
     @pytest.mark.asyncio
     async def test_fenced_terminal_failure_fires_only_while_stale_and_unowned(self, conn):
@@ -898,7 +922,9 @@ class TestDuckgresGroupLease:
         await DuckgresBatchQueue.update_status(conn, batch_id=batch_id, job_state="executing", attempt=3)
         await conn.execute(f"UPDATE {DUCKGRES_LEASE_TABLE} SET expires_at = now() - interval '1 second'")
 
-        assert await DuckgresBatchQueue.fail_run_if_stale(conn, batch=claimed[0], reason="max retries exceeded")
+        assert await DuckgresBatchQueue.fail_run_if_stale(
+            conn, batch=claimed[0], reason="max retries exceeded", grace_seconds=0
+        )
         assert await DuckgresBatchQueue.is_failed(conn, batch_id=batch_id)
 
     @pytest.mark.asyncio

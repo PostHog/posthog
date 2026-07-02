@@ -348,8 +348,11 @@ class DuckgresBatchConsumerAdapter:
         *,
         batch: PendingBatch,
         error_response: dict[str, Any],
+        grace_seconds: int,
     ) -> bool:
-        return await DuckgresBatchQueue.requeue_stale_executing(conn, batch=batch, error_response=error_response)
+        return await DuckgresBatchQueue.requeue_stale_executing(
+            conn, batch=batch, error_response=error_response, grace_seconds=grace_seconds
+        )
 
     async def fail_stale_run(
         self,
@@ -357,8 +360,9 @@ class DuckgresBatchConsumerAdapter:
         *,
         batch: PendingBatch,
         reason: str,
+        grace_seconds: int,
     ) -> bool:
-        return await DuckgresBatchQueue.fail_run_if_stale(conn, batch=batch, reason=reason)
+        return await DuckgresBatchQueue.fail_run_if_stale(conn, batch=batch, reason=reason, grace_seconds=grace_seconds)
 
     async def reconcile_failed_runs(
         self,
