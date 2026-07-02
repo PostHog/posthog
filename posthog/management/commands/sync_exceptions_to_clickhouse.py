@@ -110,6 +110,6 @@ class Command(BaseCommand):
                 logger.info("fingerprint not found")
                 not_found_fingerprints.append(fingerprint["fingerprint"])
 
-        logger.info(f"fingerprint overriden {found_issues_count}")
+        logger.info(f"fingerprint overridden {found_issues_count}")
         logger.info(f"fingerprints not found {not_found_fingerprints}")
         flush_all_producers(5 * 60)

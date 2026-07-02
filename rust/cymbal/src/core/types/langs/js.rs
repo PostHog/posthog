@@ -221,7 +221,7 @@ impl From<(&RawJSFrame, SourceLocation<'_>, usize)> for Frame {
         let suspicious = source.as_ref().is_some_and(|s| s.contains("posthog-js@"));
 
         let mut res = Self {
-            frame_id: FrameId::placeholder(), // We use placeholders here, as they're overriden at the RawFrame level
+            frame_id: FrameId::placeholder(), // We use placeholders here, as they're overridden at the RawFrame level
             mangled_name: raw_frame.fn_name.clone(),
             line: Some(token.line()),
             column: Some(token.column()),
