@@ -136,7 +136,8 @@ class ReplayScanner(UUIDModel):
         else:
             relevant = list(self._VERSION_TRACKED_FIELDS)
             track_enabled = True
-        if self.pk and (relevant or track_enabled):
+        # `_state.adding`, not `self.pk` — UUIDModel assigns the pk in __init__, so pk is truthy even on creates.
+        if not self._state.adding and (relevant or track_enabled):
             # SELECT FOR UPDATE so concurrent saves can't both bump scanner_version from the same baseline.
             with transaction.atomic():
                 old = (

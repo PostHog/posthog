@@ -47,10 +47,7 @@ from products.replay_vision.backend.temporal.activities.call_scanner_provider im
 )
 from products.replay_vision.backend.temporal.activities.cleanup_gemini_file import cleanup_gemini_file_activity
 from products.replay_vision.backend.temporal.activities.create_observation import create_observation_activity
-from products.replay_vision.backend.temporal.activities.embed_observation import (
-    embed_observation_activity,
-    embed_summarizer_observation_activity,
-)
+from products.replay_vision.backend.temporal.activities.embed_observation import embed_observation_activity
 from products.replay_vision.backend.temporal.activities.emit_classifier_tags import emit_classifier_tags_activity
 from products.replay_vision.backend.temporal.activities.emit_observation_event import emit_observation_event_activity
 from products.replay_vision.backend.temporal.activities.emit_observation_signal import (
@@ -95,7 +92,6 @@ from products.replay_vision.backend.temporal.types import (
     CreateObservationInputs,
     CreateObservationOutput,
     EmbedObservationInputs,
-    EmbedSummarizerObservationInputs,
     EmitClassifierTagsInputs,
     EmitObservationSignalInputs,
     EnsureSessionAssetInputs,
@@ -1769,32 +1765,6 @@ async def test_embed_observation_emits_reasoning_for_non_summarizer(_name, model
     # The exact outcome is stamped into metadata so search can filter on it inside ClickHouse.
     for key, value in expected_metadata.items():
         assert metadata[key] == value
-
-
-@pytest.mark.asyncio
-async def test_embed_summarizer_observation_alias_still_emits_facets() -> None:
-    # Back-compat: the renamed activity keeps the old name registered so summarizer workflows already in flight
-    # at deploy time resolve. It takes the old input shape and emits facets with the old (scanner-less) metadata.
-    out = SummarizerOutput(
-        title="Investigation",
-        summary="User browsed dashboards.",
-        intent="Investigate slow query response",
-        outcome="No issue reproduced.",
-        keywords=["dashboard"],
-        confidence=0.8,
-    )
-    inputs = EmbedSummarizerObservationInputs(
-        team_id=99, session_id="sess-legacy", observation_id=uuid.uuid4(), summarizer_output=out
-    )
-    with patch(
-        "products.replay_vision.backend.temporal.activities.embed_observation.emit_embedding_request"
-    ) as mock_emit:
-        await embed_summarizer_observation_activity(inputs)
-
-    assert [call.kwargs["rendering"] for call in mock_emit.call_args_list] == ["intent", "outcome", "keywords"]
-    metadata = mock_emit.call_args_list[0].kwargs["metadata"]
-    assert metadata["session_id"] == "sess-legacy"
-    assert "scanner_id" not in metadata  # old metadata shape, pre-rename
 
 
 @pytest.mark.asyncio

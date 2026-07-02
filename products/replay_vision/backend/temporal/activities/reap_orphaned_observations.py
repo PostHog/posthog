@@ -13,13 +13,14 @@ from posthog.sync import database_sync_to_async
 from posthog.temporal.common.client import async_connect
 
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
+from products.replay_vision.backend.temporal.activities.observation_state import mark_observation_terminal
 from products.replay_vision.backend.temporal.constants import (
     OBSERVATION_ORPHAN_CUTOFF,
     REAP_ORPHANED_OBSERVATIONS_BATCH_SIZE,
 )
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.errors import FailureKind
-from products.replay_vision.backend.temporal.metrics import REPLAY_VISION_FAILURE_KINDS, REPLAY_VISION_OBSERVATIONS
+from products.replay_vision.backend.temporal.metrics import REPLAY_VISION_FAILURE_KINDS
 
 logger = structlog.get_logger(__name__)
 
@@ -50,21 +51,14 @@ async def _workflow_is_open(temporal: Client, workflow_id: str) -> bool | None:
 
 
 def _mark_orphaned(observation_id: UUID, scanner_type: str) -> bool:
-    updated = ReplayObservation.objects.filter(pk=observation_id, status__in=_LIVE_STATUSES).update(
+    return mark_observation_terminal(
+        observation_id=observation_id,
         status=ObservationStatus.FAILED,
         error_reason=_ORPHANED_ERROR_REASON,
-        completed_at=datetime.now(UTC),
-    )
-    if not updated:
-        return False  # Raced a terminal transition — leave the row alone.
-    REPLAY_VISION_OBSERVATIONS.labels(status="failed", scanner_type=scanner_type).inc()
-    REPLAY_VISION_FAILURE_KINDS.labels(kind=FailureKind.ORPHANED.value, scanner_type=scanner_type).inc()
-    logger.info(
-        "replay_vision.observation.reaped",
-        observation_id=str(observation_id),
         scanner_type=scanner_type,
+        valid_kinds={FailureKind.ORPHANED.value},
+        count_kind=lambda kind: REPLAY_VISION_FAILURE_KINDS.labels(kind=kind, scanner_type=scanner_type).inc(),
     )
-    return True
 
 
 @activity.defn

@@ -1,5 +1,5 @@
 import uuid
-from typing import Any
+from typing import Any, get_args
 
 from django.conf import settings
 from django.db.models import Case, CharField, FloatField, Func, IntegerField, Q, QuerySet, Value, When
@@ -26,6 +26,7 @@ from posthog.renderers import ServerSentEventRenderer
 from products.replay_vision.backend.api.filters import MultiChoiceFilter, OrderByFilter, ordering_enum
 from products.replay_vision.backend.api.observation_progress import stream_observation_progress
 from products.replay_vision.backend.api.observation_stats import compute_observation_stats
+from products.replay_vision.backend.error_kinds import ERROR_REASON_HELP_TEXT
 from products.replay_vision.backend.feature_flag import ReplayVisionEnabledPermission
 from products.replay_vision.backend.models.replay_observation import (
     ObservationStatus,
@@ -38,6 +39,7 @@ from products.replay_vision.backend.models.replay_scanner import (
     ScannerProvider,
     ScannerType,
 )
+from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 from products.replay_vision.backend.temporal.types import ScannerResult, ScannerSnapshot
 
 logger = structlog.get_logger(__name__)
@@ -96,16 +98,7 @@ class ReplayObservationSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="Observation status (pending, running, succeeded, failed, ineligible).",
     )
-    error_reason = serializers.CharField(
-        read_only=True,
-        allow_blank=True,
-        help_text=(
-            "Populated on terminal non-success statuses; formatted as `kind:human-readable message`. "
-            "For `ineligible`, kind is one of no_recording / too_short / too_inactive / too_long / no_events. "
-            "For `failed`, kind is one of provider_transient / provider_rejected / rasterization_failed / "
-            "validation_failed / internal_error / orphaned."
-        ),
-    )
+    error_reason = serializers.CharField(read_only=True, allow_blank=True, help_text=ERROR_REASON_HELP_TEXT)
     workflow_id = serializers.CharField(
         read_only=True,
         allow_blank=True,
@@ -300,7 +293,8 @@ _JSONB_ORDER_KEYS = ("result_score", "result_verdict", "scanner_version")
 _ALL_ORDER_KEYS = OBSERVATION_ORDER_FIELDS + _JSONB_ORDER_KEYS + ("recording_subject_email",)
 
 
-_MONITOR_VERDICTS = frozenset({"yes", "no", "inconclusive"})
+# Derived from the scanner output schema so the filter can never drift from what monitors emit.
+_MONITOR_VERDICTS = frozenset(get_args(MonitorVerdict))
 
 
 class _ObservationOrderByFilter(OrderByFilter):

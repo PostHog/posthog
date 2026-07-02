@@ -54,6 +54,9 @@ RECONCILE_SCHEDULE_OP_TIMEOUT = dt.timedelta(seconds=60)
 # Capped so `replay-vision-apply-scanner-{scanner_uuid:36}-{session_id}` fits the 255-char `ReplayObservation.workflow_id` column.
 MAX_SESSION_ID_LENGTH = 128
 
+# Bounded so broker errors surface as activity failures instead of getting lost in the producer buffer.
+KAFKA_DELIVERY_TIMEOUT_S = 10.0
+
 # Sessions shorter than this don't carry enough signal for the LLM to analyze.
 MIN_SESSION_DURATION_FOR_VIDEO_SCANNER_S = 15
 

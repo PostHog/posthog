@@ -224,16 +224,6 @@ class EmbedObservationInputs(BaseModel, frozen=True):
     model_output: AnyScannerOutput
 
 
-class EmbedSummarizerObservationInputs(BaseModel, frozen=True):
-    """Back-compat input for the pre-rename `embed_summarizer_observation_activity`. Kept only so summarizer
-    workflows already in flight when the activity was renamed can still resolve their scheduled activity."""
-
-    team_id: int
-    session_id: str
-    observation_id: UUID
-    summarizer_output: SummarizerOutput
-
-
 class EmitClassifierTagsInputs(BaseModel, frozen=True):
     """Input to the classifier-side-effect activity that writes ai_tags_fixed/freeform via Kafka."""
 

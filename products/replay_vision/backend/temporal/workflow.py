@@ -397,13 +397,9 @@ class ApplyScannerWorkflow(PostHogWorkflow):
 
         Each fails soft — the result is already persisted, and one effect's outage must not abort the rest.
 
-        DEPLOY NOTE (accepted in-flight breakage): this dispatch was changed — the summarizer embed activity was
-        renamed and an embed step was added for every scanner type. We deliberately do NOT gate it behind
-        `workflow.patched()` (a pattern this codebase doesn't otherwise use). ApplyScannerWorkflow runs are short
-        (≤1h timeout), so the only affected runs are the handful in flight *past this step* at the deploy instant:
-        they may hit a replay non-determinism error and stall until their timeout, costing at most a few
-        re-runnable observations. The `embed_summarizer_observation_activity` alias additionally lets any
-        already-scheduled old-name task resolve. This trade-off is accepted over carrying a permanent patch gate.
+        Dispatch changes here are deliberately NOT gated behind `workflow.patched()`: runs are short (≤1h
+        timeout), so a deploy strands at most the handful of in-flight runs past this step, which the reaper
+        then fails as re-runnable — accepted over carrying permanent patch gates.
         """
         # Embed the observation's explanation text (reasoning, or summarizer facets) for natural-language search.
         if _has_embeddable_text(model_output):

@@ -5,10 +5,7 @@ from products.replay_vision.backend.temporal.activities.call_scanner_provider im
 from products.replay_vision.backend.temporal.activities.cleanup_gemini_file import cleanup_gemini_file_activity
 from products.replay_vision.backend.temporal.activities.count_in_flight_applies import count_in_flight_applies_activity
 from products.replay_vision.backend.temporal.activities.create_observation import create_observation_activity
-from products.replay_vision.backend.temporal.activities.embed_observation import (
-    embed_observation_activity,
-    embed_summarizer_observation_activity,
-)
+from products.replay_vision.backend.temporal.activities.embed_observation import embed_observation_activity
 from products.replay_vision.backend.temporal.activities.emit_classifier_tags import emit_classifier_tags_activity
 from products.replay_vision.backend.temporal.activities.emit_observation_event import emit_observation_event_activity
 from products.replay_vision.backend.temporal.activities.emit_observation_signal import emit_observation_signal_activity
@@ -46,7 +43,6 @@ __all__ = [
     "create_observation_activity",
     "delete_scanner_schedule_activity",
     "embed_observation_activity",
-    "embed_summarizer_observation_activity",
     "emit_classifier_tags_activity",
     "emit_observation_event_activity",
     "emit_observation_signal_activity",
