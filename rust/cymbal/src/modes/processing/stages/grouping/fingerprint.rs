@@ -2,7 +2,9 @@ use sha2::{Digest, Sha512};
 
 use crate::{
     error::UnhandledError,
-    fingerprinting::{Fingerprint, FingerprintRecordPart},
+    fingerprinting::{
+        Fingerprint, FingerprintRecordPart, FingerprintVersion, VersionedFingerprint,
+    },
     metric_consts::FINGERPRINT_GENERATOR_OPERATOR,
     modes::processing::rules::grouping::evaluate_grouping_rules,
     stages::{grouping::GroupingStage, pipeline::HandledError},
@@ -33,15 +35,16 @@ impl ValueOperator for FingerprintGenerator {
         // Generate fingerprint (uses resolved frames for hashing, or applies grouping rules).
         // Serializing the event to JSON is only needed when the team has grouping rules, so
         // defer it: `evaluate_grouping_rules` invokes this closure only when rules exist.
-        let fingerprint: Fingerprint =
-            match evaluate_grouping_rules(&ctx.connection, input.team_id, &ctx.team_manager, || {
+        let matched_rule =
+            evaluate_grouping_rules(&ctx.connection, input.team_id, &ctx.team_manager, || {
                 Ok(serde_json::to_value(&input)?)
             })
-            .await?
-            {
-                Some(rule) => Fingerprint::from_rule(rule),
-                None => Fingerprint::from_exception_list(&input.exception_list),
-            };
+            .await?;
+        let is_custom_grouped = matched_rule.is_some();
+        let fingerprint: Fingerprint = match matched_rule {
+            Some(rule) => Fingerprint::from_rule(rule),
+            None => Fingerprint::from_exception_list(&input.exception_list),
+        };
 
         // Always set proposed_fingerprint to the computed value
         input.proposed_fingerprint = Some(fingerprint.value.clone());
@@ -57,6 +60,20 @@ impl ValueOperator for FingerprintGenerator {
         } else {
             input.fingerprint = Some(fingerprint.value);
             input.fingerprint_record = Some(fingerprint.record);
+
+            // Compute every registered algorithm version. The linking stage resolves the issue
+            // against this list in order and rewrites the event fingerprint to whichever
+            // version actually matched or created the issue. Manual fingerprints and custom
+            // grouping rules express explicit user intent, so they get no versions.
+            if !is_custom_grouped {
+                input.versioned_fingerprints = FingerprintVersion::all()
+                    .iter()
+                    .map(|version| VersionedFingerprint {
+                        version: *version,
+                        fingerprint: version.compute(&input.exception_list),
+                    })
+                    .collect();
+            }
         }
 
         Ok(Ok(input))

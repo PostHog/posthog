@@ -669,6 +669,7 @@ mod tests {
             timestamp: String::new(),
             team_id,
             issue: None,
+            versioned_fingerprints: Vec::new(),
         })
     }
 

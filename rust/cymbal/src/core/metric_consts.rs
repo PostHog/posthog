@@ -61,6 +61,9 @@ pub const BYTE_HISTOGRAM_BUCKETS: &[f64] = &[
 ];
 pub const ISSUE_CREATED: &str = "cymbal_issue_created";
 pub const ISSUE_REOPENED: &str = "cymbal_issue_reopened";
+// Which fingerprint-algorithm version resolved the issue, labeled by version and outcome
+// (linked | created). A non-V1 "linked" is a split the newer algorithm prevented.
+pub const FINGERPRINT_VERSION_USED: &str = "cymbal_fingerprint_version_used";
 pub const FRAME_RESOLUTION_RESULTS_DELETED: &str = "cymbal_frame_resolution_results_deleted";
 pub const CHUNK_ID_NOT_FOUND: &str = "cymbal_chunk_id_not_found";
 pub const CHUNK_ID_FAILURE_FETCHED: &str = "cymbal_chunk_id_failure_fetched";

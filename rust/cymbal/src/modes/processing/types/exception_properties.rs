@@ -7,7 +7,7 @@ use uuid::Uuid;
 
 use crate::{
     error::{EventError, UnhandledError},
-    fingerprinting::FingerprintRecordPart,
+    fingerprinting::{FingerprintRecordPart, VersionedFingerprint},
     frames::releases::ReleaseInfo,
     issue_resolution::Issue,
     langs::native::DebugImage,
@@ -76,6 +76,18 @@ pub struct ExceptionProperties {
 
     #[serde(skip)]
     pub issue: Option<Issue>,
+
+    // One fingerprint per registered algorithm version (ascending). Drives issue association
+    // in the linking stage and is emitted on the event; never read from input (computed by
+    // the grouping stage only). Empty when the event has a manual fingerprint or matched a
+    // custom grouping rule — explicit user intent gets no auto-versions.
+    #[serde(
+        rename = "$exception_fingerprints",
+        skip_deserializing,
+        skip_serializing_if = "Vec::is_empty",
+        default
+    )]
+    pub versioned_fingerprints: Vec<VersionedFingerprint>,
 }
 
 impl ExceptionProperties {
@@ -115,6 +127,7 @@ impl ExceptionProperties {
             fingerprint,
             proposed_fingerprint,
             fingerprint_record: self.fingerprint_record.clone().unwrap_or_default(),
+            fingerprints: self.versioned_fingerprints.clone(),
             issue_id,
             other: self.props.clone(),
             handled,

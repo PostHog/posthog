@@ -79,6 +79,47 @@ impl Fingerprint {
     }
 }
 
+// Versions of the automatic fingerprint algorithm. The pipeline computes every registered
+// version for each event; the linking stage resolves the issue against the list in order
+// (oldest first) and the event carries whichever version actually matched or created the
+// issue. All versions are emitted on the event under `$exception_fingerprints`. Adding a
+// version = one variant + one arm in `compute()` + appending to `all()`.
+#[derive(Debug, Clone, Copy, PartialEq, Eq, Serialize, Deserialize)]
+#[serde(rename_all = "snake_case")]
+pub enum FingerprintVersion {
+    V1,
+}
+
+impl FingerprintVersion {
+    // All registered versions, ascending. Order is meaningful: the issue-linking lookup order
+    // follows the list, and new issues are created under the last (newest) entry.
+    pub fn all() -> &'static [FingerprintVersion] {
+        &[FingerprintVersion::V1]
+    }
+
+    pub fn as_str(&self) -> &'static str {
+        match self {
+            FingerprintVersion::V1 => "v1",
+        }
+    }
+
+    pub fn compute(&self, exception_list: &ExceptionList) -> Fingerprint {
+        match self {
+            FingerprintVersion::V1 => Fingerprint::from_exception_list(exception_list),
+        }
+    }
+}
+
+// One automatic fingerprint per registered algorithm version, with its full record of hashed
+// components. Serialized onto the event as `$exception_fingerprints` entries:
+// {"version": "v1", "value": "…", "record": […]}.
+#[derive(Debug, Clone, Serialize, Deserialize)]
+pub struct VersionedFingerprint {
+    pub version: FingerprintVersion,
+    #[serde(flatten)]
+    pub fingerprint: Fingerprint,
+}
+
 impl FingerprintComponent for crate::frames::Frame {
     fn update(&self, fp: &mut FingerprintBuilder) {
         let get_part = |s: &common_types::error_tracking::FrameId, p: Vec<&str>| {

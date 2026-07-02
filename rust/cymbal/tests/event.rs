@@ -639,3 +639,70 @@ async fn remote_resolution_http_process_streams_same_team_events_as_items(db: Pg
         .iter()
         .any(|payload| payload.contains("\"chunk_id\":\"124\"")));
 }
+
+// ---- Versioned fingerprinting: used-fingerprint semantics + event property ----
+
+fn versioned_fingerprints(event: &AnyEvent) -> Vec<serde_json::Value> {
+    event.properties["$exception_fingerprints"]
+        .as_array()
+        .expect("event should carry $exception_fingerprints")
+        .clone()
+}
+
+fn resolved_stack_event(source: &str) -> AnyEvent {
+    make_event(vec![make_exception_with_stack(
+        "Error",
+        "boom",
+        vec![frame_at(make_frame_js("handleClick"), source, 42, 10)],
+    )])
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn new_issue_uses_newest_fingerprint_version(db: PgPool) {
+    let harness = TestHarness::new(db);
+    let input = resolved_stack_event("src/app.js");
+
+    let (status, body): (_, SuccessResponse) = harness.post_event(&input).await;
+    assert!(status.is_success());
+
+    let event = body.first_event().as_ref().unwrap();
+    let versions = versioned_fingerprints(event);
+    assert_eq!(versions.len(), 1);
+    assert_eq!(versions[0]["version"], "v1");
+
+    // No issue existed, so the newest registered version created it and the event carries
+    // its fingerprint and record.
+    let newest = versions.last().unwrap();
+    assert_eq!(event.properties["$exception_fingerprint"], newest["value"]);
+    assert_eq!(
+        event.properties["$exception_fingerprint_record"],
+        newest["record"]
+    );
+    // The proposed fingerprint keeps the oldest version's automatic value.
+    assert_eq!(
+        event.properties["$exception_proposed_fingerprint"],
+        versions[0]["value"]
+    );
+}
+
+#[sqlx::test(migrations = "./tests/test_migrations")]
+async fn manual_fingerprint_gets_no_versions(db: PgPool) {
+    let harness = TestHarness::new(db);
+    let input = make_event_with_options(
+        vec![make_exception("TypeError", "cannot read property")],
+        Some("custom-fingerprint"),
+        None,
+    );
+
+    let (_, body): (_, SuccessResponse) = harness.post_event(&input).await;
+    let event = body.first_event().as_ref().unwrap();
+
+    assert_eq!(
+        event.properties["$exception_fingerprint"],
+        "custom-fingerprint"
+    );
+    assert!(
+        event.properties.get("$exception_fingerprints").is_none(),
+        "manual fingerprints express explicit intent and get no auto-versions"
+    );
+}

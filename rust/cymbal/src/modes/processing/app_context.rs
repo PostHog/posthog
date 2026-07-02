@@ -60,7 +60,7 @@ pub struct AppContext {
     // it persists across requests — only the stable mapping is cached, never the Issue
     // itself, so suppression / reopen always see current PG state (see `IssueLinker`).
     // moka caches are cheap to clone (internally Arc'd).
-    pub issue_cache: Cache<(TeamId, String), Uuid>,
+    pub issue_cache: Cache<(TeamId, String), (Uuid, String)>,
 }
 
 impl Drop for AppContext {
