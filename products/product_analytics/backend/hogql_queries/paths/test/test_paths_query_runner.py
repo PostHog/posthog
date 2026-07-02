@@ -16,6 +16,8 @@ from parameterized import parameterized
 
 from posthog.schema import CachedPathsQueryResponse
 
+from posthog.hogql.errors import ExposedHogQLError, QueryError
+
 from posthog.models import Team
 
 from products.product_analytics.backend.hogql_queries.paths.paths_query_runner import PathsQueryRunner
@@ -1117,3 +1119,63 @@ class TestPaths(ClickhouseTestMixin, APIBaseTest):
         sources_and_targets = [r.source + r.target for r in result.results]
         combined = " ".join(sources_and_targets)
         assert "123" in combined or "456" in combined
+
+
+class TestPathsConfigValidation(ClickhouseTestMixin, APIBaseTest):
+    # Bad Paths config used to fail deep in ClickHouse or query building as an opaque 500 that
+    # survived reopening the insight (a saved config re-runs unchanged). It should surface as an
+    # actionable ExposedHogQLError (→ 400) the user can act on instead.
+
+    @parameterized.expand(
+        [
+            # An invalid path-cleaning regex otherwise reaches replaceRegexpAll and fails as
+            # CANNOT_COMPILE_REGEXP, which is not user-safe (→ InternalCHQueryError → 500).
+            ("local_filter", None, {"localPathCleaningFilters": [{"alias": "x", "regex": "(unclosed"}]}),
+            ("team_filter", [{"alias": "x", "regex": "(unclosed"}], {"pathReplacements": True}),
+        ]
+    )
+    def test_invalid_path_cleaning_regex_raises_query_error(self, _name, team_filters, paths_filter):
+        if team_filters is not None:
+            self.team.path_cleaning_filters = team_filters
+            self.team.save()
+
+        runner = PathsQueryRunner(
+            query={"kind": "PathsQuery", "pathsFilter": paths_filter},
+            team=self.team,
+        )
+        with self.assertRaises(QueryError):
+            runner.calculate()
+
+    def test_invalid_paths_hogql_expression_raises_query_error(self):
+        runner = PathsQueryRunner(
+            query={
+                "kind": "PathsQuery",
+                "pathsFilter": {"includeEventTypes": ["hogql"], "pathsHogQLExpression": "this is not valid ("},
+            },
+            team=self.team,
+        )
+        # Parser raises a hogql SyntaxError (an ExposedHogQLError → 400), not a generic 500.
+        with self.assertRaises(ExposedHogQLError):
+            runner.calculate()
+
+    def test_missing_funnel_path_type_raises_query_error(self):
+        # funnelPathType is optional in the schema, so a saved insight can omit it; the else
+        # branch of handle_funnel previously raised a bare ValueError (opaque 500).
+        runner = PathsQueryRunner(
+            query={
+                "kind": "PathsQuery",
+                "pathsFilter": {},
+                "funnelPathsFilter": {
+                    "funnelSource": {
+                        "kind": "FunnelsQuery",
+                        "series": [
+                            {"kind": "EventsNode", "event": "step one"},
+                            {"kind": "EventsNode", "event": "step two"},
+                        ],
+                    },
+                },
+            },
+            team=self.team,
+        )
+        with self.assertRaises(QueryError):
+            runner.calculate()

@@ -1,8 +1,8 @@
+import re
 import itertools
 from collections import defaultdict
 from datetime import datetime, timedelta
 from math import ceil
-from re import escape
 from typing import Any, Literal, Optional, cast
 
 from posthog.schema import (
@@ -23,6 +23,7 @@ from posthog.schema import (
 
 from posthog.hogql import ast
 from posthog.hogql.constants import MAX_BYTES_BEFORE_EXTERNAL_GROUP_BY, HogQLGlobalSettings, LimitContext
+from posthog.hogql.errors import ExposedHogQLError, QueryError
 from posthog.hogql.parser import parse_expr, parse_select
 from posthog.hogql.printer import to_printed_hogql
 from posthog.hogql.property import property_to_expr
@@ -69,7 +70,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
         self.regex_groupings: list[str] = []
         if self.query.pathsFilter.pathGroupings:
             self.regex_groupings = [
-                escape(grouping).replace("\\*", ".*") for grouping in self.query.pathsFilter.pathGroupings
+                re.escape(grouping).replace("\\*", ".*") for grouping in self.query.pathsFilter.pathGroupings
             ]
 
         self.extra_event_fields: list[str] = []
@@ -198,7 +199,9 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
             )
             return funnel_fields, event_filter
         else:
-            raise ValueError("Unexpected `funnelPathType` for funnel path filter.")
+            # Exposed (→ 400) rather than a bare ValueError (→ opaque 500): reachable with a
+            # saved insight whose funnelPathsFilter has a missing/unrecognized funnelPathType.
+            raise QueryError(f"Unsupported funnel path type for funnel paths: {funnelPathType!r}")
 
     def _funnel_events_join_expr(self, funnelSource: FunnelsQuery) -> ast.Expr:
         """Return the events-side expression to join against ``funnel_actors.actor_id``.
@@ -277,9 +280,53 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
             ),
         )
 
+    def _path_replacements(self) -> list[PathCleaningFilter]:
+        """Path-cleaning filters applied to this query, in the order they're chained in ClickHouse.
+
+        Team-level filters (gated on ``pathReplacements``) come first, then any local filters
+        defined on the query itself.
+        """
+        path_replacements: list[PathCleaningFilter] = []
+
+        if (
+            self.query.pathsFilter.pathReplacements
+            and self.team.path_cleaning_filters
+            and len(self.team.path_cleaning_filters) > 0
+        ):
+            path_replacements.extend(self.team.path_cleaning_filter_models())
+
+        if self.query.pathsFilter.localPathCleaningFilters and len(self.query.pathsFilter.localPathCleaningFilters) > 0:
+            path_replacements.extend(self.query.pathsFilter.localPathCleaningFilters)
+
+        return path_replacements
+
+    def validate_config(self) -> None:
+        """Validate user-supplied Paths config before it reaches ClickHouse or the parser.
+
+        Bad config — an uncompilable path-cleaning regex, or an unparseable path HogQL
+        expression — would otherwise fail deep in ClickHouse (``CANNOT_COMPILE_REGEXP`` is not
+        user-safe, so it surfaces as an opaque 500) or the query builder. Because the config is
+        stored on the insight, that error survives reopening/editing the insight. Raising an
+        ``ExposedHogQLError`` here instead turns it into an actionable 400.
+        """
+        for replacement in self._path_replacements():
+            if not replacement.regex:
+                continue
+            try:
+                re.compile(replacement.regex)
+            except re.error as e:
+                raise QueryError(f"Invalid path cleaning regex '{replacement.regex}': {e}")
+
+        if self._should_query_event(HOGQL) and self.query.pathsFilter.pathsHogQLExpression:
+            try:
+                parse_expr(self.query.pathsFilter.pathsHogQLExpression)
+            except ExposedHogQLError:
+                raise  # Already a clean 400 with a parser-provided message.
+            except Exception as e:
+                raise QueryError(f"Invalid pathsHogQLExpression: {e}")
+
     def paths_events_query(self) -> ast.SelectQuery:
         event_filters = []
-        pathReplacements: list[PathCleaningFilter] = []
 
         event_hogql = self.construct_event_hogql()
         event_conditional = parse_expr("ifNull({event_hogql}, '') AS path_item_ungrouped", {"event_hogql": event_hogql})
@@ -308,15 +355,7 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
 
         final_path_item_column = "path_item_ungrouped"
 
-        if (
-            self.query.pathsFilter.pathReplacements
-            and self.team.path_cleaning_filters
-            and len(self.team.path_cleaning_filters) > 0
-        ):
-            pathReplacements.extend(self.team.path_cleaning_filter_models())
-
-        if self.query.pathsFilter.localPathCleaningFilters and len(self.query.pathsFilter.localPathCleaningFilters) > 0:
-            pathReplacements.extend(self.query.pathsFilter.localPathCleaningFilters)
+        pathReplacements = self._path_replacements()
 
         if len(pathReplacements) > 0:
             final_path_item_column = "path_item_cleaned"
@@ -886,6 +925,8 @@ class PathsQueryRunner(AnalyticsQueryRunner[PathsQueryResponse]):
         return validated_results
 
     def _calculate(self) -> PathsQueryResponse:
+        self.validate_config()
+
         query = self.to_query()
         # Display-only response HogQL (never executed); bypass warehouse ACL so printing doesn't fail closed userless.
         hogql = to_printed_hogql(query, self.team, bypass_warehouse_access_control=True)
