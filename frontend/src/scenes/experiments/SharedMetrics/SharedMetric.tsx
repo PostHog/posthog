@@ -33,7 +33,7 @@ import { AccessControlLevel, AccessControlResourceType, ExperimentsTabs } from '
 import { ExperimentMetricForm } from '../ExperimentMetricForm'
 import { LegacySharedFunnelsMetricForm } from '../legacy/sharedMetrics/LegacySharedFunnelsMetricForm'
 import { LegacySharedTrendsMetricForm } from '../legacy/sharedMetrics/LegacySharedTrendsMetricForm'
-import { getDefaultFunnelsMetric, getDefaultTrendsMetric } from '../utils'
+import { getDefaultFunnelsMetric, getDefaultTrendsMetric, getExperimentMetricConversionWindowError } from '../utils'
 import { SharedMetricLogicProps, sharedMetricLogic } from './sharedMetricLogic'
 
 export const scene: SceneExport<SharedMetricLogicProps> = {
@@ -61,6 +61,12 @@ export function SharedMetric(): JSX.Element {
             </div>
         )
     }
+
+    const saveDisabledReason =
+        (!sharedMetric.name && 'You must give your metric a name') ||
+        (sharedMetric.query.kind === NodeKind.ExperimentMetric &&
+            getExperimentMetricConversionWindowError(sharedMetric.query as ExperimentMetric)) ||
+        undefined
 
     return (
         <SceneContent>
@@ -242,7 +248,7 @@ export function SharedMetric(): JSX.Element {
                         userAccessLevel={sharedMetric.user_access_level}
                     >
                         <LemonButton
-                            disabledReason={sharedMetric.name ? undefined : 'You must give your metric a name'}
+                            disabledReason={saveDisabledReason}
                             size="small"
                             type="primary"
                             onClick={() => {
@@ -310,7 +316,7 @@ export function SharedMetric(): JSX.Element {
                     userAccessLevel={sharedMetric.user_access_level}
                 >
                     <LemonButton
-                        disabledReason={sharedMetric.name ? undefined : 'You must give your metric a name'}
+                        disabledReason={saveDisabledReason}
                         size="medium"
                         type="primary"
                         onClick={() => {

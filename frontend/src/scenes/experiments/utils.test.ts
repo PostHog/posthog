@@ -22,6 +22,7 @@ import {
     FeatureFlagBucketingIdentifier,
     FeatureFlagEvaluationRuntime,
     FeatureFlagType,
+    FunnelConversionWindowTimeUnit,
     PropertyFilterType,
     PropertyOperator,
 } from '~/types'
@@ -32,7 +33,9 @@ import {
     exposureConfigToFilter,
     featureFlagEligibleForExperiment,
     filterToExposureConfig,
+    getDefaultCountMetric,
     getEventCountQuery,
+    getExperimentMetricConversionWindowError,
     getOrderedMetricsWithResults,
     getViewRecordingFilters,
     getViewRecordingFiltersLegacy,
@@ -1551,6 +1554,22 @@ describe('metricResults', () => {
 
         expect(primary.map((o) => o.metric.uuid)).toEqual(['p-1'])
         expect(secondary.map((o) => o.metric.uuid)).toEqual(['s-1'])
+    })
+})
+
+describe('getExperimentMetricConversionWindowError', () => {
+    it.each([
+        ['no conversion window unit set (experiment duration)', undefined, undefined, false],
+        ['unit and window both set', 14, FunnelConversionWindowTimeUnit.Day, false],
+        ['unit set but window empty', undefined, FunnelConversionWindowTimeUnit.Day, true],
+        ['unit set but window zero', 0, FunnelConversionWindowTimeUnit.Day, true],
+    ])('%s', (_name, conversion_window, conversion_window_unit, expectError) => {
+        const metric: ExperimentMetric = {
+            ...getDefaultCountMetric(),
+            conversion_window: conversion_window as number | undefined,
+            conversion_window_unit: conversion_window_unit as FunnelConversionWindowTimeUnit | undefined,
+        }
+        expect(getExperimentMetricConversionWindowError(metric) !== null).toBe(expectError)
     })
 })
 
