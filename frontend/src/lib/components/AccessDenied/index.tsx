@@ -4,10 +4,9 @@ import { ReactNode } from 'react'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
 import { Link } from 'lib/lemon-ui/Link'
 import { cn } from 'lib/utils/css-classes'
+import { urls } from 'scenes/urls'
 
 import noAccessNopehog from 'public/no-access-nopehog.png'
-
-import { urls } from 'scenes/urls'
 
 import { supportLogic } from '../Support/supportLogic'
 
