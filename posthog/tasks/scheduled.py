@@ -100,6 +100,7 @@ from products.streamlit_apps.backend.facade.api import (
     prune_old_streamlit_app_versions,
     stop_idle_streamlit_sandboxes,
 )
+from products.warehouse_sources.backend.facade.tasks import reconcile_stuck_running_data_import_jobs
 from products.web_analytics.backend.achievements.tasks import sweep_web_analytics_achievement_team_tracks
 from products.web_analytics.backend.tasks.heatmap_screenshot import report_stuck_heatmap_screenshots
 
@@ -457,6 +458,15 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         crontab(hour=str(EXTERNAL_DATA_DIGEST_DAY_BOUNDARY_HOUR_UTC), minute="15"),
         send_external_data_failure_digest_catchup.s(),
         name="send external data failure digest catch-up",
+    )
+
+    # Proactively fail v3 data-import jobs wedged in RUNNING whose Temporal workflow is
+    # already terminal, independent of a new sync attempt firing the opportunistic takeover.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*/10"),
+        reconcile_stuck_running_data_import_jobs.s(),
+        name="reconcile stuck warehouse source data import jobs",
     )
 
     # Every 30 minutes, send decide request counts to the main posthog instance
