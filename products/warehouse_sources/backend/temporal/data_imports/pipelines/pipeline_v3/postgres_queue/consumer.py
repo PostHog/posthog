@@ -64,13 +64,7 @@ class DeltaBatchConsumerAdapter:
         retry_backoff_base_seconds: int,
         owner_token: str,
         lease_ttl_seconds: int,
-        max_groups: int,
-        exclude_groups: list[tuple[int, str]],
     ) -> list[PendingBatch]:
-        # max_groups/exclude_groups are not applied here yet: the delta claim
-        # already gates on in-flight schemas via its executing-batch exclusion,
-        # and the over-claim shape it shares (leasing more groups than free
-        # slots) is tracked as a follow-up to keep this hot query untouched.
         return await BatchQueue.get_unprocessed_and_lock(
             conn,
             owner_token=owner_token,
@@ -201,42 +195,11 @@ class DeltaBatchConsumerAdapter:
         conn: psycopg.AsyncConnection[Any],
         *,
         grace_seconds: int,
+        keep_locks: bool = False,
     ) -> list[PendingBatch]:
+        # keep_locks is meaningless for the lease sink: get_stale_executing holds
+        # no locks and the lease LEFT JOIN already excludes live groups.
         return await BatchQueue.get_stale_executing(conn, grace_seconds=grace_seconds)
-
-    async def requeue_stale_batch(
-        self,
-        conn: psycopg.AsyncConnection[Any],
-        *,
-        batch: PendingBatch,
-        error_response: dict[str, Any],
-        grace_seconds: int,
-    ) -> bool:
-        # Unfenced (pre-existing behavior): get_stale_executing already excludes
-        # live-leased groups, and the prod retry backoff makes a select-to-write
-        # reclaim of the same batch unreachable. Lease-conditional fencing (as
-        # the duckgres adapter does) is tracked as a follow-up.
-        await BatchQueue.update_status(
-            conn,
-            batch_id=batch.id,
-            job_state=self.waiting_retry_state,
-            attempt=batch.latest_attempt,
-            error_response=error_response,
-        )
-        return True
-
-    async def fail_stale_run(
-        self,
-        conn: psycopg.AsyncConnection[Any],
-        *,
-        batch: PendingBatch,
-        reason: str,
-        grace_seconds: int,
-    ) -> bool:
-        # Unfenced (pre-existing behavior): see requeue_stale_batch above.
-        # fail_run is documented no-raise, isolating its internal steps.
-        await self.fail_run(conn, batch=batch, reason=reason)
-        return True
 
     async def reconcile_failed_runs(
         self,

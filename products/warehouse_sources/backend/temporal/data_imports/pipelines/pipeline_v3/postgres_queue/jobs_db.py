@@ -55,6 +55,21 @@ def pending_batch_select_columns(status_alias: str) -> str:
     """
 
 
+# Retained for the duckgres sink, which still coordinates via session advisory
+# locks (see duckgres/jobs_db.py). The delta queue now uses leases instead.
+async def unlock_advisory_locks(
+    conn: psycopg.AsyncConnection[Any],
+    *,
+    batches: list[PendingBatch],
+    namespace: int,
+) -> None:
+    for batch in batches:
+        await conn.execute(
+            "SELECT pg_advisory_unlock(%(ns)s, hashtext(%(key)s))",
+            {"ns": namespace, "key": f"{batch.team_id}:{batch.schema_id}"},
+        )
+
+
 @dataclass(frozen=True, slots=True)
 class PendingBatch:
     """A batch row fetched from the queue, ready to be processed by the consumer."""

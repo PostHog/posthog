@@ -105,8 +105,6 @@ class BatchConsumerAdapter(Protocol):
         retry_backoff_base_seconds: int,
         owner_token: str,
         lease_ttl_seconds: int,
-        max_groups: int,
-        exclude_groups: list[tuple[int, str]],
     ) -> list[PendingBatch]: ...
 
     async def unlock(
@@ -168,34 +166,8 @@ class BatchConsumerAdapter(Protocol):
         conn: psycopg.AsyncConnection[Any],
         *,
         grace_seconds: int,
+        keep_locks: bool = False,
     ) -> list[PendingBatch]: ...
-
-    async def requeue_stale_batch(
-        self,
-        conn: psycopg.AsyncConnection[Any],
-        *,
-        batch: PendingBatch,
-        error_response: dict[str, Any],
-        grace_seconds: int,
-    ) -> bool:
-        """Requeue a stale 'executing' batch for retry. Returns False when skipped
-        (e.g. the group was reclaimed, or the batch heartbeated fresh 'executing',
-        between the stale scan and this write)."""
-        ...
-
-    async def fail_stale_run(
-        self,
-        conn: psycopg.AsyncConnection[Any],
-        *,
-        batch: PendingBatch,
-        reason: str,
-        grace_seconds: int,
-    ) -> bool:
-        """Terminally fail a max-attempts recovery candidate's run. Returns False
-        when skipped (the batch moved, heartbeated fresh 'executing', or its group
-        was reclaimed since the unlocked stale scan) — implementations fence this
-        in the write itself."""
-        ...
 
     async def reconcile_failed_runs(
         self,
@@ -326,22 +298,7 @@ class BatchConsumer:
                 poll_start = time.monotonic()
                 try:
                     conn = await self._ensure_poll_conn()
-                    batches = await self._adapter.fetch_and_lock(
-                        conn,
-                        limit=self._config.poll_limit,
-                        retry_backoff_base_seconds=self._config.retry_backoff_base_seconds,
-                        owner_token=self._owner_token,
-                        lease_ttl_seconds=self._lease_ttl_seconds,
-                        # Never lease more groups than we have slots to start:
-                        # an unstarted group's lease would be renewed by every
-                        # subsequent poll and block other pods from it for as
-                        # long as this pod stays saturated.
-                        max_groups=available,
-                        # In-flight groups can't be started again; without the
-                        # exclusion their momentarily-eligible batches re-consume
-                        # the claim budget and starve other schemas.
-                        exclude_groups=list(self._in_flight),
-                    )
+                    batches = await self._fetch_batches(conn, available=available)
                 except psycopg.OperationalError as e:
                     logger.exception(self._event("poll_failed_queue_db_unreachable"))
                     capture_exception(e)
@@ -374,6 +331,17 @@ class BatchConsumer:
                 await self._wait_or_shutdown(self._config.poll_interval_seconds)
         finally:
             await self._close()
+
+    async def _fetch_batches(self, conn: psycopg.AsyncConnection[Any], *, available: int) -> list[PendingBatch]:
+        """Claim the next batches to process. ``available`` is the number of free
+        group slots; subclasses may use it to bound how many groups they claim."""
+        return await self._adapter.fetch_and_lock(
+            conn,
+            limit=self._config.poll_limit,
+            retry_backoff_base_seconds=self._config.retry_backoff_base_seconds,
+            owner_token=self._owner_token,
+            lease_ttl_seconds=self._lease_ttl_seconds,
+        )
 
     def _reap_finished_tasks(self) -> None:
         """Remove completed group tasks from the in-flight registry."""
@@ -443,33 +411,34 @@ class BatchConsumer:
                     )
                     break
         finally:
-            unlock_conn = group_conn
-            if unlock_conn is None:
-                # The group connection never materialized (queue-DB blip, pool
-                # exhaustion) but the leases were already claimed at fetch time.
-                # Release them via the poll connection — lease release is
-                # token-scoped, any connection works — or this pod pins the
-                # groups (every poll renews its own leases) until it can
-                # connect again, locking every other pod out of them.
-                try:
-                    unlock_conn = await self._ensure_poll_conn()
-                except Exception:
-                    unlock_conn = None  # queue DB fully unreachable; lease TTL is the backstop
-            if unlock_conn is not None:
-                try:
-                    await self._adapter.unlock(unlock_conn, batches=batches, owner_token=self._owner_token)
-                except Exception as e:
-                    logger.exception(
-                        self._event("unlock_for_batches_failed"),
-                        team_id=team_id,
-                        external_data_schema_id=schema_id,
-                    )
-                    capture_exception(e)
+            await self._unlock_group(group_conn, batches, team_id=team_id, schema_id=schema_id)
             if owns_conn and group_conn is not None:
                 try:
                     await group_conn.close()
                 except Exception:
                     pass
+
+    async def _unlock_group(
+        self,
+        group_conn: psycopg.AsyncConnection[Any] | None,
+        batches: list[PendingBatch],
+        *,
+        team_id: int,
+        schema_id: str,
+    ) -> None:
+        """Release the group's claim after processing. ``group_conn`` is None when
+        opening the per-group connection failed before processing started."""
+        if group_conn is None:
+            return
+        try:
+            await self._adapter.unlock(group_conn, batches=batches, owner_token=self._owner_token)
+        except Exception as e:
+            logger.exception(
+                self._event("unlock_for_batches_failed"),
+                team_id=team_id,
+                external_data_schema_id=schema_id,
+            )
+            capture_exception(e)
 
     async def _get_status_conn(self, lock_conn: psycopg.AsyncConnection[Any] | None) -> psycopg.AsyncConnection[Any]:
         """Return the connection to use for status writes, preferring the lock session."""
@@ -611,11 +580,11 @@ class BatchConsumer:
         heartbeat_task: asyncio.Task[None] | None = None
         try:
             start = time.monotonic()
-            # BEFORE the executing write: adapters read the batch's latest
-            # status here (e.g. the duckgres mid-claim retire check), and our
-            # own 'executing' row would mask a terminal 'failed' written while
-            # the batch waited in this claim — and would un-retire it in every
-            # latest-status consumer.
+            # BEFORE the executing write: adapters may read the batch's latest
+            # status here (the duckgres mid-claim retire check), and the engine's
+            # own 'executing' row would mask a terminal status written while the
+            # batch waited in this claim. Neutral for the delta adapter, whose
+            # should_process_batch is a constant True.
             should_process = await self._adapter.should_process_batch(status_conn, batch=batch)
 
             # Pre-increment: if we OOM during processing, recovery sees attempt=N+1
@@ -673,46 +642,7 @@ class BatchConsumer:
             self._metrics.batches_processed_total.labels(team_id=team_id, schema_id=schema_id, status="error").inc()
             self._metrics.batch_retry_total.labels(attempt=str(attempt), error_type=type(err).__name__).inc()
 
-            # Fence the error-path writes on ownership: a worker can outlive its
-            # lease (expiry mid-batch, group reclaimed), and a stale writer must
-            # not stamp waiting_retry over the new owner's lifecycle — or fail
-            # the whole run out from under the pod now processing it. Raises
-            # OwnershipLostError (abandoning the group with no status write)
-            # when the lease is gone; the new owner drives the batch from here.
-            try:
-                await self._verify_ownership(lock_conn, batch)
-            except OwnershipLostError:
-                logger.warning(
-                    self._event("ownership_lost_suppressing_error_status"),
-                    batch_id=batch.id,
-                    run_uuid=batch.run_uuid,
-                    error=str(err)[:500],
-                )
-                raise
-
-            if attempt >= self._config.max_attempts:
-                logger.exception(
-                    self._event("batch_failed_no_retries_left"),
-                    batch_id=batch.id,
-                    run_uuid=batch.run_uuid,
-                    attempt=attempt,
-                )
-                capture_exception(err)
-                await self._fail_run(batch, reason=f"max retries exceeded: {err}", conn=lock_conn)
-            else:
-                logger.warning(
-                    self._event("batch_failed_will_retry"),
-                    batch_id=batch.id,
-                    attempt=attempt,
-                    error=str(err),
-                )
-                await self._adapter.update_status(
-                    status_conn,
-                    batch_id=batch.id,
-                    job_state=self._adapter.waiting_retry_state,
-                    attempt=attempt,
-                    error_response={"error": str(err)[:1000]},
-                )
+            await self._handle_batch_failure(batch, attempt, err, lock_conn=lock_conn, status_conn=status_conn)
             return False
         finally:
             if heartbeat_task is not None:
@@ -721,6 +651,40 @@ class BatchConsumer:
                     await heartbeat_task
                 except asyncio.CancelledError:
                     pass
+
+    async def _handle_batch_failure(
+        self,
+        batch: PendingBatch,
+        attempt: int,
+        err: Exception,
+        *,
+        lock_conn: psycopg.AsyncConnection[Any] | None,
+        status_conn: psycopg.AsyncConnection[Any],
+    ) -> None:
+        """Write the retry/terminal state after a processing error."""
+        if attempt >= self._config.max_attempts:
+            logger.exception(
+                self._event("batch_failed_no_retries_left"),
+                batch_id=batch.id,
+                run_uuid=batch.run_uuid,
+                attempt=attempt,
+            )
+            capture_exception(err)
+            await self._fail_run(batch, reason=f"max retries exceeded: {err}", conn=lock_conn)
+        else:
+            logger.warning(
+                self._event("batch_failed_will_retry"),
+                batch_id=batch.id,
+                attempt=attempt,
+                error=str(err),
+            )
+            await self._adapter.update_status(
+                status_conn,
+                batch_id=batch.id,
+                job_state=self._adapter.waiting_retry_state,
+                attempt=attempt,
+                error_response={"error": str(err)[:1000]},
+            )
 
     async def _fail_run(
         self,
@@ -820,13 +784,12 @@ class BatchConsumer:
 
         grace_seconds = self._config.recovery_grace_seconds
         assert grace_seconds is not None
-        # Both sinks coordinate via group leases: get_stale_executing already
-        # excludes any group with a live lease and holds nothing itself, so the
-        # sweep must NOT release leases afterwards — this pod's poll loop can
-        # reclaim a just-requeued group (same owner token) while the sweep is
-        # still running, and an owner-scoped delete here would strip that fresh
-        # lease from the active group task.
-        stale = await self._adapter.get_stale_executing(conn, grace_seconds=grace_seconds)
+        # keep_locks lets advisory-lock sinks (duckgres) hold their probe locks
+        # through the re-queue so a concurrent consumer can't pick a batch up
+        # mid-recovery. The lease sink ignores it: get_stale_executing already
+        # excludes any group with a live lease, and the finally-unlock below is a
+        # no-op for leases this pod doesn't own.
+        stale = await self._adapter.get_stale_executing(conn, grace_seconds=grace_seconds, keep_locks=True)
         if not stale:
             self._metrics.recovery_sweeps_total.labels(outcome="clean").inc()
             return
@@ -845,53 +808,44 @@ class BatchConsumer:
             "log_source_id",
             "attempt",
         )
-        for batch in stale:
-            structlog.contextvars.bind_contextvars(
-                team_id=batch.team_id,
-                external_data_schema_id=batch.schema_id,
-                external_data_source_id=batch.source_id,
-                external_data_job_id=batch.job_id,
-                run_uuid=batch.run_uuid,
-                batch_id=batch.id,
-                resource_name=batch.resource_name,
-                log_source_id=batch.schema_id,
-                attempt=batch.latest_attempt,
-            )
-            try:
-                if batch.latest_attempt >= self._config.max_attempts:
-                    # The scan is unlocked, so a rival sweep or a reclaiming pod
-                    # may have moved the batch since; the adapter fences the
-                    # failure inside the write itself rather than check-then-act.
-                    failed = await self._adapter.fail_stale_run(
-                        conn, batch=batch, reason="max retries exceeded (likely OOM)", grace_seconds=grace_seconds
-                    )
-                    if failed:
+        try:
+            for batch in stale:
+                structlog.contextvars.bind_contextvars(
+                    team_id=batch.team_id,
+                    external_data_schema_id=batch.schema_id,
+                    external_data_source_id=batch.source_id,
+                    external_data_job_id=batch.job_id,
+                    run_uuid=batch.run_uuid,
+                    batch_id=batch.id,
+                    resource_name=batch.resource_name,
+                    log_source_id=batch.schema_id,
+                    attempt=batch.latest_attempt,
+                )
+                try:
+                    if batch.latest_attempt >= self._config.max_attempts:
                         logger.warning(
                             self._event("batch_recovered_max_retries_exceeded"), attempt=batch.latest_attempt
                         )
-                        self._metrics.runs_failed_total.inc()
+                        await self._fail_run(batch, reason="max retries exceeded (likely OOM)", conn=conn)
                     else:
-                        logger.info(self._event("batch_recovery_skipped_group_reclaimed"), batch_id=batch.id)
-                else:
-                    requeued = await self._adapter.requeue_stale_batch(
-                        conn,
-                        batch=batch,
-                        error_response={"error": "executing timed out - pod restart or OOM"},
-                        grace_seconds=grace_seconds,
-                    )
-                    if requeued:
                         logger.warning(self._event("batch_recovered_for_retry"), attempt=batch.latest_attempt)
-                    else:
-                        # Another pod reclaimed the group (or another sweep won)
-                        # between the stale scan and the write; leave it alone.
-                        logger.info(self._event("batch_recovery_skipped_group_reclaimed"), batch_id=batch.id)
-            except OwnershipLostError:
-                # The batch was terminally retired (supersede/replan) between the
-                # stale scan and this write — there is nothing left to recover.
-                # Never abort the sweep (or crash the startup sweep) over it.
-                logger.info(self._event("batch_recovery_skipped_already_retired"), batch_id=batch.id)
-            finally:
-                structlog.contextvars.unbind_contextvars(*recovery_bound_keys)
+                        await self._adapter.update_status(
+                            conn,
+                            batch_id=batch.id,
+                            job_state=self._adapter.waiting_retry_state,
+                            attempt=batch.latest_attempt,
+                            error_response={"error": "executing timed out - pod restart or OOM"},
+                        )
+                finally:
+                    structlog.contextvars.unbind_contextvars(*recovery_bound_keys)
+        finally:
+            # Release probe locks held by keep_locks=True (advisory sinks). For the
+            # lease sink this only deletes leases this pod owns, so it's a no-op for
+            # the abandoned groups recovered above.
+            try:
+                await self._adapter.unlock(conn, batches=stale, owner_token=self._owner_token)
+            except Exception:
+                logger.exception(self._event("recovery_sweep_unlock_failed"))
 
     def _install_signal_handlers(self) -> None:
         loop = asyncio.get_running_loop()

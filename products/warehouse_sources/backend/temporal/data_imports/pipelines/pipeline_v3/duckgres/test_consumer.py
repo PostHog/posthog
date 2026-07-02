@@ -4,6 +4,8 @@ from typing import Any
 import pytest
 from unittest.mock import AsyncMock, MagicMock, patch
 
+import psycopg
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.batch_consumer import (
     OwnershipLostError,
 )
@@ -461,6 +463,131 @@ class TestGroupLeaseRenewal:
 
         assert owns is True
         assert mock_renew.call_args[1]["lease_ttl_seconds"] == 900
+
+
+class TestErrorPathOwnershipFencing:
+    @pytest.mark.asyncio
+    async def test_error_status_suppressed_when_ownership_lost_mid_batch(self):
+        # A worker can outlive its lease (expiry mid-batch, group reclaimed);
+        # its error path must not stamp waiting_retry — or fail the whole run —
+        # over the new owner's lifecycle. It must abandon with no write.
+        consumer = _make_consumer(max_attempts=3)
+        consumer._process_batch = AsyncMock(side_effect=ValueError("boom"))
+        lock_conn = _make_healthy_conn()
+        states: list[str] = []
+
+        async def track_status(conn, *, batch_id, job_state, attempt, error_response=None):
+            states.append(job_state)
+            return True
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.update_status_unless_failed",
+                side_effect=track_status,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.renew_lease",
+                new_callable=AsyncMock,
+                side_effect=[True, False],  # start-of-batch check passes; error-path check fails
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.is_failed",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.has_applied",
+                new_callable=AsyncMock,
+                return_value=False,
+            ),
+            patch.object(consumer, "_fail_run", new_callable=AsyncMock) as mock_fail,
+            pytest.raises(OwnershipLostError),
+        ):
+            await consumer._process_single(_make_batch(), lock_conn=lock_conn)
+
+        mock_fail.assert_not_called()
+        assert SourceBatchDuckgresStatus.State.WAITING_RETRY not in states
+
+
+class TestGroupConnectionFailure:
+    @pytest.mark.asyncio
+    async def test_leases_released_when_group_connection_fails(self):
+        # Leases are claimed at fetch time on the poll connection; if opening
+        # the per-group connection then fails, the leases must still be
+        # released (via the poll connection) — otherwise every poll renews
+        # them and other pods are locked out of the groups indefinitely.
+        consumer = _make_consumer()
+        batches = [_make_batch()]
+
+        with (
+            patch.object(consumer, "_connect", new_callable=AsyncMock, side_effect=psycopg.OperationalError("no conn")),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.unlock_for_batches",
+                new_callable=AsyncMock,
+            ) as mock_unlock,
+        ):
+            await consumer._process_group_tracked((1, "schema-1"), batches)
+
+        mock_unlock.assert_called_once_with(consumer._poll_conn, batches=batches, owner_token=consumer._owner_token)
+
+
+class TestFencedRecoverySweep:
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("fenced_result", [True, False])
+    async def test_stale_batch_requeued_only_through_the_fenced_write(self, fenced_result):
+        # The sweep must requeue via the write-time fence (still executing,
+        # still older than grace, no live lease) and must never release leases
+        # afterwards — the poll loop can reclaim a just-requeued group with the
+        # same owner token while the sweep is still running.
+        consumer = _make_consumer(max_attempts=3)
+        stale_batch = _make_batch(latest_attempt=1)
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.get_stale_executing",
+                new_callable=AsyncMock,
+                return_value=[stale_batch],
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.requeue_stale_executing",
+                new_callable=AsyncMock,
+                return_value=fenced_result,
+            ) as mock_requeue,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.unlock_for_batches",
+                new_callable=AsyncMock,
+            ) as mock_unlock,
+        ):
+            await consumer._recovery_sweep()
+
+        mock_requeue.assert_called_once()
+        assert mock_requeue.call_args[1]["grace_seconds"] == consumer._config.recovery_grace_seconds
+        mock_unlock.assert_not_called()
+
+    @pytest.mark.asyncio
+    @pytest.mark.parametrize("fenced_result", [True, False])
+    async def test_exhausted_stale_batch_failed_only_through_the_fenced_write(self, fenced_result):
+        consumer = _make_consumer(max_attempts=3)
+        stale_batch = _make_batch(latest_attempt=3)
+
+        with (
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.get_stale_executing",
+                new_callable=AsyncMock,
+                return_value=[stale_batch],
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.fail_run_if_stale",
+                new_callable=AsyncMock,
+                return_value=fenced_result,
+            ) as mock_fenced_fail,
+            patch.object(consumer, "_fail_run", new_callable=AsyncMock) as mock_unfenced,
+        ):
+            await consumer._recovery_sweep()
+
+        mock_fenced_fail.assert_called_once()
+        assert "max retries exceeded" in mock_fenced_fail.call_args[1]["reason"]
+        mock_unfenced.assert_not_called()
 
 
 class TestStuckBatchWatchdog:

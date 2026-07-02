@@ -282,59 +282,6 @@ class TestProcessGroup:
         assert processed == [0]
 
 
-class TestGroupConnectionFailure:
-    @pytest.mark.asyncio
-    async def test_leases_released_when_group_connection_fails(self):
-        # Leases are claimed at fetch time on the poll connection; if opening
-        # the per-group connection then fails, the leases must still be
-        # released (via the poll connection) — otherwise every poll renews
-        # them and other pods are locked out of the groups indefinitely.
-        consumer = _make_consumer()
-        batches = [_make_batch()]
-
-        with (
-            patch.object(consumer, "_connect", new_callable=AsyncMock, side_effect=psycopg.OperationalError("no conn")),
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
-                new_callable=AsyncMock,
-            ) as mock_unlock,
-        ):
-            await consumer._process_group_tracked((1, "schema-1"), batches)
-
-        mock_unlock.assert_called_once_with(consumer._poll_conn, batches=batches, owner_token=consumer._owner_token)
-
-
-class TestOwnershipFencing:
-    @pytest.mark.asyncio
-    @pytest.mark.parametrize("latest_attempt", [0, 2])  # waiting_retry branch / fail_run branch
-    async def test_error_status_suppressed_when_ownership_lost_mid_batch(self, latest_attempt):
-        # A worker can outlive its lease (expiry mid-batch, group reclaimed);
-        # its error path must not stamp waiting_retry — or fail the whole run —
-        # over the new owner's lifecycle. It must abandon with no write.
-        consumer = _make_consumer(max_attempts=3)
-        consumer._process_batch = AsyncMock(side_effect=ValueError("boom"))
-        lock_conn = _make_healthy_conn()
-
-        with (
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
-                new_callable=AsyncMock,
-            ) as mock_status,
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.verify_advisory_lock",
-                new_callable=AsyncMock,
-                side_effect=[True, False],  # start-of-batch check passes; error-path check fails
-            ),
-            patch.object(consumer, "_fail_run", new_callable=AsyncMock) as mock_fail,
-            pytest.raises(OwnershipLostError),
-        ):
-            await consumer._process_single(_make_batch(latest_attempt=latest_attempt), lock_conn=lock_conn)
-
-        mock_fail.assert_not_called()
-        states = [call.kwargs["job_state"] for call in mock_status.call_args_list]
-        assert SourceBatchStatus.State.WAITING_RETRY not in states
-
-
 class TestRecoverySweep:
     @pytest.mark.asyncio
     async def test_retries_stale_below_max(self):
@@ -365,18 +312,12 @@ class TestRecoverySweep:
             attempt=1,
             error_response={"error": "executing timed out - pod restart or OOM"},
         )
-        # The sweep must not release leases: the poll loop can reclaim a
-        # just-requeued group (same owner token) while the sweep runs, and an
-        # owner-scoped delete here would strip that fresh lease mid-flight.
-        mock_unlock.assert_not_called()
+        mock_unlock.assert_called_once_with(
+            consumer._recovery_conn, batches=[stale_batch], owner_token=consumer._owner_token
+        )
 
     @pytest.mark.asyncio
-    @pytest.mark.parametrize("fenced_result", [True, False])
-    async def test_exhausted_stale_batch_failed_only_through_the_fenced_path(self, fenced_result):
-        # The sweep must fail exhausted batches via the adapter's fenced
-        # fail_stale_run (write-time re-check of staleness/ownership) — never
-        # via the unfenced _fail_run — and skip cleanly when the fence refuses
-        # (a rival sweep or reclaiming pod moved the batch since the scan).
+    async def test_fails_exhausted_stale_batch(self):
         consumer = _make_consumer(max_attempts=3)
         stale_batch = _make_batch(latest_attempt=3)
 
@@ -386,41 +327,20 @@ class TestRecoverySweep:
                 new_callable=AsyncMock,
                 return_value=[stale_batch],
             ),
-            patch.object(
-                consumer._adapter, "fail_stale_run", new_callable=AsyncMock, return_value=fenced_result
-            ) as mock_fenced,
-            patch.object(consumer, "_fail_run", new_callable=AsyncMock) as mock_unfenced,
+            patch.object(consumer, "_fail_run", new_callable=AsyncMock) as mock_fail,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
+                new_callable=AsyncMock,
+            ) as mock_unlock,
         ):
             await consumer._recovery_sweep()
 
-        mock_fenced.assert_called_once()
-        assert "max retries exceeded" in mock_fenced.call_args[1]["reason"]
-        mock_unfenced.assert_not_called()
+        mock_fail.assert_called_once()
+        assert "max retries exceeded" in mock_fail.call_args[1]["reason"]
+        mock_unlock.assert_called_once()
 
     @pytest.mark.asyncio
-    async def test_recovery_sweep_skips_batches_retired_mid_sweep(self):
-        # A batch terminally retired between the stale scan and the re-queue
-        # write surfaces as OwnershipLostError from the adapter; the sweep
-        # (including the unwrapped startup sweep) must skip it, not crash.
-        consumer = _make_consumer(max_attempts=3)
-        stale_batch = _make_batch(latest_attempt=1)
-
-        with (
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.get_stale_executing",
-                new_callable=AsyncMock,
-                return_value=[stale_batch],
-            ),
-            patch(
-                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.update_status",
-                new_callable=AsyncMock,
-                side_effect=OwnershipLostError("batch was terminally retired while claimed"),
-            ),
-        ):
-            await consumer._recovery_sweep()
-
-    @pytest.mark.asyncio
-    async def test_recovery_sweep_error_propagates_without_releasing_leases(self):
+    async def test_recovery_sweep_unlocks_on_error(self):
         consumer = _make_consumer(max_attempts=3)
         stale_batch = _make_batch(latest_attempt=1)
 
@@ -443,7 +363,9 @@ class TestRecoverySweep:
         ):
             await consumer._recovery_sweep()
 
-        mock_unlock.assert_not_called()
+        mock_unlock.assert_called_once_with(
+            consumer._recovery_conn, batches=[stale_batch], owner_token=consumer._owner_token
+        )
 
 
 class TestFailRun:

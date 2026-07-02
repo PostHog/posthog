@@ -198,8 +198,8 @@ class DuckgresBatchConsumerAdapter:
         retry_backoff_base_seconds: int,
         owner_token: str,
         lease_ttl_seconds: int,
-        max_groups: int,
-        exclude_groups: list[tuple[int, str]],
+        max_groups: int | None = None,
+        exclude_groups: list[tuple[int, str]] | None = None,
     ) -> list[PendingBatch]:
         team_ids = await self._enabled_team_ids()
         if team_ids is not None and not team_ids:
@@ -339,30 +339,13 @@ class DuckgresBatchConsumerAdapter:
         conn: psycopg.AsyncConnection[Any],
         *,
         grace_seconds: int,
+        keep_locks: bool = False,
     ) -> list[PendingBatch]:
+        # keep_locks is meaningless for a lease sink: get_stale_executing holds
+        # nothing, and the lease LEFT JOIN already excludes live groups. The
+        # DuckgresBatchConsumer overrides _recovery_sweep, so the base engine's
+        # keep-then-unlock recovery flow never runs for this adapter.
         return await DuckgresBatchQueue.get_stale_executing(conn, grace_seconds=grace_seconds)
-
-    async def requeue_stale_batch(
-        self,
-        conn: psycopg.AsyncConnection[Any],
-        *,
-        batch: PendingBatch,
-        error_response: dict[str, Any],
-        grace_seconds: int,
-    ) -> bool:
-        return await DuckgresBatchQueue.requeue_stale_executing(
-            conn, batch=batch, error_response=error_response, grace_seconds=grace_seconds
-        )
-
-    async def fail_stale_run(
-        self,
-        conn: psycopg.AsyncConnection[Any],
-        *,
-        batch: PendingBatch,
-        reason: str,
-        grace_seconds: int,
-    ) -> bool:
-        return await DuckgresBatchQueue.fail_run_if_stale(conn, batch=batch, reason=reason, grace_seconds=grace_seconds)
 
     async def reconcile_failed_runs(
         self,
@@ -410,21 +393,184 @@ class DuckgresBatchConsumerAdapter:
 
 
 class DuckgresBatchConsumer(SharedBatchConsumer):
+    """Duckgres batch consumer: the shared engine plus the sink's lease-safety
+    behaviors, kept out of the base engine so the delta consumer is unaffected.
+
+    Overrides:
+    - _fetch_batches: caps leased groups to free slots and excludes in-flight
+      groups, so a saturated pod never pins groups it cannot start.
+    - _unlock_group: releases leases via the poll connection when the group
+      connection failed to open (a claimed-but-unstarted group would otherwise
+      be renewed by every poll and block other pods indefinitely).
+    - _handle_batch_failure: fences error-path status writes on ownership — a
+      worker that outlived its lease must not stamp retry/terminal states over
+      the new owner's lifecycle.
+    - _recovery_sweep: fenced requeue/terminal-failure (write-time re-check of
+      state, staleness age, and lease absence) and no post-sweep lease release
+      (an owner-scoped delete could strip a lease the poll loop just claimed).
+    """
+
     def __init__(
         self,
         config: DuckgresConsumerConfig,
         process_batch: ProcessBatchFn,
         health_reporter: Callable[[], None] | None = None,
     ) -> None:
+        # __post_init__ resolves lease_ttl_seconds (defaults to recovery grace),
+        # so the adapter's boundary renewals use the same TTL as the claim.
+        adapter = DuckgresBatchConsumerAdapter(lease_ttl_seconds=config.lease_ttl_seconds or LEASE_TTL_SECONDS)
         super().__init__(
             config=config,
             process_batch=process_batch,
-            # __post_init__ resolves lease_ttl_seconds (defaults to recovery grace),
-            # so the adapter's boundary renewals use the same TTL as the claim.
-            adapter=DuckgresBatchConsumerAdapter(lease_ttl_seconds=config.lease_ttl_seconds or LEASE_TTL_SECONDS),
+            adapter=adapter,
             health_reporter=health_reporter,
             metrics=make_consumer_metrics("duckgres"),
         )
+        self._duckgres_adapter = adapter
+
+    async def _fetch_batches(self, conn: psycopg.AsyncConnection[Any], *, available: int) -> list[PendingBatch]:
+        return await self._duckgres_adapter.fetch_and_lock(
+            conn,
+            limit=self._config.poll_limit,
+            retry_backoff_base_seconds=self._config.retry_backoff_base_seconds,
+            owner_token=self._owner_token,
+            lease_ttl_seconds=self._lease_ttl_seconds,
+            # Never lease more groups than we have slots to start: an unstarted
+            # group's lease would be renewed by every subsequent poll and block
+            # other pods from it for as long as this pod stays saturated.
+            max_groups=available,
+            # In-flight groups can't be started again; without the exclusion
+            # their momentarily-eligible batches re-consume the claim budget
+            # and starve other schemas.
+            exclude_groups=list(self._in_flight),
+        )
+
+    async def _unlock_group(
+        self,
+        group_conn: psycopg.AsyncConnection[Any] | None,
+        batches: list[PendingBatch],
+        *,
+        team_id: int,
+        schema_id: str,
+    ) -> None:
+        if group_conn is None:
+            # The group connection never materialized (queue-DB blip, pool
+            # exhaustion) but the leases were already claimed at fetch time.
+            # Release them via the poll connection — lease release is
+            # token-scoped, any connection works — or this pod pins the groups
+            # (every poll renews its own leases) until it can connect again.
+            try:
+                fallback_conn = await self._ensure_poll_conn()
+            except Exception:
+                return  # queue DB fully unreachable; lease TTL is the backstop
+            try:
+                await self._duckgres_adapter.unlock(fallback_conn, batches=batches, owner_token=self._owner_token)
+            except Exception as e:
+                logger.exception(
+                    self._event("unlock_for_batches_failed"),
+                    team_id=team_id,
+                    external_data_schema_id=schema_id,
+                )
+                capture_exception(e)
+            return
+        await super()._unlock_group(group_conn, batches, team_id=team_id, schema_id=schema_id)
+
+    async def _handle_batch_failure(
+        self,
+        batch: PendingBatch,
+        attempt: int,
+        err: Exception,
+        *,
+        lock_conn: psycopg.AsyncConnection[Any] | None,
+        status_conn: psycopg.AsyncConnection[Any],
+    ) -> None:
+        # Fence the error-path writes on ownership: a worker can outlive its
+        # lease (expiry mid-batch, group reclaimed), and a stale writer must
+        # not stamp waiting_retry over the new owner's lifecycle — or fail the
+        # whole run out from under the pod now processing it. Raising abandons
+        # the group with no status write; the new owner drives the batch.
+        try:
+            await self._verify_ownership(lock_conn, batch)
+        except OwnershipLostError:
+            logger.warning(
+                self._event("ownership_lost_suppressing_error_status"),
+                batch_id=batch.id,
+                run_uuid=batch.run_uuid,
+                error=str(err)[:500],
+            )
+            raise
+        await super()._handle_batch_failure(batch, attempt, err, lock_conn=lock_conn, status_conn=status_conn)
+
+    async def _recovery_sweep(self) -> None:
+        conn = await self._ensure_recovery_conn()
+
+        grace_seconds = self._config.recovery_grace_seconds
+        assert grace_seconds is not None
+        # get_stale_executing already excludes any group with a live lease and
+        # holds nothing itself, so — unlike the base sweep — no claims are
+        # released afterwards: this pod's poll loop can reclaim a just-requeued
+        # group (same owner token) while the sweep is still running, and an
+        # owner-scoped delete here would strip that fresh lease mid-flight.
+        stale = await self._duckgres_adapter.get_stale_executing(conn, grace_seconds=grace_seconds)
+        if not stale:
+            self._metrics.recovery_sweeps_total.labels(outcome="clean").inc()
+            return
+
+        self._metrics.recovery_sweeps_total.labels(outcome="orphans_found").inc()
+        logger.info(self._event("recovery_sweep_found_stale_batches"), count=len(stale))
+
+        recovery_bound_keys = (
+            "team_id",
+            "external_data_schema_id",
+            "external_data_source_id",
+            "external_data_job_id",
+            "run_uuid",
+            "batch_id",
+            "resource_name",
+            "log_source_id",
+            "attempt",
+        )
+        for batch in stale:
+            structlog.contextvars.bind_contextvars(
+                team_id=batch.team_id,
+                external_data_schema_id=batch.schema_id,
+                external_data_source_id=batch.source_id,
+                external_data_job_id=batch.job_id,
+                run_uuid=batch.run_uuid,
+                batch_id=batch.id,
+                resource_name=batch.resource_name,
+                log_source_id=batch.schema_id,
+                attempt=batch.latest_attempt,
+            )
+            try:
+                # Both writes are fenced inside the insert itself (still
+                # 'executing', still older than grace, no live lease), so a
+                # batch retired, reclaimed, or freshly heartbeated between the
+                # unlocked stale scan and the write is skipped, never clobbered.
+                if batch.latest_attempt >= self._config.max_attempts:
+                    failed = await DuckgresBatchQueue.fail_run_if_stale(
+                        conn, batch=batch, reason="max retries exceeded (likely OOM)", grace_seconds=grace_seconds
+                    )
+                    if failed:
+                        logger.warning(
+                            self._event("batch_recovered_max_retries_exceeded"), attempt=batch.latest_attempt
+                        )
+                        self._metrics.runs_failed_total.inc()
+                    else:
+                        logger.info(self._event("batch_recovery_skipped_not_stale"), batch_id=batch.id)
+                else:
+                    requeued = await DuckgresBatchQueue.requeue_stale_executing(
+                        conn,
+                        batch=batch,
+                        error_response={"error": "executing timed out - pod restart or OOM"},
+                        grace_seconds=grace_seconds,
+                    )
+                    if requeued:
+                        logger.warning(self._event("batch_recovered_for_retry"), attempt=batch.latest_attempt)
+                    else:
+                        logger.info(self._event("batch_recovery_skipped_not_stale"), batch_id=batch.id)
+            finally:
+                structlog.contextvars.unbind_contextvars(*recovery_bound_keys)
 
 
 __all__ = [
