@@ -2081,7 +2081,7 @@ def create_task_run_living_artifact(
     try:
         created = create_living_artifact(run=run, **artifact)
     except Exception as exc:
-        logger.warning("task_run.living_artifact_create_failed", run_id=str(run.id), error=str(exc))
+        logger.warning("Failed to create living artifact for task run %s: %s", run.id, exc)
         return None, str(exc)
     return serialize_task_artifact(created), None
 
@@ -2124,12 +2124,7 @@ def edit_task_run_living_artifact(
             metadata=metadata,
         )
     except Exception as exc:
-        logger.warning(
-            "task_run.living_artifact_edit_failed",
-            run_id=str(run.id),
-            artifact_id=str(artifact_id),
-            error=str(exc),
-        )
+        logger.warning("Failed to edit living artifact %s for task run %s: %s", artifact_id, run.id, exc)
         return None, str(exc)
     return serialize_task_artifact(updated), None
 

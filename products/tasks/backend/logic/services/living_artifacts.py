@@ -793,7 +793,8 @@ def deliver_pending_slack_file_artifacts(run: TaskRun, *, initial_comment: str) 
             continue
 
         _version_index, version_payload = pending
-        location = version_payload.get("location") if isinstance(version_payload.get("location"), dict) else {}
+        raw_location = version_payload.get("location")
+        location = raw_location if isinstance(raw_location, dict) else {}
         storage_path = str(location.get("storage_path") or (artifact.location or {}).get("storage_path") or "")
         if not storage_path:
             logger.warning("task_artifact.slack_file_missing_storage_path", artifact_id=str(artifact.id))
@@ -859,7 +860,8 @@ def _pending_slack_file_version(artifact: TaskArtifact) -> tuple[int, dict[str, 
 def _pending_version_if_undelivered(index: int, version: dict[str, Any]) -> tuple[int, dict[str, Any]] | None:
     if version.get("slack_file_id") or version.get("delivery_status") == "delivered":
         return None
-    location = version.get("location") if isinstance(version.get("location"), dict) else {}
+    raw_location = version.get("location")
+    location = raw_location if isinstance(raw_location, dict) else {}
     if not location.get("storage_path"):
         return None
     return index, version
