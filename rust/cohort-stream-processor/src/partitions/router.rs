@@ -39,20 +39,18 @@ pub enum RouteError {
     ChannelClosed { partition: i32, dropped: usize },
 }
 
-/// The result of a non-blocking [`try_route_batch`](PartitionRouter::try_route_batch) send of one
-/// partition's sub-batch. Unlike [`RouteError`], `Full` is backpressure — the events are handed back
-/// intact to be held and retried — not a drop.
+/// Per-partition result of [`try_route_batch`](PartitionRouter::try_route_batch). `Full` is
+/// backpressure — the events are returned to be held and retried — not a drop.
 #[derive(Debug)]
 pub enum SendOutcome {
-    /// Delivered to the worker. `max_offset` is the highest event offset in the sub-batch (for the
-    /// dispatch ceiling); `count` is the number of messages delivered.
+    /// Delivered. `max_offset` is the highest event offset (for the dispatch ceiling); `count` the
+    /// number of messages delivered.
     Sent { max_offset: i64, count: usize },
-    /// The worker channel was full. Carries the un-sent sub-batch verbatim so the caller can hold it,
-    /// pause the partition, and redispatch once the channel drains. No drop is recorded.
+    /// Channel full: carries the un-sent sub-batch to hold, pause, and redispatch. No drop recorded.
     Full(Vec<ShuffleMessage>),
     /// No worker registered (never assigned, or revoked): dropped and recorded; Kafka replays.
     NoWorker,
-    /// The worker channel is closed (worker exited): dropped and recorded; Kafka replays.
+    /// Worker channel closed (worker exited): dropped and recorded; Kafka replays.
     ChannelClosed,
 }
 
@@ -182,11 +180,8 @@ impl PartitionRouter {
         }
     }
 
-    /// Non-blocking sibling of [`route_batch`](Self::route_batch): group a batch by partition and
-    /// `try_send` each sub-batch, never awaiting. Returns per-partition [`SendOutcome`] so the caller
-    /// can advance the dispatch ceiling for what landed, hold and pause the partitions whose channel
-    /// was full, and treat a missing/closed worker as a drop. Used only on the hot events path, whose
-    /// heartbeat must not be gated on downstream drain.
+    /// Non-blocking sibling of [`route_batch`](Self::route_batch): group by partition and `try_send`
+    /// each sub-batch, returning the per-partition [`SendOutcome`] instead of awaiting a drain.
     pub fn try_route_batch(
         &self,
         messages: Vec<(i32, ShuffleMessage)>,
@@ -209,7 +204,6 @@ impl PartitionRouter {
             self.record_drop(partition, batch.len(), REASON_NO_WORKER);
             return SendOutcome::NoWorker;
         };
-        // `max_offset`/`count` before the move into `try_send`; the sub-batch is events-only here.
         let count = batch.len();
         let max_offset = batch.iter().filter_map(ShuffleMessage::event_offset).max();
         match sender.try_send(batch) {
@@ -486,8 +480,8 @@ mod tests {
         assert_eq!(tags(&rx_new.recv().await.unwrap()), vec![7]);
     }
 
-    /// An event whose `cse_offset` (what `try_route_batch` reads for the dispatch ceiling) matches its
-    /// `source_offset` tag, so [`tags`] and `max_offset` assertions line up.
+    /// An event whose `cse_offset` matches its `source_offset` tag, so [`tags`] and `max_offset`
+    /// assertions line up.
     fn event_off(cse_offset: i64) -> ShuffleMessage {
         match event(cse_offset) {
             ShuffleMessage::Event { event, .. } => ShuffleMessage::Event { event, cse_offset },
@@ -528,7 +522,7 @@ mod tests {
         let router = PartitionRouter::new(1);
         let mut rx = router.add_partition(1).unwrap();
 
-        // Saturate the single channel slot, then the next try must hand the batch back untouched.
+        // Saturate the slot, then the next try hands the batch back untouched.
         assert!(matches!(
             router.try_route_batch(vec![(1, event_off(100))]).remove(&1),
             Some(SendOutcome::Sent { .. }),
@@ -538,7 +532,6 @@ mod tests {
             Some(SendOutcome::Full(returned)) => assert_eq!(tags(&returned), vec![7]),
             other => panic!("expected Full, got {other:?}"),
         }
-        // The holdover is recoverable: the first batch is still the only thing queued.
         assert_eq!(tags(&rx.try_recv().unwrap()), vec![100]);
         assert!(rx.try_recv().is_err());
     }
@@ -564,7 +557,6 @@ mod tests {
         let router = PartitionRouter::new(1);
         let mut rx2 = router.add_partition(2).unwrap();
         let _rx1 = router.add_partition(1).unwrap();
-        // Fill partition 1 only.
         router.try_route_batch(vec![(1, event_off(100))]);
 
         let mut outcomes = router.try_route_batch(vec![(1, event_off(1)), (2, event_off(2))]);

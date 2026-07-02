@@ -1,10 +1,6 @@
-//! Per-partition Kafka pause/resume for the events consumer.
-//!
-//! When a partition worker's channel fills, the consume loop pauses that partition on the broker so
-//! backpressure surfaces as lag on that partition alone, never a stalled heartbeat. Trait-based so the
-//! loop's state machine is unit-testable without a broker; the production impl is [`ConsumerPauser`],
-//! mirroring the [`PartitionMirror`](super::follower::PartitionMirror) posture (warn-and-skip on
-//! error, since a missed pause only grows the holdover and a missed resume only defers a drain).
+//! Per-partition Kafka pause/resume for the events consumer, so a full worker channel surfaces as lag
+//! on that partition alone. Trait-based for broker-free tests; the prod impl [`ConsumerPauser`] warns
+//! and skips on error — a missed pause only grows the holdover, a missed resume only defers a drain.
 
 use std::sync::Arc;
 
@@ -16,9 +12,7 @@ use crate::partitions::rebalance::CohortConsumerContext;
 
 /// Pause/resume Kafka fetching for specific partitions of the events topic.
 pub trait PartitionPauser: Send + Sync {
-    /// Stop fetching these partitions until a matching [`resume`](Self::resume).
     fn pause(&self, partitions: &[i32]);
-    /// Resume fetching these partitions.
     fn resume(&self, partitions: &[i32]);
 }
 

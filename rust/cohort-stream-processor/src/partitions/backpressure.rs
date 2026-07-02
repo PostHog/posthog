@@ -1,11 +1,9 @@
-//! The events consume loop's per-partition backpressure state, kept broker-free so its transitions
-//! are unit-testable in isolation (the loop supplies the I/O: `try_send` via the router, pause/resume
-//! via the [`PartitionPauser`](super::pause::PartitionPauser)).
+//! The events consume loop's per-partition backpressure state, kept broker-free so its transitions are
+//! unit-testable in isolation.
 //!
-//! Invariant: a partition is present in [`pending`](Backpressure::pending) with a non-empty holdover
-//! **iff** it is paused. [`reconcile`](Backpressure::reconcile) restores that invariant each iteration
-//! by diffing the holdover key set against the previously-applied [`paused`](Backpressure::paused)
-//! set, so overload becomes lag on the hot partition alone rather than a stalled consume loop.
+//! Invariant: a partition holds a non-empty entry in [`pending`](Backpressure::pending) **iff** it is
+//! paused. [`reconcile`](Backpressure::reconcile) restores it each iteration by diffing the holdover
+//! keys against the previously-applied [`paused`](Backpressure::paused) set.
 
 use std::collections::{HashMap, HashSet};
 
@@ -34,9 +32,8 @@ impl Backpressure {
         Self::default()
     }
 
-    /// Drop holdover and pause-tracking for partitions no longer owned (revoked mid-tenure). Their
-    /// uncommitted offsets replay on the next owner, so we neither redispatch nor resume them — a
-    /// resume of an unassigned partition would only error.
+    /// Drop holdover and pause-tracking for partitions no longer owned. Their offsets replay on the
+    /// next owner; resuming a partition we no longer own would only error.
     pub fn prune_revoked(&mut self, owned: &HashSet<i32>) {
         self.pending
             .retain(|partition, _| owned.contains(partition));
@@ -61,8 +58,8 @@ impl Backpressure {
         self.pending.keys().copied().collect()
     }
 
-    /// Append un-dispatched events to their partition's holdover, in offset order (coalesced into the
-    /// single per-partition `Vec`, never nested). Empty batches are ignored so the pause invariant holds.
+    /// Append un-dispatched events to their partition's holdover in offset order. Empty batches are
+    /// skipped, so a present entry always means a non-empty holdover.
     pub fn absorb(&mut self, full: HashMap<i32, Vec<ShuffleMessage>>) {
         for (partition, mut messages) in full {
             if messages.is_empty() {
@@ -183,7 +180,7 @@ mod tests {
         bp.absorb(HashMap::from([(5, vec![event(10)])]));
         assert_eq!(bp.reconcile().pause, vec![5]);
 
-        // Partition 5 revoked: drop its holdover and pause-tracking, don't resume (new owner replays).
+        // Partition 5 revoked: dropped, not resumed.
         bp.prune_revoked(&set([9]));
         let deltas = bp.reconcile();
 

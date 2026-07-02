@@ -50,8 +50,7 @@ pub enum ShuffleMessage {
 }
 
 impl ShuffleMessage {
-    /// The `cohort_stream_events` offset an event carries, used to raise the dispatch ceiling on the
-    /// non-blocking events path. `None` for the maintenance variants, which are never routed there.
+    /// The offset an [`Event`](Self::Event) carries; `None` for the maintenance variants.
     pub fn event_offset(&self) -> Option<i64> {
         match self {
             ShuffleMessage::Event { cse_offset, .. } => Some(*cse_offset),
