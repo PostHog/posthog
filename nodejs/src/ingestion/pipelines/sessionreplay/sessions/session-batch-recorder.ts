@@ -222,16 +222,10 @@ export class SessionBatchRecorder {
         this.partitionSizes.set(partition, currentPartitionSize + bytesWritten)
         this._size += bytesWritten
 
-        return this.ackMessage(message, bytesWritten)
-    }
-
-    private ackMessage(message: MessageWithTeam, bytesWritten: number): number {
-        const { partition } = message.message.metadata
-
         logger.debug('🔁', 'session_batch_recorder_recorded_message', {
             partition,
-            sessionId: message.message.session_id,
-            teamId: message.team.teamId,
+            sessionId,
+            teamId,
             bytesWritten,
             totalSize: this._size,
         })
