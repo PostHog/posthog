@@ -30,6 +30,7 @@ from posthog.temporal.data_modeling.workflows.materialize_view import (
     MaterializeViewWorkflowInputs,
     MaterializeViewWorkflowResult,
 )
+
 from products.data_modeling.backend.facade.models import DataModelingJobEngine
 
 MAX_CONCURRENT_CHILDREN = 10
