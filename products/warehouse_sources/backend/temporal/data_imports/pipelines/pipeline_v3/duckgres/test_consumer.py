@@ -70,10 +70,15 @@ class TestDuckgresProcessSingle:
 
         async def track_status(conn, **kwargs):
             update_status_calls.append(kwargs)
+            return True
 
         with (
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.update_status",
+                side_effect=track_status,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.update_status_unless_failed",
                 side_effect=track_status,
             ),
             patch(
@@ -99,10 +104,15 @@ class TestDuckgresProcessSingle:
 
         async def track_status(conn, *, batch_id, job_state, attempt, error_response=None):
             states.append(job_state)
+            return True
 
         with (
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.update_status",
+                side_effect=track_status,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.update_status_unless_failed",
                 side_effect=track_status,
             ),
             patch(
@@ -136,6 +146,11 @@ class TestDuckgresProcessSingle:
                 new_callable=AsyncMock,
             ),
             patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.update_status_unless_failed",
+                new_callable=AsyncMock,
+                return_value=True,
+            ),
+            patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.is_failed",
                 new_callable=AsyncMock,
                 return_value=False,
@@ -163,10 +178,15 @@ class TestDuckgresProcessSingle:
 
         async def track_status(conn, *, batch_id, job_state, attempt, error_response=None):
             states.append(job_state)
+            return True
 
         with (
             patch(
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.update_status",
+                side_effect=track_status,
+            ),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.update_status_unless_failed",
                 side_effect=track_status,
             ),
             patch(
@@ -364,12 +384,17 @@ class TestMidClaimRetire:
                 "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.update_status",
                 new_callable=AsyncMock,
             ) as mock_status,
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.duckgres.consumer.DuckgresBatchQueue.update_status_unless_failed",
+                new_callable=AsyncMock,
+            ) as mock_status_unless_failed,
             pytest.raises(OwnershipLostError),
         ):
             await consumer._process_single(_make_batch())
 
         consumer._process_batch.assert_not_called()
         mock_status.assert_not_called()
+        mock_status_unless_failed.assert_not_called()
 
 
 class TestGroupLeaseRenewal:

@@ -569,6 +569,45 @@ class DuckgresBatchQueue:
         )
 
     @staticmethod
+    async def update_status_unless_failed(
+        conn: psycopg.AsyncConnection[Any],
+        *,
+        batch_id: str,
+        job_state: str,
+        attempt: int = 0,
+        error_response: dict[str, Any] | None = None,
+    ) -> bool:
+        """Append a status row only if the batch's latest status is not terminal 'failed'.
+
+        Closes the TOCTOU between the consumer's mid-claim retire check and its
+        'executing' write: a supersede/replan can land 'failed' between the two,
+        and an unconditional 'executing' insert would become the latest row and
+        mask the terminal state from every latest-status consumer. The guard is
+        evaluated in the same statement snapshot as the insert. Returns False
+        (and inserts nothing) when the batch is retired.
+        """
+        cursor = await conn.execute(
+            f"""
+            INSERT INTO {DUCKGRES_STATUS_TABLE} (batch_id, job_state, attempt, exec_time, error_response, created_at)
+            SELECT %(batch_id)s, %(job_state)s, %(attempt)s, now(), %(error_response)s, now()
+            WHERE (
+                SELECT cur.job_state
+                FROM {DUCKGRES_STATUS_TABLE} cur
+                WHERE cur.batch_id = %(batch_id)s
+                ORDER BY cur.created_at DESC, cur.id DESC
+                LIMIT 1
+            ) IS DISTINCT FROM 'failed'
+            """,
+            {
+                "batch_id": batch_id,
+                "job_state": job_state,
+                "attempt": attempt,
+                "error_response": json.dumps(error_response) if error_response else None,
+            },
+        )
+        return bool(cursor.rowcount)
+
+    @staticmethod
     async def is_failed(
         conn: psycopg.AsyncConnection[Any],
         *,

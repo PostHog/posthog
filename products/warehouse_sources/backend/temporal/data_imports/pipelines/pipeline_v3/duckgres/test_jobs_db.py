@@ -730,6 +730,23 @@ class TestBackfillChunkClaiming:
         assert [b.batch_index for b in batches] == expected_indexes
 
     @pytest.mark.asyncio
+    async def test_executing_insert_refuses_when_latest_status_is_failed(self, conn):
+        # Closes the TOCTOU between the mid-claim retire check and the
+        # 'executing' write: a supersede landing in between must block the
+        # insert, or the new 'executing' row would mask the terminal 'failed'.
+        chunk0 = await _insert_chunk(conn, batch_index=0)
+
+        assert await DuckgresBatchQueue.update_status_unless_failed(conn, batch_id=chunk0, job_state="executing")
+        await DuckgresBatchQueue.update_status(conn, batch_id=chunk0, job_state="failed", attempt=0)
+
+        assert not await DuckgresBatchQueue.update_status_unless_failed(conn, batch_id=chunk0, job_state="executing")
+        assert await DuckgresBatchQueue.is_failed(conn, batch_id=chunk0)
+
+        # A reset-style revive (fresh non-failed status) reopens the path.
+        await DuckgresBatchQueue.update_status(conn, batch_id=chunk0, job_state="waiting_retry", attempt=1)
+        assert await DuckgresBatchQueue.update_status_unless_failed(conn, batch_id=chunk0, job_state="executing")
+
+    @pytest.mark.asyncio
     async def test_is_failed_tracks_latest_status(self, conn):
         # Guards the mid-claim retire check: a supersede/replan writes 'failed'
         # for a chunk already sitting in a group's claim, and the consumer must

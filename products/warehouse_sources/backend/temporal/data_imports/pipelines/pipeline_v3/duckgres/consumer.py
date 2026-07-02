@@ -253,6 +253,22 @@ class DuckgresBatchConsumerAdapter:
         attempt: int,
         error_response: dict[str, Any] | None = None,
     ) -> None:
+        if job_state == self.executing_state:
+            # Conditional insert: a supersede/replan can terminally fail the
+            # batch between the retire check and this write, and stamping
+            # 'executing' over 'failed' would mask the terminal state (see
+            # update_status_unless_failed). Blocked insert = the batch was
+            # retired mid-claim; abort the group with no status write.
+            inserted = await DuckgresBatchQueue.update_status_unless_failed(
+                conn,
+                batch_id=batch_id,
+                job_state=job_state,
+                attempt=attempt,
+                error_response=error_response,
+            )
+            if not inserted:
+                raise OwnershipLostError(f"batch {batch_id} was terminally retired while claimed")
+            return
         await DuckgresBatchQueue.update_status(
             conn,
             batch_id=batch_id,
