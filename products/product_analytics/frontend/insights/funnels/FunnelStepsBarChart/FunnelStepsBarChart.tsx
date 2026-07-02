@@ -5,7 +5,7 @@ import { useCallback, useMemo, type ErrorInfo } from 'react'
 import { BarChart, DEFAULT_MARGINS } from '@posthog/quill-charts'
 import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 
-import { useChartTheme } from 'lib/charts/hooks'
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
@@ -83,7 +83,7 @@ export function FunnelStepsBarChart({
     const isBreakdownCompare = steps[0]?.nested_breakdown?.some(
         (variant) => variant.compare_label != null && hasBreakdown(variant.breakdown_value)
     )
-    const config = useMemo(
+    const config = useChartConfig(
         () => withFunnelStepsBarInteraction(chartConfig, { isBreakdownCompare, quillTooltipEnabled }),
         [isBreakdownCompare, quillTooltipEnabled]
     )

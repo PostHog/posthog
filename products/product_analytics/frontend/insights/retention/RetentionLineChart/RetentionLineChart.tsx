@@ -5,7 +5,7 @@ import { useCallback, useMemo, type ErrorInfo } from 'react'
 import { TimeSeriesLineChart } from '@posthog/quill-charts'
 import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 
-import { useChartTheme } from 'lib/charts/hooks'
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { roundToDecimal } from 'lib/utils/numbers'
@@ -173,7 +173,7 @@ export function RetentionLineChart({ inSharedMode = false }: RetentionLineChartP
 
     const goalLines = retentionFilter?.goalLines ?? EMPTY_GOAL_LINES
 
-    const lineConfig = useMemo(
+    const lineConfig = useChartConfig(
         () =>
             buildRetentionLineChartConfig({ isPercentage, goalLines, showTrendLines, series, tooltip: TOOLTIP_CONFIG }),
         [isPercentage, goalLines, showTrendLines, series, TOOLTIP_CONFIG]

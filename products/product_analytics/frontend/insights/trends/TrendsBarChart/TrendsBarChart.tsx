@@ -12,7 +12,7 @@ import {
 } from '@posthog/quill-charts'
 import type { BarChartConfig, PointClickData, TimeSeriesBarChartConfig, TooltipContext } from '@posthog/quill-charts'
 
-import { useChartTheme } from 'lib/charts/hooks'
+import { useChartTheme, useChartConfig } from 'lib/charts/hooks'
 import { FEATURE_FLAGS } from 'lib/constants'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { percentage } from 'lib/utils/numbers'
@@ -216,7 +216,7 @@ export function TrendsBarChart({
         [trendsFilter, isPercentStackView, baseCurrency]
     )
 
-    const timeSeriesConfig: TimeSeriesBarChartConfig = useMemo(
+    const timeSeriesConfig: TimeSeriesBarChartConfig = useChartConfig(
         () => ({
             ...buildTrendsBarTimeSeriesConfig({
                 trendsFilter,
@@ -261,7 +261,7 @@ export function TrendsBarChart({
         [trendsFilter, isPercentStackView, baseCurrency]
     )
 
-    const aggregatedConfig: BarChartConfig = useMemo(() => {
+    const aggregatedConfig: BarChartConfig = useChartConfig(() => {
         // Band keys are synthetic per-series; render the human label via the categorical-axis
         // formatter and skip repeats so band-shared breakdown rows don't double-paint.
         let xTickFormatter: BarChartConfig['xTickFormatter']

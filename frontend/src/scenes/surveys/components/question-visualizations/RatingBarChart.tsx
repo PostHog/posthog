@@ -3,7 +3,7 @@ import { useCallback, useMemo } from 'react'
 import { BarChart, ValueLabels } from '@posthog/quill-charts'
 import type { BarChartConfig, Series, TooltipContext } from '@posthog/quill-charts'
 
-import { useChartTheme } from 'lib/charts/hooks'
+import { useChartConfig, useChartTheme } from 'lib/charts/hooks'
 import { NpsBucketMeta, RatingTooltip } from 'scenes/surveys/components/question-visualizations/questionVizTooltips'
 import { formatCountWithPercentage } from 'scenes/surveys/components/question-visualizations/questionVizTransforms'
 
@@ -48,7 +48,7 @@ export function RatingBarChart({
         [chartLabels, data, barColors]
     )
 
-    const config = useMemo<BarChartConfig>(
+    const config = useChartConfig<BarChartConfig>(
         () => ({
             hideYAxis: true,
             bars: { bandPadding: 0.2, valuePadding: VALUE_LABEL_PADDING },
