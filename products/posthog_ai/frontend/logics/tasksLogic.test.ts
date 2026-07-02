@@ -1,4 +1,6 @@
-import { MOCK_DEFAULT_USER } from 'lib/api.mock'
+import { MOCK_DEFAULT_USER, api } from 'lib/api.mock'
+
+import { expectLogic } from 'kea-test-utils'
 
 import { userLogic } from 'scenes/userLogic'
 
@@ -17,6 +19,7 @@ const createMockTask = (id: string): Task => ({
     origin_product: OriginProduct.USER_CREATED,
     repository: 'test/repo',
     github_integration: null,
+    signal_report: null,
     json_schema: null,
     internal: false,
     latest_run: null,
@@ -91,6 +94,44 @@ describe('tasksLogic', () => {
                 search: 'checkout bug',
                 created_by: userLogic.values.user?.id,
             })
+        })
+    })
+
+    describe('loadMoreTasks', () => {
+        // Regression coverage: `loadMoreTasks` reads `tasksNext` again after its `await`, so a
+        // `loadTasks` dispatched while a page is in flight (e.g. a filter change) must not have its
+        // state clobbered when the stale page resolves afterwards.
+        it('discards a page that resolves after tasksNext has already moved on', async () => {
+            const task1 = createMockTask('task-1')
+            logic.actions.loadTasksSuccess([task1])
+            logic.actions.setTasksNext('/api/projects/1/tasks/?cursor=page-2')
+
+            let resolvePage2: (value: unknown) => void = () => {}
+            jest.spyOn(api, 'get').mockImplementationOnce(() => new Promise((resolve) => (resolvePage2 = resolve)))
+
+            logic.actions.loadMoreTasks()
+            // A filter change resets the cursor synchronously (via the `loadTasks` reducer) while
+            // the page-2 request above is still in flight.
+            logic.actions.setTasksNext(null)
+
+            resolvePage2({ results: [createMockTask('stale-page-2-task')], next: null })
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.tasks).toEqual([task1])
+            expect(logic.values.tasksNext).toBeNull()
+        })
+
+        // Regression coverage: without clearing `tasksNext` on failure, `hasMore` stays true forever
+        // and the infinite-scroll spinner never goes away after a failed page load.
+        it('clears tasksNext on failure so the list stops reporting more pages', async () => {
+            logic.actions.setTasksNext('/api/projects/1/tasks/?cursor=page-2')
+            jest.spyOn(api, 'get').mockRejectedValueOnce(new Error('network error'))
+
+            logic.actions.loadMoreTasks()
+            await expectLogic(logic).toFinishAllListeners()
+
+            expect(logic.values.tasksNext).toBeNull()
+            expect(logic.values.tasksLoadingMore).toBe(false)
         })
     })
 })

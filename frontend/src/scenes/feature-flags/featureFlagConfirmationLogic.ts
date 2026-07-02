@@ -1,5 +1,7 @@
 import { actions, kea, key, listeners, path, props, reducers, selectors } from 'kea'
 
+import { objectsEqual } from 'lib/utils/objects'
+
 import { FeatureFlagType } from '~/types'
 
 import { openConfirmationModal } from './ConfirmationModal'
@@ -42,11 +44,10 @@ function detectFeatureFlagChanges(
         statusChanged = true
     }
 
-    // Check for any filter changes (comprehensive detection)
-    const originalFilters = JSON.stringify(originalFlag.filters || {})
-    const updatedFilters = JSON.stringify(updatedFlag.filters || {})
-
-    if (originalFilters !== updatedFilters) {
+    // Check for any filter changes (comprehensive detection).
+    // objectsEqual (fast-deep-equal) compares bigint filter values directly instead of
+    // serialising them, which JSON.stringify can't do (it throws on bigint).
+    if (!objectsEqual(originalFlag.filters || {}, updatedFlag.filters || {})) {
         // Try to detect specific types of changes for better messaging
         const originalGroups = originalFlag.filters?.groups || []
         const updatedGroups = updatedFlag.filters?.groups || []
@@ -60,20 +61,18 @@ function detectFeatureFlagChanges(
         // Check for variant changes
         const originalVariants = originalFlag.filters?.multivariate?.variants || []
         const updatedVariants = updatedFlag.filters?.multivariate?.variants || []
-        const variantsChanged = JSON.stringify(originalVariants) !== JSON.stringify(updatedVariants)
+        const variantsChanged = !objectsEqual(originalVariants, updatedVariants)
 
         // Check for release condition changes (properties, etc.)
         const conditionsChanged = originalGroups.some((group, index) => {
             const updatedGroup = updatedGroups[index]
-            return (
-                updatedGroup && JSON.stringify(group.properties || []) !== JSON.stringify(updatedGroup.properties || [])
-            )
+            return updatedGroup && !objectsEqual(group.properties || [], updatedGroup.properties || [])
         })
 
         // Check for payload changes
         const originalPayloads = originalFlag.filters?.payloads || {}
         const updatedPayloads = updatedFlag.filters?.payloads || {}
-        const payloadsChanged = JSON.stringify(originalPayloads) !== JSON.stringify(updatedPayloads)
+        const payloadsChanged = !objectsEqual(originalPayloads, updatedPayloads)
 
         // Add specific change messages
         if (rolloutChanged) {

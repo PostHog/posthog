@@ -12,6 +12,7 @@ import { HogQLQueryResponse, NodeKind, ProductKey } from '~/queries/schema/schem
 import type { issueRateLimitConfigLogicType } from './issueRateLimitConfigLogicType'
 import {
     DEFAULT_BUCKET_MINUTES,
+    BYPASSED_METRIC_NAME,
     DROPPED_METRIC_NAME,
     EXCEPTIONS_APP_SOURCE,
     ExceptionVolumeBucket,
@@ -195,11 +196,11 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
                             FROM app_metrics
                             WHERE app_source = '${EXCEPTIONS_APP_SOURCE}'
                               AND app_source_id = {issueId}
-                              AND metric_name IN ('${RECORDED_METRIC_NAME}', '${DROPPED_METRIC_NAME}')
+                              AND metric_name IN ('${RECORDED_METRIC_NAME}', '${DROPPED_METRIC_NAME}', '${BYPASSED_METRIC_NAME}')
                               AND timestamp >= now() - INTERVAL ${totalMinutes} MINUTE
                             GROUP BY bucket, metric_name
                             ORDER BY bucket
-                            LIMIT ${(option.bucketCount + 1) * 2}
+                            LIMIT ${(option.bucketCount + 1) * 3}
                         `,
                             values: { issueId },
                             tags: { productKey: ProductKey.ERROR_TRACKING },
@@ -210,11 +211,13 @@ export const issueRateLimitConfigLogic = kea<issueRateLimitConfigLogicType>([
                     const byBucket = new Map<string, RateLimitHistoryBucket>()
                     for (const [bucket, metricName, count] of response.results ?? []) {
                         const key = String(bucket)
-                        const entry = byBucket.get(key) ?? { bucket: key, recorded: 0, dropped: 0 }
+                        const entry = byBucket.get(key) ?? { bucket: key, recorded: 0, dropped: 0, bypassed: 0 }
                         if (metricName === RECORDED_METRIC_NAME) {
                             entry.recorded = Number(count)
                         } else if (metricName === DROPPED_METRIC_NAME) {
                             entry.dropped = Number(count)
+                        } else if (metricName === BYPASSED_METRIC_NAME) {
+                            entry.bypassed = Number(count)
                         }
                         byBucket.set(key, entry)
                     }

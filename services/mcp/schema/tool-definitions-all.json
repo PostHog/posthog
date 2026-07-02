@@ -1806,7 +1806,7 @@
         "feature_flag": "customer-analytics-csp"
     },
     "custom-property-definitions-list": {
-        "description": "List Customer Analytics custom property definitions for the project. A definition is the shape of a custom account attribute — its `name`, optional `description`, `display_type` (one of text, number, currency, percent, date, datetime, boolean), and `is_big_number` flag. Definitions are team-scoped and shared across all accounts; the value a specific account holds for a definition is managed separately via the account custom property value tools. Use `custom-property-definitions-retrieve` to fetch a single definition by id.",
+        "description": "List Customer Analytics custom property definitions for the project. A definition is the shape of a custom account attribute — its `name`, optional `description`, `display_type` (one of text, number, currency, percent, date, datetime, boolean), and `is_big_number` flag. Definitions are team-scoped and shared across all accounts; the value a specific account holds for a definition is managed separately via the account custom property value tools. Use `custom-property-definitions-retrieve` to fetch a single definition by id. To list or filter accounts by a custom property value in bulk, take a definition `id` from this tool and query it via HogQL against `system.accounts`, selecting ``custom_properties.values.`<definition_id>` `` (backtick-quote the id) and filtering it `IS NOT NULL`. The per-account value tools return one account at a time; this HogQL path scales to all accounts.",
         "category": "Customer analytics",
         "feature": "customer_analytics",
         "summary": "List custom property definitions",
@@ -5781,6 +5781,20 @@
             "readOnlyHint": true
         }
     },
+    "logs-facet-values-create": {
+        "description": "Return per-value counts for a single facet — the distribution of a log dimension across a filter set, ordered by count descending. This is the cheap way to see the _shape_ of a log stream (e.g. \"which services produce the errors?\") without pulling raw rows.\n\nCounts are cross-filtered: every active filter is applied _except the faceted field's own filter_, so you see the full distribution rather than collapsing to your own selection. Faceting `service_name` with `serviceNames: [\"api\"]` still returns every service, not just `api`.\n\nAll parameters must be nested inside a `query` object. You must provide **exactly one** of `query.facetField` or `query.facetResourceAttribute` — not both, not neither.\n\n# When to use\n\n- To find how log volume is distributed across severity or service under a filter — e.g. \"of the logs matching 'timeout', which services emit them?\" Facet `service_name` with `searchTerm: \"timeout\"`.\n- As the drill-down loop for an investigation: facet `service_name` filtered to `severity=error` → find the hot service → add it to `serviceNames` → facet a resource attribute like `k8s.pod.name` → find the bad pod. Each call is one cheap aggregation that narrows the search space before you pull raw rows with `query-logs`.\n- To confirm the severity mix in a window before committing to a query: facet `severity_text`.\n\n## Pick the right tool\n\n- Counts for an arbitrary **attribute** value (any log or resource attribute key) → use `logs-attribute-values-list`. It returns `{value, count}` for any key and is the general-purpose choice for attributes.\n- Per-service log/error counts and error rates with a sparkline → use `logs-services-create`.\n- Use **this** tool for `severity_text` / `service_name` distribution cross-filtered by the full query (severity + body `searchTerm` + `filterGroup`) — the one thing the tools above can't do.\n\n# Parameters\n\n## query.facetField\n\nTop-level column to facet on: `severity_text` or `service_name`. Provide this OR `facetResourceAttribute`, not both. Counts are grouped on the raw logs table with all _other_ filters applied — so this path honors `severityLevels`, `serviceNames`, `searchTerm`, and `filterGroup`.\n\n## query.facetResourceAttribute\n\nResource attribute key to facet on, e.g. `k8s.namespace.name`, `k8s.pod.name`, `host.name`. Provide this OR `facetField`, not both.\n\n**Limitation:** this path is served from a pre-aggregated rollup that has no severity or body dimension. It honors only `serviceNames` and other resource-attribute filters — `severityLevels`, `searchTerm`, and log-attribute filters are **ignored**. If you need those applied, facet a column instead, or narrow with `logs-attribute-values-list`.\n\n## query.facetSearch\n\nCase-insensitive substring match over the faceted field's _own_ values (e.g. return only service names containing `kafka`). Distinct from `searchTerm`, which searches log bodies. Use it to search past the 100-value result cap.\n\n## query.dateRange\n\nDate range for the counts. Defaults to the last hour (`-1h`).\n\n- `date_from`: Start of the range. ISO 8601 timestamps or relative formats: `-1h`, `-6h`, `-1d`, `-7d`.\n- `date_to`: End of the range. Same format. Omit or null for \"now\".\n\n## query.severityLevels\n\nFilter by log severity: `trace`, `debug`, `info`, `warn`, `error`, `fatal`. Omit to include all levels. Ignored when faceting on `severity_text` (that field's own filter is excluded) and when faceting a resource attribute (rollup has no severity dimension).\n\n## query.serviceNames\n\nFilter by service names. Ignored when faceting on `service_name` (that field's own filter is excluded).\n\n## query.searchTerm\n\nFull-text search across log bodies. Ignored when faceting a resource attribute.\n\n## query.filterGroup\n\nProperty filters to narrow results. Same format as `query-logs` filters.\n\n# Examples\n\n## Severity distribution in the last hour\n\n```json\n{\n  \"query\": {\n    \"facetField\": \"severity_text\",\n    \"dateRange\": { \"date_from\": \"-1h\" }\n  }\n}\n```\n\n## Which services produce errors over the last day\n\n```json\n{\n  \"query\": {\n    \"facetField\": \"service_name\",\n    \"severityLevels\": [\"error\", \"fatal\"],\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```\n\n## Which pods a service's logs come from\n\n```json\n{\n  \"query\": {\n    \"facetResourceAttribute\": \"k8s.pod.name\",\n    \"serviceNames\": [\"checkout\"],\n    \"dateRange\": { \"date_from\": \"-6h\" }\n  }\n}\n```\n\n## Which services emit a specific error message\n\n```json\n{\n  \"query\": {\n    \"facetField\": \"service_name\",\n    \"searchTerm\": \"connection reset\",\n    \"dateRange\": { \"date_from\": \"-1d\" }\n  }\n}\n```",
+        "category": "Logs",
+        "feature": "logs",
+        "summary": "Facet log counts",
+        "title": "Facet log counts",
+        "required_scopes": ["logs:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
     "logs-services-create": {
         "description": "Return the top-25 services by log volume in the window, each with log_count, error_count, and error_rate, plus a per-service sparkline. Use this as the entry point when triaging which services are worth alerting on — high volume × non-zero error_rate is the natural alert candidate. Far cheaper than walking attribute-values + per-service counts.",
         "category": "Logs",
@@ -5959,6 +5973,21 @@
             "readOnlyHint": false
         },
         "requires_ai_consent": true,
+        "feature_flag": "mcp-analytics"
+    },
+    "mcp-analytics-sessions-list": {
+        "description": "List an MCP project's agent sessions — one row per $mcp_session_id, aggregated from that session's $mcp_tool_call events. Use it to see who is connecting and how active, long-lived, and tool-heavy sessions are: \"which clients are most active this week?\", \"which sessions called tool X?\", \"how long do sessions usually run?\", \"which person's sessions made the most calls?\". Each row has session_id, tool_calls, session_start, session_end, tools_used, mcp_client_name, distinct_id (plus the resolved person_email / person_name when the distinct_id maps to a Person), distinct_id_count, and intent (empty until generated), newest session first. Sort with `order_by`, but note its keys are the underlying column names: sort tool_calls as `tool_call_count`, and `duration_seconds` (session length) is sortable even though it is not returned as a field; an unrecognised key silently falls back to newest-first. Also supports a case-insensitive `search`, a `date_from`/`date_to` window (default last 7 days), and `limit`/`offset` paging — see each parameter for the specifics. To then summarise a single session's goal, follow up with mcp-analytics-sessions-generate-intent.",
+        "category": "MCP analytics",
+        "feature": "mcp_analytics",
+        "summary": "List MCP sessions",
+        "title": "List MCP sessions",
+        "required_scopes": ["mcp_analytics:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
         "feature_flag": "mcp-analytics"
     },
     "mcp-connection-tools-list": {
@@ -6291,7 +6320,7 @@
         }
     },
     "project-get": {
-        "description": "Retrieve a project and its settings. Pass `@current` as the ID to fetch the caller's active project.",
+        "description": "Retrieve a project and its settings. Omit the ID to get the caller's active project.",
         "category": "Core",
         "feature": "core",
         "summary": "Get project",
@@ -6874,6 +6903,36 @@
         },
         "system_prompt_hint": "List persons behind a trends data point"
     },
+    "query-web-overview": {
+        "description": "Run a web analytics overview query — high-level KPIs over a period: visitors, pageviews, sessions, average session duration, and bounce rate. Returns a small list of metric tuples with optional period-over-period comparison. Mirrors the in-product **Web analytics** scene.\n\n# When to use this vs `query-trends`\n\nPick this tool only when the answer needs **session-level math**. Session aggregation is more expensive than per-event queries — only pay for it when needed.\n\nUse `query-web-overview` when the question references just the aggregate values across the period instead of time series for those session-level values: bounce rate, session duration, sessions as a count, or entry/initial values (entry page, initial channel, initial UTM).\n\nUse `query-trends` instead for per-event counts — pageviews, sign-ups, button clicks. Faster.\n\n# Inputs\n\n- `dateRange` — defaults to last 7 days when omitted. Keep ranges short — there is no enforced upper bound and large windows on the slow path can be expensive.\n- `compareFilter: { compare: true }` — return prior-period values for change %. **Roughly doubles query cost** because it runs the same aggregation over the previous period — leave it off unless the user explicitly asks for a comparison.\n- `properties` — event/person/session/cohort filters. Same operator semantics as `query-trends` — see that prompt. Defaults to `[]`.\n- `filterTestAccounts` — exclude internal/test users.\n- `doPathCleaning` — apply team's path-cleaning rules.\n- `conversionGoal` — pass an `actionId` (must belong to the current project) or a `customEventName`. Only set when the user asks about a conversion.\n\nUse `read-data-schema` to validate property names/values when needed.\n\n# Example\n\n```json\n{\n  \"kind\": \"WebOverviewQuery\",\n  \"dateRange\": { \"date_from\": \"-7d\" }\n}\n```\n\n# Out of scope\n\n`conversionGoal` is supported as an input on this tool. Goal-funnel breakdowns (`WebGoalsQuery`), web vitals, and external clicks aren't exposed as separate query modes — fall back to `execute-sql` for those.",
+        "category": "Query wrappers",
+        "feature": "insights",
+        "summary": "Run a web analytics overview query",
+        "title": "Run a web analytics overview query",
+        "required_scopes": ["query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "system_prompt_hint": "Web analytics KPIs — visitors, sessions, bounce rate, session duration"
+    },
+    "query-web-stats": {
+        "description": "Run a web analytics breakdown table query — top pages, UTMs, devices, browsers, countries, etc. — with visitors and pageviews per row, plus optional bounce rate / average time on page. Mirrors the in-product **Web analytics** scene's table tiles.\n\n# When to use this vs `query-trends` / `query-paths`\n\nPick this tool only when the answer needs **session-level math**. Session aggregation is more expensive than per-event queries — only pay for it when needed.\n\nUse `query-web-stats` when the breakdown or metric is session-derived:\n\n- `includeBounceRate=true` or `includeAvgTimeOnPage=true` (per-session metrics)\n- Initial / first-touch breakdowns: `InitialPage`, `InitialChannelType`, `InitialReferringDomain`, `InitialUTMSource`/`Medium`/`Campaign`/`Term`/`Content`\n- `ExitPage` (last event in a session)\n\nUse `query-trends` (with a breakdown) for per-event counts by an event property — no session boundaries needed. Faster.\n\nUse `query-paths` for navigation between arbitrary events when you don't need bounce rate or session-level metrics.\n\n# `breakdownBy` cheat-sheet\n\n- **Path-style** (pair with `includeBounceRate`/`includeAvgTimeOnPage`): `Page`, `InitialPage`, `ExitPage`, `PreviousPage`\n- **Marketing**: `InitialChannelType`, `InitialReferringDomain`, `InitialReferringURL`, `InitialUTMSource`, `InitialUTMMedium`, `InitialUTMCampaign`, `InitialUTMTerm`, `InitialUTMContent`, `InitialUTMSourceMediumCampaign`\n- **Audience / device**: `Browser`, `OS`, `Viewport`, `DeviceType`, `Country`, `Region`, `City`, `Timezone`, `Language`\n- **Other**: `ScreenName`, `ExitClick`, `FrustrationMetrics` (these don't combine with `includeBounceRate` / `includeAvgTimeOnPage`)\n\n# Inputs\n\nSame filter set as `query-web-overview` (`dateRange`, `compareFilter`, `properties`, `filterTestAccounts`, `doPathCleaning`, `conversionGoal`). Plus `breakdownBy` (required), `includeBounceRate`, `includeAvgTimeOnPage`, `includeHost`, `limit`, `offset`. Default `dateRange` is last 7 days.\n\nPerformance hints:\n\n- Leave `compareFilter` off unless the user asks for period-over-period — enabling it roughly doubles query cost.\n- `limit` is capped at 200 by the wrapper. Prefer 10–25 unless the user explicitly asks for more.\n\nUse `read-data-schema` to validate property names/values when needed.\n\n# Example\n\nTop 20 pages by bounce rate, last 7 days:\n\n```json\n{\n  \"kind\": \"WebStatsTableQuery\",\n  \"breakdownBy\": \"Page\",\n  \"includeBounceRate\": true,\n  \"limit\": 20,\n  \"dateRange\": { \"date_from\": \"-7d\" }\n}\n```\n\n# Out of scope\n\n`conversionGoal` is supported as an input on this tool. Goal-funnel breakdowns (`WebGoalsQuery`), web vitals, and external clicks aren't exposed as separate query modes — fall back to `execute-sql` for those.",
+        "category": "Query wrappers",
+        "feature": "insights",
+        "summary": "Run a web analytics breakdown table query",
+        "title": "Run a web analytics breakdown table query",
+        "required_scopes": ["query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "system_prompt_hint": "Web analytics breakdowns — top pages, UTMs, devices, countries, with bounce rate"
+    },
     "read-data-schema": {
         "description": "Use this tool to explore the user's data schema. The user implements PostHog SDKs to collect events, properties, and property values. They are used by users to create insights with visualizations, SQL queries, watch session recordings, filter data, target particular users or groups by traits or behavior, etc. Each event, action, and entity has its own data schema. You must verify that specific combinations exist before using it anywhere else. Events or properties starting from \"$\" are system properties automatically captured by SDKs. Do not rely on your training data or PostHog defaults for events or properties. Always use this tool to confirm what actually exists in the user's project before referencing any event, property, or property value.",
         "category": "Data schema",
@@ -7355,7 +7414,7 @@
         }
     },
     "signals-scout-run-now": {
-        "description": "Dispatch one on-demand run of a scout by its config `id`, regardless of its schedule — useful to test a scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously and inherits the scheduled path's guards: it returns 429 if the project is over its Signals credits quota and 409 if a run for this scout is already in progress. A manual run does not change the scout's schedule, and a disabled scout can still be run this way (to test before enabling). Returns the workflow id immediately — poll `signals-scout-runs-list` for the resulting run and its findings.",
+        "description": "Dispatch one on-demand run of a scout by its config `id`, regardless of its schedule — useful to test a scout right after authoring it, or to refresh its findings on demand. The run executes asynchronously and inherits the scheduled path's guards: it returns 429 if the project is over its Signals credits quota or its daily scout-run budget, and 409 if a run for this scout is already in progress. A manual run counts against the same daily run budget the scheduled runs draw from, so avoid triggering repeated runs of the same scout in a short window — each one consumes the project's scout-run allowance for the day. A manual run does not change the scout's schedule, and a disabled scout can still be run this way (to test before enabling). Returns the workflow id immediately — poll `signals-scout-runs-list` for the resulting run and its findings.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Run a scout now",

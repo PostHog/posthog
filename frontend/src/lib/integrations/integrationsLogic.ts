@@ -7,6 +7,7 @@ import { LemonDialog, lemonToast } from '@posthog/lemon-ui'
 import api, { ApiError, getCookie } from 'lib/api'
 import { globalSetupLogic } from 'lib/components/ProductSetup'
 import { describeGithubSetupError, GITHUB_INSTALL_PENDING_MESSAGE } from 'lib/integrations/githubSetupErrors'
+import { describeOAuthCallbackError } from 'lib/integrations/oauthCallbackErrors'
 import { isKeyOf } from 'lib/utils/guards'
 import { fromParamsGivenUrl } from 'lib/utils/url'
 import { preflightLogic } from 'scenes/PreflightCheck/preflightLogic'
@@ -228,7 +229,7 @@ export const integrationsLogic = kea<integrationsLogicType>([
             let replaceUrl: string = next || urls.settings('project-integrations')
 
             if (error) {
-                lemonToast.error(`Failed due to "${error}"`)
+                lemonToast.error(describeOAuthCallbackError(String(error)))
                 router.actions.replace(replaceUrl)
                 return
             }
