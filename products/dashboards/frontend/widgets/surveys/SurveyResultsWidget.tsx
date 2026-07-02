@@ -71,29 +71,19 @@ const STATUS_TAG: Record<SurveyStatus, { label: string; type: 'success' | 'defau
 }
 
 function formatAnswer(answer: unknown): string {
-    if (Array.isArray(answer)) {
-        return answer.map((item) => String(item)).join(', ')
-    }
-    if (answer === null || answer === undefined) {
+    if (answer == null) {
         return ''
     }
-    // Multi-select answers can arrive as a JSON-encoded array string — render the
-    // choices comma-separated rather than showing the raw `["a","b"]` payload.
-    if (typeof answer === 'string') {
-        const trimmed = answer.trim()
-        if (trimmed.startsWith('[') && trimmed.endsWith(']')) {
-            try {
-                const parsed = JSON.parse(trimmed)
-                if (Array.isArray(parsed)) {
-                    return parsed.map((item) => String(item)).join(', ')
-                }
-            } catch {
-                // Not valid JSON — fall through and show the string as-is.
-            }
+    // Multi-select answers can arrive as a JSON-encoded array string (e.g. `["a","b"]`); decode it.
+    let value = answer
+    if (typeof value === 'string' && value.trim().startsWith('[')) {
+        try {
+            value = JSON.parse(value)
+        } catch {
+            // Not JSON, show the string as-is.
         }
-        return answer
     }
-    return String(answer)
+    return Array.isArray(value) ? value.map((item) => String(item)).join(', ') : String(value)
 }
 
 function SurveyResultsWidgetMessage({
