@@ -18,10 +18,10 @@ from posthog.helpers.markdown_safety import strip_external_links_markdown
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 
-from products.replay_vision.backend.max_tools import _EVENT_ID_CITATION_RE, _as_untrusted_data
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ScannerModel
 from products.replay_vision.backend.models.vision_action import VisionAction, VisionActionRun, VisionActionRunStatus
+from products.replay_vision.backend.observation_formatting import _EVENT_ID_CITATION_RE
 from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.gemini import gemini_api_key
@@ -32,6 +32,7 @@ from products.replay_vision.backend.temporal.vision_actions.types import (
 )
 
 from ee.billing.quota_limiting import is_team_over_ai_credit_budget
+from ee.hogai.utils.untrusted import as_untrusted_data
 
 logger = structlog.get_logger(__name__)
 
@@ -189,7 +190,7 @@ def _run_synthesis(team: Team, action: VisionAction, lines: list[str]) -> str:
 
     # Lead with the (trusted) guide so the fenced untrusted observation block is always the last
     # thing the model reads — nothing instruction-shaped trails it for injected text to blend into.
-    human = prompt_guide + _as_untrusted_data("observations", lines)
+    human = prompt_guide + as_untrusted_data("observations", lines)
 
     # Same PostHog-instrumented Gemini client + Replay Vision tagging the scanners use, so the
     # generation is captured in LLM analytics attributed to Replay Vision. The enclosing activity's

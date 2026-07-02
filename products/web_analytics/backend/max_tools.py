@@ -30,6 +30,7 @@ from posthog.taxonomy.taxonomy import CORE_FILTER_DEFINITIONS_BY_GROUP
 from posthog.temporal.health_checks.processing import _process_batch_detection
 from posthog.temporal.health_checks.registry import HEALTH_CHECKS, ensure_registry_loaded, get_detect_fn
 
+from products.replay_vision.backend.facade.api import fetch_page_session_observations
 from products.web_analytics.backend.api.heatmaps_api import (
     DEFAULT_QUERY,
     FOLD_SUMMARY_QUERY,
@@ -38,6 +39,7 @@ from products.web_analytics.backend.api.heatmaps_api import (
     HeatmapViewSet,
     parse_fold_summary_row,
 )
+from products.web_analytics.backend.heatmap_screenshot_grounding import GroundingResult, ground_heatmap_hotspots
 
 from ee.hogai.chat_agent.taxonomy.agent import TaxonomyAgent
 from ee.hogai.chat_agent.taxonomy.format import enrich_props_with_descriptions, format_properties_xml
@@ -48,6 +50,7 @@ from ee.hogai.chat_agent.taxonomy.types import TaxonomyAgentState
 from ee.hogai.tool import MaxTool
 from ee.hogai.utils.types.base import AssistantNodeName
 from ee.hogai.utils.types.composed import MaxNodeName
+from ee.hogai.utils.untrusted import as_untrusted_data
 
 from .prompts import (
     COMPARE_FILTER_PROMPT,
@@ -461,6 +464,173 @@ class AssessHeatmapTool(MaxTool):
         return content, data
 
 
+SUMMARIZE_WEBSITE_INTERACTIONS_DESCRIPTION = """
+- Summarize how users interact with a page by fusing two signals: the aggregate heatmap (where and how much
+  people click, rage-click, and scroll) with Replay Vision observations (per-session narratives of what users
+  were trying to do and where they struggled). Heatmaps tell you what and where; Replay Vision tells you why.
+- When to use the tool:
+  * When the user asks how users are interacting with / behaving on / experiencing a page or their website
+  * When the user wants both the numbers and the story behind them for a page — "what are users doing on X and
+    why", "summarize engagement on my pricing page", "how do visitors use my homepage"
+- Do NOT use the tool:
+  * When the user only wants the heatmap numbers and layout recommendations (use `assess_heatmap` instead)
+  * When the user is searching session recordings by meaning (use the replay tools instead)
+- For a whole-site summary, call this once per top page and synthesize across the results.
+- You must pass an exact `page_url` (full URL including scheme and host). Confirm it with the user if ambiguous.
+""".strip()
+
+
+class SummarizeWebsiteInteractionsTool(MaxTool):
+    name: str = "summarize_website_interactions"
+    description: str = SUMMARIZE_WEBSITE_INTERACTIONS_DESCRIPTION
+    args_schema: type[BaseModel] = AssessHeatmapArgs
+
+    def get_required_resource_access(
+        self,
+    ) -> list[tuple[APIScopeObject, AccessControlLevel]]:
+        return [("web_analytics", "viewer"), ("session_recording", "viewer")]
+
+    async def _arun_impl(
+        self,
+        page_url: str,
+        date_from: str = "-7d",
+        date_to: str | None = None,
+        viewport_width_min: int | None = None,
+        viewport_width_max: int | None = None,
+    ) -> tuple[str, dict[str, Any]]:
+        heatmap_data = await database_sync_to_async(_gather_heatmap_data)(
+            self._team,
+            page_url=page_url,
+            date_from=date_from,
+            date_to=date_to,
+            viewport_width_min=viewport_width_min,
+            viewport_width_max=viewport_width_max,
+        )
+        heatmap_block = _format_heatmap_report(page_url, heatmap_data)
+
+        async def _ground() -> GroundingResult | None:
+            if not heatmap_data.get("opted_in"):
+                return None
+            return await ground_heatmap_hotspots(self._team, self._user, page_url=page_url, heatmap_data=heatmap_data)
+
+        async def _vision() -> tuple[list[str], str | None]:
+            try:
+                session_ids = await database_sync_to_async(_resolve_page_session_ids)(
+                    self._team,
+                    page_url=page_url,
+                    date_from=date_from,
+                    date_to=date_to,
+                    viewport_width_min=viewport_width_min,
+                    viewport_width_max=viewport_width_max,
+                )
+                if not session_ids:
+                    return [], None
+                observations = await database_sync_to_async(fetch_page_session_observations)(
+                    team=self._team, user=self._user, session_ids=session_ids
+                )
+                return session_ids, observations
+            except Exception:
+                logger.warning("summarize_website_interactions.vision_half_failed", exc_info=True)
+                return [], None
+
+        grounding, (session_ids, vision_block) = await asyncio.gather(_ground(), _vision())
+
+        content = _format_website_interactions_report(
+            page_url,
+            heatmap_block,
+            vision_block,
+            session_count=len(session_ids),
+            grounding=grounding,
+        )
+        artifact: dict[str, Any] = {
+            "heatmap": heatmap_data,
+            "session_count": len(session_ids),
+            "has_vision_observations": vision_block is not None,
+            "has_screenshot_grounding": grounding is not None,
+        }
+        if grounding is not None:
+            artifact["screenshot"] = {
+                "image_b64": grounding.annotated_image_b64,
+                "markers": grounding.markers,
+            }
+        return content, artifact
+
+
+def _format_website_interactions_report(
+    page_url: str,
+    heatmap_block: str,
+    vision_block: str | None,
+    *,
+    session_count: int,
+    grounding: GroundingResult | None = None,
+) -> str:
+    """Assemble the two evidence blocks into one report. This is a formatter, not a synthesizer — it labels
+    the heatmap (page-level, quantitative) and Vision (whole-session, qualitative) evidence and lets Max's
+    outer model do the fusion, mirroring `assess_heatmap` / the Replay Vision tools."""
+    sections = [
+        f"# How users interact with {page_url}",
+        "",
+        "## Aggregate heatmap signal — page-level",
+        "",
+        heatmap_block,
+        "",
+    ]
+
+    if grounding:
+        sections.extend(
+            [
+                f"**What's actually under the hot spots** — a vision model read a page screenshot (captured "
+                f"{grounding.screenshot_captured_at}) with the top rage-click spots marked first, then the top "
+                "click hot spots, in the order the report lists them; each marker's interaction count ties it "
+                "back to a spot above. Hot-spot positions aggregate across visitor viewport widths while the "
+                "screenshot has one fixed width, so a marker can sit slightly off vertically.",
+                "",
+                as_untrusted_data(
+                    "screenshot_grounding",
+                    [grounding.grounded_text],
+                    source="derived from a screenshot of the user's web page",
+                ),
+                "",
+            ]
+        )
+
+    sections.extend(
+        [
+            "## Replay Vision — whole-session color",
+            "",
+        ]
+    )
+
+    if vision_block is not None:
+        sections.append(
+            f"Replay Vision observations for {session_count} session(s) that interacted on this page. Each "
+            "observation summarizes the visitor's **whole session** — which may span several pages — so read "
+            "it as qualitative color for people who touched this page, not as page-specific ground truth."
+        )
+        sections.append("")
+        sections.append(vision_block)
+    else:
+        sections.append(
+            "No Replay Vision observations are available for this page's sessions yet. Replay Vision turns "
+            "session recordings into per-session narratives of what users were trying to do and where they "
+            "struggled. Configure a **summarizer** scanner over your recordings to enrich this report with "
+            "the *why* behind the heatmap numbers."
+        )
+
+    sections.extend(
+        [
+            "",
+            "---",
+            "",
+            "Treat the heatmap block as page-level ground truth (where and how much users click, rage-click, "
+            "and scroll on this exact page). Treat the Replay Vision block as whole-session color for visitors "
+            "who touched this page — never claim a Vision observation describes only this page. Lead with the "
+            "quantitative signal and use the session narratives to explain the *why*.",
+        ]
+    )
+    return "\n".join(sections)
+
+
 # Heatmaps store coordinates as pure geometry — they don't know what was clicked. Cross-referencing
 # autocapture clicks on the same URL is what turns "lots of clicks at (0.5, 220)" into "lots of clicks on
 # the Pricing link". Grouping by visible text collapses repeats; `any(elements_chain)` keeps one
@@ -574,6 +744,50 @@ def _heatmap_predicates(
     placeholders = HeatmapViewSet._build_placeholders(validated)
     exprs = HeatmapViewSet._predicate_expressions(placeholders)
     return validated, exprs
+
+
+SESSION_IDS_QUERY = """
+SELECT DISTINCT session_id
+FROM heatmaps
+WHERE {predicates} AND notEmpty(session_id)
+LIMIT {limit}
+"""
+
+_MAX_RESOLVED_SESSIONS = 300
+
+
+def _resolve_page_session_ids(
+    team: Team,
+    *,
+    page_url: str,
+    date_from: str,
+    date_to: str | None,
+    viewport_width_min: int | None,
+    viewport_width_max: int | None,
+) -> list[str]:
+    """Distinct session ids that clicked on `page_url` in the window, drawn from the heatmaps table.
+
+    Reuses `_heatmap_predicates` so the URL/date/viewport match exactly mirrors the quantitative half; capped
+    at `_MAX_RESOLVED_SESSIONS`. Returns `[]` when heatmaps aren't captured or nothing matched.
+    """
+    if not team.heatmaps_opt_in:
+        return []
+
+    _validated, exprs = _heatmap_predicates(
+        team,
+        type="click",
+        page_url=page_url,
+        date_from=date_from,
+        date_to=date_to,
+        vmin=viewport_width_min,
+        vmax=viewport_width_max,
+    )
+    stmt = parse_select(
+        SESSION_IDS_QUERY,
+        {"predicates": ast.And(exprs=exprs), "limit": ast.Constant(value=_MAX_RESOLVED_SESSIONS)},
+    )
+    result = _execute(team, stmt)
+    return [str(row[0]) for row in (result.results or []) if row[0]]
 
 
 def _execute(team: Team, stmt: ast.SelectQuery | ast.SelectSetQuery) -> Any:
