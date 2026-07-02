@@ -3,6 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
+import { objectsEqual } from 'lib/utils/objects'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { FeatureFlagFilters, FeatureFlagGroupType } from '~/types'
@@ -133,10 +134,7 @@ export const defaultReleaseConditionsLogic = kea<defaultReleaseConditionsLogicTy
                 if (!saved) {
                     return false
                 }
-                return (
-                    localEnabled !== saved.enabled ||
-                    JSON.stringify(localGroups) !== JSON.stringify(saved.default_groups)
-                )
+                return localEnabled !== saved.enabled || !objectsEqual(localGroups, saved.default_groups)
             },
         ],
     }),

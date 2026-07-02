@@ -2,8 +2,8 @@ from django.conf import settings
 
 from rest_framework.request import Request
 
+from products.endpoints.backend.logic.strategies import InsightEndpointStrategy
 from products.endpoints.backend.models import Endpoint, EndpointVersion
-from products.endpoints.backend.services.strategies import InsightEndpointStrategy
 from products.product_analytics.backend.models.insight_variable import InsightVariable
 
 INSIGHT_VARIABLE_TYPE_TO_OPENAPI: dict[str, dict] = {

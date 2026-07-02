@@ -92,6 +92,7 @@ rules:
                               |CustomerProfileConfig
                               |CustomOAuth2Integration
                               |CustomPropertyDefinition
+                              |CustomPropertySource
                               |CustomPropertyValue
                               |DAG
                               |Dashboard
@@ -365,6 +366,7 @@ rules:
                         |CustomerProfileConfig
                         |CustomOAuth2Integration
                         |CustomPropertyDefinition
+                        |CustomPropertySource
                         |CustomPropertyValue
                         |DAG
                         |Dashboard
