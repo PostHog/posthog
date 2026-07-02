@@ -399,6 +399,9 @@ field_exclusions: dict[AuditableScope, list[str]] = {
     "Cohort": [
         "version",
         "pending_version",
+        # Derived counter that moves with every definition change; the definition
+        # fields themselves (filters etc.) already carry the meaningful diff.
+        "definition_version",
         "count",
         "is_calculating",
         "last_calculation",

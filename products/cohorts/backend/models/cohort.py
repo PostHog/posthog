@@ -109,6 +109,12 @@ COHORT_RECALCULATION_FIELDS = frozenset(
     {"is_calculating", "last_calculation", "errors_calculating", "last_error_at", "count"}
 )
 
+# Fields that make up the cohort's definition. Any save that changes one of these
+# bumps definition_version (see Cohort.save), so consumers of the local-evaluation
+# payload can detect per-cohort definition changes. Membership recalculation
+# bookkeeping must never bump it, or the payload ETag would churn every recalc cycle.
+COHORT_DEFINITION_FIELDS = frozenset({"filters", "query", "groups", "is_static"})
+
 
 def is_cohort_recalculation_only_save(kwargs: dict) -> bool:
     """Return True when a post_save signal was triggered only by recalculation bookkeeping fields."""
@@ -188,6 +194,9 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
     people = models.ManyToManyField("posthog.Person", through="CohortPeople")  # type: models.ManyToManyField
     version = models.IntegerField(blank=True, null=True)
     pending_version = models.IntegerField(blank=True, null=True)
+    # Unlike version/pending_version (membership recalculation counters), this only
+    # increments when the definition itself changes — see COHORT_DEFINITION_FIELDS.
+    definition_version = models.IntegerField(default=1, db_default=1)
     count = models.IntegerField(blank=True, null=True)
 
     created_by = models.ForeignKey("posthog.User", on_delete=models.SET_NULL, blank=True, null=True)
@@ -241,6 +250,31 @@ class Cohort(FileSystemSyncMixin, RootTeamMixin, models.Model):
 
     def __str__(self):
         return self.name or "Untitled cohort"
+
+    def save(self, *args: Any, **kwargs: Any) -> None:
+        update_fields = kwargs.get("update_fields")
+        may_change_definition = update_fields is None or COHORT_DEFINITION_FIELDS.intersection(update_fields)
+        if self.pk is None or not may_change_definition:
+            super().save(*args, **kwargs)
+            return
+
+        # Lock the row so concurrent definition edits produce distinct versions
+        # (mirrors the FeatureFlag version bump). Bumping in save() rather than in
+        # the serializer covers every write path that goes through the ORM save.
+        with transaction.atomic():
+            current = (
+                Cohort.objects.select_for_update()
+                .filter(pk=self.pk)
+                .values("definition_version", *COHORT_DEFINITION_FIELDS)
+                .first()
+            )
+            if current is not None and any(
+                getattr(self, field) != current[field] for field in COHORT_DEFINITION_FIELDS
+            ):
+                self.definition_version = (current["definition_version"] or 0) + 1
+                if update_fields is not None:
+                    kwargs["update_fields"] = [*update_fields, "definition_version"]
+            super().save(*args, **kwargs)
 
     @classmethod
     def get_file_system_unfiled(cls, team: "Team", surface: str = DEFAULT_SURFACE) -> QuerySet["Cohort"]:

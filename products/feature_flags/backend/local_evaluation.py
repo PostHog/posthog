@@ -565,7 +565,7 @@ def clear_flag_definition_caches(team: Team, kinds: list[str] | None = None):
 def _get_flags_response_for_local_evaluation(team: Team, include_cohorts: bool) -> dict[str, Any]:
     """Build the local-evaluation response for a single team."""
     results = _get_flags_response_for_local_evaluation_batch([team], include_cohorts)
-    return results.get(team.id, {"flags": [], "group_type_mapping": {}, "cohorts": {}})
+    return results.get(team.id, {"flags": [], "group_type_mapping": {}, "cohorts": {}, "cohort_versions": {}})
 
 
 def _get_flags_response_for_local_evaluation_batch(
@@ -674,6 +674,7 @@ def _get_flags_response_for_local_evaluation_batch(
 
         flags_data: list[dict[str, Any]] = []
         cohorts: dict[str, Any] = {}
+        cohort_versions: dict[str, int] = {}
         flag_id_to_key: dict[str, str] = {}
 
         for feature_flag in team_flags_iter:
@@ -713,6 +714,7 @@ def _get_flags_response_for_local_evaluation_batch(
                             if cohort is not None and not cohort.is_static:
                                 try:
                                     cohorts[str_id] = cohort.properties.to_dict()
+                                    cohort_versions[str_id] = cohort.definition_version
                                 except Exception:
                                     logger.error(
                                         "Error processing cohort properties",
@@ -731,6 +733,7 @@ def _get_flags_response_for_local_evaluation_batch(
             "flags": flags_data,
             "group_type_mapping": gtm_by_project.get(team.project_id, {}),
             "cohorts": cohorts if include_cohorts else {},
+            "cohort_versions": cohort_versions if include_cohorts else {},
         }
 
         results[tid] = _apply_flag_dependency_transformation(response_data, flag_id_to_key)
@@ -742,6 +745,7 @@ def _get_flags_response_for_local_evaluation_batch(
                 "flags": [],
                 "group_type_mapping": gtm_by_project.get(team_by_id[tid].project_id, {}),
                 "cohorts": {},
+                "cohort_versions": {},
             }
 
     return results
@@ -897,6 +901,8 @@ def verify_team_flag_definitions(
     if cached_data is not None and db_data is not None:
         if cached_data.get("cohorts") != db_data.get("cohorts"):
             diffs.append({"type": "COHORTS_MISMATCH", "flag_key": "cohorts"})
+        if cached_data.get("cohort_versions") != db_data.get("cohort_versions"):
+            diffs.append({"type": "COHORT_VERSIONS_MISMATCH", "flag_key": "cohort_versions"})
         if cached_data.get("group_type_mapping") != db_data.get("group_type_mapping"):
             diffs.append({"type": "GROUP_TYPE_MAPPING_MISMATCH", "flag_key": "group_type_mapping"})
 
@@ -908,6 +914,7 @@ def verify_team_flag_definitions(
     stale_count = sum(1 for d in diffs if d.get("type") == "STALE_IN_CACHE")
     mismatch_count = sum(1 for d in diffs if d.get("type") == "FIELD_MISMATCH")
     cohorts_mismatch = any(d.get("type") == "COHORTS_MISMATCH" for d in diffs)
+    cohort_versions_mismatch = any(d.get("type") == "COHORT_VERSIONS_MISMATCH" for d in diffs)
     gtm_mismatch = any(d.get("type") == "GROUP_TYPE_MAPPING_MISMATCH" for d in diffs)
 
     summary_parts = []
@@ -922,6 +929,8 @@ def verify_team_flag_definitions(
     extra_parts = []
     if cohorts_mismatch:
         extra_parts.append("cohorts mismatch")
+    if cohort_versions_mismatch:
+        extra_parts.append("cohort_versions mismatch")
     if gtm_mismatch:
         extra_parts.append("group_type_mapping mismatch")
 

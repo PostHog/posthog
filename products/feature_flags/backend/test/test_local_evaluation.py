@@ -4,6 +4,7 @@ from unittest.mock import MagicMock, patch
 from django.conf import settings
 from django.db import DatabaseError
 from django.test import override_settings
+from django.utils import timezone
 
 from parameterized import parameterized
 
@@ -981,6 +982,7 @@ class TestLocalEvaluationBatch(BaseTest):
         assert results[team_without_flags.id]["flags"] == []
         assert "group_type_mapping" in results[team_without_flags.id]
         assert "cohorts" in results[team_without_flags.id]
+        assert results[team_without_flags.id]["cohort_versions"] == {}
 
     def test_batch_team_with_no_flags_includes_group_type_mapping(self):
         team = self._create_team_with_project("GTM Team")
@@ -1310,6 +1312,111 @@ class TestLocalEvaluationBatch(BaseTest):
         assert "flag-ref-deleted-cohort" in flag_keys
         assert str(cohort_id) not in results[team.id]["cohorts"]
 
+    def _create_cohort(self, team: Team, name: str, email: str) -> Cohort:
+        return Cohort.objects.create(
+            team=team,
+            name=name,
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "email", "value": email, "type": "person"}]}],
+                }
+            },
+        )
+
+    def test_batch_cohort_versions_keyed_like_cohorts_with_db_values(self):
+        team = self._create_team_with_project("Cohort Versions Team")
+
+        nested_cohort = self._create_cohort(team, "nested", "a@a.com")
+        top_cohort = Cohort.objects.create(
+            team=team,
+            name="top",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "id", "type": "cohort", "value": nested_cohort.pk}]}],
+                }
+            },
+        )
+        FeatureFlag.objects.create(
+            team=team,
+            key="flag-with-cohort",
+            filters={"groups": [{"properties": [{"key": "id", "type": "cohort", "value": top_cohort.pk}]}]},
+        )
+
+        with_cohorts = _get_flags_response_for_local_evaluation_batch([team], True)[team.id]
+
+        assert set(with_cohorts["cohort_versions"].keys()) == set(with_cohorts["cohorts"].keys())
+        top_cohort.refresh_from_db()
+        nested_cohort.refresh_from_db()
+        assert with_cohorts["cohort_versions"][str(top_cohort.pk)] == top_cohort.definition_version
+        assert with_cohorts["cohort_versions"][str(nested_cohort.pk)] == nested_cohort.definition_version
+
+        without_cohorts = _get_flags_response_for_local_evaluation_batch([team], False)[team.id]
+        assert without_cohorts["cohort_versions"] == {}
+
+    def test_batch_recalculation_bookkeeping_does_not_change_payload(self):
+        team = self._create_team_with_project("Recalc Stability Team")
+
+        cohort = self._create_cohort(team, "recalculated", "a@a.com")
+        FeatureFlag.objects.create(
+            team=team,
+            key="flag-with-cohort",
+            filters={"groups": [{"properties": [{"key": "id", "type": "cohort", "value": cohort.pk}]}]},
+        )
+
+        before = _get_flags_response_for_local_evaluation_batch([team], True)[team.id]
+
+        # The three write shapes of a membership recalculation cycle: the enqueue save,
+        # the versioned queryset update, and the completion save (which lists groups and
+        # cohort_type in update_fields without changing them).
+        cohort.pending_version = 3
+        cohort.is_calculating = True
+        cohort.save(update_fields=["pending_version", "is_calculating"])
+        Cohort.objects.filter(pk=cohort.pk).update(version=3, count=1234)
+        cohort.refresh_from_db()
+        cohort.last_calculation = timezone.now()
+        cohort.is_calculating = False
+        cohort.save(update_fields=["last_calculation", "errors_calculating", "last_error_at", "cohort_type", "groups"])
+
+        after = _get_flags_response_for_local_evaluation_batch([team], True)[team.id]
+
+        assert after == before
+
+    def test_batch_definition_edit_bumps_only_edited_cohort(self):
+        team = self._create_team_with_project("Cohort Edit Team")
+
+        edited_cohort = self._create_cohort(team, "edited", "a@a.com")
+        untouched_cohort = self._create_cohort(team, "untouched", "b@b.com")
+        FeatureFlag.objects.create(
+            team=team,
+            key="flag-with-cohorts",
+            filters={
+                "groups": [
+                    {"properties": [{"key": "id", "type": "cohort", "value": edited_cohort.pk}]},
+                    {"properties": [{"key": "id", "type": "cohort", "value": untouched_cohort.pk}]},
+                ]
+            },
+        )
+
+        before = _get_flags_response_for_local_evaluation_batch([team], True)[team.id]
+
+        edited_cohort.filters = {
+            "properties": {
+                "type": "OR",
+                "values": [{"type": "OR", "values": [{"key": "email", "value": "z@z.com", "type": "person"}]}],
+            }
+        }
+        edited_cohort.save()
+
+        after = _get_flags_response_for_local_evaluation_batch([team], True)[team.id]
+
+        edited_key, untouched_key = str(edited_cohort.pk), str(untouched_cohort.pk)
+        assert after["cohort_versions"][edited_key] == before["cohort_versions"][edited_key] + 1
+        assert after["cohorts"][edited_key] != before["cohorts"][edited_key]
+        assert after["cohort_versions"][untouched_key] == before["cohort_versions"][untouched_key]
+        assert after["cohorts"][untouched_key] == before["cohorts"][untouched_key]
+
 
 @override_settings(FLAGS_REDIS_URL="redis://test")
 class TestFlagDefinitionsCache(BaseTest):
@@ -1527,6 +1634,36 @@ class TestVerifyFlagDefinitions(BaseTest):
         field_mismatch_diffs = [d for d in result["diffs"] if d["type"] == "FIELD_MISMATCH"]
         assert len(field_mismatch_diffs) == 1
         assert field_mismatch_diffs[0]["flag_key"] == "test-flag"
+
+    def test_verify_returns_mismatch_when_cohort_versions_drift(self):
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name="verified-cohort",
+            filters={
+                "properties": {
+                    "type": "OR",
+                    "values": [{"type": "OR", "values": [{"key": "email", "value": "a@a.com", "type": "person"}]}],
+                }
+            },
+        )
+        FeatureFlag.objects.create(
+            team=self.team,
+            key="flag-with-cohort",
+            created_by=self.user,
+            filters={"groups": [{"properties": [{"key": "id", "type": "cohort", "value": cohort.pk}]}]},
+        )
+
+        update_flag_definitions_cache(self.team)
+
+        # Definition edited and reverted: the cohorts content matches the cache again
+        # but the version does not — only the cohort_versions comparison catches it.
+        Cohort.objects.filter(pk=cohort.pk).update(definition_version=99)
+
+        result = verify_team_flag_definitions(self.team, include_cohorts=True)
+
+        assert result["status"] == "mismatch"
+        assert result["issue"] == "DATA_MISMATCH"
+        assert "cohort_versions mismatch" in result["details"]
 
     @parameterized.expand(
         [

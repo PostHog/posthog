@@ -50,3 +50,6 @@ class FlagResponse(TypedDict):
     flags: list[FlagData]
     group_type_mapping: dict[str, str]
     cohorts: dict[str, dict[str, Any]]
+    # Keyed like `cohorts`; values are Cohort.definition_version, so SDKs caching
+    # the payload can detect which individual cohort definitions changed.
+    cohort_versions: dict[str, int]
