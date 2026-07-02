@@ -707,7 +707,7 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             posthoganalytics.capture(
                 str(self.context["request"].user.distinct_id),
                 "real time alert limit reached",
-                {
+                properties={
                     "team_id": self.context["team_id"],
                     "organization_id": str(organization.id),
                 },
