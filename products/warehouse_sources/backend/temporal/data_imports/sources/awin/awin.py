@@ -86,7 +86,8 @@ def _fetch(
 
 def validate_credentials(api_token: str) -> bool:
     try:
-        response = make_tracked_session().get(f"{AWIN_BASE_URL}/accounts", headers=_get_headers(api_token), timeout=10)
+        session = make_tracked_session(redact_values=(api_token,))
+        response = session.get(f"{AWIN_BASE_URL}/accounts", headers=_get_headers(api_token), timeout=10)
         return response.status_code == 200
     except Exception:
         return False
@@ -145,8 +146,8 @@ def _build_window_params(
         "timezone": AWIN_TIMEZONE,
     }
     if config.date_type_by_field:
-        field = incremental_field or config.primary_keys[0]
-        params["dateType"] = config.date_type_by_field.get(field, next(iter(config.date_type_by_field.values())))
+        default_date_type = next(iter(config.date_type_by_field.values()))
+        params["dateType"] = config.date_type_by_field.get(incremental_field or "", default_date_type)
     params.update(config.extra_params)
     return params
 
@@ -219,7 +220,8 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = AWIN_ENDPOINTS[endpoint]
     headers = _get_headers(api_token)
-    session = make_tracked_session()
+    # Register the token so the tracked transport masks it in logged URLs and captured samples.
+    session = make_tracked_session(redact_values=(api_token,))
 
     if config.kind == "accounts":
         data = _fetch(session, config.path, headers, config.extra_params, logger)
@@ -250,8 +252,9 @@ def get_rows(
         rows = _rows_from_response(config, data, publisher_id)
         if rows:
             yield rows
-        # Save AFTER yielding so a crash re-yields the last item rather than skipping it (merge dedupes
-        # on the primary key).
+        # Save after processing each work item. A crash before this line re-fetches the same item on
+        # resume: if it yielded rows they're re-yielded and merge dedupes on the primary key; an empty
+        # window is simply re-fetched (a no-op).
         resumable_source_manager.save_state(
             AwinResumeConfig(
                 account_id=publisher_id,
