@@ -1,6 +1,10 @@
 from posthog.test.base import BaseTest, ClickhouseTestMixin
 
+from parameterized import parameterized
+
+from posthog.api.element import ElementSerializer
 from posthog.models.element import Element, chain_to_elements, elements_to_string
+from posthog.models.element.element import attributes_filter_regex, chain_to_element_dicts
 
 
 class TestElement(ClickhouseTestMixin, BaseTest):
@@ -63,6 +67,40 @@ class TestElement(ClickhouseTestMixin, BaseTest):
 
         self.assertEqual(elements[1].attr_class, ["btn", "btn-primary"])
         self.assertEqual(elements[3].attr_id, "nested")
+
+    @parameterized.expand(
+        [
+            (
+                "escaped quotes and semicolons in attributes",
+                r'a.small:data-attr="something \" that; could mess up"href="/a-url"nth-child="1"nth-of-type="0"text="bla bla";button.btn.btn-primary:nth-child="0"nth-of-type="0"',
+            ),
+            (
+                "attr__ prefixed production-shaped chain",
+                'svg.LemonIcon.text-3xl:attr__class="LemonIcon text-3xl"attr__fill="currentColor"attr__width="100%"nth-child="1"nth-of-type="1";div:attr_id="nested"nth-child="0"nth-of-type="0"',
+            ),
+            ("broken class names", "a........small"),
+            ("empty chain", ""),
+        ]
+    )
+    def test_chain_to_element_dicts_matches_serialized_models(self, _name: str, chain: str) -> None:
+        via_models = ElementSerializer(chain_to_elements(chain), many=True).data
+        assert chain_to_element_dicts(chain) == via_models
+
+    @parameterized.expand(
+        [
+            ("exact name", ["data-attr"], {"attr__data-attr": "x"}),
+            ("wildcard", ["data-*"], {"attr__data-attr": "x", "attr__data-tracking-id": "y"}),
+            ("no match keeps other fields", ["data-nope"], {}),
+        ]
+    )
+    def test_chain_to_element_dicts_filters_attributes(
+        self, _name: str, wanted: list[str], expected_attributes: dict
+    ) -> None:
+        chain = 'a.small:attr__class="small"attr__data-attr="x"attr__data-tracking-id="y"attr__style="color: red"href="/a-url"nth-child="1"nth-of-type="1"'
+        element_dicts = chain_to_element_dicts(chain, attributes_filter_regex(wanted))
+        assert element_dicts[0]["attributes"] == expected_attributes
+        assert element_dicts[0]["href"] == "/a-url"
+        assert element_dicts[0]["attr_class"] == ["small"]
 
     def test_broken_class_names(self):
         elements = chain_to_elements("a........small")

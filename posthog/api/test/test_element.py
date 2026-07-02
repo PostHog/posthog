@@ -299,6 +299,33 @@ class TestElement(ClickhouseTestMixin, APIBaseTest, QueryMatchingTest):
         limit_to_one_results_page_three = page_three_response_json["results"]
         assert limit_to_one_results_page_three == [expected_rage_click_data_response_results[0]]
 
+    def test_element_stats_filters_attributes_to_requested_data_attributes(self) -> None:
+        _create_person(distinct_ids=["one"], team=self.team, properties={"email": "one@mail.com"})
+        _create_event(
+            team=self.team,
+            elements=[
+                Element(
+                    tag_name="button",
+                    text="sign up",
+                    order=0,
+                    attributes={"attr__data-attr": "signup-cta", "attr__aria-label": "call to action"},
+                )
+            ],
+            event="$autocapture",
+            distinct_id="one",
+            properties={"$current_url": "http://example.com/demo"},
+        )
+
+        unfiltered = self.client.get("/api/element/stats/?paginate_response=true").json()
+        assert unfiltered["results"][0]["elements"][0]["attributes"] == {
+            "attr__data-attr": "signup-cta",
+            "attr__aria-label": "call to action",
+        }
+
+        filtered = self.client.get("/api/element/stats/?paginate_response=true&data_attributes=data-attr").json()
+        assert filtered["results"][0]["elements"][0]["attributes"] == {"attr__data-attr": "signup-cta"}
+        assert filtered["results"][0]["elements"][0]["text"] == "sign up"
+
     def test_element_stats_does_not_allow_non_numeric_limit(self) -> None:
         response = self.client.get(f"/api/element/stats/?limit=not-a-number")
         self.assertEqual(response.status_code, status.HTTP_400_BAD_REQUEST)

@@ -95,3 +95,68 @@ def chain_to_elements(chain: str) -> list[Element]:
 
         elements.append(element)
     return elements
+
+
+def attributes_filter_regex(wanted_data_attributes: list[str]) -> re.Pattern:
+    """
+    Matches attribute keys for the configured data attributes, mirroring the toolbar's
+    matchesDataAttribute: keys are stored with an attr__ prefix and configured names may
+    contain * wildcards (e.g. data-*).
+    """
+    alternatives = "|".join(
+        ".*".join(re.escape(part) for part in attribute.split("*")) for attribute in wanted_data_attributes
+    )
+    return re.compile(f"^attr__(?:{alternatives})$")
+
+
+def chain_to_element_dicts(chain: str, attributes_filter: re.Pattern | None = None) -> list[dict]:
+    """
+    Converts an elements chain string into serialized element dicts, shaped exactly like
+    ElementSerializer output but without instantiating Element models, so the elements API
+    can serialize large pages cheaply. attributes_filter optionally restricts the attributes
+    map to matching keys (see attributes_filter_regex).
+    """
+    element_dicts: list[dict] = []
+    for idx, el_string in enumerate(split_chain_regex.findall(chain)):
+        el_string_match = split_class_attributes.search(el_string)
+        tag_part = el_string_match.group(1) if el_string_match else ""
+        attrs_part = el_string_match.group(3) if el_string_match else None
+
+        element: dict = {
+            "text": None,
+            "tag_name": None,
+            "attr_class": None,
+            "href": None,
+            "attr_id": None,
+            "nth_child": None,
+            "nth_of_type": None,
+            "attributes": {},
+            "order": idx,
+        }
+
+        if tag_part:
+            tag_and_class = tag_part.split(".", 1)
+            element["tag_name"] = tag_and_class[0]
+            if len(tag_and_class) > 1:
+                element["attr_class"] = [cl for cl in tag_and_class[1].split(".") if cl != ""]
+
+        if attrs_part:
+            for attribute_match in parse_attributes_regex.finditer(attrs_part):
+                key = attribute_match.group("key")
+                value = attribute_match.group("value")
+                if key == "href":
+                    element["href"] = value
+                elif key == "nth-child":
+                    element["nth_child"] = int(value)
+                elif key == "nth-of-type":
+                    element["nth_of_type"] = int(value)
+                elif key == "text":
+                    element["text"] = value
+                elif key == "attr_id":
+                    element["attr_id"] = value
+                elif key:
+                    if attributes_filter is None or attributes_filter.match(key):
+                        element["attributes"][key] = value
+
+        element_dicts.append(element)
+    return element_dicts

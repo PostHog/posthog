@@ -256,6 +256,11 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                     await breakpoint(150)
 
                     const { href, wildcardHref } = values
+                    // isTooSimple always reads attr__data-attr, so request it alongside the
+                    // configured data attributes
+                    const wantedAttributes = Array.from(
+                        new Set([...toolbarConfigLogic.values.dataAttributes, 'data-attr'])
+                    )
                     // We re-raise below to drive getElementStatsFailure; let the global
                     // loader handler report it once rather than capturing twice.
                     const options = {
@@ -291,6 +296,9 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                                   paginate_response: true,
                                   sampling_factor: values.samplingFactor,
                                   limit: ELEMENT_STATS_PAGE_LIMIT,
+                                  // the matchers only read the configured data attributes from each
+                                  // element's attributes map, so let the server drop the rest
+                                  data_attributes: wantedAttributes.join(','),
                               },
                               options
                           )
