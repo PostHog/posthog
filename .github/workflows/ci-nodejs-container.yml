@@ -48,7 +48,6 @@ jobs:
                         - 'rust/cyclotron-node/**'
                         - 'rust/common/hogvm/**'
                         - 'rust/replay-anonymizer-node/**'
-                        - 'rust/common/replay-anonymizer/**'
                         - 'Dockerfile.node'
                         - '.github/workflows/ci-nodejs-container.yml'
                         - 'turbo.json'

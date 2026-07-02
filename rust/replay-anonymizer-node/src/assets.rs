@@ -5,8 +5,8 @@
 use simd_json::value::owned::Object;
 use simd_json::OwnedValue;
 
-use crate::allow_lists::AllowLists;
-use crate::blur::{blank_image_data_uri, blur_image_data_uri, is_image_data_uri};
+use crate::blur::{blank_image_data_uri, is_image_data_uri};
+use crate::context::Ctx;
 use crate::json::as_str;
 use crate::url::scrub_url_opts;
 
@@ -35,33 +35,36 @@ pub fn has_media_src_attr(attrs: &Object) -> bool {
 
 /// Blur an inlined-image data URI held in an attribute (a `<canvas>`/`<img>` `rr_dataURL`).
 /// Returns whether it acted.
-pub fn blur_inline_image_attr(attrs: &mut Object, name: &str) -> bool {
+pub fn blur_inline_image_attr(ctx: &Ctx<'_>, attrs: &mut Object, name: &str) -> bool {
     let Some(value) = attrs.get(name).and_then(as_str).map(str::to_string) else {
         return false;
     };
     if !is_image_data_uri(&value) {
         return false;
     }
-    let blurred = blur_image_data_uri(&value).unwrap_or_else(blank_image_data_uri);
+    let blurred = ctx
+        .blur_data_uri(&value)
+        .unwrap_or_else(blank_image_data_uri);
     attrs.insert(name.to_string(), OwnedValue::String(blurred));
     true
 }
 
 /// Replace a media element's source attrs with the blurred image (data URIs) or placeholder (remote
 /// URLs, whose scrubbed original is stashed under a namespaced attr).
-pub fn apply_blur(allow: &AllowLists, attrs: &mut Object) {
+pub fn apply_blur(ctx: &Ctx<'_>, attrs: &mut Object) {
     for key in MEDIA_SRC_ATTRS {
         let Some(existing) = attrs.get(*key).and_then(as_str).map(str::to_string) else {
             continue;
         };
         if is_image_data_uri(&existing) {
-            let blurred =
-                blur_image_data_uri(&existing).unwrap_or_else(|| PLACEHOLDER_SRC.to_string());
+            let blurred = ctx
+                .blur_data_uri(&existing)
+                .unwrap_or_else(|| PLACEHOLDER_SRC.to_string());
             attrs.insert(key.to_string(), OwnedValue::String(blurred));
         } else {
             // Host-scrubbed too so a CDN host can't leak; stashed under a namespaced attr that won't
             // collide with an app `data-original-*`.
-            let scrubbed = scrub_url_opts(allow, &existing, true).unwrap_or(existing);
+            let scrubbed = scrub_url_opts(ctx.allow, &existing, true).unwrap_or(existing);
             attrs.insert(
                 key.to_string(),
                 OwnedValue::String(PLACEHOLDER_SRC.to_string()),

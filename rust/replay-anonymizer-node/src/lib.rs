@@ -1,10 +1,32 @@
-//! Neon (Node-API) bindings for the session-replay anonymizer. Follows the `cyclotron-node` pattern:
-//! configuration is passed as a JSON string, and the CPU-bound scrub runs on the libuv threadpool via
-//! `cx.task(..).promise(..)` so it never blocks the Node event loop.
+//! Session-replay anonymizer: PII-scrubs parsed rrweb events for the ml-mirror pipeline, exposed to
+//! Node as a Neon native addon.
+//!
+//! This is a Rust port of `nodejs/src/ingestion/pipelines/sessionreplay/anonymize/*.ts` (the source of
+//! truth). It walks a parsed message's events in place, redacting text/URLs, blurring images natively,
+//! and de/recompressing `cv` payloads. Parity with the TS is asserted via shared JSON fixtures under
+//! `tests/fixtures/` (the same fixtures the Jest suite runs against). The crate builds both an `rlib`
+//! (for `cargo test`) and a `cdylib` (the `index.node` addon).
+
+pub mod allow_lists;
+pub mod assets;
+pub mod blur;
+pub mod canvas;
+pub mod context;
+pub mod css;
+pub mod cv;
+pub mod dom;
+pub mod event;
+pub mod json;
+pub mod text;
+pub mod url;
+pub mod value;
+
+pub use allow_lists::AllowLists;
+pub use context::Ctx;
+pub use event::{anonymize_event, anonymize_event_str, anonymize_message};
 
 use std::sync::RwLock;
 
-use common_replay_anonymizer::AllowLists;
 use neon::prelude::*;
 use serde::Deserialize;
 
@@ -42,8 +64,7 @@ fn anonymize(mut cx: FunctionContext) -> JsResult<JsPromise> {
                     "anonymizer not initialized (call initAnonymizer first)".to_string()
                 })?;
                 let mut bytes = json.into_bytes();
-                common_replay_anonymizer::anonymize_message(allow, &mut bytes)
-                    .map_err(|e| e.to_string())
+                anonymize_message(allow, &mut bytes).map_err(|e| e.to_string())
             }))
             .unwrap_or_else(|_| Err("panic while anonymizing".to_string()))
         })

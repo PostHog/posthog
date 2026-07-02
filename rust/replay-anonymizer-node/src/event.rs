@@ -8,6 +8,7 @@ use simd_json::{OwnedValue, StaticNode};
 
 use crate::allow_lists::AllowLists;
 use crate::canvas::scrub_canvas_mutation;
+use crate::context::Ctx;
 use crate::cv::{scrub_compressed_full_snapshot, scrub_compressed_mutation};
 use crate::dom::{scrub_full_snapshot, scrub_mutation};
 use crate::json::{as_array_mut, as_object, as_object_mut, as_small_uint, as_str};
@@ -37,7 +38,8 @@ const MAX_JSON_DEPTH: usize = 1024;
 
 /// Anonymizes every event in a parsed message (`{ windowId: Event[] }`) in place. `Ok(None)` means
 /// nothing changed (the caller can keep its original). `Err` means an event could not be anonymized —
-/// fail closed, the caller must drop the message.
+/// fail closed, the caller must drop the message. A single `Ctx` spans the whole message so its blur
+/// memo is shared across every event (an image recurring across events is blurred once).
 pub fn anonymize_message(allow: &AllowLists, json: &mut [u8]) -> Result<Option<String>> {
     let depth = max_bracket_depth(json);
     if depth > MAX_JSON_DEPTH {
@@ -47,11 +49,12 @@ pub fn anonymize_message(allow: &AllowLists, json: &mut [u8]) -> Result<Option<S
     let Some(obj) = as_object_mut(&mut root) else {
         bail!("eventsByWindowId is not an object");
     };
+    let ctx = Ctx::new(allow);
     let mut changed = false;
     for (_, events) in obj.iter_mut() {
         if let Some(arr) = as_array_mut(events) {
             for event in arr.iter_mut() {
-                changed |= anonymize_event(allow, event)?;
+                changed |= route_event(&ctx, event)?;
             }
         }
     }
@@ -100,7 +103,13 @@ pub fn anonymize_event_str(allow: &AllowLists, event_json: &str) -> Result<Strin
 }
 
 /// Scrubs a single event in place, returning whether it changed. `Err` = "could not anonymize".
+/// Builds its own `Ctx` (single-event scope); the message path uses [`anonymize_message`] instead so
+/// the blur memo is shared across events.
 pub fn anonymize_event(allow: &AllowLists, event: &mut OwnedValue) -> Result<bool> {
+    route_event(&Ctx::new(allow), event)
+}
+
+fn route_event(ctx: &Ctx<'_>, event: &mut OwnedValue) -> Result<bool> {
     let Some(obj) = as_object_mut(event) else {
         return Ok(false);
     };
@@ -110,10 +119,10 @@ pub fn anonymize_event(allow: &AllowLists, event: &mut OwnedValue) -> Result<boo
     match obj.get("type").and_then(as_small_uint) {
         Some(TYPE_FULL_SNAPSHOT) => {
             if compressed {
-                scrub_compressed_full_snapshot(allow, obj)
+                scrub_compressed_full_snapshot(ctx, obj)
             } else {
                 match obj.get_mut("data") {
-                    Some(data) => Ok(scrub_full_snapshot(allow, data)),
+                    Some(data) => Ok(scrub_full_snapshot(ctx, data)),
                     None => Ok(false),
                 }
             }
@@ -130,18 +139,18 @@ pub fn anonymize_event(allow: &AllowLists, event: &mut OwnedValue) -> Result<boo
             match source {
                 Some(SOURCE_MUTATION) => {
                     if compressed {
-                        scrub_compressed_mutation(allow, obj)
+                        scrub_compressed_mutation(ctx, obj)
                     } else {
-                        Ok(scrub_mutation(allow, obj.get_mut("data").unwrap()))
+                        Ok(scrub_mutation(ctx, obj.get_mut("data").unwrap()))
                     }
                 }
                 Some(SOURCE_INPUT) => Ok(scrub_text_field(
-                    allow,
+                    ctx.allow,
                     obj.get_mut("data").and_then(as_object_mut).unwrap(),
                     "text",
                 )),
                 Some(SOURCE_CANVAS_MUTATION) => {
-                    Ok(scrub_canvas_mutation(allow, obj.get_mut("data").unwrap()))
+                    Ok(scrub_canvas_mutation(ctx, obj.get_mut("data").unwrap()))
                 }
                 _ => Ok(false),
             }
@@ -154,7 +163,7 @@ pub fn anonymize_event(allow: &AllowLists, event: &mut OwnedValue) -> Result<boo
             let Some(href) = data.get("href").and_then(as_str).map(str::to_string) else {
                 return Ok(false);
             };
-            match scrub_url_opts(allow, &href, true) {
+            match scrub_url_opts(ctx.allow, &href, true) {
                 Some(v) => {
                     data.insert("href".to_string(), OwnedValue::String(v));
                     Ok(true)
@@ -163,7 +172,7 @@ pub fn anonymize_event(allow: &AllowLists, event: &mut OwnedValue) -> Result<boo
             }
         }
         Some(TYPE_CUSTOM) => match obj.get_mut("data").and_then(as_object_mut) {
-            Some(data) => Ok(scrub_generic_field(allow, data, "payload")),
+            Some(data) => Ok(scrub_generic_field(ctx.allow, data, "payload")),
             None => Ok(false),
         },
         Some(TYPE_PLUGIN) => {
@@ -172,9 +181,9 @@ pub fn anonymize_event(allow: &AllowLists, event: &mut OwnedValue) -> Result<boo
             };
             let plugin = data.get("plugin").and_then(as_str).map(str::to_string);
             Ok(match plugin.as_deref() {
-                Some(NETWORK_PLUGIN) => scrub_network_plugin(allow, data, "payload"),
-                Some(CONSOLE_PLUGIN) => scrub_console_plugin(allow, data, "payload"),
-                _ => scrub_generic_field(allow, data, "payload"),
+                Some(NETWORK_PLUGIN) => scrub_network_plugin(ctx.allow, data, "payload"),
+                Some(CONSOLE_PLUGIN) => scrub_console_plugin(ctx.allow, data, "payload"),
+                _ => scrub_generic_field(ctx.allow, data, "payload"),
             })
         }
         // DomContentLoaded, Load, unknown types: pass-through.

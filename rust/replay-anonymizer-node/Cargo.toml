@@ -6,10 +6,18 @@ exclude = ["index.node"]
 publish = false
 
 [lib]
-crate-type = ["cdylib"]
+# `cdylib` for the Neon `index.node` addon; `rlib` so `cargo test` can exercise the scrub logic.
+crate-type = ["cdylib", "rlib"]
 
 [dependencies]
-common-replay-anonymizer = { path = "../common/replay-anonymizer" }
+anyhow = { workspace = true }
+base64 = { workspace = true }
+flate2 = { workspace = true }
+image = { version = "0.25", default-features = false, features = ["png", "jpeg", "gif", "webp", "bmp"] }
 neon = { workspace = true }
 serde = { workspace = true }
+serde_json = { workspace = true }
+simd-json = { version = "0.15", features = ["serde_impl"] }
+
+[dev-dependencies]
 serde_json = { workspace = true }

@@ -51,8 +51,6 @@ jobs:
                         - 'common/replay-headless/**'
                         - 'rust/cyclotron-node/**'
                         - 'rust/cyclotron-core/**'
-                        - 'rust/replay-anonymizer-node/**'
-                        - 'rust/common/replay-anonymizer/**'
                         - 'Dockerfile.recording-rasterizer'
                         - '.github/workflows/ci-recording-rasterizer-container.yml'
                         - 'bin/turbo'

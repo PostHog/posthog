@@ -5,15 +5,16 @@
 use simd_json::value::owned::Object;
 use simd_json::OwnedValue;
 
-use crate::blur::{blank_image_data_uri, blur_image_data_uri, is_image_data_uri};
+use crate::blur::{blank_image_data_uri, is_image_data_uri};
+use crate::context::Ctx;
 use crate::json::as_str;
 
 /// Scrub `container[key]` if it is a CSS string; returns whether it changed.
-pub fn scrub_css_images(container: &mut Object, key: &str) -> bool {
+pub fn scrub_css_images(ctx: &Ctx<'_>, container: &mut Object, key: &str) -> bool {
     let Some(css) = container.get(key).and_then(as_str).map(str::to_string) else {
         return false;
     };
-    match rewrite(&css) {
+    match rewrite(ctx, &css) {
         Some(v) => {
             container.insert(key.to_string(), OwnedValue::String(v));
             true
@@ -22,7 +23,7 @@ pub fn scrub_css_images(container: &mut Object, key: &str) -> bool {
     }
 }
 
-fn rewrite(css: &str) -> Option<String> {
+fn rewrite(ctx: &Ctx<'_>, css: &str) -> Option<String> {
     let bytes = css.as_bytes();
     let mut out = String::new();
     let mut last = 0usize;
@@ -33,7 +34,8 @@ fn rewrite(css: &str) -> Option<String> {
             out.push_str(&css[last..start]);
             // Blur (or fall back to a blank pixel) and re-wrap; no async placeholder needed since we
             // resolve the image inline, so the final string matches the TS post-blur state.
-            let replacement = blur_image_data_uri(&css[m.data_start..m.data_end])
+            let replacement = ctx
+                .blur_data_uri(&css[m.data_start..m.data_end])
                 .unwrap_or_else(blank_image_data_uri);
             out.push_str("url(");
             if let Some(q) = m.quote {

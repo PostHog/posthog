@@ -26,8 +26,7 @@ nodejs/tests/ @PostHog/team-ingestion
 nodejs/src/ingestion/ @PostHog/team-ingestion
 nodejs/src/ingestion/pipelines/sessionreplay/ @PostHog/team-replay @PostHog/team-ingestion
 # Rust session-replay anonymizer (native counterpart of the sessionreplay anonymize pipeline)
-rust/common/replay-anonymizer/** @PostHog/team-replay @PostHog/team-ingestion
-rust/replay-anonymizer-node/** @PostHog/team-replay @PostHog/team-ingestion
+rust/replay-anonymizer-node/** @PostHog/team-ai-research
 nodejs/src/cdp/ @PostHog/team-workflows
 nodejs/src/session-replay/recording-rasterizer/ @PostHog/team-replay
 

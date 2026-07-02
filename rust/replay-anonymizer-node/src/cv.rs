@@ -11,7 +11,7 @@ use simd_json::prelude::Writable;
 use simd_json::value::owned::Object;
 use simd_json::{OwnedValue, StaticNode};
 
-use crate::allow_lists::AllowLists;
+use crate::context::Ctx;
 use crate::dom::{scrub_full_snapshot, scrub_mutation};
 use crate::json::as_object_mut;
 
@@ -58,12 +58,12 @@ fn compress_to_string(value: &OwnedValue) -> Result<String> {
 }
 
 /// Scrub a `cv`-compressed FullSnapshot event in place. Returns whether it changed.
-pub fn scrub_compressed_full_snapshot(allow: &AllowLists, event: &mut Object) -> Result<bool> {
+pub fn scrub_compressed_full_snapshot(ctx: &Ctx<'_>, event: &mut Object) -> Result<bool> {
     match event.get("data") {
         Some(OwnedValue::String(s)) => {
             let s = s.clone();
             let mut payload = decompress_string(&s)?;
-            if !scrub_full_snapshot(allow, &mut payload) {
+            if !scrub_full_snapshot(ctx, &mut payload) {
                 return Ok(false);
             }
             event.insert(
@@ -75,7 +75,7 @@ pub fn scrub_compressed_full_snapshot(allow: &AllowLists, event: &mut Object) ->
         Some(_) => {
             // Not actually whole-blob compressed — scrub as a plain object.
             let data = event.get_mut("data").unwrap();
-            Ok(scrub_full_snapshot(allow, data))
+            Ok(scrub_full_snapshot(ctx, data))
         }
         None => Ok(false),
     }
@@ -89,7 +89,7 @@ enum Sub {
 }
 
 /// Scrub a `cv`-compressed Mutation event in place. Returns whether it changed.
-pub fn scrub_compressed_mutation(allow: &AllowLists, event: &mut Object) -> Result<bool> {
+pub fn scrub_compressed_mutation(ctx: &Ctx<'_>, event: &mut Object) -> Result<bool> {
     let Some(data) = event.get_mut("data").and_then(as_object_mut) else {
         return Ok(false);
     };
@@ -125,7 +125,7 @@ pub fn scrub_compressed_mutation(allow: &AllowLists, event: &mut Object) -> Resu
     }
 
     let mut synthetic_val = OwnedValue::Object(Box::new(synthetic));
-    let changed = scrub_mutation(allow, &mut synthetic_val);
+    let changed = scrub_mutation(ctx, &mut synthetic_val);
     let synthetic = as_object_mut(&mut synthetic_val).expect("synthetic is an object");
 
     // event.data was invalidated by the reborrow above; re-fetch it.
@@ -165,6 +165,8 @@ pub fn scrub_compressed_mutation(allow: &AllowLists, event: &mut Object) -> Resu
 #[cfg(test)]
 mod tests {
     use super::*;
+    use crate::allow_lists::AllowLists;
+    use crate::context::Ctx;
     use crate::json::{as_array, as_object, as_str};
 
     #[test]
@@ -181,7 +183,8 @@ mod tests {
         let mut event = Object::default();
         event.insert("data".to_string(), OwnedValue::Object(Box::new(data)));
 
-        let changed = scrub_compressed_mutation(&allow, &mut event).unwrap();
+        let ctx = Ctx::new(&allow);
+        let changed = scrub_compressed_mutation(&ctx, &mut event).unwrap();
         assert!(changed);
 
         let data = as_object(event.get("data").unwrap()).unwrap();

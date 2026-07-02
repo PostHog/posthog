@@ -5,7 +5,7 @@
     "main": "dist/index.js",
     "types": "dist/index.d.ts",
     "scripts": {
-        "test": "cargo test -p common-replay-anonymizer",
+        "test": "cargo test -p replay-anonymizer-node",
         "build": "pnpm run build:cargo --release && pnpm run build:move-lib && pnpm run build:typescript",
         "build:dev": "pnpm run build:cargo && pnpm run build:move-lib:dev && pnpm run build:typescript",
         "build:move-lib": "TARGET_DIR=${CARGO_TARGET_DIR:-../target} && cp \"$TARGET_DIR/release/libreplay_anonymizer_node.dylib\" index.node 2>/dev/null || cp \"$TARGET_DIR/release/libreplay_anonymizer_node.so\" index.node || (echo \"No valid library file found in $TARGET_DIR/release/\" && exit 1)",

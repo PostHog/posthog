@@ -32,7 +32,6 @@ members = [
   "common/types",
   "common/compression",
   "common/hypercache",
-  "common/replay-anonymizer",
   "feature-flags",
   "flags-consumer",
   "hypercache-server",

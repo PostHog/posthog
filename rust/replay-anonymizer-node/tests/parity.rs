@@ -4,8 +4,8 @@
 use std::path::Path;
 use std::time::Instant;
 
-use common_replay_anonymizer::allow_lists::AllowLists;
-use common_replay_anonymizer::{
+use replay_anonymizer_node::allow_lists::AllowLists;
+use replay_anonymizer_node::{
     anonymize_event_str, anonymize_message, text::scrub_text, url::scrub_url_opts,
 };
 use serde_json::Value;

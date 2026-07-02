@@ -5,11 +5,11 @@
 use simd_json::value::owned::Object;
 use simd_json::OwnedValue;
 
-use crate::allow_lists::AllowLists;
 use crate::assets::{
     apply_blur, blur_inline_image_attr, has_media_src_attr, is_media_src_attr, is_media_tag,
     INLINE_IMAGE_ATTR,
 };
+use crate::context::Ctx;
 use crate::css::scrub_css_images;
 use crate::json::{as_array_mut, as_object_mut, as_small_uint, as_str, is_object, is_true};
 use crate::text::{redact_emails, scrub_text};
@@ -37,17 +37,17 @@ enum TagKind {
     Other,
 }
 
-pub fn scrub_full_snapshot(allow: &AllowLists, data: &mut OwnedValue) -> bool {
+pub fn scrub_full_snapshot(ctx: &Ctx<'_>, data: &mut OwnedValue) -> bool {
     let Some(obj) = as_object_mut(data) else {
         return false;
     };
     match obj.get_mut("node") {
-        Some(node) if is_object(node) => walk_node(allow, node, ParentKind::Other),
+        Some(node) if is_object(node) => walk_node(ctx, node, ParentKind::Other),
         _ => false,
     }
 }
 
-pub fn scrub_mutation(allow: &AllowLists, data: &mut OwnedValue) -> bool {
+pub fn scrub_mutation(ctx: &Ctx<'_>, data: &mut OwnedValue) -> bool {
     let Some(obj) = as_object_mut(data) else {
         return false;
     };
@@ -58,7 +58,7 @@ pub fn scrub_mutation(allow: &AllowLists, data: &mut OwnedValue) -> bool {
             if let Some(tobj) = as_object_mut(t) {
                 let cur = tobj.get("value").and_then(as_str).map(str::to_string);
                 if let Some(v) = cur {
-                    if let Some(nv) = scrub_text(allow, &v) {
+                    if let Some(nv) = scrub_text(ctx.allow, &v) {
                         tobj.insert("value".to_string(), OwnedValue::String(nv));
                         changed = true;
                     }
@@ -76,7 +76,7 @@ pub fn scrub_mutation(allow: &AllowLists, data: &mut OwnedValue) -> bool {
                     } else {
                         TagKind::Other
                     };
-                    changed |= scrub_attrs(allow, attrs, kind);
+                    changed |= scrub_attrs(ctx, attrs, kind);
                 }
             }
         }
@@ -87,7 +87,7 @@ pub fn scrub_mutation(allow: &AllowLists, data: &mut OwnedValue) -> bool {
             if let Some(aobj) = as_object_mut(added) {
                 if let Some(node) = aobj.get_mut("node") {
                     if is_object(node) {
-                        changed |= walk_node(allow, node, ParentKind::Other);
+                        changed |= walk_node(ctx, node, ParentKind::Other);
                     }
                 }
             }
@@ -97,7 +97,7 @@ pub fn scrub_mutation(allow: &AllowLists, data: &mut OwnedValue) -> bool {
     changed
 }
 
-fn walk_node(allow: &AllowLists, node: &mut OwnedValue, parent: ParentKind) -> bool {
+fn walk_node(ctx: &Ctx<'_>, node: &mut OwnedValue, parent: ParentKind) -> bool {
     let Some(obj) = as_object_mut(node) else {
         return false;
     };
@@ -112,7 +112,7 @@ fn walk_node(allow: &AllowLists, node: &mut OwnedValue, parent: ParentKind) -> b
                 .to_string();
             let kind = classify_tag(&tag);
             if let Some(attrs) = obj.get_mut("attributes").and_then(as_object_mut) {
-                changed |= scrub_attrs(allow, attrs, kind);
+                changed |= scrub_attrs(ctx, attrs, kind);
             }
             let child_parent = match kind {
                 TagKind::Script => ParentKind::Script,
@@ -122,7 +122,7 @@ fn walk_node(allow: &AllowLists, node: &mut OwnedValue, parent: ParentKind) -> b
             if let Some(children) = obj.get_mut("childNodes").and_then(as_array_mut) {
                 for child in children.iter_mut() {
                     if is_object(child) {
-                        changed |= walk_node(allow, child, child_parent);
+                        changed |= walk_node(ctx, child, child_parent);
                     }
                 }
             }
@@ -131,7 +131,7 @@ fn walk_node(allow: &AllowLists, node: &mut OwnedValue, parent: ParentKind) -> b
             if let Some(children) = obj.get_mut("childNodes").and_then(as_array_mut) {
                 for child in children.iter_mut() {
                     if is_object(child) {
-                        changed |= walk_node(allow, child, ParentKind::Other);
+                        changed |= walk_node(ctx, child, ParentKind::Other);
                     }
                 }
             }
@@ -143,12 +143,12 @@ fn walk_node(allow: &AllowLists, node: &mut OwnedValue, parent: ParentKind) -> b
             }
             let is_style = obj.get("isStyle").map(is_true).unwrap_or(false);
             if parent == ParentKind::Style || is_style {
-                return scrub_css_images(obj, "textContent");
+                return scrub_css_images(ctx, obj, "textContent");
             }
-            changed |= scrub_text_content(allow, obj);
+            changed |= scrub_text_content(ctx, obj);
         }
         Some(NODE_COMMENT) | Some(NODE_CDATA) => {
-            changed |= scrub_text_content(allow, obj);
+            changed |= scrub_text_content(ctx, obj);
         }
         _ => {} // DocumentType or unknown: nothing.
     }
@@ -156,11 +156,11 @@ fn walk_node(allow: &AllowLists, node: &mut OwnedValue, parent: ParentKind) -> b
     changed
 }
 
-fn scrub_text_content(allow: &AllowLists, obj: &mut Object) -> bool {
+fn scrub_text_content(ctx: &Ctx<'_>, obj: &mut Object) -> bool {
     let Some(cur) = obj.get("textContent").and_then(as_str).map(str::to_string) else {
         return false;
     };
-    match scrub_text(allow, &cur) {
+    match scrub_text(ctx.allow, &cur) {
         Some(v) => {
             obj.insert("textContent".to_string(), OwnedValue::String(v));
             true
@@ -181,7 +181,7 @@ fn classify_tag(tag: &str) -> TagKind {
     }
 }
 
-fn scrub_attrs(allow: &AllowLists, attrs: &mut Object, kind: TagKind) -> bool {
+fn scrub_attrs(ctx: &Ctx<'_>, attrs: &mut Object, kind: TagKind) -> bool {
     let mut changed = false;
     let names: Vec<String> = attrs.keys().cloned().collect();
 
@@ -191,7 +191,7 @@ fn scrub_attrs(allow: &AllowLists, attrs: &mut Object, kind: TagKind) -> bool {
         }
         // Inlined rendered pixels (`rr_dataURL`): blur the image, on any tag.
         if name == INLINE_IMAGE_ATTR {
-            changed |= blur_inline_image_attr(attrs, &name);
+            changed |= blur_inline_image_attr(ctx, attrs, &name);
             continue;
         }
         // Only string attribute values are scrubbed.
@@ -203,15 +203,15 @@ fn scrub_attrs(allow: &AllowLists, attrs: &mut Object, kind: TagKind) -> bool {
             continue;
         };
         let result = if is_url_attr(&name) {
-            scrub_url(allow, &value)
+            scrub_url(ctx.allow, &value)
         } else if name == "style" {
-            changed |= scrub_css_images(attrs, &name);
+            changed |= scrub_css_images(ctx, attrs, &name);
             continue;
         } else if is_user_text_attr(&name) {
-            scrub_text(allow, &value)
+            scrub_text(ctx.allow, &value)
         } else if is_data_attr(&name) {
             if data_attr_looks_sensitive(&value) {
-                scrub_text(allow, &value)
+                scrub_text(ctx.allow, &value)
             } else {
                 redact_emails(&value)
             }
@@ -225,7 +225,7 @@ fn scrub_attrs(allow: &AllowLists, attrs: &mut Object, kind: TagKind) -> bool {
     }
 
     if kind == TagKind::Media {
-        apply_blur(allow, attrs);
+        apply_blur(ctx, attrs);
         changed = true;
     }
 

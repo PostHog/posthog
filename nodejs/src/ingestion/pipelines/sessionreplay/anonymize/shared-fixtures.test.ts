@@ -12,7 +12,7 @@ import { scrubUrl } from './url'
 
 // Same JSON fixtures the Rust `cargo test` runs against (single source of truth). If the two
 // implementations ever diverge, the assertions fail on whichever side drifted.
-const FIXTURE_DIR = path.resolve(__dirname, '../../../../../../rust/common/replay-anonymizer/tests/fixtures')
+const FIXTURE_DIR = path.resolve(__dirname, '../../../../../../rust/replay-anonymizer-node/tests/fixtures')
 
 interface AllowSpec {
     text: string[]

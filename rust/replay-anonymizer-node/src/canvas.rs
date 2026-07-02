@@ -6,11 +6,8 @@ use base64::Engine;
 use simd_json::value::owned::Object;
 use simd_json::OwnedValue;
 
-use crate::allow_lists::AllowLists;
-use crate::blur::{
-    blank_image_data_uri, blur_image_data_uri, is_image_data_uri, pixelate_raw_rgba,
-    split_data_uri, BLANK_PNG_BASE64,
-};
+use crate::blur::{blank_image_data_uri, is_image_data_uri, split_data_uri, BLANK_PNG_BASE64};
+use crate::context::Ctx;
 use crate::json::{as_array, as_array_mut, as_object, as_object_mut, as_str, as_u32, as_usize};
 use crate::url::scrub_url;
 
@@ -19,7 +16,7 @@ fn b64() -> base64::engine::general_purpose::GeneralPurpose {
 }
 
 /// Scrub a CanvasMutation `data` object in place. Returns whether anything changed.
-pub fn scrub_canvas_mutation(allow: &AllowLists, data: &mut OwnedValue) -> bool {
+pub fn scrub_canvas_mutation(ctx: &Ctx<'_>, data: &mut OwnedValue) -> bool {
     let Some(obj) = as_object_mut(data) else {
         return false;
     };
@@ -29,13 +26,13 @@ pub fn scrub_canvas_mutation(allow: &AllowLists, data: &mut OwnedValue) -> bool 
         let commands = obj.get_mut("commands").and_then(as_array_mut).unwrap();
         for cmd in commands.iter_mut() {
             if let Some(c) = as_object_mut(cmd) {
-                changed |= scrub_command(allow, c);
+                changed |= scrub_command(ctx, c);
             }
         }
         changed
     } else if obj.get("property").and_then(as_str).is_some() {
         // Flattened single-command form: `data` itself is the command.
-        scrub_command(allow, obj)
+        scrub_command(ctx, obj)
     } else {
         false
     }
@@ -46,7 +43,7 @@ fn is_text_command(property: &str) -> bool {
     matches!(property, "fillText" | "strokeText")
 }
 
-fn scrub_command(allow: &AllowLists, cmd: &mut Object) -> bool {
+fn scrub_command(ctx: &Ctx<'_>, cmd: &mut Object) -> bool {
     let is_text = cmd
         .get("property")
         .and_then(as_str)
@@ -61,7 +58,7 @@ fn scrub_command(allow: &AllowLists, cmd: &mut Object) -> bool {
     if is_text {
         for a in args.iter_mut() {
             if let OwnedValue::String(s) = a {
-                if let Some(nv) = crate::text::scrub_text(allow, s) {
+                if let Some(nv) = crate::text::scrub_text(ctx.allow, s) {
                     *a = OwnedValue::String(nv);
                     changed = true;
                 }
@@ -71,17 +68,17 @@ fn scrub_command(allow: &AllowLists, cmd: &mut Object) -> bool {
 
     // Images/snapshots can appear anywhere in the (recursive) arg tree.
     for a in args.iter_mut() {
-        changed |= blur_canvas_arg(allow, a);
+        changed |= blur_canvas_arg(ctx, a);
     }
     changed
 }
 
 /// Recursively neutralize+blur image data inside a canvas arg, mutating in place.
-fn blur_canvas_arg(allow: &AllowLists, value: &mut OwnedValue) -> bool {
+fn blur_canvas_arg(ctx: &Ctx<'_>, value: &mut OwnedValue) -> bool {
     match value {
         OwnedValue::String(s) => {
             if is_image_data_uri(s) {
-                let b = blur_image_data_uri(s).unwrap_or_else(blank_image_data_uri);
+                let b = ctx.blur_data_uri(s).unwrap_or_else(blank_image_data_uri);
                 *value = OwnedValue::String(b);
                 return true;
             }
@@ -90,7 +87,7 @@ fn blur_canvas_arg(allow: &AllowLists, value: &mut OwnedValue) -> bool {
         OwnedValue::Array(arr) => {
             let mut changed = false;
             for item in arr.iter_mut() {
-                changed |= blur_canvas_arg(allow, item);
+                changed |= blur_canvas_arg(ctx, item);
             }
             return changed;
         }
@@ -105,11 +102,11 @@ fn blur_canvas_arg(allow: &AllowLists, value: &mut OwnedValue) -> bool {
     // URL that may itself carry PII.
     if let Some(src) = obj.get("src").and_then(as_str).map(str::to_string) {
         if is_image_data_uri(&src) {
-            let b = blur_image_data_uri(&src).unwrap_or_else(blank_image_data_uri);
+            let b = ctx.blur_data_uri(&src).unwrap_or_else(blank_image_data_uri);
             obj.insert("src".to_string(), OwnedValue::String(b));
             return true;
         }
-        return match scrub_url(allow, &src) {
+        return match scrub_url(ctx.allow, &src) {
             Some(v) => {
                 obj.insert("src".to_string(), OwnedValue::String(v));
                 true
@@ -124,33 +121,33 @@ fn blur_canvas_arg(allow: &AllowLists, value: &mut OwnedValue) -> bool {
     if rr_type.as_deref() == Some("Blob") {
         if let Some(t) = obj.get("type").and_then(as_str) {
             if t.starts_with("image/") {
-                return blur_blob_image(obj);
+                return blur_blob_image(ctx, obj);
             }
         }
     }
 
     // Raw pixels: { rr_type: 'ImageData', args: [pixels, width, height] } (putImageData).
     if rr_type.as_deref() == Some("ImageData") {
-        return blur_image_data(obj);
+        return blur_image_data(ctx, obj);
     }
 
     // Otherwise recurse into nested arg/data arrays (ImageBitmap -> Blob, etc.).
     let mut changed = false;
     if let Some(args) = obj.get_mut("args").and_then(as_array_mut) {
         for it in args.iter_mut() {
-            changed |= blur_canvas_arg(allow, it);
+            changed |= blur_canvas_arg(ctx, it);
         }
     }
     if let Some(data) = obj.get_mut("data").and_then(as_array_mut) {
         for it in data.iter_mut() {
-            changed |= blur_canvas_arg(allow, it);
+            changed |= blur_canvas_arg(ctx, it);
         }
     }
     changed
 }
 
 /// Blur the encoded image bytes inside an image Blob, neutralizing them first (fail-safe).
-fn blur_blob_image(blob: &mut Object) -> bool {
+fn blur_blob_image(ctx: &Ctx<'_>, blob: &mut Object) -> bool {
     let mime = blob
         .get("type")
         .and_then(as_str)
@@ -171,7 +168,9 @@ fn blur_blob_image(blob: &mut Object) -> bool {
         None => return false,
     };
     let original = format!("data:{mime};base64,{base64}");
-    let (new_b64, new_type) = match blur_image_data_uri(&original).and_then(|b| split_data_uri(&b))
+    let (new_b64, new_type) = match ctx
+        .blur_data_uri(&original)
+        .and_then(|b| split_data_uri(&b))
     {
         Some((m, b64)) => (b64, m),
         // Fail-safe: a blank pixel (matches the TS synchronous neutralization).
@@ -204,7 +203,7 @@ fn find_array_buffer_index(blob: &Object) -> Option<usize> {
 
 /// Pixelate raw ImageData pixels in place (blanked, with the downsampled-and-restored region merged
 /// back in on success). Falls back to blanking every nested ArrayBuffer for an unexpected shape.
-fn blur_image_data(image_data: &mut Object) -> bool {
+fn blur_image_data(ctx: &Ctx<'_>, image_data: &mut Object) -> bool {
     let width = image_data
         .get("args")
         .and_then(as_array)
@@ -216,7 +215,7 @@ fn blur_image_data(image_data: &mut Object) -> bool {
         .and_then(|a| a.get(2))
         .and_then(as_u32);
     if let (Some(w), Some(h)) = (width, height) {
-        if w > 0 && h > 0 && pixelate_image_data_arg(image_data, w, h) {
+        if w > 0 && h > 0 && pixelate_image_data_arg(ctx, image_data, w, h) {
             return true;
         }
     }
@@ -231,7 +230,7 @@ fn blur_image_data(image_data: &mut Object) -> bool {
 
 /// Locate the RGBA ArrayBuffer behind an ImageData's pixel descriptor (direct or typed-array-wrapped),
 /// blank it and merge the pixelated region back. Returns whether it handled the pixels.
-fn pixelate_image_data_arg(image_data: &mut Object, w: u32, h: u32) -> bool {
+fn pixelate_image_data_arg(ctx: &Ctx<'_>, image_data: &mut Object, w: u32, h: u32) -> bool {
     let expected = (w as usize) * (h as usize) * 4;
 
     // Shape A: args[0] is the ArrayBuffer directly.
@@ -252,7 +251,7 @@ fn pixelate_image_data_arg(image_data: &mut Object, w: u32, h: u32) -> bool {
             .and_then(|a| a.first_mut())
             .and_then(as_object_mut)
         {
-            return process_raw_buffer(ab, 0, None, w, h, expected);
+            return process_raw_buffer(ctx, ab, 0, None, w, h, expected);
         }
     }
 
@@ -295,13 +294,14 @@ fn pixelate_image_data_arg(image_data: &mut Object, w: u32, h: u32) -> bool {
             .and_then(|a| a.first_mut())
             .and_then(as_object_mut)
         {
-            return process_raw_buffer(ab, start, length_opt, w, h, expected);
+            return process_raw_buffer(ctx, ab, start, length_opt, w, h, expected);
         }
     }
     false
 }
 
 fn process_raw_buffer(
+    ctx: &Ctx<'_>,
     ab: &mut Object,
     start: usize,
     length_opt: Option<usize>,
@@ -329,7 +329,7 @@ fn process_raw_buffer(
     for b in &mut merged[start..end] {
         *b = 0;
     }
-    if let Some(pix) = pixelate_raw_rgba(&rgba, w, h) {
+    if let Some(pix) = ctx.pixelate_raw(&rgba, w, h) {
         if let Ok(outbuf) = b64().decode(pix.as_bytes()) {
             if outbuf.len() == length {
                 merged[start..end].copy_from_slice(&outbuf);

@@ -2452,19 +2452,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "common-replay-anonymizer"
-version = "0.0.1"
-dependencies = [
- "anyhow",
- "base64 0.22.1",
- "flate2",
- "image",
- "serde",
- "serde_json",
- "simd-json",
-]
-
-[[package]]
 name = "common-s3"
 version = "0.1.0"
 dependencies = [
@@ -8915,10 +8902,14 @@ checksum = "51743d3e274e2b18df81c4dc6caf8a5b8e15dbe799e0dca05c7617380094e884"
 name = "replay-anonymizer-node"
 version = "0.0.1"
 dependencies = [
- "common-replay-anonymizer",
+ "anyhow",
+ "base64 0.22.1",
+ "flate2",
+ "image",
  "neon",
  "serde",
  "serde_json",
+ "simd-json",
 ]
 
 [[package]]

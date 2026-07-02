@@ -132,7 +132,6 @@ jobs:
                       "common-kafka": 67,
                       "common-metrics": 6,
                       "common-profiler": 51,
-                      "common-replay-anonymizer": 30,
                       "common-s3": 31,
                       "cyclotron-core": 17,
                       "cyclotron-janitor": 139,
