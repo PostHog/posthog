@@ -48,8 +48,7 @@ Priority (`CRITICAL` / `NORMAL` / `BATCH`) controls how sheddable a call is when
 All priorities draw from the _same_ per-key counter — the lane only changes how much headroom must stay free for the call to be admitted (a _reserved floor_), so deferrable bulk traffic (`BATCH`) is denied before critical traffic as the budget fills, without ever splitting the budget into separate buckets.
 Admission tests `n + reserve` but only consumes `n`, so an empty reserve is bit-identical to pre-priority behavior.
 GitHub's reserve ladder is active: `BATCH` calls are denied once 70% of a window is consumed and `NORMAL` at 90%, while `CRITICAL` may use the full budget.
-The deferrable callers on the `BATCH` lane today are code-workstreams PR polling/discovery and the job-logs worker — a shed sweep stops for the cycle and resumes on the next scheduled run.
-Callers holding an integration declare their lane at construction (`GitHubIntegration(integration, source=..., priority=Priority.BATCH)`); `api_request` also takes a per-call override.
+Deferrable background callers construct their client on the `BATCH` lane (`GitHubIntegration(integration, source=..., priority=Priority.BATCH)`; `api_request` also takes a per-call override) — a shed sweep stops for the cycle and resumes on the next scheduled run.
 
 ### Backend
 

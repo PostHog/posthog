@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import random
 import hashlib
 from collections.abc import Callable
 from dataclasses import dataclass
@@ -58,6 +59,11 @@ def poll_pull_requests_for_team(
     polled = 0
     updated = 0
     rate_limited = False
+
+    # A shed sweep breaks mid-list; shuffling gives the tail equal coverage across cycles instead
+    # of permanently starving whatever sits past the shed point of a large team's list.
+    prs = list(prs)
+    random.shuffle(prs)
 
     for index, ref in enumerate(prs):
         if heartbeat is not None:

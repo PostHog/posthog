@@ -72,7 +72,7 @@ def test_policy_rejects_empty_limits():
         RatePolicy(limits=())
 
 
-def test_provider_receives_the_full_limiter_key():
+def test_provider_receives_the_full_limiter_key() -> None:
     # Guards the per-scope budget seam: if resolve_policy stops passing the key through, every
     # key-aware provider (e.g. GitHub's tier-scaled budgets) silently reverts to one shared budget.
     seen: list[str] = []

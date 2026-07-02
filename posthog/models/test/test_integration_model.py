@@ -1983,9 +1983,12 @@ class TestGitHubIntegrationModel(BaseTest):
 
 class TestGitHubIntegrationGhApiGet(BaseTest):
     def _create_integration(self) -> Integration:
+        # integration_id mirrors production (set from config on install) — the egress gate and
+        # tier store key on it; without it every call is identity-blind and skips both.
         return Integration.objects.create(
             team=self.team,
             kind="github",
+            integration_id="INSTALL",
             config={"installation_id": "INSTALL", "account": {"name": "PostHog"}},
             sensitive_config={"access_token": "ACCESS_TOKEN"},
         )
@@ -2009,7 +2012,6 @@ class TestGitHubIntegrationGhApiGet(BaseTest):
         # Guards the lane plumbing: if the instance priority stops reaching the transport, BATCH
         # callers silently ride the never-shed CRITICAL lane again and denials stop deferring work.
         integration = self._create_integration()
-        integration.integration_id = "INSTALL"  # gate keys on the installation; without it the call is identity-blind
         github = GitHubIntegration(integration, priority=Priority.BATCH)
         with pytest.raises(GitHubEgressBudgetExhausted):
             github.api_request("GET", "/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}")
@@ -2024,7 +2026,6 @@ class TestGitHubIntegrationGhApiGet(BaseTest):
         mock_request.return_value = ok
 
         integration = self._create_integration()
-        integration.integration_id = "INSTALL"
         response = GitHubIntegration(integration).api_request(
             "GET", "/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}"
         )

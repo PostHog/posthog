@@ -28,7 +28,7 @@ def _refs(count: int) -> list[PrRef]:
         ("github_rate_limited", GitHubRateLimitError("429", retry_after=60)),
     ]
 )
-def test_poll_stops_the_cycle_when_shed_or_rate_limited(_name, exc):
+def test_poll_stops_the_cycle_when_shed_or_rate_limited(_name: str, exc: Exception) -> None:
     integration = MagicMock()
     integration.get_pull_request_snapshot.side_effect = exc
 

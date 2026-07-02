@@ -112,9 +112,12 @@ class FetchGithubJobLogWorkflow(PostHogWorkflow):
             fetch_and_emit_job_log_activity,
             inputs,
             start_to_close_timeout=timedelta(minutes=5),
+            # The BATCH lane can stay shed for the remainder of an hourly budget window, so the
+            # retry horizon must outlive a worst-case shed — otherwise the job's logs are dropped
+            # forever (the workflow_job webhook never refires).
             retry_policy=RetryPolicy(
-                maximum_attempts=5,
+                maximum_attempts=10,
                 initial_interval=timedelta(seconds=30),
-                maximum_interval=timedelta(minutes=5),
+                maximum_interval=timedelta(minutes=15),
             ),
         )

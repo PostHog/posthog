@@ -22,6 +22,7 @@ import requests
 import structlog
 from prometheus_client import Counter
 
+from posthog.egress.github.limiter import remember_observed_core_limit
 from posthog.egress.github.observability import record_github_api_exception, record_github_api_response
 from posthog.egress.github.transport import github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
@@ -606,7 +607,9 @@ class GitHubIntegrationBase:
 
         ``repository`` is ``owner/repo`` (or a bare repo, resolved against the org). Results come
         from the installation token's own API call, so they are inherently trusted — not
-        user-supplied like ``output.pr_url``. Best-effort: returns [] on a bad repo, non-200, or error.
+        user-supplied like ``output.pr_url``. Best-effort: returns [] on a bad repo, non-200, or
+        error — except rate limits (``GitHubRateLimitError``) and, on a sheddable instance, budget
+        denial (``GitHubEgressBudgetExhausted``), which raise so callers can defer the sweep.
         """
         repo_path = repository if "/" in repository else f"{self.organization()}/{repository}"
         owner = repo_path.split("/", 1)[0]
@@ -731,9 +734,10 @@ class GitHubIntegrationBase:
     def get_pull_request_snapshot(self, pr_url: str) -> dict[str, Any]:
         """Fetch the classification-relevant PR signals in one GraphQL call.
 
-        On any handled failure returns ``{"success": False, "error": ...}``;
-        rate-limit and unexpected errors raise ``GitHubIntegrationError`` so the
-        caller can back off.
+        On any handled failure returns ``{"success": False, "error": ...}``; unexpected errors
+        raise ``GitHubIntegrationError``. GitHub rate limits raise ``GitHubRateLimitError``, and on
+        a sheddable instance (``priority=NORMAL/BATCH``) a denied budget raises
+        ``GitHubEgressBudgetExhausted`` — callers own the back-off for both.
         """
         parsed = self.parse_pull_request_url(pr_url)
         if parsed is None:
@@ -1299,6 +1303,9 @@ class GitHubIntegrationBase:
                     )
                     continue
                 raise GitHubIntegrationError(f"GitHubIntegration: api_request network error on {path}") from exc
+            # Successful installation-token responses are the only trusted source of the tier the
+            # limiter budgets to; the store filters non-2xx/non-core itself.
+            remember_observed_core_limit(self.github_installation_id, response)
             # Auth failure → refresh token and retry once (safe for any method: 401 means nothing ran).
             if response.status_code == 401 and attempt == 0:
                 try:
