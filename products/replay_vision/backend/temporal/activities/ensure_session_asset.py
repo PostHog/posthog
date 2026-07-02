@@ -4,6 +4,8 @@ from django.utils.timezone import now
 
 from temporalio import activity
 
+from posthog.sync import database_sync_to_async
+
 from products.exports.backend.models.exported_asset import ExportedAsset
 from products.replay_vision.backend.temporal.decorators import track_activity
 from products.replay_vision.backend.temporal.types import EnsureSessionAssetInputs, EnsureSessionAssetOutput
@@ -21,8 +23,15 @@ _ASSET_EXPIRES_AFTER_DAYS = 90
 @track_activity()
 async def ensure_session_asset_activity(inputs: EnsureSessionAssetInputs) -> EnsureSessionAssetOutput:
     """Get-or-create the `is_system=True` MP4 ExportedAsset for `(team, session)`; concurrent runs may produce orphaned duplicates that the asset expiry cleans up."""
+    # Route through `database_sync_to_async` so old/stale connections are evicted around the ORM call, matching the
+    # sibling activities; the native async ORM never runs `close_old_connections()` and corrupts the shared connection.
+    asset_id = await database_sync_to_async(_ensure_session_asset)(inputs)
+    return EnsureSessionAssetOutput(asset_id=asset_id)
+
+
+def _ensure_session_asset(inputs: EnsureSessionAssetInputs) -> int:
     existing = (
-        await ExportedAsset.objects.filter(
+        ExportedAsset.objects.filter(
             team_id=inputs.team_id,
             export_format=_EXPORT_FORMAT,
             export_context__session_recording_id=inputs.session_id,
@@ -33,13 +42,13 @@ async def ensure_session_asset_activity(inputs: EnsureSessionAssetInputs) -> Ens
             is_system=True,
         )
         .order_by("id")
-        .afirst()
+        .first()
     )
     if existing is not None:
-        return EnsureSessionAssetOutput(asset_id=existing.id)
+        return existing.id
 
     created_at = now()
-    asset = await ExportedAsset.objects.acreate(
+    asset = ExportedAsset.objects.create(
         team_id=inputs.team_id,
         export_format=_EXPORT_FORMAT,
         export_context={
@@ -53,4 +62,4 @@ async def ensure_session_asset_activity(inputs: EnsureSessionAssetInputs) -> Ens
         expires_after=created_at + dt.timedelta(days=_ASSET_EXPIRES_AFTER_DAYS),
         is_system=True,
     )
-    return EnsureSessionAssetOutput(asset_id=asset.id)
+    return asset.id
