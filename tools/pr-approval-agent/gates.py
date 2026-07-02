@@ -42,24 +42,27 @@ _DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = {
             "password",
             "2fa",
             "mfa",
+            "authentication",
+            "authenticate",
+            "authenticated",
+            "authorize",
+            "authorization",
+            "authorized",
         ],
         # "session" and "token" match too broadly in titles and non-auth
         # file paths (e.g. SessionAnalysisWarning, tokenize, tokenizer).
         # "permission" matches permission-checking helpers everywhere.
         # Restrict these to path-only with tighter patterns.
-        # "authentication"/"authorize"/"authorization" are here because the
-        # word-boundary regex doesn't break inside them, so a bare "auth"
-        # pattern misses posthog/api/authentication.py and the whole
-        # frontend/src/scenes/authentication/ tree.
+        # camelCase compounds (e.g. AuthenticatedShell.tsx) don't break on
+        # word boundaries when lowercased, so the "any" words above only
+        # reliably match snake/kebab paths and natural-language titles.
         "paths": [
             "session_auth",
             "session_token",
             "auth/session",
             "auth/token",
             "permission",
-            "authentication",
-            "authorize",
-            "authorization",
+            r"two[_-]?factor",
         ],
     },
     "crypto_secrets": {
@@ -97,18 +100,23 @@ _DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = {
             "kubernetes",
             "helm",
         ],
-        # "routing" and "deploy" are gone on purpose: every historical match
-        # was app-level (posthog/api/routing.py DRF routers, Slack/Teams
+        # "routing" and bare "deploy" are gone on purpose: every historical
+        # match was app-level (posthog/api/routing.py DRF routers, Slack/Teams
         # message-routing tests, deploy-timing docs), never infrastructure.
+        # Narrow deploy literals below (bin/deploy, deploy.sh, .github/pr-deploy)
+        # cover real deployment artifacts without re-introducing the false positives.
         "paths": [
             r"k8s",
             "dockerfile",
             "docker-compose",
             r"\.github/workflows",
+            r"\.github/pr-deploy",
             "iam",
             "cloudflare",
             "cdn",
             "waf",
+            "bin/deploy",
+            r"deploy\.sh",
         ],
     },
     "billing": {
@@ -409,7 +417,7 @@ DENY_EXEMPT_PATH_PREFIXES: dict[str, tuple[str, ...]] = {
 
 
 def _is_exempt_path(category: str, path: str) -> bool:
-    return path.startswith(DENY_EXEMPT_PATH_PREFIXES.get(category, ()))
+    return path.lower().startswith(DENY_EXEMPT_PATH_PREFIXES.get(category, ()))
 
 
 def detect_deny_categories(files: list[str], ignored_files: set[str] | None = None) -> list[str]:

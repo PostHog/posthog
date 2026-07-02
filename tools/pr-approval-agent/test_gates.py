@@ -63,6 +63,10 @@ from gates import detect_deny_categories, detect_title_scrutiny_flags, is_size_e
             id="drf-routers-not-infra",
         ),
         pytest.param(
+            ["docs/internal/checking-deploy-timing.md"],
+            id="deploy-timing-docs-not-infra",
+        ),
+        pytest.param(
             ["products/conversations/backend/api/tests/test_slack_message_routing.py"],
             id="message-routing-test-not-infra",
         ),
@@ -143,6 +147,26 @@ def test_no_false_positive(files: list[str]) -> None:
             id="github-workflow",
         ),
         pytest.param(
+            ["bin/deploy-hobby"],
+            "infra_cicd",
+            id="deploy-hobby-script",
+        ),
+        pytest.param(
+            ["livestream/deploy.sh"],
+            "infra_cicd",
+            id="deploy-sh-script",
+        ),
+        pytest.param(
+            [".github/pr-deploy/values.yaml.tmpl"],
+            "infra_cicd",
+            id="pr-deploy-directory",
+        ),
+        pytest.param(
+            ["posthog/models/two_factor_auth.py"],
+            "auth",
+            id="two-factor-auth-file",
+        ),
+        pytest.param(
             ["posthog/billing/stripe_webhook.py"],
             "billing",
             id="billing-file",
@@ -175,13 +199,14 @@ def test_true_positive(files: list[str], expected_category: str) -> None:
         pytest.param("feat(subscriptions): raise hourly org cap", [], id="insight-subscription-not-billing"),
         pytest.param("chore: migrate helm chart to terraform", ["infra_cicd"], id="infra-keywords"),
         pytest.param("fix(insights): trend legend overlap", [], id="neutral-title"),
+        pytest.param("fix: authentication flow", ["auth"], id="authentication-long-form"),
+        pytest.param("feat: stripe oauth billing sync", ["auth", "billing"], id="two-category-title"),
     ],
 )
 def test_title_scrutiny_flags(subject: str, expected_flags: list[str]) -> None:
     # Titles flag for LLM scrutiny but never deny — a title-only keyword
     # must not put the PR in T2-never (56-83% of those merged unchanged).
     assert detect_title_scrutiny_flags(subject) == expected_flags
-    assert detect_deny_categories(["posthog/api/foo.py"]) == []
 
 
 # ── Deny-list bypass via ignored_files ───────────────────────────

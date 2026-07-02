@@ -583,6 +583,7 @@ class Pipeline:
                 "stamphog_files_changed": len(pr.files),
                 "stamphog_lines_total": pr.lines_total,
                 "stamphog_pr_reactions_count": len(pr.pr_reactions),
+                "stamphog_title_scrutiny_flags": cl.get("title_scrutiny_flags", []),
                 "stamphog_gate_verdict": gate_verdict,
                 "stamphog_llm_verdict": llm_verdict,
                 "stamphog_final_verdict": self.final_verdict,

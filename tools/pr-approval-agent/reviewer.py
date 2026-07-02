@@ -148,7 +148,7 @@ REVIEWER_SYSTEM = textwrap.dedent(
     assumptions. You typically see T1 PRs that passed all gates.
 
     Title scrutiny flags (in the prompt when set): the PR title mentions a
-    sensitive domain (auth, billing, infra_cicd, …) but no deny-listed file
+    sensitive domain (auth, billing, infra_cicd, crypto_secrets, public_api) but no deny-listed file
     was touched. Verify against the diff: if the change behaviorally touches
     that domain (authentication/authorization flows, payment or plan logic,
     CI/deploy behavior), REFUSE and route to a human. If the keyword is
@@ -449,7 +449,7 @@ class Reviewer:
         if title_flags:
             constraint += (
                 f"\nTitle scrutiny flags: {', '.join(title_flags)} — the title mentions "
-                "these sensitive domains but no deny-listed file was touched. Verify the "
+                "these sensitive domains but no file matching these categories was touched. Verify the "
                 "diff does not behaviorally touch them; REFUSE if it does."
             )
 

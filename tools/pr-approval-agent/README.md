@@ -143,19 +143,21 @@ Sub-classified by risk to calibrate scrutiny:
 
 Deny-listed categories where even a small diff can have high blast radius:
 
-| Category           | Patterns                                                                                          |
-| ------------------ | ------------------------------------------------------------------------------------------------- |
-| **auth**           | auth, authentication, authorize, login, signup, oauth, saml, sso, permission, oidc, credential, … |
-| **crypto_secrets** | crypto, encrypt, decrypt, secret, key, cert, signing, .env, vault                                 |
-| **migrations**     | migrations/, migrate, backfill, schema_change                                                     |
-| **infra_cicd**     | terraform, k8s, helm, dockerfile, .github/workflows, iam, cloudflare, etc.                        |
-| **billing**        | billing, payment, stripe, invoice, pricing                                                        |
-| **public_api**     | openapi, api_schema, swagger, public_api                                                          |
-| **deps_toolchain** | package.json, requirements.txt, pyproject.toml, pnpm-lock, uv.lock, Cargo.toml, go.mod, etc.      |
+| Category           | Patterns                                                                                                                                      |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| **auth**           | auth, authentication, authenticate, authenticated, authorize, authorization, authorized, login, signup, oauth, saml, sso, oidc, credential, … |
+| **crypto_secrets** | crypto, encrypt, decrypt, secret, key, cert, signing, .env, vault                                                                             |
+| **migrations**     | migrations/, migrate, backfill, schema_change                                                                                                 |
+| **infra_cicd**     | terraform, k8s, helm, dockerfile, .github/workflows, .github/pr-deploy, bin/deploy, deploy.sh, iam, cloudflare, etc.                          |
+| **billing**        | billing, payment, stripe, invoice, pricing                                                                                                    |
+| **public_api**     | openapi, api_schema, swagger, public_api                                                                                                      |
+| **deps_toolchain** | package.json, requirements.txt, pyproject.toml, pnpm-lock, uv.lock, Cargo.toml, go.mod, etc.                                                  |
 
 Notably absent, on purpose (calibrated against ~440 deny-listed PRs over 120 days):
-`subscription` (means scheduled insight deliveries here, not payments) and
-`routing`/`deploy` (every match was app-level routing or docs, never infra).
+`subscription` (means scheduled insight deliveries here, not payments),
+`routing` (every match was app-level DRF routing, never infra), and the bare word `deploy`
+(matches deploy-timing docs and unrelated code); narrow literals `bin/deploy`, `deploy.sh`,
+and `.github/pr-deploy` cover real deployment artifacts instead.
 Data warehouse connector sources (`products/warehouse_sources/.../sources/`)
 are exempt from the **auth** and **billing** categories — connector code
 legitimately does OAuth and talks to the Stripe API without touching
