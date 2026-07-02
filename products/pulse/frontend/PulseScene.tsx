@@ -1,12 +1,13 @@
 import { useActions, useValues } from 'kea'
 
-import { IconPulse } from '@posthog/icons'
+import { IconPencil, IconPlusSmall, IconPulse, IconTrash } from '@posthog/icons'
 
 import { NotFound } from 'lib/components/NotFound'
 import { TZLabel } from 'lib/components/TZLabel'
 import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
 import { LemonButton } from 'lib/lemon-ui/LemonButton'
+import { LemonDialog } from 'lib/lemon-ui/LemonDialog'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonSelect } from 'lib/lemon-ui/LemonSelect'
 import { LemonTag, LemonTagType } from 'lib/lemon-ui/LemonTag'
@@ -19,6 +20,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 import { InsightShortId } from '~/types'
 
+import { BriefConfigModal } from './BriefConfigModal'
 import type { ProductBriefListApi } from './generated/api.schemas'
 import { ProductBriefStatusEnumApi } from './generated/api.schemas'
 import { BriefSection, pulseLogic } from './pulseLogic'
@@ -48,7 +50,7 @@ export function PulseScene(): JSX.Element {
 function PulseSceneContent(): JSX.Element {
     const { aiConsentRequired, briefConfigs, selectedConfigId, isGenerating, generatedBriefLoading } =
         useValues(pulseLogic)
-    const { generateBrief, selectConfig } = useActions(pulseLogic)
+    const { generateBrief, selectConfig, openConfigModal } = useActions(pulseLogic)
 
     return (
         <SceneContent>
@@ -57,16 +59,23 @@ function PulseSceneContent(): JSX.Element {
                 description="Recurring product briefs: what happened, why it happened, and what to build next."
                 resourceType={{ type: 'default_icon_type', forceIcon: <IconPulse /> }}
                 actions={
-                    <LemonButton
-                        type="primary"
-                        loading={generatedBriefLoading}
-                        disabledReason={
-                            isGenerating && !generatedBriefLoading ? 'A brief is already being generated' : undefined
-                        }
-                        onClick={() => generateBrief({ configId: selectedConfigId })}
-                    >
-                        Run brief now
-                    </LemonButton>
+                    <>
+                        <LemonButton type="secondary" icon={<IconPlusSmall />} onClick={() => openConfigModal(null)}>
+                            New config
+                        </LemonButton>
+                        <LemonButton
+                            type="primary"
+                            loading={generatedBriefLoading}
+                            disabledReason={
+                                isGenerating && !generatedBriefLoading
+                                    ? 'A brief is already being generated'
+                                    : undefined
+                            }
+                            onClick={() => generateBrief({ configId: selectedConfigId })}
+                        >
+                            Run brief now
+                        </LemonButton>
+                    </>
                 }
             />
 
@@ -93,11 +102,55 @@ function PulseSceneContent(): JSX.Element {
                             ...briefConfigs.map((config) => ({ value: config.id, label: config.name })),
                         ]}
                     />
+                    {selectedConfigId !== null && <SelectedConfigActions selectedConfigId={selectedConfigId} />}
                 </div>
             )}
 
             <BriefsView />
+            <BriefConfigModal />
         </SceneContent>
+    )
+}
+
+function SelectedConfigActions({ selectedConfigId }: { selectedConfigId: string }): JSX.Element | null {
+    const { briefConfigs, configIdBeingDeleted } = useValues(pulseLogic)
+    const { openConfigModal, deleteConfig } = useActions(pulseLogic)
+
+    const selectedConfig = briefConfigs.find((config) => config.id === selectedConfigId)
+    if (!selectedConfig) {
+        return null
+    }
+    const isDeleting = configIdBeingDeleted === selectedConfig.id
+
+    return (
+        <>
+            <LemonButton
+                size="small"
+                icon={<IconPencil />}
+                tooltip="Edit config"
+                onClick={() => openConfigModal(selectedConfig)}
+            />
+            <LemonButton
+                size="small"
+                status="danger"
+                icon={<IconTrash />}
+                tooltip="Delete config"
+                loading={isDeleting}
+                disabledReason={isDeleting ? 'Deleting…' : undefined}
+                onClick={() =>
+                    LemonDialog.open({
+                        title: `Delete "${selectedConfig.name}"?`,
+                        description: 'Briefs already generated for this config are kept.',
+                        primaryButton: {
+                            children: 'Delete',
+                            status: 'danger',
+                            onClick: () => deleteConfig(selectedConfig.id),
+                        },
+                        secondaryButton: { children: 'Cancel' },
+                    })
+                }
+            />
+        </>
     )
 }
 
