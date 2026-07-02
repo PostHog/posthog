@@ -3,6 +3,7 @@ import { expectLogic } from 'kea-test-utils'
 import { initKeaTests } from '~/test/init'
 import { canonicalizeApiHost, canonicalizeUiHost, toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarFetch, toolbarUploadMedia } from '~/toolbar/toolbarFetch'
+import * as toolbarPosthogJS from '~/toolbar/toolbarPosthogJS'
 import { cleanToolbarAuthHash, OAUTH_LOCALSTORAGE_KEY, PKCE_STORAGE_KEY, readToolbarAuthHash } from '~/toolbar/utils'
 
 // The toolbar calls `global.fetch` directly (not the app api client / MSW). Reassign the mock per
@@ -344,6 +345,48 @@ describe('toolbar toolbarConfigLogic', () => {
             logic.mount()
             expect(logic.values.authStatus).toBe('checking')
             window.history.pushState({}, '', '/')
+        })
+
+        // network_or_cors / timeout failures are expected for self-hosted, reverse-proxied, or
+        // corporate-proxy setups and must not be reported as exceptions — only genuinely
+        // unexpected failure classes should reach error tracking.
+        it.each([
+            {
+                name: 'network_or_cors (TypeError) is not captured',
+                mockFetch: () => Promise.reject(new TypeError('Failed to fetch')),
+                expectCapture: false,
+            },
+            {
+                name: 'timeout (AbortError) is not captured',
+                mockFetch: () => Promise.reject(new DOMException('The operation timed out', 'AbortError')),
+                expectCapture: false,
+            },
+            {
+                name: 'http_error is captured',
+                mockFetch: () => Promise.resolve({ ok: false, status: 500 } as Response),
+                expectCapture: true,
+            },
+            {
+                name: 'unknown error is captured',
+                mockFetch: () => Promise.reject(new Error('boom')),
+                expectCapture: true,
+            },
+        ])('reachability check failure — $name', async ({ mockFetch, expectCapture }) => {
+            const captureSpy = jest
+                .spyOn(toolbarPosthogJS, 'captureToolbarException')
+                .mockImplementation(() => undefined)
+            ;(global.fetch as jest.Mock).mockImplementation((url: string) =>
+                typeof url === 'string' && url.endsWith('/toolbar_oauth/check')
+                    ? mockFetch()
+                    : Promise.resolve({ ok: true, status: 200, json: () => Promise.resolve([]) } as any)
+            )
+            const logic = toolbarConfigLogic.build({ uiHost: 'https://selfhosted.example.com' } as any)
+            logic.mount()
+            await expectLogic(logic).delay(0).toMatchValues({ authStatus: 'error' })
+
+            const captureArgs = [expect.anything(), 'ui_host_check', expect.any(Object)]
+            expect(captureSpy.mock.calls).toEqual(expectCapture ? [captureArgs] : [])
+            captureSpy.mockRestore()
         })
     })
 
