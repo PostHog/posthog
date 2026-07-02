@@ -6,7 +6,7 @@ import { App } from 'scenes/App'
 
 import { mswDecorator } from '~/mocks/browser'
 
-import { OriginProduct, Task, TaskRun, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
+import { OriginProduct, Task, TaskKind, TaskRun, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
 
 const taskTrackerUrl = (): string => '/tasks'
 const taskNewUrl = (): string => '/tasks/new'
@@ -48,6 +48,7 @@ const TASKS: Task[] = [
         title: 'Add retention graph export',
         description: 'Let users download the retention graph as a CSV from the insight menu.',
         origin_product: OriginProduct.USER_CREATED,
+        task_kind: TaskKind.CODING,
         repository: 'PostHog/posthog',
         github_integration: 1,
         json_schema: null,
@@ -64,6 +65,7 @@ const TASKS: Task[] = [
         title: 'Fix cohort empty state in query builder',
         description: 'Handle an empty cohort gracefully instead of throwing in the query builder.',
         origin_product: OriginProduct.USER_CREATED,
+        task_kind: TaskKind.CODING,
         repository: 'PostHog/posthog',
         github_integration: 1,
         json_schema: null,
@@ -80,6 +82,7 @@ const TASKS: Task[] = [
         title: 'Investigate slow dashboard load',
         description: 'Profile the dashboard scene and find the slowest tiles on first paint.',
         origin_product: OriginProduct.USER_CREATED,
+        task_kind: TaskKind.CODING,
         repository: 'PostHog/posthog',
         github_integration: 1,
         json_schema: null,

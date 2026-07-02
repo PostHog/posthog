@@ -6,7 +6,7 @@ import { ApiError } from 'lib/api'
 import { initKeaTests } from '~/test/init'
 
 import { tasksLogic } from '../../logics/tasksLogic'
-import { OriginProduct, Task, TaskRun, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
+import { OriginProduct, Task, TaskKind, TaskRun, TaskRunEnvironment, TaskRunStatus } from '../../types/taskTypes'
 import { taskDetailSceneLogic } from './taskDetailSceneLogic'
 
 const createMockTask = (id: string): Task => ({
@@ -16,6 +16,7 @@ const createMockTask = (id: string): Task => ({
     title: `Task ${id}`,
     description: 'A test task',
     origin_product: OriginProduct.USER_CREATED,
+    task_kind: TaskKind.CODING,
     repository: 'test/repo',
     github_integration: null,
     json_schema: null,

@@ -7,7 +7,7 @@ import { userLogic } from 'scenes/userLogic'
 import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
-import { OriginProduct, Task } from '../types/taskTypes'
+import { OriginProduct, Task, TaskKind } from '../types/taskTypes'
 import { tasksLogic } from './tasksLogic'
 
 const createMockTask = (id: string): Task => ({
@@ -17,6 +17,7 @@ const createMockTask = (id: string): Task => ({
     title: `Task ${id}`,
     description: 'A test task',
     origin_product: OriginProduct.USER_CREATED,
+    task_kind: TaskKind.CODING,
     repository: 'test/repo',
     github_integration: null,
     json_schema: null,
