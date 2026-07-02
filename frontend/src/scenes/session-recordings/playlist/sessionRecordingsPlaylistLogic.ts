@@ -173,14 +173,18 @@ export const getDefaultFilters = (
     pinnedFilters?: UniversalFiltersGroup
 ): RecordingUniversalFilters => {
     const filterTestAccounts = getDefaultFilterTestAccounts()
+    // Person/group pages (personUUID/pinnedFilters) come with a specific session in mind,
+    // where recency is the better default than relevance
+    const hasSpecificIntent = !!personUUID || !!pinnedFilters
     const defaults: RecordingUniversalFilters = {
         ...DEFAULT_RECORDING_FILTERS,
         filter_test_accounts: filterTestAccounts,
         date_from: personUUID ? '-30d' : '-3d',
         // Default to sorting by relevance for the surfacing-score rollout or the relevance-sort experiment's test arm
         order:
-            posthog.getFeatureFlag(FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE) ||
-            posthog.getFeatureFlag(FEATURE_FLAGS.REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT) === 'test'
+            !hasSpecificIntent &&
+            (posthog.getFeatureFlag(FEATURE_FLAGS.REPLAY_PLAYLIST_SURFACING_SCORE) ||
+                posthog.getFeatureFlag(FEATURE_FLAGS.REPLAY_PLAYLIST_RELEVANCE_SORT_EXPERIMENT) === 'test')
                 ? 'surfacing_score'
                 : DEFAULT_RECORDING_FILTERS.order,
     }
@@ -1545,11 +1549,17 @@ export const sessionRecordingsPlaylistLogic = kea<sessionRecordingsPlaylistLogic
             }
 
             if (isReplayURLSearchParams(params)) {
-                const updatedFilters = {
+                const updatedFilters: Partial<RecordingUniversalFilters> = {
                     // layer URL filters onto defaults, not the persisted state, so fields the URL
                     // omits don't inherit stale values
                     ...(params.filters && !equal(params.filters, values.filters)
-                        ? { ...getDefaultFilters(props.personUUID, props.pinnedFilters), ...params.filters }
+                        ? {
+                              ...getDefaultFilters(props.personUUID, props.pinnedFilters),
+                              // deep links with pre-applied filters (e.g. "View recordings" CTAs) come with a
+                              // specific session in mind, where recency is the better default than relevance
+                              order: DEFAULT_RECORDING_FILTERS_ORDER_BY,
+                              ...params.filters,
+                          }
                         : {}),
                     ...(params.order && !equal(params.order, values.filters.order) ? { order: params.order } : {}),
                     ...(params.order_direction && !equal(params.order_direction, values.filters.order_direction)
