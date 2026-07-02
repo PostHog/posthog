@@ -59,13 +59,18 @@ def _query_failed_jobs(team: Team, prefix: str, cutoff_iso: str) -> list[dict[st
     # the cutoff is chronological. The table name is a trusted identifier (validated prefix + fixed
     # suffix); user values flow through the placeholder, never the f-string.
     table = f"{prefix}github_workflow_jobs"
+    # The LIMIT must exceed any realistic burst of rows becoming visible between two ticks (deploy
+    # transitions, warehouse catch-up dumps): already-started jobs keep occupying the newest-first
+    # ranks every tick (dedup happens later, at child-workflow start), so a job pushed below the
+    # limit can never rise back into view and would be silently dropped. Matches
+    # MAX_DISCOVERED_JOBS; the high-water-mark cursor (deferred) removes the cap concern entirely.
     sql = f"""
         SELECT id AS job_id, run_id, head_branch AS branch, conclusion,
                name AS job_name, workflow_name, run_attempt, head_sha
         FROM {table}
         WHERE conclusion = 'failure' AND completed_at > {{cutoff}}
         ORDER BY completed_at DESC
-        LIMIT 500
+        LIMIT {MAX_DISCOVERED_JOBS}
     """
     with tags_context(product=Product.ENGINEERING_ANALYTICS, feature=Feature.QUERY, team_id=team.pk):
         response = execute_hogql_query(
