@@ -50,7 +50,10 @@ def _fetch(session: requests.Session, url: str, headers: dict[str, str], logger:
         raise GoldcastRetryableError(f"Goldcast API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:
-        logger.error(f"Goldcast API error: status={response.status_code}, body={response.text}, url={url}")
+        # Only a tightly capped excerpt of the body is logged: Goldcast error bodies can echo
+        # customer tenant records, so the full response must never land verbatim in our logs.
+        body_excerpt = response.text[:200]
+        logger.error(f"Goldcast API error: status={response.status_code}, body_excerpt={body_excerpt!r}, url={url}")
         response.raise_for_status()
 
     return response.json()
@@ -79,7 +82,11 @@ def validate_credentials(access_key: str) -> bool:
     # the token is genuine and API access is enabled for the account.
     url = f"{GOLDCAST_BASE_URL}/core/organization/"
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(access_key), timeout=10)
+        # `redact_values` masks the token from any captured HTTP sample — it rides in the
+        # non-standard `Token` auth header the name-based scrubbers can't recognise.
+        response = make_tracked_session(redact_values=(access_key,)).get(
+            url, headers=_get_headers(access_key), timeout=10
+        )
         return response.status_code == 200
     except Exception:
         return False
@@ -130,7 +137,9 @@ def get_rows(
     config = GOLDCAST_ENDPOINTS[endpoint]
     headers = _get_headers(access_key)
     # One session reused across every request so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    # `redact_values` masks the token from captured samples — it rides in the non-standard
+    # `Token` auth header the name-based scrubbers can't recognise.
+    session = make_tracked_session(redact_values=(access_key,))
 
     if config.fan_out_over_events:
         yield from _get_fan_out_rows(session, headers, logger, config)

@@ -94,6 +94,27 @@ class TestFetchRetries:
 
         assert session.get.call_count == 1
 
+    def test_error_body_is_not_logged_verbatim(self) -> None:
+        # Goldcast error bodies can echo customer tenant records, so a full body must never land
+        # in our logs — only a tightly capped excerpt is allowed.
+        sensitive_body = "SECRET-TENANT-RECORD-" + "x" * 5000
+        resp = MagicMock()
+        resp.status_code = 400
+        resp.ok = False
+        resp.text = sensitive_body
+        resp.raise_for_status.side_effect = requests.HTTPError("400 Client Error", response=resp)
+
+        session = MagicMock()
+        session.get.return_value = resp
+        logger = MagicMock()
+
+        with pytest.raises(requests.HTTPError):
+            goldcast._fetch(session, "https://customapi.goldcast.io/event/", {}, logger)
+
+        logged = " ".join(str(call.args[0]) for call in logger.error.call_args_list)
+        assert sensitive_body not in logged
+        assert len(logged) < 500
+
     def test_retryable_error_reraised_after_exhausting_attempts(self) -> None:
         bad = MagicMock()
         bad.status_code = 500
@@ -262,3 +283,37 @@ class TestValidateCredentials:
         session.get.side_effect = requests.ConnectionError("boom")
         with patch.object(goldcast, "make_tracked_session", return_value=session):
             assert validate_credentials("tok") is False
+
+
+class TestTokenRedaction:
+    # The token rides in a non-standard `Token` auth header the name-based scrubbers can't
+    # recognise, so every tracked session must register it with `redact_values` or it leaks
+    # into captured HTTP samples.
+    def test_get_rows_registers_token_for_redaction(self, monkeypatch: Any) -> None:
+        captured: dict[str, Any] = {}
+
+        def spy_session(*_a: Any, **kwargs: Any) -> MagicMock:
+            captured.update(kwargs)
+            return MagicMock()
+
+        monkeypatch.setattr(goldcast, "make_tracked_session", spy_session)
+        monkeypatch.setattr(goldcast, "_fetch", lambda *_a, **_k: [])
+
+        list(get_rows(access_key="super-secret", endpoint="events", logger=MagicMock()))
+
+        assert captured.get("redact_values") == ("super-secret",)
+
+    def test_validate_credentials_registers_token_for_redaction(self, monkeypatch: Any) -> None:
+        captured: dict[str, Any] = {}
+
+        def spy_session(*_a: Any, **kwargs: Any) -> MagicMock:
+            captured.update(kwargs)
+            session = MagicMock()
+            session.get.return_value.status_code = 200
+            return session
+
+        monkeypatch.setattr(goldcast, "make_tracked_session", spy_session)
+
+        validate_credentials("super-secret")
+
+        assert captured.get("redact_values") == ("super-secret",)
