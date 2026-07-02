@@ -2922,7 +2922,7 @@ jobs:
                   # Upstream jobs whose failure would otherwise only cascade into django
                   # being *skipped*, which this gate reads as success — a green gate with
                   # zero backend tests run. Naming them makes the failure hit the gate
-                  # directly; their legitimate skips (frontend-only PRs) still pass.
+                  # directly; legitimate skips (frontend-only PRs) and plain successes still pass.
                   check_required_result "Change detection" "${{ needs.changes.result }}"
                   check_required_result "ClickHouse versions" "${{ needs.get_clickhouse_versions.result }}"
                   check_required_result "Django matrix build" "${{ needs.build_django_matrix.result }}"
