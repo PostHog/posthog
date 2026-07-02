@@ -54,10 +54,12 @@ export function DeltaBadge({
     }
     const up = rounded > 0
     const good = goodWhenDown ? !up : up
+    // A near-zero baseline turns growth into a meaningless five-digit percentage — clamp the display.
+    const display = Math.abs(rounded) > 999 ? '>999' : Math.abs(rounded).toFixed(precision)
     return (
         <Tooltip title={vs}>
             <span className={cn('text-xs font-semibold whitespace-nowrap', good ? 'text-success' : 'text-danger')}>
-                {up ? '▲' : '▼'} {Math.abs(rounded).toFixed(precision)}
+                {up ? '▲' : '▼'} {display}
                 {unit}
             </span>
         </Tooltip>

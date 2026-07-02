@@ -97,7 +97,7 @@ export function JobAggregatesTable({
                                 <RangeBar
                                     fraction={(row.p50_seconds ?? 0) / maxP95}
                                     tickFraction={row.p95_seconds != null ? row.p95_seconds / maxP95 : null}
-                                    className="mt-0.5 block w-20"
+                                    className="mt-1.5 block w-20"
                                     tooltip={`p50 ${formatSeconds(row.p50_seconds)} (fill) → p95 ${formatSeconds(row.p95_seconds)} (tick), scaled to the slowest job`}
                                 />
                             </span>

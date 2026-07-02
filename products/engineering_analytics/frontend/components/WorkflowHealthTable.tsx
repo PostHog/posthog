@@ -23,7 +23,6 @@ import { BillableBadge } from './BillableBadge'
 import { FailureSparkline } from './FailureSparkline'
 import { DeltaBadge, pointChange } from './MetricTile'
 import { RangeBar } from './RangeBar'
-import { CI_GRID } from './runTables'
 
 // Reserved bar slots for push-bucketed sparklines (PR view): a small floor keeps a single push from
 // stretching fat, while staying low enough that 2–3 pushes read as clearly separate, visible bars on
@@ -149,7 +148,7 @@ export function WorkflowHealthTable({
         {
             title: 'Status',
             key: 'status',
-            width: CI_GRID.status,
+            width: 90,
             // Failing first when sorted: failing (2) > unknown (1) > passing (0).
             sorter: (a, b) => statusRank(a.latestRunFailed) - statusRank(b.latestRunFailed),
             render: (_, row) => <StatusTag failed={row.latestRunFailed} conclusion={row.latestRunConclusion} />,
@@ -157,15 +156,15 @@ export function WorkflowHealthTable({
         {
             title: 'Runs',
             key: 'runCount',
-            width: CI_GRID.runs,
+            width: 60,
             align: 'right',
             sorter: (a, b) => a.runCount - b.runCount,
             render: (_, row) => <span className="text-xs tabular-nums">{humanFriendlyNumber(row.runCount)}</span>,
         },
         {
-            title: 'Success rate',
+            title: 'Pass rate',
             key: 'successRate',
-            width: CI_GRID.successRate,
+            width: 96,
             align: 'right',
             sorter: (a, b) => (a.successRate ?? -1) - (b.successRate ?? -1),
             render: (_, row) => (
@@ -181,7 +180,7 @@ export function WorkflowHealthTable({
                       tooltip:
                           "CI minutes spent (each job's time summed — parallel jobs add up) plus the estimated $ at the reference rate. This is compute spent, not wall-clock run time. Excludes still-running jobs, so it can rise as they settle.",
                       key: 'cost',
-                      width: CI_GRID.cost,
+                      width: 130,
                       align: 'right',
                       sorter: (a, b) => (a.estimatedCostUsd ?? -1) - (b.estimatedCostUsd ?? -1),
                       render: (_, row) => (
@@ -228,7 +227,7 @@ export function WorkflowHealthTable({
                         <RangeBar
                             fraction={(row.p50Seconds ?? 0) / maxP95}
                             tickFraction={row.p95Seconds != null ? row.p95Seconds / maxP95 : null}
-                            className="mt-0.5 block w-20"
+                            className="mt-1.5 block w-20"
                             tooltip={`p50 ${formatSeconds(row.p50Seconds)} (fill) → p95 ${formatSeconds(row.p95Seconds)} (tick), scaled to the slowest workflow`}
                         />
                     </span>
@@ -237,7 +236,7 @@ export function WorkflowHealthTable({
         {
             title: 'Re-runs',
             key: 'rerunCycles',
-            width: 96,
+            width: 76,
             align: 'right',
             tooltip: 'Runs with attempt > 1 in the window — retry pressure is a flakiness proxy.',
             sorter: (a, b) => (a.rerunCycles ?? 0) - (b.rerunCycles ?? 0),
@@ -256,7 +255,7 @@ export function WorkflowHealthTable({
             title: 'Health',
             key: 'trend',
             // Pinned so the layout doesn't shift when sorting reorders rows with and without history.
-            width: CI_GRID.health,
+            width: 132,
             render: function RenderTrend(_, row) {
                 if (row.buckets.length === 0) {
                     return <span className="text-xs text-secondary">—</span>
@@ -277,7 +276,7 @@ export function WorkflowHealthTable({
         {
             title: 'Last failure',
             key: 'lastFailureAt',
-            width: CI_GRID.lastFailure,
+            width: 100,
             align: 'right',
             render: (_, row) =>
                 row.lastFailureAt ? (
@@ -292,15 +291,6 @@ export function WorkflowHealthTable({
 
     return (
         <LemonTable
-            // Fixed layout honors the CI_GRID widths exactly (auto layout lets empty spacer cells collapse),
-            // so the run/job tables nested inside line their columns up to the pixel. Cascades to them too.
-            // Fixed layout collapses the expand-toggle <col> (LemonTable sizes it width:1%, an auto-layout
-            // shrink-to-content trick), clipping the chevron — re-widen just that col to the width auto-layout
-            // would give it: the toggle cell is the row's first child, so 1rem + 0.5rem padding around a
-            // 1.5rem icon button = 3rem (w-12). A narrower col leaves the chevron clipped by the padding.
-            // Match on '1%' alone (not 'width: 1%'): a Tailwind arbitrary variant can't contain the space,
-            // and within this table the toggle is the only col with a % width, so there's no false match.
-            className="[&_table]:table-fixed [&_col[style*='1%']]:!w-12"
             data-attr={dataAttr}
             size="small"
             columns={columns}
