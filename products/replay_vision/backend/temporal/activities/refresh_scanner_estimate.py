@@ -2,6 +2,8 @@ from django.utils import timezone
 
 from temporalio import activity
 
+from posthog.temporal.common.utils import close_db_connections
+
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.queries import ESTIMATE_STALE_AFTER, refresh_scanner_estimate
 from products.replay_vision.backend.temporal.decorators import track_activity
@@ -9,6 +11,7 @@ from products.replay_vision.backend.temporal.estimates_types import RefreshScann
 
 
 @activity.defn
+@close_db_connections
 @track_activity()
 def refresh_scanner_estimate_activity(inputs: RefreshScannerEstimateInputs) -> bool:
     """Recompute the scanner's persisted estimate; the staleness re-check makes it idempotent against an interactive save racing the batch."""

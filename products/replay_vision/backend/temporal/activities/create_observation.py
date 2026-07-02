@@ -7,6 +7,7 @@ from temporalio import activity
 from temporalio.exceptions import ApplicationError
 
 from posthog.models.organization import OrganizationMembership
+from posthog.temporal.common.utils import close_db_connections
 
 from products.replay_vision.backend.models.replay_observation import ObservationStatus, ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
@@ -32,6 +33,7 @@ def _build_scanner_snapshot(scanner: ReplayScanner) -> dict[str, Any]:
 
 
 @activity.defn
+@close_db_connections
 @track_activity()
 def create_observation_activity(inputs: CreateObservationInputs) -> CreateObservationOutput:
     """Snapshot the full scanner state and INSERT the row in `pending`. Returns `was_created=False` on UNIQUE conflict."""

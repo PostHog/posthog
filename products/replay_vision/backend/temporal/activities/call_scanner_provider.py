@@ -14,7 +14,6 @@ from typing import Any, TypeVar
 from uuid import UUID
 
 import structlog
-from asgiref.sync import sync_to_async
 from google.genai import (
     Client as GoogleGenAIClient,
     types,
@@ -24,6 +23,7 @@ from pydantic import BaseModel, ValidationError
 from temporalio import activity
 
 from posthog.models import Team
+from posthog.sync import database_sync_to_async
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
@@ -67,8 +67,8 @@ _OutputT = TypeVar("_OutputT", bound=BaseModel)
 async def call_scanner_provider_activity(inputs: CallScannerProviderInputs) -> ScannerCallOutput:
     """Run the scanner conversation against the uploaded video + cached events; validate, finalize, return the output."""
     snapshot, team_name, llm_inputs = await asyncio.gather(
-        sync_to_async(_load_snapshot)(inputs.observation_id, inputs.team_id),
-        sync_to_async(_load_team_name)(inputs.team_id),
+        database_sync_to_async(_load_snapshot, thread_sensitive=False)(inputs.observation_id, inputs.team_id),
+        database_sync_to_async(_load_team_name, thread_sensitive=False)(inputs.team_id),
         _load_llm_inputs(inputs.observation_id),
     )
     scanner = scanner_from_snapshot(snapshot)
