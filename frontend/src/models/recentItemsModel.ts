@@ -19,6 +19,22 @@ const RECENTS_FETCH_LIMIT = 20
  * via the loaders' Success/Failure reducers).
  */
 const LOADER_TIMEOUT_MS = 10000
+/**
+ * Fraction of loader timeouts to forward to error tracking. The file_system recents fetch still
+ * stalls past {@link LOADER_TIMEOUT_MS} for a residual cohort of users daily; capturing every hang
+ * floods error tracking without adding signal. Sampling keeps enough volume to watch the endpoint's
+ * health — divide the observed count by this rate to estimate the true rate — while cutting the
+ * noise. The widget degrades to an empty list either way, so a dropped capture loses no user-facing
+ * behavior.
+ */
+const TIMEOUT_CAPTURE_SAMPLE_RATE = 0.1
+
+function captureLoaderTimeout(error: PromiseTimeoutError): void {
+    if (Math.random() >= TIMEOUT_CAPTURE_SAMPLE_RATE) {
+        return
+    }
+    posthog.captureException(error, { loader_timeout_sample_rate: TIMEOUT_CAPTURE_SAMPLE_RATE })
+}
 
 export const recentItemsModel = kea<recentItemsModelType>([
     path(['models', 'recentItemsModel']),
@@ -55,10 +71,10 @@ export const recentItemsModel = kea<recentItemsModelType>([
                         return response.results
                     } catch (error) {
                         // A stalled fetch that never settles would freeze the search page on a
-                        // skeleton; the timeout lets the loader settle. Surface the hang so these
-                        // previously-invisible stuck states show up as captured exceptions.
+                        // skeleton; the timeout lets the loader settle. Surface a sampled slice of
+                        // these hangs so the stuck state stays visible without flooding error tracking.
                         if (error instanceof PromiseTimeoutError) {
-                            posthog.captureException(error)
+                            captureLoaderTimeout(error)
                         }
                         // Recents are a non-essential homepage widget — transient failures (offline,
                         // aborted navigation, blocked requests) shouldn't surface as captured exceptions.
@@ -90,10 +106,10 @@ export const recentItemsModel = kea<recentItemsModelType>([
                         }
                         return record
                     } catch (error) {
-                        // See loadRecents: a hung fetch is surfaced, while transient failures
-                        // degrade to an empty result rather than throw.
+                        // See loadRecents: a sampled slice of hung fetches is surfaced, while
+                        // transient failures degrade to an empty result rather than throw.
                         if (error instanceof PromiseTimeoutError) {
-                            posthog.captureException(error)
+                            captureLoaderTimeout(error)
                         }
                         return {}
                     }

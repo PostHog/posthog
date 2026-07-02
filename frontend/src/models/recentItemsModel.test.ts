@@ -1,8 +1,10 @@
 import { MOCK_DEFAULT_TEAM } from 'lib/api.mock'
 
 import { expectLogic } from 'kea-test-utils'
+import posthog from 'posthog-js'
 
 import api, { ApiConfig } from 'lib/api'
+import { PromiseTimeoutError } from 'lib/utils/async'
 import { teamLogic } from 'scenes/teamLogic'
 
 import type { FileSystemEntry } from '~/queries/schema/schema-general'
@@ -97,5 +99,25 @@ describe('recentItemsModel', () => {
             recentsHasLoaded: true,
             sceneLogViewsHasLoaded: true,
         })
+    })
+
+    // Sampling the timeout capture is what keeps the (still-slow) recents endpoint's hangs from
+    // flooding error tracking; without it we regress to capturing every hang for hundreds of users.
+    it.each([
+        { rand: 0.05, expectedCalls: [[expect.any(PromiseTimeoutError), { loader_timeout_sample_rate: 0.1 }]] },
+        { rand: 0.5, expectedCalls: [] },
+    ])('captures a sampled slice of loader timeouts (rand=$rand)', async ({ rand, expectedCalls }) => {
+        jest.spyOn(Math, 'random').mockReturnValue(rand)
+        const captureException = jest.spyOn(posthog, 'captureException').mockImplementation(() => undefined as any)
+        jest.spyOn(ApiConfig, 'hasCurrentTeamId').mockReturnValue(true)
+        jest.spyOn(api.fileSystem, 'list').mockRejectedValue(new PromiseTimeoutError('loadRecents timed out'))
+        jest.spyOn(api.fileSystemLogView, 'list').mockResolvedValue([])
+
+        logic = recentItemsModel()
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadRecentsSuccess']).toMatchValues({ recents: [] })
+
+        expect(captureException.mock.calls).toEqual(expectedCalls)
     })
 })
