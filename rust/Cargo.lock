@@ -1309,6 +1309,7 @@ dependencies = [
  "mockito",
  "moka",
  "natord",
+ "object_store",
  "posthog-rs",
  "rayon",
  "rdkafka",

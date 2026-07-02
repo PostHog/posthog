@@ -5,9 +5,12 @@ use tracing::{debug, info, warn};
 
 pub mod backend;
 pub mod pipeline;
+pub mod s3_client;
+pub mod temp_bucket;
 
 pub use backend::{LocalDiskBackend, PlaintextStream, StagingBackend};
 pub use pipeline::open_plaintext_stream;
+pub use temp_bucket::TempBucketBackend;
 
 /// Ensure the staging directory exists, creating it if necessary.
 pub async fn ensure_staging_dir(path: &Path) -> Result<(), Error> {
