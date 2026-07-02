@@ -177,3 +177,37 @@ class TestMongoValidateCredentialsErrorTrackingNoise:
         assert ok is False
         assert err == _MONGO_CONNECT_FAILED_MESSAGE
         mock_capture.assert_called_once()
+
+    # An OperationFailure on listCollections is a user-side credential/permission problem — a
+    # missing read role ("not authorized") or a bad password — that we already surface an
+    # actionable message for and classify as non-retryable, so it must not be captured as noise.
+    @pytest.mark.parametrize(
+        "exc, expected_message",
+        [
+            (
+                OperationFailure(
+                    "not authorized on demo_db to execute command { listCollections: 1 }",
+                    13,
+                    {"ok": 0.0, "errmsg": "not authorized on demo_db", "code": 13, "codeName": "Unauthorized"},
+                ),
+                _MONGO_NOT_AUTHORIZED_MESSAGE,
+            ),
+            (
+                OperationFailure(
+                    "Authentication failed.", 18, {"ok": 0.0, "errmsg": "Authentication failed.", "code": 18}
+                ),
+                _MONGO_AUTHENTICATION_FAILED_MESSAGE,
+            ),
+        ],
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.capture_exception")
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.mongodb.source.get_collection_names")
+    def test_operation_failure_not_reported(self, mock_get_collections, mock_capture, exc, expected_message):
+        mock_get_collections.side_effect = exc
+        config = MongoDBSourceConfig.from_dict({"connection_string": _SRV_WITH_DB})
+
+        ok, err = MongoDBSource().validate_credentials(config, team_id=1)
+
+        assert ok is False
+        assert err == expected_message
+        mock_capture.assert_not_called()

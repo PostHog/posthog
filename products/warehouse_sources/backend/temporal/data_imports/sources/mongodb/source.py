@@ -215,7 +215,9 @@ class MongoDBSource(SimpleSource[MongoDBSourceConfig], ValidateDatabaseHostMixin
             # signature hashes, BSON ids — so str(e) must never be surfaced. Map the stable error
             # markers to a clean message; an authorization failure ("not authorized") means the
             # credentials are valid but lack read access, which is distinct from a bad password.
-            capture_exception(e)
+            # Both are user-side credential/permission problems we already surface an actionable
+            # message for and classify as non-retryable — never a PostHog bug — so don't report
+            # them to error tracking as non-actionable noise.
             if "not authorized" in str(e):
                 return False, _MONGO_NOT_AUTHORIZED_MESSAGE
             return False, _MONGO_AUTHENTICATION_FAILED_MESSAGE
