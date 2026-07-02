@@ -1,7 +1,7 @@
 import { RedisV2 } from '~/common/redis/redis-v2'
 
 import { CyclotronJobInvocationHogFunction } from '../../types'
-import { EmailValidationService } from './email-validation.service'
+import { EmailValidationService, MAX_LOCAL_CACHE_DOMAINS } from './email-validation.service'
 
 const mockResolveMx = jest.fn()
 const mockResolve4 = jest.fn()
@@ -108,6 +108,19 @@ describe('EmailValidationService', () => {
             expect(await service.getSkipReason(emailInvocation('user@gmail.com'), emailAction)).toBeNull()
         })
 
+        it('resolves internationalized domains via their punycode form', async () => {
+            mockResolveMx.mockRejectedValue(dnsError('ENOTFOUND'))
+            mockResolve4.mockRejectedValue(dnsError('ENOTFOUND'))
+            mockResolve6.mockRejectedValue(dnsError('ENOTFOUND'))
+
+            const reason = await service.getSkipReason(emailInvocation('user@bücher.example'), emailAction)
+
+            // The unicode form would error at the resolver (bypassing validation); the
+            // punycode form gets a real verdict — here, a definitive block.
+            expect(mockResolveMx).toHaveBeenCalledWith('xn--bcher-kva.example')
+            expect(reason).toContain('no reachable mail servers')
+        })
+
         it('allows a domain with no MX but an A record (RFC 5321 implicit MX)', async () => {
             mockResolveMx.mockRejectedValue(dnsError('ENODATA'))
             mockResolve4.mockResolvedValue(['93.184.216.34'])
@@ -163,14 +176,25 @@ describe('EmailValidationService', () => {
             expect(await service.getSkipReason(emailInvocation('user@flaky.example'), emailAction)).toBeNull()
         })
 
-        it('does not cache a transient failure (retries DNS on the next send)', async () => {
-            mockResolveMx.mockRejectedValueOnce(dnsError('ETIMEOUT'))
-            expect(await service.getSkipReason(emailInvocation('user@flaky.example'), emailAction)).toBeNull()
+        it('backs off briefly after a transient failure, then re-resolves instead of freezing the verdict', async () => {
+            const now = Date.now()
+            const nowSpy = jest.spyOn(Date, 'now').mockReturnValue(now)
+            try {
+                mockResolveMx.mockRejectedValueOnce(dnsError('ETIMEOUT'))
+                expect(await service.getSkipReason(emailInvocation('user@flaky.example'), emailAction)).toBeNull()
 
-            // Domain recovered — a healthy MX response should now be observed, not a frozen "allow".
-            mockResolveMx.mockResolvedValue([{ exchange: 'mx.flaky.example', priority: 10 }])
-            expect(await service.getSkipReason(emailInvocation('user@flaky.example'), emailAction)).toBeNull()
-            expect(mockResolveMx).toHaveBeenCalledTimes(2)
+                // Within the backoff window: still allowed, but without paying another slow lookup.
+                expect(await service.getSkipReason(emailInvocation('user@flaky.example'), emailAction)).toBeNull()
+                expect(mockResolveMx).toHaveBeenCalledTimes(1)
+
+                // Past the window: DNS is consulted again, so the unknown verdict isn't frozen.
+                nowSpy.mockReturnValue(now + 61_000)
+                mockResolveMx.mockResolvedValue([{ exchange: 'mx.flaky.example', priority: 10 }])
+                expect(await service.getSkipReason(emailInvocation('user@flaky.example'), emailAction)).toBeNull()
+                expect(mockResolveMx).toHaveBeenCalledTimes(2)
+            } finally {
+                nowSpy.mockRestore()
+            }
         })
     })
 
@@ -197,6 +221,20 @@ describe('EmailValidationService', () => {
 
             expect(mockResolveMx).toHaveBeenCalledTimes(1)
             expect(reasons.every((r) => r === null)).toBe(true)
+        })
+
+        it('evicts the oldest domain once the cache is full instead of growing unbounded', async () => {
+            for (let i = 0; i <= MAX_LOCAL_CACHE_DOMAINS; i++) {
+                await service.getSkipReason(emailInvocation(`user@domain-${i}.example`), emailAction)
+            }
+            expect(mockResolveMx).toHaveBeenCalledTimes(MAX_LOCAL_CACHE_DOMAINS + 1)
+
+            // domain-0 was evicted to make room, so it resolves again; a recently
+            // inserted domain is still served from the cache.
+            await service.getSkipReason(emailInvocation('user@domain-0.example'), emailAction)
+            expect(mockResolveMx).toHaveBeenCalledTimes(MAX_LOCAL_CACHE_DOMAINS + 2)
+            await service.getSkipReason(emailInvocation(`user@domain-${MAX_LOCAL_CACHE_DOMAINS}.example`), emailAction)
+            expect(mockResolveMx).toHaveBeenCalledTimes(MAX_LOCAL_CACHE_DOMAINS + 2)
         })
 
         it('honors a Redis-cached verdict without hitting DNS', async () => {

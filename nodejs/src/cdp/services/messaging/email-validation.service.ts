@@ -1,5 +1,6 @@
 import { MxRecord } from 'node:dns'
 import { Resolver } from 'node:dns/promises'
+import { domainToASCII } from 'node:url'
 import { Counter } from 'prom-client'
 
 import { HogFlowAction } from '~/cdp/schema/hogflow'
@@ -27,13 +28,23 @@ const EMAIL_SYNTAX_RE = /^[^\s@]+@[^\s@]+\.[^\s@]+$/
 const POSITIVE_TTL_MS = 24 * 60 * 60 * 1000
 const NEGATIVE_TTL_MS = 6 * 60 * 60 * 1000
 
+// Local-only backoff after a transient DNS failure. Short enough that a real
+// verdict is retried quickly, long enough that a resolver outage during a big
+// batch doesn't repeat a 3s-timeout lookup for every send to the same domain.
+// Never written to Redis, so a blip on one worker isn't frozen fleet-wide.
+const TRANSIENT_BACKOFF_MS = 60 * 1000
+
 // Bound per-lookup latency: the email worker must not stall on a slow resolver.
 const DNS_TIMEOUT_MS = 3000
 const DNS_TRIES = 1
 
+// Bounds worker memory against lists full of unique garbage domains; evicted
+// domains just fall back to Redis/DNS on their next send.
+export const MAX_LOCAL_CACHE_DOMAINS = 10_000
+
 const REDIS_KEY_PREFIX = '@posthog/cdp/email-mx/'
 
-type CacheEntry = { deliverable: boolean; expiresAt: number }
+type CacheEntry = { deliverable: boolean; transient?: boolean; expiresAt: number }
 
 // `none` = domain exists but no records of this type; `transient` = the lookup
 // itself failed (timeout/SERVFAIL) and the verdict is unknown → fail open.
@@ -100,7 +111,13 @@ export class EmailValidationService {
             return `Skipping send: "${email}" is not a valid email address, so it would hard bounce.`
         }
 
-        const domain = email.slice(email.lastIndexOf('@') + 1).toLowerCase()
+        // domainToASCII lowercases and punycodes IDN domains (`bücher.example` →
+        // `xn--bcher-kva.example`) so the resolver sees the form DNS actually stores;
+        // without it every internationalized domain would error and bypass validation.
+        // It passes unconvertible garbage through unchanged — the lookup then fails
+        // open, which is the safe direction.
+        const rawDomain = email.slice(email.lastIndexOf('@') + 1)
+        const domain = domainToASCII(rawDomain) || rawDomain.toLowerCase()
         const deliverable = await this.resolveDeliverability(domain)
         if (!deliverable) {
             return `Skipping send: the domain "${domain}" has no reachable mail servers, so this message would hard bounce.`
@@ -111,7 +128,7 @@ export class EmailValidationService {
     private async resolveDeliverability(domain: string): Promise<boolean> {
         const local = this.localCache.get(domain)
         if (local && local.expiresAt > Date.now()) {
-            cdpEmailMxValidationTotal.inc({ result: 'hit_local' })
+            cdpEmailMxValidationTotal.inc({ result: local.transient ? 'transient_backoff' : 'hit_local' })
             return local.deliverable
         }
 
@@ -130,21 +147,29 @@ export class EmailValidationService {
         const cached = await this.readRedis(domain)
         if (cached !== null) {
             cdpEmailMxValidationTotal.inc({ result: 'hit_redis' })
-            this.setLocal(domain, cached)
+            this.setLocal(domain, {
+                deliverable: cached,
+                expiresAt: Date.now() + (cached ? POSITIVE_TTL_MS : NEGATIVE_TTL_MS),
+            })
             return cached
         }
 
         const status = await this.dnsLookup(domain)
         if (status === 'transient') {
             cdpEmailMxValidationTotal.inc({ result: 'transient_error' })
-            // Unknown verdict — fail open and don't cache, so a resolver blip
-            // doesn't get frozen into a day of blocked sends.
+            // Unknown verdict — fail open, remember only briefly and only locally,
+            // so a resolver outage neither blocks sends nor stalls every send to
+            // this domain on a fresh 3s-timeout lookup.
+            this.setLocal(domain, { deliverable: true, transient: true, expiresAt: Date.now() + TRANSIENT_BACKOFF_MS })
             return true
         }
 
         const deliverable = status === 'valid'
         cdpEmailMxValidationTotal.inc({ result: deliverable ? 'valid' : 'invalid_domain' })
-        this.setLocal(domain, deliverable)
+        this.setLocal(domain, {
+            deliverable,
+            expiresAt: Date.now() + (deliverable ? POSITIVE_TTL_MS : NEGATIVE_TTL_MS),
+        })
         await this.writeRedis(domain, deliverable)
         return deliverable
     }
@@ -193,11 +218,16 @@ export class EmailValidationService {
         }
     }
 
-    private setLocal(domain: string, deliverable: boolean): void {
-        this.localCache.set(domain, {
-            deliverable,
-            expiresAt: Date.now() + (deliverable ? POSITIVE_TTL_MS : NEGATIVE_TTL_MS),
-        })
+    private setLocal(domain: string, entry: CacheEntry): void {
+        // FIFO eviction via Map insertion order — cheap, and precision doesn't
+        // matter here: an evicted hot domain just costs one Redis/DNS round trip.
+        if (!this.localCache.has(domain) && this.localCache.size >= MAX_LOCAL_CACHE_DOMAINS) {
+            const oldest = this.localCache.keys().next().value
+            if (oldest !== undefined) {
+                this.localCache.delete(oldest)
+            }
+        }
+        this.localCache.set(domain, entry)
     }
 
     private async readRedis(domain: string): Promise<boolean | null> {
