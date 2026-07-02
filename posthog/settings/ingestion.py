@@ -71,6 +71,18 @@ CAPTURE_V1_INTERNAL_RETRY_AFTER_CAP_SECONDS = get_from_env(
 )
 # Chunk fan-out reuses CAPTURE_INTERNAL_MAX_WORKERS (above) for its thread pool.
 CAPTURE_INTERNAL_BATCH_CHUNK_SIZE = get_from_env("CAPTURE_INTERNAL_BATCH_CHUNK_SIZE", type_cast=int, default=200)
+
+# Buffered CSP capture-forward: when enabled, /report/ enqueues accepted reports to a
+# bounded in-process buffer and returns 204 immediately; a background thread batches
+# them to capture-rs. Keeps request-worker hold time independent of capture-rs latency,
+# which is required for servers with bounded worker pools (WSGI). Off = legacy
+# synchronous forward.
+CSP_REPORT_BUFFERED_FORWARD = get_from_env("CSP_REPORT_BUFFERED_FORWARD", False, type_cast=str_to_bool)
+CSP_REPORT_BUFFER_MAX_EVENTS = get_from_env("CSP_REPORT_BUFFER_MAX_EVENTS", type_cast=int, default=10000)
+CSP_REPORT_BUFFER_FLUSH_INTERVAL_SECONDS = get_from_env(
+    "CSP_REPORT_BUFFER_FLUSH_INTERVAL_SECONDS", type_cast=float, default=0.5
+)
+CSP_REPORT_BUFFER_FLUSH_MAX_EVENTS = get_from_env("CSP_REPORT_BUFFER_FLUSH_MAX_EVENTS", type_cast=int, default=1000)
 NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS = get_set(os.getenv("NEW_ANALYTICS_CAPTURE_EXCLUDED_TEAM_IDS", ""))
 
 ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS = get_set(os.getenv("ELEMENT_CHAIN_AS_STRING_EXCLUDED_TEAMS", ""))
