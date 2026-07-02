@@ -1,10 +1,10 @@
 import math
-import time
 import hashlib
 from datetime import timedelta
 from typing import Any, cast
 
 from django.conf import settings
+from django.core.exceptions import ValidationError as DjangoValidationError
 from django.db import transaction
 from django.db.models import Q, QuerySet
 from django.http import Http404, JsonResponse
@@ -907,42 +907,28 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
         return Response({"run_id": str(run.id)})
 
     @extend_schema(exclude=True)
-    @action(
-        methods=["GET"],
-        url_path="data_v2/runs/(?P<run_id>[^/.]+)/stream",
-        detail=True,
-        renderer_classes=[ServerSentEventRenderer],
-    )
-    def data_v2_run_stream(self, request: Request, run_id: str | None = None, **kwargs):
+    @action(methods=["GET"], url_path="data_v2/runs/(?P<run_id>[^/.]+)", detail=True)
+    def data_v2_run_result(self, request: Request, run_id: str | None = None, **kwargs):
+        # The node short-polls this durable read to learn when its run finishes. One indexed
+        # query, no held connection — resilient to reloads/remounts (see data_v2_result_delivery.md).
         user = self._current_user()
         if not (settings.DEBUG or is_data_v2_enabled(user)):
             raise Http404()
 
-        team_id = self.team_id
-        renderer = SafeJSONRenderer()
+        try:
+            run = NotebookNodeRun.objects.for_team(self.team_id).filter(id=run_id).first()
+        except DjangoValidationError:  # malformed run_id (not a UUID)
+            raise Http404()
+        if run is None:
+            raise Http404()
 
-        def stream():
-            deadline = time.monotonic() + 120
-            while time.monotonic() < deadline:
-                run = NotebookNodeRun.objects.filter(id=run_id, team_id=team_id).first()
-                if run is None:
-                    payload_json = renderer.render({"error": "Run not found"}).decode()
-                    yield f"event: error\ndata: {payload_json}\n\n".encode()
-                    return
-                if run.status == NotebookNodeRun.Status.FAILED:
-                    payload_json = renderer.render({"error": run.error or "Run failed"}).decode()
-                    yield f"event: error\ndata: {payload_json}\n\n".encode()
-                    return
-                if run.status != NotebookNodeRun.Status.RUNNING:
-                    payload_json = renderer.render(run.envelope or {}).decode()
-                    yield f"event: result\ndata: {payload_json}\n\n".encode()
-                    return
-                time.sleep(0.5)
-            payload_json = renderer.render({"error": "Timed out waiting for result"}).decode()
-            yield f"event: error\ndata: {payload_json}\n\n".encode()
-
-        streaming_content = SyncIterableToAsync(stream()) if SERVER_GATEWAY_INTERFACE == "ASGI" else stream()
-        return sse_streaming_response(streaming_content)
+        return Response(
+            {
+                "status": run.status,
+                "result": run.envelope if run.status == NotebookNodeRun.Status.DONE else None,
+                "error": run.error or None,
+            }
+        )
 
     @extend_schema(request=NotebookCollabSaveSerializer)
     @action(methods=["POST"], url_path="collab/save", detail=True, required_scopes=["notebook:write"])

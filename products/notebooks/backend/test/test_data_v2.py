@@ -135,6 +135,44 @@ class TestDataV2Run(APIBaseTest):
         self.assertEqual(run.status, NotebookNodeRun.Status.FAILED)
 
 
+class TestDataV2RunResult(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.notebook = Notebook.objects.create(team=self.team, short_id="nbres01")
+
+    def _url(self, run_id: str) -> str:
+        return f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/data_v2/runs/{run_id}/"
+
+    def _create_run(self, status, envelope=None, error="") -> NotebookNodeRun:
+        with team_scope(self.team.id):
+            return NotebookNodeRun.objects.create(
+                team=self.team, notebook=self.notebook, node_id="n1", status=status, envelope=envelope, error=error
+            )
+
+    @parameterized.expand(
+        [
+            (NotebookNodeRun.Status.RUNNING, None, "", None, None),
+            (NotebookNodeRun.Status.DONE, {"first_page": [[42]]}, "", {"first_page": [[42]]}, None),
+            (NotebookNodeRun.Status.FAILED, None, "boom", None, "boom"),
+        ]
+    )
+    @patch("products.notebooks.backend.presentation.views.notebook.is_data_v2_enabled", return_value=True)
+    def test_result_shape_by_status(self, status, envelope, error, expected_result, expected_error, _mock_enabled):
+        run = self._create_run(status, envelope=envelope, error=error)
+        response = self.client.get(self._url(str(run.id)))
+        self.assertEqual(response.status_code, 200)
+        body = response.json()
+        self.assertEqual(body["status"], status)
+        # result is only surfaced when done; error only when failed
+        self.assertEqual(body["result"], expected_result)
+        self.assertEqual(body["error"], expected_error)
+
+    @parameterized.expand([("00000000-0000-0000-0000-000000000000",), ("not-a-uuid",)])
+    @patch("products.notebooks.backend.presentation.views.notebook.is_data_v2_enabled", return_value=True)
+    def test_missing_or_malformed_run_returns_404(self, run_id, _mock_enabled):
+        self.assertEqual(self.client.get(self._url(run_id)).status_code, 404)
+
+
 class TestDataV2Activities(APIBaseTest):
     def setUp(self):
         super().setUp()

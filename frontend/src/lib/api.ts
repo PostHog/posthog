@@ -4925,24 +4925,15 @@ const api = {
         ): Promise<{ run_id: string }> {
             return await new ApiRequest().notebook(notebookId).withAction('data_v2/run').create({ data })
         },
-        async dataV2RunStream(
+        async dataV2RunResult(
             notebookId: NotebookType['short_id'],
-            runId: string,
-            {
-                onMessage,
-                onError,
-                signal,
-            }: {
-                onMessage: (data: EventSourceMessage) => void
-                onError: (error: any) => void
-                signal?: AbortSignal
-            }
-        ): Promise<void> {
-            const url = new ApiRequest()
-                .notebook(notebookId)
-                .withAction(`data_v2/runs/${runId}/stream`)
-                .assembleFullUrl(true)
-            await api.stream(url, { method: 'GET', onMessage, onError, signal })
+            runId: string
+        ): Promise<{
+            status: 'running' | 'done' | 'failed'
+            result: { columns?: string[]; row_count?: number; first_page?: (string | number | null)[][] } | null
+            error: string | null
+        }> {
+            return await new ApiRequest().notebook(notebookId).withAction(`data_v2/runs/${runId}`).get()
         },
         async markdownSave(
             notebookId: NotebookType['short_id'],

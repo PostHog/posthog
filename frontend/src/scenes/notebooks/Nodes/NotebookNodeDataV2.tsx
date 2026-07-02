@@ -35,7 +35,13 @@ const Component = ({
     const { nodeId, notebookLogic } = useValues(nodeLogic)
     const notebookShortId = notebookLogic.props.shortId
 
-    const dataLogic = notebookNodeDataV2Logic({ nodeId, notebookShortId, updateAttributes })
+    const dataLogic = notebookNodeDataV2Logic({
+        nodeId,
+        notebookShortId,
+        updateAttributes,
+        runId: attributes.runId ?? null,
+        hasResult: !!attributes.result,
+    })
     const { isRunning, runError } = useValues(dataLogic)
     const { runQuery } = useActions(dataLogic)
 
