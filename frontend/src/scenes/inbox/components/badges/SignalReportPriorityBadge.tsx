@@ -1,6 +1,7 @@
 import { IconQuestion } from '@posthog/icons'
 import { Tooltip } from '@posthog/lemon-ui'
 
+import { PRIORITY_MEANING } from '../../filterOptions'
 import { SignalReportPriority } from '../../types'
 
 /**
@@ -51,12 +52,27 @@ export function SignalReportPriorityBadge({
         </span>
     )
 
+    const meaning = PRIORITY_MEANING[priority]
+    const genericLine = `${priority} · ${meaning.label} priority – ${meaning.description}`
+
     if (!explanation?.trim()) {
-        return chip
+        // No per-report rationale: still explain what the code means, so P0–P4 is never a mystery.
+        return (
+            <Tooltip title={genericLine}>
+                <span className="inline-flex cursor-help">{chip}</span>
+            </Tooltip>
+        )
     }
     // Icon center sits on the (rounded) top-right corner; matches the chip's text color, with its own bg to stay legible.
     return (
-        <Tooltip title={explanation}>
+        <Tooltip
+            title={
+                <div className="flex flex-col gap-1">
+                    <div className="font-semibold">{genericLine}</div>
+                    <div>{explanation}</div>
+                </div>
+            }
+        >
             <span className="relative inline-flex cursor-help">
                 {chip}
                 <IconQuestion

@@ -70,6 +70,10 @@ export function ReportDetailBadges({
     )
 }
 
+/** Shared explainer for the finding count in the meta line and the Evidence section. */
+const FINDINGS_TOOLTIP =
+    'Findings are the individual pieces of evidence – signals from your connected sources and scouts – that were grouped into this report.'
+
 /**
  * Single meta line under the title: status/actionability chips, then dot-separated stats
  * (finding count · updated · source stack). `evidenceCount` switches to the live signal count once
@@ -94,9 +98,11 @@ function ReportDetailMeta({
     const stats: ReactNode[] = []
     if (evidenceCount > 0) {
         stats.push(
-            <span className="tabular-nums">
-                {evidenceCount} finding{evidenceCount === 1 ? '' : 's'}
-            </span>
+            <Tooltip title={FINDINGS_TOOLTIP}>
+                <span className="tabular-nums cursor-help">
+                    {evidenceCount} finding{evidenceCount === 1 ? '' : 's'}
+                </span>
+            </Tooltip>
         )
     }
     // Mirrors error tracking's "First seen" / "Last seen": surface both lifecycle moments as distinct facts.
@@ -143,7 +149,8 @@ function MetaSourceStack({
     sourceProducts?: string[] | null
     scoutName?: string | null
 }): JSX.Element | null {
-    const [primary, ...overflow] = knownSourceProductEntries(sourceProducts)
+    const entries = knownSourceProductEntries(sourceProducts)
+    const [primary, ...overflow] = entries
     if (!primary) {
         return null
     }
@@ -153,16 +160,15 @@ function MetaSourceStack({
             ? `${primary.meta.label} · ${scoutName}`
             : primary.meta.label
     return (
-        <span className="inline-flex items-center gap-1.5 min-w-0">
-            <SourceProductIconRow
-                entries={[primary, ...overflow]}
-                className="inline-flex items-center gap-1 shrink-0"
-            />
-            <span>
-                {primaryLabel}
-                {overflow.length > 0 ? ` + ${overflow.length}` : null}
+        <Tooltip title={`Signals in this report came from: ${entries.map((e) => e.meta.label).join(', ')}`}>
+            <span className="inline-flex items-center gap-1.5 min-w-0 cursor-help">
+                <SourceProductIconRow entries={entries} className="inline-flex items-center gap-1 shrink-0" />
+                <span>
+                    {primaryLabel}
+                    {overflow.length > 0 ? ` + ${overflow.length}` : null}
+                </span>
             </span>
-        </span>
+        </Tooltip>
     )
 }
 
@@ -392,9 +398,11 @@ export function InboxDetailFrame({
                             icon={<IconSearch />}
                             title="Evidence"
                             rightSlot={
-                                <span className="text-[0.6875rem] text-tertiary tabular-nums">
-                                    {evidenceCount} finding{evidenceCount === 1 ? '' : 's'}
-                                </span>
+                                <Tooltip title={FINDINGS_TOOLTIP}>
+                                    <span className="text-[0.6875rem] text-tertiary tabular-nums cursor-help">
+                                        {evidenceCount} finding{evidenceCount === 1 ? '' : 's'}
+                                    </span>
+                                </Tooltip>
                             }
                         >
                             {reportSignalsLoading && reportSignals === null ? (

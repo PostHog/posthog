@@ -46,7 +46,8 @@ export function InboxCardSourceMeta({
     /** Authoring scout's display name, when scout-authored — appended to the "Scout" label. */
     scoutName?: string | null
 }): JSX.Element | null {
-    const [primary, ...overflow] = knownSourceProductEntries(sourceProducts)
+    const entries = knownSourceProductEntries(sourceProducts)
+    const [primary, ...overflow] = entries
     if (!primary) {
         return null
     }
@@ -56,13 +57,15 @@ export function InboxCardSourceMeta({
             ? `${primary.meta.label} · ${scoutName}`
             : primary.meta.label
     return (
-        <div className="flex items-center gap-2 min-w-0 text-xs text-tertiary leading-none select-none">
-            <SourceProductIconRow entries={[primary, ...overflow]} className="flex items-center gap-1.5 shrink-0" />
-            <span>
-                {primaryLabel}
-                {overflow.length > 0 ? ` + ${overflow.length}` : null}
-            </span>
-        </div>
+        <Tooltip title={`Signals in this report came from: ${entries.map((e) => e.meta.label).join(', ')}`}>
+            <div className="flex items-center gap-2 min-w-0 text-xs text-tertiary leading-none select-none cursor-help">
+                <SourceProductIconRow entries={entries} className="flex items-center gap-1.5 shrink-0" />
+                <span>
+                    {primaryLabel}
+                    {overflow.length > 0 ? ` + ${overflow.length}` : null}
+                </span>
+            </div>
+        </Tooltip>
     )
 }
 
@@ -313,6 +316,7 @@ export function ReportCard({
                             <LemonButton
                                 type="primary"
                                 size="small"
+                                tooltip="Open the full report – summary, evidence, and actions"
                                 onClick={(event) => {
                                     event.preventDefault()
                                     event.stopPropagation()

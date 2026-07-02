@@ -12,6 +12,7 @@ import {
     INBOX_STAFF_ONLY_TAB_KEYS,
     INBOX_TAB_KEYS,
     INBOX_TAB_LABEL,
+    INBOX_TAB_TOOLTIP,
     InboxFlatListTabKey,
     InboxTabKey,
 } from '../../types'
@@ -82,6 +83,8 @@ export function InboxTabBar({
                 )}
             </span>
         ),
+        // `disabledReason` doubles as the tooltip while onboarding, so the explainer only shows on live tabs.
+        tooltip: onboarding ? undefined : INBOX_TAB_TOOLTIP[key],
         disabledReason: onboarding ? 'Set up self-driving to open your inbox' : undefined,
         content: <></>,
     }))
