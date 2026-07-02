@@ -74,6 +74,11 @@ logger = structlog.get_logger(__name__)
 
 tracer = trace.get_tracer(__name__)
 
+# Shown to the user when the org's concurrent-query limiter rejects a request. The raw limiter
+# exception embeds an internal Redis key + task id, so we log that for debugging and surface this
+# friendly message instead of leaking implementation details into the UI.
+CONCURRENCY_LIMIT_USER_MESSAGE = "Too many queries are running right now — please try again in a moment."
+
 QUERY_VALIDATION_ERROR_TOTAL = Counter(
     "posthog_query_validation_error_total",
     "Query validation failures returned from the query API.",
@@ -282,7 +287,8 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             ).inc()
             raise
         except ConcurrencyLimitExceeded as c:
-            raise Throttled(detail=str(c))
+            logger.warning("query_concurrency_limit_exceeded", detail=str(c))
+            raise Throttled(detail=CONCURRENCY_LIMIT_USER_MESSAGE)
         except Exception as e:
             capture_exception(e)
             raise
@@ -384,7 +390,8 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             result = hogql_runner.calculate()
             return Response(result.model_dump(), status=200)
         except ConcurrencyLimitExceeded as c:
-            raise Throttled(detail=str(c))
+            logger.warning("query_concurrency_limit_exceeded", detail=str(c))
+            raise Throttled(detail=CONCURRENCY_LIMIT_USER_MESSAGE)
         except Exception as e:
             capture_exception(e)
             raise

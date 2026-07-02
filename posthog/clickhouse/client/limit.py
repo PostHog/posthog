@@ -12,7 +12,7 @@ from prometheus_client import Counter
 
 from posthog import redis, settings
 from posthog.clickhouse.cluster import ExponentialBackoff
-from posthog.clickhouse.query_tagging import tag_queries
+from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.settings import TEST
 from posthog.utils import generate_short_id
@@ -24,7 +24,7 @@ DEFAULT_APP_DASHBOARD_CONCURRENT_QUERIES = 6
 CONCURRENT_QUERY_LIMIT_EXCEEDED_COUNTER = Counter(
     "posthog_clickhouse_query_concurrency_limit_exceeded",
     "Number of times a team tried to exceed concurrency limit.",
-    ["task_name", "team_id", "limit", "limit_name", "result"],
+    ["task_name", "team_id", "limit", "limit_name", "result", "product"],
 )
 
 CONCURRENT_TASKS_LIMIT_EXCEEDED_COUNTER = Counter(
@@ -102,6 +102,10 @@ class RateLimit:
         running_tasks_key = self.get_task_key(*args, **kwargs) if self.get_task_key else task_name
         task_id = self.get_task_id(*args, **kwargs)
         team_id: Optional[int] = kwargs.get("team_id", None)
+        # Attribute blocks to the originating product surface (web_analytics, product_analytics, …)
+        # so we can track which product a saturated org's rejections come from. StrEnum → its value.
+        product_tag = get_query_tag_value("product")
+        product_label = str(product_tag) if product_tag else "unknown"
 
         max_concurrency: int = self.max_concurrency
 
@@ -145,6 +149,7 @@ class RateLimit:
                     limit=max_concurrency,
                     limit_name=self.limit_name,
                     result=result,
+                    product=product_label,
                 ).inc()
                 return None, None
 
@@ -155,6 +160,7 @@ class RateLimit:
                     limit=max_concurrency,
                     limit_name=self.limit_name,
                     result="retry",
+                    product=product_label,
                 ).inc()
                 wait_sec = backoff(count)
                 self.sleep(wait_sec)
@@ -169,6 +175,7 @@ class RateLimit:
                 limit=max_concurrency,
                 limit_name=self.limit_name,
                 result="block",
+                product=product_label,
             ).inc()
 
             raise ConcurrencyLimitExceeded(
