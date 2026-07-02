@@ -22,12 +22,14 @@ export function getDefaultSimulationRange(interval: AlertCalculationInterval): s
     }
 }
 
+const HIGH_FREQUENCY_INTERVALS = [
+    AlertCalculationInterval.HOURLY,
+    AlertCalculationInterval.EVERY_15_MINUTES,
+    AlertCalculationInterval.REAL_TIME,
+]
+
 export function isHighFrequencyAlertInterval(interval: AlertCalculationInterval): boolean {
-    return (
-        interval === AlertCalculationInterval.HOURLY ||
-        interval === AlertCalculationInterval.EVERY_15_MINUTES ||
-        interval === AlertCalculationInterval.REAL_TIME
-    )
+    return HIGH_FREQUENCY_INTERVALS.includes(interval)
 }
 
 export const HIGH_FREQUENCY_ALERTS_REQUIRED_MESSAGE =
@@ -35,18 +37,20 @@ export const HIGH_FREQUENCY_ALERTS_REQUIRED_MESSAGE =
 
 export const REAL_TIME_ALERTS_REQUIRED_MESSAGE = 'Real-time alert intervals require a Scale or Enterprise plan.'
 
-export function blockSubmitWithoutHighFrequencyAlertsEntitlement(
+export function blockSubmitWithoutEntitlement(
     interval: AlertCalculationInterval,
-    hasHighFrequencyAlertsEntitlement: boolean
-): boolean {
-    return interval === AlertCalculationInterval.EVERY_15_MINUTES && !hasHighFrequencyAlertsEntitlement
-}
-
-export function blockSubmitWithoutRealTimeAlertsEntitlement(
-    interval: AlertCalculationInterval,
-    hasRealTimeAlertsEntitlement: boolean
-): boolean {
-    return interval === AlertCalculationInterval.REAL_TIME && !hasRealTimeAlertsEntitlement
+    {
+        hasHighFrequencyAlertsEntitlement,
+        hasRealTimeAlertsEntitlement,
+    }: { hasHighFrequencyAlertsEntitlement: boolean; hasRealTimeAlertsEntitlement: boolean }
+): { blocked: boolean; message: string | null } {
+    if (interval === AlertCalculationInterval.EVERY_15_MINUTES && !hasHighFrequencyAlertsEntitlement) {
+        return { blocked: true, message: HIGH_FREQUENCY_ALERTS_REQUIRED_MESSAGE }
+    }
+    if (interval === AlertCalculationInterval.REAL_TIME && !hasRealTimeAlertsEntitlement) {
+        return { blocked: true, message: REAL_TIME_ALERTS_REQUIRED_MESSAGE }
+    }
+    return { blocked: false, message: null }
 }
 
 export function selectAlertCalculationInterval(

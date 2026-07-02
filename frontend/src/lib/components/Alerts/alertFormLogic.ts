@@ -22,12 +22,9 @@ import {
 import { AvailableFeature, InsightLogicProps, IntervalType, QueryBasedInsightModel } from '~/types'
 
 import {
-    blockSubmitWithoutHighFrequencyAlertsEntitlement,
-    blockSubmitWithoutRealTimeAlertsEntitlement,
+    blockSubmitWithoutEntitlement,
     getDefaultSimulationRange,
-    HIGH_FREQUENCY_ALERTS_REQUIRED_MESSAGE,
     isHighFrequencyAlertInterval,
-    REAL_TIME_ALERTS_REQUIRED_MESSAGE,
 } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 
 import type { alertFormLogicType } from './alertFormLogicType'
@@ -326,24 +323,17 @@ export const alertFormLogic = kea<alertFormLogicType>([
                   } as AlertFormType),
             errors: (alert: AlertFormType) => getAlertFormValidationErrors(alert),
             submit: async (alert) => {
-                if (
-                    blockSubmitWithoutHighFrequencyAlertsEntitlement(
-                        alert.calculation_interval,
-                        userLogic.values.hasAvailableFeature(AvailableFeature.HIGH_FREQUENCY_ALERTS)
-                    )
-                ) {
-                    lemonToast.error(HIGH_FREQUENCY_ALERTS_REQUIRED_MESSAGE)
-                    throw new Error(HIGH_FREQUENCY_ALERTS_REQUIRED_MESSAGE)
-                }
-
-                if (
-                    blockSubmitWithoutRealTimeAlertsEntitlement(
-                        alert.calculation_interval,
-                        userLogic.values.hasAvailableFeature(AvailableFeature.REAL_TIME_ALERTS)
-                    )
-                ) {
-                    lemonToast.error(REAL_TIME_ALERTS_REQUIRED_MESSAGE)
-                    throw new Error(REAL_TIME_ALERTS_REQUIRED_MESSAGE)
+                const entitlementCheck = blockSubmitWithoutEntitlement(alert.calculation_interval, {
+                    hasHighFrequencyAlertsEntitlement: userLogic.values.hasAvailableFeature(
+                        AvailableFeature.HIGH_FREQUENCY_ALERTS
+                    ),
+                    hasRealTimeAlertsEntitlement: userLogic.values.hasAvailableFeature(
+                        AvailableFeature.REAL_TIME_ALERTS
+                    ),
+                })
+                if (entitlementCheck.blocked && entitlementCheck.message) {
+                    lemonToast.error(entitlementCheck.message)
+                    throw new Error(entitlementCheck.message)
                 }
 
                 const payload: AlertTypeWrite = {
