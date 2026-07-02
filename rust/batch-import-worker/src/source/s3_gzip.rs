@@ -12,6 +12,7 @@ use tracing::{debug, info, warn};
 
 use crate::error::ToUserError;
 use crate::extractor::PartExtractor;
+use crate::staging::StagingGuard;
 
 use super::s3::extract_user_friendly_error;
 use super::{read_prepared_chunk, remove_prepared_key, DataSource, PreparedPart};
@@ -30,6 +31,7 @@ pub struct GzipS3Source {
     prefix: String,
     extractor: Arc<dyn PartExtractor>,
     staging_dir: PathBuf,
+    staging_max_bytes: u64,
     temp_dir: Arc<Mutex<Option<TempDir>>>,
     prepared_keys: Arc<Mutex<HashMap<String, PreparedPart>>>,
 }
@@ -41,6 +43,7 @@ impl GzipS3Source {
         prefix: String,
         extractor: Arc<dyn PartExtractor>,
         staging_dir: PathBuf,
+        staging_max_bytes: u64,
     ) -> Self {
         Self {
             client,
@@ -48,6 +51,7 @@ impl GzipS3Source {
             prefix,
             extractor,
             staging_dir,
+            staging_max_bytes,
             temp_dir: Arc::new(Mutex::new(None)),
             prepared_keys: Arc::new(Mutex::new(HashMap::new())),
         }
@@ -187,6 +191,11 @@ impl DataSource for GzipS3Source {
         let temp_dir = self.get_temp_dir_path().await?;
         let safe_key = sanitize_key_for_path(key);
 
+        // Pause the job if staging is already over budget before we add to it,
+        // and again as the `.raw` grows.
+        let mut guard = StagingGuard::new(self.staging_dir.clone(), self.staging_max_bytes);
+        guard.check().await?;
+
         let raw_file_path = temp_dir.join(format!("{}.raw", safe_key));
         let mut raw_file = File::create(&raw_file_path)
             .await
@@ -204,6 +213,7 @@ impl DataSource for GzipS3Source {
                 format!("Failed to write raw file: {}", raw_file_path.display())
             })?;
             total_bytes += chunk.len() as u64;
+            guard.record(chunk.len() as u64).await?;
         }
 
         raw_file

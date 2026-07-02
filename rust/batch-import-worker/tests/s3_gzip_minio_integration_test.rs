@@ -108,7 +108,7 @@ async fn test_s3_gzip_minio_integration() {
 
     let _staging = tempfile::TempDir::new().expect("create staging dir");
     let source = s3_config
-        .create_gzip_source(&secrets, _staging.path().to_path_buf())
+        .create_gzip_source(&secrets, _staging.path().to_path_buf(), 0)
         .await
         .expect("create gzip source");
     source.prepare_for_job().await.expect("prepare for job");
