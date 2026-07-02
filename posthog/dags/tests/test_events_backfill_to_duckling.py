@@ -1,6 +1,9 @@
+import re
 import uuid
+from collections.abc import Iterator
 from contextlib import closing
 from dataclasses import dataclass
+from typing import Any
 
 import pytest
 from unittest.mock import patch
@@ -93,16 +96,14 @@ _DUCKLAKE_CATALOG_DDL = [
 ]
 
 _DUCKLAKE_CATALOG_TABLES = [
-    "public.ducklake_schema",
-    "public.ducklake_table",
-    "public.ducklake_partition_info",
-    "public.ducklake_partition_column",
-    "public.ducklake_data_file",
-    "public.ducklake_file_partition_value",
+    match.group(1)
+    for stmt in _DUCKLAKE_CATALOG_DDL
+    for match in [re.search(r"CREATE TABLE (public\.\w+)", stmt)]
+    if match
 ]
 
 
-def _connect_test_db() -> psycopg.Connection:
+def _connect_test_db() -> psycopg.Connection[Any]:
     settings_dict = django_connection.settings_dict
     return psycopg.connect(
         host=settings_dict["HOST"] or "localhost",
@@ -114,24 +115,30 @@ def _connect_test_db() -> psycopg.Connection:
     )
 
 
+def _drop_catalog_tables(conn: psycopg.Connection[Any]) -> None:
+    with conn.cursor() as cur:
+        cur.execute(f"DROP TABLE IF EXISTS {', '.join(_DUCKLAKE_CATALOG_TABLES)}")
+
+
 @pytest.fixture
-def ducklake_catalog(django_db_setup):
+def ducklake_catalog(django_db_setup: None) -> Iterator[psycopg.Connection[Any]]:
     with closing(_connect_test_db()) as conn:
+        # Pre-drop: leftovers from an interrupted run survive --reuse-db.
+        _drop_catalog_tables(conn)
         with conn.cursor() as cur:
             for stmt in _DUCKLAKE_CATALOG_DDL:
                 cur.execute(stmt)
         try:
             yield conn
         finally:
-            with conn.cursor() as cur:
-                cur.execute(f"DROP TABLE IF EXISTS {', '.join(_DUCKLAKE_CATALOG_TABLES)}")
+            _drop_catalog_tables(conn)
 
 
 class TestFixupPartitionValuesForAddedFiles:
     TABLE_ID = 10
     PARTITION_ID = 100
 
-    def _seed_catalog(self, conn: psycopg.Connection) -> None:
+    def _seed_catalog(self, conn: psycopg.Connection[Any]) -> None:
         with conn.cursor() as cur:
             # A dropped-and-recreated 'posthog' schema: only the live row may resolve.
             cur.executemany(
@@ -188,7 +195,7 @@ class TestFixupPartitionValuesForAddedFiles:
         return f"backfill/events/2/year=2025/month=01/day={day:02d}/part-00.parquet"
 
     @staticmethod
-    def _partition_values(conn: psycopg.Connection) -> set[tuple[int, int, int, str]]:
+    def _partition_values(conn: psycopg.Connection[Any]) -> set[tuple[int, int, int, str]]:
         with conn.cursor() as cur:
             cur.execute(
                 "SELECT data_file_id, table_id, partition_key_index, partition_value "
@@ -209,7 +216,7 @@ class TestFixupPartitionValuesForAddedFiles:
         ):
             _fixup_partition_values_for_added_files(build_asset_context(), target, "events", "events", file_paths)
 
-    def test_rebuilds_partition_values_from_paths(self, ducklake_catalog: psycopg.Connection) -> None:
+    def test_rebuilds_partition_values_from_paths(self, ducklake_catalog: psycopg.Connection[Any]) -> None:
         self._seed_catalog(ducklake_catalog)
 
         self._run_fixup([self._path(day=5), self._path(day=6)])
