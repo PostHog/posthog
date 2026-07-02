@@ -12,7 +12,6 @@ import { urls } from 'scenes/urls'
 
 import {
     visionScannersCreate,
-    visionScannersDestroy,
     visionScannersEstimateCreate,
     visionScannersObservationsList,
     visionScannersObservationsStatsRetrieve,
@@ -245,7 +244,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
         loadObservationStats: true,
         loadObservationStatsSuccess: (stats: ObservationStatsApi) => ({ stats }),
         loadObservationStatsFailure: true,
-        deleteScanner: true,
         toggleEnabled: true,
         toggleEnabledSuccess: (enabled: boolean) => ({ enabled }),
         toggleEnabledFailure: true,
@@ -841,23 +839,6 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                     const detail = typeof error?.detail === 'string' ? error.detail : null
                     const message = typeof error?.message === 'string' ? error.message : null
                     actions.loadScannerEstimateFailure(detail ?? message)
-                }
-            },
-
-            deleteScanner: async () => {
-                if (props.id === 'new') {
-                    return
-                }
-                const teamId = teamLogic.values.currentTeamId
-                if (!teamId) {
-                    return
-                }
-                try {
-                    await visionScannersDestroy(String(teamId), props.id)
-                    lemonToast.success('Scanner deleted')
-                    router.actions.replace(urls.replayVision())
-                } catch (error: any) {
-                    lemonToast.error(`Failed to delete scanner${error.detail ? `: ${error.detail}` : ''}`)
                 }
             },
 

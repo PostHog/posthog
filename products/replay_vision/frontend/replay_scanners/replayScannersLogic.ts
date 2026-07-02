@@ -153,6 +153,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
         loadScannerStatsFailure: true,
         deleteScanner: (id: string) => ({ id }),
         deleteScannerSuccess: (id: string) => ({ id }),
+        setScannerDeleting: (id: string, deleting: boolean) => ({ id, deleting }),
         toggleScannerEnabled: (id: string) => ({ id }),
         toggleScannerEnabledDone: (id: string) => ({ id }),
         revertScannerEnabled: (id: string) => ({ id }),
@@ -205,6 +206,13 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 toggleScannerEnabled: (state, { id }) => [...state, id],
                 toggleScannerEnabledDone: (state, { id }) => state.filter((i) => i !== id),
                 revertScannerEnabled: (state, { id }) => state.filter((i) => i !== id),
+            },
+        ],
+        deletingIds: [
+            [] as string[],
+            {
+                setScannerDeleting: (state, { id, deleting }) =>
+                    deleting ? [...state, id] : state.filter((i) => i !== id),
             },
         ],
         creators: [
@@ -293,9 +301,11 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
 
         deleteScanner: async ({ id }) => {
             const teamId = teamLogic.values.currentTeamId
-            if (!teamId) {
+            // The in-flight guard keeps a double-click from double-applying the optimistic quota delta below.
+            if (!teamId || values.deletingIds.includes(id)) {
                 return
             }
+            actions.setScannerDeleting(id, true)
             // Deleting an enabled scanner removes its known contribution from the fleet sum — exact, so apply it now.
             const scanner = values.scanners.find((s) => s.id === id)
             const delta = scanner?.enabled ? -(scanner.estimated_monthly_observations ?? 0) : 0
@@ -307,6 +317,8 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
             } catch (error: any) {
                 visionQuotaLogic.findMounted()?.actions.adjustProjectedMonthly(-delta)
                 lemonToast.error(`Failed to delete scanner${error.detail ? `: ${error.detail}` : ''}`)
+            } finally {
+                actions.setScannerDeleting(id, false)
             }
         },
 

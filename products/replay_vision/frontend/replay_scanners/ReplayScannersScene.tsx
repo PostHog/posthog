@@ -44,6 +44,7 @@ export function ReplayScannersScene(): JSX.Element {
         scannersTotal,
         scannersSort,
         togglingIds,
+        deletingIds,
         search,
         enabledFilter,
         scannerTypeFilter,
@@ -161,6 +162,8 @@ export function ReplayScannersScene(): JSX.Element {
                             type="secondary"
                             status="danger"
                             icon={<IconTrash />}
+                            loading={deletingIds.includes(scanner.id)}
+                            disabledReason={deletingIds.includes(scanner.id) ? 'Deleting…' : undefined}
                             onClick={() =>
                                 LemonDialog.open({
                                     title: `Delete "${scanner.name || 'Untitled scanner'}"?`,
