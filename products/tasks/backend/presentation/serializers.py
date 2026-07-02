@@ -815,7 +815,7 @@ class TaskRunLivingArtifactCreateRequestSerializer(serializers.Serializer):
     )
 
     def validate(self, attrs):
-        has_content = bool(attrs.get("content"))
+        has_content = "content" in attrs and attrs.get("content") is not None
         has_content_base64 = bool(attrs.get("content_base64"))
         has_source = bool(attrs.get("source_artifact_id") or attrs.get("source_storage_path"))
         if sum([has_content, has_content_base64, has_source]) != 1:
