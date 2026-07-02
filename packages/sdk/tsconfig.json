@@ -1,0 +1,23 @@
+{
+    "compilerOptions": {
+        "ignoreDeprecations": "6.0",
+        "target": "es2021",
+        "lib": ["es2021", "dom", "dom.iterable"],
+        "module": "esnext",
+        "moduleResolution": "bundler",
+        "resolveJsonModule": true,
+        "noEmit": true,
+        "isolatedModules": true,
+        "declaration": true,
+        "strict": true,
+        "noImplicitReturns": true,
+        "noFallthroughCasesInSwitch": true,
+        "noUncheckedIndexedAccess": true,
+        "skipLibCheck": true,
+        "forceConsistentCasingInFileNames": true,
+        "esModuleInterop": true,
+        "types": ["node"]
+    },
+    "include": ["src/**/*.ts", "scripts/**/*.ts", "tests/**/*.ts"],
+    "exclude": ["node_modules", "dist"]
+}

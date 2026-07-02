@@ -10,6 +10,7 @@ packages:
     - packages/quill
     - packages/quill/apps/*
     - packages/quill/packages/*
+    - packages/sdk
     - frontend
     - playwright
     - nodejs
