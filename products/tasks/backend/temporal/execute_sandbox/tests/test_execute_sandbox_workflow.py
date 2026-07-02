@@ -434,6 +434,34 @@ class TestHandleFollowup:
         assert ack.args[2] is False
         assert "sandbox is dead" in (ack.args[3] or "")
 
+    async def test_dispatch_failure_unwraps_activity_error_cause(self, monkeypatch, silent_workflow_logger):
+        workflow = ExecuteSandboxWorkflow()
+        workflow._context = _build_context()
+        workflow._parent_workflow_id = "parent-wf"
+
+        activity_error = ActivityError(
+            "Activity task failed",
+            scheduled_event_id=1,
+            started_event_id=2,
+            identity="worker-1",
+            activity_type="send_followup_to_sandbox",
+            activity_id="activity-1",
+            retry_state=RetryState.MAXIMUM_ATTEMPTS_REACHED,
+        )
+        activity_error.__cause__ = RuntimeError("send_followup failed: sandbox unreachable")
+
+        send_mock = AsyncMock(side_effect=activity_error)
+        monkeypatch.setattr(workflow, "_send_followup_to_sandbox", send_mock)
+        monkeypatch.setattr(workflow, "_flush_pending_outbound", AsyncMock())
+
+        await workflow._handle_followup(PendingFollowup(message="msg", artifact_ids=[], ack_id="ack-fail"))
+
+        assert workflow._task_completed is True
+        assert workflow._completion_status == "failed"
+        assert workflow._completion_error == "Follow-up delivery failed: send_followup failed: sandbox unreachable"
+        ack = workflow._pending_outbound[-1]
+        assert ack.args[3] == "send_followup failed: sandbox unreachable"
+
 
 class TestReapOrphanedSandbox:
     """The reaper is one activity now: read + Modal destroy + clear-state all

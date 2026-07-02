@@ -134,7 +134,9 @@ def _create_implementation_task_if_absent(
         team = Team.objects.select_related("organization").get(id=team_id)
         created = tasks_facade.create_and_run_task(
             team=team,
-            title=title,
+            # "Implementation: <report title>" mirrors the research task's "Research: <report title>"
+            # relabel, so the Runs surface reads "<relationship>: <report>" for every pipeline run.
+            title=f"Implementation: {title}",
             description=description,
             origin_product=tasks_facade.TaskOriginProduct.SIGNAL_REPORT,
             user_id=user_id,

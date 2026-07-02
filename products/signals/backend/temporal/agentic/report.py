@@ -273,6 +273,14 @@ async def _persist_agentic_report_artefacts(
         artefacts=artefacts,
     )
 
+    # Backfill the research task's title now that research has produced the report title. At
+    # task-creation time the report has no title yet (research is what produces it), so the task
+    # starts with a sandbox-prompt placeholder; relabel it "Research: <report title>".
+    if result.research_task_id and result.title:
+        await database_sync_to_async(tasks_facade.set_task_title, thread_sensitive=False)(
+            result.research_task_id, team_id, f"Research: {result.title}"
+        )
+
     try:
         await maybe_autostart_implementation_task(
             team_id=team_id,
