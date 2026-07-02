@@ -98,15 +98,17 @@ Generate an API key and secret under **Account Settings → Developers (APIs and
         names: list[str] | None = None,
         force_refresh: bool = False,
     ) -> list[SourceSchema]:
-        schemas = [
-            SourceSchema(
-                name=endpoint,
-                supports_incremental=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
-                supports_append=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+        schemas = []
+        for endpoint in ENDPOINTS:
+            incremental_fields = INCREMENTAL_FIELDS.get(endpoint, [])
+            schemas.append(
+                SourceSchema(
+                    name=endpoint,
+                    supports_incremental=bool(incremental_fields),
+                    supports_append=bool(incremental_fields),
+                    incremental_fields=incremental_fields,
+                )
             )
-            for endpoint in list(ENDPOINTS)
-        ]
 
         if names is not None:
             names_set = set(names)
