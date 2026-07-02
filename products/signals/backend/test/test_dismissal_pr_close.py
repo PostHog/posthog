@@ -62,8 +62,8 @@ class TestCloseDismissedReportPrTask(BaseTest):
 class TestCloseImplementationPrForReport(BaseTest):
     def test_comments_on_and_closes_linked_pr(self):
         github = MagicMock()
-        github.comment_on_pull_request_from_url.return_value = {"success": True}
-        github.close_pull_request_from_url.return_value = {"success": True, "number": 123, "state": "closed"}
+        github.comment_on_pull_request.return_value = {"success": True}
+        github.close_pull_request.return_value = {"success": True, "number": 123, "state": "closed"}
         with (
             patch(
                 "products.signals.backend.implementation_pr.fetch_implementation_pr_urls_for_reports",
@@ -76,9 +76,9 @@ class TestCloseImplementationPrForReport(BaseTest):
         ):
             assert close_implementation_pr_for_report(self.team.id, "report-1") is True
         mock_resolve.assert_called_once_with(self.team.id, "PostHog/posthog")
-        # An explanatory comment is left before the PR is closed.
-        assert github.comment_on_pull_request_from_url.call_args.args[0] == _PR_URL
-        github.close_pull_request_from_url.assert_called_once_with(_PR_URL)
+        # An explanatory comment is left (on the parsed repo/PR number) before the PR is closed.
+        assert github.comment_on_pull_request.call_args.args[:2] == ("PostHog/posthog", 123)
+        github.close_pull_request.assert_called_once_with("PostHog/posthog", 123)
 
     def test_returns_false_and_skips_github_without_linked_pr(self):
         with (

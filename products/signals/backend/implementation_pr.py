@@ -71,17 +71,16 @@ def close_implementation_pr_for_report(team_id: int, report_id: str) -> bool:
         if parsed is None:
             logger.warning("close_implementation_pr_unparseable_url", report_id=str(report_id), pr_url=pr_url)
             return False
-        owner, repo, _pr_number = parsed
+        owner, repo, pr_number = parsed
+        repository = f"{owner}/{repo}"
 
-        github = GitHubIntegration.first_for_team_repository(team_id, f"{owner}/{repo}")
+        github = GitHubIntegration.first_for_team_repository(team_id, repository)
         if github is None:
-            logger.info(
-                "close_implementation_pr_no_integration", report_id=str(report_id), repository=f"{owner}/{repo}"
-            )
+            logger.info("close_implementation_pr_no_integration", report_id=str(report_id), repository=repository)
             return False
 
         # Explain first, close second — a failed comment shouldn't stop the close.
-        comment_outcome = github.comment_on_pull_request_from_url(pr_url, _DISMISSAL_PR_COMMENT)
+        comment_outcome = github.comment_on_pull_request(repository, pr_number, _DISMISSAL_PR_COMMENT)
         if not comment_outcome.get("success"):
             logger.warning(
                 "close_implementation_pr_comment_failed",
@@ -91,7 +90,7 @@ def close_implementation_pr_for_report(team_id: int, report_id: str) -> bool:
                 status_code=comment_outcome.get("status_code"),
             )
 
-        outcome = github.close_pull_request_from_url(pr_url)
+        outcome = github.close_pull_request(repository, pr_number)
         if not outcome.get("success"):
             logger.warning(
                 "close_implementation_pr_failed",

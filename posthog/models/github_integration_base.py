@@ -391,7 +391,6 @@ class GitHubIntegrationBase:
         *,
         endpoint: str,
         json_body: Mapping[str, object],
-        timeout: int = 10,
     ) -> requests.Response | None:
         """PATCH with installation token; refreshes on expiry or 401."""
         path = url.removeprefix("https://api.github.com")
