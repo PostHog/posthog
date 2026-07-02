@@ -4,12 +4,12 @@ import itertools
 from typing import Any
 
 import structlog
-from asgiref.sync import sync_to_async
 from temporalio import activity
 
 from posthog.models import Team
 from posthog.models.person.util import get_person_by_distinct_id
 from posthog.session_recordings.queries.session_replay_events import SessionReplayEvents
+from posthog.sync import database_sync_to_async
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.temporal.constants import (
@@ -69,7 +69,7 @@ async def fetch_session_events_activity(inputs: FetchSessionEventsInputs) -> Non
     if await redis_client.exists(redis_key):
         return
 
-    payload = await sync_to_async(_fetch_payload)(inputs.team_id, inputs.session_id)
+    payload = await database_sync_to_async(_fetch_payload, thread_sensitive=False)(inputs.team_id, inputs.session_id)
     if payload is None:
         raise IneligibleSessionError(
             "No events to analyze",
@@ -77,7 +77,7 @@ async def fetch_session_events_activity(inputs: FetchSessionEventsInputs) -> Non
         )
 
     # Persist the session identity so downstream steps read it off the row instead of re-querying ClickHouse.
-    await sync_to_async(_persist_session_identity)(inputs.observation_id, payload)
+    await database_sync_to_async(_persist_session_identity, thread_sensitive=False)(inputs.observation_id, payload)
 
     await store_data_in_redis(redis_client, redis_key, payload.model_dump_json())
 
