@@ -33,12 +33,7 @@ from products.replay_vision.backend.models.replay_observation import (
     ObservationTrigger,
     ReplayObservation,
 )
-from products.replay_vision.backend.models.replay_scanner import (
-    ReplayScanner,
-    ScannerModel,
-    ScannerProvider,
-    ScannerType,
-)
+from products.replay_vision.backend.models.replay_scanner import ReplayScanner, ScannerType
 from products.replay_vision.backend.temporal.scanners.monitor import MonitorVerdict
 from products.replay_vision.backend.temporal.types import ScannerResult, ScannerSnapshot
 
@@ -62,13 +57,11 @@ class ScannerSnapshotSerializer(serializers.Serializer):
     scanner_version = serializers.IntegerField(
         help_text="The `ReplayScanner.scanner_version` value at the moment the workflow ran.",
     )
-    model = serializers.ChoiceField(
-        choices=ScannerModel.choices,
-        help_text="Concrete model that ran the observation.",
+    model = serializers.CharField(
+        help_text="Concrete model that ran the observation; historical rows may carry since-retired model ids.",
     )
-    provider = serializers.ChoiceField(
-        choices=ScannerProvider.choices,
-        help_text="Concrete provider that ran the observation.",
+    provider = serializers.CharField(
+        help_text="Concrete provider that ran the observation; historical rows may carry since-retired providers.",
     )
     emits_signals = serializers.BooleanField(
         help_text="Whether the observation was run with Signal emission enabled.",

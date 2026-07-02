@@ -400,26 +400,6 @@ export const ScannerTypeEnumApi = {
 } as const
 
 /**
- * * `gemini-3-flash-preview` - Gemini 3 Flash
- * * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite
- */
-export type ScannerModelEnumApi = (typeof ScannerModelEnumApi)[keyof typeof ScannerModelEnumApi]
-
-export const ScannerModelEnumApi = {
-    Gemini3FlashPreview: 'gemini-3-flash-preview',
-    Gemini31FlashLitePreview: 'gemini-3.1-flash-lite-preview',
-} as const
-
-/**
- * * `google` - Google
- */
-export type ScannerProviderEnumApi = (typeof ScannerProviderEnumApi)[keyof typeof ScannerProviderEnumApi]
-
-export const ScannerProviderEnumApi = {
-    Google: 'google',
-} as const
-
-/**
  * Mirrors `temporal.types.ScannerSnapshot` for OpenAPI generation.
  */
 export interface ScannerSnapshotApi {
@@ -434,15 +414,10 @@ export interface ScannerSnapshotApi {
     scanner_type: ScannerTypeEnumApi
     /** The `ReplayScanner.scanner_version` value at the moment the workflow ran. */
     scanner_version: number
-    /** Concrete model that ran the observation.
-     *
-     * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
-    model: ScannerModelEnumApi
-    /** Concrete provider that ran the observation.
-     *
-     * * `google` - Google */
-    provider: ScannerProviderEnumApi
+    /** Concrete model that ran the observation; historical rows may carry since-retired model ids. */
+    model: string
+    /** Concrete provider that ran the observation; historical rows may carry since-retired providers. */
+    provider: string
     /** Whether the observation was run with Signal emission enabled. */
     emits_signals: boolean
     /** Scanner-type-specific configuration at run time (prompt, tags, scale, etc.). */
@@ -554,6 +529,26 @@ export interface VisionQuotaApi {
     /** Sum of enabled scanners' projected observations/month across the organization. Scanners without a computed estimate contribute 0. */
     readonly projected_monthly_observations: number
 }
+
+/**
+ * * `google` - Google
+ */
+export type ScannerProviderEnumApi = (typeof ScannerProviderEnumApi)[keyof typeof ScannerProviderEnumApi]
+
+export const ScannerProviderEnumApi = {
+    Google: 'google',
+} as const
+
+/**
+ * * `gemini-3-flash-preview` - Gemini 3 Flash
+ * * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite
+ */
+export type ScannerModelEnumApi = (typeof ScannerModelEnumApi)[keyof typeof ScannerModelEnumApi]
+
+export const ScannerModelEnumApi = {
+    Gemini3FlashPreview: 'gemini-3-flash-preview',
+    Gemini31FlashLitePreview: 'gemini-3.1-flash-lite-preview',
+} as const
 
 export interface ReplayScannerApi {
     readonly id: string

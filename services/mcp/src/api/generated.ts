@@ -32617,28 +32617,6 @@ export namespace Schemas {
     } as const;
 
     /**
-     * * `gemini-3-flash-preview` - Gemini 3 Flash
-     * * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite
-     */
-    export type ScannerModelEnum = typeof ScannerModelEnum[keyof typeof ScannerModelEnum];
-
-
-    export const ScannerModelEnum = {
-      Gemini3FlashPreview: 'gemini-3-flash-preview',
-      Gemini31FlashLitePreview: 'gemini-3.1-flash-lite-preview',
-    } as const;
-
-    /**
-     * * `google` - Google
-     */
-    export type ScannerProviderEnum = typeof ScannerProviderEnum[keyof typeof ScannerProviderEnum];
-
-
-    export const ScannerProviderEnum = {
-      Google: 'google',
-    } as const;
-
-    /**
      * Mirrors `temporal.types.ScannerSnapshot` for OpenAPI generation.
      */
     export interface ScannerSnapshot {
@@ -32653,15 +32631,10 @@ export namespace Schemas {
       scanner_type: ScannerTypeEnum;
       /** The `ReplayScanner.scanner_version` value at the moment the workflow ran. */
       scanner_version: number;
-      /** Concrete model that ran the observation.
-       *
-       * * `gemini-3-flash-preview` - Gemini 3 Flash
-       * * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite */
-      model: ScannerModelEnum;
-      /** Concrete provider that ran the observation.
-       *
-       * * `google` - Google */
-      provider: ScannerProviderEnum;
+      /** Concrete model that ran the observation; historical rows may carry since-retired model ids. */
+      model: string;
+      /** Concrete provider that ran the observation; historical rows may carry since-retired providers. */
+      provider: string;
       /** Whether the observation was run with Signal emission enabled. */
       emits_signals: boolean;
       /** Scanner-type-specific configuration at run time (prompt, tags, scale, etc.). */
@@ -32745,6 +32718,28 @@ export namespace Schemas {
       previous?: string | null;
       results: ReplayObservation[];
     }
+
+    /**
+     * * `google` - Google
+     */
+    export type ScannerProviderEnum = typeof ScannerProviderEnum[keyof typeof ScannerProviderEnum];
+
+
+    export const ScannerProviderEnum = {
+      Google: 'google',
+    } as const;
+
+    /**
+     * * `gemini-3-flash-preview` - Gemini 3 Flash
+     * * `gemini-3.1-flash-lite-preview` - Gemini 3 Flash Lite
+     */
+    export type ScannerModelEnum = typeof ScannerModelEnum[keyof typeof ScannerModelEnum];
+
+
+    export const ScannerModelEnum = {
+      Gemini3FlashPreview: 'gemini-3-flash-preview',
+      Gemini31FlashLitePreview: 'gemini-3.1-flash-lite-preview',
+    } as const;
 
     export interface ReplayScanner {
       readonly id: string;
