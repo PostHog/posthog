@@ -7,6 +7,8 @@ import type { PointClickData, TooltipContext } from '@posthog/quill-charts'
 
 import { buildTheme } from 'lib/charts/utils/theme'
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
+import { FEATURE_FLAGS } from 'lib/constants'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { StepLegend } from 'scenes/funnels/FunnelBarVertical/StepLegend'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
@@ -21,8 +23,9 @@ import { buildFunnelStepsBarConfig, FUNNEL_STEPS_BAND_PADDING } from '../shared/
 import { FunnelStepsBarTooltip } from './FunnelStepsBarTooltip'
 import {
     buildFunnelStepsBarData,
-    type FunnelStepsBarSeriesMeta,
     resolveFunnelStepClick,
+    withFunnelStepsBarInteraction,
+    type FunnelStepsBarSeriesMeta,
 } from './funnelStepsBarTransforms'
 
 const BASE_STEP_WIDTH_PX = 240
@@ -47,6 +50,8 @@ export function FunnelStepsBarChart({
     inCardView,
 }: ChartParams): JSX.Element | null {
     const { isDarkModeOn } = useValues(themeLogic)
+    const { featureFlags } = useValues(featureFlagLogic)
+    const quillTooltipEnabled = !!featureFlags[FEATURE_FLAGS.PRODUCT_ANALYTICS_INSIGHTS_TOOLTIPS]
     // buildTheme() reads CSS vars; we re-memo on isDarkModeOn so the theme refreshes
     // when the user toggles dark mode even though the function takes no arguments.
     const theme = useMemo(() => buildTheme(), [isDarkModeOn])
@@ -83,8 +88,8 @@ export function FunnelStepsBarChart({
         (variant) => variant.compare_label != null && hasBreakdown(variant.breakdown_value)
     )
     const config = useMemo(
-        () => (isBreakdownCompare ? { ...chartConfig, legend: { show: true, interactive: false } } : chartConfig),
-        [isBreakdownCompare]
+        () => withFunnelStepsBarInteraction(chartConfig, { isBreakdownCompare, quillTooltipEnabled }),
+        [isBreakdownCompare, quillTooltipEnabled]
     )
 
     const groupTypeLabel = aggregationLabel(querySource?.aggregation_group_type_index).plural

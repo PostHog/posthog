@@ -227,8 +227,10 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
             "'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and "
             "label_column (names the evaluated row(s) in breach messages, in every evaluation mode). "
             "FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall "
-            "last step) and metric ('conversion_from_start' or 'conversion_from_previous'); funnel alerts "
-            "only support absolute_value conditions."
+            "last step), metric ('conversion_from_start' or 'conversion_from_previous'), and "
+            "check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). "
+            "Steps funnels support only absolute_value conditions; historical-trend funnels also support "
+            "relative_increase/relative_decrease (compared against the prior period)."
         ),
     )
     detector_config = DetectorConfigField(required=False, allow_null=True)

@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconNotification } from '@posthog/icons'
+import { IconCheckCircle, IconNotification } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
@@ -18,7 +18,7 @@ import { notificationsMenuLogic } from './notificationsMenuLogic'
 export function NotificationsPanel(): JSX.Element {
     const { activeTab } = useValues(notificationsMenuLogic)
     const { setActiveTab } = useActions(notificationsMenuLogic)
-    const { groups, inAppUnreadCount, importantChangesLoading, hasMoreNotifications, isLoadingMore } =
+    const { groups, loadedUnreadCount, importantChangesLoading, hasMoreNotifications, isLoadingMore } =
         useValues(sidePanelNotificationsLogic)
     const { markAllAsRead, loadMoreNotifications } = useActions(sidePanelNotificationsLogic)
     const { closePanel } = useActions(panelLayoutLogic)
@@ -46,21 +46,34 @@ export function NotificationsPanel(): JSX.Element {
                     onClick={() => setActiveTab('unread')}
                 >
                     Unread
-                    {inAppUnreadCount > 0 && (
-                        <span className="ml-1 text-[10px] text-danger font-bold">{inAppUnreadCount}</span>
+                    {loadedUnreadCount > 0 && (
+                        <span className="ml-1 text-[10px] text-danger font-bold">{loadedUnreadCount}</span>
                     )}
                 </button>
             </div>
-            {inAppUnreadCount > 0 && (
-                <LemonButton size="xsmall" type="secondary" onClick={() => markAllAsRead()} className="ml-auto">
-                    Mark all as read
-                </LemonButton>
-            )}
         </div>
     )
 
+    // "Mark all as read" is a rare action, so tuck it into the panel's overflow (⋯) menu
+    // rather than pinning a button in the header. Only surfaced when there's something to clear.
+    const panelActions =
+        loadedUnreadCount > 0
+            ? [
+                  {
+                      'data-attr': 'notifications-mark-all-read',
+                      onClick: () => markAllAsRead(),
+                      children: (
+                          <>
+                              <IconCheckCircle />
+                              Mark all as read
+                          </>
+                      ),
+                  },
+              ]
+            : undefined
+
     return (
-        <PanelLayoutPanel searchField={header}>
+        <PanelLayoutPanel searchField={header} panelActionsNewSceneLayout={panelActions}>
             <ScrollableShadows
                 direction="vertical"
                 styledScrollbars
@@ -73,7 +86,7 @@ export function NotificationsPanel(): JSX.Element {
                     </div>
                 ) : filteredGroups.length > 0 ? (
                     <>
-                        <div className="flex flex-col gap-px">
+                        <div className="flex flex-col gap-1">
                             {filteredGroups.map((group: NotificationGroup) => (
                                 <NotificationGroupRow
                                     key={group.group_key}

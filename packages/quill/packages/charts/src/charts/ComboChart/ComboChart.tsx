@@ -19,7 +19,9 @@ import { barColorAt } from '../../core/color-utils'
 import { type ComboChartPrivate, createComboScales, partitionByType, resolveSeriesType } from '../../core/combo-scales'
 import {
     buildSegmentResolveValue,
+    buildStackedBottomValue,
     buildStackedPositionValue,
+    computePercentStackData,
     computeStackData,
     computeTopStackedKeyByAxis,
     resolveYScaleForSeries,
@@ -97,21 +99,23 @@ function ComboChartInner<Meta = unknown>({
     // Stack only bar series together. Lines/areas are explicitly excluded so a line doesn't get a
     // bottom-of-stack offset and bars don't widen the line's drawn baseline.
     const barStackedData = useMemo<Map<string, StackedBand> | undefined>(() => {
-        if (barLayout !== 'stacked') {
+        if (barLayout !== 'stacked' && barLayout !== 'percent') {
             return undefined
         }
         const barSeries = series.filter((s) => seriesTypeOf(s) === 'bar')
         if (barSeries.length === 0) {
             return undefined
         }
-        return computeStackData(barSeries, labels)
+        return barLayout === 'percent'
+            ? computePercentStackData(barSeries, labels)
+            : computeStackData(barSeries, labels)
     }, [barLayout, series, labels, seriesTypeOf])
 
     // Per-axis topmost bar — only bar layers below the cap forgo corner rounding. Non-bar series are
     // skipped so lines/areas don't take part in bar stacking. Shares BarChart's helper.
     const topStackedKeyByAxis = useMemo<Map<string, string>>(
         () =>
-            barLayout !== 'stacked'
+            barLayout !== 'stacked' && barLayout !== 'percent'
                 ? new Map()
                 : computeTopStackedKeyByAxis(series, { skip: (s) => seriesTypeOf(s) !== 'bar' }),
         [barLayout, series, seriesTypeOf]
@@ -315,12 +319,26 @@ function ComboChartInner<Meta = unknown>({
     // still yields correct line values.
     const resolveValue = useMemo(() => buildSegmentResolveValue(barStackedData), [barStackedData])
     const resolvePositionValue = useMemo(() => buildStackedPositionValue(barStackedData), [barStackedData])
+    const resolveBottomValue = useMemo(() => buildStackedBottomValue(barStackedData), [barStackedData])
+
+    // Mirrors BarChart: flag the axis context as percent (drives ValueLabels' 0-1 fraction
+    // handling) and default the y-tick formatter to a percentage unless the caller overrides it.
+    const chartConfig = useMemo<ComboChartConfig>(() => {
+        const base = { ...config, isPercent: barLayout === 'percent' }
+        if (barLayout !== 'percent' || config?.yTickFormatter) {
+            return base
+        }
+        return {
+            ...base,
+            yTickFormatter: (v: number) => `${Math.round(v * 100)}%`,
+        }
+    }, [config, barLayout])
 
     return (
         <Chart
             series={series}
             labels={labels}
-            config={config}
+            config={chartConfig}
             theme={theme}
             createScales={createScales}
             drawStatic={drawStatic}
@@ -331,6 +349,7 @@ function ComboChartInner<Meta = unknown>({
             dataAttr={dataAttr}
             resolveValue={resolveValue}
             resolvePositionValue={resolvePositionValue}
+            resolveBottomValue={resolveBottomValue}
         >
             {children}
         </Chart>

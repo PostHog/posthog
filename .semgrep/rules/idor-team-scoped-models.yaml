@@ -90,7 +90,9 @@ rules:
                               |CoreMemory
                               |CustomerJourney
                               |CustomerProfileConfig
+                              |CustomOAuth2Integration
                               |CustomPropertyDefinition
+                              |CustomPropertySource
                               |CustomPropertyValue
                               |DAG
                               |Dashboard
@@ -105,6 +107,7 @@ rules:
                               |DataWarehouseManagedViewSet
                               |DataWarehouseModelPath
                               |DataWarehouseSavedQuery
+                              |DataWarehouseSavedQueryColumnAnnotation
                               |DataWarehouseSavedQueryDraft
                               |DataWarehouseSavedQueryFolder
                               |DataWarehouseTable
@@ -120,6 +123,7 @@ rules:
                               |EnterprisePropertyDefinition
                               |EventFilterConfig
                               |ErrorTrackingAssignmentRule
+                              |ErrorTrackingBypassRule
                               |ErrorTrackingGroupingRule
                               |ErrorTrackingIssue
                               |ErrorTrackingIssueFingerprintV2
@@ -359,7 +363,9 @@ rules:
                         |CoreMemory
                         |CustomerJourney
                         |CustomerProfileConfig
+                        |CustomOAuth2Integration
                         |CustomPropertyDefinition
+                        |CustomPropertySource
                         |CustomPropertyValue
                         |DAG
                         |Dashboard
@@ -374,6 +380,7 @@ rules:
                         |DataWarehouseManagedViewSet
                         |DataWarehouseModelPath
                         |DataWarehouseSavedQuery
+                        |DataWarehouseSavedQueryColumnAnnotation
                         |DataWarehouseSavedQueryDraft
                         |DataWarehouseSavedQueryFolder
                         |DataWarehouseTable
@@ -389,6 +396,7 @@ rules:
                         |EnterprisePropertyDefinition
                         |EventFilterConfig
                         |ErrorTrackingAssignmentRule
+                        |ErrorTrackingBypassRule
                         |ErrorTrackingGroupingRule
                         |ErrorTrackingIssue
                         |ErrorTrackingIssueFingerprintV2
@@ -944,6 +952,7 @@ rules:
                               |UserHomeSettings
                               |UserProductList
                               |UserScenePersonalisation
+                              |WebAnalyticsUserConfig
                           )$
                 - focus-metavariable: $SINK
       pattern-sanitizers:
@@ -1016,6 +1025,7 @@ rules:
                         |UserHomeSettings
                         |UserProductList
                         |UserScenePersonalisation
+                        |WebAnalyticsUserConfig
                     )$
           # Exclude when BOTH user AND team filters are present
           - pattern-not: $M.objects. ... .$METHOD2(..., user=$U, ..., team=$T, ...)

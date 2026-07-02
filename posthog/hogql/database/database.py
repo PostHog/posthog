@@ -537,6 +537,13 @@ class Database(BaseModel):
             table_name = table_name.split(".")
         return self.tables.has_child(table_name)
 
+    def is_table_access_denied(self, table_name: str | list[str]) -> bool:
+        """True if access control denied this table when the HogQL database was built,
+        so callers can surface an access denied error instead of unknown table"""
+        if isinstance(table_name, list):
+            table_name = ".".join(str(part) for part in table_name)
+        return table_name in self._denied_tables
+
     def get_table_node(self, table_name: str | list[str]) -> TableNode:
         if isinstance(table_name, str):
             table_name = table_name.split(".")
@@ -931,7 +938,9 @@ class Database(BaseModel):
                 if allowed_warehouse_table_names is not None and table_key not in allowed_warehouse_table_names:
                     continue
 
-                if include_only and table_key not in include_only:
+                # Warehouse tables are queryable by their dotted key (`zendesk.groups`) or their raw
+                # underscore name (`zendesk_groups`); honor either form in `include_only`.
+                if include_only and table_key not in include_only and warehouse_table.name not in include_only:
                     continue
 
                 try:

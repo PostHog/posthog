@@ -26,14 +26,14 @@ from posthog.sync import database_sync_to_async
 from products.data_modeling.backend.facade.modeling import DataWarehouseModelPath
 from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
 from products.data_warehouse.backend.facade.api import get_saved_query_schedule
-from products.endpoints.backend.materialization_transforms import build_endpoint_hogql
-from products.endpoints.backend.models import EndpointVersion
-from products.endpoints.backend.services.execution import EndpointExecutionService
-from products.endpoints.backend.services.materialization import (
+from products.endpoints.backend.logic.execution import EndpointExecutionService
+from products.endpoints.backend.logic.materialization import (
     EndpointMaterializationService,
     OrphanedEndpointSavedQueryError,
     prepare_executable_query,
 )
+from products.endpoints.backend.materialization_transforms import build_endpoint_hogql
+from products.endpoints.backend.models import EndpointVersion
 from products.endpoints.backend.tests.conftest import create_endpoint_with_version
 from products.warehouse_sources.backend.facade.models import DataWarehouseTable
 
@@ -655,7 +655,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         saved_query.save()
 
         with mock.patch(
-            "products.endpoints.backend.services.execution.EndpointExecutionService._execute_query_and_respond"
+            "products.endpoints.backend.logic.execution.EndpointExecutionService._execute_query_and_respond"
         ) as mock_execute:
             old_cache_time = timezone.now() - timedelta(minutes=30)
             old_cached_response = Response(
@@ -700,7 +700,7 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         new_saved_query.save()
 
         with mock.patch(
-            "products.endpoints.backend.services.execution.EndpointExecutionService._execute_query_and_respond"
+            "products.endpoints.backend.logic.execution.EndpointExecutionService._execute_query_and_respond"
         ) as mock_execute:
             new_cache_time = timezone.now() - timedelta(minutes=5)
             new_cached_response = Response(
@@ -1708,6 +1708,85 @@ class TestEndpointMaterialization(ClickhouseTestMixin, APIBaseTest):
         self.assertIsNotNone(v2.saved_query_id, "current version's materialization was disabled by mistake")
         assert v2.saved_query is not None
         self.assertFalse(v2.saved_query.deleted)
+
+    def test_deactivating_materialized_version_disables_its_materialization(self):
+        """PATCH ?version=N {is_active: false} on a materialized version tears down its own schedule."""
+        endpoint = create_endpoint_with_version(
+            name="version-deactivate-materialized",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_materialized": True},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+        v1 = endpoint.get_version(1)
+        self.assertIsNotNone(v1.saved_query_id)
+        saved_query_id = v1.saved_query_id
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_active": False, "version": 1},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        v1.refresh_from_db()
+        self.assertFalse(v1.is_active)
+        self.assertIsNone(v1.saved_query_id, "deactivated version kept its materialization")
+        self.assertTrue(DataWarehouseSavedQuery.objects.get(id=saved_query_id).deleted)
+
+    def test_deactivating_endpoint_disables_all_versions_materialization(self):
+        """Deactivating the endpoint must tear down every materialized version, not just the current one."""
+        endpoint = create_endpoint_with_version(
+            name="endpoint-deactivate-all",
+            team=self.team,
+            query=self.sample_hogql_query,
+            created_by=self.user,
+            is_active=True,
+        )
+
+        # Materialize v1 (current), then bump to v2 via a query change and materialize it too —
+        # leaving both versions materialized at once.
+        self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_materialized": True},
+            format="json",
+        )
+        self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"query": {"kind": "HogQLQuery", "query": "SELECT event FROM events LIMIT 5"}},
+            format="json",
+        )
+        v1 = endpoint.get_version(1)
+        v2 = endpoint.get_version(2)
+        self.assertIsNotNone(v1.saved_query_id)
+        self.assertIsNotNone(v2.saved_query_id)
+        v1_saved_query_id = v1.saved_query_id
+        v2_saved_query_id = v2.saved_query_id
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.id}/endpoints/{endpoint.name}/",
+            {"is_active": False},
+            format="json",
+        )
+        self.assertEqual(response.status_code, status.HTTP_200_OK, response.json())
+
+        v1.refresh_from_db()
+        v2.refresh_from_db()
+        self.assertIsNone(v1.saved_query_id, "non-current version kept its materialization")
+        self.assertIsNone(v2.saved_query_id, "current version kept its materialization")
+        self.assertTrue(DataWarehouseSavedQuery.objects.get(id=v1_saved_query_id).deleted)
+        self.assertTrue(DataWarehouseSavedQuery.objects.get(id=v2_saved_query_id).deleted)
+        self.assertIsNone(v1.saved_query_id, "non-current version kept its materialization")
+        self.assertIsNone(v2.saved_query_id, "current version kept its materialization")
+        self.assertTrue(DataWarehouseSavedQuery.objects.get(id=v1_saved_query_id).deleted)
+        self.assertTrue(DataWarehouseSavedQuery.objects.get(id=v2_saved_query_id).deleted)
 
     def test_enable_materialization_does_not_hijack_user_saved_query(self):
         """A user-created saved query whose name collides with {endpoint}_v{n} must not be taken over."""

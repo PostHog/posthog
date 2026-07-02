@@ -17,6 +17,8 @@ from django.db.models import Q
 
 import structlog
 import posthoganalytics
+from drf_spectacular.types import OpenApiTypes
+from drf_spectacular.utils import extend_schema, extend_schema_field
 from rest_framework import serializers, status
 from rest_framework.permissions import AllowAny
 from rest_framework.request import Request
@@ -216,3 +218,102 @@ class ExternalAccountView(APIView):
             return _update_error_response(result)
 
         return Response(_external_account_body(result.account))
+
+
+@extend_schema_field({"oneOf": [{"type": "string"}, {"type": "number"}, {"type": "boolean"}]})
+class _CustomPropertyScalarField(serializers.Field):
+    """A custom property value sent over the external API — a JSON scalar.
+
+    Objects, arrays, and null are rejected here; the concrete type each property accepts is set by
+    its definition and validated server-side when the value is coerced.
+    """
+
+    def to_internal_value(self, data: Any) -> Any:
+        if data is None or isinstance(data, dict | list):
+            raise serializers.ValidationError("Value must be a string, number, or boolean.")
+        return data
+
+
+class ExternalAccountCustomPropertiesSerializer(serializers.Serializer):
+    external_id = serializers.CharField(
+        max_length=400,
+        help_text="External ID of the account whose custom property values to set — the group key it is linked to.",
+    )
+    properties = serializers.DictField(
+        child=_CustomPropertyScalarField(),
+        help_text="Map of custom property definition UUID to the value to set for this account.",
+    )
+
+
+_CUSTOM_PROPERTIES_ERROR_RESPONSES = {
+    contracts.ExternalAccountCustomPropertiesError.ACCOUNT_NOT_FOUND: ("Account not found", status.HTTP_404_NOT_FOUND),
+    contracts.ExternalAccountCustomPropertiesError.DEFINITION_NOT_FOUND: (
+        "Custom property definition not found",
+        status.HTTP_400_BAD_REQUEST,
+    ),
+    contracts.ExternalAccountCustomPropertiesError.INVALID_VALUE: (
+        "Invalid custom property value",
+        status.HTTP_400_BAD_REQUEST,
+    ),
+    contracts.ExternalAccountCustomPropertiesError.CONFLICT: (
+        "A concurrent write set this property — retry",
+        status.HTTP_409_CONFLICT,
+    ),
+    contracts.ExternalAccountCustomPropertiesError.UPDATE_FAILED: (
+        "Failed to update custom properties",
+        status.HTTP_500_INTERNAL_SERVER_ERROR,
+    ),
+    contracts.ExternalAccountCustomPropertiesError.SOURCE_MANAGED: (
+        "This custom property is managed by a data warehouse source and can't be set manually",
+        status.HTTP_400_BAD_REQUEST,
+    ),
+}
+
+
+def _custom_properties_error_response(result: contracts.ExternalAccountCustomPropertiesResult) -> Response:
+    assert result.error is not None
+    message, code = _CUSTOM_PROPERTIES_ERROR_RESPONSES[result.error]
+    if result.error_field:
+        message = f"{result.error_field}: {message}"
+    return Response({"error": message}, status=code)
+
+
+class ExternalAccountCustomPropertiesView(APIView):
+    """
+    PATCH /api/customer_analytics/external/account/custom_property_values — Set an account's custom
+    property values, addressing each property by its definition id (UUID).
+
+    Authenticated via Bearer token (team secret_api_token) in the Authorization header.
+    """
+
+    authentication_classes: list = []
+    permission_classes = [AllowAny]
+    throttle_classes = [ExternalAccountBurstThrottle, ExternalAccountSustainedThrottle]
+
+    @extend_schema(request=ExternalAccountCustomPropertiesSerializer, responses={200: OpenApiTypes.OBJECT})
+    def patch(self, request: Request) -> Response:
+        team, error = _authenticate_team(request)
+        if error:
+            return error
+
+        assert team is not None
+
+        serializer = ExternalAccountCustomPropertiesSerializer(data=request.data)
+        if not serializer.is_valid():
+            return Response({"error": serializer.errors}, status=status.HTTP_400_BAD_REQUEST)
+        data = serializer.validated_data
+
+        external_id = data["external_id"].strip()
+        if not external_id:
+            return Response({"error": "external_id is required"}, status=status.HTTP_400_BAD_REQUEST)
+
+        result = facade.set_external_account_custom_properties(team.id, external_id, properties=data["properties"])
+        if result.values is None:
+            return _custom_properties_error_response(result)
+
+        return Response(
+            {
+                "external_id": external_id,
+                "values": [{"definition_id": str(v.definition_id), "value": v.value} for v in result.values],
+            }
+        )

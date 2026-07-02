@@ -57,6 +57,44 @@ class NotebookActivitySummary:
 
 
 @dataclass(frozen=True)
+class MarkdownNotebookMigrationStats:
+    """Markdown migration status for notebooks in an optional team scope."""
+
+    total: int
+    converted: int
+    pending: int
+    team_id: int | None = None
+
+
+@dataclass(frozen=True)
+class MarkdownNotebookMigrationPreview:
+    """A dry-run preview of one notebook conversion."""
+
+    short_id: str
+    title: str | None
+    before_version: int
+    markdown_preview: str
+
+
+@dataclass(frozen=True)
+class MarkdownNotebookMigrationResult:
+    """Result of a markdown notebook migration run."""
+
+    dry_run: bool
+    team_id: int | None
+    batch_size: int | None
+    total: int
+    already_converted: int
+    pending_before: int
+    pending_after: int
+    converted: int
+    skipped: int
+    errored: int
+    previews: list[MarkdownNotebookMigrationPreview] = field(default_factory=list)
+    errors: list[str] = field(default_factory=list)
+
+
+@dataclass(frozen=True)
 class AccountNote:
     """An internal notebook linked to a customer-analytics account, for context rendering."""
 
