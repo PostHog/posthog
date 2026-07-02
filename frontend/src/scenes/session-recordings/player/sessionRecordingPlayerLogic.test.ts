@@ -603,6 +603,27 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(logic.values.playerError).toBeNull()
         })
 
+        it('revives a dead loading chain from checkBufferingCompleted while still buffering', async () => {
+            const dataLogic = snapshotDataLogic({ sessionRecordingId: '2' })
+            seedRecording(null, [inc(START + 61000), inc(START + 62000)])
+            logic.actions.setPause()
+
+            // an inactive player swallows the seek-time load kick, leaving the chain dead the same way repeated fetch failures do
+            dataLogic.cache.playerActive = false
+            logic.actions.seekToTimestamp(START + 61500)
+            expect(logic.values.isBuffering).toBe(true)
+            dataLogic.cache.playerActive = true
+
+            // the periodic buffering re-check must restart loading, not just re-derive the verdict
+            await expectLogic(dataLogic, () => {
+                logic.actions.checkBufferingCompleted()
+            }).toDispatchActions([
+                (action) =>
+                    action.type === dataLogic.actionTypes.loadSnapshotsForSource &&
+                    action.payload.sources?.[0]?.blob_key === '8',
+            ])
+        })
+
         it('buffers while earlier data that could contain a full snapshot is still loading', () => {
             // The first source is unloaded — it could still contain the window's
             // FullSnapshot, so a seek into the second source's FullSnapshot-less data

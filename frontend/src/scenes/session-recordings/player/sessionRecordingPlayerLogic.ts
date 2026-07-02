@@ -1698,6 +1698,8 @@ export const sessionRecordingPlayerLogic = kea<sessionRecordingPlayerLogicType>(
 
             if (stillBuffering) {
                 retargetLoader()
+                // Also kick the loader directly: after repeated fetch failures the loading chain is dead and the same-target guard swallows the re-target, so this is the only revival path.
+                actions.loadNextSnapshotSource()
                 return
             }
 

@@ -246,6 +246,8 @@ export const snapshotDataLogic = kea<snapshotDataLogicType>([
                 ) {
                     return
                 }
+                // A genuinely new target grants fresh retries after the permanent-failure cap.
+                cache.loadFailureCount = 0
                 // If we can already play at this position (data is loaded), no need to seek —
                 // this handles segment transitions during normal forward playback
                 if (cache.store.canPlayAt(timestamp, windowId)) {
