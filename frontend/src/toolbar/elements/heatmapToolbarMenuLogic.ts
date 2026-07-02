@@ -200,7 +200,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             {
                 enableHeatmap: () => true,
                 disableHeatmap: () => false,
-                getElementStatsFailure: () => false,
             },
         ],
         clickmapsEnabled: [
@@ -277,7 +276,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                     // the gates can flip while we sit in the breakpoint (the embedded app sends
                     // toggleClickmapsEnabled(false) just after mount), so re-check before fetching
                     if (!values.heatmapEnabled || !values.clickmapsEnabled) {
-                        return emptyElementsStatsPages
+                        return values.elementStats ?? emptyElementsStatsPages
                     }
 
                     const { href, wildcardHref } = values

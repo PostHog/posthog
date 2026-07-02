@@ -128,5 +128,14 @@ describe('heatmapToolbarMenuLogic', () => {
             }).toDispatchActions(['getElementStats', 'getElementStatsSuccess'])
             expect(toolbarApi.elementStats.list).not.toHaveBeenCalled()
         })
+
+        it('keeps heatmapEnabled true after a stats fetch failure so the menu stays open', async () => {
+            jest.spyOn(toolbarApi.elementStats, 'list').mockRejectedValue(new Error('network error'))
+            await expectLogic(logic, () => logic.actions.enableHeatmap()).toDispatchActions([
+                'getElementStats',
+                'getElementStatsFailure',
+            ])
+            expect(logic.values.heatmapEnabled).toBe(true)
+        })
     })
 })
