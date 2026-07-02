@@ -1,5 +1,6 @@
 from collections.abc import AsyncIterator, Iterator
 from http import HTTPStatus
+from typing import cast
 
 from unittest import mock
 
@@ -50,6 +51,16 @@ class TestSSEStreamingResponse:
         assert response.headers["X-Custom"] == "1"
 
 
+def _sync_content(response: StreamingHttpResponse) -> Iterator[bytes]:
+    # streaming_content is typed as a sync/async union; these tests construct
+    # the response from a sync iterator, so the cast is safe.
+    return cast(Iterator[bytes], response.streaming_content)
+
+
+def _async_content(response: StreamingHttpResponse) -> AsyncIterator[bytes]:
+    return cast(AsyncIterator[bytes], response.streaming_content)
+
+
 def _open_connections(endpoint: str) -> float:
     return REGISTRY.get_sample_value("posthog_open_sse_connections", {"endpoint": endpoint}) or 0.0
 
@@ -67,7 +78,7 @@ class TestSSEStreamMetrics:
 
     def test_sync_stream_counts_open_and_completed(self):
         response = sse_streaming_response(_gen(), endpoint="test_sync_complete")
-        assert b"".join(response.streaming_content) == b"data: hello\n\n"
+        assert b"".join(_sync_content(response)) == b"data: hello\n\n"
         assert _open_connections("test_sync_complete") == 0.0
         assert _closed_total("test_sync_complete", "completed") == 1.0
 
@@ -77,7 +88,7 @@ class TestSSEStreamMetrics:
             raise RuntimeError("stream died")
 
         response = sse_streaming_response(boom(), endpoint="test_sync_error")
-        it = iter(response.streaming_content)
+        it = _sync_content(response)
         next(it)
         try:
             next(it)
@@ -92,7 +103,7 @@ class TestSSEStreamMetrics:
                 yield b": ping\n\n"
 
         response = sse_streaming_response(endless(), endpoint="test_sync_disconnect")
-        it = iter(response.streaming_content)
+        it = _sync_content(response)
         next(it)
         assert _open_connections("test_sync_disconnect") == 1.0
         response.close()  # what Django does when the client goes away
@@ -104,7 +115,7 @@ class TestSSEStreamMetrics:
             yield b"data: hello\n\n"
 
         response = sse_streaming_response(agen(), endpoint="test_async_complete")
-        assert [chunk async for chunk in response.streaming_content] == [b"data: hello\n\n"]
+        assert [chunk async for chunk in _async_content(response)] == [b"data: hello\n\n"]
         assert _open_connections("test_async_complete") == 0.0
         assert _closed_total("test_async_complete", "completed") == 1.0
 
