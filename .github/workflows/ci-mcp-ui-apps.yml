@@ -41,6 +41,7 @@ jobs:
                         - 'services/mcp/vite.ui-apps.config.ts'
                         - 'services/mcp/scripts/build-ui-apps.ts'
                         - 'services/mcp/scripts/generate-ui-apps.ts'
+                        - 'services/mcp/scripts/post-ui-apps-size-section.mjs'
                         - 'services/mcp/scripts/yaml-config-schema.ts'
                         - 'products/*/mcp/**'
                         - 'services/mcp/definitions/*.yaml'
