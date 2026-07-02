@@ -1,4 +1,5 @@
 import asyncio
+from collections.abc import Awaitable, Callable
 from dataclasses import asdict
 from datetime import timedelta
 
@@ -19,6 +20,7 @@ from temporalio.client import (
     ScheduleRange,
     ScheduleSpec,
 )
+from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.temporal.ai_observability.eval_reports.schedule import (
     create_count_trigger_schedule,
@@ -753,17 +755,65 @@ if settings.EE_AVAILABLE:
         schedules.append(create_salesforce_stripe_enrichment_schedule)
 
 
+# Transient Temporal server RPC failures that are worth retrying rather than aborting the whole init.
+_TRANSIENT_RPC_STATUS_CODES = frozenset(
+    {
+        RPCStatusCode.DEADLINE_EXCEEDED,
+        RPCStatusCode.UNAVAILABLE,
+        RPCStatusCode.RESOURCE_EXHAUSTED,
+        RPCStatusCode.ABORTED,
+        RPCStatusCode.INTERNAL,
+        RPCStatusCode.UNKNOWN,
+    }
+)
+_SCHEDULE_INIT_MAX_ATTEMPTS = 3
+_SCHEDULE_INIT_INITIAL_BACKOFF_SECONDS = 1.0
+
+
+async def _init_single_schedule(schedule: Callable[[Client], Awaitable[None]], temporal: Client) -> None:
+    """Create or update a single schedule, retrying transient Temporal RPC errors with backoff.
+
+    A transient RPC timeout against the Temporal server must not abort the whole init: each
+    schedule is isolated so one failure logs and the remaining schedules still register.
+    """
+    for attempt in range(1, _SCHEDULE_INIT_MAX_ATTEMPTS + 1):
+        try:
+            await schedule(temporal)
+            return
+        except ScheduleAlreadyRunningError:
+            # Benign: a concurrent init already created this schedule.
+            logger.info("Schedule already running, skipping", schedule=schedule.__name__)
+            return
+        except RPCError as e:
+            if e.status in _TRANSIENT_RPC_STATUS_CODES and attempt < _SCHEDULE_INIT_MAX_ATTEMPTS:
+                backoff = _SCHEDULE_INIT_INITIAL_BACKOFF_SECONDS * (2 ** (attempt - 1))
+                logger.warning(
+                    "Transient Temporal RPC error initializing schedule, retrying",
+                    schedule=schedule.__name__,
+                    attempt=attempt,
+                    backoff_seconds=backoff,
+                    error=e,
+                )
+                await asyncio.sleep(backoff)
+                continue
+            raise
+
+
 async def a_init_general_queue_schedules():
     temporal = await async_connect()
-    try:
-        async with asyncio.TaskGroup() as tg:
-            for schedule in schedules:
-                tg.create_task(schedule(temporal))
-    except* Exception as eg:
-        for exc in eg.exceptions:
-            logger.exception("Failed to initialize temporal schedules", error=exc)
-            if not isinstance(exc, ScheduleAlreadyRunningError):
-                raise exc
+    # gather(return_exceptions=True) instead of a TaskGroup: a failure on one schedule must not
+    # cancel the others, so every schedule gets a chance to register during a deploy.
+    results = await asyncio.gather(
+        *(_init_single_schedule(schedule, temporal) for schedule in schedules),
+        return_exceptions=True,
+    )
+    failures = [exc for exc in results if isinstance(exc, BaseException)]
+    for exc in failures:
+        # Not inside an ``except`` block, so pass the exception explicitly to capture its traceback.
+        logger.error("Failed to initialize temporal schedule", error=exc, exc_info=exc)
+    if failures:
+        # All schedules have been attempted; surface genuine failures so the deploy still notices.
+        raise BaseExceptionGroup("Failed to initialize some temporal schedules", failures)
 
 
 @async_to_sync
