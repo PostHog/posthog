@@ -276,6 +276,9 @@ def test_dwh_source_mixed_still_denies(files: list[str], subject: str) -> None:
         pytest.param("docker-compose.dev.yml", False, id="yaml-config"),
         pytest.param("package.json", False, id="json-config"),
         pytest.param("regenerated_totals.py", False, id="generated-substring-not-dir"),
+        pytest.param("frontend/src/generated/core/evil.py", False, id="generated-dir-executable-py"),
+        pytest.param("frontend/src/generated/core/build.sh", False, id="generated-dir-executable-sh"),
+        pytest.param("docs/generate_sidebar.py", False, id="docs-dir-executable-py"),
     ],
 )
 def test_is_size_exempt(path: str, exempt: bool) -> None:

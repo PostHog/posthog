@@ -159,7 +159,8 @@ REVIEWER_SYSTEM = textwrap.dedent(
     - Author NOT on owning team:
       - Fine: typo fixes, log strings, test fixes, comments, mechanical refactors
       - Fine: small behavioral fixes (T1a/T1b) with test coverage and no
-        outstanding reviewer concerns (see independent-review carve-out below)
+        outstanding reviewer concerns — independent review still required
+        (the no-review carve-out below applies to owning-team authors only)
       - ESCALATE: changes to API contracts or data models, and larger (T1c+)
         behavioral changes to business logic
 

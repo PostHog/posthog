@@ -320,6 +320,8 @@ def _fetch_threads_and_reactions(repo: str, pr_number: int, author: str) -> tupl
                 # Same exclusion as _normalize_reviews_for_prompt: stamphog's
                 # own inline comments describe an earlier snapshot, and feeding
                 # them back makes the next run read them as impersonation.
+                # Reactions on these comments are also dropped — a 👍 on
+                # stamphog's comment endorses stamphog's verdict, not the PR.
                 if (c.get("author") or {}).get("login") in _SELF_REVIEW_LOGINS:
                     continue
                 assoc = c.get("authorAssociation", "")
