@@ -168,6 +168,7 @@ the row lists both.
 | hubspot                 | HTTP                        | requests                                                        | ✅                          |
 | incident_io             | HTTP                        | requests                                                        | ✅                          |
 | intercom                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| ip2whois                | HTTP                        | requests                                                        | ✅                          |
 | iterable                | HTTP                        | requests                                                        | ✅                          |
 | jira                    | HTTP                        | requests                                                        | ✅                          |
 | jotform                 | HTTP                        | requests                                                        | ✅                          |
@@ -466,7 +467,6 @@ doesn't conflict with concurrent PRs.
 - intruder
 - invoiced
 - invoiceninja
-- ip2whois
 - jamf_pro
 - jobber
 - jobnimbus
