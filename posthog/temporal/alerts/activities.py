@@ -105,7 +105,9 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
     @database_sync_to_async(thread_sensitive=False)
     def _prepare() -> PrepareAlertResult:
         try:
-            alert = AlertConfiguration.objects.select_related("insight", "team", "threshold").get(id=inputs.alert_id)
+            alert = AlertConfiguration.objects.select_related("insight", "team", "team__organization", "threshold").get(
+                id=inputs.alert_id
+            )
         except AlertConfiguration.DoesNotExist:
             logger.warning("Alert not found", alert_id=inputs.alert_id)
             return PrepareAlertResult(action=PrepareAction.SKIP, reason=SkipReason.NOT_FOUND)
@@ -121,6 +123,19 @@ async def prepare_alert(inputs: PrepareAlertActivityInputs) -> PrepareAlertResul
                 insight_id=alert.insight_id,
             )
             return PrepareAlertResult(action=PrepareAction.SKIP, reason=SkipReason.INSIGHT_DELETED)
+
+        # Plan downgrade protection: entitlement-gated intervals must stop evaluating when the
+        # org loses the feature (e.g. billing downgrade), since API validation only runs on writes.
+        entitlement_error = AlertConfiguration.real_time_interval_validation_error(
+            calculation_interval=alert.calculation_interval,
+            organization=alert.team.organization,
+        ) or AlertConfiguration.every_15_minutes_interval_validation_error(
+            calculation_interval=alert.calculation_interval,
+            organization=alert.team.organization,
+        )
+        if entitlement_error:
+            disable_invalid_alert(alert, entitlement_error)
+            return PrepareAlertResult(action=PrepareAction.AUTO_DISABLE, reason=entitlement_error)
 
         now = datetime.now(UTC)
 
