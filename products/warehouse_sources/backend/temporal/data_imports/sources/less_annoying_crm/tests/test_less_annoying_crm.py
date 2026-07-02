@@ -24,6 +24,8 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.less_annoy
 
 MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.less_annoying_crm.less_annoying_crm"
 
+LOGGER = MagicMock()
+
 
 def _response(status_code: int = 200, body: Any = None) -> MagicMock:
     response = MagicMock()
@@ -114,9 +116,7 @@ class TestBuildParameters:
 class TestCallFunction:
     def test_success_returns_json(self) -> None:
         session = _session_returning(_response(200, {"Results": [{"ContactId": "1"}]}))
-        data = less_annoying_crm._call_function(
-            session, "key", "GetContacts", {"Page": 1}, less_annoying_crm._NOOP_LOGGER
-        )
+        data = less_annoying_crm._call_function(session, "key", "GetContacts", {"Page": 1}, LOGGER)
         assert data == {"Results": [{"ContactId": "1"}]}
 
     @pytest.mark.parametrize("status", [429, 500, 502, 503])
@@ -124,7 +124,7 @@ class TestCallFunction:
         session = _session_returning(*[_response(status) for _ in range(5)])
         # Skip tenacity's real backoff sleeps so the test stays fast.
         with patch("time.sleep"), pytest.raises(LessAnnoyingCRMRetryableError):
-            less_annoying_crm._call_function(session, "key", "GetContacts", {}, less_annoying_crm._NOOP_LOGGER)
+            less_annoying_crm._call_function(session, "key", "GetContacts", {}, LOGGER)
 
     def test_error_body_surfaces_description(self) -> None:
         # LACRM returns credential failures as HTTP 400 with a JSON error body.
@@ -132,12 +132,12 @@ class TestCallFunction:
             _response(400, {"ErrorCode": "x", "ErrorDescription": "Invalid credentials. Please make sure."})
         )
         with pytest.raises(LessAnnoyingCRMError, match="Invalid credentials"):
-            less_annoying_crm._call_function(session, "key", "GetUser", {}, less_annoying_crm._NOOP_LOGGER)
+            less_annoying_crm._call_function(session, "key", "GetUser", {}, LOGGER)
 
     def test_error_body_on_200_still_raises(self) -> None:
         session = _session_returning(_response(200, {"ErrorCode": "x", "ErrorDescription": "nope"}))
         with pytest.raises(LessAnnoyingCRMError):
-            less_annoying_crm._call_function(session, "key", "GetUser", {}, less_annoying_crm._NOOP_LOGGER)
+            less_annoying_crm._call_function(session, "key", "GetUser", {}, LOGGER)
 
 
 class TestValidateCredentials:
@@ -151,19 +151,31 @@ class TestValidateCredentials:
         with patch(f"{MODULE}.make_tracked_session", return_value=session):
             assert validate_credentials("bad-key") is False
 
+    def test_probe_redacts_the_api_key(self) -> None:
+        session = _session_returning(_response(200, {"UserId": "1"}))
+        with patch(f"{MODULE}.make_tracked_session", return_value=session) as make_session:
+            validate_credentials("secret-key")
+        assert make_session.call_args.kwargs["redact_values"] == ("secret-key",)
+
 
 class TestGetRows:
+    def test_sync_redacts_the_api_key(self) -> None:
+        session = _session_returning(_response(200, [{"UserId": "1"}]))
+        with patch(f"{MODULE}.make_tracked_session", return_value=session) as make_session:
+            list(get_rows("secret-key", "users", LOGGER, _manager()))
+        assert make_session.call_args.kwargs["redact_values"] == ("secret-key",)
+
     def test_non_paginated_single_call(self) -> None:
         session = _session_returning(_response(200, [{"UserId": "1"}, {"UserId": "2"}]))
         with patch(f"{MODULE}.make_tracked_session", return_value=session):
-            pages = list(get_rows("key", "users", less_annoying_crm._NOOP_LOGGER, _manager()))
+            pages = list(get_rows("key", "users", LOGGER, _manager()))
         assert pages == [[{"UserId": "1"}, {"UserId": "2"}]]
         assert session.post.call_count == 1
 
     def test_stops_when_no_more_results(self) -> None:
         session = _session_returning(_response(200, {"Results": [{"ContactId": "1"}], "HasMoreResults": False}))
         with patch(f"{MODULE}.make_tracked_session", return_value=session):
-            pages = list(get_rows("key", "contacts", less_annoying_crm._NOOP_LOGGER, _manager()))
+            pages = list(get_rows("key", "contacts", LOGGER, _manager()))
         assert pages == [[{"ContactId": "1"}]]
         assert session.post.call_count == 1
 
@@ -173,7 +185,7 @@ class TestGetRows:
         session = _session_returning(page1, page2)
         manager = _manager()
         with patch(f"{MODULE}.make_tracked_session", return_value=session):
-            pages = list(get_rows("key", "contacts", less_annoying_crm._NOOP_LOGGER, manager))
+            pages = list(get_rows("key", "contacts", LOGGER, manager))
         assert pages == [[{"ContactId": "1"}], [{"ContactId": "2"}]]
         # State saved after yielding the first page (more remained), pointing at page 2.
         assert manager.save_state.call_args_list[0].args[0] == LessAnnoyingCRMResumeConfig(page=2)
@@ -181,33 +193,29 @@ class TestGetRows:
     def test_resumes_from_saved_page(self) -> None:
         session = _session_returning(_response(200, {"Results": [{"ContactId": "9"}], "HasMoreResults": False}))
         with patch(f"{MODULE}.make_tracked_session", return_value=session):
-            list(
-                get_rows(
-                    "key", "contacts", less_annoying_crm._NOOP_LOGGER, _manager(LessAnnoyingCRMResumeConfig(page=4))
-                )
-            )
+            list(get_rows("key", "contacts", LOGGER, _manager(LessAnnoyingCRMResumeConfig(page=4))))
         assert session.post.call_args.kwargs["json"]["Parameters"]["Page"] == 4
 
     def test_empty_first_page_yields_nothing(self) -> None:
         session = _session_returning(_response(200, {"Results": [], "HasMoreResults": False}))
         with patch(f"{MODULE}.make_tracked_session", return_value=session):
-            pages = list(get_rows("key", "contacts", less_annoying_crm._NOOP_LOGGER, _manager()))
+            pages = list(get_rows("key", "contacts", LOGGER, _manager()))
         assert pages == []
 
 
 class TestSourceResponse:
     @pytest.mark.parametrize("endpoint", sorted(ENDPOINTS))
     def test_primary_keys_match_settings(self, endpoint: str) -> None:
-        response = less_annoying_crm_source("key", endpoint, less_annoying_crm._NOOP_LOGGER, _manager())
+        response = less_annoying_crm_source("key", endpoint, LOGGER, _manager())
         assert response.name == endpoint
         assert response.primary_keys == LESS_ANNOYING_CRM_ENDPOINTS[endpoint].primary_keys
 
     def test_partitioned_endpoint_uses_datetime_mode(self) -> None:
-        response = less_annoying_crm_source("key", "contacts", less_annoying_crm._NOOP_LOGGER, _manager())
+        response = less_annoying_crm_source("key", "contacts", LOGGER, _manager())
         assert response.partition_mode == "datetime"
         assert response.partition_keys == ["DateCreated"]
 
     def test_reference_table_is_not_partitioned(self) -> None:
-        response = less_annoying_crm_source("key", "users", less_annoying_crm._NOOP_LOGGER, _manager())
+        response = less_annoying_crm_source("key", "users", LOGGER, _manager())
         assert response.partition_mode is None
         assert response.partition_keys is None

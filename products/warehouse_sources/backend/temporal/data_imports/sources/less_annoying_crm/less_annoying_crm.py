@@ -3,6 +3,7 @@ from collections.abc import Iterator
 from typing import Any
 
 import requests
+import structlog
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
 
@@ -25,6 +26,8 @@ PAGE_SIZE = 500
 
 REQUEST_TIMEOUT_SECONDS = 60
 
+logger = structlog.get_logger(__name__)
+
 
 class LessAnnoyingCRMRetryableError(Exception):
     """Raised for transient failures (429 / 5xx / connection) that are worth retrying."""
@@ -41,18 +44,6 @@ class LessAnnoyingCRMResumeConfig:
     # Next page number to request. Full refresh only, so page number is the entire cursor: on resume
     # we re-request the last saved page (merge dedupes on the primary key).
     page: int = 1
-
-
-class _NoopLogger:
-    """Minimal stand-in used by `validate_credentials`, which runs outside a pipeline (no logger)."""
-
-    def _noop(self, *args: Any, **kwargs: Any) -> None:
-        return None
-
-    debug = info = warning = error = exception = _noop
-
-
-_NOOP_LOGGER: Any = _NoopLogger()
 
 
 def _get_headers(api_key: str) -> dict[str, str]:
@@ -151,8 +142,8 @@ def validate_credentials(api_key: str) -> bool:
     ``GetUser`` takes no parameters and always returns the authenticated user, so it validates the
     key without touching any specific resource's read permissions."""
     try:
-        session = make_tracked_session()
-        data = _call_function(session, api_key, "GetUser", {}, logger=_NOOP_LOGGER)
+        session = make_tracked_session(redact_values=(api_key,))
+        data = _call_function(session, api_key, "GetUser", {}, logger=logger)
         return not _is_error_body(data)
     except Exception:
         return False
@@ -165,7 +156,8 @@ def get_rows(
     resumable_source_manager: ResumableSourceManager[LessAnnoyingCRMResumeConfig],
 ) -> Iterator[list[dict[str, Any]]]:
     config = LESS_ANNOYING_CRM_ENDPOINTS[endpoint]
-    session = make_tracked_session()
+    # Redact the key so it can never land in tracked HTTP request/response samples.
+    session = make_tracked_session(redact_values=(api_key,))
 
     # Non-paginated reference tables (users, teams) are a single call.
     if not config.paginated:
