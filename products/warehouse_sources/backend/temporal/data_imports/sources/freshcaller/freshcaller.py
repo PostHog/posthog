@@ -153,8 +153,10 @@ def get_rows(
     if resume is not None:
         logger.debug(f"Freshcaller: resuming {endpoint} from page {page}")
 
-    # One session reused across pages so urllib3 keeps the connection alive.
-    session = make_tracked_session()
+    # One session reused across pages so urllib3 keeps the connection alive. `redact_values` masks
+    # the API key from captured HTTP samples: it rides in the `X-Api-Auth` header, which the
+    # name-based sample scrubbers don't recognise.
+    session = make_tracked_session(redact_values=(api_key,))
 
     @retry(
         retry=retry_if_exception_type((FreshcallerRetryableError, requests.ReadTimeout, requests.ConnectionError)),
@@ -242,7 +244,9 @@ def validate_credentials(subdomain: str, api_key: str) -> Optional[int]:
     """Probe the Freshcaller API. Returns the HTTP status code, or ``None`` on a connection error."""
     url = f"{_base_url(subdomain)}/api/v1/users?per_page=1"
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=VALIDATE_TIMEOUT)
+        response = make_tracked_session(redact_values=(api_key,)).get(
+            url, headers=_get_headers(api_key), timeout=VALIDATE_TIMEOUT
+        )
     except Exception:
         return None
 

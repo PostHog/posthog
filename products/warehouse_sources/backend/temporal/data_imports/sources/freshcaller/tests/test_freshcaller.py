@@ -215,6 +215,18 @@ class TestGetRows:
         assert rows == [[{"id": 1}]]
         assert manager.saved == []
 
+    def test_session_redacts_api_key_from_samples(self) -> None:
+        # The key rides in the X-Api-Auth header, which the name-based sample scrubbers don't
+        # cover, so it must be value-redacted or it leaks into captured HTTP samples.
+        manager = FakeResumableManager()
+        session = mock.MagicMock()
+        session.get.side_effect = [FakeResponse(_page("users", [{"id": 1}], current=1, total_pages=1))]
+
+        with mock.patch(PATCH_SESSION, return_value=session) as mock_make:
+            list(get_rows("secret-key", "acme", "users", logger, manager))  # type: ignore[arg-type]
+
+        assert mock_make.call_args.kwargs.get("redact_values") == ("secret-key",)
+
     def test_resumes_from_saved_page(self) -> None:
         manager = FakeResumableManager(resume=FreshcallerResumeConfig(page=5))
         session = mock.MagicMock()
@@ -275,3 +287,12 @@ class TestValidateCredentials:
 
         with mock.patch(PATCH_SESSION, return_value=session):
             assert validate_credentials("acme", "key") is None
+
+    def test_session_redacts_api_key_from_samples(self) -> None:
+        session = mock.MagicMock()
+        session.get.return_value = FakeResponse(status_code=200)
+
+        with mock.patch(PATCH_SESSION, return_value=session) as mock_make:
+            validate_credentials("acme", "secret-key")
+
+        assert mock_make.call_args.kwargs.get("redact_values") == ("secret-key",)
