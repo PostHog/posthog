@@ -5,6 +5,7 @@ from urllib.parse import urlencode
 import requests
 from structlog.types import FilteringBoundLogger
 from tenacity import retry, retry_if_exception_type, stop_after_attempt, wait_exponential_jitter
+from urllib3.util.retry import Retry
 
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceResponse
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.http import make_tracked_session
@@ -24,9 +25,12 @@ class GoogleWebfontsRetryableError(Exception):
 def _get_session(api_key: str) -> requests.Session:
     # The key is sent via the `X-goog-api-key` header rather than the `key` query param so it
     # never lands in a logged request URL. Google accepts either form.
+    # `retry=Retry(total=0)` disables the adapter's default retries so tenacity is the single
+    # retry layer — otherwise the two stack and multiply the backoff on 429/5xx.
     return make_tracked_session(
         headers={"X-goog-api-key": api_key, "Accept": "application/json"},
         redact_values=(api_key,),
+        retry=Retry(total=0),
     )
 
 
@@ -41,9 +45,11 @@ def validate_credentials(api_key: str) -> bool:
     An invalid key returns 400 (`API_KEY_INVALID`) and a missing key 403; only a genuine key
     returns 200.
     """
+    config = GOOGLE_WEBFONTS_ENDPOINTS["webfonts"]
+    params = {"sort": config.sort} if config.sort else {}
     try:
         response = _get_session(api_key).get(
-            _build_url(GOOGLE_WEBFONTS_ENDPOINTS["webfonts"].path, {"sort": "alpha"}),
+            _build_url(config.path, params),
             timeout=10,
         )
         return response.status_code == 200

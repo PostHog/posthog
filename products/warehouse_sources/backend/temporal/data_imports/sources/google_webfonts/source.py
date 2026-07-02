@@ -68,7 +68,7 @@ Create an API key in the [Google Cloud Console](https://console.cloud.google.com
         )
 
     def get_canonical_descriptions(self) -> CanonicalDescriptions:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.google_webfonts.canonical_descriptions import (  # noqa: PLC0415
+        from products.warehouse_sources.backend.temporal.data_imports.sources.google_webfonts.canonical_descriptions import (  # noqa: PLC0415 — lazy import keeps the descriptions off the module import path
             CANONICAL_DESCRIPTIONS,
         )
 
