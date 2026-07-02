@@ -108,6 +108,9 @@ const ViewCreateSchema = WarehouseSavedQueriesCreateBody.extend({
     name: WarehouseSavedQueriesCreateBody.shape['name'].describe(
         'Unique name for the view. Used as the table name in HogQL queries. Must not conflict with existing table names.'
     ),
+    soft_update: WarehouseSavedQueriesCreateBody.shape['soft_update'].describe(
+        "Set to true only to recover from a transient 'column_inference_failed' error, or to save a draft. It skips inferring the column schema against the warehouse, so the view is created without columns and is not queryable by name until it is materialized or re-created. Leave unset/false for normal use."
+    ),
 })
 
 const viewCreate = (): ToolBase<typeof ViewCreateSchema, WithPostHogUrl<Schemas.DataWarehouseSavedQuery>> => ({
@@ -127,6 +130,9 @@ const viewCreate = (): ToolBase<typeof ViewCreateSchema, WithPostHogUrl<Schemas.
         }
         if (params.folder_id !== undefined) {
             body['folder_id'] = params.folder_id
+        }
+        if (params.soft_update !== undefined) {
+            body['soft_update'] = params.soft_update
         }
         if (params.dag_id !== undefined) {
             body['dag_id'] = params.dag_id
@@ -373,6 +379,9 @@ const ViewUpdateSchema = WarehouseSavedQueriesPartialUpdateParams.omit({ project
         edited_history_id: WarehouseSavedQueriesPartialUpdateBody.shape['edited_history_id'].describe(
             'Required when updating the query field. Get this from latest_history_id on the retrieve response. Used for optimistic concurrency control.'
         ),
+        soft_update: WarehouseSavedQueriesPartialUpdateBody.shape['soft_update'].describe(
+            "Set to true only to recover from a transient 'column_inference_failed' error, or to save a draft. It skips re-inferring the column schema against the warehouse, keeping the view's existing columns unchanged. Leave unset/false for normal use so column changes are picked up."
+        ),
     })
 
 const viewUpdate = (): ToolBase<typeof ViewUpdateSchema, WithPostHogUrl<Schemas.DataWarehouseSavedQuery>> => ({
@@ -395,6 +404,9 @@ const viewUpdate = (): ToolBase<typeof ViewUpdateSchema, WithPostHogUrl<Schemas.
         }
         if (params.edited_history_id !== undefined) {
             body['edited_history_id'] = params.edited_history_id
+        }
+        if (params.soft_update !== undefined) {
+            body['soft_update'] = params.soft_update
         }
         if (params.dag_id !== undefined) {
             body['dag_id'] = params.dag_id

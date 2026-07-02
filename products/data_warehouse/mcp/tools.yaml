@@ -195,9 +195,9 @@ tools:
                     names.
             soft_update:
                 description:
-                    Set to true only to recover from a transient 'column_inference_failed' error, or to save a draft. It
-                    skips inferring the column schema against the warehouse, so the view is created without columns and
-                    is not queryable by name until it is materialized or re-created. Leave unset/false for normal use.
+                    Set to true only to recover from a transient 'column_inference_failed' error, or to save a draft. It skips
+                    inferring the column schema against the warehouse, so the view is created without columns and is not
+                    queryable by name until it is materialized or re-created. Leave unset/false for normal use.
     view-delete:
         operation: warehouse_saved_queries_destroy
         enabled: true
@@ -344,9 +344,9 @@ tools:
                     optimistic concurrency control.
             soft_update:
                 description:
-                    Set to true only to recover from a transient 'column_inference_failed' error, or to save a draft. It
-                    skips re-inferring the column schema against the warehouse, keeping the view's existing columns
-                    unchanged. Leave unset/false for normal use so column changes are picked up.
+                    Set to true only to recover from a transient 'column_inference_failed' error, or to save a draft. It skips
+                    re-inferring the column schema against the warehouse, keeping the view's existing columns unchanged.
+                    Leave unset/false for normal use so column changes are picked up.
     warehouse-column-annotations-create:
         operation: warehouse_column_annotations_create
         enabled: true

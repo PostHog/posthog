@@ -210,6 +210,12 @@ export const WarehouseSavedQueriesCreateBody = /* @__PURE__ */ zod
             .uuid()
             .nullish()
             .describe('Optional folder ID used to organize this view in the SQL editor sidebar.'),
+        soft_update: zod
+            .boolean()
+            .nullish()
+            .describe(
+                'If true, save the view without inferring its column schema from the warehouse. Column inference runs the query against ClickHouse (a blocking, uncached call that can time out when warehouse capacity is tight), so this lets you save drafts or recover from a transient inference failure. The column schema is left empty on create (and unchanged on update) until the view is materialized or re-saved with the query; provide `types` instead to set the schema immediately.'
+            ),
         dag_id: zod.uuid().nullish().describe('Optional DAG to place this view into'),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
@@ -284,6 +290,12 @@ export const WarehouseSavedQueriesPartialUpdateBody = /* @__PURE__ */ zod
             .string()
             .nullish()
             .describe('Activity log ID from the last known edit. Used for conflict detection.'),
+        soft_update: zod
+            .boolean()
+            .nullish()
+            .describe(
+                'If true, save the view without inferring its column schema from the warehouse. Column inference runs the query against ClickHouse (a blocking, uncached call that can time out when warehouse capacity is tight), so this lets you save drafts or recover from a transient inference failure. The column schema is left empty on create (and unchanged on update) until the view is materialized or re-saved with the query; provide `types` instead to set the schema immediately.'
+            ),
         dag_id: zod.uuid().nullish().describe('Optional DAG to place this view into'),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
@@ -360,7 +372,9 @@ export const WarehouseSavedQueriesMaterializeCreateBody = /* @__PURE__ */ zod
         soft_update: zod
             .boolean()
             .nullish()
-            .describe('If true, skip column inference and validation. For saving drafts.'),
+            .describe(
+                'If true, save the view without inferring its column schema from the warehouse. Column inference runs the query against ClickHouse (a blocking, uncached call that can time out when warehouse capacity is tight), so this lets you save drafts or recover from a transient inference failure. The column schema is left empty on create (and unchanged on update) until the view is materialized or re-saved with the query; provide `types` instead to set the schema immediately.'
+            ),
         dag_id: zod.uuid().nullish().describe('Optional DAG to place this view into'),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
@@ -428,7 +442,9 @@ export const WarehouseSavedQueriesRevertMaterializationCreateBody = /* @__PURE__
         soft_update: zod
             .boolean()
             .nullish()
-            .describe('If true, skip column inference and validation. For saving drafts.'),
+            .describe(
+                'If true, save the view without inferring its column schema from the warehouse. Column inference runs the query against ClickHouse (a blocking, uncached call that can time out when warehouse capacity is tight), so this lets you save drafts or recover from a transient inference failure. The column schema is left empty on create (and unchanged on update) until the view is materialized or re-saved with the query; provide `types` instead to set the schema immediately.'
+            ),
         dag_id: zod.uuid().nullish().describe('Optional DAG to place this view into'),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })
@@ -493,7 +509,9 @@ export const WarehouseSavedQueriesRunCreateBody = /* @__PURE__ */ zod
         soft_update: zod
             .boolean()
             .nullish()
-            .describe('If true, skip column inference and validation. For saving drafts.'),
+            .describe(
+                'If true, save the view without inferring its column schema from the warehouse. Column inference runs the query against ClickHouse (a blocking, uncached call that can time out when warehouse capacity is tight), so this lets you save drafts or recover from a transient inference failure. The column schema is left empty on create (and unchanged on update) until the view is materialized or re-saved with the query; provide `types` instead to set the schema immediately.'
+            ),
         dag_id: zod.uuid().nullish().describe('Optional DAG to place this view into'),
         is_test: zod.boolean().optional().describe('Whether this view is for testing only and will auto-expire.'),
     })

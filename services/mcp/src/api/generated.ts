@@ -14949,7 +14949,7 @@ export namespace Schemas {
       /** @nullable */
       readonly latest_history_id: number | null;
       /**
-         * If true, skip column inference and validation. For saving drafts.
+         * If true, save the view without inferring its column schema from the warehouse. Column inference runs the query against ClickHouse (a blocking, uncached call that can time out when warehouse capacity is tight), so this lets you save drafts or recover from a transient inference failure. The column schema is left empty on create (and unchanged on update) until the view is materialized or re-saved with the query; provide `types` instead to set the schema immediately.
          * @nullable
          */
       soft_update?: boolean | null;
@@ -36548,7 +36548,7 @@ export namespace Schemas {
       /** @nullable */
       readonly latest_history_id?: number | null;
       /**
-         * If true, skip column inference and validation. For saving drafts.
+         * If true, save the view without inferring its column schema from the warehouse. Column inference runs the query against ClickHouse (a blocking, uncached call that can time out when warehouse capacity is tight), so this lets you save drafts or recover from a transient inference failure. The column schema is left empty on create (and unchanged on update) until the view is materialized or re-saved with the query; provide `types` instead to set the schema immediately.
          * @nullable
          */
       soft_update?: boolean | null;
