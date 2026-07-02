@@ -24,7 +24,7 @@ logger = structlog.get_logger(__name__)
 # The cap guards Temporal's ~2 MiB activity payload limit; truncation is priority-aware so a
 # chatty low-priority source can't crowd out actionable items.
 MAX_ITEMS = 50
-KIND_PRIORITY: dict[str, int] = {"health": 0, "movement": 1, "context": 2}
+KIND_PRIORITY: dict[str, int] = {"health": 0, "signal": 1, "movement": 2, "context": 3}
 
 
 class BriefGenerationFailed(Exception):

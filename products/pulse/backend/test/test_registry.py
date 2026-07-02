@@ -2,6 +2,7 @@ from products.pulse.backend.sources.anchored_insights import AnchoredInsightsSou
 from products.pulse.backend.sources.annotations import AnnotationsSource
 from products.pulse.backend.sources.registry import get_sources
 from products.pulse.backend.sources.resource_health import ResourceHealthSource
+from products.pulse.backend.sources.scout_reports import ScoutReportsSource
 
 
 def test_registry_returns_every_source() -> None:
@@ -9,4 +10,5 @@ def test_registry_returns_every_source() -> None:
         AnchoredInsightsSource,
         AnnotationsSource,
         ResourceHealthSource,
+        ScoutReportsSource,
     }
