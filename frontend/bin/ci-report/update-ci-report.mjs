@@ -80,7 +80,7 @@ export function parseSections(body) {
 
 export function upsertSection(sections, { id, status = 'info', summary = '', body }) {
     const next = new Map(sections)
-    next.set(id, { status, summary, inner: body })
+    next.set(id, { status, summary: String(summary).replace(/\s+/g, ' '), inner: body })
     return next
 }
 
