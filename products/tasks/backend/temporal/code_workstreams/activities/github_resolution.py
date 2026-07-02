@@ -1,5 +1,6 @@
 from typing import Optional
 
+from posthog.egress.limiter.policies import Priority
 from posthog.models import Integration
 from posthog.models.github_integration_base import GitHubIntegrationBase
 from posthog.models.integration import GitHubIntegration
@@ -46,13 +47,24 @@ def resolve_github_integration(
 
     Raises ``ObjectDoesNotExist`` if the id no longer resolves; may also raise on token-refresh failure.
     """
+    # Code-workstreams polling is deferrable bulk: declare the sheddable BATCH lane (and its own
+    # source) so the egress limiter defers these sweeps before user-facing traffic when an
+    # installation's budget runs hot.
     if github_integration_id is not None:
-        integration = GitHubIntegration(Integration.objects.get(id=github_integration_id))
+        integration = GitHubIntegration(
+            Integration.objects.get(id=github_integration_id),
+            source="code_workstreams",
+            priority=Priority.BATCH,
+        )
         if integration.access_token_expired():
             integration.refresh_access_token()
         return integration
     if github_user_integration_id is not None:
-        user_integration = UserGitHubIntegration(UserIntegration.objects.get(id=github_user_integration_id))
+        user_integration = UserGitHubIntegration(
+            UserIntegration.objects.get(id=github_user_integration_id),
+            source="code_workstreams",
+            priority=Priority.BATCH,
+        )
         if user_integration.access_token_expired():
             user_integration.refresh_access_token()
         return user_integration

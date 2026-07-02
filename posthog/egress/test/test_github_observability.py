@@ -1,5 +1,6 @@
 from unittest.mock import MagicMock
 
+from django.core.cache import cache
 from django.test import SimpleTestCase
 
 import requests
@@ -7,6 +8,7 @@ from parameterized import parameterized
 from prometheus_client import REGISTRY
 from requests.structures import CaseInsensitiveDict
 
+from posthog.egress.github.limiter import observed_core_limit_cache_key
 from posthog.egress.github.observability import (
     _normalize_github_endpoint,
     record_github_api_exception,
@@ -191,3 +193,34 @@ class TestGithubObservability(SimpleTestCase):
             ),
             1,
         )
+
+
+class TestObservedCoreLimitPersistence(SimpleTestCase):
+    # Guards the tier-budget feed: if the recorder stops persisting the core limit (or starts
+    # persisting GraphQL's unrelated 5k limit as the REST tier), the limiter silently budgets
+    # every installation at the flat default.
+    def test_core_limit_is_cached_for_the_installation(self):
+        installation_id = f"test-{id(self)}"
+        cache_key = observed_core_limit_cache_key(installation_id)
+        self.addCleanup(cache.delete, cache_key)
+
+        record_github_api_response(
+            _response(headers={"X-RateLimit-Resource": "core", "X-RateLimit-Limit": "5000"}),
+            source="integration",
+            installation_id=installation_id,
+        )
+
+        assert cache.get(cache_key) == 5000
+
+    def test_non_core_resources_do_not_overwrite_the_tier(self):
+        installation_id = f"test-{id(self)}"
+        cache_key = observed_core_limit_cache_key(installation_id)
+        self.addCleanup(cache.delete, cache_key)
+
+        record_github_api_response(
+            _response(headers={"X-RateLimit-Resource": "graphql", "X-RateLimit-Limit": "5000"}),
+            source="integration",
+            installation_id=installation_id,
+        )
+
+        assert cache.get(cache_key) is None

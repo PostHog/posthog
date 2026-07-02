@@ -14,9 +14,12 @@ import re
 from collections.abc import Mapping
 from urllib.parse import urlparse
 
+from django.core.cache import cache
+
 import requests
 from prometheus_client import Counter, Gauge
 
+from posthog.egress.github.limiter import OBSERVED_CORE_LIMIT_TTL_SECONDS, observed_core_limit_cache_key
 from posthog.egress.observability.observability import (
     EgressMetrics,
     EgressObservability,
@@ -144,6 +147,28 @@ def record_github_api_response(
     rate-limit budget GitHub meters. Pass it when known so the rate-limit gauges are set; identity-blind
     callers (raw PATs) get request volume only. ``source`` attributes the call to a subsystem."""
     github_egress.record_response(response, source=source, scope=installation_id, method=method, endpoint=endpoint)
+    _remember_core_limit(response, installation_id)
+
+
+def _remember_core_limit(response: requests.Response, installation_id: str | None) -> None:
+    """Persist the installation's core-resource limit so the limiter can budget to its real tier.
+
+    Only ``core`` observations count — GraphQL/search/etc. carry their own unrelated limits and
+    would misreport the REST tier. Best-effort: telemetry must never take a request down with it.
+    """
+    if not installation_id:
+        return
+    snapshot = _parse_github_rate_limit(response)
+    if snapshot.resource != "core" or not snapshot.limit or snapshot.limit <= 0:
+        return
+    try:
+        cache.set(
+            observed_core_limit_cache_key(installation_id),
+            int(snapshot.limit),
+            OBSERVED_CORE_LIMIT_TTL_SECONDS,
+        )
+    except Exception:
+        pass
 
 
 def record_github_api_exception(

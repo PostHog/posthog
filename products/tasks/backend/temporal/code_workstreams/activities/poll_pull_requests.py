@@ -11,7 +11,7 @@ from django.utils.dateparse import parse_datetime
 import requests
 from temporalio import activity
 
-from posthog.egress.github.transport import GitHubRateLimitError
+from posthog.egress.github.transport import GitHubEgressBudgetExhausted, GitHubRateLimitError
 from posthog.models.github_integration_base import GitHubIntegrationBase, GitHubIntegrationError
 from posthog.models.scoping import team_scope
 from posthog.temporal.common.utils import close_db_connections
@@ -85,6 +85,11 @@ def poll_pull_requests_for_team(
 
         try:
             snap = integration.get_pull_request_snapshot(ref.pr_url)
+        except GitHubEgressBudgetExhausted:
+            # Our own limiter shed the sweep — stop for this cycle; the next scheduled run resumes.
+            activity.logger.warning("code_workstreams_pr_budget_exhausted", team_id=team_id, polled=polled)
+            rate_limited = True
+            break
         except GitHubRateLimitError:
             activity.logger.warning("code_workstreams_pr_rate_limited", team_id=team_id, polled=polled)
             rate_limited = True

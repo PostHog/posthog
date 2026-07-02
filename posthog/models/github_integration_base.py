@@ -24,6 +24,7 @@ from prometheus_client import Counter
 
 from posthog.egress.github.observability import record_github_api_exception, record_github_api_response
 from posthog.egress.github.transport import github_request, raise_if_github_rate_limited
+from posthog.egress.limiter.policies import Priority
 from posthog.sync import database_sync_to_async_pool
 
 logger = structlog.get_logger(__name__)
@@ -71,6 +72,11 @@ class GitHubIntegrationBase:
     # with their own source (e.g. GitHubIntegration(integration, source="visual_review")) so every
     # request made through this instance — api_request, verbs, GraphQL — is attributed to them.
     source: str = _OBSERVABILITY_SOURCE
+    # How sheddable this instance's calls are when the installation's shared budget runs hot.
+    # CRITICAL (the default) is never blocked; deferrable background callers construct with
+    # priority=Priority.BATCH so the egress limiter sheds them first — a denied sheddable call
+    # raises GitHubEgressBudgetExhausted from api_request before anything is sent.
+    priority: Priority = Priority.CRITICAL
 
     @property
     def github_installation_id(self) -> str | None:
@@ -1238,6 +1244,7 @@ class GitHubIntegrationBase:
         headers: dict[str, str] | None = None,
         timeout: int = 10,
         retry_transient: bool | None = None,
+        priority: Priority | None = None,
     ) -> requests.Response:
         """Authenticated request against ``https://api.github.com`` returning the raw response.
 
@@ -1249,7 +1256,9 @@ class GitHubIntegrationBase:
         callers that want dict-or-raise semantics.
 
         ``endpoint`` is the normalized label for egress telemetry; leave it ``None`` to let the
-        recorder template the raw URL. Attribution uses ``self.source``.
+        recorder template the raw URL. Attribution uses ``self.source``; the limiter lane defaults
+        to ``self.priority`` — on a sheddable lane (NORMAL/BATCH) a denied call raises
+        ``GitHubEgressBudgetExhausted`` instead of being sent, and the caller owns the deferral.
         """
         if not path.startswith("/"):
             raise ValueError(f"api_request path must start with '/', got {path!r}")
@@ -1275,6 +1284,7 @@ class GitHubIntegrationBase:
                     source=self.source,
                     headers={"Authorization": f"Bearer {token}", **(headers or {})},
                     installation_id=self.github_installation_id,
+                    priority=priority if priority is not None else self.priority,
                     endpoint=endpoint,
                     params=params,
                     json=json_body,
