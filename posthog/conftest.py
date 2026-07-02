@@ -508,7 +508,8 @@ class _JUnitTimingsPlugin:
     @pytest.hookimpl(tryfirst=True)
     def pytest_runtest_logreport(self, report: pytest.TestReport) -> None:
         reruns = getattr(report, "rerun", 0) or 0  # attempt index, set by pytest-rerunfailures
-        if not reruns or report.when != "teardown" or report.outcome == "rerun":
+        # str() widens TestReport.outcome's Literal: "rerun" is assigned by pytest-rerunfailures.
+        if not reruns or report.when != "teardown" or str(report.outcome) == "rerun":
             return
         # `user_properties` is shared across the item's reports; guard against duplicates.
         if all(name != self._PROPERTY_RERUNS for name, _ in report.user_properties):
