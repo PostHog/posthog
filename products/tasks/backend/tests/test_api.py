@@ -8,7 +8,7 @@ from datetime import timedelta
 from typing import Any, ClassVar, cast
 from urllib.parse import quote
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from django.conf import settings
 from django.db import connection
@@ -2240,8 +2240,9 @@ class TestTaskAPI(BaseTaskAPITest):
         }
         mock_workflow.assert_not_called()
 
+    @patch("products.tasks.backend.presentation.serializers.posthoganalytics.capture")
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_run_endpoint_rejects_unsupported_claude_reasoning_effort(self, mock_workflow):
+    def test_run_endpoint_rejects_unsupported_claude_reasoning_effort(self, mock_workflow, mock_capture):
         task = self.create_task()
 
         response = self.client.post(
@@ -2265,6 +2266,24 @@ class TestTaskAPI(BaseTaskAPITest):
             "attr": "reasoning_effort",
         }
         mock_workflow.assert_not_called()
+
+        # The rejection used to be visible only in the client's 400 response; it must also
+        # be captured server-side so recurring bad model/effort combos are queryable.
+        # assert_any_call because create_task() itself fires a "task_created" capture.
+        mock_capture.assert_any_call(
+            distinct_id=str(self.user.distinct_id),
+            event="task run reasoning effort rejected",
+            properties={
+                "runtime_adapter": "claude",
+                "model": "claude-sonnet-4-5",
+                "reasoning_effort": "high",
+                "error": (
+                    "Reasoning effort 'high' is not supported for runtime_adapter 'claude' "
+                    "and model 'claude-sonnet-4-5'. Supported values: none."
+                ),
+            },
+            groups=ANY,
+        )
 
     @parameterized.expand(
         [
@@ -2295,6 +2314,82 @@ class TestTaskAPI(BaseTaskAPITest):
         assert task_run.state["model"] == "claude-fable-5"
         assert task_run.state["reasoning_effort"] == reasoning_effort
         mock_workflow.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("low",),
+            ("medium",),
+            ("high",),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_accepts_claude_sonnet_5_reasoning_effort(self, reasoning_effort, mock_workflow):
+        # claude-sonnet-5 was missing from the supported-model map, so every reasoning_effort
+        # (including these valid ones) was rejected with "Supported values: none."
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "runtime_adapter": "claude",
+                "model": "claude-sonnet-5",
+                "reasoning_effort": reasoning_effort,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        latest_run = response.json()["latest_run"]
+        task_run = TaskRun.objects.get(id=latest_run["id"])
+        assert task_run.state["model"] == "claude-sonnet-5"
+        assert task_run.state["reasoning_effort"] == reasoning_effort
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.presentation.serializers.posthoganalytics.capture")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_unsupported_claude_sonnet_5_reasoning_effort(self, mock_workflow, mock_capture):
+        # claude-sonnet-5 supports low/medium/high (unlike claude-sonnet-4-5, which supports
+        # none) - this pins the "Supported values: <non-empty list>" message and confirms the
+        # rejection capture also fires for a model that has some supported efforts.
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "runtime_adapter": "claude",
+                "model": "claude-sonnet-5",
+                "reasoning_effort": "xhigh",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": (
+                "Reasoning effort 'xhigh' is not supported for runtime_adapter 'claude' "
+                "and model 'claude-sonnet-5'. Supported values: low, medium, high."
+            ),
+            "attr": "reasoning_effort",
+        }
+        mock_workflow.assert_not_called()
+
+        # assert_any_call because create_task() itself fires a "task_created" capture.
+        mock_capture.assert_any_call(
+            distinct_id=str(self.user.distinct_id),
+            event="task run reasoning effort rejected",
+            properties={
+                "runtime_adapter": "claude",
+                "model": "claude-sonnet-5",
+                "reasoning_effort": "xhigh",
+                "error": (
+                    "Reasoning effort 'xhigh' is not supported for runtime_adapter 'claude' "
+                    "and model 'claude-sonnet-5'. Supported values: low, medium, high."
+                ),
+            },
+            groups=ANY,
+        )
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_derives_provider_from_runtime_adapter(self, mock_workflow):
