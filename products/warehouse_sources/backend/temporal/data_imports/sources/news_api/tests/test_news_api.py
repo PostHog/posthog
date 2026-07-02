@@ -166,7 +166,7 @@ def _collect(
         return result
 
     monkeypatch.setattr(news_api, "_fetch_page", fake_fetch)
-    monkeypatch.setattr(news_api, "make_tracked_session", lambda: MagicMock())
+    monkeypatch.setattr(news_api, "make_tracked_session", lambda **_: MagicMock())
 
     rows: list[dict] = []
     for batch in get_rows(
@@ -241,6 +241,21 @@ class TestGetRows:
         # signal a regression that ignored the saved cursor.
         assert [r["url"] for r in rows] == ["resumed"]
 
+    def test_full_page_with_missing_total_keeps_paging(self, monkeypatch: Any) -> None:
+        # A full page with `totalResults` absent must not stop the walk — otherwise `page*PAGE_SIZE >= 0`
+        # would truncate after page 1 and silently drop later pages. The short page 2 ends it.
+        pages = {
+            "https://newsapi.org/v2/everything?q=bitcoin&pageSize=100&page=1&sortBy=publishedAt": {
+                "articles": [{"url": f"u{i}"} for i in range(PAGE_SIZE)],
+            },
+            "https://newsapi.org/v2/everything?q=bitcoin&pageSize=100&page=2&sortBy=publishedAt": {
+                "articles": [{"url": "tail"}],
+            },
+        }
+        manager = _FakeResumableManager()
+        rows = _collect("everything", pages, manager, monkeypatch)
+        assert len(rows) == PAGE_SIZE + 1
+
     def test_maximum_results_reached_stops_cleanly(self, monkeypatch: Any) -> None:
         # NewsAPI returns 426 `maximumResultsReached` past the reachable cap. That's a normal end of
         # the window, so the sync keeps the rows it already has instead of failing.
@@ -288,8 +303,18 @@ class TestValidateCredentials:
 
 
 class TestSourceResponse:
-    @parameterized.expand([("everything", ["url"]), ("top_headlines", ["url"]), ("sources", ["id"])])
-    def test_primary_keys_per_endpoint(self, endpoint: str, expected_keys: list[str]) -> None:
+    @parameterized.expand(
+        [
+            # Only the incremental endpoint declares desc — the full-refresh tables have no watermark
+            # to protect, so their arrival order stays on the default.
+            ("everything", ["url"], "desc"),
+            ("top_headlines", ["url"], "asc"),
+            ("sources", ["id"], "asc"),
+        ]
+    )
+    def test_primary_keys_and_sort_mode_per_endpoint(
+        self, endpoint: str, expected_keys: list[str], expected_sort: str
+    ) -> None:
         response = news_api_source(
             api_key="k",
             endpoint=endpoint,
@@ -300,8 +325,7 @@ class TestSourceResponse:
         )
         assert response.name == endpoint
         assert response.primary_keys == expected_keys
-        # /v2/everything returns newest-first; declaring desc keeps the incremental watermark correct.
-        assert response.sort_mode == "desc"
+        assert response.sort_mode == expected_sort
 
     @parameterized.expand([("everything", "publishedAt"), ("top_headlines", "publishedAt"), ("sources", None)])
     def test_partition_key_per_endpoint(self, endpoint: str, expected_partition: str | None) -> None:

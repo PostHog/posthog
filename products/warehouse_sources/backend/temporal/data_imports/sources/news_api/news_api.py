@@ -99,7 +99,8 @@ def validate_credentials(api_key: str) -> bool:
     # so it confirms the token without spending a search request.
     url = f"{NEWS_API_BASE_URL}/v2/top-headlines/sources"
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
+        session = make_tracked_session(headers=_get_headers(api_key), redact_values=(api_key,))
+        response = session.get(url, timeout=10)
         return response.status_code == 200
     except Exception:
         return False
@@ -146,7 +147,9 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = NEWS_API_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
-    session = make_tracked_session()
+    # redact_values scrubs the key from tracked telemetry / captured samples — the X-Api-Key header
+    # value isn't reliably redacted by header name alone.
+    session = make_tracked_session(redact_values=(api_key,))
 
     # Non-paginated endpoints (sources) return everything in one response — no resume state.
     if not config.paginated:
@@ -189,9 +192,11 @@ def get_rows(
         yield rows
 
         total_results = data.get("totalResults") or 0
-        # Stop when we've drained the reachable set: a short final page, or we've paged past
-        # totalResults (whichever the plan enforces first).
-        if len(rows) < PAGE_SIZE or page * PAGE_SIZE >= total_results:
+        # Stop when we've drained the reachable set: a short final page, or (when the API reports a
+        # positive total) we've paged past it. Guard on `total_results` so a missing/zero total on a
+        # full page doesn't stop us early and silently drop later pages — the short-page check,
+        # MAX_PAGES cap, and `maximumResultsReached` still bound the walk.
+        if len(rows) < PAGE_SIZE or (total_results and page * PAGE_SIZE >= total_results):
             break
 
         page += 1
@@ -243,7 +248,8 @@ def news_api_source(
         partition_mode="datetime" if config.partition_key else None,
         partition_format="month" if config.partition_key else None,
         partition_keys=[config.partition_key] if config.partition_key else None,
-        # /v2/everything returns newest-first; the pipeline must not assume ascending arrival or it
-        # would corrupt the incremental watermark.
-        sort_mode="desc",
+        # /v2/everything returns newest-first, so the incremental endpoint must declare desc or the
+        # pipeline would corrupt the watermark. The full-refresh endpoints don't track a watermark,
+        # so their arrival order is immaterial — leave them on the default.
+        sort_mode="desc" if config.supports_incremental else "asc",
     )
