@@ -11,7 +11,6 @@ import { TaskRunStatus } from 'products/posthog_ai/frontend/types/taskTypes'
 import { inboxReportDetailLogic, ReportTaskEntry } from '../../logics/inboxReportDetailLogic'
 import { SignalReport } from '../../types'
 import { DetailSection } from './DetailSection'
-import { TaskRunStatusDot } from './taskRunDisplay'
 
 /**
  * Renders the report's linked tasks inline (latest status + purpose). Each row expands in place to
