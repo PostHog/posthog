@@ -92,13 +92,20 @@ export interface DataWarehouseSyncWarning {
     message: string
 }
 
+export interface AccessControlFilterWarning {
+    resource: string
+    message: string
+}
+
 export interface QueryEndpointResponse {
     results: unknown
     columns?: unknown
     formatted_results?: string
     // null (not just absent) when the query response carries no warnings — the backend
-    // serializes the field explicitly rather than omitting it.
-    warnings?: DataWarehouseSyncWarning[] | null
+    // serializes the field explicitly rather than omitting it. Carries both warehouse-sync
+    // warnings and object-level access control warnings (rows excluded because the user can't
+    // see them), so the model doesn't treat a filtered partial result as the complete set.
+    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
 }
 
 export interface ApiConfig {
@@ -1220,8 +1227,16 @@ export class ApiClient {
                 query,
             }: {
                 query: Record<string, unknown>
-            }): Promise<{ results: unknown; formatted_results?: string }> => {
-                return this.request<{ results: unknown; formatted_results?: string }>({
+            }): Promise<{
+                results: unknown
+                formatted_results?: string
+                warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
+            }> => {
+                return this.request<{
+                    results: unknown
+                    formatted_results?: string
+                    warnings?: (DataWarehouseSyncWarning | AccessControlFilterWarning)[] | null
+                }>({
                     method: 'POST',
                     path: `/api/environments/${projectId}/query/`,
                     body: { query: normalizeQuery(query) },

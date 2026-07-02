@@ -335,3 +335,36 @@ describe('createQueryWrapper actors dispatch', () => {
         )
     })
 })
+
+describe('createQueryWrapper warnings', () => {
+    const schema = z.object({ kind: z.string() })
+
+    function contextWithRunQuery(data: Record<string, unknown>): Context {
+        return {
+            api: {
+                query: vi.fn().mockReturnValue({ runQuery: vi.fn().mockResolvedValue(data) }),
+                getProjectBaseUrl: vi.fn().mockReturnValue('http://localhost:8010/project/1'),
+            },
+            stateManager: { getProjectId: vi.fn().mockResolvedValue('1') },
+        } as unknown as Context
+    }
+
+    it('forwards warnings so an access-filtered result is not mistaken for the full set', async () => {
+        const warnings = [{ resource: 'dashboard', message: "You don't have access to 2 dashboards" }]
+        const tool = createQueryWrapper({ name: 'test', schema, kind: 'HogQLQuery' })()
+
+        const result = (await tool.handler(contextWithRunQuery({ results: [], warnings }), {
+            kind: 'HogQLQuery',
+        })) as any
+
+        expect(result.warnings).toEqual(warnings)
+    })
+
+    it('omits the key when there are no warnings', async () => {
+        const tool = createQueryWrapper({ name: 'test', schema, kind: 'HogQLQuery' })()
+
+        const result = (await tool.handler(contextWithRunQuery({ results: [] }), { kind: 'HogQLQuery' })) as any
+
+        expect(result).not.toHaveProperty('warnings')
+    })
+})
