@@ -52,11 +52,19 @@ async def upload_video_to_gemini_activity(inputs: UploadVideoToGeminiInputs) -> 
             f"ExportedAsset {inputs.asset_id} produced empty video bytes", kind=FailureKind.INTERNAL_ERROR
         )
 
-    raw_client = RawGenAIClient(api_key=gemini_api_key())
-    # `tmp_file.write` / `flush` are blocking disk I/O; offload the whole tempfile+upload block off the event loop.
-    uploaded_file = await asyncio.to_thread(
-        _write_and_upload, raw_client, video_bytes, asset.export_format, workflow_id
-    )
+    # Building the client (which eagerly constructs an aiohttp SSL context) and the tempfile write +
+    # upload are all blocking, so they run off the event loop together. Transient environmental blips
+    # here — an SSL cert-bundle load error, a network hiccup mid-upload — must be classified retryable
+    # so Temporal retries them instead of failing the observation outright.
+    try:
+        raw_client, uploaded_file = await asyncio.to_thread(
+            _build_client_and_upload, gemini_api_key(), video_bytes, asset.export_format, workflow_id
+        )
+    except Exception as e:
+        raise ScannerFailureError(
+            f"Gemini client construction or upload failed: {e}",
+            kind=FailureKind.PROVIDER_TRANSIENT,
+        ) from e
 
     if uploaded_file.name is None:
         # Non-retryable: a retry would re-upload before the cleanup sweep can reap the unnamed file Gemini may have created.
@@ -107,11 +115,17 @@ async def upload_video_to_gemini_activity(inputs: UploadVideoToGeminiInputs) -> 
     )
 
 
-def _write_and_upload(raw_client: RawGenAIClient, video_bytes: bytes, mime_type: str, workflow_id: str) -> types.File:
+def _build_client_and_upload(
+    api_key: str, video_bytes: bytes, mime_type: str, workflow_id: str
+) -> tuple[RawGenAIClient, types.File]:
+    # `RawGenAIClient(...)` builds an aiohttp SSL context and `tmp_file.write` / `flush` are blocking
+    # disk I/O — the caller runs this whole block off the event loop via `asyncio.to_thread`.
+    raw_client = RawGenAIClient(api_key=api_key)
     with tempfile.NamedTemporaryFile() as tmp_file:
         tmp_file.write(video_bytes)
         tmp_file.flush()
-        return raw_client.files.upload(
+        uploaded_file = raw_client.files.upload(
             file=tmp_file.name,
             config=types.UploadFileConfig(mime_type=mime_type, display_name=workflow_id),
         )
+    return raw_client, uploaded_file

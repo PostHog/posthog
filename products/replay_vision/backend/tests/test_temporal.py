@@ -1,3 +1,4 @@
+import ssl
 import uuid
 import datetime as dt
 from typing import Any
@@ -106,6 +107,7 @@ from products.replay_vision.backend.temporal.types import (
     ScannerResult,
     SessionMetadata,
     UploadedVideo,
+    UploadVideoToGeminiInputs,
 )
 from products.replay_vision.backend.temporal.workflow import _extract_kind_for_type, _root_cause_message
 from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
@@ -1309,6 +1311,30 @@ class TestCleanupGeminiFileActivity:
             await cleanup_gemini_file_activity(CleanupGeminiFileInputs(gemini_file_name="files/rv-gone"))
         assert await gemini_redis.exists(f"{_GEMINI_REDIS_KEY_PREFIX}files/rv-gone") == 0
         assert await gemini_redis.zscore(_GEMINI_REDIS_INDEX_KEY, "files/rv-gone") is None
+
+
+@pytest.mark.django_db(transaction=True)
+class TestUploadVideoToGeminiActivity:
+    @pytest.mark.asyncio
+    async def test_transient_client_construction_error_is_retryable(self, activity_environment) -> None:
+        # A blip loading the CA cert bundle blows up in the genai client constructor; it must be
+        # classified PROVIDER_TRANSIENT so Temporal retries rather than failing the observation.
+        scanner = await sync_to_async(_make_scanner)()
+        asset = await sync_to_async(ExportedAsset.objects.create)(
+            team=scanner.team, export_format="video/mp4", content=b"mp4-bytes"
+        )
+
+        with patch(
+            "products.replay_vision.backend.temporal.activities.upload_video_to_gemini.RawGenAIClient",
+            side_effect=ssl.SSLError("[X509] PEM lib (_ssl.c:4353)"),
+        ):
+            with pytest.raises(ScannerFailureError) as exc_info:
+                await activity_environment.run(
+                    upload_video_to_gemini_activity, UploadVideoToGeminiInputs(asset_id=asset.id)
+                )
+
+        assert exc_info.value.kind is FailureKind.PROVIDER_TRANSIENT
+        assert exc_info.value.non_retryable is False
 
 
 def _build_inputs(**overrides: Any) -> ApplyScannerInputs:
