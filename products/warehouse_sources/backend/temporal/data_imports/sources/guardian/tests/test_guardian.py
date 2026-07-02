@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.guardian.g
     GuardianResumeConfig,
     _build_base_params,
     _format_from_date,
+    _scrub_url,
     get_rows,
     guardian_source,
     validate_credentials,
@@ -84,6 +85,22 @@ class TestBuildBaseParams:
             db_incremental_field_last_value=datetime(2026, 3, 4, tzinfo=UTC),
         )
         assert "from-date" not in params
+
+
+class TestScrubUrl:
+    @pytest.mark.parametrize(
+        "url,expected",
+        [
+            (
+                "https://content.guardianapis.com/search?api-key=secret&page=1",
+                "https://content.guardianapis.com/search",
+            ),
+            ("https://content.guardianapis.com/tags", "https://content.guardianapis.com/tags"),
+            (None, "https://content.guardianapis.com"),
+        ],
+    )
+    def test_scrub_url_strips_query(self, url: str | None, expected: str) -> None:
+        assert _scrub_url(url) == expected
 
 
 class TestValidateCredentials:
@@ -191,6 +208,23 @@ class TestFetchPageRetries:
             result = guardian._fetch_page(session, "https://content.guardianapis.com/search?page=1", MagicMock())
         assert result == _page([{"id": "a"}])
         assert session.get.call_count == 2
+
+    def test_auth_failure_raises_without_leaking_api_key(self) -> None:
+        # The api-key rides in the query string; a non-2xx must not surface it in the exception, but
+        # the base host must survive so get_non_retryable_errors() can still match.
+        response = MagicMock()
+        response.status_code = 401
+        response.ok = False
+        response.reason = "Unauthorized"
+        response.text = "Unauthorized"
+        response.url = "https://content.guardianapis.com/search?api-key=super-secret&page=1"
+        session = MagicMock()
+        session.get.return_value = response
+        with pytest.raises(requests.HTTPError) as exc_info:
+            guardian._fetch_page(session, response.url, MagicMock())
+        message = str(exc_info.value)
+        assert "super-secret" not in message
+        assert "401 Client Error: Unauthorized for url: https://content.guardianapis.com/search" in message
 
 
 class TestGuardianSourceResponse:

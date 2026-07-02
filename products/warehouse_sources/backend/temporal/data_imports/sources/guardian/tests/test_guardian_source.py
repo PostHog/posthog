@@ -67,8 +67,8 @@ class TestGuardianSource:
     @pytest.mark.parametrize(
         "observed_error",
         [
-            "401 Client Error: Unauthorized for url: https://content.guardianapis.com/search?api-key=x&page=1",
-            "403 Client Error: Forbidden for url: https://content.guardianapis.com/tags?api-key=x",
+            "401 Client Error: Unauthorized for url: https://content.guardianapis.com/search",
+            "403 Client Error: Forbidden for url: https://content.guardianapis.com/tags",
         ],
     )
     def test_non_retryable_errors_match_auth_failures(self, observed_error):

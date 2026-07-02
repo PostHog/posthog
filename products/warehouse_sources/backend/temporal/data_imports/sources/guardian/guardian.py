@@ -2,7 +2,7 @@ import dataclasses
 from collections.abc import Iterator
 from datetime import date, datetime
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit, urlunsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -80,6 +80,15 @@ def _build_url(path: str, params: dict[str, str]) -> str:
     return f"{GUARDIAN_BASE_URL}{path}?{urlencode(params)}"
 
 
+def _scrub_url(url: str | None) -> str:
+    # The api-key rides in the query string, so strip the query before the URL reaches any error
+    # message or log line — otherwise a non-2xx response would leak the credential into job errors.
+    if not url:
+        return GUARDIAN_BASE_URL
+    parts = urlsplit(url)
+    return urlunsplit((parts.scheme, parts.netloc, parts.path, "", ""))
+
+
 @retry(
     retry=retry_if_exception_type(
         (
@@ -98,11 +107,17 @@ def _fetch_page(session: requests.Session, url: str, logger: FilteringBoundLogge
 
     # 429 (rate limit — the free tier caps ~12 req/s and a daily quota) and 5xx are transient.
     if response.status_code == 429 or response.status_code >= 500:
-        raise GuardianRetryableError(f"Guardian API error (retryable): status={response.status_code}, url={url}")
+        raise GuardianRetryableError(f"Guardian API error (retryable): status={response.status_code}")
 
     if not response.ok:
-        logger.error(f"Guardian API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
+        logger.error(f"Guardian API error: status={response.status_code}, body={response.text}, url={_scrub_url(url)}")
+        # Raise with the api-key scrubbed from the URL rather than calling raise_for_status(), whose
+        # message embeds the full credential-bearing URL. The base host stays intact so
+        # `get_non_retryable_errors()` can still match on it.
+        raise requests.HTTPError(
+            f"{response.status_code} Client Error: {response.reason} for url: {_scrub_url(response.url)}",
+            response=response,
+        )
 
     return response.json()
 
@@ -111,7 +126,8 @@ def validate_credentials(api_key: str) -> bool:
     # /sections is a cheap, single-response endpoint — a genuine key returns 200, a bad one 401.
     url = _build_url("/sections", {"api-key": api_key, "page-size": "1"})
     try:
-        response = make_tracked_session().get(url, headers=_headers(), timeout=10)
+        # The api-key rides in the query string, so redact it from logged URLs and captured samples.
+        response = make_tracked_session(redact_values=(api_key,)).get(url, headers=_headers(), timeout=10)
         return response.status_code == 200
     except Exception:
         return False
@@ -126,7 +142,9 @@ def get_rows(
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = GUARDIAN_ENDPOINTS[endpoint]
-    session = make_tracked_session()
+    # One session reused across pages so urllib3 keeps the connection alive. The api-key lives in the
+    # query string, so redact it from logged URLs and captured samples.
+    session = make_tracked_session(redact_values=(api_key,))
 
     base_params = _build_base_params(config, api_key, should_use_incremental_field, db_incremental_field_last_value)
 
