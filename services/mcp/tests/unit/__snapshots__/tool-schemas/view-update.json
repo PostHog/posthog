@@ -66,6 +66,17 @@
             "required": ["query"],
             "type": "object"
         },
+        "soft_update": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Set to true only to recover from a transient 'column_inference_failed' error, or to save a draft. It skips re-inferring the column schema against the warehouse, keeping the view's existing columns unchanged. Leave unset/false for normal use so column changes are picked up."
+        },
         "sync_frequency": {
             "anyOf": [
                 {

@@ -51,6 +51,17 @@
             "required": ["query"],
             "type": "object"
         },
+        "soft_update": {
+            "anyOf": [
+                {
+                    "type": "boolean"
+                },
+                {
+                    "type": "null"
+                }
+            ],
+            "description": "Set to true only to recover from a transient 'column_inference_failed' error, or to save a draft. It skips inferring the column schema against the warehouse, so the view is created without columns and is not queryable by name until it is materialized or re-created. Leave unset/false for normal use."
+        },
         "sync_frequency": {
             "anyOf": [
                 {
