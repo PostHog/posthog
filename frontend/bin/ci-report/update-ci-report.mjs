@@ -23,6 +23,7 @@ export const SECTIONS = [
     { id: 'playwright-snapshots', title: 'Playwright snapshots' },
     { id: 'backend-snapshots', title: 'Backend snapshots' },
     { id: 'ai-evals', title: 'AI evals' },
+    { id: 'ch-migration-sql', title: 'ClickHouse migration SQL' },
 ]
 
 export const STATUS_EMOJI = { ok: '✅', warn: '⚠️', fail: '❌', info: 'ℹ️' }
@@ -189,7 +190,7 @@ function sectionEquals(a, b) {
 // comments we do not own. The login is the identity behind the `github.token` the
 // posting workflow steps pass — moving them to a custom app token changes the login and
 // would orphan every existing report comment, so handle that transition here too.
-function isReportComment(comment) {
+export function isReportComment(comment) {
     return comment.user?.login === 'github-actions[bot]' && comment.body?.startsWith(MARKER)
 }
 

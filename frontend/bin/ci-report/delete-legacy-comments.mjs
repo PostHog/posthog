@@ -10,6 +10,7 @@ const LEGACY_MARKERS = [
     '<!-- posthog-bundle-size-check -->',
     '<!-- mcp-ui-apps-size-report -->',
     '<!-- playwright-report-comment -->',
+    '<!-- ch-migration-sql -->',
 ]
 
 const context = resolvePrContext('cleanup')
