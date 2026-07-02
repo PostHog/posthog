@@ -2,6 +2,7 @@ import type { BarChartConfig, PointClickData } from '@posthog/quill-charts'
 
 import type { FunnelStepWithConversionMetrics } from '~/types'
 
+import { INSIGHT_TOOLTIP_CONFIG } from '../../shared/tooltipConfig'
 import { RATE_TO_PERCENT } from '../shared/funnelBarHorizontalShared'
 import {
     buildFunnelStepsBars,
@@ -77,7 +78,7 @@ export function buildFunnelStepsBarData(
  *  enabled. A breakdown always puts one series per breakdown value at each step, so a pinnable
  *  tooltip here always covers multiple series — `resolveClickToNearestSeries` resolves the
  *  click to the nearest one and opens its persons modal directly instead of pinning first. */
-export function buildFunnelStepsBarChartConfig(
+export function withFunnelStepsBarInteraction(
     baseConfig: BarChartConfig,
     options: { isBreakdownCompare?: boolean; quillTooltipEnabled: boolean }
 ): BarChartConfig {
@@ -85,7 +86,7 @@ export function buildFunnelStepsBarChartConfig(
     if (options.quillTooltipEnabled) {
         return {
             ...base,
-            tooltip: { pinnable: true, resolveClickToNearestSeries: true, placement: 'cursor' },
+            tooltip: { ...INSIGHT_TOOLTIP_CONFIG, resolveClickToNearestSeries: true },
         }
     }
     return base

@@ -52,6 +52,36 @@ interface UseChartInteractionOptions<Meta> {
     wrapClickData?: (data: PointClickData<Meta>, scales: ChartScales) => PointClickData<Meta>
 }
 
+/** Resolves a click on a pinnable multi-series chart to whichever series is nearest the cursor,
+ *  reusing the already-computed tooltip row values/positions rather than re-deriving them —
+ *  `tooltipCtx.seriesData` reflects each series' own tooltip-visibility and value formatting,
+ *  which a fresh lookup via `buildPointClickData` would not. Returns `null` when no series is
+ *  closest (e.g. an empty tooltip). */
+function resolveNearestSeriesClickData<Meta>(
+    dataIndex: number,
+    series: ResolvedSeries<Meta>[],
+    labels: string[],
+    tooltipCtx: TooltipContext<Meta>,
+    interactionAxis: 'x' | 'y',
+    cursor: { x: number; y: number }
+): PointClickData<Meta> | null {
+    const cursorValueCoord = interactionAxis === 'y' ? cursor.x : cursor.y
+    const closestKey = findClosestSeriesKey(tooltipCtx.seriesData, cursorValueCoord)
+    const closest = closestKey ? tooltipCtx.seriesData.find((d) => d.series.key === closestKey) : undefined
+    if (!closest) {
+        return null
+    }
+    return {
+        seriesIndex: series.findIndex((s) => s.key === closest.series.key),
+        dataIndex,
+        series: closest.series,
+        value: closest.value,
+        label: labels[dataIndex],
+        crossSeriesData: tooltipCtx.seriesData.map((d) => ({ series: d.series, value: d.value })),
+        cursor,
+    }
+}
+
 interface UseChartInteractionResult<Meta> {
     hoverIndex: number
     hoverPosition: { x: number; y: number } | null
@@ -272,20 +302,15 @@ export function useChartInteraction<Meta = unknown>({
             // Opt-in: a click nearer one series than the others is unambiguous, so resolve it
             // and fire onPointClick directly instead of making the user pin then pick a row.
             if (resolveClickToNearestSeries && onPointClick && hoverPositionRef.current) {
-                const cursorValueCoord =
-                    interactionAxis === 'y' ? hoverPositionRef.current.x : hoverPositionRef.current.y
-                const closestKey = findClosestSeriesKey(tooltipCtx.seriesData, cursorValueCoord)
-                const closest = closestKey ? tooltipCtx.seriesData.find((d) => d.series.key === closestKey) : undefined
-                if (closest) {
-                    const clickData: PointClickData<Meta> = {
-                        seriesIndex: series.findIndex((s) => s.key === closest.series.key),
-                        dataIndex: currentIndex,
-                        series: closest.series,
-                        value: closest.value,
-                        label: labels[currentIndex],
-                        crossSeriesData: tooltipCtx.seriesData.map((d) => ({ series: d.series, value: d.value })),
-                        cursor: hoverPositionRef.current,
-                    }
+                const clickData = resolveNearestSeriesClickData(
+                    currentIndex,
+                    series,
+                    labels,
+                    tooltipCtx,
+                    interactionAxis,
+                    hoverPositionRef.current
+                )
+                if (clickData) {
                     onPointClick(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
                     return
                 }

@@ -3,11 +3,11 @@ import type { BarChartConfig, PointClickData, Series } from '@posthog/quill-char
 import { EntityTypes, type FunnelStepWithConversionMetrics } from '~/types'
 
 import {
-    buildFunnelStepsBarChartConfig,
     buildFunnelStepsBarData,
     FUNNEL_STEPS_SERIES_KEY_PREFIX,
-    type FunnelStepsBarSeriesMeta,
     resolveFunnelStepClick,
+    withFunnelStepsBarInteraction,
+    type FunnelStepsBarSeriesMeta,
 } from './funnelStepsBarTransforms'
 
 type StepOverrides = Partial<FunnelStepWithConversionMetrics> & { fromBasisStep: number }
@@ -166,11 +166,11 @@ describe('resolveFunnelStepClick', () => {
     })
 })
 
-describe('buildFunnelStepsBarChartConfig', () => {
+describe('withFunnelStepsBarInteraction', () => {
     const baseConfig: BarChartConfig = { barLayout: 'grouped', tooltip: { placement: 'top' } }
 
     it('returns the base config unchanged when the new tooltip is off', () => {
-        const config = buildFunnelStepsBarChartConfig(baseConfig, { quillTooltipEnabled: false })
+        const config = withFunnelStepsBarInteraction(baseConfig, { quillTooltipEnabled: false })
 
         expect(config).toBe(baseConfig)
     })
@@ -179,13 +179,13 @@ describe('buildFunnelStepsBarChartConfig', () => {
         // A breakdown puts one series per breakdown value at each step, so a pinnable tooltip
         // here always covers multiple series — resolveClickToNearestSeries must stay set or a
         // click pins the tooltip instead of opening the persons modal (the bug this guards).
-        const config = buildFunnelStepsBarChartConfig(baseConfig, { quillTooltipEnabled: true })
+        const config = withFunnelStepsBarInteraction(baseConfig, { quillTooltipEnabled: true })
 
         expect(config.tooltip).toEqual({ pinnable: true, resolveClickToNearestSeries: true, placement: 'cursor' })
     })
 
     it('adds a static legend for breakdown + compare, independent of the tooltip flag', () => {
-        const config = buildFunnelStepsBarChartConfig(baseConfig, {
+        const config = withFunnelStepsBarInteraction(baseConfig, {
             isBreakdownCompare: true,
             quillTooltipEnabled: false,
         })

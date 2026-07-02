@@ -22,10 +22,10 @@ import { ChartParams } from '~/types'
 import { buildFunnelStepsBarConfig, FUNNEL_STEPS_BAND_PADDING } from '../shared/funnelStepsBarShared'
 import { FunnelStepsBarTooltip } from './FunnelStepsBarTooltip'
 import {
-    buildFunnelStepsBarChartConfig,
     buildFunnelStepsBarData,
-    type FunnelStepsBarSeriesMeta,
     resolveFunnelStepClick,
+    withFunnelStepsBarInteraction,
+    type FunnelStepsBarSeriesMeta,
 } from './funnelStepsBarTransforms'
 
 const BASE_STEP_WIDTH_PX = 240
@@ -88,7 +88,7 @@ export function FunnelStepsBarChart({
         (variant) => variant.compare_label != null && hasBreakdown(variant.breakdown_value)
     )
     const config = useMemo(
-        () => buildFunnelStepsBarChartConfig(chartConfig, { isBreakdownCompare, quillTooltipEnabled }),
+        () => withFunnelStepsBarInteraction(chartConfig, { isBreakdownCompare, quillTooltipEnabled }),
         [isBreakdownCompare, quillTooltipEnabled]
     )
 
