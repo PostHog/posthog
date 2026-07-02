@@ -14,8 +14,8 @@ describe('scannerRunTabLogic', () => {
         useMocks({
             get: {
                 '/api/projects/:team/vision/scanners/:id/': () => [404, {}],
-                '/api/projects/:team/vision/scanners/:id/observations/': (req: any) => {
-                    requestedUrls.push(String(req.url))
+                '/api/projects/:team/vision/scanners/:id/observations/': ({ request }: { request: Request }) => {
+                    requestedUrls.push(request.url)
                     return [
                         200,
                         {
@@ -50,7 +50,10 @@ describe('scannerRunTabLogic', () => {
             s1: { id: 'obs-retry', status: 'running' },
             s2: { id: 'obs-2', status: 'succeeded' },
         })
-        expect(requestedUrls[0]).not.toContain('limit=')
+        // The connected replayScannerLogic fires its own paged list load; ours is the session_id lookup.
+        const lookupUrl = requestedUrls.find((url) => url.includes('session_id='))
+        expect(lookupUrl).not.toBeUndefined()
+        expect(lookupUrl).not.toContain('limit=')
     })
 
     it('releases the pending bridge once the scanned session lands in the lookup', async () => {

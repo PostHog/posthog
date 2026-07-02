@@ -281,7 +281,14 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
                 const response = await visionScannersList(String(teamId), params)
                 // Drop out-of-order responses — the most recent filter/page change owns the table.
                 breakpoint()
-                actions.loadScannersSuccess(scannersFromApi(response.results ?? []), response.count ?? 0)
+                const results = response.results ?? []
+                const count = response.count ?? 0
+                // A shrunken set (delete, narrowed filter, concurrent change) can strand an out-of-range page.
+                if (results.length === 0 && count > 0 && filters.page > 1) {
+                    actions.setScannersFilters({ page: Math.max(1, Math.ceil(count / SCANNERS_PAGE_SIZE)) })
+                    return
+                }
+                actions.loadScannersSuccess(scannersFromApi(results), count)
             } catch (error: any) {
                 if (error instanceof Error && isBreakpoint(error)) {
                     throw error

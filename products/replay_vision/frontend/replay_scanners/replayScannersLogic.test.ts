@@ -379,4 +379,23 @@ describe('replayScannersLogic', () => {
             chartDateTo: null,
         })
     })
+
+    it('clamps back to the last valid page when the requested page is past the shrunken result set', async () => {
+        // e.g. the last scanner on page 2 was just deleted: offset=50 is now empty while count says one page.
+        useMocks({
+            get: {
+                '/api/projects/:team/vision/scanners/': ({ request }: { request: Request }) => {
+                    const offset = Number(new URL(request.url).searchParams.get('offset') ?? 0)
+                    return offset > 0
+                        ? [200, { results: [], count: 50 }]
+                        : [200, { results: [makeScanner({ id: 'a' })], count: 50 }]
+                },
+            },
+        })
+
+        await expectLogic(logic, () => logic.actions.setScannersFilters({ page: 2 })).toFinishAllListeners()
+
+        expect(logic.values.filters.page).toBe(1)
+        expect(logic.values.scanners).toHaveLength(1)
+    })
 })
