@@ -1114,6 +1114,12 @@ class TestIsConnectionDroppedError:
             # retrying internally. Same transient pooler class as EDBHANDLEREXITED; recovers on
             # reconnect once a session returns a connection to the pool.
             psycopg.errors.InternalError_("(ECHECKOUTRETRIES) failed to check out a connection after multiple retries"),
+            # Supavisor loses the backend socket mid-session (idle cull, restart, failover) and, once
+            # the client is past auth, surfaces it as an XX000 InternalError_ "Internal error
+            # (authenticated): :closed" — ":closed" being the Erlang gen_tcp peer-closed reason. No
+            # error code, so it's matched on the "internal error (authenticated)" wrapper; same
+            # transient class as the pooler drops above and recovers on reconnect.
+            psycopg.errors.InternalError_("Internal error (authenticated): :closed"),
             # Supavisor reports a transient timeout reaching the upstream backend as a
             # ConnectionFailure (08006, an OperationalError) carrying the Erlang-tuple reason
             # "{:error, :etimedout}" — a transient drop the in-process recovery must catch.
