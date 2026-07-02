@@ -750,14 +750,26 @@ def _get_query(
             last_value = db_incremental_field_last_value
 
         if isinstance(last_value, datetime):
-            # BigQuery DATETIME columns are timezone-naive and reject a literal that carries
-            # a UTC offset (e.g. `1970-01-01T00:00:00+00:00`), failing with "Could not cast
-            # literal ... to type DATETIME". The shared initial cursor value is tz-aware UTC,
-            # so drop the offset for DATETIME fields. TIMESTAMP columns are timezone-aware and
-            # keep it.
-            if incremental_field_type == IncrementalFieldType.DateTime and last_value.tzinfo is not None:
-                last_value = last_value.replace(tzinfo=None)
-            last_value = f"'{last_value.isoformat()}'"
+            # A DATE column rejects a datetime literal carrying a time component, failing with
+            # "Could not cast literal ... to type DATE". This happens when the stored incremental
+            # field type is DATETIME/TIMESTAMP but the actual column is DATE (e.g. it was recreated
+            # with a narrower type), so the cursor is a datetime while the column is a date. Read the
+            # column's real type and truncate to the date so the literal matches.
+            incremental_column_type = next(
+                (field.field_type.upper() for field in bq_table.schema if field.name == incremental_field),
+                None,
+            )
+            if incremental_column_type == "DATE":
+                last_value = f"'{last_value.date().isoformat()}'"
+            else:
+                # BigQuery DATETIME columns are timezone-naive and reject a literal that carries
+                # a UTC offset (e.g. `1970-01-01T00:00:00+00:00`), failing with "Could not cast
+                # literal ... to type DATETIME". The shared initial cursor value is tz-aware UTC,
+                # so drop the offset for DATETIME fields. TIMESTAMP columns are timezone-aware and
+                # keep it.
+                if incremental_field_type == IncrementalFieldType.DateTime and last_value.tzinfo is not None:
+                    last_value = last_value.replace(tzinfo=None)
+                last_value = f"'{last_value.isoformat()}'"
         elif isinstance(last_value, date):
             last_value = f"'{last_value.isoformat()}'"
 
