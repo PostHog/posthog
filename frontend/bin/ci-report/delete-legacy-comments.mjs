@@ -18,8 +18,12 @@ if (!context) {
 const { token, repo, prNumber } = context
 
 try {
-    const stale = (await listPrComments(context)).filter((c) =>
-        LEGACY_MARKERS.some((marker) => c.body?.includes(marker))
+    // Same ownership rule as isReportComment in update-ci-report.mjs: every legacy
+    // check posted its marker as the first line under the workflow token's identity,
+    // and matching on substring alone would let a human comment that quotes or pastes
+    // a marker be deleted by CI.
+    const stale = (await listPrComments(context)).filter(
+        (c) => c.user?.login === 'github-actions[bot]' && LEGACY_MARKERS.some((marker) => c.body?.startsWith(marker))
     )
     for (const comment of stale) {
         await gh(token, `/repos/${repo}/issues/comments/${comment.id}`, { method: 'DELETE' })
