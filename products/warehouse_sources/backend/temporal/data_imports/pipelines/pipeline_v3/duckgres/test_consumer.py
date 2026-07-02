@@ -227,7 +227,12 @@ class TestDuckgresEnablementGating:
             new_callable=AsyncMock,
         ) as mock_fetch:
             batches = await adapter.fetch_and_lock(
-                conn, limit=50, retry_backoff_base_seconds=0, owner_token="test-owner", lease_ttl_seconds=300
+                conn,
+                limit=50,
+                retry_backoff_base_seconds=0,
+                owner_token="test-owner",
+                lease_ttl_seconds=300,
+                max_groups=16,
             )
 
         assert batches == []
@@ -269,7 +274,12 @@ class TestDuckgresEnablementGating:
             ),
         ):
             await adapter.fetch_and_lock(
-                conn, limit=50, retry_backoff_base_seconds=30, owner_token="test-owner", lease_ttl_seconds=300
+                conn,
+                limit=50,
+                retry_backoff_base_seconds=30,
+                owner_token="test-owner",
+                lease_ttl_seconds=300,
+                max_groups=16,
             )
 
         assert mock_fetch.call_args[1]["team_ids"] == [1, 2]
@@ -278,6 +288,7 @@ class TestDuckgresEnablementGating:
         assert mock_fetch.call_args[1]["eligible_schema_ids"] == ["eligible-schema"]
         assert mock_fetch.call_args[1]["owner_token"] == "test-owner"
         assert mock_fetch.call_args[1]["lease_ttl_seconds"] == 300
+        assert mock_fetch.call_args[1]["max_groups"] == 16
         mock_supersede.assert_called_once()
         mock_backlog.assert_called_once()
         mock_planner.assert_called_once_with([1, 2])
@@ -310,7 +321,12 @@ class TestDuckgresEnablementGating:
             ),
         ):
             batches = await adapter.fetch_and_lock(
-                conn, limit=50, retry_backoff_base_seconds=0, owner_token="test-owner", lease_ttl_seconds=300
+                conn,
+                limit=50,
+                retry_backoff_base_seconds=0,
+                owner_token="test-owner",
+                lease_ttl_seconds=300,
+                max_groups=16,
             )
 
         assert batches == []
@@ -353,7 +369,12 @@ class TestDuckgresEnablementGating:
             ),
         ):
             batches = await adapter.fetch_and_lock(
-                conn, limit=50, retry_backoff_base_seconds=0, owner_token="test-owner", lease_ttl_seconds=300
+                conn,
+                limit=50,
+                retry_backoff_base_seconds=0,
+                owner_token="test-owner",
+                lease_ttl_seconds=300,
+                max_groups=16,
             )
 
         assert batches == []

@@ -157,6 +157,7 @@ class DuckgresBatchQueue:
         blocked_schema_ids: list[str] | None = None,
         eligible_schema_ids: list[str] | None = None,
         lease_ttl_seconds: int = LEASE_TTL_SECONDS,
+        max_groups: int | None = None,
     ) -> list[PendingBatch]:
         """Fetch Duckgres-eligible batches whose Delta load has succeeded.
 
@@ -345,7 +346,24 @@ class DuckgresBatchQueue:
                     LIMIT %(limit)s
                 ),
                 candidate_groups AS (
-                    SELECT DISTINCT team_id, schema_id FROM candidates
+                    -- Cap leased groups to the consumer's free slots (oldest
+                    -- work first): leasing a group this pod cannot start would
+                    -- block other pods from it — every subsequent poll renews
+                    -- the same owner's lease — for as long as this pod stays
+                    -- saturated. NULL = no cap (tests/dev). Groups live-leased
+                    -- by another owner are filtered BEFORE the cap so the
+                    -- budget is spent on groups this pod can actually claim;
+                    -- the claim CTE below stays the authoritative arbiter.
+                    SELECT c.team_id, c.schema_id
+                    FROM candidates c
+                    LEFT JOIN {DUCKGRES_LEASE_TABLE} cl
+                        ON cl.team_id = c.team_id AND cl.schema_id = c.schema_id
+                    WHERE cl.team_id IS NULL
+                        OR cl.expires_at < now()
+                        OR cl.owner_token = %(owner)s
+                    GROUP BY c.team_id, c.schema_id
+                    ORDER BY min(c.created_at) ASC, c.team_id ASC, c.schema_id ASC
+                    LIMIT COALESCE(%(max_groups)s, 2147483647)
                 ),
                 claimed AS (
                     INSERT INTO {DUCKGRES_LEASE_TABLE} (team_id, schema_id, owner_token, expires_at, acquired_at, updated_at)
@@ -376,6 +394,7 @@ class DuckgresBatchQueue:
                     "eligible_schema_ids": eligible_schema_ids,
                     "owner": owner_token,
                     "ttl": lease_ttl_seconds,
+                    "max_groups": max_groups,
                 },
             )
             rows = await cur.fetchall()

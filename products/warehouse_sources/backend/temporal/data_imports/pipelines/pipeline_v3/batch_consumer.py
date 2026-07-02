@@ -105,6 +105,7 @@ class BatchConsumerAdapter(Protocol):
         retry_backoff_base_seconds: int,
         owner_token: str,
         lease_ttl_seconds: int,
+        max_groups: int,
     ) -> list[PendingBatch]: ...
 
     async def unlock(
@@ -303,6 +304,11 @@ class BatchConsumer:
                         retry_backoff_base_seconds=self._config.retry_backoff_base_seconds,
                         owner_token=self._owner_token,
                         lease_ttl_seconds=self._lease_ttl_seconds,
+                        # Never lease more groups than we have slots to start:
+                        # an unstarted group's lease would be renewed by every
+                        # subsequent poll and block other pods from it for as
+                        # long as this pod stays saturated.
+                        max_groups=available,
                     )
                 except psycopg.OperationalError as e:
                     logger.exception(self._event("poll_failed_queue_db_unreachable"))

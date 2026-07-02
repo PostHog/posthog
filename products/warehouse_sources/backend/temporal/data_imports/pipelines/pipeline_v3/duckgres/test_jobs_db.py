@@ -794,6 +794,23 @@ class TestDuckgresGroupLease:
         assert len(await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-b")) == 1
 
     @pytest.mark.asyncio
+    async def test_max_groups_caps_leased_groups_leaving_the_rest_claimable(self, conn):
+        # A saturated pod must not lease groups it has no slot to start —
+        # every subsequent poll would renew those leases and block other pods
+        # from the work for as long as the pod stays busy.
+        older = await _insert_batch(conn, schema_id="schema-1")
+        await BatchQueue.update_status(conn, batch_id=older, job_state="succeeded", attempt=1)
+        newer = await _insert_batch(conn, schema_id="schema-2")
+        await BatchQueue.update_status(conn, batch_id=newer, job_state="succeeded", attempt=1)
+
+        capped = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a", max_groups=1)
+        assert [str(b.id) for b in capped] == [older]
+
+        # The uncapped group carries no lease, so another owner claims it now.
+        other = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-b", max_groups=1)
+        assert [str(b.id) for b in other] == [newer]
+
+    @pytest.mark.asyncio
     async def test_expired_lease_is_reclaimable_by_another_owner(self, conn):
         batch_id = await _insert_batch(conn)
         await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)
