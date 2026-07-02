@@ -714,6 +714,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
                 const teamId = teamLogic.values.currentTeamId
                 if (!teamId) {
+                    actions.loadScannerFailure() // Clear the loading flag — a bare return would spin forever.
                     return
                 }
                 try {
@@ -919,6 +920,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
                 const teamId = teamLogic.values.currentTeamId
                 if (!teamId) {
+                    actions.loadObservationsFailure()
                     return
                 }
                 try {
@@ -962,6 +964,7 @@ export const replayScannerLogic = kea<replayScannerLogicType>([
                 }
                 const teamId = teamLogic.values.currentTeamId
                 if (!teamId) {
+                    actions.loadObservationStatsFailure()
                     return
                 }
                 try {

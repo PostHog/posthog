@@ -261,6 +261,7 @@ export const replayScannersLogic = kea<replayScannersLogicType>([
         loadScanners: async (_, breakpoint) => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
+                actions.loadScannersFailure('No team in context') // Clear the loading flag; a bare return spins forever.
                 return
             }
             try {

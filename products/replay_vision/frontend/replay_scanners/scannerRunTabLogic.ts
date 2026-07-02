@@ -115,6 +115,7 @@ export const scannerRunTabLogic = kea<scannerRunTabLogicType>([
             const teamId = teamLogic.values.currentTeamId
             const sessionIds = values.visibleSessionIds
             if (!teamId || sessionIds.length === 0) {
+                actions.loadObservationsFailure() // Clear the foreground loading flag; a bare return spins forever.
                 return
             }
             try {

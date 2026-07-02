@@ -110,6 +110,7 @@ export const observationsDockLogic = kea<observationsDockLogicType>([
         loadObservations: async () => {
             const teamId = teamLogic.values.currentTeamId
             if (!teamId) {
+                actions.loadObservationsFailure() // Clear the loading flag; a bare return spins forever.
                 return
             }
             try {
