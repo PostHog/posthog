@@ -1,8 +1,7 @@
 // The unified scope bar of the lens stack. One rule everywhere:
 //   - place levels (repo › workflow › run) are breadcrumb-style chips on the left — the hierarchy
-//   - cross-cutting lenses (PR, author) are dismissible filter chips on the right — every entity page
-//     is the same runs+jobs view with one filter applied; removing the chip zooms out one level, and
-//     an unvalued chip ("pr: any", dashed) opens the full list of that entity
+//   - the cross-cutting PR lens is a dismissible filter chip on the right — every entity page is
+//     the same runs+jobs view with one filter applied; removing the chip zooms out one level
 //   - branch and date are shared scope (engineeringAnalyticsFiltersLogic), so a window picked on one
 //     page carries to the next instead of snapping back to defaults.
 
@@ -41,7 +40,7 @@ export interface ScopeCrumb {
 
 export interface LensChip {
     label: string
-    /** Where dismissing the valued chip (or clicking the unvalued one) navigates. */
+    /** Where dismissing the chip navigates. */
     to: string
 }
 
@@ -165,7 +164,6 @@ export function ScopeBar({
     repoSlot,
     crumbs = [],
     lensFilter,
-    lensPickers,
     showBranch = false,
     showDate = true,
     extra,
@@ -174,10 +172,8 @@ export function ScopeBar({
     repoSlot: ReactNode
     /** Hierarchy below the repo (workflow › run); empty on the repo hub itself. */
     crumbs?: ScopeCrumb[]
-    /** The active cross-cutting lens (pr: #N, author: handle) — dismissible, zooms out to `to`. */
+    /** The active cross-cutting lens (pr: #N) — dismissible, zooms out to `to`. */
     lensFilter?: LensChip
-    /** Unvalued lenses (repo hub): clicking one opens the full list of that entity. */
-    lensPickers?: LensChip[]
     showBranch?: boolean
     showDate?: boolean
     extra?: ReactNode
@@ -201,16 +197,6 @@ export function ScopeBar({
                 </Fragment>
             ))}
             <span className="ml-auto flex flex-wrap items-center gap-2">
-                {lensPickers?.map((picker) => (
-                    <Link key={picker.label} to={picker.to}>
-                        <span
-                            className={cn(CHIP_CLASS, 'cursor-pointer border-dashed')}
-                            title="Unvalued lens — open the full list, pick a value there to focus"
-                        >
-                            {picker.label}: <span className="text-tertiary">any</span>
-                        </span>
-                    </Link>
-                ))}
                 {lensFilter && (
                     <span
                         className={cn(CHIP_CLASS, 'border-accent-highlight-secondary bg-fill-highlight-50')}

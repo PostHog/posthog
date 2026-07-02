@@ -11,7 +11,6 @@ import {
 
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 import { pluralize } from 'lib/utils/strings'
-import { urls } from 'scenes/urls'
 
 import { CIAnalyticsLoadError } from '../components/CIAnalyticsLoadError'
 import { ConnectGitHubSource } from '../components/ConnectGitHubSource'
@@ -68,11 +67,7 @@ export function EngineeringAnalyticsPullRequests(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            <ScopeBar
-                repoSlot={<SourceScopeChip />}
-                lensFilter={{ label: 'pr: any', to: urls.engineeringAnalytics() }}
-                showDate={false}
-            />
+            <ScopeBar repoSlot={<SourceScopeChip />} showDate={false} />
             <div className="grid grid-cols-1 gap-3 sm:grid-cols-3">
                 <StatCard
                     label="Open PRs"
