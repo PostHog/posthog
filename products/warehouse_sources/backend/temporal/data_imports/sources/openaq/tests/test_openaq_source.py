@@ -4,6 +4,8 @@ from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
 
+from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import OpenAQSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.openaq.openaq import OpenAQResumeConfig
@@ -24,8 +26,9 @@ class TestOpenAQSourceConfig:
         fields = OpenAQSource().get_source_config.fields
         assert len(fields) == 1
         api_key = fields[0]
+        assert isinstance(api_key, SourceFieldInputConfig)
         assert api_key.name == "api_key"
-        assert api_key.type.value == "password"
+        assert api_key.type == SourceFieldInputConfigType.PASSWORD
         assert api_key.required is True
         assert api_key.secret is True
 

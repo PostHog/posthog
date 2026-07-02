@@ -156,10 +156,14 @@ class TestFetchPageRetries:
         assert session.get.call_count == 2
 
     def test_client_error_raises_and_does_not_retry(self) -> None:
+        error_response = requests.Response()
+        error_response.status_code = 401
         response = MagicMock()
         response.status_code = 401
         response.ok = False
-        response.raise_for_status.side_effect = requests.HTTPError("401 Client Error: Unauthorized")
+        response.raise_for_status.side_effect = requests.HTTPError(
+            "401 Client Error: Unauthorized", response=error_response
+        )
 
         session = MagicMock()
         session.get.return_value = response
