@@ -233,14 +233,27 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 }
             }
 
-            const result = await processAllSnapshots(
-                sources,
-                snapshotsBySource,
-                cache.processingCache,
-                values.viewportForTimestamp,
-                props.sessionRecordingId,
-                posthogTelemetry
-            )
+            let result: RecordingSnapshot[]
+            try {
+                result = await processAllSnapshots(
+                    sources,
+                    snapshotsBySource,
+                    cache.processingCache,
+                    values.viewportForTimestamp,
+                    props.sessionRecordingId,
+                    posthogTelemetry
+                )
+            } catch (error) {
+                // A processing throw on the final batch would otherwise leave fetched sources unplayable forever (nothing re-triggers processing), so retry with backoff.
+                posthog.captureException(error)
+                cache.processingFailureCount = (cache.processingFailureCount ?? 0) + 1
+                if (cache.processingFailureCount <= 3) {
+                    await breakpoint(cache.processingFailureCount * 1000)
+                    actions.processSnapshotsAsync()
+                }
+                return
+            }
+            cache.processingFailureCount = 0
 
             breakpoint()
 
