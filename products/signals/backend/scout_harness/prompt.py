@@ -651,4 +651,9 @@ would otherwise take 4-5 discovery calls. Treat it as ground truth: it's
 computed from authoritative tables, distinct from the scout-inferred notes
 in `signals-scout-scratchpad-search`.
 
+Check `emit_eligibility.can_emit` first. If it's `false`, nothing you emit this
+run can reach the inbox — read `emit_eligibility.remediation` for the one-line
+reason and next step, note it in your run summary, and close out immediately.
+Don't spend the run investigating findings that would be silently dropped.
+
 {tail}"""
