@@ -245,13 +245,20 @@ class TestGetRowsVersionResourceFanOut:
         rows = _collect("service_backends", _FakeResumableManager(), pages)
         assert rows == [{"name": "origin", "version": 2, "service_id": "S1"}]
 
-    def test_service_without_versions_is_skipped(self) -> None:
+    def test_service_without_versions_is_skipped_but_bookmark_advances(self) -> None:
+        # A versionless service yields no rows, but its bookmark must still advance so resume doesn't
+        # re-evaluate it on every future run.
         pages = {
-            f"{FASTLY_BASE_URL}/service?per_page=100": ([{"id": "S1"}], None),
+            f"{FASTLY_BASE_URL}/service?per_page=100": ([{"id": "S1"}, {"id": "S2"}], None),
             f"{FASTLY_BASE_URL}/service/S1/version": [],
+            f"{FASTLY_BASE_URL}/service/S2/version": [{"number": 1, "active": True}],
+            f"{FASTLY_BASE_URL}/service/S2/version/1/backend": [{"name": "origin", "version": 1}],
         }
-        rows = _collect("service_backends", _FakeResumableManager(), pages)
-        assert rows == []
+        manager = _FakeResumableManager()
+        rows = _collect("service_backends", manager, pages)
+
+        assert rows == [{"name": "origin", "version": 1, "service_id": "S2"}]
+        assert [s.service_id for s in manager.saved] == ["S1", "S2"]
 
 
 class TestFastlySourceResponse:

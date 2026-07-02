@@ -85,7 +85,9 @@ def validate_credentials(api_key: str) -> bool:
             f"{FASTLY_BASE_URL}/current_user", headers=_get_headers(api_key), timeout=10
         )
         return response.status_code == 200
-    except Exception:
+    except requests.RequestException:
+        # A network blip / timeout at source-create can't confirm the token, so report it as invalid
+        # rather than crashing setup. Non-request errors are unexpected and left to propagate.
         return False
 
 
@@ -189,6 +191,7 @@ def _get_fanout_rows(
         logger.debug(f"Fastly: resuming {config.name} from service_id={resume.service_id}")
 
     for service_id in service_ids[start:]:
+        rows: list[dict[str, Any]] = []
         if config.kind == "version_list":
             response = _fetch(session, f"{FASTLY_BASE_URL}/service/{service_id}/version", headers, logger)
             data = response.json()
@@ -197,16 +200,17 @@ def _get_fanout_rows(
             version = _active_version_number(session, service_id, headers, logger)
             if version is None:
                 logger.debug(f"Fastly: service {service_id} has no versions, skipping {config.name}")
-                continue
-            path = config.path.format(service_id=service_id, version=version)
-            response = _fetch(session, f"{FASTLY_BASE_URL}{path}", headers, logger)
-            data = response.json()
-            rows = data if isinstance(data, list) else []
+            else:
+                path = config.path.format(service_id=service_id, version=version)
+                response = _fetch(session, f"{FASTLY_BASE_URL}{path}", headers, logger)
+                data = response.json()
+                rows = data if isinstance(data, list) else []
 
         rows = [_ensure_service_id(row, service_id) for row in rows if isinstance(row, dict)]
         if rows:
             yield rows
-        # Bookmark the processed service AFTER yielding so a crash resumes here and re-yields.
+        # Bookmark the service AFTER yielding so a crash resumes here and re-yields. Advanced even for
+        # a versionless (skipped) service so resume doesn't re-evaluate it every time.
         resumable_source_manager.save_state(FastlyResumeConfig(service_id=service_id))
 
 
