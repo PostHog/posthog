@@ -739,6 +739,7 @@ class ModalSandbox(SandboxBase):
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
         event_ingest_url: str | None = None,
+        event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
     ) -> str:
         env_prefix = build_agent_runtime_env_prefix(
@@ -749,6 +750,7 @@ class ModalSandbox(SandboxBase):
             reasoning_effort=reasoning_effort,
             event_ingest_token=event_ingest_token,
             event_ingest_url=event_ingest_url,
+            event_ingest_keep_stream_open=event_ingest_keep_stream_open,
         )
         create_pr_flag = f" --createPr {shlex.quote('true' if create_pr else 'false')}"
         repo_flag = f" --repositoryPath {shlex.quote(repo_path)}" if repo_path else ""
@@ -841,6 +843,7 @@ class ModalSandbox(SandboxBase):
         allowed_domains: list[str] | None = None,
         event_ingest_token: str | None = None,
         event_ingest_url: str | None = None,
+        event_ingest_keep_stream_open: bool = False,
         repo_ready_file: str | None = None,
         wait_for_health: bool = True,
     ) -> None:
@@ -889,6 +892,7 @@ class ModalSandbox(SandboxBase):
             allowed_domains=allowed_domains,
             event_ingest_token=event_ingest_token,
             event_ingest_url=event_ingest_url,
+            event_ingest_keep_stream_open=event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
         )
 

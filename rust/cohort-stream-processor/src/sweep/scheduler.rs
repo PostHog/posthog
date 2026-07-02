@@ -36,8 +36,8 @@ pub fn due_before_ms(now_ms: i64, safety_margin_ms: i64) -> i64 {
 /// Drive the periodic sweep until `cancel` fires, invoking `sweeper.run_once()` once per tick and
 /// recording [`SWEEP_CYCLES_TOTAL`] + [`SWEEP_CYCLE_DURATION_SECONDS`], both labelled by `loop_name`.
 ///
-/// `loop_name` (`eviction`|`redrive`|`merge_gc`|`checkpoint`) labels the cycle metrics so the
-/// concurrent loops — same timer machinery, different cadences — stay distinguishable.
+/// `loop_name` (`eviction`|`redrive`|`merge_gc`|`checkpoint`|`store_stats`) labels the cycle metrics
+/// so the concurrent loops — same timer machinery, different cadences — stay distinguishable.
 ///
 /// - **`MissedTickBehavior::Skip`**: if a sweep runs long or the task is starved, the timer drops the
 ///   ticks it slept through rather than firing a catch-up burst — one sweep then resumes on the

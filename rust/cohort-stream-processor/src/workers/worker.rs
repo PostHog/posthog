@@ -1091,7 +1091,7 @@ mod tombstone_redirect_tests {
             merge,
             1,
             vec![ShuffleMessage::Event {
-                event: person_event(person, "u@p.com", 5, 0),
+                event: Box::new(person_event(person, "u@p.com", 5, 0)),
                 cse_offset: 0,
             }],
         )
@@ -1226,7 +1226,7 @@ mod tombstone_redirect_tests {
             merge,
             1,
             vec![ShuffleMessage::Event {
-                event,
+                event: Box::new(event),
                 cse_offset: 0,
             }],
         )
@@ -1460,11 +1460,11 @@ mod tombstone_redirect_tests {
         let batch = || {
             vec![
                 ShuffleMessage::Event {
-                    event: person_event(alice, "u@p.com", 5, 0),
+                    event: Box::new(person_event(alice, "u@p.com", 5, 0)),
                     cse_offset: 0,
                 },
                 ShuffleMessage::Event {
-                    event: person_event(p_old, "u@p.com", 5, 9),
+                    event: Box::new(person_event(p_old, "u@p.com", 5, 9)),
                     cse_offset: 1,
                 },
             ]

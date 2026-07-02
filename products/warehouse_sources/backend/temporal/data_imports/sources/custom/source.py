@@ -6,6 +6,8 @@ from datetime import date
 from typing import Any, Literal, NamedTuple, Optional, cast
 from urllib.parse import quote, quote_plus, urlparse
 
+from django.db import IntegrityError
+
 import structlog
 from jsonpath_ng.exceptions import JSONPathError
 from pydantic import BaseModel, ConfigDict, Field, ValidationError, model_validator
@@ -23,6 +25,10 @@ from posthog.schema import (
 
 from posthog.cloud_utils import is_cloud
 
+from products.warehouse_sources.backend.models.custom_oauth2_integration import (
+    CustomOAuth2Integration,
+    get_custom_oauth2_integration,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import (
     SortMode,
     SourceInputs,
@@ -689,6 +695,19 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                         placeholder="",
                         secret=True,
                     ),
+                    # Non-secret pointer to a CustomOAuth2Integration row (a UUID). When set, the live
+                    # client_secret / refresh_token / minted access token come from that row at sync time
+                    # (so a rotated single-use refresh token gets persisted), and the static auth_oauth2_*
+                    # secrets above are ignored. Not a secret — it's an id, so it doesn't trip the
+                    # credential re-entry gate.
+                    SourceFieldInputConfig(
+                        name="auth_oauth2_integration_id",
+                        label="OAuth2 integration",
+                        type=SourceFieldInputConfigType.TEXT,
+                        required=False,
+                        placeholder="",
+                        secret=False,
+                    ),
                 ],
             ),
         )
@@ -735,7 +754,13 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         return manifest
 
     def validate_credentials(
-        self, config: CustomSourceConfig, team_id: int, schema_name: Optional[str] = None
+        self,
+        config: CustomSourceConfig,
+        team_id: int,
+        schema_name: Optional[str] = None,
+        *,
+        source_id: Optional[str] = None,
+        owner_user_id: Optional[int] = None,
     ) -> tuple[bool, str | None]:
         try:
             manifest = self._assemble_manifest(config)
@@ -754,6 +779,45 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         ok, err = validate_manifest_urls(manifest, team_id)
         if not ok:
             return False, err
+
+        # An integration-backed OAuth2 source keeps its secrets in the CustomOAuth2Integration row,
+        # not in job_inputs — `_assemble_manifest` deliberately skipped the static secrets for it. Mint
+        # (or reuse a cached token) through the row here, exactly as sync time does, so validation has a
+        # live token to probe with. `get_access_token()` persists a rotated single-use refresh token, so
+        # this is the only seam that re-mints; the data probe below reuses the seeded token via
+        # `OAuth2Auth.__call__` and must NOT re-mint (that would rotate without writeback — see the guard
+        # on the pre-mint block). Errors mirror the pre-mint handling: a permanent token rejection blocks
+        # with a pointed message; a transient one doesn't block (the first real sync retries).
+        if config.auth_oauth2_integration_id:
+            try:
+                # Bind the integration to the source being validated, mirroring sync/preview: on update
+                # (source_id given) the row must belong to that source; on create/setup (no source yet) it
+                # must be unbound. Without this, the probe below could mint and send another source's token
+                # to an attacker-supplied base_url.
+                _inject_oauth2_integration_secrets(
+                    manifest,
+                    config.auth_oauth2_integration_id,
+                    team_id,
+                    source_id=source_id,
+                    forbid_bound=source_id is None,
+                    owner_user_id=owner_user_id,
+                )
+            except CustomOAuth2Integration.DoesNotExist:
+                return False, "The linked OAuth2 integration no longer exists. Reconnect the OAuth2 integration."
+            except OAuth2AuthRequestError as exc:
+                auth_config = manifest.get("client", {}).get("auth", {})
+                injected_secrets = tuple(
+                    str(auth_config[key])
+                    for key in ("client_secret", "refresh_token", "access_token")
+                    if auth_config.get(key)
+                )
+                if exc.is_permanent:
+                    return False, _redact_secrets(
+                        f"The OAuth2 token endpoint rejected the request: {strip_oauth2_permanent_marker(str(exc))}",
+                        injected_secrets,
+                    )
+                # Transient (429 / 5xx): don't block creation — the first real sync retries the mint.
+                return True, None
 
         # Probe a small prefix of resources so we surface auth/connection errors
         # at create-time rather than waiting for the first sync. The auth/header
@@ -780,7 +844,13 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         # freshly-minted access token join that session's redaction set. A transient
         # (429 / 5xx) token error must not block creation — the first real sync retries —
         # so only a permanent error (invalid_client / invalid_grant / other 4xx) is surfaced.
-        if isinstance(probe_auth, OAuth2Auth):
+        #
+        # Skip this for an integration-backed source: its token was already minted+persisted above
+        # (via the row's writeback-safe path) and seeded into the manifest. Re-minting on this
+        # throwaway `probe_auth` would rotate the single-use refresh token WITHOUT persisting it,
+        # orphaning the row on a consumed token. The seeded token reaches the probe through
+        # `OAuth2Auth.__call__`, which doesn't re-mint a still-valid token.
+        if isinstance(probe_auth, OAuth2Auth) and not config.auth_oauth2_integration_id:
             try:
                 # Bound the inline token exchange to the same budget as the data probe — this runs
                 # on the API request thread, so a stalled token endpoint must fail fast (well within
@@ -901,6 +971,14 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
     def source_for_pipeline(self, config: CustomSourceConfig, inputs: SourceInputs) -> SourceResponse:
         try:
             manifest = self._assemble_manifest(config)
+            # A model-backed OAuth2 source loads its live secrets + minted token from the
+            # CustomOAuth2Integration row here (sync time, DB-capable), which also writes back a rotated
+            # refresh token. _assemble_manifest already skipped the static job_inputs secrets for it.
+            if config.auth_oauth2_integration_id:
+                # Bind the integration to the syncing source so it can't inject another source's tokens.
+                _inject_oauth2_integration_secrets(
+                    manifest, config.auth_oauth2_integration_id, inputs.team_id, source_id=inputs.source_id
+                )
             ok, err = validate_manifest_urls(manifest, inputs.team_id)
             if not ok:
                 raise ManifestValidationError(err or "Manifest URL validation failed")
@@ -934,6 +1012,16 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
                 job_id=inputs.job_id,
                 db_incremental_field_last_value=last_value,
             )
+        except CustomOAuth2Integration.DoesNotExist as exc:
+            # The manifest points at an OAuth2 integration row that no longer resolves for this
+            # team (deleted, wrong team, or a dangling auth_oauth2_integration_id). It's a permanent
+            # config error — the row won't reappear on a retry — but it's neither a ValueError nor a
+            # message the substring classifier recognises, so without this it would retry until the
+            # activity budget is exhausted. Fail fast like the other deterministic config errors.
+            raise NonRetryableException(
+                "The OAuth2 integration this source points to no longer exists. "
+                "Reconnect the OAuth2 integration, then try again."
+            ) from exc
         except ValueError as exc:
             # A malformed manifest, a missing resource, or a broken parent
             # reference is a permanent, deterministic failure — retrying the sync
@@ -993,6 +1081,8 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         team_id: int,
         resource_name: str,
         max_rows: int = PREVIEW_DEFAULT_ROWS,
+        *,
+        owner_user_id: Optional[int] = None,
     ) -> "PreviewResult":
         """Fetch a bounded first page of rows for one manifest resource.
 
@@ -1020,6 +1110,38 @@ class CustomSource(SimpleSource[CustomSourceConfig]):
         ok, err = validate_manifest_urls(manifest, team_id)
         if not ok:
             raise ManifestValidationError(err or "Manifest URL validation failed")
+
+        # Integration-backed OAuth2 source: seed the manifest with the row's live secrets + minted token
+        # (mint-or-reuse, persisting any rotation) so the preview's lazy first-request mint reuses the
+        # seeded token instead of re-minting on the throwaway preview auth — which would rotate the
+        # single-use refresh token without writing it back. Same seam as sync time / validate_credentials.
+        if config.auth_oauth2_integration_id:
+            try:
+                # Preview runs before the source exists, so the integration must not already back another
+                # source — otherwise a preview could read another source's data with its tokens.
+                _inject_oauth2_integration_secrets(
+                    manifest, config.auth_oauth2_integration_id, team_id, forbid_bound=True, owner_user_id=owner_user_id
+                )
+            except CustomOAuth2Integration.DoesNotExist as exc:
+                raise ManifestValidationError(
+                    "The linked OAuth2 integration no longer exists. Reconnect the OAuth2 integration."
+                ) from exc
+            except OAuth2AuthRequestError as exc:
+                # The mint is a live network call, so a token-endpoint failure here is a fetch-style
+                # error, not a config error — surface it the same way a row-read failure would be, with
+                # the injected secrets redacted out of the message.
+                auth_config = manifest.get("client", {}).get("auth", {})
+                injected_secrets = tuple(
+                    str(auth_config[key])
+                    for key in ("client_secret", "refresh_token", "access_token")
+                    if auth_config.get(key)
+                )
+                return PreviewResult(
+                    rows=[],
+                    row_count=0,
+                    columns=[],
+                    error=_redact_secrets(strip_oauth2_permanent_marker(str(exc)), injected_secrets),
+                )
 
         chain = _fanout_chain(manifest, resource_name)
 
@@ -1311,6 +1433,11 @@ def _inject_auth_secrets(manifest: dict[str, Any], config: CustomSourceConfig) -
     elif auth_type == "http_basic" and config.auth_password:
         auth["password"] = config.auth_password
     elif auth_type == "oauth2":
+        # A model-backed source (auth_oauth2_integration_id set) gets its live secrets + minted token
+        # from the CustomOAuth2Integration row at sync time (see _inject_oauth2_integration_secrets),
+        # so skip the static job_inputs secrets entirely — they aren't the source of truth here.
+        if config.auth_oauth2_integration_id:
+            return
         # The non-secret oauth fields (client_id / token_url / grant_type / knobs) are
         # already in the manifest; inject only the secrets. client_credentials needs just
         # the client_secret; the refresh_token grant also needs the refresh token.
@@ -1318,6 +1445,113 @@ def _inject_auth_secrets(manifest: dict[str, Any], config: CustomSourceConfig) -
             auth["client_secret"] = config.auth_oauth2_client_secret
         if config.auth_oauth2_refresh_token:
             auth["refresh_token"] = config.auth_oauth2_refresh_token
+
+
+def _authorize_integration_for_source(
+    integration: CustomOAuth2Integration,
+    team_id: int,
+    *,
+    source_id: Optional[str],
+    forbid_bound: bool,
+    owner_user_id: Optional[int] = None,
+) -> None:
+    """Fail closed unless ``integration`` belongs to — or is owned by the user setting up — the source
+    about to use its secrets.
+
+    Scoping the lookup by ``team_id`` alone lets any source in a team adopt another source's integration
+    UUID and exfiltrate its OAuth client secret + tokens. Binding the row to its source closes that:
+
+    * sync (``source_id`` set): the row must already belong to this source. An unbound row is claimed for
+      it on first use (trust-on-first-use), so no second source can adopt it afterwards; a row bound to a
+      different source is rejected.
+    * preview/create (``forbid_bound``): there's no source yet, so the row must be unbound — it can't
+      already be backing another source.
+
+    An unbound row is a floating credential, so a request-context caller (``owner_user_id`` set) may only
+    consume one it created — otherwise a teammate could adopt someone else's not-yet-bound integration.
+    At sync there's no acting user; the source already passed this same owner check at create/update, so
+    the first-use claim is safe.
+
+    Rejection raises ``CustomOAuth2Integration.DoesNotExist`` so each caller's existing "integration no
+    longer exists" handling turns it into the right non-retryable / 400 response.
+    """
+    foreign_unbound = owner_user_id is not None and integration.created_by_id != owner_user_id
+    bound_source_id = integration.external_data_source_id
+    if source_id is not None:
+        if bound_source_id is None:
+            if foreign_unbound:
+                raise CustomOAuth2Integration.DoesNotExist("OAuth2 integration is not available for this source.")
+            # Atomically claim the unbound row for this source. A guarded UPDATE (not a save) loses the
+            # race cleanly if another source's first sync claims it first, and an IntegrityError means the
+            # source already has a different integration bound — both fall through to the match check below,
+            # which fails closed.
+            try:
+                claimed = (
+                    CustomOAuth2Integration.objects.for_team(team_id)
+                    .filter(pk=integration.pk, external_data_source__isnull=True)
+                    .update(external_data_source_id=source_id)
+                )
+            except IntegrityError:
+                claimed = 0
+            if claimed:
+                integration.external_data_source_id = source_id  # keep the in-memory row consistent
+                return
+            bound_source_id = (
+                CustomOAuth2Integration.objects.for_team(team_id)
+                .values_list("external_data_source_id", flat=True)
+                .get(pk=integration.pk)
+            )
+        if str(bound_source_id) != str(source_id):
+            raise CustomOAuth2Integration.DoesNotExist("OAuth2 integration is not bound to this source.")
+    elif forbid_bound:
+        if bound_source_id is not None:
+            raise CustomOAuth2Integration.DoesNotExist("OAuth2 integration is already bound to another source.")
+        if foreign_unbound:
+            raise CustomOAuth2Integration.DoesNotExist("OAuth2 integration is not available for this source.")
+
+
+def _inject_oauth2_integration_secrets(
+    manifest: dict[str, Any],
+    integration_id: str,
+    team_id: int,
+    *,
+    source_id: Optional[str] = None,
+    forbid_bound: bool = False,
+    owner_user_id: Optional[int] = None,
+) -> None:
+    """Inject a model-backed OAuth2 source's minted access token into ``client.auth`` as a static bearer.
+
+    Mutates ``manifest`` in place. Runs at sync, create-time validation, and preview — all DB-capable
+    seams where ``team_id`` is known — never on the schema-listing manifest assembly. ``get_access_token()``
+    mints + persists up front (under a row lock), so this is the seam where a rotating provider's new
+    single-use refresh token gets written back before the next sync would reuse the consumed one.
+
+    Only the minted access token is seeded — never the refresh_token/client_secret — and
+    ``manages_own_token=False`` tells the REST engine to send it without ever minting. A mid-sync re-mint
+    would consume a single-use refresh token whose rotation the engine can't persist; instead an expired
+    token surfaces as a retryable 401 and the retry re-mints up front through the row.
+
+    ``source_id`` / ``forbid_bound`` bind the integration to the source using it; see
+    ``_authorize_integration_for_source``.
+    """
+    client = manifest.get("client")
+    if not isinstance(client, dict):
+        return
+    auth = client.get("auth")
+    if not isinstance(auth, dict) or auth.get("type") != "oauth2":
+        return
+    integration = get_custom_oauth2_integration(integration_id, team_id)
+    _authorize_integration_for_source(
+        integration, team_id, source_id=source_id, forbid_bound=forbid_bound, owner_user_id=owner_user_id
+    )
+    integration.get_access_token()
+    auth["access_token"] = integration.sensitive_config.get("access_token")
+    auth["manages_own_token"] = False
+    # Strip any minting material so the engine structurally cannot re-mint mid-sync (belt-and-suspenders
+    # to manages_own_token=False): the row is the only place a single-use refresh token may be rotated +
+    # persisted.
+    auth.pop("client_secret", None)
+    auth.pop("refresh_token", None)
 
 
 def _incremental_field_type(raw: Any) -> IncrementalFieldType:
