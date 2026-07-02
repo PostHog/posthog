@@ -16,7 +16,6 @@ from __future__ import annotations
 import os
 import sys
 import uuid
-import select
 import platform
 from datetime import UTC, datetime
 from typing import Any
@@ -62,16 +61,17 @@ def _stdin_is_tty() -> bool:
         return False
 
 
-def _stdin_has_data() -> bool:
-    """True when piped stdin already has bytes ready, so reading won't block.
+def _read_piped_stdin() -> str:
+    """Read all of piped stdin, blocking until EOF (standard pipeline semantics).
 
-    Guards ``echo … | hogli devex:feedback`` while keeping a held-open empty pipe
-    (an agent that spawned the command with an unwritten stdin) from hanging it.
+    Returns "" when stdin is closed or absent (daemon / sandbox contexts) rather
+    than raising. A caller that holds an empty pipe open with no writer blocks
+    here, same as any Unix filter — pass the message as an argument to avoid that.
     """
     try:
-        return bool(select.select([sys.stdin], [], [], 0)[0])
-    except Exception:
-        return False
+        return sys.stdin.read()
+    except (ValueError, AttributeError):
+        return ""
 
 
 def _context_properties() -> dict[str, Any]:
@@ -144,12 +144,12 @@ def devex_feedback(message: tuple[str, ...], category: str | None, yes: bool) ->
     interactive = _stdin_is_tty()
     text = " ".join(message).strip()
 
-    # No inline message: prompt an interactive human, or read piped stdin — but only
-    # when data is actually waiting, so a held-open empty pipe can't block forever.
+    # No inline message: prompt an interactive human, or read piped stdin (blocking,
+    # like any Unix filter) so delayed producers such as `… | hogli devex:feedback` work.
     if not text and interactive:
         text = click.prompt("Your feedback for the devex team", default="", show_default=False).strip()
-    elif not text and _stdin_has_data():
-        text = sys.stdin.read().strip()
+    elif not text:
+        text = _read_piped_stdin().strip()
 
     if not text:
         raise click.ClickException('nothing to send — provide a message: hogli devex:feedback "..."')
