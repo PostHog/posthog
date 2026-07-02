@@ -371,9 +371,10 @@ fn compute_series_fingerprint(
     hasher.finish() as i64
 }
 
-/// Length-prefixed so e.g. {"ab":"c"} and {"a":"bc"} can never collide.
+/// Length-prefixed so e.g. {"ab":"c"} and {"a":"bc"} can never collide. Lengths are
+/// written little-endian (not native `write_u64`) so the id is identical on any host.
 fn hash_str(hasher: &mut SipHasher13, s: &str) {
-    hasher.write_u64(s.len() as u64);
+    hasher.write(&(s.len() as u64).to_le_bytes());
     hasher.write(s.as_bytes());
 }
 
@@ -381,7 +382,7 @@ fn hash_str(hasher: &mut SipHasher13, s: &str) {
 fn hash_sorted_map(hasher: &mut SipHasher13, map: &HashMap<String, String>) {
     let mut pairs: Vec<(&str, &str)> = map.iter().map(|(k, v)| (k.as_str(), v.as_str())).collect();
     pairs.sort_unstable();
-    hasher.write_u64(pairs.len() as u64);
+    hasher.write(&(pairs.len() as u64).to_le_bytes());
     for (key, value) in pairs {
         hash_str(hasher, key);
         hash_str(hasher, value);
