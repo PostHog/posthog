@@ -212,6 +212,7 @@ the row lists both.
 | optimizely              | HTTP                        | requests                                                        | ✅                          |
 | pagerduty               | HTTP                        | requests                                                        | ✅                          |
 | pandadoc                | HTTP                        | requests                                                        | ✅                          |
+| papersign               | HTTP                        | requests                                                        | ✅                          |
 | paystack                | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | pendo                   | HTTP                        | requests                                                        | ✅                          |
 | personio                | HTTP                        | requests                                                        | ✅                          |
@@ -557,7 +558,6 @@ doesn't conflict with concurrent PRs.
 - pabbly_subscriptions_billing
 - pagerduty
 - paperform
-- papersign
 - pardot
 - partnerize
 - partnerstack

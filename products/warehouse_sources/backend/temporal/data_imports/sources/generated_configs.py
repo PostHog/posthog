@@ -2350,7 +2350,7 @@ class PaperformSourceConfig(config.Config):
 
 @config.config
 class PapersignSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
