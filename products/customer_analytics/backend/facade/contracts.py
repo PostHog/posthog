@@ -317,6 +317,19 @@ class AccountNotebookView:
     last_modified_by: UserBasicInfo | None = None
 
 
+@stdlib_dataclass(frozen=True)
+class AccountNoteView:
+    """A row of the team-wide account-notes list: an internal notebook plus the account it's
+    linked to. Defaults exist for serializer instantiation (see :class:`AccountView`)."""
+
+    short_id: str = ""
+    title: str | None = None
+    created_at: datetime | None = None
+    last_modified_at: datetime | None = None
+    account_id: UUID | None = None
+    account_name: str = ""
+
+
 # --- Presentation wave: input contracts for the CRUD write paths ---
 
 
