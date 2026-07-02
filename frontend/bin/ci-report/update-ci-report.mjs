@@ -99,12 +99,12 @@ function orderedIds(sections) {
 export function renderComment(sections) {
     const ids = orderedIds(sections)
     const blocks = ids.map((id) => {
-        const { status, inner } = sections.get(id)
+        const { status, summary: rawSummary, inner } = sections.get(id)
         // The summary renders inline in <summary>…</summary>, which must stay on one line
         // or the strip regex misses the wrapper on re-parse and the section nests another
         // <details> every run. Normalize at the consumption point so summaries replayed
         // from persisted meta are covered as well as freshly upserted ones.
-        const summary = String(sections.get(id).summary ?? '')
+        const summary = String(rawSummary ?? '')
             .replace(/\s+/g, ' ')
             .trim()
         const suffix = summary ? ` — ${summary}` : ''
