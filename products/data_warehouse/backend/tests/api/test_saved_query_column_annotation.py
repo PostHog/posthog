@@ -122,7 +122,9 @@ class TestDataWarehouseSavedQueryColumnAnnotation(APIBaseTest):
             saved_query=self.view, column_name="status"
         )
         assert annotations.count() == 1
-        assert annotations.first().description == "second"
+        annotation = annotations.first()
+        assert annotation is not None
+        assert annotation.description == "second"
 
     @parameterized.expand(
         [
@@ -182,7 +184,11 @@ class TestDataWarehouseSavedQueryColumnAnnotation(APIBaseTest):
         assert response.status_code == 403, response.json()
         assert not DataWarehouseSavedQueryColumnAnnotation.objects.for_team(self.team.pk).exists()
 
-    def test_viewer_cannot_delete_annotation_on_view_only_view(self):
+    @parameterized.expand(["edit", "delete"])
+    def test_viewer_cannot_write_annotation_on_view_only_view(self, action):
+        # A viewer on a view can read its annotations but cannot edit (perform_update) or delete
+        # (perform_destroy) them — both write paths re-check editor access on the view, and they are
+        # distinct code paths, so both are exercised here.
         annotation = DataWarehouseSavedQueryColumnAnnotation.objects.for_team(self.team.pk).create(
             team=self.team,
             saved_query=self.view,
@@ -210,6 +216,11 @@ class TestDataWarehouseSavedQueryColumnAnnotation(APIBaseTest):
         )
 
         self.client.force_login(member)
-        response = self.client.delete(self._url(f"{annotation.id}/"))
+        if action == "delete":
+            response = self.client.delete(self._url(f"{annotation.id}/"))
+        else:
+            response = self.client.patch(self._url(f"{annotation.id}/"), {"description": "changed"})
         assert response.status_code == 403, getattr(response, "data", response.status_code)
-        assert DataWarehouseSavedQueryColumnAnnotation.objects.for_team(self.team.pk).filter(id=annotation.id).exists()
+
+        annotation.refresh_from_db()
+        assert annotation.description == "subscription status"

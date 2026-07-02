@@ -186,7 +186,9 @@ class TestWarehouseColumnAnnotation(APIBaseTest):
             table=self.table, column_name="amount"
         )
         assert annotations.count() == 1
-        assert annotations.first().description == "second"
+        annotation = annotations.first()
+        assert annotation is not None
+        assert annotation.description == "second"
 
     def test_cannot_delete_annotation_on_view_only_table(self):
         # A user who can only view a table (so its annotations are readable) must not be able to delete

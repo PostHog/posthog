@@ -1,4 +1,4 @@
-from typing import Any
+from typing import Any, cast
 
 from django.db import models
 
@@ -115,8 +115,9 @@ class BaseColumnAnnotationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
     scope_object_write_actions = ["create", "update", "partial_update", "patch", "destroy"]
     ordering = "column_name"
 
-    # Subclass hooks.
-    parent_model: type[models.Model]
+    # Subclass hooks. `parent_model` is the concrete table/view model (typed Any so its dynamic
+    # `objects`/`for_team` managers resolve — the base is generic over two models).
+    parent_model: Any
     parent_field_name: str = ""
     parent_query_param: str = ""
 
@@ -131,9 +132,11 @@ class BaseColumnAnnotationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
     def safely_get_queryset(self, queryset: Any) -> Any:
         # Applied for every action (not just list): retrieve/update/destroy on an annotation for an
         # inaccessible parent 404s through the queryset rather than slipping past object-level checks.
+        # nosemgrep: orm-field-injection -- parent_field_name is a hardcoded class attribute ("table"/"saved_query"), not user input
         queryset = queryset.filter(**{f"{self.parent_field_name}__in": self._accessible_parents()})
         param_value = self.request.query_params.get(self.parent_query_param)
         if param_value:
+            # nosemgrep: orm-field-injection, no-request-param-orm-filter -- parent_field_name is a hardcoded class attribute; param_value is a bound lookup value on a `<field>_id` column, parameterized by the ORM
             queryset = queryset.filter(**{f"{self.parent_field_name}_id": param_value})
         return queryset.order_by(self.ordering)
 
@@ -146,20 +149,21 @@ class BaseColumnAnnotationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
         # 500, so agents can call create without first checking whether an annotation already exists.
         parent = serializer.validated_data[self.parent_field_name]
         self._require_parent_editor_access(parent)
-        model = serializer.Meta.model
+        model: Any = cast(Any, serializer).Meta.model
         description = serializer.validated_data["description"]
+        # nosemgrep: orm-field-injection -- parent_field_name is a hardcoded class attribute ("table"/"saved_query"), not user input
         annotation, created = model.objects.for_team(self.team_id).get_or_create(
             **{self.parent_field_name: parent, "column_name": serializer.validated_data.get("column_name", "")},
             defaults={
                 "team_id": self.team_id,
                 "description": description,
-                "description_source": model.DescriptionSource.USER_EDITED,
+                "description_source": DescriptionSource.USER_EDITED,
                 "is_user_edited": True,
             },
         )
         if not created:
             annotation.description = description
-            annotation.description_source = model.DescriptionSource.USER_EDITED
+            annotation.description_source = DescriptionSource.USER_EDITED
             annotation.is_user_edited = True
             annotation.save(update_fields=["description", "description_source", "is_user_edited", "updated_at"])
         serializer.instance = annotation
@@ -168,10 +172,7 @@ class BaseColumnAnnotationViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet)
         # The parent FK is read-only on update (see serializer.get_fields), so this can't repoint.
         annotation = serializer.instance
         self._require_parent_editor_access(getattr(annotation, self.parent_field_name))
-        serializer.save(
-            description_source=type(annotation).DescriptionSource.USER_EDITED,
-            is_user_edited=True,
-        )
+        serializer.save(description_source=DescriptionSource.USER_EDITED, is_user_edited=True)
 
     def perform_destroy(self, instance: models.Model) -> None:
         self._require_parent_editor_access(getattr(instance, self.parent_field_name))
