@@ -369,7 +369,7 @@ export function Settings({
                     className={clsx(
                         'border rounded w-[var(--settings-nav-width)] flex flex-col',
                         isFullScene
-                            ? 'fixed top-(--scene-padding) bottom-(--scene-padding)'
+                            ? 'fixed top-(--settings-nav-top) bottom-(--scene-padding)'
                             : 'sticky top-(--scene-layout-header-height) self-start max-h-[calc(100dvh-var(--scene-layout-header-height)-var(--scene-padding))]'
                     )}
                 >
