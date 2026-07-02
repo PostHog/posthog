@@ -1,0 +1,12 @@
+# Migration files whose deletion is intentional and reviewed — listed here to pass the
+# deleted-migration guard in repo-checks (hogli lint:migration-deletions). Deleting a migration
+# that exists on master diverges fresh DBs from deployed ones; see
+# docs/published/handbook/engineering/safe-django-migrations.md.
+#
+# Add a path ONLY when the deletion is genuinely safe and reviewed (a product move, a
+# revert of a not-yet-deployed migration, a squash). One entry per line; a directory entry
+# allowlists everything under it (trailing slash optional). Remove stale entries once merged.
+#
+# Examples (commented out, not active):
+#   products/old_product/backend/migrations/   # whole-product move
+#   posthog/migrations/0500_oops.py            # single revert

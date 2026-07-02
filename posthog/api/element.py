@@ -77,10 +77,13 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         Currently only $autocapture and $rageclick and $dead_click are supported
         """
 
-        with ELEMENT_STATS_TIME_HISTOGRAM.time():
+        with (
+            ELEMENT_STATS_TIME_HISTOGRAM.time(),
+            tracer.start_as_current_span("elements_api_stats") as span,
+        ):
             timer = ServerTimingsGathered()
 
-            with timer("prepare_for_query"):
+            with timer("prepare_for_query"), tracer.start_as_current_span("elements_api_stats.prepare_for_query"):
                 filter = Filter(request=request, team=self.team)
                 date_params = {}
                 query_date_range = QueryDateRange(filter=filter, team=self.team, should_round=True)
@@ -114,7 +117,13 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     hogql_context=filter.hogql_context,
                 )
 
-            with timer("execute_query"):
+            span.set_attribute("team_id", self.team.pk)
+            span.set_attribute("limit", limit)
+            span.set_attribute("offset", offset)
+            span.set_attribute("sampling_factor", sampling_factor)
+            span.set_attribute("include_event_types", ",".join(sorted(events_filter)))
+
+            with timer("execute_query"), tracer.start_as_current_span("elements_api_stats.execute_query"):
                 result = sync_execute(
                     GET_ELEMENTS.format(
                         date_from=date_from,
@@ -135,7 +144,10 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     },
                 )
 
-            with timer("prepare_for_serialization"):
+            with (
+                timer("prepare_for_serialization"),
+                tracer.start_as_current_span("elements_api_stats.prepare_for_serialization"),
+            ):
                 elements_data = [
                     {
                         "count": elements[1],
@@ -146,9 +158,10 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                     for elements in result[:limit]
                 ]
 
-            with timer("serialize_elements"):
+            with timer("serialize_elements"), tracer.start_as_current_span("elements_api_stats.serialize_elements"):
                 serialized_elements = ElementStatsSerializer(elements_data, many=True).data
 
+            span.set_attribute("result_count", len(serialized_elements))
             ELEMENT_STATS_RESULT_COUNT_HISTOGRAM.labels(limit=limit).observe(len(serialized_elements))
 
             has_next = len(result) == limit + 1

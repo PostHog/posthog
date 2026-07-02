@@ -1,14 +1,11 @@
 import clsx from 'clsx'
-import { useValues } from 'kea'
 import { useCallback, useMemo } from 'react'
 
 import { LemonColorGlyph } from '@posthog/lemon-ui'
 import { PieChart, TooltipSurface, TooltipSwatch } from '@posthog/quill-charts'
 import type { PieChartConfig, TooltipContext } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
-
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
+import { useChartTheme } from 'lib/charts/hooks'
 
 import { makeChartErrorHandler } from 'products/product_analytics/frontend/insights/trends/shared/chartErrorHandler'
 
@@ -30,10 +27,7 @@ export const SqlPieGraph = ({
     presetChartHeight,
     className,
 }: LineGraphProps): JSX.Element => {
-    const { isDarkModeOn } = useValues(themeLogic)
-    // isDarkModeOn invalidates the memo so buildTheme() re-reads CSS vars on dark-mode toggle.
-    // eslint-disable-next-line react-hooks/exhaustive-deps
-    const theme = useMemo(() => buildTheme(), [isDarkModeOn])
+    const theme = useChartTheme()
 
     const slices = useMemo(() => buildPieSlices(xData, yData), [xData, yData])
     const formattingSettings = yData[0]?.settings

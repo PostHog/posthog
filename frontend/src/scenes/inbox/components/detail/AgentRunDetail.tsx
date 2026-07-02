@@ -29,7 +29,7 @@ import { SignalCard } from '../../SignalCard'
 import { SignalReport, SignalReportStatus } from '../../types'
 import { deriveHeadline, parsePrRepoSlug, parsePrUrlParts } from '../../utils/reportPresentation'
 import { getSourceProductMeta } from '../badges/sourceProductIcons'
-import { DetailSection, RightColumnSection } from './DetailSection'
+import { DetailSection } from './DetailSection'
 import { ReportActivitySection } from './ReportActivitySection'
 import { ReportDetailBadges } from './ReportDetail'
 import { ReportTasksSection } from './ReportTasksSection'
@@ -336,7 +336,7 @@ export function AgentRunDetail({ report }: { report: SignalReport }): JSX.Elemen
 
                 <div className="flex flex-col min-w-0 gap-5">
                     {evidenceCount > 0 && (
-                        <RightColumnSection
+                        <DetailSection
                             icon={<IconSearch />}
                             title="Evidence so far"
                             rightSlot={
@@ -357,7 +357,7 @@ export function AgentRunDetail({ report }: { report: SignalReport }): JSX.Elemen
                                     ))}
                                 </div>
                             )}
-                        </RightColumnSection>
+                        </DetailSection>
                     )}
                     <ReportTasksSection report={report} />
                     <ReportActivitySection report={report} />
