@@ -7,6 +7,7 @@ from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut,
 from products.pulse.backend.generation.synthesize import (
     CONFIDENCE_THRESHOLD,
     MAX_OPPORTUNITIES,
+    _render_items,
     apply_say_less_gate,
     synthesize_brief,
 )
@@ -84,3 +85,45 @@ class TestSayLessGate:
         )
         with pytest.raises(ValueError):
             await synthesize_brief(team=MagicMock(), user=MagicMock(), config=None, items=[item], period_days=7)
+
+
+class TestRenderItems:
+    def test_renders_every_source_kind(self) -> None:
+        items = [
+            SourceItem(
+                source="anchored_insights",
+                kind="movement",
+                title="Pageviews dropped 30%",
+                description="d",
+                numbers={"pct_change": -30.0},
+                evidence=[EvidenceRef(type="insight", ref="abc", label="Pageviews")],
+                fingerprint_hint="abc:0",
+            ),
+            SourceItem(
+                source="annotations",
+                kind="context",
+                title="Shipped v2.3",
+                description="d",
+                evidence=[EvidenceRef(type="annotation", ref="42", label="Shipped v2.3")],
+                fingerprint_hint="annotation:42",
+            ),
+            SourceItem(
+                source="resource_health",
+                kind="health",
+                title="Alert 'Signups' is failing to run",
+                description="d",
+                evidence=[EvidenceRef(type="alert", ref="a1", label="Signups")],
+                fingerprint_hint="health:alert:a1",
+            ),
+        ]
+
+        rendered = _render_items(items)
+
+        for marker in (
+            "[anchored_insights/movement]",
+            "[annotations/context]",
+            "[resource_health/health]",
+            "annotation:42",
+            "health:alert:a1",
+        ):
+            assert marker in rendered

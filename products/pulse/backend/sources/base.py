@@ -15,7 +15,7 @@ class EvidenceRef(TypedDict):
 @dataclass(frozen=True)
 class SourceItem:
     source: str
-    kind: str  # "movement" | "health" | ... (only "movement" for now)
+    kind: str  # "movement" | "context" | "health" | ...
     title: str
     description: str
     numbers: dict[str, float | int | str] = field(default_factory=dict)
