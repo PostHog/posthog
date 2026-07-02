@@ -4196,8 +4196,8 @@ class TestPrinter(BaseTest):
             ("char", "event::char", "toString(events.event)"),
             ("string", "event::string", "toString(events.event)"),
             # Boolean types
-            ("boolean", "event::boolean", "toBoolean(events.event)"),
-            ("bool", "event::bool", "toBoolean(events.event)"),
+            ("boolean", "event::boolean", "accurateCastOrNull(events.event, 'Bool')"),
+            ("bool", "event::bool", "accurateCastOrNull(events.event, 'Bool')"),
             # Date type
             ("date", "event::date", "toDate(events.event)"),
             # Constant cast

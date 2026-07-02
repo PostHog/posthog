@@ -1639,7 +1639,9 @@ class BasePrinter(Visitor[str]):
             case "text" | "varchar" | "char" | "string":
                 return f"toString({self.visit(node.expr)})"
             case "boolean" | "bool":
-                return f"toBoolean({self.visit(node.expr)})"
+                # ClickHouse has no toBoolean function; accurateCastOrNull(x, 'Bool') matches the
+                # registered HogQL toBool function and is valid ClickHouse SQL.
+                return f"accurateCastOrNull({self.visit(node.expr)}, 'Bool')"
             case "date":
                 return f"toDate({self.visit(node.expr)})"
             case (
