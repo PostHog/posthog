@@ -195,7 +195,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                             data-attr="more-menu-health-button"
                                         >
                                             <LemonBadge
-                                                size="small"
+                                                size="xsmall"
                                                 content={triggerBadgeContent}
                                                 status={triggerBadgeStatus}
                                             />
@@ -222,7 +222,7 @@ export function HelpMenu({ iconOnly = false }: { iconOnly?: boolean }): JSX.Elem
                                         >
                                             <LemonBadge
                                                 content={postHogStatusBadgeContent}
-                                                size="small"
+                                                size="xsmall"
                                                 status={postHogStatusBadgeStatus}
                                             />
                                             Status
