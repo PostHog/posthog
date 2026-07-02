@@ -4,8 +4,8 @@ import { normalizeProcessPerson } from '~/common/utils/event'
 import {
     buildFlagCalledPersonlessMatcher,
     isFlagCalledPersonlessCandidate,
-} from '~/ingestion/common/flag-called-personless'
-import { uuidFromDistinctId } from '~/ingestion/common/person-uuid'
+} from '~/ingestion/common/persons/flag-called-personless'
+import { uuidFromDistinctId } from '~/ingestion/common/persons/person-uuid'
 import {
     hasInsertedPersonlessDistinctId,
     markPersonlessDistinctIdInserted,

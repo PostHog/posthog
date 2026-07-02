@@ -163,6 +163,7 @@ the row lists both.
 | granola                 | HTTP                        | requests                                                        | ✅                          |
 | gorgias                 | HTTP                        | requests                                                        | ✅                          |
 | greenhouse              | HTTP                        | requests                                                        | ✅                          |
+| guardian                | HTTP                        | requests                                                        | ✅                          |
 | guru                    | HTTP                        | requests                                                        | ✅                          |
 | hibob                   | HTTP                        | requests                                                        | ✅                          |
 | hubspot                 | HTTP                        | requests                                                        | ✅                          |
@@ -317,6 +318,7 @@ doesn't conflict with concurrent PRs.
 - adyen
 - ahrefs
 - airbyte
+- airops
 - akeneo
 - alpaca_broker_api
 - alpha_vantage
@@ -359,7 +361,6 @@ doesn't conflict with concurrent PRs.
 - cisco_meraki
 - clarifai
 - clazar
-- clockodo
 - cloudbeds
 - coassemble
 - cockroachdb
@@ -384,6 +385,7 @@ doesn't conflict with concurrent PRs.
 - dolibarr
 - dremio
 - dropbox
+- dub
 - dwolla
 - dynamics365
 - dynamodb
@@ -417,6 +419,7 @@ doesn't conflict with concurrent PRs.
 - glassfrog
 - gmail
 - gnews
+- gojiberry
 - goldcast
 - gologin
 - google_ad_manager
@@ -434,7 +437,6 @@ doesn't conflict with concurrent PRs.
 - grafana
 - greythr
 - gridly
-- guardian
 - gusto
 - harness
 - heap
@@ -452,12 +454,12 @@ doesn't conflict with concurrent PRs.
 - ikas
 - illumina_basespace
 - imagga
-- incident_io
 - inflowinventory
 - infor_nexus
 - insightful
 - insightly
 - instagram
+- instantly
 - instatus
 - interzoid
 - intruder
@@ -492,6 +494,7 @@ doesn't conflict with concurrent PRs.
 - linnworks
 - lokalise
 - looker
+- loops
 - luma
 - mailosaur
 - mailtrap
@@ -501,6 +504,7 @@ doesn't conflict with concurrent PRs.
 - mendeley
 - mention
 - mercado_ads
+- mercury
 - merge
 - metricool
 - metronome
@@ -575,6 +579,7 @@ doesn't conflict with concurrent PRs.
 - planhat
 - plunk
 - pocket
+- podium
 - polygon
 - poplar
 - prestashop
@@ -594,6 +599,7 @@ doesn't conflict with concurrent PRs.
 - recreation
 - recruitee
 - reddit
+- redis
 - referralhero
 - rentcast
 - repairshopr
@@ -662,6 +668,7 @@ doesn't conflict with concurrent PRs.
 - systeme
 - tavus
 - tawk_to
+- teachable
 - teamtailor
 - tempo
 - testrail

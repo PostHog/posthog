@@ -15,6 +15,9 @@ import type {
     AccountsNotebooksListParams,
     CustomPropertyDefinitionApi,
     CustomPropertyDefinitionsListParams,
+    CustomPropertySourceApi,
+    CustomPropertySourceUpdateApi,
+    CustomPropertySourcesListParams,
     CustomPropertyValueApi,
     CustomPropertyValueWriteApi,
     CustomerJourneyApi,
@@ -26,11 +29,13 @@ import type {
     PaginatedAccountListApi,
     PaginatedAccountNotebookListApi,
     PaginatedCustomPropertyDefinitionListApi,
+    PaginatedCustomPropertySourceListApi,
     PaginatedCustomerJourneyListApi,
     PaginatedCustomerProfileConfigListApi,
     PaginatedGroupUsageMetricListApi,
     PatchedAccountApi,
     PatchedCustomPropertyDefinitionApi,
+    PatchedCustomPropertySourceUpdateApi,
     PatchedCustomerJourneyApi,
     PatchedCustomerProfileConfigApi,
     PatchedGroupUsageMetricApi,
@@ -381,6 +386,116 @@ export const customPropertyDefinitionsDestroy = async (
     options?: RequestInit
 ): Promise<void> => {
     return apiMutator<void>(getCustomPropertyDefinitionsDestroyUrl(projectId, id), {
+        ...options,
+        method: 'DELETE',
+    })
+}
+
+export const getCustomPropertySourcesListUrl = (projectId: string, params?: CustomPropertySourcesListParams) => {
+    const normalizedParams = new URLSearchParams()
+
+    Object.entries(params || {}).forEach(([key, value]) => {
+        if (value !== undefined) {
+            normalizedParams.append(key, value === null ? 'null' : String(value))
+        }
+    })
+
+    const stringifiedParams = normalizedParams.toString()
+
+    return stringifiedParams.length > 0
+        ? `/api/projects/${projectId}/custom_property_sources/?${stringifiedParams}`
+        : `/api/projects/${projectId}/custom_property_sources/`
+}
+
+export const customPropertySourcesList = async (
+    projectId: string,
+    params?: CustomPropertySourcesListParams,
+    options?: RequestInit
+): Promise<PaginatedCustomPropertySourceListApi> => {
+    return apiMutator<PaginatedCustomPropertySourceListApi>(getCustomPropertySourcesListUrl(projectId, params), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCustomPropertySourcesCreateUrl = (projectId: string) => {
+    return `/api/projects/${projectId}/custom_property_sources/`
+}
+
+export const customPropertySourcesCreate = async (
+    projectId: string,
+    customPropertySourceApi: NonReadonly<CustomPropertySourceApi>,
+    options?: RequestInit
+): Promise<CustomPropertySourceApi> => {
+    return apiMutator<CustomPropertySourceApi>(getCustomPropertySourcesCreateUrl(projectId), {
+        ...options,
+        method: 'POST',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(customPropertySourceApi),
+    })
+}
+
+export const getCustomPropertySourcesRetrieveUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/custom_property_sources/${id}/`
+}
+
+export const customPropertySourcesRetrieve = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<CustomPropertySourceApi> => {
+    return apiMutator<CustomPropertySourceApi>(getCustomPropertySourcesRetrieveUrl(projectId, id), {
+        ...options,
+        method: 'GET',
+    })
+}
+
+export const getCustomPropertySourcesUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/custom_property_sources/${id}/`
+}
+
+export const customPropertySourcesUpdate = async (
+    projectId: string,
+    id: string,
+    customPropertySourceUpdateApi?: CustomPropertySourceUpdateApi,
+    options?: RequestInit
+): Promise<CustomPropertySourceApi> => {
+    return apiMutator<CustomPropertySourceApi>(getCustomPropertySourcesUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PUT',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(customPropertySourceUpdateApi),
+    })
+}
+
+export const getCustomPropertySourcesPartialUpdateUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/custom_property_sources/${id}/`
+}
+
+export const customPropertySourcesPartialUpdate = async (
+    projectId: string,
+    id: string,
+    patchedCustomPropertySourceUpdateApi?: PatchedCustomPropertySourceUpdateApi,
+    options?: RequestInit
+): Promise<CustomPropertySourceApi> => {
+    return apiMutator<CustomPropertySourceApi>(getCustomPropertySourcesPartialUpdateUrl(projectId, id), {
+        ...options,
+        method: 'PATCH',
+        headers: { 'Content-Type': 'application/json', ...options?.headers },
+        body: JSON.stringify(patchedCustomPropertySourceUpdateApi),
+    })
+}
+
+export const getCustomPropertySourcesDestroyUrl = (projectId: string, id: string) => {
+    return `/api/projects/${projectId}/custom_property_sources/${id}/`
+}
+
+export const customPropertySourcesDestroy = async (
+    projectId: string,
+    id: string,
+    options?: RequestInit
+): Promise<void> => {
+    return apiMutator<void>(getCustomPropertySourcesDestroyUrl(projectId, id), {
         ...options,
         method: 'DELETE',
     })

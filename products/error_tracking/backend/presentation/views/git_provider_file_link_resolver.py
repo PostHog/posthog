@@ -11,8 +11,8 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.api.utils import action
+from posthog.egress.github.transport import github_request
 from posthog.models.integration import GitHubIntegration, GitLabIntegration, Integration
-from posthog.rate_limiting.github_observability import record_github_api_response
 
 logger = structlog.get_logger(__name__)
 
@@ -89,12 +89,12 @@ def get_github_file_url(
     headers = {
         "Authorization": f"token {token}",
         "Accept": "application/vnd.github.text-match+json",
-        "X-GitHub-Api-Version": "2022-11-28",
     }
 
     try:
-        response = requests.get(url, headers=headers, timeout=10)
-        record_github_api_response(response, source="error_tracking", installation_id=installation_id)
+        response = github_request(
+            "GET", url, source="error_tracking", headers=headers, installation_id=installation_id, timeout=10
+        )
 
         if response.status_code == 200:
             data = response.json()

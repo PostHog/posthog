@@ -95,6 +95,9 @@ tools:
     engineering-analytics-workflow-run:
         operation: engineering_analytics_workflow_run
         enabled: false
+    engineering-analytics-workflow-run-activity:
+        operation: engineering_analytics_workflow_run_activity
+        enabled: false
     engineering-analytics-workflow-runner-costs:
         operation: engineering_analytics_workflow_runner_costs
         enabled: true

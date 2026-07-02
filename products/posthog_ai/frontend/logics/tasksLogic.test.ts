@@ -19,6 +19,7 @@ const createMockTask = (id: string): Task => ({
     origin_product: OriginProduct.USER_CREATED,
     repository: 'test/repo',
     github_integration: null,
+    signal_report: null,
     json_schema: null,
     internal: false,
     latest_run: null,

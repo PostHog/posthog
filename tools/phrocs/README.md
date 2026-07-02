@@ -5,6 +5,14 @@ Drop-in replacement for `mprocs` — reads the same YAML config that `hogli dev:
 
 ## Install
 
+If you develop PostHog with **flox**, you already have phrocs: activation builds
+it from source (`make -C tools/phrocs build`) and `bin/start` runs that build
+directly from `tools/phrocs/dist/phrocs`. The source build is canonical — it
+always matches your checkout, so there's nothing to install or keep up to date,
+and a stray Homebrew/curl install can't shadow it.
+
+For **non-flox** setups, install a prebuilt binary:
+
 **Homebrew** (macOS and Linux):
 
 ```sh
@@ -16,6 +24,9 @@ brew tap posthog/tap && brew install phrocs
 ```sh
 curl -fsSL https://raw.githubusercontent.com/PostHog/posthog/master/tools/phrocs/install.sh | bash
 ```
+
+`bin/start` resolves phrocs in this order: the in-repo `dist/phrocs` build if
+present, otherwise `phrocs` on `PATH`.
 
 ## Build
 
