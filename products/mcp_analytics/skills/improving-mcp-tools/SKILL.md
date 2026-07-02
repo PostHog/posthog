@@ -57,10 +57,11 @@ POSTHOG_API_BASE_URL=http://localhost:8000 pnpm dev:hono`, personal API key as
    degrades. A discarded change is a normal outcome — journal it and move on.
 5. **Ship.** One PR per iteration with before/after scores in the body (format
    in [references/campaign-journal.md](references/campaign-journal.md)). Keep
-   it stampable: ≤400 changed lines, no deny-listed files, apply the
-   `stamphog` label. Autonomy level comes from the campaign config — default
-   is **draft PR for human review**; only arm auto-merge when the operator has
-   explicitly enabled the self-driving experiment (see guardrails).
+   it stampable: ≤400 changed lines, only files inside the allowlist below,
+   apply the `stamphog` label. Autonomy level comes from the campaign config —
+   default is **draft PR for human review**; only arm auto-merge when the
+   operator has explicitly enabled the self-driving experiment (see
+   guardrails).
 6. **Journal.** Append the iteration record before ending the pass.
 
 ## Hard guardrails
@@ -68,10 +69,12 @@ POSTHOG_API_BASE_URL=http://localhost:8000 pnpm dev:hono`, personal API key as
 These are not suggestions; violating any of them ends the campaign pass.
 
 - **Allowlist** — a campaign PR may only touch: `products/*/mcp/tools.yaml`,
-  `products/*/skills/**`, `services/mcp/evals/**`, regenerated tool files
-  produced by the standard codegen, and docs. Anything else (handler code,
-  package manifests, workflows, migrations, auth paths) → stop and hand the
-  finding to a human as a draft PR or report instead.
+  `products/*/skills/**`, `services/mcp/evals/**`, the codegen outputs of
+  `pnpm generate-tools` / `scaffold-yaml` (`services/mcp/src/tools/generated/**`
+  and `services/mcp/schema/generated-tool-definitions.json`), and docs.
+  Anything else (handler code, package manifests, workflows, migrations, auth
+  paths) → stop and hand the finding to a human as a draft PR or report
+  instead.
 - **Read-only against data.** The harness and all production queries are
   read-only. Never create, mutate, or delete customer-visible objects while
   measuring.
