@@ -534,6 +534,7 @@ describe('CDP hog invocation rerun e2e', () => {
             const originalInvocationId = await runOriginalAndAssertLifecycleRow(gclidFn)
 
             const personRepo = cdpDeps.personRepository as jest.Mocked<PersonReadRepository>
+            personRepo.fetchPersonsByDistinctIds.mockReset()
             personRepo.fetchPersonsByDistinctIds.mockResolvedValue([
                 {
                     id: '1',
@@ -558,6 +559,17 @@ describe('CDP hog invocation rerun e2e', () => {
             ])
 
             await triggerRerunAndWaitForCompletion(gclidFn, originalInvocationId)
+
+            // Diagnostic: was the rehydration path taken at all? If the mock
+            // was never called, `getCyclotronPerson` bypassed the loader
+            // (cached from earlier, or a different code path). If it WAS
+            // called but properties came back wrong, we'll see the actual
+            // Record it returned.
+            expect(personRepo.fetchPersonsByDistinctIds.mock.calls.length).toBeGreaterThanOrEqual(1)
+            const lastResult = await personRepo.fetchPersonsByDistinctIds.mock.results.at(-1)?.value
+            expect(lastResult?.[0]?.properties).toEqual(
+                expect.objectContaining({ $initial_gclid: 'INITIAL_TOKEN_ABC' })
+            )
 
             // Original + rerun both fetched to our webhook URL. The second
             // one's body should carry the value from `$initial_gclid` —
