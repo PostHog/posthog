@@ -39,6 +39,7 @@ from posthog.temporal.common.logger import get_write_only_logger
 
 from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
 from products.warehouse_sources.backend.models.external_data_schema import ExternalDataSchema
+from products.warehouse_sources.backend.models.external_table_definitions import get_hogql_column_name_mapping
 from products.warehouse_sources.backend.models.table import DataWarehouseTable
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.canonical_descriptions import (
     get_canonical_descriptions_for_source,
@@ -438,7 +439,7 @@ def enrich_table_semantics_sync(team_id: int, schema_id: uuid.UUID) -> dict[str,
     # keyed by the raw source field name (`created`, `customer`); re-key them to the HogQL-visible name
     # (`created_at`, `customer_id`) each column surfaces as, so the description lands on the column that
     # `information_schema` and the AI agent actually see. Columns with no rename map to themselves.
-    hogql_name_by_raw = {column["raw_name"]: column["name"] for column in columns}
+    hogql_name_by_raw = get_hogql_column_name_mapping(table.table_name_without_prefix())
     canonical = get_canonical_descriptions_for_source(schema.source.source_type).get(schema.name, {})
     canonical_columns = {
         hogql_name_by_raw.get(raw_name, raw_name): description
