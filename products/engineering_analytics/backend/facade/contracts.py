@@ -21,6 +21,7 @@ read layer maps them into these types. Reviewers, deploys, and file paths are
 intentionally absent until the warehouse data that backs them lands.
 """
 
+from dataclasses import field
 from datetime import date, datetime
 from enum import StrEnum
 
@@ -433,6 +434,8 @@ class CIStatusRollup:
     passing: int
     failing: int
     pending: int
+    # The workflow names behind `failing`, sorted — what the UI names under the CI tag.
+    failing_workflows: list[str] = field(default_factory=list)
 
 
 @dataclass(frozen=True)
@@ -611,6 +614,11 @@ class WorkflowHealthItem:
     # the job-level source isn't synced (run-level health alone carries no runner tier).
     billable_minutes: float | None = None
     estimated_cost_usd: float | None = None
+    # Runs in the window that were a 2nd+ attempt — retry pressure, a flakiness proxy.
+    rerun_cycles: int = 0
+    # Success rate over the equal-length window before date_from — the Δ baseline. None when that
+    # window had no completed runs.
+    success_rate_prev: float | None = None
 
 
 @dataclass(frozen=True)

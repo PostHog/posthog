@@ -50,12 +50,27 @@ _SELECT = f"""
         max(if(conclusion IN ('failure', 'timed_out'), run_started_at, NULL)) AS last_failure_at,
         countIf(status = 'completed') AS completed_count,
         argMaxIf(conclusion IN ('failure', 'timed_out'), run_started_at, status = 'completed') AS latest_failed,
-        argMaxIf(conclusion, run_started_at, status = 'completed') AS latest_conclusion
+        argMaxIf(conclusion, run_started_at, status = 'completed') AS latest_conclusion,
+        countIf(run_attempt > 1) AS rerun_cycles
     FROM __RUNS_SOURCE__ AS r
     WHERE run_started_at >= {{date_from}} __DATE_TO__ __BRANCH__
     GROUP BY repo_owner, repo_name, workflow_name
     ORDER BY run_count DESC
     LIMIT {_LIMIT}
+"""
+
+# Success rate over the equal-length window before date_from — the delta baseline the UI renders as
+# an honest Δpp instead of a server-baked percentage. Kept as its own slim scan so the main query's
+# window (and its LIMIT semantics) stay untouched.
+_PREV_SELECT = """
+    SELECT
+        repo_owner,
+        repo_name,
+        workflow_name,
+        countIf(status = 'completed' AND conclusion = 'success') / nullIf(countIf(status = 'completed'), 0) AS success_rate
+    FROM __RUNS_SOURCE__ AS r
+    WHERE run_started_at >= {prev_from} AND run_started_at < {date_from} __BRANCH__
+    GROUP BY repo_owner, repo_name, workflow_name
 """
 
 _BUCKET_SELECT = f"""
@@ -116,6 +131,18 @@ def query_workflow_health(
         query_type="engineering_analytics.workflow_health_buckets",
         placeholders=placeholders,
     )
+
+    end = date_to or datetime.now(tz=date_from.tzinfo)
+    prev_from = date_from - (end - date_from)
+    prev_response = curated.run(
+        fill(_PREV_SELECT),
+        query_type="engineering_analytics.workflow_health_prev",
+        placeholders={**placeholders, "prev_from": ast.Constant(value=prev_from)},
+    )
+    prev_rate_by_workflow: dict[tuple[str, str, str], float | None] = {
+        (repo_owner, repo_name, workflow_name): _to_opt_float(success_rate)
+        for repo_owner, repo_name, workflow_name, success_rate in prev_response.results or []
+    }
     buckets_by_workflow: dict[tuple[str, str, str], dict[datetime, WorkflowHealthBucket]] = {}
     for repo_owner, repo_name, workflow_name, bucket_start, run_count, completed, successes, failures in (
         bucket_response.results or []
@@ -155,8 +182,10 @@ def query_workflow_health(
             estimated_cost_usd=(
                 cost_by_workflow[workflow_name].estimated_cost_usd if workflow_name in cost_by_workflow else None
             ),
+            rerun_cycles=rerun_cycles,
+            success_rate_prev=prev_rate_by_workflow.get((repo_owner, repo_name, workflow_name)),
         )
-        for repo_owner, repo_name, workflow_name, run_count, success_rate, p50_seconds, p95_seconds, last_failure_at, completed_count, latest_failed, latest_conclusion in response.results
+        for repo_owner, repo_name, workflow_name, run_count, success_rate, p50_seconds, p95_seconds, last_failure_at, completed_count, latest_failed, latest_conclusion, rerun_cycles in response.results
     ]
 
 

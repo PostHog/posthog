@@ -362,6 +362,8 @@ export interface CIStatusRollupApi {
     failing: number
     /** Latest runs not yet completed (queued or in progress). */
     pending: number
+    /** The workflow names behind `failing`, sorted - names what is failing instead of leaving a bare count. */
+    failing_workflows?: string[]
 }
 
 export interface PullRequestListItemApi {
@@ -724,6 +726,13 @@ export interface WorkflowHealthItemApi {
      * @nullable
      */
     estimated_cost_usd?: number | null
+    /** Runs in the window that were a 2nd+ attempt - retry pressure, a flakiness proxy. */
+    rerun_cycles?: number
+    /**
+     * Success rate over the equal-length window before date_from - the delta baseline. Null when that window had no completed runs.
+     * @nullable
+     */
+    success_rate_prev?: number | null
 }
 
 export interface WorkflowJobApi {

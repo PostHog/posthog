@@ -371,6 +371,10 @@ class CIStatusRollupSerializer(DataclassSerializer):
             "passing": {"help_text": "Latest runs that completed with conclusion 'success'."},
             "failing": {"help_text": "Latest runs that completed with conclusion 'failure' or 'timed_out'."},
             "pending": {"help_text": "Latest runs not yet completed (queued or in progress)."},
+            "failing_workflows": {
+                "help_text": "The workflow names behind `failing`, sorted - names what is failing instead of "
+                "leaving a bare count."
+            },
         }
 
 
@@ -628,6 +632,14 @@ class WorkflowHealthItemSerializer(DataclassSerializer):
             "estimated_cost_usd": {
                 "help_text": "Estimated cost in USD over this workflow's jobs in the window. Null when nothing "
                 "was costable or the job source isn't synced.",
+                "allow_null": True,
+            },
+            "rerun_cycles": {
+                "help_text": "Runs in the window that were a 2nd+ attempt - retry pressure, a flakiness proxy."
+            },
+            "success_rate_prev": {
+                "help_text": "Success rate over the equal-length window before date_from - the delta baseline. "
+                "Null when that window had no completed runs.",
                 "allow_null": True,
             },
         }
