@@ -145,6 +145,7 @@ def create_living_artifact(
 def edit_living_artifact(
     *,
     artifact: TaskArtifact,
+    run: TaskRun | None = None,
     content: str | None = None,
     content_bytes: bytes | None = None,
     content_type: str | None = None,
@@ -153,7 +154,10 @@ def edit_living_artifact(
     name: str | None = None,
     metadata: dict[str, Any] | None = None,
 ) -> TaskArtifact:
-    run = artifact.task_run
+    # `run` is the run performing the edit — a follow-up run editing a prior run's artifact
+    # must resolve Slack mappings (repointed to the latest run) and storage paths as itself,
+    # not as the run that originally created the artifact.
+    run = run or artifact.task_run
     selected_adapter = _adapter_for_existing_artifact(artifact)
     next_version = int(artifact.current_version or 0) + 1
     next_name = name or artifact.name
@@ -329,12 +333,15 @@ def _with_xlsx_extension(name: str) -> str:
     return f"{base}{XLSX_EXTENSION}"
 
 
+# Artifact ids are stable across a task's runs: Slack follow-ups resume a task with a fresh
+# run, and the agent in that run must still see and edit deliverables produced by earlier
+# runs. Lookups are therefore task-scoped, not run-scoped.
 def get_task_artifacts_for_run(run: TaskRun) -> list[TaskArtifact]:
-    return list(TaskArtifact.objects.for_team(run.team_id).filter(task_run=run).order_by("-updated_at"))
+    return list(TaskArtifact.objects.for_team(run.team_id).filter(task_id=run.task_id).order_by("-updated_at"))
 
 
 def get_task_artifact_for_run(run: TaskRun, artifact_id: str | UUID) -> TaskArtifact | None:
-    return TaskArtifact.objects.for_team(run.team_id).filter(task_run=run, id=artifact_id).first()
+    return TaskArtifact.objects.for_team(run.team_id).filter(task_id=run.task_id, id=artifact_id).first()
 
 
 def open_task_artifact(artifact: TaskArtifact) -> str | None:
@@ -751,9 +758,12 @@ class SlackFileArtifactAdapter(LivingArtifactAdapter):
         )
 
 
+# Task-scoped (like the artifact lookups above): a follow-up run that edits a prior run's
+# file artifact leaves the pending version on that artifact, and this run's end-of-turn
+# delivery must pick it up.
 def has_pending_slack_file_artifacts(run: TaskRun) -> bool:
     artifacts = TaskArtifact.objects.for_team(run.team_id).filter(
-        task_run=run,
+        task_id=run.task_id,
         adapter=TaskArtifact.Adapter.SLACK_FILE,
         status=TaskArtifact.Status.ACTIVE,
     )
@@ -778,7 +788,7 @@ def deliver_pending_slack_file_artifacts(run: TaskRun, *, initial_comment: str) 
     artifacts = list(
         TaskArtifact.objects.for_team(run.team_id)
         .filter(
-            task_run=run,
+            task_id=run.task_id,
             adapter=TaskArtifact.Adapter.SLACK_FILE,
             status=TaskArtifact.Status.ACTIVE,
         )

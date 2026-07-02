@@ -18,6 +18,8 @@ from products.tasks.backend.logic.services.living_artifacts import (
     DocumentConnectorUnavailable,
     create_living_artifact,
     edit_living_artifact,
+    get_task_artifact_for_run,
+    get_task_artifacts_for_run,
 )
 from products.tasks.backend.models import Task, TaskArtifact, TaskRun
 
@@ -185,6 +187,58 @@ class TestLivingArtifacts(TestCase):
             unfurl_media=False,
         )
         slack_integration.missing_scopes.assert_called()
+
+    @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
+    def test_follow_up_run_sees_and_edits_prior_run_artifacts(self, mock_integration_for_mapping):
+        integration = Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T123",
+            config={"scope": "chat:write,canvases:write"},
+        )
+        mapping = SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T123",
+            channel="C123",
+            thread_ts="1111.1",
+            task=self.task,
+            task_run=self.task_run,
+            mentioning_slack_user_id="U123",
+        )
+        slack = MagicMock()
+        slack.api_call.return_value = {"canvas_id": "F123"}
+        slack.chat_postMessage.return_value = {"ts": "1111.2"}
+        slack_integration = MagicMock()
+        slack_integration.client = slack
+        slack_integration.missing_scopes.return_value = set()
+        mock_integration_for_mapping.return_value = slack_integration
+
+        artifact = create_living_artifact(
+            run=self.task_run,
+            name="Report canvas",
+            artifact_type=TaskArtifact.ArtifactType.DOCUMENT,
+            content="# Report",
+        )
+
+        # A Slack follow-up resumes the task on a new run and repoints the thread mapping to it.
+        follow_up_run = TaskRun.objects.create(
+            task=self.task,
+            team=self.team,
+            status=TaskRun.Status.IN_PROGRESS,
+            state={"resume_from_run_id": str(self.task_run.id)},
+        )
+        mapping.task_run = follow_up_run
+        mapping.save(update_fields=["task_run"])
+
+        self.assertEqual([a.id for a in get_task_artifacts_for_run(follow_up_run)], [artifact.id])
+        fetched = get_task_artifact_for_run(follow_up_run, artifact.id)
+        assert fetched is not None
+
+        updated = edit_living_artifact(artifact=fetched, run=follow_up_run, content="# Updated report")
+
+        self.assertEqual(updated.current_version, 2)
+        self.assertEqual(slack.api_call.call_args_list[-1].args[0], "canvases.edit")
 
     @patch("products.tasks.backend.logic.services.living_artifacts._slack_integration_for_mapping")
     def test_slack_canvas_adapter_requires_canvas_scope(self, mock_integration_for_mapping):

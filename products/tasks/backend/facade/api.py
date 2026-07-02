@@ -2116,6 +2116,7 @@ def edit_task_run_living_artifact(
     try:
         updated = edit_living_artifact(
             artifact=artifact,
+            run=run,
             content=content,
             content_bytes=content_bytes,
             content_type=content_type,
