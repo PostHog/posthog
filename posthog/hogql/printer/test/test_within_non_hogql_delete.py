@@ -138,7 +138,12 @@ class TestWithinNonHogqlDelete(ClickhouseTestMixin, APIBaseTest):
                 within_non_hogql_query=True,
                 enable_select_queries=True,
             )
-            sql = translate_hogql("properties.$browser = 'Chrome'", context, dialect="clickhouse")
+            sql = translate_hogql(
+                "properties.$browser = 'Chrome'",
+                context,
+                dialect="clickhouse",
+                events_table_use_new_schema=settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA,
+            )
             self._assert_unqualified_and_mutation_safe(sql, self._expected_browser_property_sql())
 
     def test_compiled_predicate_is_unqualified_and_mutation_safe_without_materialized_column(self) -> None:

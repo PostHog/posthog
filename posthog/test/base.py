@@ -1089,13 +1089,12 @@ def cleanup_materialized_columns():
         if table == "events":
             sync_execute(f"ALTER TABLE sharded_events {drops} SETTINGS mutations_sync = 2")
 
-    if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
-        default_column_names = {
-            get_materialized_columns("events")[(prop, "properties")].name
-            for prop in EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS
-        }
+    default_column_names = {
+        get_materialized_columns("events")[(prop, "properties")].name
+        for prop in EVENTS_TABLE_DEFAULT_MATERIALIZED_COLUMNS
+    }
 
-        optionally_drop("events", lambda name: name not in default_column_names)
+    optionally_drop("events", lambda name: name not in default_column_names)
 
     optionally_drop("person")
     optionally_drop("groups")

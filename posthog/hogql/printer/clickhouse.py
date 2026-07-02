@@ -496,7 +496,7 @@ class ClickHousePrinter(BasePrinter):
         return self._maybe_apply_json_drop_keys(type, field_sql)
 
     def _maybe_stringify_events_json_field(self, type: ast.FieldType, field_sql: str) -> str:
-        if not django_settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+        if not self.context.uses_new_events_schema():
             return field_sql
         if getattr(self, "_json_function_argument_depth", 0) > 0:
             return field_sql

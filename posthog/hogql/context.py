@@ -2,6 +2,8 @@ from dataclasses import dataclass, field
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional
 
+from django.conf import settings
+
 from posthog.hogql.constants import LimitContext
 from posthog.hogql.timings import HogQLTimings
 
@@ -68,6 +70,7 @@ class HogQLContext:
     external_tables: dict[str, "ClickHouseExternalTable"] = field(default_factory=dict, compare=False, repr=False)
     # Are we small part of a non-HogQL query? If so, use custom syntax for accessed person properties.
     within_non_hogql_query: bool = False
+    use_new_events_schema: Optional[bool] = None
     # Temporary (June 2026 MaxMind incident): the geoip dict fallback decision, evaluated exactly once per query in
     # `prepare_ast_for_printing` so the transform and the printer's `_lookupGeoip*` gate can never disagree mid-query
     # (the underlying probe is a background-refreshed cache that may flip between evaluations). Remove with the
@@ -140,6 +143,11 @@ class HogQLContext:
     def __post_init__(self):
         if self.team:
             self.team_id = self.team.id
+
+    def uses_new_events_schema(self) -> bool:
+        if self.use_new_events_schema is not None:
+            return self.use_new_events_schema
+        return bool(settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA)
 
     def add_value(self, value: Any) -> str:
         key = f"hogql_val_{len(self.values)}"

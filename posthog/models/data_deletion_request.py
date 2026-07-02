@@ -1,5 +1,6 @@
 from dataclasses import dataclass
 
+from django.conf import settings
 from django.contrib.postgres.fields import ArrayField
 from django.core.cache import cache
 from django.core.exceptions import ValidationError
@@ -97,7 +98,12 @@ def compile_hogql_predicate(obj) -> tuple[str, dict]:
         apply_events_retention_floor=False,
     )
     try:
-        sql = translate_hogql(predicate, context, dialect="clickhouse")
+        sql = translate_hogql(
+            predicate,
+            context,
+            dialect="clickhouse",
+            events_table_use_new_schema=settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA,
+        )
     except ImportError:
         # A failed import means the runtime environment is broken (e.g. a Dagster worker that
         # can't resolve ``common.hogvm`` during compilation), not that the predicate is invalid.

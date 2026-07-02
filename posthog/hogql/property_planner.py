@@ -3,8 +3,6 @@ from dataclasses import dataclass
 from enum import StrEnum
 from typing import Literal, Optional, cast
 
-from django.conf import settings
-
 from posthog.hogql import ast
 from posthog.hogql.context import HogQLContext
 from posthog.hogql.database.models import DatabaseField
@@ -295,7 +293,7 @@ def _plan_property_source(
 ) -> PropertySourcePlan:
     table_info = _materialized_table_info(property_type.field_type, context)
     if table_info is None:
-        return _json_source_plan()
+        return _json_source_plan(context=context)
 
     table_name, field_name = table_info
     restricted = is_property_type_restricted(property_type, context)
@@ -305,10 +303,11 @@ def _plan_property_source(
             field_name=field_name,
             property_name=property_name,
             restricted=restricted,
+            context=context,
         )
 
     if (
-        settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA
+        context.uses_new_events_schema()
         and table_name == "events"
         and field_name
         in (
@@ -316,7 +315,9 @@ def _plan_property_source(
             "person_properties",
         )
     ):
-        return _json_source_plan(table_name=table_name, field_name=field_name, property_name=property_name)
+        return _json_source_plan(
+            table_name=table_name, field_name=field_name, property_name=property_name, context=context
+        )
 
     materialized_column = get_materialized_column_for_property(
         cast(TablesWithMaterializedColumns, table_name),
@@ -359,7 +360,7 @@ def _plan_property_source(
                 has_bloom_filter_index=True,
             )
 
-    return _json_source_plan(table_name=table_name, field_name=field_name, property_name=property_name)
+    return _json_source_plan(table_name=table_name, field_name=field_name, property_name=property_name, context=context)
 
 
 def _json_source_plan(
@@ -367,9 +368,10 @@ def _json_source_plan(
     field_name: str | None = None,
     property_name: str | None = None,
     restricted: bool = False,
+    context: HogQLContext | None = None,
 ) -> PropertySourcePlan:
-    has_minmax_index = _json_source_has_index(table_name, field_name, property_name, "minmax")
-    has_bloom_filter_index = _json_source_has_index(table_name, field_name, property_name, "bloom_filter")
+    has_minmax_index = _json_source_has_index(table_name, field_name, property_name, "minmax", context)
+    has_bloom_filter_index = _json_source_has_index(table_name, field_name, property_name, "bloom_filter", context)
 
     return PropertySourcePlan(
         kind=PropertySourceKind.JSON,
@@ -385,9 +387,13 @@ def _json_source_plan(
 
 
 def _json_source_has_index(
-    table_name: str | None, field_name: str | None, property_name: str | None, index_type: str
+    table_name: str | None,
+    field_name: str | None,
+    property_name: str | None,
+    index_type: str,
+    context: HogQLContext | None,
 ) -> bool:
-    if not settings.CLICKHOUSE_HOGQL_USE_NEW_EVENTS_SCHEMA:
+    if context is None or not context.uses_new_events_schema():
         return False
     if table_name != "events" or field_name not in ("properties", "person_properties") or property_name is None:
         return False
