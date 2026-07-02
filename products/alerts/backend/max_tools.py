@@ -76,7 +76,7 @@ UPSERT_ALERT_TOOL_DESCRIPTION = dedent("""
     - For percentage-based thresholds, set threshold_type to "percentage" and use decimal values (e.g., 0.5 for 50%)
 
     # Calculation intervals
-    - **real_time**: Check every 2 minutes (Scale+ required)
+    - **real_time**: Check in real time (Scale+ required)
     - **every_15_minutes**: Check every 15 minutes (Boost+ required)
     - **hourly**: Check every hour
     - **daily**: Check once per day (default for create)
@@ -116,7 +116,7 @@ class CreateAlertAction(BaseModel):
     )
     calculation_interval: AlertCalculationInterval = Field(
         default=AlertCalculationInterval.DAILY,
-        description="How often to check: real_time (every 2 minutes, Scale+), every_15_minutes (Boost+), hourly, daily, weekly, or monthly",
+        description="How often to check: real_time (Scale+), every_15_minutes (Boost+), hourly, daily, weekly, or monthly",
     )
     upper_threshold: float | None = Field(
         default=None,
