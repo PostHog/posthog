@@ -897,10 +897,13 @@ def forward_posthog_code_followup_activity(
         channel=channel,
         thread_ts=thread_ts,
     )
-    user_text = build_slack_attachment_prompt_text(
-        user_text,
-        uploaded_artifacts=uploaded_attachments,
-        skipped_messages=attachment_skips,
+    user_text = (
+        build_slack_attachment_prompt_text(
+            user_text,
+            uploaded_artifacts=uploaded_attachments,
+            skipped_messages=attachment_skips,
+        )
+        or user_text
     )
 
     send_kwargs: dict[str, Any] = {"auth_token": auth_token, "timeout": 90}
