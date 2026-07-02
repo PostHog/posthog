@@ -9,6 +9,7 @@ import { UniversalFiltersGroup } from '~/types'
 import type { tracingFiltersLogicType } from './tracingFiltersLogicType'
 
 export const DEFAULT_DATE_RANGE: DateRange = { date_from: '-1h', date_to: null }
+export const DEFAULT_TIMEZONE: string = 'UTC'
 export const DEFAULT_SERVICE_NAMES: string[] = []
 export const DEFAULT_ORDER_BY = 'timestamp' as const
 export const DEFAULT_ORDER_DIRECTION = 'DESC' as const
@@ -46,6 +47,7 @@ export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
 
     actions({
         setDateRange: (dateRange: DateRange) => ({ dateRange }),
+        setTimezone: (timezone: string) => ({ timezone }),
         setServiceNames: (serviceNames: string[]) => ({ serviceNames }),
         setFilterGroup: (filterGroup: UniversalFiltersGroup) => ({ filterGroup }),
         setSort: (orderBy: TracingOrderBy, orderDirection: TracingOrderDirection) => ({ orderBy, orderDirection }),
@@ -65,6 +67,13 @@ export const tracingFiltersLogic = kea<tracingFiltersLogicType>([
             {
                 setDateRange: (_, { dateRange }) => dateRange,
                 setFilters: (state, { filters }) => filters.dateRange ?? state,
+            },
+        ],
+        timezone: [
+            DEFAULT_TIMEZONE,
+            { persist: true },
+            {
+                setTimezone: (_, { timezone }) => timezone,
             },
         ],
         serviceNames: [

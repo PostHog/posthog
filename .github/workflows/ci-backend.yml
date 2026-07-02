@@ -33,8 +33,6 @@ env:
     # (key is posthog-schema-mig-<epoch>-<hash>). Single-sourced so it can't drift
     # between the merge-base (PR) and HEAD (push) key computations below.
     SCHEMA_CACHE_EPOCH: v1
-    DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
-    DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
     SECRET_KEY: '6b01eee4f945ca25045b5aab440b953461faf08693a9abbf1166dc7c6b9772da' # unsafe - for testing only
     DATABASE_URL: 'postgres://posthog:posthog@localhost:5432/posthog'
     REDIS_URL: 'redis://localhost'
@@ -80,10 +78,11 @@ jobs:
         name: Determine need to run backend and migration checks
         # Set job outputs to values from filter step
         outputs:
-            backend: ${{ steps.filter.outputs.backend || 'true' }}
+            backend: ${{ steps.backend_docs.outputs.backend || 'true' }}
             backend_files: ${{ steps.filter.outputs.backend_files }}
             migrations: ${{ steps.filter.outputs.migrations || 'true' }}
             migrations_files: ${{ steps.filter.outputs.migrations_files }}
+            migrations_any: ${{ steps.filter.outputs.migrations_any || 'true' }}
             persons_sql: ${{ steps.filter.outputs.persons_sql || 'true' }}
             tasks_temporal: ${{ steps.filter.outputs.tasks_temporal || 'true' }}
             openapi_types: ${{ steps.filter.outputs.openapi_types || 'true' }}
@@ -246,6 +245,11 @@ jobs:
                         - 'posthog/migrations/*.py'
                         - 'products/*/backend/migrations/*.py'
                         - 'products/*/migrations/*.py'  # Legacy structure
+                      # Any migration file in any app (broader than `migrations` above,
+                      # which omits ee/ and posthog sub-package dirs). Gates the
+                      # deleted-migration check in repo-checks.
+                      migrations_any:
+                        - '**/migrations/*.py'
                       persons_sql:
                         - 'rust/persons_migrations/*.sql'
                         - 'rust/bin/migrate-persons'
@@ -308,7 +312,7 @@ jobs:
               run: |
                   prefix="products/warehouse_sources/backend/temporal/data_imports/sources/"
                   # Space-separated, double-quoted, single line — parsed by the guard test.
-                  coupled="common google_search_console mysql postgres salesforce stripe"
+                  coupled="common google_search_console mysql postgres salesforce snowflake stripe"
                   only_sources=false
                   if [ -n "$BACKEND_FILES" ]; then
                       only_sources=true
@@ -326,6 +330,38 @@ jobs:
                   fi
                   echo "data_import_sources_only=$only_sources" >> "$GITHUB_OUTPUT"
                   echo "Only data warehouse import sources changed: $only_sources"
+
+            # A change that only touches Markdown docs (e.g. a README under
+            # posthog/) still matches the broad backend globs above, needlessly
+            # running the whole backend suite. Drop the backend signal when
+            # every backend-matched file is Markdown.
+            # PR/merge_group events only; push keeps the default full run.
+            - name: Ignore Markdown-only changes for backend
+              id: backend_docs
+              if: github.event_name != 'push'
+              # If this step ever errors, the job output falls back to
+              # backend='true', so a failure here can only over-run the
+              # backend suite, never wrongly skip it.
+              continue-on-error: true
+              env:
+                  BACKEND: ${{ steps.filter.outputs.backend }}
+                  BACKEND_FILES: ${{ steps.filter.outputs.backend_files }}
+              run: |
+                  backend="$BACKEND"
+                  if [ "$backend" = "true" ] && [ -n "$BACKEND_FILES" ]; then
+                      # backend_files is in dorny/paths-filter's "escape" format
+                      # (space-delimited, backslash-escaped). Decode it with xargs
+                      # so paths containing whitespace stay intact and a very long
+                      # list can't overflow the argument list, then skip the backend
+                      # suite only when every changed file is Markdown.
+                      if files=$(printf '%s' "$BACKEND_FILES" | xargs -n1); then
+                          if ! printf '%s\n' "$files" | grep -qvE '\.(md|mdx)$'; then
+                              backend=false
+                          fi
+                      fi
+                  fi
+                  echo "backend=$backend" >> "$GITHUB_OUTPUT"
+                  echo "Backend tests needed: $backend"
 
     detect-snapshot-mode:
         name: Detect snapshot mode
@@ -660,6 +696,9 @@ jobs:
             fail-fast: false
             matrix:
                 include: ${{ fromJson(needs.turbo-discover.outputs.matrix) }}
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -863,6 +902,7 @@ jobs:
             deterministic_failure: ${{ steps.deterministic-failure.outputs.deterministic_failure || 'false' }}
         permissions:
             contents: read
+            pull-requests: read # list PR files for the deleted-migration check
         name: Repo checks (depot-ubuntu-latest)
         runs-on: depot-ubuntu-latest
         steps:
@@ -892,12 +932,30 @@ jobs:
             - name: Install Python dependencies
               run: UV_PROJECT_ENVIRONMENT=$pythonLocation uv sync --frozen --dev
 
+            # Above the boundary: a gh-api flake here is retryable setup, not a
+            # run-cancelling deterministic failure. The classifier runs below.
+            - name: Fetch deleted migration paths
+              id: fetch-deleted-migrations
+              if: github.event_name == 'pull_request' && needs.changes.outputs.migrations_any == 'true'
+              env:
+                  GH_TOKEN: ${{ secrets.GITHUB_TOKEN }}
+                  REPO: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: .github/scripts/list-removed-renamed-paths.sh > "$RUNNER_TEMP/deleted-migration-paths.txt"
+
             # Boundary between network-dependent setup and the deterministic
             # checks below. The "Flag deterministic failure" step keys off this
             # step's outcome so a transient setup failure doesn't cancel the run.
             - name: Mark setup complete
               id: setup-complete
               run: echo "Setup complete — any failure below is a deterministic check failure"
+
+            # Below the boundary so a real deletion trips the early-cancel gate (see
+            # safe-django-migrations.md). Gated on the fetch outcome so a skipped fetch
+            # skips this too, rather than reading a file it never wrote.
+            - name: Check deleted migrations
+              if: steps.fetch-deleted-migrations.outcome == 'success'
+              run: ./bin/hogli lint:migration-deletions < "$RUNNER_TEMP/deleted-migration-paths.txt"
 
             - name: Bootstrap scaffold product
               run: ./bin/hogli product:bootstrap spline_reticulator --non-interactive
@@ -1035,6 +1093,9 @@ jobs:
 
         name: Validate migrations
         runs-on: depot-ubuntu-latest
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -1670,6 +1731,9 @@ jobs:
 
         name: Validate OpenAPI types
         runs-on: depot-ubuntu-latest
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -2087,6 +2151,9 @@ jobs:
             fail-fast: false
             matrix:
                 include: ${{ fromJson(needs.build_django_matrix.outputs.include) }}
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
 
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -2956,6 +3023,9 @@ jobs:
              (needs.turbo-discover.result != 'success' && needs.turbo-discover.result != 'skipped'))
         runs-on: depot-ubuntu-latest
         timeout-minutes: 30
+        env:
+            DOCKERHUB_USERNAME: ${{ vars.DOCKERHUB_USER }}
+            DOCKERHUB_TOKEN: ${{ secrets.DOCKERHUB_TOKEN }}
         steps:
             - name: 'Checkout repo'
               uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
@@ -3177,3 +3247,31 @@ jobs:
                   uv run --script .github/scripts/report_test_timings.py \
                       --min-duration-seconds=0.5 \
                       ./junit-artifacts
+
+    trunk-upload:
+        name: Upload test results to Trunk
+        # Core/Temporal/async-migrations already emit and upload junit-results-* artifacts;
+        # this feeds them to Trunk (flaky-test detection) once. Trusted non-pull_request
+        # events only (master push + merge queue), so the secret token never runs in a
+        # PR-controlled context; the uploader is a pinned external action, not a local one.
+        needs: [django_tests]
+        runs-on: ubuntu-latest
+        continue-on-error: true
+        timeout-minutes: 10
+        if: always() && github.repository == 'PostHog/posthog' && github.event_name != 'pull_request'
+        steps:
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+              with:
+                  fetch-depth: 1
+            - name: Download JUnit artifacts
+              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
+              continue-on-error: true
+              with:
+                  path: ./junit-artifacts
+                  pattern: junit-results-*
+            - name: Upload to Trunk
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: junit-artifacts/**/*.xml
+                  org-slug: posthog-inc
+                  token: ${{ secrets.TRUNK_API_TOKEN }}

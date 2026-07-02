@@ -8,7 +8,7 @@ from datetime import timedelta
 from typing import Any, ClassVar, cast
 from urllib.parse import quote
 
-from unittest.mock import AsyncMock, MagicMock, patch
+from unittest.mock import ANY, AsyncMock, MagicMock, patch
 
 from django.conf import settings
 from django.db import connection
@@ -262,7 +262,7 @@ class TestTaskCreatorScoping(BaseTaskAPITest):
     def test_list_signal_report_tasks_hidden_by_default(self):
         # Signal-report tasks are always created with internal=True, so the
         # default list still hides them. The retrieve-by-ID path (and the
-        # staff/DEBUG `?internal=true` path) is how they're surfaced.
+        # `?internal=true` / `?internal=all` filters) is how they're surfaced.
         other_user = self.create_organization_user("signal-owner")
         signal_task = Task.objects.create(
             team=self.team,
@@ -299,6 +299,25 @@ class TestTaskCreatorScoping(BaseTaskAPITest):
         ids = {t["id"] for t in response.json()["results"]}
         self.assertIn(str(mine.id), ids)
         self.assertIn(str(scout_task.id), ids)
+
+    def test_list_onboarding_tasks_owned_by_another_user(self):
+        # Onboarding tasks are the shared getting-started task: team-scoped, so they show
+        # in everyone's Tasks list regardless of which user the task was created under.
+        other_user = self.create_organization_user("onboarding-owner")
+        onboarding_task = Task.objects.create(
+            team=self.team,
+            created_by=other_user,
+            title="Onboarding Task",
+            description="Getting started",
+            origin_product=Task.OriginProduct.ONBOARDING,
+        )
+        mine = self.create_task("Mine", created_by=self.user)
+
+        response = self.client.get("/api/projects/@current/tasks/")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        ids = {t["id"] for t in response.json()["results"]}
+        self.assertIn(str(mine.id), ids)
+        self.assertIn(str(onboarding_task.id), ids)
 
     def test_retrieve_signals_scout_task_owned_by_another_user_is_visible(self):
         other_user = self.create_organization_user("scout-owner")
@@ -895,7 +914,6 @@ class TestTaskAPI(BaseTaskAPITest):
                 self.team.id,
                 self.user.id,
                 filters={"stage": "building"},
-                is_debug_or_staff=False,
             ).query
         ).upper()
         self.assertIn("EXISTS", query_sql)
@@ -1026,6 +1044,29 @@ class TestTaskAPI(BaseTaskAPITest):
 
         task = Task.objects.get(id=data["id"])
         self.assertEqual(task.origin_product, Task.OriginProduct.USER_CREATED)
+
+    def test_create_task_with_hogdesk_origin_product(self):
+        # HogDesk creates Code tasks from a support ticket's Code chat with this
+        # origin. Ensure the value round-trips through the API — the serializer
+        # validates origin_product against OriginProduct.choices and 400s an
+        # unknown value, so this is the regression that guards the enum addition.
+        response = self.client.post(
+            "/api/projects/@current/tasks/",
+            {
+                "title": "New Task",
+                "description": "New Description",
+                "origin_product": "hogdesk",
+                "repository": "posthog/posthog",
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_201_CREATED)
+        data = response.json()
+        self.assertEqual(data["origin_product"], Task.OriginProduct.HOGDESK)
+
+        task = Task.objects.get(id=data["id"])
+        self.assertEqual(task.origin_product, Task.OriginProduct.HOGDESK)
 
     def test_create_task_with_github_user_integration(self):
         user_integration = _grant_user_github_access(self.user)
@@ -2198,8 +2239,9 @@ class TestTaskAPI(BaseTaskAPITest):
         }
         mock_workflow.assert_not_called()
 
+    @patch("products.tasks.backend.presentation.serializers.posthoganalytics.capture")
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
-    def test_run_endpoint_rejects_unsupported_claude_reasoning_effort(self, mock_workflow):
+    def test_run_endpoint_rejects_unsupported_claude_reasoning_effort(self, mock_workflow, mock_capture):
         task = self.create_task()
 
         response = self.client.post(
@@ -2223,6 +2265,24 @@ class TestTaskAPI(BaseTaskAPITest):
             "attr": "reasoning_effort",
         }
         mock_workflow.assert_not_called()
+
+        # The rejection used to be visible only in the client's 400 response; it must also
+        # be captured server-side so recurring bad model/effort combos are queryable.
+        # assert_any_call because create_task() itself fires a "task_created" capture.
+        mock_capture.assert_any_call(
+            distinct_id=str(self.user.distinct_id),
+            event="task run reasoning effort rejected",
+            properties={
+                "runtime_adapter": "claude",
+                "model": "claude-sonnet-4-5",
+                "reasoning_effort": "high",
+                "error": (
+                    "Reasoning effort 'high' is not supported for runtime_adapter 'claude' "
+                    "and model 'claude-sonnet-4-5'. Supported values: none."
+                ),
+            },
+            groups=ANY,
+        )
 
     @parameterized.expand(
         [
@@ -2253,6 +2313,82 @@ class TestTaskAPI(BaseTaskAPITest):
         assert task_run.state["model"] == "claude-fable-5"
         assert task_run.state["reasoning_effort"] == reasoning_effort
         mock_workflow.assert_called_once()
+
+    @parameterized.expand(
+        [
+            ("low",),
+            ("medium",),
+            ("high",),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_accepts_claude_sonnet_5_reasoning_effort(self, reasoning_effort, mock_workflow):
+        # claude-sonnet-5 was missing from the supported-model map, so every reasoning_effort
+        # (including these valid ones) was rejected with "Supported values: none."
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "runtime_adapter": "claude",
+                "model": "claude-sonnet-5",
+                "reasoning_effort": reasoning_effort,
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_200_OK
+        latest_run = response.json()["latest_run"]
+        task_run = TaskRun.objects.get(id=latest_run["id"])
+        assert task_run.state["model"] == "claude-sonnet-5"
+        assert task_run.state["reasoning_effort"] == reasoning_effort
+        mock_workflow.assert_called_once()
+
+    @patch("products.tasks.backend.presentation.serializers.posthoganalytics.capture")
+    @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
+    def test_run_endpoint_rejects_unsupported_claude_sonnet_5_reasoning_effort(self, mock_workflow, mock_capture):
+        # claude-sonnet-5 supports low/medium/high (unlike claude-sonnet-4-5, which supports
+        # none) - this pins the "Supported values: <non-empty list>" message and confirms the
+        # rejection capture also fires for a model that has some supported efforts.
+        task = self.create_task()
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/run/",
+            {
+                "runtime_adapter": "claude",
+                "model": "claude-sonnet-5",
+                "reasoning_effort": "xhigh",
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert response.json() == {
+            "type": "validation_error",
+            "code": "invalid_input",
+            "detail": (
+                "Reasoning effort 'xhigh' is not supported for runtime_adapter 'claude' "
+                "and model 'claude-sonnet-5'. Supported values: low, medium, high."
+            ),
+            "attr": "reasoning_effort",
+        }
+        mock_workflow.assert_not_called()
+
+        # assert_any_call because create_task() itself fires a "task_created" capture.
+        mock_capture.assert_any_call(
+            distinct_id=str(self.user.distinct_id),
+            event="task run reasoning effort rejected",
+            properties={
+                "runtime_adapter": "claude",
+                "model": "claude-sonnet-5",
+                "reasoning_effort": "xhigh",
+                "error": (
+                    "Reasoning effort 'xhigh' is not supported for runtime_adapter 'claude' "
+                    "and model 'claude-sonnet-5'. Supported values: low, medium, high."
+                ),
+            },
+            groups=ANY,
+        )
 
     @patch("products.tasks.backend.temporal.client.execute_task_processing_workflow")
     def test_run_endpoint_derives_provider_from_runtime_adapter(self, mock_workflow):
@@ -2901,38 +3037,12 @@ class TestTaskInternalFilterAPI(BaseTaskAPITest):
         self.assertIn(str(self.external_task.id), task_ids)
         self.assertNotIn(str(self.internal_task.id), task_ids)
 
-    def test_list_internal_true_is_ignored_for_non_staff_in_production(self):
-        # Non-staff user with DEBUG=False must not have internal tasks surfaced.
+    def test_list_internal_true_shows_only_internal_tasks(self):
+        # `internal=true` narrows to only-internal tasks for any team member — it's a visibility toggle,
+        # not a staff/DEBUG gate (task visibility is the real access boundary).
         self.assertFalse(self.user.is_staff)
         with self.settings(DEBUG=False):
             response = self.client.get("/api/projects/@current/tasks/?internal=true")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        data = response.json()
-        task_ids = [t["id"] for t in data["results"]]
-        self.assertIn(str(self.external_task.id), task_ids)
-        self.assertNotIn(str(self.internal_task.id), task_ids)
-
-    def test_list_internal_true_shows_only_internal_tasks_in_debug(self):
-        with self.settings(DEBUG=True):
-            response = self.client.get("/api/projects/@current/tasks/?internal=true")
-        self.assertEqual(response.status_code, status.HTTP_200_OK)
-
-        data = response.json()
-        task_ids = [t["id"] for t in data["results"]]
-        self.assertNotIn(str(self.external_task.id), task_ids)
-        self.assertIn(str(self.internal_task.id), task_ids)
-
-    def test_list_internal_true_shows_only_internal_tasks_for_staff(self):
-        # Staff users can list internal tasks even with DEBUG=False.
-        staff_user = User.objects.create_user(
-            email="staff@example.com", password="password", first_name="Staff", is_staff=True
-        )
-        self.organization.members.add(staff_user)
-        staff_client = APIClient()
-        staff_client.force_authenticate(staff_user)
-        with self.settings(DEBUG=False):
-            response = staff_client.get("/api/projects/@current/tasks/?internal=true")
         self.assertEqual(response.status_code, status.HTTP_200_OK)
 
         data = response.json()
@@ -2948,6 +3058,18 @@ class TestTaskInternalFilterAPI(BaseTaskAPITest):
         task_ids = [t["id"] for t in data["results"]]
         self.assertIn(str(self.external_task.id), task_ids)
         self.assertNotIn(str(self.internal_task.id), task_ids)
+
+    def test_list_internal_all_includes_both_for_non_staff(self):
+        # `internal=all` surfaces internal tasks to any team member without a staff/DEBUG requirement —
+        # the internal flag is a default-visibility toggle, not an access gate (task visibility is).
+        self.assertFalse(self.user.is_staff)
+        with self.settings(DEBUG=False):
+            response = self.client.get("/api/projects/@current/tasks/?internal=all")
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+
+        task_ids = [t["id"] for t in response.json()["results"]]
+        self.assertIn(str(self.external_task.id), task_ids)
+        self.assertIn(str(self.internal_task.id), task_ids)
 
     def test_internal_field_in_response(self):
         response = self.client.get(f"/api/projects/@current/tasks/{self.external_task.id}/")
@@ -3323,12 +3445,18 @@ class TestTaskRunAPI(BaseTaskAPITest):
                 "sandbox_memory_gb": 8,
                 "sandbox_ttl_seconds": 1800,
                 "inactivity_timeout_seconds": 600,
+                "use_modal_directory_resume_snapshots": True,
+                "snapshot_external_id": "im-real",
+                "snapshot_kind": "directory",
+                "snapshot_mount_path": "/tmp",
             },
         )
 
         # A caller cannot escalate to the creator's integration, flip authorship, repoint the
-        # credential-propagation target at a sandbox they control, or inflate the run's compute /
-        # lifetime to provision an oversized, long-lived sandbox. Non-protected keys still merge.
+        # credential-propagation target at a sandbox they control, inflate the run's compute /
+        # lifetime to provision an oversized, long-lived sandbox, or turn the run into a wizard run
+        # (which would mint a write-scoped wizard token into the sandbox), change rollout
+        # decisions, or change Modal resume snapshot metadata. Non-protected keys still merge.
         response = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
             {
@@ -3340,6 +3468,11 @@ class TestTaskRunAPI(BaseTaskAPITest):
                     "sandbox_memory_gb": 512,
                     "sandbox_ttl_seconds": 86400,
                     "inactivity_timeout_seconds": 86400,
+                    "wizard_config": {},
+                    "use_modal_directory_resume_snapshots": False,
+                    "snapshot_external_id": "im-attacker",
+                    "snapshot_kind": "directory",
+                    "snapshot_mount_path": "/tmp/workspace",
                     "scratch": "ok",
                 }
             },
@@ -3354,18 +3487,38 @@ class TestTaskRunAPI(BaseTaskAPITest):
         assert run.state["sandbox_memory_gb"] == 8
         assert run.state["sandbox_ttl_seconds"] == 1800
         assert run.state["inactivity_timeout_seconds"] == 600
+        assert "wizard_config" not in run.state  # caller cannot mark a run as a wizard run
+        assert run.state["use_modal_directory_resume_snapshots"] is True
+        assert run.state["snapshot_external_id"] == "im-real"
+        assert run.state["snapshot_kind"] == "directory"
+        assert run.state["snapshot_mount_path"] == "/tmp"
         assert run.state["scratch"] == "ok"  # non-protected keys still merge
 
         # Nor can a caller remove a protected key to force a fallback or unguarded path.
         response = self.client.patch(
             f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/",
-            {"state": {}, "state_remove_keys": ["github_credential_source", "sandbox_id", "scratch"]},
+            {
+                "state": {},
+                "state_remove_keys": [
+                    "github_credential_source",
+                    "sandbox_id",
+                    "use_modal_directory_resume_snapshots",
+                    "snapshot_external_id",
+                    "snapshot_kind",
+                    "snapshot_mount_path",
+                    "scratch",
+                ],
+            },
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
         run.refresh_from_db()
         assert run.state["github_credential_source"] == "caller_token"  # protected key survives removal
         assert run.state["sandbox_id"] == "sb-real"  # protected key survives removal
+        assert run.state["use_modal_directory_resume_snapshots"] is True  # protected key survives removal
+        assert run.state["snapshot_external_id"] == "im-real"  # protected key survives removal
+        assert run.state["snapshot_kind"] == "directory"  # protected key survives removal
+        assert run.state["snapshot_mount_path"] == "/tmp"  # protected key survives removal
         assert "scratch" not in run.state  # non-protected key removed
 
     @patch("products.tasks.backend.facade.api.signal_workflow_completion")
@@ -3863,6 +4016,58 @@ class TestTaskRunAPI(BaseTaskAPITest):
         mock_execute_relay.assert_called_once_with(
             run_id=str(run.id),
             text="Which license should I use?",
+            delete_progress=True,
+        )
+
+    @parameterized.expand(
+        [
+            (
+                "prefers_last_non_empty_text_part",
+                {
+                    "text": "I'll pull DAU.\n\nHere's your answer.",
+                    "text_parts": ["I'll pull DAU.", "Here's your answer."],
+                },
+                "Here's your answer.",
+            ),
+            (
+                "falls_back_to_text_when_parts_only_blank",
+                {"text": "actual message", "text_parts": ["", "   "]},
+                "actual message",
+            ),
+        ]
+    )
+    @patch("products.tasks.backend.temporal.client.execute_posthog_code_agent_relay_workflow")
+    def test_relay_message_text_selection(self, _name, payload, expected_posted_text, mock_execute_relay):
+        from posthog.models.integration import Integration
+
+        from products.slack_app.backend.models import SlackThreadTaskMapping
+
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+        mock_execute_relay.return_value = "relay-selected"
+
+        integration = Integration.objects.create(team=self.team, kind="slack", integration_id="T_SLACK", config={})
+        SlackThreadTaskMapping.objects.create(
+            team=self.team,
+            integration=integration,
+            slack_workspace_id="T_SLACK",
+            channel="C123",
+            thread_ts="1234.5678",
+            task=task,
+            task_run=run,
+            mentioning_slack_user_id="U123",
+        )
+
+        response = self.client.post(
+            f"/api/projects/@current/tasks/{task.id}/runs/{run.id}/relay_message/",
+            payload,
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        mock_execute_relay.assert_called_once_with(
+            run_id=str(run.id),
+            text=expected_posted_text,
             delete_progress=True,
         )
 
@@ -5572,6 +5777,45 @@ class TestTaskRunSessionLogsAPI(BaseTaskAPITest):
         self.assertEqual(response["X-Filtered-Count"], "10")
         self.assertEqual(response["X-Matching-Count"], "10")
         self.assertEqual(response["X-Has-More"], "true")
+
+    def test_session_logs_caps_page_size_by_bytes(self):
+        task = self.create_task()
+        run = TaskRun.objects.create(task=task, team=self.team, status=TaskRun.Status.IN_PROGRESS)
+
+        entries = [
+            self._make_session_update_entry("agent_message", "2026-01-01T00:00:00Z", text="x" * 400),
+            self._make_session_update_entry("agent_message", "2026-01-01T00:00:01Z", text="x" * 400),
+            self._make_session_update_entry("agent_message", "2026-01-01T00:00:02Z", text="x" * 5000),
+            self._make_session_update_entry("agent_message", "2026-01-01T00:00:03Z", text="x" * 400),
+        ]
+        self._seed_log(task, run, entries)
+
+        with patch("products.tasks.backend.presentation.views.api.SESSION_LOG_PAGE_MAX_BYTES", 600):
+            collected: list = []
+            offset = 0
+            pages = 0
+            oversized_returned_alone = False
+            while True:
+                response = self.client.get(self._events_url(task, run) + f"?limit=100&offset={offset}")
+                self.assertEqual(response.status_code, status.HTTP_200_OK)
+                page = response.json()
+                self.assertGreaterEqual(len(page), 1)
+                if any(len(json.dumps(e)) > 600 for e in page):
+                    self.assertEqual(len(page), 1)
+                    oversized_returned_alone = True
+                collected.extend(page)
+                offset += len(page)
+                pages += 1
+                if response["X-Has-More"] != "true":
+                    break
+
+        self.assertGreater(pages, 1)
+        self.assertTrue(oversized_returned_alone)
+        self.assertEqual(response["X-Total-Count"], "4")
+        self.assertEqual(
+            [e["timestamp"] for e in collected],
+            [f"2026-01-01T00:00:0{i}Z" for i in range(4)],
+        )
 
     def test_session_logs_offset(self):
         task = self.create_task()

@@ -71,6 +71,15 @@ export interface PersonPropertyFilterApi {
     value?: (string | number | boolean)[] | string | number | boolean | null
 }
 
+export interface PersonMetadataPropertyFilterApi {
+    key: string
+    label?: string | null
+    operator: PropertyOperatorApi
+    /** Top-level columns on the persons table (e.g. created_at), not properties JSON */
+    type?: 'person_metadata'
+    value?: (string | number | boolean)[] | string | number | boolean | null
+}
+
 export type Key10Api = (typeof Key10Api)[keyof typeof Key10Api]
 
 export const Key10Api = {
@@ -260,6 +269,7 @@ export interface PropertyGroupFilterValueApi {
         | PropertyGroupFilterValueApi
         | EventPropertyFilterApi
         | PersonPropertyFilterApi
+        | PersonMetadataPropertyFilterApi
         | ElementPropertyFilterApi
         | EventMetadataPropertyFilterApi
         | SessionPropertyFilterApi
@@ -1040,6 +1050,60 @@ export interface _LogFacetValueApi {
 export interface _LogsFacetValuesResponseApi {
     /** Facet values with cross-filtered counts, ordered by count descending. */
     results: _LogFacetValueApi[]
+}
+
+export interface _LogsPatternsBodyApi {
+    /** Date range to mine patterns from. Defaults to last hour. */
+    dateRange?: _DateRangeApi
+    /** Filter by log severity levels before mining. */
+    severityLevels?: SeverityLevelsEnumApi[]
+    /** Restrict mining to these service names. */
+    serviceNames?: string[]
+    /** Full-text search term to filter log bodies before mining. */
+    searchTerm?: string
+    /** Property filters applied before mining. Same shape as the query-logs endpoint. */
+    filterGroup?: _LogPropertyFilterApi[]
+}
+
+export interface _LogsPatternsRequestApi {
+    /** The patterns query to execute. */
+    query: _LogsPatternsBodyApi
+}
+
+export interface _LogPatternApi {
+    /** Mined log template with variable tokens masked, e.g. "Connected to <ip> in <num>ms". Tokens: <uuid>, <ip>, <hex>, <num>, plus <*> for word positions Drain found to vary. */
+    pattern: string
+    /** Occurrences of this pattern within the sample. When `sampled` is true this is a sample count, not the full-window total — prefer `estimated_count` for display. */
+    count: number
+    /** Estimated occurrences across the full window, extrapolated from the sample (`count / scanned_count * total_count`). Equals `count` when the window was not sampled. */
+    estimated_count: number
+    /** Share of the sampled log volume this pattern represents (0–100). */
+    volume_share_pct: number
+    /** Sampled occurrences at severity "error" or "fatal". Prefer `estimated_error_count` for display. */
+    error_count: number
+    /** Estimated error/fatal occurrences across the full window, extrapolated from the sample. Equals `error_count` when the window was not sampled. */
+    estimated_error_count: number
+    /** ISO 8601 timestamp of the earliest sampled occurrence. */
+    first_seen: string
+    /** ISO 8601 timestamp of the latest sampled occurrence. */
+    last_seen: string
+    /** Up to 3 distinct raw log bodies (truncated) that produced this pattern. */
+    examples: string[]
+    /** Up to 4 distinct service names this pattern was observed in. */
+    services: string[]
+}
+
+export interface _LogsPatternsResponseApi {
+    /** Mined patterns ordered by `count` descending. */
+    patterns: _LogPatternApi[]
+    /** Number of log rows fed to the miner (the sample size, capped at the sample limit). */
+    scanned_count: number
+    /** Total log rows matching the filters in the window, before sampling. Use with `scanned_count` to scale per-pattern counts when `sampled` is true. */
+    total_count: number
+    /** True when the window held more rows than the sample cap, so patterns were mined from a deterministic, evenly-distributed sample rather than every matching row. */
+    sampled: boolean
+    /** Share of the window's log rows that were eligible for sampling (0–100). Below 100, the scan was bounded to evenly-spaced time slices across the window to keep the query within its execution budget; rows outside the slices could not appear in the sample. */
+    sample_coverage_pct: number
 }
 
 /**

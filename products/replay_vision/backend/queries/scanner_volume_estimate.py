@@ -14,6 +14,7 @@ from posthog.models import Team
 from posthog.session_recordings.queries.session_recording_list_from_query import SessionRecordingListFromQuery
 
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
+from products.replay_vision.backend.queries.scanner_candidate_query import eligibility_predicates
 
 # A pathological filter must not be able to hang the estimate request.
 _ESTIMATE_MAX_EXECUTION_TIME_SECONDS = 30
@@ -49,7 +50,10 @@ def estimate_scanner_session_volume(
     windowed.date_from = f"-{ESTIMATE_WINDOW_DAYS}d"
     windowed.date_to = None
 
-    inner = SessionRecordingListFromQuery(team=team, query=windowed).get_query()
+    # Count only sessions the sweep would actually observe, so the forecast matches the eligible set the candidate query selects.
+    inner = SessionRecordingListFromQuery(
+        team=team, query=windowed, extra_having_predicates=eligibility_predicates()
+    ).get_query()
     # The inner query groups by session_id, so one row is one session; order is irrelevant to a count.
     inner.order_by = None
 

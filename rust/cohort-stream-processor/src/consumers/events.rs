@@ -45,7 +45,7 @@ use crate::partitions::shuffle_message::ShuffleMessage;
 use crate::producer::MembershipSink;
 use crate::store::durability::OffsetManifest;
 use crate::store::CohortStore;
-use crate::workers::{MergeWorkerDeps, Stage1Worker};
+use crate::workers::{EventNameGating, MergeWorkerDeps, PersonMemoConfig, Stage1Worker};
 
 /// Back-off after a Kafka transport error so a fast-failing `recv()` can't spin a consume loop.
 pub(crate) const RECV_ERROR_BACKOFF: Duration = Duration::from_millis(500);
@@ -125,6 +125,10 @@ pub struct EventDispatcher {
     /// after boot. `OnceLock` is `Sync`; the only race (get sees `None` before set) resolves to
     /// "skip", so a boot partition is never wiped.
     boot_assignment: OnceLock<HashSet<i32>>,
+    /// Person-memo config for spawned workers, set once at startup. Unset → disabled.
+    person_memo: OnceLock<PersonMemoConfig>,
+    /// Event-name fan-out gating for spawned workers, set once at startup. Unset → disabled.
+    event_name_gating: OnceLock<EventNameGating>,
 }
 
 impl EventDispatcher {
@@ -148,6 +152,8 @@ impl EventDispatcher {
             draining: AtomicBool::new(false),
             durable_restore: AtomicBool::new(false),
             boot_assignment: OnceLock::new(),
+            person_memo: OnceLock::new(),
+            event_name_gating: OnceLock::new(),
         }
     }
 
@@ -158,6 +164,30 @@ impl EventDispatcher {
 
     pub fn durable_restore_enabled(&self) -> bool {
         self.durable_restore.load(Ordering::SeqCst)
+    }
+
+    /// Must be called before any worker spawns; later calls are ignored.
+    pub fn set_person_memo_config(&self, config: PersonMemoConfig) {
+        let _ = self.person_memo.set(config);
+    }
+
+    fn person_memo_config(&self) -> PersonMemoConfig {
+        self.person_memo
+            .get()
+            .copied()
+            .unwrap_or(PersonMemoConfig::DISABLED)
+    }
+
+    /// Must be called before any worker spawns; later calls are ignored.
+    pub fn set_event_name_gating(&self, gating: EventNameGating) {
+        let _ = self.event_name_gating.set(gating);
+    }
+
+    fn event_name_gating(&self) -> EventNameGating {
+        self.event_name_gating
+            .get()
+            .copied()
+            .unwrap_or(EventNameGating::Disabled)
     }
 
     pub(crate) fn store(&self) -> &CohortStore {
@@ -180,7 +210,7 @@ impl EventDispatcher {
                     consumed.partition,
                     consumed.offset,
                     ShuffleMessage::Event {
-                        event: consumed.event,
+                        event: Box::new(consumed.event),
                         cse_offset: consumed.offset,
                     },
                 )
@@ -323,7 +353,7 @@ impl EventDispatcher {
                 }
                 match self.router.add_partition(partition) {
                     Some(receiver) => {
-                        let worker = Stage1Worker::spawn(
+                        let worker = Stage1Worker::spawn_with_memo(
                             partition as u16,
                             receiver,
                             self.store.clone(),
@@ -332,6 +362,8 @@ impl EventDispatcher {
                             self.tracker.clone(),
                             self.merge.clone(),
                             self.durable_restore_enabled(),
+                            self.person_memo_config(),
+                            self.event_name_gating(),
                         );
                         slot.insert(worker);
                         counter!(COHORT_STREAM_WORKERS_SPAWNED).increment(1);

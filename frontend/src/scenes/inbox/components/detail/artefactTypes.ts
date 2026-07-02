@@ -58,6 +58,16 @@ export interface DismissalContent {
     note?: string
 }
 
+export interface TitleChangeContent {
+    old_title?: string | null
+    new_title: string
+}
+
+export interface SummaryChangeContent {
+    old_summary?: string | null
+    new_summary: string
+}
+
 // ── Type labels ──────────────────────────────────────────────────────────────────────────────
 
 /** Human label for each artefact type as it reads in the activity log header. */
@@ -75,6 +85,8 @@ export const ARTEFACT_TYPE_LABELS: Record<string, string> = {
     repo_selection: 'Repo selected',
     dismissal: 'Report dismissed',
     video_segment: 'Video segment',
+    title_change: 'Title edited',
+    summary_change: 'Summary edited',
 }
 
 export function artefactTypeLabel(type: string): string {

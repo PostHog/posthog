@@ -90,6 +90,7 @@ from posthog.hogql.database.schema.experiment_metric_events_preaggregated import
 from posthog.hogql.database.schema.groups import GroupsTable, RawGroupsTable
 from posthog.hogql.database.schema.groups_revenue_analytics import GroupsRevenueAnalyticsTable
 from posthog.hogql.database.schema.heatmaps import HeatmapsTable
+from posthog.hogql.database.schema.hog_invocation_results import HogInvocationResultsTable
 from posthog.hogql.database.schema.log_entries import (
     BatchExportLogEntriesTable,
     LogEntriesTable,
@@ -380,6 +381,9 @@ def _construct_database_root_node(*, include_posthog_tables: bool) -> TableNode:
                     "session_replay_features": TableNode(
                         name="session_replay_features", table=SessionReplayFeaturesTable()
                     ),
+                    "hog_invocation_results": TableNode(
+                        name="hog_invocation_results", table=HogInvocationResultsTable()
+                    ),
                     "metrics": TableNode(name="metrics", table=MetricsTable()),
                     "metric_samples": TableNode(name="metric_samples", table=MetricSamplesTable()),
                     "metric_series": TableNode(name="metric_series", table=MetricSeriesTable()),
@@ -532,6 +536,13 @@ class Database(BaseModel):
         if isinstance(table_name, str):
             table_name = table_name.split(".")
         return self.tables.has_child(table_name)
+
+    def is_table_access_denied(self, table_name: str | list[str]) -> bool:
+        """True if access control denied this table when the HogQL database was built,
+        so callers can surface an access denied error instead of unknown table"""
+        if isinstance(table_name, list):
+            table_name = ".".join(str(part) for part in table_name)
+        return table_name in self._denied_tables
 
     def get_table_node(self, table_name: str | list[str]) -> TableNode:
         if isinstance(table_name, str):
@@ -927,7 +938,9 @@ class Database(BaseModel):
                 if allowed_warehouse_table_names is not None and table_key not in allowed_warehouse_table_names:
                     continue
 
-                if include_only and table_key not in include_only:
+                # Warehouse tables are queryable by their dotted key (`zendesk.groups`) or their raw
+                # underscore name (`zendesk_groups`); honor either form in `include_only`.
+                if include_only and table_key not in include_only and warehouse_table.name not in include_only:
                     continue
 
                 try:
@@ -1569,9 +1582,16 @@ class Database(BaseModel):
 
                                 # For a chain of type a.b.c, we want to create a nested table node
                                 # where a is the parent, b is the child of a, and c is the child of b
-                                # where a.b.c will contain the table
+                                # where a.b.c will contain the table.
+                                # Snowflake stores identifiers uppercase but resolves them
+                                # case-insensitively, so mark its nodes so `from tpch_sf1.nation`
+                                # (any case) resolves to the canonical `TPCH_SF1.NATION`.
                                 warehouse_tables.add_child(
-                                    TableNode.create_nested_for_chain(table_chain, table_for_key),
+                                    TableNode.create_nested_for_chain(
+                                        table_chain,
+                                        table_for_key,
+                                        case_insensitive=table.external_data_source.is_direct_snowflake,
+                                    ),
                                     table_conflict_mode=table_conflict_mode,
                                 )
 

@@ -259,6 +259,9 @@ tools:
     vision-scanners-stats-retrieve:
         operation: vision_scanners_stats_retrieve
         enabled: false
+    vision-scanners-suggest-tags-create:
+        operation: vision_scanners_suggest_tags_create
+        enabled: false
     vision-scanners-update:
         operation: vision_scanners_partial_update
         enabled: true

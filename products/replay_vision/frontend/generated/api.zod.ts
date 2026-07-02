@@ -386,5 +386,51 @@ export const VisionScannersEstimateCreateBody = /* @__PURE__ */ zod
             .max(visionScannersEstimateCreateBodySamplingRateMax)
             .default(visionScannersEstimateCreateBodySamplingRateDefault)
             .describe('0..1 downsample applied to matched sessions. Defaults to 1.0 (no downsampling).'),
+        scanner_id: zod
+            .uuid()
+            .nullish()
+            .describe(
+                "The scanner being edited, excluded from `other_enabled_scanners_monthly` so its stored estimate isn't double-counted in the forecast. Omit (or null) when estimating a brand-new scanner."
+            ),
     })
     .describe('Body of POST \/vision\/scanners\/estimate\/ — a proposed, unsaved scanner config.')
+
+/**
+ * Suggest classifier tags grounded in the scanner's own observations and the org's product data.
+ */
+export const visionScannersSuggestTagsCreateBodyPromptMax = 10000
+
+export const visionScannersSuggestTagsCreateBodyTagsItemMax = 200
+
+export const visionScannersSuggestTagsCreateBodyTagsMax = 200
+
+export const visionScannersSuggestTagsCreateBodyMultiLabelDefault = true
+export const visionScannersSuggestTagsCreateBodyAllowFreeformTagsDefault = false
+
+export const VisionScannersSuggestTagsCreateBody = /* @__PURE__ */ zod
+    .object({
+        prompt: zod
+            .string()
+            .max(visionScannersSuggestTagsCreateBodyPromptMax)
+            .describe("The classifier's instruction prompt — the single dimension to categorize sessions by."),
+        tags: zod
+            .array(zod.string().max(visionScannersSuggestTagsCreateBodyTagsItemMax))
+            .max(visionScannersSuggestTagsCreateBodyTagsMax)
+            .optional()
+            .describe('The current tag vocabulary, so suggestions never duplicate a tag the user already has.'),
+        multi_label: zod
+            .boolean()
+            .default(visionScannersSuggestTagsCreateBodyMultiLabelDefault)
+            .describe('Whether the classifier assigns multiple tags per session.'),
+        allow_freeform_tags: zod
+            .boolean()
+            .default(visionScannersSuggestTagsCreateBodyAllowFreeformTagsDefault)
+            .describe('Whether the classifier may emit tags outside the fixed vocabulary.'),
+        scanner_id: zod
+            .uuid()
+            .nullish()
+            .describe(
+                'Existing scanner to ground suggestions in its own observations (the tags and reasoning it has already produced on real recordings). Omit for an unsaved scanner.'
+            ),
+    })
+    .describe('Body of POST \/vision\/scanners\/suggest_tags\/ — the classifier config currently being edited.')

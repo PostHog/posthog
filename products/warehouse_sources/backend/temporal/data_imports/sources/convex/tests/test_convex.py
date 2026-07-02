@@ -34,6 +34,9 @@ def _make_manager(can_resume: bool = False, state: ConvexResumeConfig | None = N
     manager = MagicMock(spec=ResumableSourceManager)
     manager.can_resume.return_value = can_resume
     manager.load_state.return_value = state
+    # Endpoint scoping returns a sibling manager; resolve it back to this mock so call
+    # assertions still observe the same object.
+    manager.with_namespace.return_value = manager
     return manager
 
 
@@ -215,6 +218,25 @@ class TestDocumentDeltasResumable:
         # Resume state wins over the db_incremental_field_last_value seed.
         first_params = mock_get.return_value.get.call_args_list[0].kwargs["params"]
         assert first_params["cursor"] == 25
+        manager.save_state.assert_not_called()
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.convex.convex.make_tracked_session")
+    def test_non_integer_resume_cursor_is_ignored(self, mock_get: Mock) -> None:
+        # A list_snapshot resume cursor ({tablet, id}) leaking into document_deltas must not be
+        # replayed — document_deltas requires an integer _ts and Convex 400s on the malformed
+        # cursor. Fall back to the db watermark instead.
+        saved = ConvexResumeConfig(cursor='{"tablet":"-cxKinhlnLuQp","id":"v9769ybsnjbhc9"}')
+        manager = _make_manager(can_resume=True, state=saved)
+        mock_get.return_value.get.return_value = _make_response(
+            {"values": [{"_id": "b"}], "cursor": 30, "hasMore": False}
+        )
+
+        batches = list(document_deltas("https://x.convex.cloud", "key", "t", 10, manager))
+
+        assert batches == [[{"_id": "b"}]]
+        first_params = mock_get.return_value.get.call_args_list[0].kwargs["params"]
+        assert first_params["cursor"] == 10
+        # Discarding a poisoned cursor must not persist new state off the back of it.
         manager.save_state.assert_not_called()
 
 

@@ -410,6 +410,10 @@ def create_posthog_code_task_for_repo_activity(
     # PR tooling enabled so an explicit follow-up can clone a repo and publish.
     allow_pr_creation = True
 
+    from products.slack_app.backend.facade.slack_settings import resolve_ai_preferences
+
+    ai_prefs = resolve_ai_preferences(integration, slack_user_id)
+
     # 1. Create task + run WITHOUT starting the workflow
     try:
         created = tasks_facade.create_and_run_task(
@@ -426,6 +430,9 @@ def create_posthog_code_task_for_repo_activity(
             start_workflow=False,
             posthog_mcp_scopes="full",
             initial_permission_mode="bypassPermissions",
+            runtime_adapter=ai_prefs.runtime_adapter,
+            model=ai_prefs.model,
+            reasoning_effort=ai_prefs.reasoning_effort,
         )
     except Exception as e:
         logger.exception(
@@ -529,11 +536,11 @@ def forward_posthog_code_followup_activity(
     """
     from posthog.models.integration import Integration, SlackIntegration
 
-    from products.slack_app.backend.api import _parse_rules_command, resolve_slack_user
+    from products.slack_app.backend.api import parse_rules_command, resolve_slack_user
     from products.slack_app.backend.models import SlackThreadTaskMapping
     from products.tasks.backend.facade import api as tasks_facade
 
-    if _parse_rules_command(event_text):
+    if parse_rules_command(event_text):
         return False
 
     try:

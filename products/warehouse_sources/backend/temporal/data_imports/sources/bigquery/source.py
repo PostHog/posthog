@@ -13,6 +13,7 @@ from posthog.schema import (
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery import (
     BIGQUERY_DATASET_NOT_FOUND_ERROR,
+    BIGQUERY_INVALID_IDENTIFIER_ERROR,
     BIGQUERY_TOKEN_RESPONSE_ERROR,
     BigQueryImplementation,
     build_destination_table_prefix,
@@ -57,6 +58,18 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # be repaired by retrying — the user must re-upload an intact JSON key file. Matched on the
             # stable "Unable to load PEM file" wording rather than the volatile InvalidData detail.
             "Unable to load PEM file": "We couldn't read the private key in your Google Cloud JSON key file — it appears truncated or corrupted. Please download a fresh service account key from Google Cloud and re-upload the JSON file.",
+            # Writing query results into the `__posthog_import_...` temp tables PostHog creates
+            # (`WRITE_TRUNCATE` in `_run_destination_query_with_job_retry`, on incremental / view /
+            # row-filtered reads) needs write access on the dataset those tables live in. When the
+            # service account only has read access, BigQuery rejects the copy with "Permission
+            # bigquery.tables.update denied on table <temp id>". This is a distinct problem from the
+            # read-side denials the "Access Denied:" key below covers — and that key would match this
+            # message first and misdirect the customer to grant *read* access (Data Viewer), which
+            # can't fix a *write* failure. Keep this key above "Access Denied:" so the write-specific
+            # guidance wins. Deterministic IAM config problem — retrying can't grant the permission.
+            # Matched on the stable permission name (also covers `bigquery.tables.updateData`), not
+            # the volatile temp-table id.
+            "bigquery.tables.update": "BigQuery denied write access to a temporary table PostHog creates in your dataset. PostHog copies query results into temporary tables before reading them, so read access alone isn't enough. Please grant your service account write access (for example the BigQuery Data Editor role) on the dataset where these temporary tables are created — your main dataset, or the temporary dataset if you configured one — then reconnect the source.",
             # BigQuery prefixes every IAM/permission failure with "Access Denied:" — e.g.
             # "Access Denied: Table <id>: Permission bigquery.tables.getData denied on table <id>
             # (or it may not exist).". The matched string above only covers the REST client's
@@ -106,6 +119,14 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # carrying this exact wording (so the create/validate path shows it instead of the raw
             # 404). Match it here too so the discovery activity treats it as non-retryable.
             BIGQUERY_DATASET_NOT_FOUND_ERROR: BIGQUERY_DATASET_NOT_FOUND_ERROR,
+            # A syntactically invalid project/dataset ID (e.g. a value carrying parentheses like
+            # "(default)") is rejected as a 400 "Invalid dataset ID ..." / "Invalid project ID ...".
+            # Schema discovery re-raises it as `BigQueryInvalidIdentifierError` carrying the friendly
+            # wording, so match that here, plus the raw 400 phrasings for occurrences elsewhere in the
+            # sync. Deterministic config error — retrying never succeeds until the id is corrected.
+            BIGQUERY_INVALID_IDENTIFIER_ERROR: BIGQUERY_INVALID_IDENTIFIER_ERROR,
+            "Invalid dataset ID": BIGQUERY_INVALID_IDENTIFIER_ERROR,
+            "Invalid project ID": BIGQUERY_INVALID_IDENTIFIER_ERROR,
             # Raised as a 400 BadRequest from job creation (POST .../jobs) when the location the
             # client runs in — the custom region from the source form, or the dataset's own location
             # auto-detected in `connect` — isn't a region BigQuery can run query jobs in, e.g.

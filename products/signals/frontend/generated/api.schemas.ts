@@ -103,6 +103,11 @@ export interface SignalReportApi {
     /** Distinct source products contributing signals to this report (from ClickHouse). */
     readonly source_products: readonly string[]
     /**
+     * skill_name slug of the scout that authored this report, when scout-authored (from ClickHouse); null otherwise.
+     * @nullable
+     */
+    readonly scout_name: string | null
+    /**
      * PR URL from the latest implementation task run, if available.
      * @nullable
      */
@@ -116,6 +121,28 @@ export interface PaginatedSignalReportListApi {
     /** @nullable */
     previous?: string | null
     results: SignalReportApi[]
+}
+
+/**
+ * Editable human-facing fields on a signal report (PATCH).
+ *
+ * Both fields are optional so a caller can change either independently, but at least one
+ * must be supplied. Every other report field — status, weights, judgments — is owned by the
+ * signals pipeline and is deliberately not writable here.
+ */
+export interface PatchedSignalReportContentUpdateApi {
+    /**
+     * New human-facing title for the report. Omit to leave the title unchanged.
+     * @minLength 1
+     * @maxLength 300
+     */
+    title?: string
+    /**
+     * New summary (the report's description) explaining what the report is about. Omit to leave the summary unchanged.
+     * @minLength 1
+     * @maxLength 10000
+     */
+    summary?: string
 }
 
 /**
@@ -189,6 +216,8 @@ export interface SignalReportStateRequestApi {
  * * `commit` - Commit
  * * `task_run` - Task Run
  * * `note` - Note
+ * * `title_change` - Title Change
+ * * `summary_change` - Summary Change
  */
 export type SignalReportArtefactTypeEnumApi =
     (typeof SignalReportArtefactTypeEnumApi)[keyof typeof SignalReportArtefactTypeEnumApi]
@@ -206,6 +235,8 @@ export const SignalReportArtefactTypeEnumApi = {
     Commit: 'commit',
     TaskRun: 'task_run',
     Note: 'note',
+    TitleChange: 'title_change',
+    SummaryChange: 'summary_change',
 } as const
 
 export interface _UserApi {
@@ -463,6 +494,41 @@ export interface PatchedSignalScoutConfigApi {
 }
 
 /**
+ * Response for an on-demand (`run now`) scout dispatch.
+ *
+ * The run executes asynchronously on the Temporal worker, so there is no `SignalScoutRun`
+ * row yet at response time — the bridge row is created once the run's first turn starts.
+ * Poll the scout's runs (`signals-scout-runs-list`) to see the resulting run and its findings.
+ */
+export interface SignalScoutManualRunApi {
+    /** The `signals-scout-*` skill that was dispatched. */
+    skill_name: string
+    /** Temporal workflow id for the dispatched run. The run executes asynchronously; poll the scout's runs to see the resulting run row, its status, and any emitted findings. */
+    workflow_id: string
+    /** True when a new run was dispatched. The endpoint returns 409 instead when a run for this scout is already in progress. */
+    started: boolean
+}
+
+/**
+ * One project member's routing identity, for picking a `suggested_reviewers` entry on a report.
+ */
+export interface ScoutMemberApi {
+    /** The member's stable PostHog user UUID — the same id that appears as `created_by.uuid` on entities they own. A durable handle for this person across runs. */
+    user_uuid: string
+    /** The member's email — use to match a finding's owner by name/email. */
+    email: string
+    /** The member's first name (may be empty). */
+    first_name: string
+    /** The member's last name (may be empty). */
+    last_name: string
+    /**
+     * The member's resolved GitHub login (lowercased), already resolved server-side — put this value in a report's `suggested_reviewers` once you've matched the finding's owner to this row. Null when the member has no linked GitHub identity: a null-login member can't be routed to at all (neither a login nor a uuid resolves), so pick a different owner or leave `suggested_reviewers` empty.
+     * @nullable
+     */
+    github_login: string | null
+}
+
+/**
  * A team's enforced scout run caps and current usage.
  *
  * These are the values the coordinator actually applies at dispatch (resolved per-team override →
@@ -629,6 +695,38 @@ export interface RecentActivityApi {
     window_days: number
     /** Per-scope activity rows, busiest scope first. Triage which entity type the team has worked in lately. */
     by_scope: ScopeActivityEntryApi[]
+}
+
+/**
+ * One row in `inventory.recent_reviewer_corrections.corrections`.
+ */
+export interface ReviewerCorrectionEntryApi {
+    /** UUID of the report whose reviewers a human edited. */
+    report_id: string
+    /**
+     * Report title at the time of the edit.
+     * @nullable
+     */
+    report_title: string | null
+    /** GitHub logins on the report before the human edit (lowercased). */
+    before: string[]
+    /** GitHub logins on the report after the human edit (lowercased). */
+    after: string[]
+    /**
+     * ISO-8601 timestamp of the edit.
+     * @nullable
+     */
+    at: string | null
+}
+
+/**
+ * `inventory.recent_reviewer_corrections` — human edits to report reviewer lists.
+ */
+export interface RecentReviewerCorrectionsApi {
+    /** Lookback window in days the corrections cover. */
+    window_days: number
+    /** Human reviewer edits, newest first. A human swapping a report's suggested reviewers is authoritative ownership precedent — route to who they chose. */
+    corrections: ReviewerCorrectionEntryApi[]
 }
 
 /**
@@ -993,6 +1091,8 @@ export interface ProjectProfileInventoryApi {
     existing_inbox_reports: ExistingInboxReportsApi
     /** Per-scope counts off the activity log over the recent-activity window — cross-cutting orientation across every entity type (surveys, feature flags, experiments, dashboards, insights, cohorts, notebooks, actions, etc.). Each scope reports `edits` (total log entries), `users` (distinct user count), and `last_edit` (ISO-8601). Use to triage which scope a team has been working in lately before drilling down via the per-entity readers or `activity-log-list`. */
     recent_activity: RecentActivityApi
+    /** Recent human edits to report reviewer lists (before/after GitHub logins). The strongest ownership precedent available — check it before setting `suggested_reviewers` and fold what it shows into `reviewer:` memory keys. */
+    recent_reviewer_corrections: RecentReviewerCorrectionsApi
     /** Up to 20 dashboards on this team sorted by `last_accessed_at` desc — what the team is currently looking at, not necessarily the most-trafficked. We don't have per-dashboard view counts in Postgres, only the timestamp of the most recent access. */
     recent_dashboards: RecentDashboardEntryApi[]
     /** Surveys orientation: total + active count, plus the 5 most recently updated surveys with id, name, type, status (draft / running / stopped / archived), and updated_at. */
@@ -1173,6 +1273,24 @@ export interface SignalScoutRunDetailApi {
 }
 
 /**
+ * One suggested reviewer — identified by `github_login`, `user_uuid`, or both.
+ *
+ * The server canonicalizes each entry to a lowercased GitHub login: a `user_uuid` is resolved to the
+ * org member's linked GitHub login (and wins over a supplied `github_login` when both are given). A
+ * `user_uuid` that isn't an org member of this team with a linked GitHub identity is rejected — so a
+ * reviewer is never silently dropped.
+ */
+export interface SuggestedReviewerApi {
+    /**
+     * GitHub login (case-insensitive, stored lowercased) — e.g. `octocat`, no `@`, no display name. Resolve one via `signals-scout-members-list` (each member row carries a resolved `github_login`) or git history when you only have a name.
+     * @maxLength 200
+     */
+    github_login?: string
+    /** PostHog user UUID (e.g. from `signals-scout-members-list`, or an entity's `created_by`). Resolved server-side to the member's linked GitHub login — use this when you know the PostHog user but not their GitHub handle. Must be a concrete UUID; the `@me` alias is not valid here. */
+    user_uuid?: string
+}
+
+/**
  * Request body for `edit-report`. Can target ANY of the team's inbox reports, not just scout-authored ones.
  */
 export interface EditReportRequestApi {
@@ -1194,6 +1312,11 @@ export interface EditReportRequestApi {
      * @nullable
      */
     append_note?: string | null
+    /**
+     * Optional reviewers to set on the report (each a `github_login` and/or `user_uuid`), replacing any existing list. Use this to route a report that surfaced with no reviewer — it re-runs autostart, so a report that was missing a qualifying reviewer can now open a draft PR. An empty list is a no-op (existing reviewers are left untouched, never cleared).
+     * @maxItems 10
+     */
+    suggested_reviewers?: SuggestedReviewerApi[]
 }
 
 export interface EditReportResponseApi {
@@ -1203,6 +1326,8 @@ export interface EditReportResponseApi {
     updated_fields: string[]
     /** Whether a note artefact was appended. */
     note_appended: boolean
+    /** Whether the report's suggested reviewers were replaced. */
+    reviewers_set: boolean
 }
 
 /**
@@ -1368,8 +1493,11 @@ export interface EmitReportRequestApi {
      * @nullable
      */
     priority_explanation?: string | null
-    /** Optional GitHub logins to consider as reviewers for autostart. Autostart only opens a PR if at least one clears their autonomy threshold; omit to skip the PR path. */
-    suggested_reviewers?: string[]
+    /**
+     * Optional reviewers to route the report to (each a `github_login` and/or `user_uuid`). This is the primary way a report reaches a human — the inbox floats a reviewer's own reports to the top of their inbox even when no PR is involved — so set it whenever you can name a plausible owner. It also gates autostart: a PR opens only if at least one reviewer clears their autonomy threshold.
+     * @maxItems 10
+     */
+    suggested_reviewers?: SuggestedReviewerApi[]
 }
 
 export interface EmitReportResponseApi {
@@ -1501,6 +1629,22 @@ export interface ScoutRunIdsBatchRequestApi {
 }
 
 /**
+ * Fleet-wide tally of recently emitted findings — backs the "Scout findings" callout so it
+ * renders from one cheap query instead of the client walking the whole paginated runs window.
+ */
+export interface FleetFindingsSummaryApi {
+    /** Total findings the fleet emitted in the window — the sum of each emitted run's `emitted_count`, over the most recent 120 emitted runs. */
+    count: number
+    /** Number of distinct scouts (skills) that emitted at least one finding in the window. */
+    scout_count: number
+    /**
+     * ISO-8601 timestamp of the most recently emitted finding's run (TaskRun completion, falling back to run creation), or null when nothing was emitted in the window.
+     * @nullable
+     */
+    latest_at: string | null
+}
+
+/**
  * `SignalScratchpad` projection used by `search-memory` and `remember`.
  */
 export interface ScratchpadEntryApi {
@@ -1608,6 +1752,7 @@ export const SourceProductEnumApi = {
 /**
  * * `session_analysis_cluster` - Session analysis cluster
  * * `evaluation` - Evaluation
+ * * `evaluation_report` - Evaluation report
  * * `issue` - Issue
  * * `ticket` - Ticket
  * * `issue_created` - Issue created
@@ -1626,6 +1771,7 @@ export type SignalSourceConfigSourceTypeEnumApi =
 export const SignalSourceConfigSourceTypeEnumApi = {
     SessionAnalysisCluster: 'session_analysis_cluster',
     Evaluation: 'evaluation',
+    EvaluationReport: 'evaluation_report',
     Issue: 'issue',
     Ticket: 'ticket',
     IssueCreated: 'issue_created',
@@ -1770,6 +1916,14 @@ export type SignalsReportArtefactsListParams = {
     offset?: number
 }
 
+export type SignalsScoutMembersListParams = {
+    /**
+     * Case-insensitive substring filter over member email and first/last name. Use it to narrow a large project's roster to the owner you're trying to match instead of pulling every member.
+     * @minLength 1
+     */
+    search?: string
+}
+
 export type SignalsScoutProjectProfileGetParams = {
     /**
      * When true, skip the cache and rebuild the profile from authoritative sources before responding. Use after seeding events, importing data, or any other change the caller knows just landed but hasn't surfaced through natural cache expiry yet. Honored only for the internal scout token — public read callers get the cached profile regardless. Concurrent forced rebuilds are serialized by the team-keyed advisory lock — at most one extra `build_inventory` per simultaneous request.
@@ -1834,6 +1988,15 @@ export type SignalsScoutRunsRecentEmissionsParams = {
      * @minLength 1
      */
     skill_name?: string
+}
+
+export type SignalsScoutRunsFindingsSummaryParams = {
+    /**
+     * Lookback window in hours over runs' `created_at` (default 72, hard cap 168).
+     * @minimum 1
+     * @maximum 168
+     */
+    window_hours?: number
 }
 
 export type SignalsScoutScratchpadSearchParams = {

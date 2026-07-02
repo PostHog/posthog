@@ -67,6 +67,20 @@ LLM Review
   - Claude Agent SDK with Read/Grep/Glob tools
   - Explores the repo via git diff, reads source files if needed
   - Looks for showstoppers: production breakage, security, missed deps
+  - Reads other reviewers' signals as context (not a gate): top-level review
+    states (annotated current-head vs older-commit), inline comments (tagged
+    resolved/outdated), and reactions (👍/👎/👀) on the PR and comments —
+    filtered to org members and an allowlist of reviewer bots (installed
+    apps like inkeep react for non-review reasons), never the PR author
+  - An 👀 reaction signals an in-flight review — the LLM refuses rather than
+    approving over someone who is mid-review
+  - Stamphog's own prior reviews (stamphog[bot] refusals, github-actions[bot]
+    approvals) are excluded from the prompt — they describe an earlier snapshot
+    of the PR and are never independent review signal
+  - For non-trivial changes, expects at least one independent reviewer (an
+    agent reviewer like Codex/Greptile/Claude, or a teammate) to have passed
+    over the current head; escalates otherwise. Trivial changes (docs, tests,
+    config/lockfile, typo/comment fixes) don't need one
   - Gates are authoritative — LLM can tighten but never loosen
   │
   ▼

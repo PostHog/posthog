@@ -25,6 +25,8 @@ class TestLinkedInAdsSource:
             "The token used in the request has expired",
             "Failed to refresh token for LinkedIn Ads integration. Please re-authorize the integration.",
             'LinkedIn API error (401): {"status":401,"serviceErrorCode":65608,"code":"RESTRICTED_MEMBER","message":"Member is restricted"}',
+            # Integration.DoesNotExist when the OAuth integration row was deleted/disconnected.
+            "Integration matching query does not exist.",
         ],
     )
     def test_non_retryable_errors_match_upstream_failures(self, observed_error):

@@ -614,10 +614,13 @@ class DataWarehouseSavedQuerySerializer(
         user = self.context["request"].user
 
         context = HogQLContext(team_id=team_id, user=user, enable_select_queries=True)
-        select_ast = parse_select(query["query"])
+        try:
+            select_ast = parse_select(query["query"])
 
-        find_placeholders = FindPlaceholders()
-        find_placeholders.visit(select_ast)
+            find_placeholders = FindPlaceholders()
+            find_placeholders.visit(select_ast)
+        except ExposedHogQLError as err:
+            raise exceptions.ValidationError(detail=f"Invalid query: {err}")
         if len(find_placeholders.placeholder_fields) > 0:
             placeholder = find_placeholders.placeholder_fields.pop()
             placeholder_string = ".".join(str(field) for field in placeholder if field is not None)

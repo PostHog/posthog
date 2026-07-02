@@ -577,12 +577,12 @@ async def cleanup_legacy_session_summarization_schedules(client: Client):
 
 
 async def create_run_usage_reports_schedule(client: Client):
-    """Daily Temporal-based usage report run at 04:45 UTC.
+    """Temporal-based usage report run every 3 hours at minute 45 (8 times a day).
 
-    Runs an hour after the existing Celery beat for `send_all_org_usage_reports`
-    (03:45 UTC) so ClickHouse has breathing room while both flows run side by
-    side. The workflow writes per-org usage data to S3 and sends a single SQS
-    pointer to the billing service.
+    The 04:45 UTC slot runs an hour after the existing Celery beat for
+    `send_all_org_usage_reports` (03:45 UTC) so ClickHouse has breathing room
+    while both flows run side by side. The workflow writes per-org usage data
+    to S3 and sends a single SQS pointer to the billing service.
     """
     run_usage_reports_schedule = Schedule(
         action=ScheduleActionStartWorkflow(
@@ -597,8 +597,8 @@ async def create_run_usage_reports_schedule(client: Client):
         spec=ScheduleSpec(
             calendars=[
                 ScheduleCalendarSpec(
-                    comment="Daily at 04:45 UTC",
-                    hour=[ScheduleRange(start=4, end=4)],
+                    comment="Every 3 hours at minute 45 (01:45, 04:45, ..., 22:45 UTC)",
+                    hour=[ScheduleRange(start=1, end=22, step=3)],
                     minute=[ScheduleRange(start=45, end=45)],
                 )
             ]

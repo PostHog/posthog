@@ -26,6 +26,7 @@ from posthog.temporal.common.schedule import describe_schedule
 
 from products.data_modeling.backend.models import Edge, Node
 from products.data_warehouse.backend.direct_postgres import DIRECT_POSTGRES_URL_PATTERN
+from products.data_warehouse.backend.direct_snowflake import DIRECT_SNOWFLAKE_URL_PATTERN
 from products.data_warehouse.backend.logic.external_data_source.webhooks import WebhookHogFunctionCreateResult
 from products.data_warehouse.backend.tests.api.utils import create_external_data_source_ok
 from products.warehouse_sources.backend.facade.models import (
@@ -2306,6 +2307,131 @@ class TestUpdateExternalDataSchema:
         assert schema.should_sync is False
         assert DataWarehouseTable.raw_objects.get(pk=table.pk).deleted is True
 
+    def test_update_schema_exposes_direct_snowflake_table_without_sync_type(
+        self, team, user, client: HttpClient, temporal
+    ):
+        # Exercises the Snowflake reproject branch: a non-Postgres direct source must rebuild via the
+        # Snowflake helper (DIRECT_SNOWFLAKE_URL_PATTERN), not silently fall through to the MySQL one.
+        client.force_login(user)
+        source = ExternalDataSource.objects.create(
+            team=team,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            status=ExternalDataSource.Status.RUNNING,
+            source_type=ExternalDataSourceType.SNOWFLAKE,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"database": "ANALYTICS"},
+        )
+        schema = ExternalDataSchema.objects.create(
+            team=team,
+            source=source,
+            name="SALES.ACCOUNTS",
+            should_sync=False,
+            sync_type=None,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [{"name": "ID", "data_type": "NUMBER", "is_nullable": False}],
+                    "foreign_keys": [],
+                    "source_catalog": "ANALYTICS",
+                    "source_schema": "SALES",
+                    "source_table_name": "ACCOUNTS",
+                }
+            },
+        )
+
+        with (
+            mock.patch(
+                "products.data_warehouse.backend.presentation.views.external_data_schema.external_data_workflow_exists"
+            ) as mock_external_data_workflow_exists,
+            mock.patch(
+                "products.data_warehouse.backend.presentation.views.external_data_schema.sync_external_data_job_workflow"
+            ) as mock_sync_external_data_job_workflow,
+        ):
+            response = client.patch(
+                f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+                data={
+                    "id": str(schema.id),
+                    "name": schema.name,
+                    "should_sync": True,
+                    "incremental": False,
+                    "status": "Completed",
+                    "sync_type": None,
+                    "incremental_field": None,
+                    "incremental_field_type": None,
+                    "sync_frequency": "6hour",
+                    "sync_time_of_day": "00:00:00",
+                },
+                content_type="application/json",
+            )
+
+            assert response.status_code == 200
+            schema.refresh_from_db()
+            assert schema.should_sync is True
+            assert schema.table is not None
+            assert schema.table.deleted is False
+            assert schema.table.url_pattern == DIRECT_SNOWFLAKE_URL_PATTERN
+            mock_external_data_workflow_exists.assert_not_called()
+            mock_sync_external_data_job_workflow.assert_not_called()
+
+    def test_update_schema_hides_direct_snowflake_table_when_disabled(self, team, user, client: HttpClient, temporal):
+        client.force_login(user)
+        source = ExternalDataSource.objects.create(
+            team=team,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            status=ExternalDataSource.Status.RUNNING,
+            source_type=ExternalDataSourceType.SNOWFLAKE,
+            access_method=ExternalDataSource.AccessMethod.DIRECT,
+            job_inputs={"database": "ANALYTICS"},
+        )
+        table = DataWarehouseTable.objects.create(
+            name="SALES.ACCOUNTS",
+            format=DataWarehouseTable.TableFormat.Parquet,
+            team=team,
+            url_pattern=DIRECT_SNOWFLAKE_URL_PATTERN,
+            external_data_source=source,
+            columns={"ID": {"clickhouse": "Int64", "hogql": "integer", "valid": True}},
+        )
+        schema = ExternalDataSchema.objects.create(
+            team=team,
+            source=source,
+            name="SALES.ACCOUNTS",
+            should_sync=True,
+            sync_type=None,
+            table=table,
+            sync_type_config={
+                "schema_metadata": {
+                    "columns": [{"name": "ID", "data_type": "NUMBER", "is_nullable": False}],
+                    "foreign_keys": [],
+                }
+            },
+        )
+
+        with mock.patch("products.data_warehouse.backend.presentation.views.external_data_schema.Database.create_for"):
+            response = client.patch(
+                f"/api/environments/{team.pk}/external_data_schemas/{schema.id}",
+                data={
+                    "id": str(schema.id),
+                    "name": schema.name,
+                    "should_sync": False,
+                    "incremental": False,
+                    "status": "Completed",
+                    "sync_type": None,
+                    "incremental_field": None,
+                    "incremental_field_type": None,
+                    "sync_frequency": "6hour",
+                    "sync_time_of_day": "00:00:00",
+                },
+                content_type="application/json",
+            )
+
+        assert response.status_code == 200
+        schema.refresh_from_db()
+        assert schema.should_sync is False
+        assert DataWarehouseTable.raw_objects.get(pk=table.pk).deleted is True
+
     def test_update_schema_cdc_with_blank_source_schema_uses_physical_schema_metadata(
         self, team, user, client: HttpClient, temporal
     ):
@@ -3185,36 +3311,35 @@ class TestExternalDataSchemaRowFilters(APIBaseTest):
         assert response.status_code == 200
         assert response.json()["row_filters"] == filters
 
-    def test_unknown_column_rejected(self):
+    @parameterized.expand(
+        [
+            ("unknown_column", [{"column": "does_not_exist", "operator": ">", "value": 1}], "Unknown column"),
+            ("disallowed_operator", [{"column": "id", "operator": "LIKE", "value": 1}], None),
+            ("type_mismatch", [{"column": "id", "operator": ">", "value": "not-an-int"}], None),
+            ("bad_date_value", [{"column": "created_at", "operator": ">", "value": "nope"}], None),
+            ("unsupported_column_type", [{"column": "geom", "operator": "=", "value": "x"}], None),
+        ]
+    )
+    def test_invalid_row_filter_rejected(self, _name, row_filters, expected_message):
         schema = self._create()
-        response = self._patch(schema, [{"column": "does_not_exist", "operator": ">", "value": 1}])
+        response = self._patch(schema, row_filters)
         assert response.status_code == 400
-        assert "Unknown column" in str(response.json())
+        if expected_message:
+            assert expected_message in str(response.json())
 
-    def test_disallowed_operator_rejected(self):
-        schema = self._create()
-        response = self._patch(schema, [{"column": "id", "operator": "LIKE", "value": 1}])
-        assert response.status_code == 400
-
-    def test_type_mismatch_rejected(self):
-        schema = self._create()
-        response = self._patch(schema, [{"column": "id", "operator": ">", "value": "not-an-int"}])
-        assert response.status_code == 400
-
-    def test_bad_date_value_rejected(self):
-        schema = self._create()
-        response = self._patch(schema, [{"column": "created_at", "operator": ">", "value": "nope"}])
-        assert response.status_code == 400
-
-    def test_unsupported_column_type_rejected(self):
-        schema = self._create()
-        response = self._patch(schema, [{"column": "geom", "operator": "=", "value": "x"}])
-        assert response.status_code == 400
-
-    def test_row_filters_rejected_for_direct_postgres_source(self):
+    @parameterized.expand(
+        [
+            ("postgres", ExternalDataSourceType.POSTGRES),
+            ("mysql", ExternalDataSourceType.MYSQL),
+            ("snowflake", ExternalDataSourceType.SNOWFLAKE),
+        ]
+    )
+    def test_row_filters_rejected_for_direct_query_sources(self, _name, source_type):
+        # No direct-query executor enforces row filters (they all read the table live), so accepting
+        # a filter for any direct engine would silently leave excluded rows visible.
         source = ExternalDataSource.objects.create(
             team=self.team,
-            source_type=ExternalDataSourceType.POSTGRES,
+            source_type=source_type,
             access_method=ExternalDataSource.AccessMethod.DIRECT,
             job_inputs={"host": "h", "port": "5432", "database": "d", "user": "u", "password": "p", "schema": "public"},
         )
@@ -3226,7 +3351,7 @@ class TestExternalDataSchemaRowFilters(APIBaseTest):
         )
         response = self._patch(schema, [{"column": "id", "operator": ">", "value": 10}])
         assert response.status_code == 400
-        assert "not supported for direct Postgres" in str(response.json())
+        assert "not supported for direct-query sources" in str(response.json())
 
     def test_row_filters_rejected_for_cdc_schema(self):
         source = ExternalDataSource.objects.create(

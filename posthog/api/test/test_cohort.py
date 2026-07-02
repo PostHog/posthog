@@ -1586,32 +1586,76 @@ email@example.org,
         self.assertEqual(response.status_code, 200)
         self.assertEqual(patch_calculate_cohort.call_count, 1)
 
-    def test_cohort_list_with_search(self):
-        self.team.app_urls = ["http://somewebsite.com"]
-        self.team.save()
+    @parameterized.expand(
+        [
+            ("exact substring", "Power users", "Power users"),
+            ("partial word", "Power users", "Power"),
+            ("typo / transposition via trigram", "Power users", "Pwoer users"),
+            ("prefix-as-you-type", "Power users", "Pow"),
+            ("case-insensitive lower", "Power users", "power users"),
+            ("case-insensitive upper", "Power users", "POWER"),
+        ]
+    )
+    def test_cohort_list_search_matches(self, _name, cohort_name, search):
+        Cohort.objects.create(team=self.team, name=cohort_name, created_by=self.user)
+        Cohort.objects.create(team=self.team, name="Totally unrelated", created_by=self.user)
 
-        create_person(team=self.team, properties={"prop": 5})
-        create_person(team=self.team, properties={"prop": 6})
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?search={search}").json()
+        result_names = [c["name"] for c in response["results"]]
 
-        self.client.post(
-            f"/api/projects/{self.team.id}/cohorts",
-            data={"name": "cohort1", "groups": [{"properties": {"prop": 5}}]},
-        )
+        assert cohort_name in result_names, f"expected {cohort_name!r} for search {search!r}, got {result_names}"
+        assert "Totally unrelated" not in result_names
 
-        self.client.post(
-            f"/api/projects/{self.team.id}/cohorts",
-            data={"name": "cohort2", "groups": [{"properties": {"prop": 6}}]},
-        )
+    def test_cohort_list_search_no_match_returns_empty(self):
+        Cohort.objects.create(team=self.team, name="Power users", created_by=self.user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?search=zzzznomatch").json()
+
+        assert response["results"] == []
+
+    def test_cohort_list_search_orders_exact_before_similar_and_labels_match_type(self):
+        exact = Cohort.objects.create(team=self.team, name="marketing", created_by=self.user)
+        similar = Cohort.objects.create(team=self.team, name="markteing", created_by=self.user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?search=marketing").json()
+        results = response["results"]
+        by_id = {c["id"]: c for c in results}
+
+        assert [c["id"] for c in results][:2] == [exact.id, similar.id]
+        assert by_id[exact.id]["search_match_type"] == "exact"
+        assert by_id[similar.id]["search_match_type"] == "similar"
+
+    def test_cohort_list_omits_search_match_type_when_not_searching(self):
+        Cohort.objects.create(team=self.team, name="Power users", created_by=self.user)
 
         response = self.client.get(f"/api/projects/{self.team.id}/cohorts").json()
-        self.assertEqual(len(response["results"]), 2)
 
-        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?search=cohort1").json()
-        self.assertEqual(len(response["results"]), 1)
-        self.assertEqual(response["results"][0]["name"], "cohort1")
+        assert all("search_match_type" not in c for c in response["results"])
 
-        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?search=nomatch").json()
-        self.assertEqual(len(response["results"]), 0)
+    @parameterized.expand(
+        [
+            ("at cap", 200, status.HTTP_200_OK),
+            ("just over cap", 201, status.HTTP_400_BAD_REQUEST),
+        ]
+    )
+    def test_cohort_list_search_enforces_length_cap(self, _name, length, expected_status):
+        Cohort.objects.create(team=self.team, name="Power users", created_by=self.user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?search={'a' * length}")
+
+        assert response.status_code == expected_status
+        if expected_status == status.HTTP_400_BAD_REQUEST:
+            assert "200 characters" in response.json()["detail"]
+
+    @parameterized.expand([("whitespace", "%20%20"), ("empty", "")])
+    def test_cohort_list_blank_search_keeps_default_ordering(self, _name, search):
+        older = Cohort.objects.create(team=self.team, name="older", created_by=self.user)
+        newer = Cohort.objects.create(team=self.team, name="newer", created_by=self.user)
+
+        response = self.client.get(f"/api/projects/{self.team.id}/cohorts?search={search}").json()
+
+        assert [c["id"] for c in response["results"]] == [newer.id, older.id]
+        assert all("search_match_type" not in c for c in response["results"])
 
     def test_cohort_list_with_type_filter(self):
         create_person(team=self.team, properties={"prop": 5})
@@ -6362,6 +6406,36 @@ class TestCohortTypeIntegration(APIBaseTest):
         # cohort_type is auto-computed for realtime-capable filters
         self.assertEqual(cohort.cohort_type, "realtime")
         self.assertEqual(response.data["cohort_type"], "realtime")
+
+    def test_person_metadata_cohort_not_classified_realtime(self):
+        """person_metadata cohorts must route to the non-realtime path: the realtime
+        precalculated_person_properties table only carries JSON-blob values, not top-level
+        persons-table columns, so HogQLRealtimeCohortQuery raises for them."""
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/cohorts/",
+            {
+                "name": "First seen after 2024",
+                "filters": {
+                    "properties": {
+                        "type": "AND",
+                        "values": [
+                            {
+                                "type": "person_metadata",
+                                "key": "created_at",
+                                "operator": "is_date_after",
+                                "value": "2024-01-01",
+                            }
+                        ],
+                    }
+                },
+            },
+            format="json",
+        )
+
+        self.assertEqual(response.status_code, 201, response.data)
+        cohort = Cohort.objects.get(id=response.data["id"])
+        self.assertNotEqual(cohort.cohort_type, CohortType.REALTIME)
 
     def test_api_response_includes_cohort_type(self):
         """API responses should include the cohort_type field"""

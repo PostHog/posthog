@@ -290,6 +290,9 @@ class SignalReportSerializer(serializers.ModelSerializer):
     source_products = serializers.SerializerMethodField(
         help_text="Distinct source products contributing signals to this report (from ClickHouse).",
     )
+    scout_name = serializers.SerializerMethodField(
+        help_text="skill_name slug of the scout that authored this report, when scout-authored (from ClickHouse); null otherwise.",
+    )
     implementation_pr_url = serializers.SerializerMethodField(
         help_text="PR URL from the latest implementation task run, if available.",
     )
@@ -314,6 +317,7 @@ class SignalReportSerializer(serializers.ModelSerializer):
             "dismissal_note",
             "is_suggested_reviewer",
             "source_products",
+            "scout_name",
             "implementation_pr_url",
         ]
         read_only_fields = fields
@@ -405,6 +409,12 @@ class SignalReportSerializer(serializers.ModelSerializer):
         if source_products_map is not None:
             return source_products_map.get(str(obj.id), [])
         return []
+
+    def get_scout_name(self, obj: SignalReport) -> str | None:
+        scout_names_map: dict[str, str] | None = self.context.get("scout_names_map")
+        if scout_names_map is not None:
+            return scout_names_map.get(str(obj.id))
+        return None
 
     def get_implementation_pr_url(self, obj: SignalReport) -> str | None:
         implementation_pr_url_map: dict[str, str] | None = self.context.get("implementation_pr_url_map")

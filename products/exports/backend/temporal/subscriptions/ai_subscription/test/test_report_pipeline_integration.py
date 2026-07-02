@@ -53,7 +53,8 @@ class TestAIReportPipelineIntegration(ClickhouseTestMixin, NonAtomicBaseTest):
 
     # Combined into a single test method: NonAtomicBaseTest doesn't roll back Postgres state
     # between test methods in the same class, so per-method org/membership creates collide.
-    # Two assertions in one test gives reliable isolation while keeping both flows covered.
+    # Three scenarios in one test keep that isolation while covering the happy, degrade, and
+    # first-ever-per-user flows.
     @patch(f"{_RP}.MaxChatOpenAI")
     @patch(f"{_RP}.build_enriched_prompt")
     async def test_real_hogql_flows_into_synthesis_and_invalid_hogql_degrades(
@@ -81,3 +82,20 @@ class TestAIReportPipelineIntegration(ClickhouseTestMixin, NonAtomicBaseTest):
         assert "Query failed to run" in captured["human"]
         # The degraded step's generated HogQL + error type are captured for persistence/debugging.
         assert any(not d.ok and d.error_type for d in report.diagnostics)
+
+        # --- first-ever-per-user subquery (the planner's first-occurrence recipe) runs for real ---
+        # Guards that the FROM-subquery + min/argMin pattern we instruct the planner to emit for
+        # "first-ever per user" is valid, executable HogQL — if it ever stops parsing, this fails
+        # instead of silently degrading every such metric to a placeholder in production.
+        mock_bep.return_value = self._spec(
+            "SELECT first_event AS first_event, count() AS first_time_users "
+            "FROM (SELECT distinct_id, min(timestamp) AS first_seen, argMin(event, timestamp) AS first_event "
+            "FROM events GROUP BY distinct_id) "
+            "WHERE first_seen >= now() - INTERVAL 30 DAY GROUP BY first_event ORDER BY first_time_users DESC LIMIT 50"
+        )
+        captured = self._capture_synthesis(mock_chat, "# First occurrence report")
+
+        report = await generate_ai_report(team=self.team, user=self.user, prompt="first ever", window_days=7)
+
+        assert report.markdown == "# First occurrence report"
+        assert report.diagnostics and all(d.ok for d in report.diagnostics)

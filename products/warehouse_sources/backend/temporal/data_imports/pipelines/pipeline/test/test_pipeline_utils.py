@@ -433,13 +433,17 @@ def test_table_from_py_list_decimal_exceeding_max_scale_is_rounded():
     assert table.column("column").to_pylist() == [decimal.Decimal("1." + "1" * 32), None]
 
 
-def test_table_from_py_list_decimal_too_large_for_decimal256_raises():
-    # A value whose integer part can't fit decimal256(76, 32) even after rounding to the max
-    # scale is genuinely unrepresentable, so the hard ValueError must still surface.
-    value = decimal.Decimal("9" * 45 + "." + "1" * 40)
+def test_table_from_py_list_decimal_too_large_for_decimal256_falls_back_to_string():
+    # A value whose integer part can't fit decimal256(76, 32) even after rounding to the max scale
+    # is genuinely unrepresentable as a decimal. It must fall back to text rather than crash the
+    # sync, mirroring the huge-int fallback. A normal value is mixed in to confirm the whole column
+    # stringifies consistently.
+    huge = decimal.Decimal("9" * 247)
 
-    with pytest.raises(ValueError, match="Cannot build decimal array from values"):
-        table_from_py_list([{"column": value}])
+    table = table_from_py_list([{"column": huge}, {"column": decimal.Decimal("1.5")}, {"column": None}])
+
+    assert table.schema.field("column").type == pa.string()
+    assert table.column("column").to_pylist() == [str(huge), "1.5", None]
 
 
 def test_table_from_py_list_normal_int_column_stays_int64():

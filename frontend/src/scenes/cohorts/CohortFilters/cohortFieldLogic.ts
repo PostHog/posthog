@@ -154,7 +154,11 @@ export const cohortFieldLogic = kea<cohortFieldLogicType>([
     }),
     listeners(({ props }) => ({
         onChange: ({ newField }) => {
-            props.onChange?.(cleanBehavioralTypeCriteria(newField))
+            // Merge the partial field payload onto the existing criteria so
+            // cleanBehavioralTypeCriteria sees `event_type` and `value` together — otherwise
+            // a freshly-picked PersonMetadata property (whose `event_type` lives on the
+            // criteria, not the payload) is derived as a plain Person type and matches nobody.
+            props.onChange?.(cleanBehavioralTypeCriteria({ ...props.criteria, ...newField }))
         },
     })),
 ])

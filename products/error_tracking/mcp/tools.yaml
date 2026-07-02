@@ -61,6 +61,27 @@ tools:
     error-tracking-assignment-rules-update:
         operation: error_tracking_assignment_rules_update
         enabled: false
+    error-tracking-bypass-rules-create:
+        operation: error_tracking_bypass_rules_create
+        enabled: false
+    error-tracking-bypass-rules-destroy:
+        operation: error_tracking_bypass_rules_destroy
+        enabled: false
+    error-tracking-bypass-rules-list:
+        operation: error_tracking_bypass_rules_list
+        enabled: false
+    error-tracking-bypass-rules-partial-update:
+        operation: error_tracking_bypass_rules_partial_update
+        enabled: false
+    error-tracking-bypass-rules-reorder-partial-update:
+        operation: error_tracking_bypass_rules_reorder_partial_update
+        enabled: false
+    error-tracking-bypass-rules-retrieve:
+        operation: error_tracking_bypass_rules_retrieve
+        enabled: false
+    error-tracking-bypass-rules-update:
+        operation: error_tracking_bypass_rules_update
+        enabled: false
     error-tracking-external-references-create:
         operation: error_tracking_external_references_create
         enabled: true

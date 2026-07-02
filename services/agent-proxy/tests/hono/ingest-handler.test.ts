@@ -25,6 +25,7 @@ import {
     MAX_EVENTS_PER_REQUEST,
     HEARTBEAT_THROTTLE_SECONDS,
 } from '@/lib/constants.js'
+import { logger } from '@/lib/logging.js'
 import { TaskRunRedisStream, getStreamKey } from '@/lib/redis-stream.js'
 import { heartbeatWorkflowIfNeeded } from '@/lib/side-effects.js'
 import type { SandboxEventIngestTokenPayload } from '@/lib/types.js'
@@ -461,6 +462,35 @@ describe('ingest-handler', () => {
         expect(body).toMatchObject({ accepted: 1, duplicate: 0, last_accepted_seq: 1 })
     })
 
+    it('writes complete NDJSON lines before the request body closes', async () => {
+        const config = makeConfig()
+        const encoder = new TextEncoder()
+        let controller!: ReadableStreamDefaultController<Uint8Array>
+        const body = new ReadableStream<Uint8Array>({
+            start(c) {
+                controller = c
+            },
+        })
+
+        const resPromise = handleIngest(makeContext({ body }), fakeRedis as unknown as Redis, config, [] as CryptoKey[])
+
+        controller.enqueue(encoder.encode(`${JSON.stringify({ seq: 1, event: { type: 'first-live' } })}\n`))
+
+        await vi.waitFor(async () => {
+            const entries = await fakeRedis.xrange(getStreamKey(RUN_ID))
+            expect(entries).toHaveLength(1)
+            expect(entries[0]?.[1].data).toContain('"first-live"')
+        })
+
+        controller.enqueue(encoder.encode(`${JSON.stringify({ seq: 2, event: { type: 'second-live' } })}\n`))
+        controller.close()
+
+        const res = await resPromise
+        expect(res.status).toBe(200)
+        const responseBody = await decodeJson(res)
+        expect(responseBody).toMatchObject({ accepted: 2, duplicate: 0, last_accepted_seq: 2 })
+    })
+
     it('accepts multiple sequential events', async () => {
         const config = makeConfig()
         const lines =
@@ -853,6 +883,52 @@ describe('ingest-handler', () => {
         expect(res.status).toBe(400)
     })
 
+    it.each([
+        {
+            variant: 'ECONNRESET code',
+            makeError: (): Error => Object.assign(new Error('read failed'), { code: 'ECONNRESET' }),
+        },
+        { variant: 'aborted message', makeError: (): Error => new Error('aborted') },
+        {
+            variant: 'AbortError name',
+            makeError: (): Error => Object.assign(new Error('This operation was aborted'), { name: 'AbortError' }),
+        },
+        {
+            variant: 'premature close code',
+            makeError: (): Error => Object.assign(new Error('Premature close'), { code: 'ERR_STREAM_PREMATURE_CLOSE' }),
+        },
+    ])('treats a mid-body $variant as a client disconnect, not a server error', async ({ makeError }) => {
+        const infoSpy = vi.spyOn(logger, 'info')
+        const errorSpy = vi.spyOn(logger, 'error')
+        const config = makeConfig()
+        const enc = new TextEncoder()
+        const line = enc.encode(JSON.stringify({ seq: 1, event: { type: 'before-drop' } }) + '\n')
+        let sentFirstChunk = false
+        const body = new ReadableStream<Uint8Array>({
+            pull(controller) {
+                if (!sentFirstChunk) {
+                    sentFirstChunk = true
+                    controller.enqueue(line)
+                    return
+                }
+                controller.error(makeError())
+            },
+        })
+
+        const res = await handleIngest(makeContext({ body }), fakeRedis as unknown as Redis, config, [] as CryptoKey[])
+
+        expect(res.status).toBe(408)
+        const responseBody = (await decodeJson(res)) as { last_accepted_seq: number }
+        expect(responseBody.last_accepted_seq).toBe(1)
+
+        const entries = await fakeRedis.xrange(getStreamKey(RUN_ID))
+        expect(entries).toHaveLength(1)
+
+        const log = infoSpy.mock.calls.find((c) => c[0] === 'ingest:client_disconnect')?.[1] as Record<string, unknown>
+        expect(log).toMatchObject({ run: RUN_ID, accepted: 1, lastSeq: 1 })
+        expect(errorSpy).not.toHaveBeenCalledWith('http.unhandled_error', expect.anything())
+    })
+
     // -----------------------------------------------------------------------
     // Empty body
     // -----------------------------------------------------------------------
@@ -1143,6 +1219,55 @@ describe('ingest-handler', () => {
             await new Promise((r) => setTimeout(r, 0))
             expect(fetchSpy).not.toHaveBeenCalled()
             fetchSpy.mockRestore()
+        })
+    })
+
+    // -----------------------------------------------------------------------
+    // Body-arrival timing diagnostic
+    //
+    // The ingest log carries chunks/bodyBytes/firstChunkMs/lastChunkMs/chunkSpanMs
+    // so operators can tell a live upload (chunks spread over the request) from a
+    // body buffered upstream and delivered in one burst at request close. If those
+    // numbers are wrong the diagnostic misleads that investigation, so lock in that
+    // they reflect the actual body read.
+    // -----------------------------------------------------------------------
+
+    describe('body-arrival timing', () => {
+        it('reports chunk count, byte total, and a consistent span on the ingest log', async () => {
+            const infoSpy = vi.spyOn(logger, 'info')
+            const enc = new TextEncoder()
+            const chunk1 = enc.encode(JSON.stringify({ seq: 1, event: { type: 'a' } }) + '\n')
+            const chunk2 = enc.encode(JSON.stringify({ seq: 2, event: { type: 'b' } }) + '\n')
+
+            const ctx = makeContext({ body: makeChunkedBody([chunk1, chunk2]) })
+            const res = await handleIngest(ctx, fakeRedis as unknown as Redis, makeConfig(), [] as CryptoKey[])
+            expect(res.status).toBe(200)
+
+            const log = infoSpy.mock.calls.find((c) => c[0] === 'ingest')?.[1] as Record<string, number>
+            expect(log).toBeTruthy()
+            expect(log.chunks).toBe(2)
+            expect(log.bodyBytes).toBe(chunk1.length + chunk2.length)
+            const firstChunkMs = log.firstChunkMs as number
+            const lastChunkMs = log.lastChunkMs as number
+            expect(typeof firstChunkMs).toBe('number')
+            expect(lastChunkMs).toBeGreaterThanOrEqual(firstChunkMs)
+            expect(log.chunkSpanMs as number).toBe(lastChunkMs - firstChunkMs)
+        })
+
+        it('reports zero chunks and null timing for an empty body', async () => {
+            const infoSpy = vi.spyOn(logger, 'info')
+
+            const ctx = makeContext({ body: makeStringBody('') })
+            const res = await handleIngest(ctx, fakeRedis as unknown as Redis, makeConfig(), [] as CryptoKey[])
+            expect(res.status).toBe(200)
+
+            const log = infoSpy.mock.calls.find((c) => c[0] === 'ingest')?.[1] as Record<string, unknown>
+            expect(log).toBeTruthy()
+            expect(log.chunks).toBe(0)
+            expect(log.bodyBytes).toBe(0)
+            expect(log.firstChunkMs).toBeNull()
+            expect(log.lastChunkMs).toBeNull()
+            expect(log.chunkSpanMs).toBeNull()
         })
     })
 })

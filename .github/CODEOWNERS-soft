@@ -35,6 +35,16 @@ posthog/temporal/messaging/ @PostHog/team-workflows
 frontend/src/scenes/data-pipelines/ @PostHog/team-workflows
 frontend/src/scenes/hog-functions/ @PostHog/team-workflows
 
+# Platform email infrastructure - owned by @PostHog/team-platform-features
+# The shared SMTP/HTTP send path, email settings, and platform-level emails (e.g. daily/weekly
+# project digests). Product-specific emails keep their own owners via more specific entries
+# (workflows messaging above; weekly digest temporal workflow and AI observability templates below).
+posthog/email.py @PostHog/team-platform-features
+posthog/settings/email.py @PostHog/team-platform-features
+posthog/tasks/email.py @PostHog/team-platform-features
+posthog/tasks/email_utils.py @PostHog/team-platform-features
+posthog/helpers/email_utils.py @PostHog/team-platform-features
+
 # Web Analytics - owned by @PostHog/team-web-analytics
 frontend/src/scenes/web-analytics/** @PostHog/team-web-analytics
 posthog/models/web_preaggregated/** @PostHog/team-web-analytics
@@ -87,6 +97,10 @@ posthog/models/cohortmembership/ @PostHog/team-feature-flags
 frontend/src/scenes/cohorts/ @PostHog/team-feature-flags
 posthog/tasks/calculate_cohort.py @PostHog/team-feature-flags
 posthog/hogql_queries/hogql_cohort_query.py @PostHog/team-feature-flags
+
+# Auto-label scope mappings - owned by @PostHog/team-feature-flags so mappings
+# can change without editing the Auto Assign Labels workflow or its script
+.github/auto-assign-labels.json @PostHog/team-feature-flags
 
 # Feature Flags frontend - owned by @PostHog/team-feature-flags
 frontend/src/scenes/feature-flags/ @PostHog/team-feature-flags
@@ -173,8 +187,13 @@ frontend/src/scenes/onboarding/sdks/surveys/ @PostHog/team-surveys
 frontend/src/scenes/settings/ @PostHog/team-growth
 frontend/src/scenes/organization/ @PostHog/team-growth
 frontend/src/scenes/project/ @PostHog/team-growth
-frontend/src/scenes/instance/ @PostHog/team-growth
-# ...except the query performance scene, owned by @PostHog/team-experiments
+# instance/ admin scenes are team-growth's, except QueryPerformance (team-experiments).
+# The assign-reviewers script unions the owners of every matching rule — it does NOT
+# apply last-match-wins — so growth must be scoped to its specific subfolders rather
+# than the whole instance/ dir, or growth gets tagged on QueryPerformance PRs too.
+frontend/src/scenes/instance/AsyncMigrations/ @PostHog/team-growth
+frontend/src/scenes/instance/DeadLetterQueue/ @PostHog/team-growth
+frontend/src/scenes/instance/SystemStatus/ @PostHog/team-growth
 frontend/src/scenes/instance/QueryPerformance/ @PostHog/team-experiments
 
 # Weekly digest - owned by @PostHog/team-growth
@@ -271,9 +290,11 @@ posthog/hogql_queries/property_values_query_runner.py @PostHog/team-product-anal
 ee/clickhouse/views/groups.py @PostHog/team-product-analytics
 ee/clickhouse/queries/related_actors_query.py @PostHog/team-product-analytics
 posthog/temporal/product_analytics/ @PostHog/team-product-analytics
-posthog/temporal/mcp_analytics/ @PostHog/team-product-analytics
 frontend/src/scenes/themes/ @PostHog/team-product-analytics
 posthog/taxonomy/ @PostHog/team-product-analytics
+
+# MCP Analytics - owned by @PostHog/team-mcp-analytics
+posthog/temporal/mcp_analytics/ @PostHog/team-mcp-analytics
 
 # Experiments - owned by @PostHog/team-experiments
 frontend/src/scenes/experiments/ @PostHog/team-experiments

@@ -105,6 +105,7 @@ __all__ = [
     "mark_primed",
     "replan_backfill",
     "run_backfill_planner",
+    "sink_eligible_schema_ids",
 ]
 
 
@@ -146,6 +147,53 @@ def blocked_schema_ids(team_ids: list[int] | None) -> list[str]:
         primed = primed.filter(team_id__in=team_ids)
     primed_ids = {str(s) for s in primed.values_list("schema_id", flat=True)}
     return [str(sid) for sid in schemas.values_list("id", flat=True) if str(sid) not in primed_ids]
+
+
+def sink_eligible_schema_ids(team_ids: list[int]) -> list[str]:
+    """Schema ids whose (team, source_type) is on warehouse-pipelines-v3.
+
+    The sink claims batches ONLY for these schemas, keeping consumption in
+    lockstep with the v3 routing flag — the same gate that decides which source
+    types the v3 pipeline produces for and which schemas get primed here. The
+    shared queue can hold batches for non-v3 source types (a source_type that
+    was v3 during an earlier flag window, or the flag-independent CDC writer);
+    without this gate the team-scoped claim applies them anyway, and replace-head
+    batches (full_refresh / first-ever incremental) even bypass the unprimed
+    block. Enabling a source_type later lets its schemas bootstrap, prime, and
+    begin live application through the normal path.
+
+    Evaluated per (team_id, source_type) with a local cache — the same gate
+    ``_bootstrap_state_rows`` uses to decide priming, so consumption and priming
+    never disagree. Raises on app-DB errors so the caller keeps its previous
+    cached set; a transient blip must not silently empty the allow-list.
+
+    Prod only: the consumer calls this with a concrete team list. Dev mode
+    (no team filter) is left ungated by the caller.
+    """
+    close_old_connections()
+    if not team_ids:
+        return []
+
+    # Lazy import: create_job_model pulls in temporalio.activity + the data
+    # warehouse facade, kept off the planner module's import path.
+    from products.warehouse_sources.backend.temporal.data_imports.workflow_activities.create_job_model import (  # noqa: PLC0415 — keeps the heavy temporal/facade deps off the import path
+        is_pipeline_v3_enabled,
+    )
+
+    schemas = (
+        ExternalDataSchema.objects.exclude(deleted=True)
+        .filter(team_id__in=team_ids)
+        .values("id", "team_id", "source__source_type")
+    )
+    v3_enabled: dict[tuple[int, str], bool] = {}
+    eligible: list[str] = []
+    for schema in schemas.iterator(chunk_size=BOOTSTRAP_BATCH_SIZE):
+        key = (schema["team_id"], schema["source__source_type"])
+        if key not in v3_enabled:
+            v3_enabled[key] = is_pipeline_v3_enabled(schema["team_id"], schema["source__source_type"])
+        if v3_enabled[key]:
+            eligible.append(str(schema["id"]))
+    return eligible
 
 
 def mark_primed(schema_id: str, *, chunks_applied: int | None = None) -> None:

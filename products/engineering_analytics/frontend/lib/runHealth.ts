@@ -1,6 +1,5 @@
-// Rolls a flat list of one workflow's runs up into the health facts the verdict header renders. Kept
-// separate from the kea logic so both the workflow-runs page and (later) the PR page can derive the same
-// summary, and so the math is unit-testable without a logic harness.
+// Rolls a flat list of one workflow's runs into the health facts the verdict header renders. Separate
+// from the kea logic so both pages can share it and the math is unit-testable.
 
 import { isDecisiveFailure } from './lifecycle'
 
@@ -17,6 +16,18 @@ export interface HealthRun {
 export interface CostSummary {
     billableMinutes: number | null
     estimatedCostUsd: number | null
+}
+
+/** A single run's cost rolled up from its jobs, plus the count of billable jobs still in flight. */
+export interface RunCostSummary extends CostSummary {
+    unsettledJobs: number
+}
+
+/** Minimal job shape the run-cost roll-up needs; WorkflowJobApi satisfies it. */
+export interface CostableJob {
+    runner_provider: string
+    duration_seconds: number | null
+    estimated_cost_usd: number | null
 }
 
 export type WorkflowState = 'healthy' | 'degraded' | 'failing' | 'unknown'
@@ -79,10 +90,9 @@ export function percentileSorted(sortedAsc: number[], q: number): number | null 
 }
 
 /**
- * Verdict + headline stats for one workflow's runs. State mirrors the run tables: the latest settled run
- * failing is "failing"; an otherwise-passing workflow whose decisive-failure rate is elevated is
- * "degraded"; everything else is "healthy". Durations and rates are over completed runs only — a run that
- * hasn't settled is excluded, never counted as a failure.
+ * Verdict + headline stats for one workflow's runs. State: latest settled run failing → "failing";
+ * elevated decisive-failure rate → "degraded"; else "healthy". Durations and rates are over completed
+ * runs only — an unsettled run is excluded, never counted as a failure.
  */
 export function computeHealthSummary(runs: HealthRun[]): HealthSummary {
     const completed = runs.filter((run) => run.conclusion !== null)
@@ -137,17 +147,16 @@ export function computeHealthSummary(runs: HealthRun[]): HealthSummary {
 }
 
 /**
- * Fleet verdict + rollups across all workflows in the window (the all-workflows page). State is the
- * worst the fleet is right now: every settled workflow red is "failing"; any red or flaky is "degraded";
- * otherwise "healthy". Runs and cost are summed across workflows; cost is null until any row carries it.
+ * Fleet verdict + rollups across all workflows in the window. State is the worst the fleet is now: every
+ * settled workflow red → "failing"; any red or flaky → "degraded"; else "healthy". Runs and cost are
+ * summed across workflows; cost is null until a row carries it.
  */
 export function computeFleetSummary(rows: FleetRow[]): FleetSummary {
     const workflowCount = rows.length
     const settledWorkflows = rows.filter((row) => row.latestRunFailed != null).length
     const failingNow = rows.filter((row) => row.latestRunFailed === true).length
-    // Flaky = currently green but below the success-rate floor AND it has actually failed in the window.
-    // The `lastFailureAt` gate keeps this aligned with the single-workflow verdict: a low success rate that
-    // comes from skips/cancels (no decisive failures) reads as healthy, not flaky.
+    // Flaky = currently green, below the success-rate floor, AND actually failed in the window. The
+    // lastFailureAt gate keeps a low success rate from skips/cancels (no real failures) reading as flaky.
     const flakyNow = rows.filter(
         (row) =>
             row.latestRunFailed === false &&
@@ -166,8 +175,7 @@ export function computeFleetSummary(rows: FleetRow[]): FleetSummary {
 
     let state: WorkflowState
     if (workflowCount === 0 || settledWorkflows === 0) {
-        // Workflows exist but none has a completed run yet — no evidence either way, same as the
-        // single-workflow "unknown".
+        // Workflows exist but none settled yet — no evidence either way, same as single-workflow "unknown".
         state = 'unknown'
     } else if (failingNow > 0 && failingNow === settledWorkflows) {
         state = 'failing'
@@ -187,4 +195,35 @@ export function computeFleetSummary(rows: FleetRow[]): FleetSummary {
         billableMinutes,
         estimatedCostUsd,
     }
+}
+
+/**
+ * Roll a run's jobs up to a single cost figure, mirroring the backend cost model (logic/cost.py): only
+ * self-hosted runners are billable, and a job contributes once it has settled (a non-null estimated cost).
+ * `unsettledJobs` counts only billable jobs that haven't finished yet (no duration) — excluded from the
+ * total and surfaced as a caveat so the number never silently inflates. A finished self-hosted job with no
+ * cost is an excluded tier (the backend doesn't price non-Linux Depot runners), not "unsettled", so it's
+ * left out of both. Returns null when there's nothing to show — no priced jobs and nothing still running
+ * (every job free, or every billable job finished on an unpriced tier) — so the caller omits the tile rather
+ * than render a dangling "—".
+ */
+export function summarizeRunCost(jobs: CostableJob[]): RunCostSummary | null {
+    const billable = jobs.filter((job) => job.runner_provider === 'self_hosted')
+    const costed = billable.filter((job) => job.estimated_cost_usd != null)
+    // A null cost on a finished job means an unpriced tier (excluded), not "still running" — only a job
+    // with no duration is genuinely unsettled.
+    const unsettledJobs = billable.filter((job) => job.duration_seconds == null).length
+    if (costed.length === 0 && unsettledJobs === 0) {
+        // Nothing to report: no priced jobs and nothing still running (all free, or every billable job
+        // finished on an unpriced tier). Omit the tile rather than render a dangling "—".
+        return null
+    }
+    if (costed.length === 0) {
+        // Billable jobs are still running but none has settled yet — keep the tile (with a "—" value +
+        // caveat) rather than reporting a misleading $0.00 / 0 min for a run whose cost hasn't landed.
+        return { billableMinutes: null, estimatedCostUsd: null, unsettledJobs }
+    }
+    const billableMinutes = costed.reduce((sum, job) => sum + (job.duration_seconds ?? 0) / 60, 0)
+    const estimatedCostUsd = costed.reduce((sum, job) => sum + (job.estimated_cost_usd ?? 0), 0)
+    return { billableMinutes, estimatedCostUsd, unsettledJobs }
 }

@@ -1,3 +1,6 @@
+from uuid import uuid4
+
+import pytest
 from posthog.test.base import APIBaseTest
 from unittest.mock import AsyncMock, patch
 
@@ -5,10 +8,20 @@ from django.apps import apps
 
 from parameterized import parameterized
 from rest_framework import status
+from social_django.models import UserSocialAuth
 
-from posthog.models import Organization, Team
+from posthog.models import Organization, Team, User
+from posthog.models.organization import OrganizationMembership
 
 from products.signals.backend.models import SignalReport, SignalReportArtefact, SignalSourceConfig
+from products.signals.backend.scout_harness.tools.report import (
+    MAX_SUGGESTED_REVIEWERS,
+    EditReportResult,
+    InvalidScoutReportError,
+    ReviewerInput,
+    _build_suggested_reviewers,
+    _capture_report_edited,
+)
 from products.signals.backend.temporal.report_safety_judge import SafetyJudgeResponse
 from products.signals.backend.test.test_scout_harness_api import _authenticate_as_scout, _make_run
 from products.skills.backend.models.skills import LLMSkill
@@ -196,7 +209,7 @@ class TestScoutReportAPI(APIBaseTest):
             repository="PostHog/PostHog",
             priority="P1",
             priority_explanation="429 users hit this in 2h",
-            suggested_reviewers=["octocat", "hubot"],
+            suggested_reviewers=[{"github_login": "octocat"}, {"github_login": "hubot"}],
         )
         with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
             response = self.client.post(self._emit_url(str(run.id)), data=payload, format="json")
@@ -217,6 +230,48 @@ class TestScoutReportAPI(APIBaseTest):
         autostart.assert_awaited_once()
         assert autostart.await_args is not None
         assert autostart.await_args.kwargs["report_id"] == response.json()["report_id"]
+
+    def test_edit_report_sets_reviewers_and_reruns_autostart(self) -> None:
+        # The routing rescue: a report that surfaced with no reviewer can have one set via edit_report,
+        # which writes the suggested_reviewers artefact and re-fires autostart (so a report that already
+        # has a repo + priority but lacked a qualifying reviewer can now open a draft PR).
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        report_id = created["report_id"]
+        with patch(AUTOSTART_PATH, new=AsyncMock()) as autostart:
+            response = self.client.post(
+                self._edit_url(str(run.id)),
+                data={"report_id": report_id, "suggested_reviewers": [{"github_login": "OctoCat"}]},
+                format="json",
+            )
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        assert response.json()["reviewers_set"] is True
+        reviewers = self._latest_artefact(report_id, SignalReportArtefact.ArtefactType.SUGGESTED_REVIEWERS)
+        assert reviewers is not None and "octocat" in reviewers.content  # canonicalized lowercase
+        autostart.assert_awaited_once()
+        run.refresh_from_db()
+        assert run.edited_report_ids == [report_id]
+
+    def test_edit_report_unresolvable_reviewer_does_not_partially_mutate(self) -> None:
+        # A combined edit (title + a bad reviewer) must fail atomically: reviewers resolve before any
+        # write, so an unresolvable user_uuid 400s without the title change leaking through.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH):
+            created = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json").json()
+        report_id = created["report_id"]
+        original_title = SignalReport.objects.get(id=report_id).title
+        response = self.client.post(
+            self._edit_url(str(run.id)),
+            data={
+                "report_id": report_id,
+                "title": "should not stick",
+                "suggested_reviewers": [{"user_uuid": str(uuid4())}],
+            },
+            format="json",
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert SignalReport.objects.get(id=report_id).title == original_title
 
     def test_emit_report_skips_autostart_and_artefacts_when_suppressed(self) -> None:
         # An unsafe report is suppressed — it must not write autostart inputs or try to open a PR.
@@ -311,6 +366,31 @@ class TestScoutReportAPI(APIBaseTest):
         assert forward.kwargs["process_person_profile"] is False
         assert forward.kwargs["properties"]["report_url"].endswith(f"/inbox/reports/{created['report_id']}")
 
+    def test_reviewer_edit_event_uuid_keys_on_reviewers(self) -> None:
+        # A reviewer-only edit carries no `updated_fields` and no title/summary/note, so two distinct
+        # reviewer corrections to the same report in one run would hash to one `event_uuid` and ingestion
+        # would collapse the later routing change. The uuid must key on the reviewer identity too — while
+        # an identical retried reviewer edit still stays one event (idempotent).
+        run = _make_run(self.team)
+        result = EditReportResult(report_id=str(uuid4()), updated_fields=[], note_appended=False, reviewers_set=True)
+
+        def forward(reviewers: list[ReviewerInput]) -> str:
+            with patch(CAPTURE_PATH):
+                return _capture_report_edited(
+                    team=self.team,
+                    run=run,
+                    result=result,
+                    title=None,
+                    summary=None,
+                    note=None,
+                    suggested_reviewers=reviewers,
+                ).event_uuid
+
+        alice = forward([ReviewerInput(github_login="alice")])
+        bob = forward([ReviewerInput(github_login="bob")])
+        assert alice != bob
+        assert alice == forward([ReviewerInput(github_login="alice")])
+
     @parameterized.expand(
         [
             ("scout_emit_disabled",),
@@ -360,3 +440,75 @@ class TestScoutReportAPI(APIBaseTest):
         with _safe_judge(), patch(EMBED_PATH), patch(AUTOSTART_PATH, new=AsyncMock()):
             response = self.client.post(self._emit_url(str(run.id)), data=self._payload(**overrides), format="json")
         assert response.status_code == status.HTTP_400_BAD_REQUEST, response.json()
+
+
+class TestBuildSuggestedReviewers(APIBaseTest):
+    """Resolution of scout-supplied reviewer entries (github_login / user_uuid) to canonical logins.
+
+    Tested directly rather than over HTTP — it's the report tools' resolution unit, and the fail-loud
+    guarantee (an unresolvable user_uuid is rejected, never silently dropped) is the whole reason the
+    user_uuid alias is safe to route on."""
+
+    def _github_member(self, login: str) -> User:
+        user = User.objects.create(email=f"{login}@example.com")
+        OrganizationMembership.objects.create(user=user, organization=self.organization)
+        UserSocialAuth.objects.create(user=user, provider="github", uid=f"gh-{login}", extra_data={"login": login})
+        return user
+
+    def test_resolves_github_login_lowercased(self) -> None:
+        result = _build_suggested_reviewers(self.team.id, [ReviewerInput(github_login="OctoCat")])
+        assert result is not None
+        assert [e.github_login for e in result.root] == ["octocat"]
+
+    def test_resolves_user_uuid_to_linked_login(self) -> None:
+        member = self._github_member("ghhandle")
+        result = _build_suggested_reviewers(self.team.id, [ReviewerInput(user_uuid=str(member.uuid))])
+        assert result is not None
+        assert [e.github_login for e in result.root] == ["ghhandle"]
+
+    def test_user_uuid_wins_when_both_supplied(self) -> None:
+        # The serializer documents that a supplied user_uuid wins over a github_login on the same entry.
+        member = self._github_member("realhandle")
+        result = _build_suggested_reviewers(
+            self.team.id, [ReviewerInput(github_login="typo", user_uuid=str(member.uuid))]
+        )
+        assert result is not None
+        assert [e.github_login for e in result.root] == ["realhandle"]
+
+    def test_dedupes_login_and_uuid_resolving_to_same_person(self) -> None:
+        member = self._github_member("dupe")
+        result = _build_suggested_reviewers(
+            self.team.id, [ReviewerInput(github_login="dupe"), ReviewerInput(user_uuid=str(member.uuid))]
+        )
+        assert result is not None
+        assert [e.github_login for e in result.root] == ["dupe"]
+
+    @parameterized.expand([("not_an_org_member",), ("member_without_github_identity",)])
+    def test_unresolvable_user_uuid_raises(self, case: str) -> None:
+        if case == "member_without_github_identity":
+            orphan = User.objects.create(email="nogh@example.com")
+            OrganizationMembership.objects.create(user=orphan, organization=self.organization)
+            target = str(orphan.uuid)
+        else:
+            target = str(uuid4())
+        with pytest.raises(InvalidScoutReportError):
+            _build_suggested_reviewers(self.team.id, [ReviewerInput(user_uuid=target)])
+
+    @parameterized.expand([("none", None), ("empty", [])])
+    def test_no_entries_yields_none(self, _name: str, reviewers: list | None) -> None:
+        assert _build_suggested_reviewers(self.team.id, reviewers) is None
+
+    def test_entry_with_neither_identifier_raises(self) -> None:
+        # An entry that carries neither a usable login nor a uuid is malformed — fail loud rather than
+        # drop it, since a silently-dropped reviewer is exactly what leaves a report routed to no one.
+        with pytest.raises(InvalidScoutReportError):
+            _build_suggested_reviewers(self.team.id, [ReviewerInput(github_login="   ")])
+
+    def test_caps_entries_before_resolving_uuids(self) -> None:
+        # An over-cap list must be rejected before the UUID resolver runs, so a malformed many-entry
+        # call can't fire one unbounded `IN` query just to be rejected afterwards.
+        resolver = "products.signals.backend.scout_harness.tools.report.get_org_member_github_logins_by_user_uuid"
+        entries = [ReviewerInput(user_uuid=str(uuid4())) for _ in range(MAX_SUGGESTED_REVIEWERS + 1)]
+        with patch(resolver) as resolve_mock, pytest.raises(InvalidScoutReportError):
+            _build_suggested_reviewers(self.team.id, entries)
+        resolve_mock.assert_not_called()
