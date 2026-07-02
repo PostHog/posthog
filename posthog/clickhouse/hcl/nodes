@@ -47,11 +47,15 @@ prod-us  ai_events  roles/shared roles/ai_events/shared roles/ai_events/prod
 prod-eu  ai_events  roles/shared roles/ai_events/shared roles/ai_events/prod
 
 # AUX satellite: auxiliary tables (error tracking, hog invocations, message assets,
-# property values, web/marketing preaggregated). Local models the MSK ingest variant;
-# prod (WarpStream + ingestion_warnings + custom_metrics) is a dump-only follow-up.
-# roles/aux/local is listed before roles/shared to work around PostHog/chschema#80
-# (a dictionary is dropped when its layer is composed after another layer).
-local    aux        roles/aux/local roles/shared
+# property values, web/marketing preaggregated). roles/aux/shared holds the env-uniform
+# objects; local carries the MSK ingest variant (kafka_error_tracking + its MV, MSK
+# kafka_hog_invocation_results); prod carries the WarpStream variant. prod-us adds the
+# ingestion_warnings tables. roles/aux/shared is listed first (before roles/shared) to
+# work around PostHog/chschema#80 (a dictionary is dropped when its layer is composed
+# after another). prod goldens are dump-baselined (not live-verifiable here).
+local    aux        roles/aux/shared roles/aux/local roles/shared
+prod-us  aux        roles/aux/shared roles/aux/prod roles/aux/prod-us roles/shared
+prod-eu  aux        roles/aux/shared roles/aux/prod roles/aux/prod-eu roles/shared
 
 # SESSIONS satellite: the local node runs only the shared query_log_archive path
 # (session tables are prod-only), so it composes roles/shared alone. prod session /
