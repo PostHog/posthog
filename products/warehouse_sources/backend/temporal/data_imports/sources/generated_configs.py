@@ -2032,7 +2032,7 @@ class MissiveSourceConfig(config.Config):
 
 @config.config
 class MixMaxSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
