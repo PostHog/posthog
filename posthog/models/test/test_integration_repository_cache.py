@@ -240,8 +240,7 @@ class TestGitHubRepositoryFullCache(BaseTest):
             with pytest.raises(GitHubRateLimitError) as excinfo:
                 async_to_sync(self._cache_for(integration).sync_full_cache_entry_async)("posthog/posthog")
 
-        assert excinfo.value.is_rate_limit is True
-        assert excinfo.value.retry_after_seconds == 60.0
+        assert excinfo.value.retry_after == 60
         assert not IntegrationRepositoryCacheEntry.objects.filter(integration=integration).exists()
 
     def test_sync_full_cache_entry_propagates_non_404_readme_errors(self):

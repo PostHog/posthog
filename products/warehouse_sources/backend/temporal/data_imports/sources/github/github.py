@@ -363,8 +363,8 @@ def _github_retry_wait(state: RetryCallState) -> float:
     exponential backoff."""
     if state.outcome is not None and state.outcome.failed:
         exc = state.outcome.exception()
-        if isinstance(exc, GitHubRateLimitError) and exc.retry_after_seconds is not None:
-            return min(exc.retry_after_seconds, GITHUB_MAX_RETRY_AFTER_SECONDS) + random.uniform(0, 1)
+        if isinstance(exc, GitHubRateLimitError) and exc.retry_after is not None:
+            return min(float(exc.retry_after), GITHUB_MAX_RETRY_AFTER_SECONDS) + random.uniform(0, 1)
     return _github_backoff_wait(state)
 
 

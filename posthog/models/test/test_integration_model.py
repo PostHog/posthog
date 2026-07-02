@@ -949,7 +949,7 @@ class TestGitHubIntegrationModel(BaseTest):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
         github = GitHubIntegration(integration)
         mock_response = MagicMock(status_code=200, text="diff --git a b")
-        with patch.object(github, "_github_api_get", return_value=mock_response) as mock_get:
+        with patch.object(github, "api_request", return_value=mock_response) as mock_get:
             result = github.get_diff("PostHog/posthog", target_branch="feature/foo", base_branch="master")
             assert result == {
                 "success": True,
@@ -957,13 +957,13 @@ class TestGitHubIntegrationModel(BaseTest):
                 "truncated": False,
             }
             mock_get.assert_called_once()
-            assert "/compare/master...feature/foo" in mock_get.call_args.args[0]
+            assert "/compare/master...feature/foo" in mock_get.call_args.args[1]
 
     def test_get_diff_pins_to_shas_when_given(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
         github = GitHubIntegration(integration)
         mock_response = MagicMock(status_code=200, text="diff --git a b")
-        with patch.object(github, "_github_api_get", return_value=mock_response) as mock_get:
+        with patch.object(github, "api_request", return_value=mock_response) as mock_get:
             result = github.get_diff(
                 "PostHog/posthog",
                 target_branch="feature/foo",
@@ -972,20 +972,20 @@ class TestGitHubIntegrationModel(BaseTest):
                 base_sha="def456a",
             )
             assert result["success"] is True
-            assert "/compare/def456a...abc123f" in mock_get.call_args.args[0]
+            assert "/compare/def456a...abc123f" in mock_get.call_args.args[1]
 
     def test_get_diff_maps_upstream_error(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
         github = GitHubIntegration(integration)
         mock_response = MagicMock(status_code=404, text="Not Found")
-        with patch.object(github, "_github_api_get", return_value=mock_response):
+        with patch.object(github, "api_request", return_value=mock_response):
             result = github.get_diff("PostHog/posthog", target_branch="feature/foo", base_branch="master")
         assert result == {"success": False, "error": "Not Found", "status_code": 404}
 
     def test_get_diff_handles_request_exception(self):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
         github = GitHubIntegration(integration)
-        with patch.object(github, "_github_api_get", side_effect=requests.ConnectionError("boom")):
+        with patch.object(github, "api_request", side_effect=GitHubIntegrationError("network error")):
             result = github.get_diff("PostHog/posthog", target_branch="feature/foo", base_branch="master")
         assert result["success"] is False
         assert result["status_code"] == 502
@@ -1026,7 +1026,7 @@ class TestGitHubIntegrationModel(BaseTest):
         github = GitHubIntegration(integration)
         oversized = "x" * (_MAX_DIFF_CHARS + 100)
         mock_response = MagicMock(status_code=200, text=oversized)
-        with patch.object(github, "_github_api_get", return_value=mock_response):
+        with patch.object(github, "api_request", return_value=mock_response):
             result = github.get_diff("PostHog/posthog", target_branch="feature/foo", base_branch="master")
         assert result["success"] is True
         assert result["truncated"] is True
@@ -1050,7 +1050,7 @@ class TestGitHubIntegrationModel(BaseTest):
         github = GitHubIntegration(integration)
         kwargs: dict = {"repository": "PostHog/posthog", "target_branch": "feature/foo", "base_branch": "master"}
         kwargs.update(overrides)
-        with patch.object(github, "_github_api_get") as mock_get:
+        with patch.object(github, "api_request") as mock_get:
             result = github.get_diff(**kwargs)
         assert result["success"] is False
         assert result["status_code"] == 400
@@ -1060,7 +1060,7 @@ class TestGitHubIntegrationModel(BaseTest):
         integration = self.create_integration(sensitive_config={"access_token": "ACCESS_TOKEN"})
         github = GitHubIntegration(integration)
         mock_response = MagicMock(status_code=200, text="diff --git a b")
-        with patch.object(github, "_github_api_get", return_value=mock_response) as mock_get:
+        with patch.object(github, "api_request", return_value=mock_response) as mock_get:
             result = github.get_diff(
                 "PostHog/posthog", target_branch="feature/nested/branch", base_branch="release/v1.2"
             )
@@ -1154,11 +1154,12 @@ class TestGitHubIntegrationModel(BaseTest):
         }
         previous_count = REGISTRY.get_sample_value("github_integration_api_requests_total", labels) or 0
 
-        GitHubIntegration(integration)._github_api_get(
-            "https://api.github.com/repos/PostHog/posthog",
-            endpoint="/repos/{owner}/{repo}",
-            headers={"Accept": "application/vnd.github+json"},
-        )
+        with patch.object(GitHubIntegration, "access_token_expired", return_value=False):
+            GitHubIntegration(integration).api_request(
+                "GET",
+                "/repos/PostHog/posthog",
+                endpoint="/repos/{owner}/{repo}",
+            )
 
         assert REGISTRY.get_sample_value("github_integration_api_requests_total", labels) == previous_count + 1
         assert (
@@ -1200,14 +1201,18 @@ class TestGitHubIntegrationModel(BaseTest):
         }
         previous_count = REGISTRY.get_sample_value("github_integration_api_requests_total", labels) or 0
 
-        with pytest.raises(requests.RequestException):
-            GitHubIntegration(integration)._github_api_get(
-                "https://api.github.com/repos/PostHog/posthog",
+        with (
+            patch.object(GitHubIntegration, "access_token_expired", return_value=False),
+            pytest.raises(GitHubIntegrationError),
+        ):
+            GitHubIntegration(integration).api_request(
+                "GET",
+                "/repos/PostHog/posthog",
                 endpoint="/repos/{owner}/{repo}",
-                headers={"Accept": "application/vnd.github+json"},
             )
 
-        assert REGISTRY.get_sample_value("github_integration_api_requests_total", labels) == previous_count + 1
+        # GET retries the network error once; both attempts record an exception sample.
+        assert REGISTRY.get_sample_value("github_integration_api_requests_total", labels) == previous_count + 2
 
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
     def test_github_refresh_access_token_metrics_include_request_exceptions(self, mock_client_request):
@@ -1926,8 +1931,7 @@ class TestGitHubIntegrationModel(BaseTest):
         # integration failure, and it lives in the egress layer. Backoff filters key off these fields.
         err = GitHubRateLimitError("test", retry_after=45)
         assert not isinstance(err, GitHubIntegrationError)
-        assert err.is_rate_limit is True
-        assert err.retry_after_seconds == 45.0
+        assert err.retry_after == 45
 
     # --- get_access_token ---
 
@@ -2021,8 +2025,7 @@ class TestGitHubIntegrationGhApiGet(BaseTest):
         integration = self._create_integration()
         with pytest.raises(GitHubRateLimitError) as excinfo:
             GitHubIntegration(integration)._gh_api_get("/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}")
-        assert excinfo.value.is_rate_limit is True
-        assert excinfo.value.retry_after_seconds == 5.0
+        assert excinfo.value.retry_after == 5
 
     @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.GitHubIntegration.access_token_expired", return_value=False)
@@ -2037,8 +2040,7 @@ class TestGitHubIntegrationGhApiGet(BaseTest):
         integration = self._create_integration()
         with pytest.raises(GitHubRateLimitError) as excinfo:
             GitHubIntegration(integration)._gh_api_get("/repos/PostHog/posthog", endpoint="/repos/{owner}/{repo}")
-        assert excinfo.value.is_rate_limit is True
-        assert excinfo.value.retry_after_seconds == 60.0
+        assert excinfo.value.retry_after == 60
 
     @patch("posthog.egress.transport.transport.requests.request")
     @patch("posthog.models.integration.GitHubIntegration.refresh_access_token")

@@ -43,6 +43,7 @@ from posthog.api.integration import (
     validate_github_repository_name,
 )
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
+from posthog.egress.github.transport import github_request
 from posthog.exceptions_capture import capture_exception
 from posthog.models.integration import GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS, Integration
 from posthog.models.user import User
@@ -705,13 +706,12 @@ def _has_unlinked_github_installations(user: User) -> bool | None:
         return None
 
     try:
-        response = requests.get(
+        # Identity-blind: user OAuth token, metered against the user's budget, not an installation's.
+        response = github_request(
+            "GET",
             "https://api.github.com/user/installations",
-            headers={
-                "Accept": "application/vnd.github+json",
-                "Authorization": f"Bearer {token}",
-                "X-GitHub-Api-Version": "2022-11-28",
-            },
+            source="integration",
+            headers={"Authorization": f"Bearer {token}"},
             params={"per_page": 100},
             timeout=10,
         )

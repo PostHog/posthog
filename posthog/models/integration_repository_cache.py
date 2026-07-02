@@ -383,7 +383,7 @@ class GitHubRepositoryFullCache:
             [make_fn(name) for name in valid_full_names],
             concurrency=concurrency,
             is_retryable=lambda exc: isinstance(exc, GitHubRateLimitError),
-            get_retry_delay=lambda exc: getattr(exc, "retry_after_seconds", None),
+            get_retry_delay=lambda exc: getattr(exc, "retry_after", None),
         )
         # 4. Single summary line — distinguishes "warm cache, all hits" from "did real work".
         errors = sum(1 for r in results if isinstance(r, BaseException))

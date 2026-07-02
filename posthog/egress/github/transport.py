@@ -35,13 +35,11 @@ class GitHubRateLimitError(Exception):
     """GitHub itself rate-limited an outbound call (a 429, or a 403 with a rate-limit body) — the
     reactive, GitHub-side twin of :class:`GitHubEgressBudgetExhausted`. A GitHub egress condition, so it
     lives here (not the model layer); it deliberately does not subclass ``GitHubIntegrationError`` — a
-    transient rate limit isn't a fatal integration failure. Exposes ``is_rate_limit`` /
-    ``retry_after_seconds`` so backoff filters can key off it."""
+    transient rate limit isn't a fatal integration failure. ``retry_after`` (seconds) is the backoff
+    hint; :func:`raise_if_github_rate_limited` always sets it, hand-built instances may not."""
 
     def __init__(self, message: str, reset_at: int | None = None, retry_after: int | None = None):
         super().__init__(message)
-        self.is_rate_limit = True
-        self.retry_after_seconds = float(retry_after) if retry_after is not None else None
         self.reset_at = reset_at
         self.retry_after = retry_after
 
