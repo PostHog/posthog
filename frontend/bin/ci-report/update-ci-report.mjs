@@ -104,7 +104,7 @@ export function renderComment(sections) {
     return [MARKER, '## 🤖 CI report', '', ...header, '', ...blocks].join('\n')
 }
 
-async function gh(token, url, options = {}) {
+export async function gh(token, url, options = {}) {
     const response = await fetch(`https://api.github.com${url}`, {
         ...options,
         headers: {
@@ -117,36 +117,52 @@ async function gh(token, url, options = {}) {
     if (!response.ok) {
         throw new Error(`GitHub API ${options.method || 'GET'} ${url} -> ${response.status}: ${await response.text()}`)
     }
-    return response.json()
+    return response.status === 204 ? null : response.json()
+}
+
+// Resolve the PR-comment context from the Actions environment, or null (reason logged)
+// when this run cannot comment — missing env or not a pull_request event.
+export function resolvePrContext(activity) {
+    const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN
+    const repo = process.env.GITHUB_REPOSITORY
+    const eventPath = process.env.GITHUB_EVENT_PATH
+    if (!token || !repo || !eventPath) {
+        console.info(`Missing GitHub environment (token/repository/event) — skipping ${activity}.`)
+        return null
+    }
+    const prNumber = JSON.parse(fs.readFileSync(eventPath, 'utf-8')).pull_request?.number
+    if (!prNumber) {
+        console.info(`Not a pull request event — skipping ${activity}.`)
+        return null
+    }
+    return { token, repo, prNumber }
+}
+
+export async function listPrComments({ token, repo, prNumber }) {
+    const all = []
+    for (let page = 1; page <= 50; page++) {
+        const comments = await gh(token, `/repos/${repo}/issues/${prNumber}/comments?per_page=100&page=${page}`)
+        all.push(...comments)
+        if (comments.length < 100) {
+            break
+        }
+    }
+    return all
 }
 
 // Post or update this run's section into the shared comment. Fork PRs run with a
 // read-only token, so a failure to read or write is warned and swallowed — the comment
 // is a nicety, never worth a red job.
 export async function postSection({ id, status, summary, body }) {
-    const token = process.env.GITHUB_TOKEN || process.env.GH_TOKEN
-    const repo = process.env.GITHUB_REPOSITORY
-    const eventPath = process.env.GITHUB_EVENT_PATH
-    if (!token || !repo || !eventPath) {
-        console.info('Missing GitHub environment (token/repository/event) — skipping comment.')
+    const context = resolvePrContext('comment')
+    if (!context) {
         return
     }
-    const event = JSON.parse(fs.readFileSync(eventPath, 'utf-8'))
-    const prNumber = event.pull_request?.number
-    if (!prNumber) {
-        console.info('Not a pull request event — skipping comment.')
-        return
-    }
+    const { token, repo, prNumber } = context
 
     let existing = null
     try {
-        for (let page = 1; page <= 50 && !existing; page++) {
-            const comments = await gh(token, `/repos/${repo}/issues/${prNumber}/comments?per_page=100&page=${page}`)
-            existing = comments.find((c) => c.body?.includes(MARKER)) ?? null
-            if (comments.length < 100) {
-                break
-            }
-        }
+        existing = (await listPrComments(context)).find((c) => c.body?.includes(MARKER)) ?? null
     } catch (err) {
         console.warn(`Could not read PR comments (read-only token on fork PRs?): ${err.message}`)
         return

@@ -103,7 +103,7 @@ Examples:
 
 ## Security
 
-See [.agents/security.md](.agents/security.md) for SQL, HogQL, and semgrep security guidelines.
+See [.agents/security.md](.agents/security.md) for security guidelines — least privilege, secrets & service-to-service auth (don't add new `INTERNAL_API_SECRET` callers), SQL, HogQL, and semgrep.
 
 ## Architecture guidelines
 

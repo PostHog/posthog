@@ -1312,3 +1312,23 @@ def test_bigquery_cdc_staleness_key_does_not_match_unrelated_errors(other_error)
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
     assert "un-applied upsert data that is not fresh enough" not in other_error
     assert not any(key in other_error for key in non_retryable_errors)
+
+
+def test_bigquery_resources_exceeded_is_non_retryable():
+    """A `resourcesExceeded` query failure exceeds a worker's memory deterministically (heavy sorts /
+    analytic OVER() clauses over a large table or view), so retrying the identical temp-table copy in
+    `_run_destination_query_with_job_retry` always fails — it must be recognised as non-retryable
+    rather than retried on every attempt."""
+    error_msg = str(
+        BadRequest(
+            "GET https://bigquery.googleapis.com/bigquery/v2/projects/<redacted>/queries/<redacted>"
+            "?maxResults=0&location=us-central1&prettyPrint=false: Resources exceeded during query "
+            "execution: The query could not be executed in the allotted memory. Peak usage: 122% of limit."
+        )
+    )
+
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in error_msg]
+
+    assert matching, "resourcesExceeded query failure should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)
