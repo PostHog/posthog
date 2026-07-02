@@ -192,6 +192,8 @@ class EntitySearchContext:
                 self._team.project_id,
                 self,  # type: ignore
                 ENTITY_MAP,
+                # Scope to the current environment so sibling environments in the same project don't leak in
+                team_id=self._team.id,
             )
             assert fts_counts is not None
             results.extend(fts_results)
@@ -260,6 +262,8 @@ class EntitySearchContext:
                 entity_map=ENTITY_MAP,
                 limit=limit,
                 offset=offset,
+                # Scope to the current environment so sibling environments in the same project don't leak in
+                team_id=self._team.id,
             )
             all_entities.extend(db_results)
             assert maybe_count is not None

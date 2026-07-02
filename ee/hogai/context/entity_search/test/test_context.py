@@ -243,6 +243,47 @@ class TestEntitySearchContext(NonAtomicBaseTest):
         result_names = [r["extra_fields"].get("name", "") for r in results]
         assert "deleted experiment" not in result_names
 
+    async def test_search_excludes_entities_from_sibling_environment(self):
+        # A project can hold multiple environments (each its own Team). Entity discovery must stay
+        # scoped to the current environment so a sibling environment's experiments don't leak in.
+        sibling_team = await sync_to_async(Team.objects.create)(
+            organization=self.organization, project=self.project, name="sibling env"
+        )
+        flag = await FeatureFlag.objects.acreate(team=self.team, key="flag_here", created_by=self.user)
+        sibling_flag = await FeatureFlag.objects.acreate(team=sibling_team, key="flag_there", created_by=self.user)
+        await Experiment.objects.acreate(
+            team=self.team, name="mine experiment", deleted=False, created_by=self.user, feature_flag=flag
+        )
+        await Experiment.objects.acreate(
+            team=sibling_team, name="sibling experiment", deleted=False, created_by=self.user, feature_flag=sibling_flag
+        )
+
+        results, _ = await self.context.search_entities({"experiment"}, "experiment")
+
+        result_names = [r["extra_fields"].get("name", "") for r in results]
+        assert "mine experiment" in result_names
+        assert "sibling experiment" not in result_names
+
+    async def test_list_excludes_entities_from_sibling_environment(self):
+        sibling_team = await sync_to_async(Team.objects.create)(
+            organization=self.organization, project=self.project, name="sibling env"
+        )
+        flag = await FeatureFlag.objects.acreate(team=self.team, key="flag_here", created_by=self.user)
+        sibling_flag = await FeatureFlag.objects.acreate(team=sibling_team, key="flag_there", created_by=self.user)
+        await Experiment.objects.acreate(
+            team=self.team, name="mine experiment", deleted=False, created_by=self.user, feature_flag=flag
+        )
+        await Experiment.objects.acreate(
+            team=sibling_team, name="sibling experiment", deleted=False, created_by=self.user, feature_flag=sibling_flag
+        )
+
+        results, total_count = await self.context.list_entities("experiment")
+
+        result_names = [r["extra_fields"].get("name", "") for r in results]
+        assert "mine experiment" in result_names
+        assert "sibling experiment" not in result_names
+        assert total_count == 1
+
     async def test_feature_flag_filters_exclude_deleted(self):
         await FeatureFlag.objects.acreate(
             team=self.team, key="active_flag", name="active flag", deleted=False, created_by=self.user

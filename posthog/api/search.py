@@ -148,14 +148,16 @@ def search_entities(
     limit: int = LIMIT,
     offset: int = 0,
     include_counts: bool = True,
+    team_id: int | None = None,
 ) -> tuple[list[dict[str, Any]], dict[str, int | None] | None, int | None]:
+    # When `team_id` is given, scope to that single environment instead of the whole project.
+    # A project can hold multiple environments (each its own Team), so project-scoping surfaces
+    # entities from sibling environments — callers that need environment isolation pass `team_id`.
+    scope = {"team_id": team_id} if team_id is not None else {"team__project_id": project_id}
+
     # empty queryset to union things onto it
     counts: dict[str, int | None] = dict.fromkeys(entity_map) if include_counts else {}
-    qs = (
-        Dashboard.objects.annotate(type=Value("empty", output_field=CharField()))
-        .filter(team__project_id=project_id)
-        .none()
-    )
+    qs = Dashboard.objects.annotate(type=Value("empty", output_field=CharField())).filter(**scope).none()
 
     # add entities
     for entity_meta in [entity_map[entity] for entity in entities]:
@@ -168,6 +170,7 @@ def search_entities(
             search_fields=entity_meta["search_fields"],
             extra_fields=entity_meta["extra_fields"],
             filters=entity_meta.get("filters"),
+            team_id=team_id,
         )
         qs = qs.union(klass_qs)
         if include_counts:
@@ -197,12 +200,15 @@ def class_queryset(
     search_fields: dict[str, Literal["A", "B", "C"]],
     extra_fields: list[str] | None,
     filters: dict[str, Any] | None = None,
+    team_id: int | None = None,
 ):
     """Builds a queryset for the class."""
     entity_type = class_to_entity_name(klass)
     values = ["type", "result_id", "extra_fields", "_sort_name"]
 
-    qs: QuerySet[Any] = cast(Any, klass).objects.filter(team__project_id=project_id)  # filter team
+    # Scope to a single environment when `team_id` is provided, otherwise the whole project.
+    scope = {"team_id": team_id} if team_id is not None else {"team__project_id": project_id}
+    qs: QuerySet[Any] = cast(Any, klass).objects.filter(**scope)  # filter team
     qs = view.user_access_control.filter_queryset_by_access_level(qs)  # filter access level
 
     # Apply entity-specific filters
