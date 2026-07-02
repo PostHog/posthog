@@ -6,14 +6,17 @@ agent, git branch, repo vintage) so the devex team can triage it.
 
 Unlike passive telemetry, feedback is an explicit, user-initiated action: the
 command name states exactly what it does, so it is sent even when passive
-telemetry is opted out. It still needs a configured telemetry API key as a
-destination, and it always prints exactly what it sends.
+telemetry is opted out — though it then uses a throwaway distinct id rather than
+minting a persistent one. It still needs a configured telemetry API key as a
+destination.
 """
 
 from __future__ import annotations
 
 import os
 import sys
+import uuid
+import select
 import platform
 from datetime import UTC, datetime
 from typing import Any
@@ -28,10 +31,6 @@ _EVENT = "hogli_feedback"
 _DEFAULT_HOST = "https://us.i.posthog.com"
 _CATEGORIES = ("bug", "idea", "praise", "question", "other")
 
-# Context keys surfaced in the interactive preview so a human sees exactly what
-# rides along with their message before confirming the send.
-_PREVIEW_KEYS = ("environment", "agent", "is_agent", "git_branch", "repo_sha", "in_flox", "os")
-
 
 def _endpoint() -> tuple[str, str]:
     """(host, api_key) for the feedback event, env override then manifest config."""
@@ -39,6 +38,40 @@ def _endpoint() -> tuple[str, str]:
     host = os.environ.get("POSTHOG_TELEMETRY_HOST") or cfg.get("host", _DEFAULT_HOST)
     api_key = os.environ.get("POSTHOG_TELEMETRY_API_KEY") or cfg.get("api_key", "")
     return host, api_key
+
+
+def _distinct_id() -> str:
+    """Distinct id for the feedback event.
+
+    Reuse the persisted anonymous telemetry id when telemetry is enabled, so
+    feedback correlates with the sender's other hogli events. Under opt-out
+    (DO_NOT_TRACK, POSTHOG_TELEMETRY_OPT_OUT, disabled config, CI), don't mint or
+    persist a durable id just to send an explicit one-off — use a throwaway.
+    """
+    if telemetry.is_enabled():
+        return telemetry.get_anonymous_id()
+    return str(uuid.uuid4())
+
+
+def _stdin_is_tty() -> bool:
+    """True when stdin is an interactive terminal — False, not a crash, when stdin
+    is closed or absent (daemon / sandbox / agent contexts)."""
+    try:
+        return sys.stdin.isatty()
+    except (ValueError, AttributeError):
+        return False
+
+
+def _stdin_has_data() -> bool:
+    """True when piped stdin already has bytes ready, so reading won't block.
+
+    Guards ``echo … | hogli devex:feedback`` while keeping a held-open empty pipe
+    (an agent that spawned the command with an unwritten stdin) from hanging it.
+    """
+    try:
+        return bool(select.select([sys.stdin], [], [], 0)[0])
+    except Exception:
+        return False
 
 
 def _context_properties() -> dict[str, Any]:
@@ -73,7 +106,7 @@ def _send(message: str, category: str | None, context: dict[str, Any]) -> tuple[
 
     entry = {
         "event": _EVENT,
-        "distinct_id": telemetry.get_anonymous_id(),
+        "distinct_id": _distinct_id(),
         "properties": props,
         "timestamp": datetime.now(UTC).isoformat(),
     }
@@ -102,17 +135,19 @@ def devex_feedback(message: tuple[str, ...], category: str | None, yes: bool) ->
         hogli devex:feedback -c idea "add a hogli db:snapshot to save/restore local state"
         echo "long note" | hogli devex:feedback
 
-    The message text is the only free-form content sent; run it interactively to
-    preview the attached context before confirming.
+    The message is the only free-form content sent; everything else is the same
+    environment context hogli telemetry already attaches. Run interactively to
+    confirm before sending.
     """
-    interactive = sys.stdin.isatty()
+    interactive = _stdin_is_tty()
     text = " ".join(message).strip()
 
-    # No inline message: read piped stdin, or prompt an interactive human.
-    if not text and not interactive:
-        text = sys.stdin.read().strip()
-    elif not text and interactive:
+    # No inline message: prompt an interactive human, or read piped stdin — but only
+    # when data is actually waiting, so a held-open empty pipe can't block forever.
+    if not text and interactive:
         text = click.prompt("Your feedback for the devex team", default="", show_default=False).strip()
+    elif not text and _stdin_has_data():
+        text = sys.stdin.read().strip()
 
     if not text:
         raise click.ClickException('nothing to send — provide a message: hogli devex:feedback "..."')
@@ -126,12 +161,10 @@ def devex_feedback(message: tuple[str, ...], category: str | None, yes: bool) ->
         click.echo(f"  {text}")
         if category:
             click.echo(f"  category: {category}")
-        click.echo()
-        click.secho("Attached context (no free-form text beyond your message):", dim=True)
-        for key in _PREVIEW_KEYS:
-            if key in context:
-                click.echo(f"  {key}: {context[key]}")
-        click.echo()
+        click.secho(
+            "\nTagged with the same environment context hogli telemetry attaches (environment, agent, branch, repo).\n",
+            dim=True,
+        )
         if not click.confirm("Send?", default=True):
             click.secho("Not sent.", fg="yellow")
             return

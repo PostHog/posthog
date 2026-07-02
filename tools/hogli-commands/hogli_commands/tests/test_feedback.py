@@ -13,6 +13,7 @@ from pathlib import Path
 import pytest
 from unittest.mock import patch
 
+from click.testing import CliRunner
 from hogli_commands import feedback
 
 
@@ -46,6 +47,21 @@ def test_send_posts_wellformed_feedback_event(isolated_config: None) -> None:
     assert props["$process_person_profile"] is False
 
 
+def test_opt_out_uses_ephemeral_distinct_id(tmp_path: Path, monkeypatch: pytest.MonkeyPatch) -> None:
+    # Feedback still sends under DO_NOT_TRACK (explicit action), but must not mint or
+    # persist a durable anonymous id on disk just to do it.
+    monkeypatch.setenv("HOME", str(tmp_path))
+    monkeypatch.setenv("DO_NOT_TRACK", "1")
+    monkeypatch.setenv("POSTHOG_TELEMETRY_API_KEY", "phc_test")
+    with patch.object(feedback.requests, "post") as post:
+        post.return_value.raise_for_status.return_value = None
+        ok, _ = feedback._send("hi", None, {})
+
+    assert ok
+    assert post.call_args.kwargs["json"]["batch"][0]["distinct_id"]  # a throwaway id is still sent
+    assert not feedback.telemetry.get_config_path().exists()  # nothing persisted
+
+
 def test_send_without_api_key_never_posts(monkeypatch: pytest.MonkeyPatch) -> None:
     monkeypatch.delenv("POSTHOG_TELEMETRY_API_KEY", raising=False)
     monkeypatch.setattr(feedback, "_endpoint", lambda: ("https://us.i.posthog.com", ""))
@@ -54,6 +70,24 @@ def test_send_without_api_key_never_posts(monkeypatch: pytest.MonkeyPatch) -> No
     assert ok is False
     assert "no telemetry API key" in err
     post.assert_not_called()
+
+
+@pytest.mark.parametrize(
+    ("answer", "should_send"),
+    [("y\n", True), ("n\n", False)],
+    ids=["confirm_sends", "decline_aborts"],
+)
+def test_interactive_confirm_gate(monkeypatch: pytest.MonkeyPatch, answer: str, should_send: bool) -> None:
+    # On a TTY, the preview's "Send?" prompt gates the send: 'n' must not transmit.
+    monkeypatch.setattr(feedback, "_stdin_is_tty", lambda: True)
+    monkeypatch.setattr(feedback, "_context_properties", dict)
+    sent: list[str] = []
+    monkeypatch.setattr(feedback, "_send", lambda msg, cat, ctx: (sent.append(msg), (True, ""))[1])
+
+    result = CliRunner().invoke(feedback.devex_feedback, ["the message"], input=answer)
+
+    assert result.exit_code == 0
+    assert bool(sent) is should_send
 
 
 @pytest.mark.parametrize(
