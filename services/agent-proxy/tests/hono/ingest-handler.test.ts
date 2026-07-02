@@ -899,6 +899,7 @@ describe('ingest-handler', () => {
         },
     ])('treats a mid-body $variant as a client disconnect, not a server error', async ({ makeError }) => {
         const infoSpy = vi.spyOn(logger, 'info')
+        const errorSpy = vi.spyOn(logger, 'error')
         const config = makeConfig()
         const enc = new TextEncoder()
         const line = enc.encode(JSON.stringify({ seq: 1, event: { type: 'before-drop' } }) + '\n')
@@ -925,6 +926,7 @@ describe('ingest-handler', () => {
 
         const log = infoSpy.mock.calls.find((c) => c[0] === 'ingest:client_disconnect')?.[1] as Record<string, unknown>
         expect(log).toMatchObject({ run: RUN_ID, accepted: 1, lastSeq: 1 })
+        expect(errorSpy).not.toHaveBeenCalledWith('http.unhandled_error', expect.anything())
     })
 
     // -----------------------------------------------------------------------

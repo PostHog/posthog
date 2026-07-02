@@ -11,7 +11,7 @@ from github import _normalize_reviews_for_prompt, _reaction_emoji, _trusted_reac
 def test_normalize_reviews_marks_current_head_and_preserves_stale_reviews() -> None:
     head_sha = "072cdd75592bfd0bf0c016209385f20f85a45201"
     current_review = {
-        "user": {"login": "stamphog", "type": "Bot"},
+        "user": {"login": "copilot-pull-request-reviewer", "type": "Bot"},
         "state": "COMMENTED",
         "body": "Current head concern",
         "commit_id": head_sha,
@@ -31,7 +31,7 @@ def test_normalize_reviews_marks_current_head_and_preserves_stale_reviews() -> N
 
     assert normalized == [
         {
-            "user": "stamphog",
+            "user": "copilot-pull-request-reviewer",
             "state": "COMMENTED",
             "body": "Current head concern",
             "commit_id": head_sha,
@@ -72,6 +72,35 @@ def test_normalize_reviews_filters_by_trust_source(
                 "commit_id": "abc123",
                 "submitted_at": "2026-04-07T20:14:03Z",
                 "author_association": author_association,
+            }
+        ],
+        "abc123",
+    )
+
+    assert len(normalized) == expected_count
+
+
+@pytest.mark.parametrize(
+    "login,expected_count",
+    [
+        pytest.param("stamphog[bot]", 0, id="own-refuse-comment-review"),
+        pytest.param("github-actions[bot]", 0, id="own-approve-review"),
+        pytest.param("greptile-apps[bot]", 1, id="other-bot-kept"),
+    ],
+)
+def test_normalize_reviews_excludes_stamphogs_own_prior_reviews(login: str, expected_count: int) -> None:
+    # Feeding stamphog's own stale reviews back into the prompt makes the next
+    # run read them as third-party claims about state that no longer matches —
+    # it then suspects tampering and refuses forever.
+    normalized = _normalize_reviews_for_prompt(
+        [
+            {
+                "user": {"login": login, "type": "Bot"},
+                "state": "COMMENTED",
+                "body": "Refusing: reviews in flight",
+                "commit_id": "abc123",
+                "submitted_at": "2026-04-07T20:14:03Z",
+                "author_association": "NONE",
             }
         ],
         "abc123",

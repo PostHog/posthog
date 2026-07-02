@@ -38,6 +38,10 @@ class FetchJobLogInputs:
     run_id: int | None = None
     branch: str | None = None
     conclusion: str | None = None
+    job_name: str | None = None
+    workflow_name: str | None = None
+    run_attempt: int | None = None
+    head_sha: str | None = None
 
 
 def _resolve_credentials(team_id: int, integration_id: int) -> tuple[str, str, str]:
@@ -76,6 +80,13 @@ async def fetch_and_emit_job_log_activity(inputs: FetchJobLogInputs) -> dict[str
         "repo": inputs.repo,
         "branch": inputs.branch or "",
         "conclusion": inputs.conclusion or "",
+        # job_name/workflow_name make records readable in the Logs UI without a warehouse join;
+        # run_attempt disambiguates re-runs (all attempts share run_id, i.e. one trace); head_sha
+        # is the per-commit anchor (SPEC §7 — precision key only, never the attribution key).
+        "job_name": inputs.job_name or "",
+        "workflow_name": inputs.workflow_name or "",
+        "run_attempt": inputs.run_attempt or 0,
+        "head_sha": inputs.head_sha or "",
         # Total lines in the full log before thinning — the denominator for each line's orig_line.
         "orig_total": len(archive.splitlines()),
     }

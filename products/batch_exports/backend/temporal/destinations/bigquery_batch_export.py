@@ -1177,6 +1177,7 @@ async def bigquery_write_async_client(credentials) -> collections.abc.AsyncItera
     channel = BigQueryWriteGrpcAsyncIOTransport.create_channel(
         credentials=credentials,
         compression=grpc.Compression.Gzip,
+        options=[("grpc.use_local_subchannel_pool", 1)],
     )
     transport = BigQueryWriteGrpcAsyncIOTransport(channel=channel)
     client = BigQueryWriteAsyncClient(
@@ -1413,7 +1414,7 @@ async def run_consumers(
 
 
 async def run_storage_stream_consumers(
-    client: BigQueryWriteAsyncClient,
+    client: BigQueryClient,
     pool: concurrent.futures.ProcessPoolExecutor,
     table: BigQueryTable,
     producer_task: asyncio.Task[None],
@@ -1445,24 +1446,25 @@ async def run_storage_stream_consumers(
         )
     )
 
-    async with asyncio.TaskGroup() as tg:
-        for _ in range(max_consumers):
+    async def run() -> BatchExportResult:
+        async with bigquery_write_async_client(client.sync_client._credentials) as write_client:
             consumer: Consumer = BigQueryStorageConsumer(
-                client=client,
+                client=write_client,
                 table=table,
                 transformer=serialized,
                 model=model,
             )
-            tasks.append(
-                tg.create_task(
-                    consumer.start(
-                        queue=queue,
-                        producer_task=producer_task,
-                        transformer=transformer,
-                        json_columns=(),
-                    )
-                )
+
+            return await consumer.start(
+                queue=queue,
+                producer_task=producer_task,
+                transformer=transformer,
+                json_columns=(),
             )
+
+    async with asyncio.TaskGroup() as tg:
+        for _ in range(max_consumers):
+            tasks.append(tg.create_task(run()))
 
     await raise_on_task_failure(producer_task)
 
@@ -1813,26 +1815,23 @@ async def insert_into_bigquery_activity_from_stage(inputs: BigQueryInsertInputs)
 
                 else:
                     if use_storage_stream:
-                        async with (
-                            bigquery_write_async_client(bq_client.sync_client._credentials) as write_client,
-                        ):
-                            pool = concurrent.futures.ProcessPoolExecutor(
-                                max_workers=settings.BATCH_EXPORT_BIGQUERY_TRANSFORMER_MAX_WORKERS,
-                                mp_context=mp.get_context("forkserver"),
-                                initializer=init_worker,
+                        pool = concurrent.futures.ProcessPoolExecutor(
+                            max_workers=settings.BATCH_EXPORT_BIGQUERY_TRANSFORMER_MAX_WORKERS,
+                            mp_context=mp.get_context("forkserver"),
+                            initializer=init_worker,
+                        )
+                        try:
+                            result = await run_storage_stream_consumers(
+                                client=bq_client,
+                                pool=pool,
+                                table=bigquery_consumer_table,
+                                producer_task=producer_task,
+                                queue=queue,
+                                max_consumers=settings.BATCH_EXPORT_BIGQUERY_MAX_CONSUMERS,
+                                model=model.name if isinstance(model, BatchExportModel) else "events",
                             )
-                            try:
-                                result = await run_storage_stream_consumers(
-                                    client=write_client,
-                                    pool=pool,
-                                    table=bigquery_consumer_table,
-                                    producer_task=producer_task,
-                                    queue=queue,
-                                    max_consumers=settings.BATCH_EXPORT_BIGQUERY_MAX_CONSUMERS,
-                                    model=model.name if isinstance(model, BatchExportModel) else "events",
-                                )
-                            finally:
-                                await asyncio.to_thread(pool.shutdown)
+                        finally:
+                            await asyncio.to_thread(pool.shutdown)
                     else:
                         result = await run_consumers(
                             client=bq_client,

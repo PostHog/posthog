@@ -680,6 +680,18 @@ jobs:
                   path: playwright/junit-results.xml
                   if-no-files-found: ignore
 
+            - name: Upload test results to Trunk
+              # Flaky-test detection. Trusted non-pull_request events only, so the secret token
+              # never runs in a PR-controlled context; continue-on-error so an upload hiccup
+              # never fails the job.
+              if: ${{ !cancelled() && github.event_name != 'pull_request' }}
+              continue-on-error: true
+              uses: trunk-io/analytics-uploader@385f1ccdf345b4532dc4b6c665dd432b702b8e28 # v2.1.2
+              with:
+                  junit-paths: playwright/junit-results.xml
+                  org-slug: posthog-inc
+                  token: ${{ secrets.TRUNK_API_TOKEN }}
+
             - name: Publish report to Cloudflare Pages
               if: always() && (github.event_name == 'push' || github.event.pull_request.head.repo.full_name == github.repository)
               id: cf-deploy

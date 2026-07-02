@@ -1,7 +1,6 @@
-import React, { useMemo } from 'react'
+import React from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
-import { useChartLegend } from '../../components/Legend/useChartLegend'
 import type {
     ChartLegendConfig,
     ChartTheme,
@@ -15,23 +14,12 @@ import type {
 import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { TrendLineOverlay } from '../../overlays/TrendLineOverlay'
 import { ValueLabels } from '../../overlays/ValueLabels'
-import { buildGoalLineReferenceLines, goalLineValueDomain, type GoalLineConfig } from '../../utils/goal-lines'
-import {
-    buildYAxes,
-    normalizeYAxisList,
-    primaryYAxisConfig,
-    useXTickFormatter,
-    useYTickFormatter,
-    type XAxisConfig,
-    type YAxisConfig,
-} from '../../utils/use-axis-formatters'
+import type { GoalLineConfig } from '../../utils/goal-lines'
+import type { XAxisConfig, YAxisConfig } from '../../utils/use-axis-formatters'
 import { ComboChart } from '../ComboChart/ComboChart'
-import { buildTrendLineSeries, type TrendLineConfig } from '../TimeSeriesLineChart/utils/derived-series'
-import {
-    resolveValueLabelsConfig,
-    useSeriesWithValueLabelAllowlist,
-    type ValueLabelsConfig,
-} from '../utils/use-value-labels'
+import { useTrendLineSeries, type TrendLineConfig } from '../utils/use-derived-series'
+import { useGoalLines, useTimeSeries } from '../utils/use-time-series'
+import type { ValueLabelsConfig } from '../utils/use-value-labels'
 
 export interface TimeSeriesComboChartConfig {
     xAxis?: XAxisConfig
@@ -100,42 +88,21 @@ export function TimeSeriesComboChart<Meta = unknown>({
         legend,
         trendLines,
     } = config ?? {}
-    const axisList = useMemo(() => normalizeYAxisList(yAxis), [yAxis])
-    const primaryYAxis = useMemo<YAxisConfig | undefined>(() => primaryYAxisConfig(axisList), [axisList])
-    const yAxes = useMemo(() => (Array.isArray(yAxis) ? buildYAxes(axisList) : undefined), [yAxis, axisList])
+    const {
+        xTickFormatter,
+        yTickFormatter,
+        legendProps,
+        visibleSeries,
+        chartSeries,
+        valueLabelsConfig,
+        valueLabelFormatter,
+        primaryYAxis,
+        yAxes,
+    } = useTimeSeries(series, labels, theme, { xAxis, yAxis, valueLabels, legend })
 
-    const xTickFormatter = useXTickFormatter(xAxis, labels)
-    const yTickFormatter = useYTickFormatter(primaryYAxis)
+    const { referenceLines, valueDomain } = useGoalLines(goalLines, chartSeries)
 
-    const { visibleSeries, legendProps } = useChartLegend(series, theme, legend)
-
-    const valueLabelsConfig = resolveValueLabelsConfig(valueLabels)
-    const seriesAfterValueLabels = useSeriesWithValueLabelAllowlist(visibleSeries, valueLabelsConfig?.seriesKeys)
-
-    const valueLabelFormatter = valueLabelsConfig ? (valueLabelsConfig.formatter ?? yTickFormatter) : undefined
-
-    const referenceLines = useMemo(
-        () => buildGoalLineReferenceLines(goalLines, seriesAfterValueLabels),
-        [goalLines, seriesAfterValueLabels]
-    )
-
-    // Extend the value axis to cover goal lines that sit outside the data range, so a goal line
-    // off the data's natural scale still renders inside the plot. Memoized so the `{ include }`
-    // object stays referentially stable and doesn't re-trigger scale recomputation each render.
-    const valueDomain = useMemo(() => goalLineValueDomain(referenceLines), [referenceLines])
-
-    const trendSeries = useMemo(() => {
-        if (!trendLines?.length) {
-            return []
-        }
-        const byKey = new Map(visibleSeries.map((s) => [s.key, s]))
-        return trendLines.flatMap((tl) => {
-            const source = byKey.get(tl.seriesKey)
-            return source
-                ? [buildTrendLineSeries({ sourceSeries: source, kind: tl.kind, label: tl.label, fitUpTo: tl.fitUpTo, excluded: source.visibility?.excluded })]
-                : []
-        })
-    }, [trendLines, visibleSeries])
+    const trendSeries = useTrendLineSeries(visibleSeries, trendLines)
 
     const comboChartConfig: ComboChartConfig = {
         yScaleType: primaryYAxis?.scale,
@@ -159,7 +126,7 @@ export function TimeSeriesComboChart<Meta = unknown>({
     return (
         <ChartLegend {...legendProps} legendDataAttr="hog-chart-timeseries-combo-legend">
             <ComboChart
-                series={seriesAfterValueLabels}
+                series={chartSeries}
                 labels={labels}
                 config={comboChartConfig}
                 theme={theme}

@@ -4052,10 +4052,13 @@ class TestExternalDataSource(APIBaseTest):
             )
 
         assert response.status_code == 400
-        assert response.json()["message"] == str(error)
         if expect_capture:
+            # Unexpected errors return the safe generic fallback, never the raw exception string.
+            assert response.json()["message"] == "Could not fetch schemas from source."
             mock_capture_exception.assert_called_once_with(error, {"source_type": "BigQuery", "team_id": self.team.pk})
         else:
+            # Expected per-source errors surface the classifier's friendly copy.
+            assert response.json()["message"] == str(error)
             mock_capture_exception.assert_not_called()
 
     def test_database_schema_stripe_surfaces_per_endpoint_permission_errors(self):
@@ -5248,21 +5251,35 @@ class TestExternalDataSource(APIBaseTest):
         )
 
     @parameterized.expand(
-        [("preserved_integration", {}, 400), ("cleared_integration", {"auth_oauth2_integration_id": ""}, 200)]
+        [
+            ("no_reentry", {}, 400),
+            ("partial_reentry", {"auth_oauth2_client_secret": "cs_new"}, 400),
+            (
+                "full_reentry",
+                {"auth_oauth2_client_secret": "cs_new", "auth_oauth2_refresh_token": "rt_new"},
+                200,
+            ),
+        ]
     )
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
         return_value=(True, None),
     )
-    def test_update_custom_oauth2_integration_source_host_change_requires_reentry(
+    def test_update_custom_oauth2_row_backed_source_host_change_requires_full_reentry(
         self, _name, extra_inputs, expected_status, mock_validate_credentials
     ):
-        # An integration-backed OAuth2 source keeps no secret in job_inputs — the token lives in the
-        # CustomOAuth2Integration row and is injected at sync time keyed by the non-secret
-        # auth_oauth2_integration_id. So a manifest host change that preserves that pointer would still
-        # redirect the injected token to the new host; the gate must treat the preserved pointer like a
-        # preserved secret. Clearing the pointer is an explicit re-config and is allowed.
+        # A row-backed OAuth2 source keeps no secret in job_inputs — the token lives in the bound
+        # CustomOAuth2Integration row and is injected at sync time. A manifest host change would still
+        # redirect the row's injected token, so the gate fires unless the editor re-enters every secret
+        # the row holds (which validation then rotates into the row) — a partial re-entry still
+        # preserves a secret the editor may not know.
         source = self._custom_oauth2_integration_source()
+        CustomOAuth2Integration.objects.for_team(self.team.pk).create(
+            team=self.team,
+            external_data_source=source,
+            config={"client_id": "cid", "token_url": "https://auth.example.com/token"},
+            sensitive_config={"client_secret": "cs", "refresh_token": "rt"},
+        )
         new_manifest = {
             "client": {
                 "base_url": "https://attacker.example.net",
@@ -5312,6 +5329,180 @@ class TestExternalDataSource(APIBaseTest):
         assert response.status_code == status.HTTP_400_BAD_REQUEST
         assert "re-entering your credentials" in str(response.json())
         mock_validate_credentials.assert_not_called()
+
+    def _valid_oauth2_manifest(self) -> dict:
+        return {
+            "client": {
+                "base_url": "https://api.example.com",
+                "auth": {
+                    "type": "oauth2",
+                    "client_id": "cid",
+                    "token_url": "https://auth.example.com/token",
+                    "grant_type": "refresh_token",
+                },
+            },
+            "resources": [
+                {"name": "users", "primary_key": "id", "endpoint": {"path": "/users", "data_selector": "data"}}
+            ],
+        }
+
+    def _mock_oauth2_network(self, mock_token_session, mock_probe_session) -> None:
+        token_response = MagicMock()
+        token_response.status_code = 200
+        token_response.raw.read.return_value = json.dumps(
+            {"access_token": "minted-AT", "expires_in": 3600, "refresh_token": "rotated-RT"}
+        ).encode()
+        mock_token_session.return_value.post.return_value = token_response
+        mock_probe_session.return_value.request.return_value = MagicMock(status_code=200, text="{}")
+
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.trigger_external_data_source_workflow"
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth.make_tracked_session"
+    )
+    def test_create_custom_oauth2_source_adopts_secrets_into_bound_row(
+        self, mock_token_session, mock_probe_session, _mock_trigger
+    ):
+        # The whole flow through the real create endpoint: secrets typed on the source config screen
+        # end up in a CustomOAuth2Integration row bound to the new source, and the persisted
+        # job_inputs carry only the server-written pointer — never the raw secrets. A client-supplied
+        # pointer is dropped, so it cannot pre-seed the adoption.
+        self._mock_oauth2_network(mock_token_session, mock_probe_session)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/",
+            data={
+                "source_type": "Custom",
+                "prefix": "customoauth_",
+                "payload": {
+                    "manifest_json": json.dumps(self._valid_oauth2_manifest()),
+                    "auth_oauth2_client_secret": "cs",
+                    "auth_oauth2_refresh_token": "orig-RT",
+                    "auth_oauth2_integration_id": "22222222-2222-2222-2222-222222222222",
+                    "schemas": [{"name": "users", "should_sync": True, "sync_type": "full_refresh"}],
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        source = ExternalDataSource.objects.get(id=response.json()["id"])
+        row = CustomOAuth2Integration.objects.for_team(self.team.pk).get()
+        assert source.job_inputs["auth_oauth2_integration_id"] == str(row.pk)
+        assert not source.job_inputs.get("auth_oauth2_client_secret")
+        assert not source.job_inputs.get("auth_oauth2_refresh_token")
+        assert row.external_data_source_id == source.pk
+        assert row.created_by_id == self.user.pk
+        assert row.sensitive_config["client_secret"] == "cs"
+        assert row.sensitive_config["refresh_token"] == "rotated-RT"
+
+    @patch(
+        "products.data_warehouse.backend.presentation.views.external_data_source.trigger_external_data_source_workflow"
+    )
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth.make_tracked_session"
+    )
+    def test_setup_custom_oauth2_source_stores_pointer_not_secrets(
+        self, mock_token_session, mock_probe_session, _mock_trigger
+    ):
+        # `setup` validates first and then re-parses the raw payload with the credential gate skipped —
+        # the adoption rewrite must be propagated onto that payload, or the created source would keep
+        # the raw secrets in job_inputs and orphan the row.
+        self._mock_oauth2_network(mock_token_session, mock_probe_session)
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/external_data_sources/setup/",
+            data={
+                "source_type": "Custom",
+                "prefix": "customoauthsetup_",
+                "payload": {
+                    "manifest_json": json.dumps(self._valid_oauth2_manifest()),
+                    "auth_oauth2_client_secret": "cs",
+                    "auth_oauth2_refresh_token": "orig-RT",
+                },
+            },
+        )
+
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        source = ExternalDataSource.objects.get(id=response.json()["id"])
+        row = CustomOAuth2Integration.objects.for_team(self.team.pk).get()
+        assert source.job_inputs["auth_oauth2_integration_id"] == str(row.pk)
+        assert not source.job_inputs.get("auth_oauth2_client_secret")
+        assert not source.job_inputs.get("auth_oauth2_refresh_token")
+        assert row.external_data_source_id == source.pk
+
+    @patch("products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session")
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth.make_tracked_session"
+    )
+    def test_update_reenters_oauth2_secrets_into_bound_row(self, mock_token_session, mock_probe_session):
+        # Reconnect happens on the source config screen: re-entered secrets must land in the bound row
+        # (not in job_inputs) via the update path's re-serialization.
+        self._mock_oauth2_network(mock_token_session, mock_probe_session)
+        manifest = self._valid_oauth2_manifest()
+        source = ExternalDataSource.objects.create(
+            team_id=self.team.pk,
+            source_id=str(uuid.uuid4()),
+            connection_id=str(uuid.uuid4()),
+            destination_id=str(uuid.uuid4()),
+            source_type="Custom",
+            created_by=self.user,
+            prefix="customoauthreconnect_",
+            job_inputs={"manifest_json": json.dumps(manifest)},
+        )
+        row = CustomOAuth2Integration.objects.for_team(self.team.pk).create(
+            team=self.team,
+            created_by=self.user,
+            external_data_source=source,
+            config={"client_id": "cid", "token_url": "https://auth.example.com/token", "grant_type": "refresh_token"},
+            sensitive_config={"client_secret": "old-cs", "refresh_token": "old-rt"},
+        )
+        source.job_inputs["auth_oauth2_integration_id"] = str(row.pk)
+        source.save(update_fields=["job_inputs"])
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {
+                    "manifest_json": json.dumps(manifest),
+                    "auth_oauth2_client_secret": "new-cs",
+                    "auth_oauth2_refresh_token": "new-rt",
+                }
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        source.refresh_from_db()
+        row.refresh_from_db()
+        assert source.job_inputs["auth_oauth2_integration_id"] == str(row.pk)
+        assert not source.job_inputs.get("auth_oauth2_client_secret")
+        assert not source.job_inputs.get("auth_oauth2_refresh_token")
+        assert row.sensitive_config["client_secret"] == "new-cs"
+        # Validation minted with the re-entered token and persisted the provider's rotation.
+        assert mock_token_session.return_value.post.call_args.kwargs["data"]["refresh_token"] == "new-rt"
+        assert row.sensitive_config["refresh_token"] == "rotated-RT"
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",
+        return_value=(True, None),
+    )
+    def test_update_cannot_repoint_oauth2_integration_id(self, _mock_validate_credentials):
+        # The pointer is server-managed: an editor submitting a different integration UUID must have it
+        # pinned back to the stored one, or they could route another row's credentials to this source.
+        source = self._custom_oauth2_integration_source()
+
+        response = self.client.patch(
+            f"/api/environments/{self.team.pk}/external_data_sources/{source.pk}/",
+            data={
+                "job_inputs": {"auth_oauth2_integration_id": "33333333-3333-3333-3333-333333333333"},
+            },
+        )
+
+        assert response.status_code == status.HTTP_200_OK, response.json()
+        source.refresh_from_db()
+        assert source.job_inputs["auth_oauth2_integration_id"] == "11111111-1111-1111-1111-111111111111"
 
     @patch(
         "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.CustomSource.validate_credentials",

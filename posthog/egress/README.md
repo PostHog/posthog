@@ -2,6 +2,7 @@
 
 General-purpose controls for the calls PostHog makes _out_ to third-party APIs.
 GitHub is the first consumer, but the package is built for more.
+A new outbound integration that needs rate-limiting or egress telemetry belongs here as a `<domain>/` incarnation (see [Adding a new egress domain](#adding-a-new-egress-domain)), never hand-rolled around `requests`.
 Three lanes, one per subpackage:
 
 - **`limiter/`** — shared, Redis-backed budgets so every worker process draws from one limit and PostHog stays inside an external API's rate limit, with priority lanes so bulk traffic can't starve critical traffic.
