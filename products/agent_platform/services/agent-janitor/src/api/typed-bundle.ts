@@ -106,6 +106,36 @@ export interface TypedBundleRouterOpts {
 const DEFAULT_DRY_RUN_WALL_MS = 10_000
 const DEFAULT_DRY_RUN_MEMORY_MB = 256
 const DEFAULT_DRY_RUN_MAX_CONCURRENT = 2
+// Extra headroom past the in-sandbox `timeoutMs` before the janitor-side
+// wall clock trips, so the dispatcher's cooperative timeout gets first
+// chance to report the friendlier per-tool error.
+const DRY_RUN_TIMEOUT_GRACE_MS = 1_000
+
+const WALL_CLOCK_EXCEEDED = Symbol('wall_clock_exceeded')
+
+/**
+ * Race a promise against a hard wall clock. The in-sandbox dispatcher
+ * enforces `timeoutMs` cooperatively (a Promise.race inside the sandbox
+ * process), so a tool whose body is a synchronous busy-loop blocks the
+ * sandbox event loop and the invoke never returns — without this outer
+ * race the handler would hang, its `finally` would never run, and the
+ * in-flight slot would stay pinned until the janitor restarts.
+ */
+function raceWallClock<T>(promise: Promise<T>, ms: number): Promise<T | typeof WALL_CLOCK_EXCEEDED> {
+    return new Promise((resolve, reject) => {
+        const timer = setTimeout(() => resolve(WALL_CLOCK_EXCEEDED), ms)
+        promise.then(
+            (value) => {
+                clearTimeout(timer)
+                resolve(value)
+            },
+            (err: unknown) => {
+                clearTimeout(timer)
+                reject(err)
+            }
+        )
+    })
+}
 
 const DryRunBodySchema = z.object({
     /** Synthetic args the tool's `actions.default` is called with. */
@@ -484,15 +514,33 @@ export function buildTypedBundleRouter(opts: TypedBundleRouterOpts): Router {
                 }
                 if (sandbox) {
                     try {
-                        const invokeResult = await sandbox.invoke({
-                            toolId,
-                            action: 'default',
-                            args: parsed.data.args,
-                            timeoutMs: wallMs,
-                        })
-                        body = invokeResult.ok
-                            ? { ok: true, result: invokeResult.result }
-                            : { ok: false, error: invokeResult.error }
+                        const invokeResult = await raceWallClock(
+                            sandbox.invoke({
+                                toolId,
+                                action: 'default',
+                                args: parsed.data.args,
+                                timeoutMs: wallMs,
+                            }),
+                            wallMs + DRY_RUN_TIMEOUT_GRACE_MS
+                        )
+                        if (invokeResult === WALL_CLOCK_EXCEEDED) {
+                            // Same stable code the dispatcher reports for a
+                            // cooperative timeout, so authors see one shape.
+                            // The finally's release destroys the wedged
+                            // sandbox, which also unblocks the abandoned
+                            // invoke promise.
+                            body = {
+                                ok: false,
+                                error: {
+                                    code: 'timeout',
+                                    message: `tool did not return within ${wallMs}ms (janitor-side wall clock)`,
+                                },
+                            }
+                        } else {
+                            body = invokeResult.ok
+                                ? { ok: true, result: invokeResult.result }
+                                : { ok: false, error: invokeResult.error }
+                        }
                     } catch (err) {
                         status = 500
                         body = {

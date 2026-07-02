@@ -46,7 +46,7 @@ function stubStores(): { revisions: RevisionStore; bundles: BundleStore } {
     return { revisions, bundles }
 }
 
-describe('dry-run in-flight cap', () => {
+describe('dry-run sandbox guards', () => {
     it('429s past the cap and frees the slot when the held run finishes', async () => {
         // Pool whose acquire blocks until the test releases it, so requests
         // can be held in flight deterministically.
@@ -91,5 +91,45 @@ describe('dry-run in-flight cap', () => {
         // leaked counter if the finally-decrement is ever dropped).
         const c = await dryRun()
         expect(c.status).toBe(200)
+    })
+
+    // The in-sandbox dispatcher timeout is cooperative — a synchronous
+    // busy-loop tool body means the backend invoke never resolves. The
+    // janitor-side wall clock must return a timeout AND free the slot,
+    // or two such calls wedge dry-run for the whole process.
+    it('times out a hung invoke janitor-side, destroys the sandbox, and frees the slot', async () => {
+        const released = deferred<void>()
+        const sandboxes = {
+            async acquireForSession() {
+                return {
+                    invoke: () => new Promise(() => {}),
+                }
+            },
+            async release() {
+                released.resolve()
+            },
+        } as unknown as SandboxPool
+
+        const app = express()
+        app.use(express.json())
+        app.use(
+            '/revisions/:id',
+            // Tiny wallMs so the test only waits out the fixed grace window.
+            buildTypedBundleRouter({ ...stubStores(), sandboxes, dryRunWallMs: 20, dryRunMaxConcurrent: 1 })
+        )
+        const dryRun = (): request.Test =>
+            request(app).post(`/revisions/${REV_ID}/tools/hang/dry_run`).send({ args: {} })
+
+        const hung = await dryRun()
+        expect(hung.status).toBe(200)
+        expect(hung.body).toMatchObject({ ok: false, error: { code: 'timeout' } })
+        // Release ran despite the invoke never resolving — the wedged
+        // sandbox is destroyed rather than orphaned.
+        await released.promise
+
+        // And the in-flight slot was freed, not pinned forever.
+        const next = await dryRun()
+        expect(next.status).toBe(200)
+        expect(next.body).toMatchObject({ ok: false, error: { code: 'timeout' } })
     })
 })
