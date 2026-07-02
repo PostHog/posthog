@@ -45,6 +45,14 @@ if [ "${USE_GRANIAN:-false}" = "true" ]; then
     # Configurable log-level for Granian
     export GRANIAN_LOG_LEVEL=${GRANIAN_LOG_LEVEL:-warning}
 
+    # Granian's native Prometheus exporter (worker spawns/respawns, blocking
+    # pool utilization and queue depth, connections, GIL wait; granian reads
+    # these env vars itself). Binds loopback-only (granian's default address);
+    # bin/granian_metrics.py merges its output into the port-8001 scrape
+    # response, so no extra scrape target is needed.
+    export GRANIAN_METRICS_ENABLED=${GRANIAN_METRICS_ENABLED:-true}
+    export GRANIAN_METRICS_PORT=${GRANIAN_METRICS_PORT:-9090}
+
     # The container runs as root (Unit needs it for its control socket), but the
     # application must not: Unit drops its app processes to nobody via
     # unit.json.tpl, so this branch drops privileges the same way before exec.

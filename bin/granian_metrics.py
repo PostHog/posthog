@@ -3,15 +3,19 @@
 Metrics HTTP server for Granian multi-process setup.
 
 Serves Prometheus metrics on port 8001 (configurable via PROMETHEUS_METRICS_EXPORT_PORT).
-Aggregates metrics from all Granian worker processes using prometheus_client multiprocess mode.
+Aggregates metrics from all Granian worker processes using prometheus_client multiprocess
+mode, and appends Granian's native runtime metrics (worker spawns/respawns, blocking pool
+utilization and queue depth, connections, GIL wait — available since Granian 2.7.0) so
+everything is scraped from the one port the charts already target.
 Exposes Granian-equivalent metrics to maintain dashboard compatibility with previous Gunicorn setup.
 """
 
 import os
-import time
 import logging
+import urllib.request
+from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
-from prometheus_client import CollectorRegistry, Gauge, multiprocess, start_http_server
+from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, Gauge, generate_latest, multiprocess
 
 logger = logging.getLogger(__name__)
 
@@ -48,22 +52,40 @@ def create_granian_metrics() -> None:
     )
     total_workers.set(workers)
 
-    # In WSGI mode Python concurrency is bounded by the blocking thread pool and
-    # backpressure, not the Rust runtime threads above — export them when
-    # configured so dashboards read the right ceiling. When unset, granian
-    # auto-sizes them and the value is unknown to this process.
-    for env_var, metric_name, help_text in (
-        ("GRANIAN_BACKPRESSURE", "granian_backpressure", "Maximum in-flight requests per worker"),
-        ("GRANIAN_BLOCKING_THREADS", "granian_blocking_threads", "Python blocking threads per worker"),
-    ):
-        value = os.environ.get(env_var)
-        if value is not None:
-            gauge = Gauge(metric_name, help_text, registry=None, multiprocess_mode="max")
-            gauge.set(int(value))
+    # Configured backpressure isn't part of Granian's native metrics, so export it
+    # here when set — it's the WSGI concurrency ceiling dashboards should show.
+    # (Live blocking-thread counts DO come from the native metrics as
+    # granian_blocking_threads — don't shadow that family here.)
+    backpressure = os.environ.get("GRANIAN_BACKPRESSURE")
+    if backpressure is not None:
+        gauge = Gauge(
+            "granian_backpressure",
+            "Maximum in-flight requests per worker",
+            registry=None,
+            multiprocess_mode="max",
+        )
+        gauge.set(int(backpressure))
+
+
+def fetch_native_metrics() -> bytes:
+    """Fetch Granian's own Prometheus exporter output for merging.
+
+    The native exporter (GRANIAN_METRICS_ENABLED) binds loopback-only, so its
+    runtime metrics ride along on this scrape instead of needing a second
+    scrape target. Best-effort: a scrape must not fail while granian boots.
+    """
+    if os.environ.get("GRANIAN_METRICS_ENABLED", "false") != "true":
+        return b""
+    port = os.environ.get("GRANIAN_METRICS_PORT", "9090")
+    try:
+        with urllib.request.urlopen(f"http://127.0.0.1:{port}/metrics", timeout=2) as response:
+            return response.read()
+    except OSError:
+        return b""
 
 
 def main():
-    """Start HTTP server to expose Prometheus metrics from all workers."""
+    """Start HTTP server exposing app multiprocess metrics merged with Granian's native metrics."""
     registry = CollectorRegistry()
     multiprocess.MultiProcessCollector(registry)
 
@@ -73,12 +95,21 @@ def main():
 
     port = int(os.environ.get("PROMETHEUS_METRICS_EXPORT_PORT", 8001))
 
-    logger.info(f"Starting Prometheus metrics server on port {port}")
-    start_http_server(port=port, registry=registry)
+    class MetricsHandler(BaseHTTPRequestHandler):
+        def do_GET(self):
+            body = generate_latest(registry) + fetch_native_metrics()
+            self.send_response(200)
+            self.send_header("Content-Type", CONTENT_TYPE_LATEST)
+            self.send_header("Content-Length", str(len(body)))
+            self.end_headers()
+            self.wfile.write(body)
 
-    # Keep the server running
-    while True:
-        time.sleep(3600)
+        def log_message(self, format, *args):
+            # Per-scrape access logs are noise.
+            pass
+
+    logger.info(f"Starting Prometheus metrics server on port {port}")
+    ThreadingHTTPServer(("0.0.0.0", port), MetricsHandler).serve_forever()
 
 
 if __name__ == "__main__":
