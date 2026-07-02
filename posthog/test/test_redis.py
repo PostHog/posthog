@@ -5,6 +5,10 @@ from unittest.mock import ANY, AsyncMock, patch
 from django.test.testcases import TestCase
 
 import fakeredis
+from redis.exceptions import (
+    ConnectionError as RedisConnectionError,
+    InvalidResponse,
+)
 
 from posthog.redis import TEST_clear_clients, _client_map, _loop_clients, get_async_client, get_client
 
@@ -95,7 +99,32 @@ class TestRedis(TestCase):
                 # Should have been called twice (once per loop)
                 self.assertEqual(mock_from_url.call_count, 2)
                 # Verify the calls were made with correct parameters
-                mock_from_url.assert_any_call("redis://mocked:6379", db=0)
+                args, kwargs = mock_from_url.call_args_list[0]
+                self.assertEqual(args, ("redis://mocked:6379",))
+                self.assertEqual(kwargs["db"], 0)
+                # The async client backs long-lived blocking consumers (e.g. notebooks
+                # XREAD BLOCK), so it must NOT get a read socket_timeout — that would abort
+                # a blocking read early. It still retries on a desynced connection.
+                self.assertNotIn("socket_timeout", kwargs)
+                self.assertEqual(kwargs["health_check_interval"], 30)
+                self.assertIn(InvalidResponse, kwargs["retry_on_error"])
+
+    def test_sync_redis_client_production_config_is_hardened(self):
+        # The InvalidResponse "Protocol Error" desync that motivated this config surfaced on
+        # the sync client: it needs a read timeout so a hung mid-response read can't block
+        # forever, and a retry on InvalidResponse/ConnectionError so a dirty connection is
+        # reset and reconnected instead of propagating the error.
+        with patch("redis.from_url") as mock_from_url:
+            with self.settings(TEST=False, REDIS_URL="redis://mocked:6379"):
+                get_client()
+
+        args, kwargs = mock_from_url.call_args
+        self.assertEqual(args, ("redis://mocked:6379",))
+        self.assertEqual(kwargs["db"], 0)
+        self.assertEqual(kwargs["socket_timeout"], 5)
+        self.assertEqual(kwargs["health_check_interval"], 30)
+        self.assertIn(InvalidResponse, kwargs["retry_on_error"])
+        self.assertIn(RedisConnectionError, kwargs["retry_on_error"])
 
     def test_same_loop_returns_cached_client_test_mode(self):
         """In test mode, calling get_async_client twice returns the same cached instance."""

@@ -8,10 +8,43 @@ from django.conf import settings
 from django.core.exceptions import ImproperlyConfigured
 import redis
 from redis import asyncio as aioredis
-
+from redis.asyncio.retry import Retry as AsyncRetry
+from redis.backoff import ExponentialBackoff
+from redis.exceptions import ConnectionError as RedisConnectionError
+from redis.exceptions import InvalidResponse, TimeoutError as RedisTimeoutError
+from redis.retry import Retry
 
 _client_map: Dict[str, Any] = {}
 _test_async_client_map: Dict[str, Any] = {}  # For test mode, where we don't need per-loop isolation
+
+# Resilience config for the shared Redis clients. Without a retry policy a desynced
+# connection is handed back out dirty — the next command reads leftover bytes from the
+# previous response and the RESP parser raises InvalidResponse ("Protocol Error").
+# Retrying on these errors makes redis-py disconnect the socket (which clears the parser
+# buffer) and reconnect before the retry, so a single transient desync self-heals instead
+# of propagating. health_check_interval also resets connections that went stale while idle.
+_REDIS_SOCKET_TIMEOUT_SECONDS = 5
+_REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS = 5
+_REDIS_HEALTH_CHECK_INTERVAL_SECONDS = 30
+_REDIS_RETRYABLE_ERRORS = [RedisConnectionError, RedisTimeoutError, InvalidResponse]
+
+
+def _resilient_client_kwargs(is_async: bool) -> Dict[str, Any]:
+    retry_cls = AsyncRetry if is_async else Retry
+    kwargs: Dict[str, Any] = {
+        "socket_connect_timeout": _REDIS_SOCKET_CONNECT_TIMEOUT_SECONDS,
+        "health_check_interval": _REDIS_HEALTH_CHECK_INTERVAL_SECONDS,
+        "retry": retry_cls(ExponentialBackoff(cap=1.0, base=0.05), retries=2),
+        # Pass a fresh list each call — redis-py mutates this in place.
+        "retry_on_error": list(_REDIS_RETRYABLE_ERRORS),
+    }
+    # A read socket_timeout bounds hung mid-response reads, but redis-py applies it to
+    # blocking commands too — and the async client backs long-lived blocking consumers
+    # (e.g. notebooks XREAD BLOCK). Only the sync client, whose callers issue quick
+    # commands (or pubsub reads with their own explicit timeout), gets a read timeout.
+    if not is_async:
+        kwargs["socket_timeout"] = _REDIS_SOCKET_TIMEOUT_SECONDS
+    return kwargs
 
 
 def get_client(redis_url: Optional[str] = None) -> redis.Redis:
@@ -28,7 +61,7 @@ def get_client(redis_url: Optional[str] = None) -> redis.Redis:
 
             client: Any = fakeredis.FakeRedis()
         elif redis_url:
-            client = redis.from_url(redis_url, db=0)
+            client = redis.from_url(redis_url, db=0, **_resilient_client_kwargs(is_async=False))
         else:
             client = None
 
@@ -126,7 +159,7 @@ def get_async_client(redis_url: Optional[str] = None):
         # Get (or create) the Redis instance for redis_url
         client = pool_map.get(redis_url)
         if client is None:
-            client = aioredis.from_url(redis_url, db=0)
+            client = aioredis.from_url(redis_url, db=0, **_resilient_client_kwargs(is_async=True))
             pool_map[redis_url] = client
 
         return client
