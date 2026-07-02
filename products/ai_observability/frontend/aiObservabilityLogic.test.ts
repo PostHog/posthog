@@ -407,13 +407,11 @@ describe('aiObservabilitySessionsViewLogic', () => {
         ['no-session-ids', 7],
         ['no-data', 0],
     ])('classifies an empty list as %s when the probe finds %d AI events', async (expectedReason, eventCount) => {
-        // Sessions query drops traces without a session id (GROUP BY session_id); the probe
-        // counts AI events regardless, so it tells the two empty cases apart.
-        querySpy.mockImplementation((node: any) =>
-            String(node?.query ?? '').includes('GROUP BY session_id')
-                ? Promise.resolve({ columns: sessionColumns, results: [] })
-                : Promise.resolve({ results: [[eventCount]] })
-        )
+        // First call is the empty sessions query; the follow-up probe counts AI events in the
+        // window regardless of session id, so it tells the two empty cases apart.
+        querySpy
+            .mockResolvedValueOnce({ columns: sessionColumns, results: [] })
+            .mockResolvedValueOnce({ results: [[eventCount]] })
 
         logic.actions.loadSessions()
         await settleListeners()
