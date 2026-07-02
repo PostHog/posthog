@@ -91,6 +91,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
         commonFilters,
         heatmapFilters,
         canLoadMoreElementStats,
+        loadedElementStatsCount,
         viewportRange,
         rawHeatmapLoading,
         elementStatsLoading,
@@ -270,6 +271,7 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                     type="secondary"
                                     size="small"
                                     onClick={loadMoreElementStats}
+                                    loading={elementStatsLoading}
                                     disabledReason={
                                         canLoadMoreElementStats ? undefined : 'Loaded all elements in this data range.'
                                     }
@@ -309,6 +311,12 @@ export const HeatmapToolbarMenu = (): JSX.Element => {
                                     '!'
                                 )}
                             </div>
+                            {canLoadMoreElementStats && loadedElementStatsCount > 0 && (
+                                <div className="mb-2 text-muted text-xs">
+                                    Showing the top {loadedElementStatsCount.toLocaleString()} element groups by click
+                                    count — load more for the full data range.
+                                </div>
+                            )}
                             <div className="flex flex-col w-full h-full">
                                 {countedElements.length ? (
                                     countedElements.map(({ element, count }, index) => {

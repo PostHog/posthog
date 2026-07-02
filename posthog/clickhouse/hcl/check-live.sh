@@ -52,7 +52,10 @@ drift = [o for o in ops if not ignored(o)]
 for o in drift:
     db = o.get("database") or ""
     obj = (db + "." + o["object"]) if db else o["object"]
-    print("  " + o["kind"] + " " + o["object_type"] + " " + obj)
+    flag = " [UNSAFE]" if o.get("unsafe") else ""
+    print("  " + o["kind"] + " " + o["object_type"] + " " + obj + flag)
+    for line in (o.get("sql") or "").strip().splitlines():
+        print("      " + line)
 sys.exit(1 if drift else 0)
 ' "$@"
 }

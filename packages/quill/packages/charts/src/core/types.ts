@@ -149,8 +149,12 @@ export interface TooltipContext<Meta = unknown> {
         value: number
         color: string
         fraction?: number
-        /** Canvas y-pixel of this series at the hovered x — used for cursor-proximity sorting. */
+        /** Canvas y-pixel of the value-axis anchor for this series (top of bar segment, or dot for lines). */
         yPixel?: number
+        /** Canvas y-pixel of the bottom of this series's bar segment. When both yPixel and
+         *  yPixelBottom are present, hover detection uses range containment rather than
+         *  distance-to-midpoint, giving correct results regardless of segment size differences. */
+        yPixelBottom?: number
     }[]
     /** Pixel position (relative to the chart container) for anchoring the tooltip.
      *  `width` (optional) is the horizontal data-extent centered on `x` — bar charts
@@ -295,6 +299,11 @@ export interface TooltipConfig {
     enabled?: boolean
     /** When true, clicking a data point with multiple series pins the tooltip in place. */
     pinnable?: boolean
+    /** When a pinnable tooltip covers multiple series, resolve the series nearest the cursor and
+     *  fire `onPointClick` for it directly instead of pinning — skips the pin-then-click-a-row
+     *  step. Opt-in per chart; default false keeps the pin-first flow for ambiguous multi-series
+     *  charts (e.g. overlapping trend lines) where a wrong guess is costly. */
+    resolveClickToNearestSeries?: boolean
     /** Where the tooltip anchors. `follow-data` (default) tracks the highest data point at the
      *  hovered x; `top` fixes the tooltip to the top of the chart so it doesn't jump vertically
      *  as the cursor moves between data points; `cursor` tracks the mouse, so the tooltip sits
@@ -402,15 +411,13 @@ export interface LineChartConfig extends ChartConfig {
 }
 
 /** Config for {@link ComboChart}, which draws bar, line, and area series together. `axisOrientation`
- *  is omitted on purpose — bars require a band x-axis, so combo charts are vertical-only. Percent
- *  layout is also unsupported: stack-as-percent is only meaningful when every series participates,
- *  but lines/areas draw unstacked. */
+ *  is omitted on purpose — bars require a band x-axis, so combo charts are vertical-only. */
 export interface ComboChartConfig extends Omit<ChartConfig, 'axisOrientation'> {
     /** Type used for series that don't set {@link Series.type}. Defaults to `'line'`. */
     defaultSeriesType?: SeriesType
     /** Layout applied to *bar* series only — lines and areas never stack or group. Defaults to
-     *  `'stacked'`. */
-    barLayout?: 'stacked' | 'grouped'
+     *  `'stacked'`. `'percent'` stacks bars to 100%; line/area series still plot at raw values. */
+    barLayout?: 'stacked' | 'grouped' | 'percent'
     /** Corner radius for the cap of bar segments. Stacked bars only round the topmost segment. */
     barCornerRadius?: number
     /** Value-axis domain control for the primary axis — omit for data-derived auto-scaling. Used

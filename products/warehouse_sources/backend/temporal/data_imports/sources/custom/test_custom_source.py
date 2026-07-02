@@ -1,11 +1,13 @@
 import io
 import gzip
 import json
+import hashlib
 from datetime import UTC, datetime, timedelta
 from typing import Any, cast
 from urllib.parse import quote
 
 from freezegun import freeze_time
+from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.test import SimpleTestCase, override_settings
@@ -15,6 +17,10 @@ from parameterized import parameterized
 from requests import Response
 from urllib3.response import HTTPResponse
 
+from posthog.models import User
+
+from products.warehouse_sources.backend.models import ExternalDataSource
+from products.warehouse_sources.backend.models.custom_oauth2_integration import CustomOAuth2Integration
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth import (
     OAUTH2_PERMANENT_ERROR_MARKER,
     APIKeyAuth,
@@ -23,6 +29,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.common.res
     OAuth2Auth,
     OAuth2AuthRequestError,
 )
+from products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.config_setup import create_auth
 from products.warehouse_sources.backend.temporal.data_imports.sources.custom.source import (
     MAX_MANIFEST_RESOURCES,
     PREVIEW_MAX_FANOUT_PARENTS,
@@ -35,6 +42,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.custom.sou
     ManifestValidationError,
     PreviewResponseTooLargeError,
     _fanout_chain,
+    _inject_oauth2_integration_secrets,
     _json_type_label,
     _PreviewSession,
     _read_capped_text,
@@ -49,6 +57,15 @@ from products.warehouse_sources.backend.temporal.data_imports.util import NonRet
 from products.warehouse_sources.backend.types import IncrementalFieldType
 
 AUTH_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.common.rest_source.auth"
+SOURCE_MODULE = "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.make_tracked_session"
+
+
+def _token_response(status_code: int = 200, payload: dict[str, Any] | None = None) -> MagicMock:
+    response = MagicMock()
+    response.status_code = status_code
+    # The token exchange reads a capped `response.raw.read(...)` then json.loads — seed the raw body.
+    response.raw.read.return_value = json.dumps(payload if payload is not None else {}).encode()
+    return response
 
 
 def validate_manifest(manifest: Any) -> None:
@@ -461,6 +478,516 @@ class TestCustomSourceAssembleManifest(SimpleTestCase):
         auth = source._assemble_manifest(config)["client"]["auth"]
         assert "client_secret" not in auth
         assert "refresh_token" not in auth
+
+    def test_oauth2_skips_static_secrets_when_integration_backed(self):
+        # When the source points at a CustomOAuth2Integration, the static job_inputs secrets must NOT be
+        # injected here — the row is the source of truth and supplies them at sync time. Leaking the
+        # static ones would let a stale/duplicate secret override the model's live credentials.
+        manifest = _minimal_manifest()
+        manifest["client"]["auth"] = {
+            "type": "oauth2",
+            "client_id": "cid",
+            "token_url": "https://auth.example.com/token",
+        }
+        source = CustomSource()
+        config = CustomSourceConfig(
+            manifest_json=json.dumps(manifest),
+            auth_oauth2_client_secret="cs_secret",
+            auth_oauth2_refresh_token="rt_secret",
+            auth_oauth2_integration_id="11111111-1111-1111-1111-111111111111",
+        )
+        auth = source._assemble_manifest(config)["client"]["auth"]
+        assert "client_secret" not in auth
+        assert "refresh_token" not in auth
+
+
+class TestCustomSourceOAuth2IntegrationWiring(BaseTest):
+    def _make_integration(
+        self, *, external_data_source: ExternalDataSource | None = None, created_by=None, **secret_overrides
+    ) -> CustomOAuth2Integration:
+        return CustomOAuth2Integration.objects.for_team(self.team.pk).create(
+            team=self.team,
+            external_data_source=external_data_source,
+            created_by=created_by,
+            config={"token_url": "https://auth.example.com/token", "client_id": "cid", "grant_type": "refresh_token"},
+            sensitive_config={"client_secret": "cs", "refresh_token": "orig-RT", **secret_overrides},
+        )
+
+    def _make_source(self, name: str = "a") -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=f"sid-{name}",
+            connection_id=f"cid-{name}",
+            status="Completed",
+            source_type="Custom",
+        )
+
+    def _oauth2_manifest(self) -> dict:
+        manifest = _minimal_manifest()
+        manifest["client"]["auth"] = {
+            "type": "oauth2",
+            "client_id": "cid",
+            "token_url": "https://auth.example.com/token",
+            "grant_type": "refresh_token",
+        }
+        return manifest
+
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_injects_static_bearer_and_writes_back_rotation(self, mock_session):
+        # The Calendly path end-to-end at the wiring seam: minting up front persists the rotated
+        # single-use refresh token, and the manifest is seeded with a static bearer (the minted access
+        # token, manages_own_token=False) — never the refresh_token/client_secret — so the engine
+        # structurally can't re-mint and burn an unpersisted rotation.
+        mock_session.return_value.post.return_value = _token_response(
+            payload={"access_token": "minted-AT", "expires_in": 3600, "refresh_token": "rotated-RT"}
+        )
+        integration = self._make_integration()
+        manifest = self._oauth2_manifest()
+
+        _inject_oauth2_integration_secrets(manifest, str(integration.pk), self.team.pk)
+
+        auth = manifest["client"]["auth"]
+        assert auth["access_token"] == "minted-AT"
+        assert auth["manages_own_token"] is False
+        # No minting material reaches the engine.
+        assert "refresh_token" not in auth
+        assert "client_secret" not in auth
+        # The rotation was persisted, so the next sync reads the rotated token from the row.
+        fresh = CustomOAuth2Integration.objects.for_team(self.team.pk).get(pk=integration.pk)
+        assert fresh.sensitive_config["refresh_token"] == "rotated-RT"
+
+    @freeze_time("2025-01-01T00:00:00Z")
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_reuses_cached_token_without_minting(self, mock_session):
+        # A still-valid cached token means no mint at all — the manifest is seeded straight from the row.
+        future = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
+        integration = self._make_integration(access_token="cached-AT", token_expiry=future)
+        manifest = self._oauth2_manifest()
+
+        _inject_oauth2_integration_secrets(manifest, str(integration.pk), self.team.pk)
+
+        mock_session.return_value.post.assert_not_called()
+        auth = manifest["client"]["auth"]
+        assert auth["access_token"] == "cached-AT"
+        assert auth["manages_own_token"] is False
+        # No refresh material is seeded — the engine treats it as a static bearer and never mints.
+        assert "refresh_token" not in auth
+
+    @freeze_time("2025-01-01T00:00:00Z")
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_post_injection_manifest_builds_static_bearer_that_never_mints(self, mock_session):
+        # End-to-end seam: feed the injected client.auth through the engine's own auth construction
+        # (`create_auth` -> `auth_class(**exclude_keys(...))`) and drive a request. manages_own_token=False
+        # must survive the unpacking and short-circuit minting — the token carries no expiry, so without
+        # the flag the engine would treat it as expired and mint (burning an unpersisted rotation).
+        # A key/kwarg rename would also crash construction here. No token-endpoint POST may happen.
+        future = (datetime.now(UTC) + timedelta(hours=1)).isoformat()
+        integration = self._make_integration(access_token="cached-AT", token_expiry=future)
+        manifest = self._oauth2_manifest()
+
+        _inject_oauth2_integration_secrets(manifest, str(integration.pk), self.team.pk)
+
+        auth = create_auth(manifest["client"]["auth"])
+        assert isinstance(auth, OAuth2Auth)
+        assert auth.manages_own_token is False
+        request = MagicMock()
+        request.headers = {}
+        auth(request)
+        assert request.headers["Authorization"] == "Bearer cached-AT"
+        mock_session.return_value.post.assert_not_called()
+
+    @patch(SOURCE_MODULE)
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_validate_credentials_mints_through_integration(self, mock_token_session, mock_probe_session):
+        # The bug: an integration-backed OAuth2 source has no refresh token in job_inputs, so
+        # validate_credentials used to build a refresh_token-grant OAuth2Auth with no token and fail the
+        # pre-mint with "A refresh_token is required". The fix seeds the manifest from the row first, so
+        # validation mints through the integration and the data probe reuses the seeded token.
+        mock_token_session.return_value.post.return_value = _token_response(
+            payload={"access_token": "minted-AT", "expires_in": 3600}
+        )
+        mock_probe_session.return_value.request.return_value = MagicMock(status_code=200, text="{}")
+        integration = self._make_integration()
+        config = CustomSourceConfig(
+            manifest_json=json.dumps(self._oauth2_manifest()),
+            auth_oauth2_integration_id=str(integration.pk),
+        )
+
+        ok, err = CustomSource().validate_credentials(config, team_id=self.team.pk)
+
+        assert ok, err
+        assert "refresh_token is required" not in (err or "")
+
+    @patch(SOURCE_MODULE)
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_validate_credentials_does_not_re_mint_for_integration_backed(self, mock_token_session, mock_probe_session):
+        # The rotation-without-writeback guard: for an integration-backed source the token is minted once
+        # through the row (which persists the rotated single-use refresh token). The data probe must reuse
+        # that seeded token and NOT mint a second time — a second mint would rotate the refresh token
+        # without writing it back, orphaning the row on a consumed token. Assert exactly one token POST,
+        # and that the stored refresh token is the one the integration path rotated to (not double-rotated).
+        mock_token_session.return_value.post.return_value = _token_response(
+            payload={"access_token": "minted-AT", "expires_in": 3600, "refresh_token": "rotated-RT"}
+        )
+        mock_probe_session.return_value.request.return_value = MagicMock(status_code=200, text="{}")
+        integration = self._make_integration()
+        config = CustomSourceConfig(
+            manifest_json=json.dumps(self._oauth2_manifest()),
+            auth_oauth2_integration_id=str(integration.pk),
+        )
+
+        ok, err = CustomSource().validate_credentials(config, team_id=self.team.pk)
+
+        assert ok, err
+        assert mock_token_session.return_value.post.call_count == 1
+        fresh = CustomOAuth2Integration.objects.for_team(self.team.pk).get(pk=integration.pk)
+        assert fresh.sensitive_config["refresh_token"] == "rotated-RT"
+
+    def test_validate_credentials_missing_integration_returns_clear_error(self):
+        # A dangling / foreign auth_oauth2_integration_id must surface a clear message, not crash.
+        config = CustomSourceConfig(
+            manifest_json=json.dumps(self._oauth2_manifest()),
+            auth_oauth2_integration_id="11111111-1111-1111-1111-111111111111",
+        )
+
+        ok, err = CustomSource().validate_credentials(config, team_id=self.team.pk)
+
+        assert not ok
+        assert "no longer available" in (err or "")
+
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_validate_credentials_on_update_rejects_another_sources_integration(self, mock_session):
+        # Updating source A must not validate with source B's integration UUID — the probe would otherwise
+        # mint and send B's token to the (attacker-supplied) manifest host. Rejected before any mint.
+        owner = self._make_source("owner")
+        attacker = self._make_source("attacker")
+        integration = self._make_integration(external_data_source=owner)
+        config = CustomSourceConfig(
+            manifest_json=json.dumps(self._oauth2_manifest()),
+            auth_oauth2_integration_id=str(integration.pk),
+        )
+
+        ok, err = CustomSource().validate_credentials(config, team_id=self.team.pk, source_id=str(attacker.pk))
+
+        assert not ok
+        assert "no longer available" in (err or "")
+        mock_session.return_value.post.assert_not_called()
+
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_validate_credentials_on_create_rejects_bound_integration(self, mock_session):
+        # Create/setup validation has no source yet, so an already-bound integration (another source's) is
+        # rejected before its token is minted.
+        owner = self._make_source("owner")
+        integration = self._make_integration(external_data_source=owner)
+        config = CustomSourceConfig(
+            manifest_json=json.dumps(self._oauth2_manifest()),
+            auth_oauth2_integration_id=str(integration.pk),
+        )
+
+        ok, err = CustomSource().validate_credentials(config, team_id=self.team.pk)
+
+        assert not ok
+        assert "no longer available" in (err or "")
+        mock_session.return_value.post.assert_not_called()
+
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_sync_rejects_integration_bound_to_another_source(self, mock_session):
+        # The cross-source theft guard: at sync time a source cannot use an integration that belongs to a
+        # different source, even within the same team — no token is minted and the lookup fails closed.
+        owner = self._make_source("owner")
+        attacker = self._make_source("attacker")
+        integration = self._make_integration(external_data_source=owner)
+
+        with self.assertRaises(CustomOAuth2Integration.DoesNotExist):
+            _inject_oauth2_integration_secrets(
+                self._oauth2_manifest(), str(integration.pk), self.team.pk, source_id=str(attacker.pk)
+            )
+        mock_session.return_value.post.assert_not_called()
+
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_sync_binds_unbound_integration_to_source_on_first_use(self, mock_session):
+        # Trust-on-first-use: the first sync claims an unbound integration for its source, so no second
+        # source can adopt it afterwards (the reject test above then applies).
+        mock_session.return_value.post.return_value = _token_response(
+            payload={"access_token": "minted-AT", "expires_in": 3600}
+        )
+        source = self._make_source()
+        integration = self._make_integration()  # unbound
+        manifest = self._oauth2_manifest()
+
+        _inject_oauth2_integration_secrets(manifest, str(integration.pk), self.team.pk, source_id=str(source.pk))
+
+        fresh = CustomOAuth2Integration.objects.for_team(self.team.pk).get(pk=integration.pk)
+        assert str(fresh.external_data_source_id) == str(source.pk)
+        assert manifest["client"]["auth"]["access_token"] == "minted-AT"
+
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_sync_allows_integration_bound_to_its_own_source(self, mock_session):
+        mock_session.return_value.post.return_value = _token_response(
+            payload={"access_token": "minted-AT", "expires_in": 3600}
+        )
+        source = self._make_source()
+        integration = self._make_integration(external_data_source=source)
+        manifest = self._oauth2_manifest()
+
+        _inject_oauth2_integration_secrets(manifest, str(integration.pk), self.team.pk, source_id=str(source.pk))
+
+        assert manifest["client"]["auth"]["access_token"] == "minted-AT"
+
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_preview_forbids_integration_bound_to_a_source(self, mock_session):
+        # Preview runs before a source exists, so an already-bound integration (another source's) must be
+        # rejected — otherwise a preview could read that source's data with its tokens.
+        owner = self._make_source("owner")
+        integration = self._make_integration(external_data_source=owner)
+
+        with self.assertRaises(CustomOAuth2Integration.DoesNotExist):
+            _inject_oauth2_integration_secrets(
+                self._oauth2_manifest(), str(integration.pk), self.team.pk, forbid_bound=True
+            )
+        mock_session.return_value.post.assert_not_called()
+
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_inject_rejects_unbound_integration_owned_by_another_user(self, mock_session):
+        # An unbound integration is a floating credential: in a request context (owner_user_id set) only its
+        # creator may consume it, so a teammate can't adopt someone else's not-yet-bound integration UUID.
+        integration = self._make_integration(created_by=self.user)  # unbound, created by self.user
+        other_user = User.objects.create_and_join(self.organization, "other@example.com", "pw12345678")
+
+        with self.assertRaises(CustomOAuth2Integration.DoesNotExist):
+            _inject_oauth2_integration_secrets(
+                self._oauth2_manifest(),
+                str(integration.pk),
+                self.team.pk,
+                forbid_bound=True,
+                owner_user_id=other_user.pk,
+            )
+        mock_session.return_value.post.assert_not_called()
+
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_inject_allows_unbound_integration_owned_by_requester(self, mock_session):
+        mock_session.return_value.post.return_value = _token_response(
+            payload={"access_token": "minted-AT", "expires_in": 3600}
+        )
+        integration = self._make_integration(created_by=self.user)
+        manifest = self._oauth2_manifest()
+
+        _inject_oauth2_integration_secrets(
+            manifest, str(integration.pk), self.team.pk, forbid_bound=True, owner_user_id=self.user.pk
+        )
+
+        assert manifest["client"]["auth"]["access_token"] == "minted-AT"
+
+
+class TestCustomSourceOAuth2SecretAdoption(BaseTest):
+    def _oauth2_manifest(self, token_url: str = "https://auth.example.com/token") -> dict:
+        manifest = _minimal_manifest()
+        manifest["client"]["auth"] = {
+            "type": "oauth2",
+            "client_id": "cid",
+            "token_url": token_url,
+            "grant_type": "refresh_token",
+        }
+        return manifest
+
+    def _static_config(self, **overrides) -> CustomSourceConfig:
+        params = {
+            "manifest_json": json.dumps(self._oauth2_manifest()),
+            "auth_oauth2_client_secret": "cs",
+            "auth_oauth2_refresh_token": "orig-RT",
+            **overrides,
+        }
+        return CustomSourceConfig(**params)
+
+    def _make_source(self, name: str = "a") -> ExternalDataSource:
+        return ExternalDataSource.objects.create(
+            team=self.team,
+            source_id=f"sid-{name}",
+            connection_id=f"cid-{name}",
+            status="Completed",
+            source_type="Custom",
+        )
+
+    def _mock_mint(self, mock_token_session, mock_probe_session, rotated: str = "rotated-RT") -> None:
+        mock_token_session.return_value.post.return_value = _token_response(
+            payload={"access_token": "minted-AT", "expires_in": 3600, "refresh_token": rotated}
+        )
+        mock_probe_session.return_value.request.return_value = MagicMock(status_code=200, text="{}")
+
+    @patch(SOURCE_MODULE)
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_create_validation_adopts_static_secrets_into_row(self, mock_token_session, mock_probe_session):
+        # The current-UI flow: static secrets typed on the source config screen are adopted into a
+        # server-managed row during create validation, the config is rewritten to point at it (so the
+        # persisted job_inputs never carry the raw secrets), and the mint happens through the row so
+        # the rotated single-use refresh token is durably persisted.
+        self._mock_mint(mock_token_session, mock_probe_session)
+        config = self._static_config()
+
+        ok, err = CustomSource().validate_credentials(config, team_id=self.team.pk, owner_user_id=self.user.pk)
+
+        assert ok, err
+        row = CustomOAuth2Integration.objects.for_team(self.team.pk).get()
+        assert config.auth_oauth2_integration_id == str(row.pk)
+        assert config.auth_oauth2_client_secret is None
+        assert config.auth_oauth2_refresh_token is None
+        assert row.external_data_source_id is None
+        assert row.created_by_id == self.user.pk
+        assert row.config["client_id"] == "cid"
+        assert row.config["token_url"] == "https://auth.example.com/token"
+        assert row.sensitive_config["client_secret"] == "cs"
+        assert row.sensitive_config["refresh_token"] == "rotated-RT"
+
+    @patch(SOURCE_MODULE)
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_retry_reuses_unbound_row_and_mints_from_rotated_token(self, mock_token_session, mock_probe_session):
+        # Preview-then-create (and failed-create retry) continuity for rotating providers: the second
+        # validation re-submits the same original refresh token, which the provider already consumed.
+        # It must match the caller's unbound row by client config and mint from the row's rotated
+        # descendant — a fresh row (or a fingerprint miss overwriting the rotation) would mint from the
+        # consumed original and fail with invalid_grant. The second call runs past the first token's
+        # expiry, or the row would just reuse the still-valid cached access token without minting.
+        self._mock_mint(mock_token_session, mock_probe_session, rotated="rotated-RT-1")
+        first_config = self._static_config()
+        with freeze_time("2025-01-01T00:00:00Z"):
+            ok, err = CustomSource().validate_credentials(
+                first_config, team_id=self.team.pk, owner_user_id=self.user.pk
+            )
+        assert ok, err
+
+        self._mock_mint(mock_token_session, mock_probe_session, rotated="rotated-RT-2")
+        second_config = self._static_config()
+        with freeze_time("2025-01-01T02:00:00Z"):
+            ok, err = CustomSource().validate_credentials(
+                second_config, team_id=self.team.pk, owner_user_id=self.user.pk
+            )
+
+        assert ok, err
+        assert second_config.auth_oauth2_integration_id == first_config.auth_oauth2_integration_id
+        row = CustomOAuth2Integration.objects.for_team(self.team.pk).get()
+        assert mock_token_session.return_value.post.call_args.kwargs["data"]["refresh_token"] == "rotated-RT-1"
+        assert row.sensitive_config["refresh_token"] == "rotated-RT-2"
+
+    @patch(SOURCE_MODULE)
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_newly_supplied_refresh_token_replaces_stored_one(self, mock_token_session, mock_probe_session):
+        # A deliberately different refresh token (the recovery for a revoked grant) must replace the
+        # stored rotation lineage — the fingerprint keep-rule only applies to a re-typed original.
+        self._mock_mint(mock_token_session, mock_probe_session, rotated="rotated-RT-1")
+        ok, err = CustomSource().validate_credentials(
+            self._static_config(), team_id=self.team.pk, owner_user_id=self.user.pk
+        )
+        assert ok, err
+
+        self._mock_mint(mock_token_session, mock_probe_session, rotated="rotated-RT-2")
+        config = self._static_config(auth_oauth2_refresh_token="brand-new-RT")
+        ok, err = CustomSource().validate_credentials(config, team_id=self.team.pk, owner_user_id=self.user.pk)
+
+        assert ok, err
+        assert mock_token_session.return_value.post.call_args.kwargs["data"]["refresh_token"] == "brand-new-RT"
+        assert CustomOAuth2Integration.objects.for_team(self.team.pk).count() == 1
+
+    @patch(SOURCE_MODULE)
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_adoption_never_reuses_another_users_unbound_row(self, mock_token_session, mock_probe_session):
+        # An unbound row is a floating credential scoped to its creator: a teammate submitting the same
+        # client config must get their own row, not adopt (and mint through) someone else's.
+        self._mock_mint(mock_token_session, mock_probe_session)
+        other_user = User.objects.create_and_join(self.organization, "other-adopter@posthog.com", None)
+        foreign = CustomOAuth2Integration.objects.for_team(self.team.pk).create(
+            team=self.team,
+            created_by=other_user,
+            config={"client_id": "cid", "token_url": "https://auth.example.com/token", "grant_type": "refresh_token"},
+            sensitive_config={"client_secret": "foreign-cs", "refresh_token": "foreign-RT"},
+        )
+        config = self._static_config()
+
+        ok, err = CustomSource().validate_credentials(config, team_id=self.team.pk, owner_user_id=self.user.pk)
+
+        assert ok, err
+        assert config.auth_oauth2_integration_id != str(foreign.pk)
+        foreign.refresh_from_db()
+        assert foreign.sensitive_config["refresh_token"] == "foreign-RT"
+        assert CustomOAuth2Integration.objects.for_team(self.team.pk).count() == 2
+
+    @patch(SOURCE_MODULE)
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_token_url_change_never_mints_the_rotated_token(self, mock_token_session, mock_probe_session):
+        # An editor re-typing the consumed original token while repointing token_url must not get the
+        # live rotated descendant — a credential they never possessed — minted against the new host.
+        # The fingerprint keep-rule is suspended on a config change, so the mint carries only the
+        # token the editor typed.
+        self._mock_mint(mock_token_session, mock_probe_session)
+        source = self._make_source("repointed")
+        row = CustomOAuth2Integration.objects.for_team(self.team.pk).create(
+            team=self.team,
+            created_by=self.user,
+            external_data_source=source,
+            config={"client_id": "cid", "token_url": "https://auth.example.com/token", "grant_type": "refresh_token"},
+            sensitive_config={
+                "client_secret": "cs",
+                "refresh_token": "live-rotated-RT",
+                "refresh_token_fingerprint": hashlib.sha256(b"orig-RT").hexdigest(),
+            },
+        )
+        config = self._static_config(
+            manifest_json=json.dumps(self._oauth2_manifest(token_url="https://editor-controlled.example.net/token")),
+            auth_oauth2_integration_id=str(row.pk),
+        )
+
+        ok, err = CustomSource().validate_credentials(
+            config, team_id=self.team.pk, source_id=str(source.pk), owner_user_id=self.user.pk
+        )
+
+        assert ok, err
+        minted_with = mock_token_session.return_value.post.call_args
+        assert minted_with.args[0] == "https://editor-controlled.example.net/token"
+        assert minted_with.kwargs["data"]["refresh_token"] == "orig-RT"
+        assert "live-rotated-RT" not in str(minted_with)
+
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_foreign_pointer_is_rejected_before_any_row_mutation(self, mock_session):
+        # Adoption refreshes a linked row's config from the submitted manifest — so authorization must
+        # come first, or a create-seam caller pointing at another source's row could rewrite its
+        # token_url (redirecting the next mint, with the stored client_secret, to an attacker host).
+        victim_source = self._make_source("victim")
+        victim_row = CustomOAuth2Integration.objects.for_team(self.team.pk).create(
+            team=self.team,
+            external_data_source=victim_source,
+            config={"client_id": "cid", "token_url": "https://auth.example.com/token", "grant_type": "refresh_token"},
+            sensitive_config={"client_secret": "cs", "refresh_token": "rt"},
+        )
+        config = self._static_config(
+            manifest_json=json.dumps(self._oauth2_manifest(token_url="https://attacker.example.net/token")),
+            auth_oauth2_integration_id=str(victim_row.pk),
+        )
+
+        ok, err = CustomSource().validate_credentials(config, team_id=self.team.pk, owner_user_id=self.user.pk)
+
+        assert not ok
+        victim_row.refresh_from_db()
+        assert victim_row.config["token_url"] == "https://auth.example.com/token"
+        assert victim_row.sensitive_config["client_secret"] == "cs"
+        mock_session.return_value.post.assert_not_called()
+
+    @patch(SOURCE_MODULE)
+    @patch(f"{AUTH_MODULE}.make_tracked_session")
+    def test_update_with_dangling_pointer_recovers_via_reentered_secrets(self, mock_token_session, mock_probe_session):
+        # A source whose row was deleted must not be stuck on the dead pointer forever: re-entering the
+        # secrets on the config screen adopts them into a fresh row bound to the source.
+        self._mock_mint(mock_token_session, mock_probe_session)
+        source = self._make_source("orphaned")
+        config = self._static_config(auth_oauth2_integration_id="11111111-1111-1111-1111-111111111111")
+
+        ok, err = CustomSource().validate_credentials(
+            config, team_id=self.team.pk, source_id=str(source.pk), owner_user_id=self.user.pk
+        )
+
+        assert ok, err
+        row = CustomOAuth2Integration.objects.for_team(self.team.pk).get()
+        assert config.auth_oauth2_integration_id == str(row.pk)
+        assert str(row.external_data_source_id) == str(source.pk)
+        assert row.sensitive_config["client_secret"] == "cs"
 
 
 class TestCustomSourceGetSchemas(SimpleTestCase):
@@ -1044,6 +1571,29 @@ class TestCustomSourceSourceForPipeline(SimpleTestCase):
         source = CustomSource()
         config = CustomSourceConfig(manifest_json=json.dumps(_minimal_manifest()))
         inputs = MagicMock(team_id=999, schema_name="nonexistent")
+        with self.assertRaises(NonRetryableException):
+            source.source_for_pipeline(config, inputs)
+
+    @patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.custom.source.get_custom_oauth2_integration"
+    )
+    def test_missing_oauth2_integration_raises_non_retryable(self, mock_get_integration):
+        # A dangling auth_oauth2_integration_id (deleted row / wrong team) raises DoesNotExist at the
+        # sync seam. It's neither a ValueError nor a message the substring classifier matches, so without
+        # explicit handling it would retry until the activity budget is exhausted — assert it fails fast.
+        mock_get_integration.side_effect = CustomOAuth2Integration.DoesNotExist
+        manifest = _minimal_manifest()
+        manifest["client"]["auth"] = {
+            "type": "oauth2",
+            "client_id": "cid",
+            "token_url": "https://auth.example.com/token",
+        }
+        source = CustomSource()
+        config = CustomSourceConfig(
+            manifest_json=json.dumps(manifest),
+            auth_oauth2_integration_id="11111111-1111-1111-1111-111111111111",
+        )
+        inputs = MagicMock(team_id=999, schema_name="users")
         with self.assertRaises(NonRetryableException):
             source.source_for_pipeline(config, inputs)
 
