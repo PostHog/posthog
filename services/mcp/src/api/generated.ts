@@ -29525,52 +29525,6 @@ export namespace Schemas {
       bucket_overrides?: MaterializationPreviewRequestBucketOverrides;
     }
 
-    export interface PropertyDefinition {
-      readonly id: string;
-      readonly name: string;
-      readonly property_type: PropertyDefinitionTypeEnum | null;
-      readonly type: PropertyDefinitionTypeEnum;
-    }
-
-    /**
-     * * `PENDING` - Pending
-     * * `BACKFILL` - Backfill
-     * * `READY` - Ready
-     * * `ERROR` - Error
-     */
-    export type MaterializedColumnSlotStateEnum = typeof MaterializedColumnSlotStateEnum[keyof typeof MaterializedColumnSlotStateEnum];
-
-
-    export const MaterializedColumnSlotStateEnum = {
-      Pending: 'PENDING',
-      Backfill: 'BACKFILL',
-      Ready: 'READY',
-      Error: 'ERROR',
-    } as const;
-
-    export interface MaterializedColumnSlot {
-      readonly id: string;
-      team: number;
-      property_definition: string;
-      readonly property_definition_details: PropertyDefinition;
-      /**
-         * @minimum 0
-         * @maximum 32767
-         * @nullable
-         */
-      slot_index?: number | null;
-      state?: MaterializedColumnSlotStateEnum;
-      /**
-         * @maxLength 400
-         * @nullable
-         */
-      backfill_temporal_run_id?: string | null;
-      /** @nullable */
-      error_message?: string | null;
-      readonly created_at: string;
-      readonly updated_at: string;
-    }
-
     /**
      * * `pending` - Pending
      * * `completed` - Completed
@@ -31919,15 +31873,6 @@ export namespace Schemas {
       results: MCPToolCall[];
       /** Whether more results exist beyond this page; the client fetches the next page with a larger offset. */
       has_next: boolean;
-    }
-
-    export interface PaginatedMaterializedColumnSlotList {
-      count: number;
-      /** @nullable */
-      next?: string | null;
-      /** @nullable */
-      previous?: string | null;
-      results: MaterializedColumnSlot[];
     }
 
     export interface PaginatedMaxCoreMemoryList {
@@ -38646,29 +38591,6 @@ export namespace Schemas {
       display_name?: string;
       description?: string;
       is_enabled?: boolean;
-    }
-
-    export interface PatchedMaterializedColumnSlot {
-      readonly id?: string;
-      team?: number;
-      property_definition?: string;
-      readonly property_definition_details?: PropertyDefinition;
-      /**
-         * @minimum 0
-         * @maximum 32767
-         * @nullable
-         */
-      slot_index?: number | null;
-      state?: MaterializedColumnSlotStateEnum;
-      /**
-         * @maxLength 400
-         * @nullable
-         */
-      backfill_temporal_run_id?: string | null;
-      /** @nullable */
-      error_message?: string | null;
-      readonly created_at?: string;
-      readonly updated_at?: string;
     }
 
     export interface PatchedMaxCoreMemory {
@@ -58325,17 +58247,6 @@ export namespace Schemas {
     date_to?: string | null;
     };
 
-    export type EnvironmentsMaterializedColumnSlotsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
-    };
-
     export type EnvironmentsMaxHandsFreeTokenCreate200 = { [key: string]: unknown };
 
     export type EnvironmentsMaxToolsCreateAndQueryInsightCreate200 = { [key: string]: unknown };
@@ -65018,17 +64929,6 @@ export namespace Schemas {
      * @nullable
      */
     date_to?: string | null;
-    };
-
-    export type MaterializedColumnSlotsListParams = {
-    /**
-     * Number of results to return per page.
-     */
-    limit?: number;
-    /**
-     * The initial index from which to return the results.
-     */
-    offset?: number;
     };
 
     export type MaxHandsFreeTokenCreate200 = { [key: string]: unknown };
