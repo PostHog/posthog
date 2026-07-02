@@ -110,6 +110,16 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # grant the missing permission (e.g. the BigQuery Read Session User role). Matched on the
             # stable permission name rather than the volatile project id.
             "bigquery.readsessions.create": "BigQuery denied access to the Storage Read API: your service account is missing the bigquery.readsessions.create permission. Please grant it (for example via the BigQuery Read Session User role) on the project you're syncing, then reconnect the source.",
+            # Raised while reading rows from a Storage Read API stream (see `get_rows` in `bigquery.py`)
+            # when the service account can create a read session but lacks `bigquery.readsessions.getData`,
+            # the separate permission required to pull data from the session's streams. The
+            # google.api_core PermissionDenied stringifies as "there was an error operating on
+            # 'projects/<id>/.../streams/<id>': the user does not have 'bigquery.readsessions.getData'
+            # permission for '...'", so neither the "Access Denied:"/403 keys nor the readsessions.create
+            # key cover this wording, and it retries forever. Same IAM config fix as create — the BigQuery
+            # Read Session User role grants both. Matched on the stable permission name rather than the
+            # volatile session/stream ids.
+            "bigquery.readsessions.getData": "BigQuery denied access to the Storage Read API: your service account is missing the bigquery.readsessions.getData permission needed to read data from a read session. Please grant it (for example via the BigQuery Read Session User role) on the project you're syncing, then reconnect the source.",
             # Raised from query jobs when the configured dataset/table doesn't exist in the location
             # we query — the dataset was deleted or renamed, or it lives in a different region than the
             # one we run against. The google exception stringifies as "404 Not found: Dataset ... was

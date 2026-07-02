@@ -855,6 +855,18 @@ def test_bigquery_build_pipeline_trims_whitespace_in_destination_table():
                 "permission for 'projects/some-project'"
             )
         ),
+        # Storage Read API stream-read denial — the session can be created but the account lacks
+        # `bigquery.readsessions.getData`. `str(PermissionDenied)` is "there was an error operating
+        # on '.../streams/...': the user does not have 'bigquery.readsessions.getData' permission for
+        # '...'", which neither the "Access Denied:" / "403 request failed" nor the readsessions.create
+        # keys cover.
+        str(
+            PermissionDenied(
+                "there was an error operating on 'projects/some-project/locations/us/sessions/sess/"
+                "streams/strm': the user does not have 'bigquery.readsessions.getData' permission for "
+                "'projects/some-project/locations/us/sessions/sess/streams/strm'"
+            )
+        ),
     ],
 )
 def test_non_retryable_errors_match_permission_denied(observed_error):
