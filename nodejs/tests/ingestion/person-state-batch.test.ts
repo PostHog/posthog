@@ -24,7 +24,6 @@ import { PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { defaultRetryConfig } from '~/common/utils/retries'
 import { UUIDT } from '~/common/utils/utils'
-import { uuidFromDistinctId } from '~/ingestion/common/person-uuid'
 import { BatchWritingPersonsStore } from '~/ingestion/common/persons/batch-writing-person-store'
 import { PersonOutputs } from '~/ingestion/common/persons/person-context'
 import { PersonContext } from '~/ingestion/common/persons/person-context'
@@ -36,12 +35,12 @@ import {
     createDefaultSyncMergeMode,
 } from '~/ingestion/common/persons/person-merge-types'
 import { PersonPropertyService } from '~/ingestion/common/persons/person-property-service'
+import { uuidFromDistinctId } from '~/ingestion/common/persons/person-uuid'
 import { BatchBoundPersonsStore, PersonsStoreForBatch } from '~/ingestion/common/persons/persons-store-for-batch'
 import { PipelineResultType, isDlqResult, isOkResult, isRedirectResult } from '~/ingestion/framework/results'
 import { PluginEvent, Properties } from '~/plugin-scaffold'
 import { Clickhouse } from '~/tests/helpers/clickhouse'
 import { ensureKafkaTopics } from '~/tests/helpers/kafka'
-
 import {
     ClickHousePerson,
     ClickHousePersonDistinctId2,
@@ -50,7 +49,8 @@ import {
     PropertiesLastOperation,
     PropertiesLastUpdatedAt,
     Team,
-} from '../../../src/types'
+} from '~/types'
+
 import {
     createOrganization,
     createTeam,
@@ -58,7 +58,7 @@ import {
     fetchPostgresPersons,
     getTeam,
     insertRow,
-} from '../../helpers/sql'
+} from '../helpers/sql'
 
 jest.setTimeout(30000)
 

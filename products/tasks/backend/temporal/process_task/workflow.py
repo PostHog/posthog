@@ -1188,18 +1188,16 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             return
         relay_workflow_id = f"slack-agent-design-relay-{self.context.run_id}-{workflow.uuid4()}"
         self._current_slack_relay_workflow_id = relay_workflow_id
-        asyncio.ensure_future(
-            workflow.execute_child_workflow(
-                SlackAgentDesignRelayWorkflow.run,
-                SlackAgentDesignRelayInput(slack_thread_context=slack_ctx),
-                id=relay_workflow_id,
-                task_queue=workflow.info().task_queue,
-                # Cancel on parent close so the relay's finally block runs
-                # stop_slack_agent_design_stream — otherwise the plan-block
-                # stream is orphaned until Slack's own GC.
-                parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
-                execution_timeout=timedelta(hours=1),
-            )
+        await workflow.start_child_workflow(
+            SlackAgentDesignRelayWorkflow.run,
+            SlackAgentDesignRelayInput(slack_thread_context=slack_ctx),
+            id=relay_workflow_id,
+            task_queue=workflow.info().task_queue,
+            # Cancel on parent close so the relay's finally block runs
+            # stop_slack_agent_design_stream — otherwise the plan-block
+            # stream is orphaned until Slack's own GC.
+            parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
+            execution_timeout=timedelta(hours=1),
         )
 
     @temporalio.workflow.signal

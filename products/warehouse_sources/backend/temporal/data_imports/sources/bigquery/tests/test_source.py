@@ -831,6 +831,24 @@ def test_non_retryable_errors_match_permission_denied(observed_error):
     assert any(key in observed_error for key in non_retryable_errors)
 
 
+def test_temp_table_write_denial_surfaces_write_permission_guidance():
+    # A tables.update denial on a PostHog temp table also contains "Access Denied:", so both keys
+    # match. external_data_job surfaces the first matching key's message, so the write-specific key
+    # must sit above "Access Denied:" — otherwise the customer is told to grant read access to fix a
+    # write failure.
+    observed_error = str(
+        Forbidden(
+            "Access Denied: Table prj:ds.__posthog_import_abc_123: Permission bigquery.tables.update "
+            "denied on table prj:ds.__posthog_import_abc_123 (or it may not exist)."
+        )
+    )
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    first_key, friendly = next((key, msg) for key, msg in non_retryable_errors.items() if key in observed_error)
+    assert first_key == "bigquery.tables.update"
+    assert friendly is not None
+    assert "write access" in friendly
+
+
 @pytest.mark.parametrize(
     "observed_error",
     [
