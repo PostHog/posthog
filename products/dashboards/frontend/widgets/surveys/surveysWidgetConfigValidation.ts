@@ -10,7 +10,7 @@ import {
 import { WIDGET_DATE_RANGE_SELECT_OPTIONS, type WidgetDateFromValue } from '../../widget_types/widgetConfigShared'
 import { fieldErrorsFromZodError, parseWidgetConfig } from '../widgetConfigValidation'
 
-/** Sentinel for "use the survey's full lifetime" — clears the date range so the backend clamps to start/end. */
+/** The "All time" date-range option: stored as no date range so the backend uses the survey's start/end. */
 export const SURVEY_DATE_ALL_TIME = 'all' as const
 export type SurveyWidgetDateFrom = WidgetDateFromValue | typeof SURVEY_DATE_ALL_TIME
 

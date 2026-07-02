@@ -1,7 +1,7 @@
 import './SurveyPickerSelect.scss'
 
 import { useActions, useValues } from 'kea'
-import { useEffect, useMemo } from 'react'
+import { useMemo } from 'react'
 
 import { IconPlus } from '@posthog/icons'
 
@@ -54,16 +54,11 @@ export function SurveyPickerSelect({
     dataAttr,
     onCreateNew,
 }: SurveyPickerSelectProps): JSX.Element {
-    const logic = surveyPickerLogic({ pickerKey })
+    // ensureSurveyId lets the logic resolve the selected label itself (even when it's outside the
+    // loaded/searched page), so we don't need a component effect to trigger the fetch.
+    const logic = surveyPickerLogic({ pickerKey, ensureSurveyId: value })
     const { surveyOptions, surveyOptionsLoading, selectedSurvey, search } = useValues(logic)
-    const { ensureOptionsLoaded, setSearch, ensureSelectedLoaded } = useActions(logic)
-
-    // Resolve the selected label even when it falls outside the loaded/searched page.
-    useEffect(() => {
-        if (value != null) {
-            ensureSelectedLoaded(value)
-        }
-    }, [value, ensureSelectedLoaded])
+    const { ensureOptionsLoaded, setSearch } = useActions(logic)
 
     const options = useMemo((): LemonInputSelectOption[] => {
         const byId = new Map<string, SurveyApi>()
