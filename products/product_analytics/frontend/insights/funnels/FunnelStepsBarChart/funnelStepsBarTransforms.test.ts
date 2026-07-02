@@ -70,7 +70,9 @@ const compareSteps: FunnelStepWithConversionMetrics[] = [
     }),
 ]
 
-// Breakdown + compare: nested_breakdown pairs current+previous per value.
+// Breakdown + compare: nested_breakdown pairs current+previous per value. At the first step every value
+// converts 100% of its own entrants, so a period's values all read the same height — the larger period
+// fills the bar (1) and the smaller one is proportionally shorter (0.8 here); the gap above is blank.
 const breakdownCompareSteps: FunnelStepWithConversionMetrics[] = [
     makeStep({
         fromBasisStep: 1,
@@ -78,7 +80,7 @@ const breakdownCompareSteps: FunnelStepWithConversionMetrics[] = [
             makeStep({ fromBasisStep: 1, breakdown_value: 'Chrome', compare_label: 'current' }),
             makeStep({ fromBasisStep: 0.8, breakdown_value: 'Chrome', compare_label: 'previous' }),
             makeStep({ fromBasisStep: 1, breakdown_value: 'Safari', compare_label: 'current' }),
-            makeStep({ fromBasisStep: 0.625, breakdown_value: 'Safari', compare_label: 'previous' }),
+            makeStep({ fromBasisStep: 0.8, breakdown_value: 'Safari', compare_label: 'previous' }),
         ],
     }),
 ]

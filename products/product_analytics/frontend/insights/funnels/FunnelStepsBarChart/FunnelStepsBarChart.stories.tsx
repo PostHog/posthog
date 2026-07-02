@@ -78,8 +78,9 @@ export const Compare: Story = {
     parameters: { featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE] },
 }
 
-// Breakdown + compare: each breakdown value's current+previous columns are paired and scaled to that
-// value's own larger period, so every value's leader column fills the chart.
+// Breakdown + compare: each breakdown value shows its own conversion within its period, and the two
+// periods are scaled against each other — at the first step every value shares its period's height, the
+// larger period filling the column and the smaller one proportionally short, leaving a blank gap above.
 export const BreakdownAndCompare: Story = {
     render: () => <StoryRender insightFixture={funnelTopToBottomBreakdownCompareFixture} />,
     parameters: { featureFlags: [FEATURE_FLAGS.PRODUCT_ANALYTICS_FUNNELS_COMPARE] },

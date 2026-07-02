@@ -757,7 +757,7 @@ describe('stepsWithConversionMetrics', () => {
         expect(Number.isNaN(result[1].nested_breakdown![1].conversionRates.total)).toBe(false)
     })
 
-    it('breakdown + compare — each value scales against its own larger period, not a global max', () => {
+    it('breakdown + compare — every value shares its period’s height at the first step (larger period fills)', () => {
         // Chrome current 100 / previous 80; Safari current 40 / previous 25. nested_breakdown pairs
         // current+previous per value: [Chrome-cur, Chrome-prev, Safari-cur, Safari-prev].
         const steps: FunnelStepWithNestedBreakdown[] = [
@@ -799,11 +799,13 @@ describe('stepsWithConversionMetrics', () => {
         const result = stepsWithConversionMetrics(steps, FunnelStepReference.total)
         const nb = result[0].nested_breakdown!
 
-        // Chrome basis = max(100, 80) = 100; Safari basis = max(40, 25) = 40 — its own leader, NOT 100.
-        expect(nb[0].conversionRates.fromBasisStep).toBe(1) // Chrome current 100/100
-        expect(nb[1].conversionRates.fromBasisStep).toBe(80 / 100) // Chrome previous
-        expect(nb[2].conversionRates.fromBasisStep).toBe(1) // Safari current 40/40 — leader fills the bar
-        expect(nb[3].conversionRates.fromBasisStep).toBe(25 / 40) // Safari previous
+        // At the first step every value converts 100% of its own entrants, so within a period all values
+        // share one height: the period's share of the larger baseline. Current is larger (140 vs 105) →
+        // 100%; previous → 105/140. Chrome and Safari read the same height within each period.
+        expect(nb[0].conversionRates.fromBasisStep).toBe(1) // Chrome current
+        expect(nb[1].conversionRates.fromBasisStep).toBe(105 / 140) // Chrome previous
+        expect(nb[2].conversionRates.fromBasisStep).toBe(1) // Safari current — same as Chrome current
+        expect(nb[3].conversionRates.fromBasisStep).toBe(105 / 140) // Safari previous — same as Chrome previous
     })
 
     it('nested breakdowns with outlier detection — divergent breakdown gets significant: true', () => {

@@ -68,8 +68,8 @@ export function buildFunnelStepsBarData(
     for (let breakdownIndex = 0; breakdownIndex < breakdownCount; breakdownIndex++) {
         const variants = steps.map((step) => variantAtStep(step, breakdownIndex, isBreakdown))
         const representative = variants[0]
-        // A period's entry level (its first-step share of the shared basis) is constant across steps;
-        // it caps the drop-off track so the volume gap above is blank. Only meaningful in compare mode.
+        // A period's entry level (its share of the larger baseline, shared by all its values) is constant
+        // across steps; it caps the drop-off track so the volume gap above is blank. Compare mode only.
         const entryLevel = (representative?.conversionRates.fromBasisStep ?? 0) * RATE_TO_PERCENT
         seriesVariants.push({
             key: `${FUNNEL_STEPS_SERIES_KEY_PREFIX}${breakdownIndex}`,
