@@ -195,6 +195,58 @@ class TestAccessControlGuard(BaseTest):
             assert raw not in rendered
         assert "[HIDDEN]" in rendered
 
+    def test_filtering_records_access_control_warning(self):
+        # The guard silently drops rows in SQL, so without this warning a filtered user can't tell a
+        # partial result from the full one. Regression guard for the add_access_control_warning emission.
+        from posthog.hogql.parser import parse_select
+
+        from posthog.constants import AvailableFeature
+
+        from ee.models import AccessControl
+
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.ACCESS_CONTROL, "name": AvailableFeature.ACCESS_CONTROL},
+        ]
+        self.organization.save()
+
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.MEMBER
+        membership.save()
+
+        for resource_id in ("dash-1", "dash-2"):
+            AccessControl.objects.create(
+                team=self.team, resource="dashboard", resource_id=resource_id, access_level="none"
+            )
+
+        context = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True)
+        prepared = prepare_ast_for_printing(
+            parse_select("SELECT id FROM system.dashboards"), context=context, dialect="clickhouse"
+        )
+        assert prepared is not None
+        print_prepared_ast(prepared, context=context, dialect="clickhouse")
+
+        warning = context.access_control_warnings.get("dashboard")
+        assert warning is not None
+        assert warning.resource == "dashboard"
+        assert "2 dashboards" in warning.message
+
+    def test_no_warning_when_nothing_filtered(self):
+        # Admins have no deny set, so no guard and no warning - otherwise every query would nag.
+        from posthog.hogql.parser import parse_select
+
+        membership = OrganizationMembership.objects.get(user=self.user, organization=self.organization)
+        membership.level = OrganizationMembership.Level.ADMIN
+        membership.save()
+
+        context = HogQLContext(team_id=self.team.pk, team=self.team, user=self.user, enable_select_queries=True)
+        prepared = prepare_ast_for_printing(
+            parse_select("SELECT id FROM system.dashboards"), context=context, dialect="clickhouse"
+        )
+        assert prepared is not None
+        print_prepared_ast(prepared, context=context, dialect="clickhouse")
+
+        assert context.access_control_warnings == {}
+
     def test_child_table_guard_filters_parent_fk_not_own_pk(self):
         # system.dashboard_tiles inherits the "dashboard" scope and sets access_control_id_field="dashboard_id".
         # Denying a dashboard must filter the tile rows on their dashboard_id FK, not the tile's own id -

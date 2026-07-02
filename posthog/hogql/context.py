@@ -8,7 +8,7 @@ from posthog.hogql.timings import HogQLTimings
 from posthog.clickhouse.workload import Workload
 
 if TYPE_CHECKING:
-    from posthog.schema import DataWarehouseSyncWarning, HogQLNotice, HogQLQueryModifiers
+    from posthog.schema import AccessControlFilterWarning, DataWarehouseSyncWarning, HogQLNotice, HogQLQueryModifiers
 
     from posthog.hogql.database.database import Database
     from posthog.hogql.observability import HogQLTypeObservability
@@ -92,6 +92,11 @@ class HogQLContext:
     # Keyed by (table_id, schema_name) to dedupe when a table is referenced multiple times.
     data_warehouse_sync_warnings: dict[tuple[str, str], "DataWarehouseSyncWarning"] = field(default_factory=dict)
 
+    # Object-level access control warnings collected while printing system tables: which resources had
+    # rows excluded because the user lacks access. Keyed by resource to dedupe when several system tables
+    # share an access scope (e.g. system.dashboards and system.dashboard_tiles both scope "dashboard").
+    access_control_warnings: dict[str, "AccessControlFilterWarning"] = field(default_factory=dict)
+
     # Timings in seconds for different parts of the HogQL query
     timings: HogQLTimings = field(default_factory=HogQLTimings)
     # Modifications requested by the HogQL client
@@ -171,6 +176,11 @@ class HogQLContext:
 
     def add_data_warehouse_sync_warning(self, table_id: str, warning: "DataWarehouseSyncWarning") -> None:
         self.data_warehouse_sync_warnings[(table_id, warning.schema_name)] = warning
+
+    def add_access_control_warning(self, resource: str, message: str) -> None:
+        from posthog.schema import AccessControlFilterWarning  # noqa: PLC0415
+
+        self.access_control_warnings[resource] = AccessControlFilterWarning(resource=resource, message=message)
 
     @cached_property
     def project_id(self) -> int:

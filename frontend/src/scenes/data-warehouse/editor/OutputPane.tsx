@@ -54,7 +54,13 @@ import { DataTableVisualizationProps } from '~/queries/nodes/DataVisualization/D
 import { dataVisualizationLogic } from '~/queries/nodes/DataVisualization/dataVisualizationLogic'
 import { displayLogic } from '~/queries/nodes/DataVisualization/displayLogic'
 import { renderHogQLX } from '~/queries/nodes/HogQLX/render'
-import { type DataTableNode, type HogQLQueryResponse, NodeKind } from '~/queries/schema/schema-general'
+import {
+    type AccessControlFilterWarning,
+    type DataTableNode,
+    type DataWarehouseSyncWarning,
+    type HogQLQueryResponse,
+    NodeKind,
+} from '~/queries/schema/schema-general'
 import {
     AccessControlLevel,
     AccessControlResourceType,
@@ -982,8 +988,16 @@ function InternalDataTableVisualization(
     )
 }
 
+// The shared `warnings` field carries two disjoint shapes; split them so each renders with its own copy.
+const isSyncWarning = (w: NonNullable<HogQLQueryResponse['warnings']>[number]): w is DataWarehouseSyncWarning =>
+    'table_name' in w
+const isAccessControlWarning = (
+    w: NonNullable<HogQLQueryResponse['warnings']>[number]
+): w is AccessControlFilterWarning => 'resource' in w
+
 const SyncWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warnings'] }): JSX.Element | null => {
-    if (!warnings || warnings.length === 0) {
+    const syncWarnings = warnings?.filter(isSyncWarning)
+    if (!syncWarnings || syncWarnings.length === 0) {
         return null
     }
     return (
@@ -992,7 +1006,7 @@ const SyncWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warni
                 Some warehouse sources used by this query are out of date — results may not reflect current data
             </div>
             <ul className="list-disc pl-5 space-y-1">
-                {warnings.map((warning, index) => (
+                {syncWarnings.map((warning, index) => (
                     <li key={`${warning.table_name}-${warning.schema_name}-${index}`}>
                         {warning.message}
                         {warning.source_id && (
@@ -1004,6 +1018,25 @@ const SyncWarningsBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warni
                             </>
                         )}
                     </li>
+                ))}
+            </ul>
+        </LemonBanner>
+    )
+}
+
+const AccessControlFilterBanner = ({ warnings }: { warnings?: HogQLQueryResponse['warnings'] }): JSX.Element | null => {
+    const acWarnings = warnings?.filter(isAccessControlWarning)
+    if (!acWarnings || acWarnings.length === 0) {
+        return null
+    }
+    return (
+        <LemonBanner type="warning" className="m-2" data-attr="sql-editor-output-pane-access-control-warnings">
+            <div className="font-semibold mb-1">
+                Some results were excluded because you don't have access to them — this is a partial result set
+            </div>
+            <ul className="list-disc pl-5 space-y-1">
+                {acWarnings.map((warning, index) => (
+                    <li key={`${warning.resource}-${index}`}>{warning.message}</li>
                 ))}
             </ul>
         </LemonBanner>
@@ -1121,6 +1154,7 @@ const Content = ({
         return (
             <div className="flex-1 absolute inset-0 hide-scrollbar border-t overflow-auto">
                 <SyncWarningsBanner warnings={response?.warnings} />
+                <AccessControlFilterBanner warnings={response?.warnings} />
                 <InternalDataTableVisualization
                     uniqueKey={vizKey}
                     query={sourceQuery}
@@ -1176,6 +1210,7 @@ const Content = ({
         return (
             <TabScroller data-attr="sql-editor-output-pane-results">
                 <SyncWarningsBanner warnings={response?.warnings} />
+                <AccessControlFilterBanner warnings={response?.warnings} />
                 <DataGrid
                     className={clsx(isDarkModeOn ? 'rdg-dark h-full' : 'rdg-light h-full', 'ph-no-capture')}
                     columns={columns}

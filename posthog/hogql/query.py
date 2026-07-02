@@ -700,7 +700,12 @@ class HogQLQueryExecutor:
             if self.context and self.context.data_warehouse_sync_warnings:
                 record_warnings(self.context.data_warehouse_sync_warnings.values())
 
-        warnings = list(self.context.data_warehouse_sync_warnings.values()) if self.context else []
+        warnings: list = []
+        if self.context:
+            warnings = [
+                *self.context.data_warehouse_sync_warnings.values(),
+                *self.context.access_control_warnings.values(),
+            ]
         return HogQLQueryResponse(
             query=self.query,
             hogql=self.hogql,
