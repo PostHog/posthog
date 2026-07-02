@@ -83,6 +83,7 @@ export function MockHeaderBar({
     branch = 'master',
     range = 'Last 30 days',
     lensFilter,
+    lensPickers,
 }: {
     /** hierarchy below the repo (workflow › run, PR, author); empty on the repo page itself */
     crumbs?: CrumbItem[]
@@ -91,6 +92,8 @@ export function MockHeaderBar({
     /** the lens as a literal filter — every entity page is the same runs+jobs view with this
      *  filter applied; removing it zooms out one level */
     lensFilter?: { label: string; clearTo: MockRoute }
+    /** unvalued lenses shown on the repo page: clicking one opens the full list of that entity */
+    lensPickers?: { label: string; to: MockRoute }[]
 }): JSX.Element {
     const { go } = useMockNav()
     const chip =
@@ -118,6 +121,17 @@ export function MockHeaderBar({
                 </Fragment>
             ))}
             <span className="ml-auto flex items-center gap-2">
+                {lensPickers?.map((p) => (
+                    <span
+                        key={p.label}
+                        className={cn(chip, 'border-dashed')}
+                        title="Unvalued lens filter — click for the full list, pick a value there to focus"
+                        onClick={() => go(p.to)}
+                    >
+                        {p.label}: <span className="text-tertiary">any</span>
+                        <span className="text-[8px] text-tertiary">▼</span>
+                    </span>
+                ))}
                 {lensFilter && (
                     <span
                         className={cn(chip, 'border-accent-highlight-secondary bg-fill-highlight-50')}

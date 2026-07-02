@@ -63,7 +63,12 @@ export function MockRepoHub(): JSX.Element {
 
     return (
         <div>
-            <MockHeaderBar />
+            <MockHeaderBar
+                lensPickers={[
+                    { label: 'pr', to: { page: 'prList' } },
+                    { label: 'author', to: { page: 'authorList' } },
+                ]}
+            />
             <MockEntityHeader
                 icon="📦"
                 title="posthog"
@@ -274,8 +279,9 @@ export function MockRepoHub(): JSX.Element {
                 <LemonCard hoverEffect={false} className="p-0">
                     <MockPrTable prs={attentionPrs} />
                     <div className="border-t border-primary px-4 py-2 text-[11px] text-tertiary">
-                        Showing {attentionPrs.length} of 988 open pull requests — the full, filterable list stays on its
-                        own view.
+                        Showing {attentionPrs.length} of 988 open pull requests —{' '}
+                        <MockLink to={{ page: 'prList' }}>view all →</MockLink> (also reachable via the unvalued{' '}
+                        <span className="font-mono">pr: any</span> chip above)
                     </div>
                 </LemonCard>
             </Section>
@@ -497,7 +503,8 @@ export function MockRepoHub(): JSX.Element {
                                 />
                             ))}
                         <div className="mt-2 border-t border-primary pt-2 text-[11px] text-tertiary">
-                            Cohort-level by default — author pages exist for finding your own work, not ranking people.
+                            Cohort-level by default — author pages exist for finding your own work, not ranking people.{' '}
+                            <MockLink to={{ page: 'authorList' }}>All 184 authors →</MockLink>
                         </div>
                     </LemonCard>
                 </div>

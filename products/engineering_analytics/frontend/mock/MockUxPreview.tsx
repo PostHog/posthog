@@ -5,6 +5,7 @@
 import { LemonBanner } from '@posthog/lemon-ui'
 
 import { MockAuthorPage, MockPrPage, MockRunPage } from './MockDetailPages'
+import { MockAuthorListPage, MockPrListPage } from './MockListPages'
 import { MockRepoHub } from './MockRepoHub'
 import { MockWorkflowPage } from './MockWorkflowPage'
 import { MockNavProvider, useMockNav } from './shared'
@@ -20,6 +21,10 @@ function MockRouter(): JSX.Element {
             return <MockPrPage number={route.number} />
         case 'author':
             return <MockAuthorPage handle={route.handle} />
+        case 'prList':
+            return <MockPrListPage />
+        case 'authorList':
+            return <MockAuthorListPage />
         case 'repo':
         default:
             return <MockRepoHub />

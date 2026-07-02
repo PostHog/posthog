@@ -7,8 +7,6 @@ import { LemonCard, LemonTable, LemonTag } from '@posthog/lemon-ui'
 import { Sparkline } from 'lib/components/Sparkline'
 import { cn } from 'lib/utils/css-classes'
 
-import type { ActivityRun } from '../components/RunActivityChart'
-import { RunActivityChart } from '../components/RunActivityChart'
 import {
     DAY_LABELS,
     MOCK_LOG_DJANGO,
@@ -141,30 +139,11 @@ export function MockRunPage({ id }: { id: number }): JSX.Element {
 /* ============================================================ pull request ============================================================ */
 
 const PUSHES = [
-    { sha: 'a41f20c', when: 'Jun 30 14:12', ok: true, gap: '26m', hoursAgo: 52, costUsd: 3.1 },
-    { sha: 'b7e91d4', when: 'Jun 30 18:40', ok: true, gap: '4h 28m', hoursAgo: 47.5, costUsd: 3.2 },
-    { sha: '5c20aa1', when: 'Jul 1 10:05', ok: false, gap: '15h', hoursAgo: 28, costUsd: 4.4 },
-    { sha: '8e8d604', when: 'Jul 2 09:31', ok: false, gap: '23h', hoursAgo: 5, costUsd: 3.3 },
+    { sha: 'a41f20c', when: 'Jun 30 14:12', ok: true, gap: '26m' },
+    { sha: 'b7e91d4', when: 'Jun 30 18:40', ok: true, gap: '4h 28m' },
+    { sha: '5c20aa1', when: 'Jul 1 10:05', ok: false, gap: '15h' },
+    { sha: '8e8d604', when: 'Jul 2 09:31', ok: false, gap: '23h' },
 ]
-
-const PR_WORKFLOW_NAMES = ['Backend CI', 'E2E CI', 'Frontend CI', 'Lint & types']
-const PR_WORKFLOW_DURATIONS_MIN = [24, 33, 13, 4]
-
-/** The PR's CI runs shaped for the shared RunActivityChart — variant C of the timeline:
- *  same chart as the workflow and repo pages, the PR is just a filter. */
-function prActivityRuns(prNumber: number): ActivityRun[] {
-    const now = Date.now()
-    return PUSHES.flatMap((push, pi) =>
-        PR_WORKFLOW_NAMES.map((_, wi) => ({
-            runId: 41300 + pi * 10 + wi,
-            conclusion: !push.ok && wi <= 1 ? 'failure' : 'success',
-            startedAt: new Date(now - push.hoursAgo * 3600 * 1000 + wi * 60 * 1000).toISOString(),
-            durationSeconds: PR_WORKFLOW_DURATIONS_MIN[wi] * 60,
-            headBranch: 'feat/retention-export',
-            prNumber,
-        }))
-    )
-}
 
 export function MockPrPage({ number }: { number: number }): JSX.Element {
     const p = mockPr(number)
@@ -266,12 +245,9 @@ export function MockPrPage({ number }: { number: number }): JSX.Element {
             <Section
                 id="pr-timeline"
                 title="Lifecycle"
-                note="three candidate treatments of the same data — pick one, the other two go"
+                note="every push triggers CI — red nodes had at least one failing workflow"
             >
                 <LemonCard hoverEffect={false} className="overflow-x-auto p-4">
-                    <div className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-tertiary">
-                        Variant A · milestone strip
-                    </div>
                     <div className="flex min-w-[560px] items-start pt-2">
                         <LifecycleNode label="Opened" time="Jun 30 13:58" kind="start" />
                         {pushes.map((push) => (
@@ -292,64 +268,6 @@ export function MockPrPage({ number }: { number: number }): JSX.Element {
                         />
                     </div>
                 </LemonCard>
-                <LemonCard hoverEffect={false} className="mt-2.5 p-4">
-                    <div className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-tertiary">
-                        Variant B · push ledger — a table again, one row per push
-                    </div>
-                    <LemonTable
-                        dataSource={[...pushes].reverse()}
-                        size="small"
-                        embedded
-                        columns={[
-                            {
-                                title: 'Push',
-                                render: (_, push) => <span className="font-mono text-xs">{push.sha}</span>,
-                            },
-                            { title: 'When', render: (_, push) => <span className="text-tertiary">{push.when}</span> },
-                            {
-                                title: 'Gap since previous',
-                                align: 'right',
-                                render: (_, push) => <span className="tabular-nums text-secondary">{push.gap}</span>,
-                            },
-                            {
-                                title: 'CI on this push',
-                                render: (_, push) => (
-                                    <span className="flex items-center gap-2">
-                                        <span className="inline-flex items-center gap-[3px]">
-                                            {PR_WORKFLOW_NAMES.map((name, wi) => (
-                                                <span
-                                                    key={name}
-                                                    className="inline-block size-1.5 rounded-full"
-                                                    style={{
-                                                        backgroundColor:
-                                                            !push.ok && wi <= 1 ? 'var(--danger)' : 'var(--success)',
-                                                    }}
-                                                    title={name}
-                                                />
-                                            ))}
-                                        </span>
-                                        {!push.ok && (
-                                            <span className="font-mono text-[10.5px] text-danger">
-                                                E2E CI · Backend CI
-                                            </span>
-                                        )}
-                                    </span>
-                                ),
-                            },
-                            {
-                                title: 'Cost',
-                                align: 'right',
-                                render: (_, push) => <span className="tabular-nums">{fmtUsd(push.costUsd)}</span>,
-                            },
-                        ]}
-                    />
-                </LemonCard>
-                <div className="mt-2.5">
-                    <div className="mb-2 text-[10px] font-semibold uppercase tracking-widest text-tertiary">
-                        Variant C · the same run scatter as everywhere else — the PR is just a filter
-                    </div>
-                    <RunActivityChart runs={prActivityRuns(p.number)} title={`Run activity · PR #${p.number}`} />
-                </div>
             </Section>
 
             <Section

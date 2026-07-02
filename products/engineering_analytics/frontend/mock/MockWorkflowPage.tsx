@@ -9,7 +9,6 @@ import { RunActivityChart } from '../components/RunActivityChart'
 import {
     DAY_LABELS,
     MOCK_JOB_AGGREGATES,
-    MOCK_LOG_E2E,
     MOCK_RECENT_RUNS,
     MockJob,
     MockJobAggregate,
@@ -27,7 +26,6 @@ import {
     CiTag,
     DeltaBadge,
     GroupDots,
-    LogRows,
     MockEntityHeader,
     MockHeaderBar,
     MockJobsTable,
@@ -115,48 +113,12 @@ export function MockWorkflowPage({ slug }: { slug: string }): JSX.Element {
             </div>
             <SectionNav
                 items={[
-                    { id: 'now', label: 'Now' },
                     { id: 'health', label: 'Health' },
                     { id: 'jobs', label: 'Jobs' },
                     { id: 'cost', label: 'Cost' },
                     { id: 'runs', label: 'Runs' },
                 ]}
             />
-
-            <Section id="now" title="What's failing now">
-                {failing ? (
-                    <>
-                        <div className="mb-2 flex items-center gap-2 text-[13px]">
-                            <StatusDot kind="danger" />
-                            <span>
-                                Failing on master for 38 minutes — 3 consecutive red runs, same spec each time. First
-                                red run <MockLink to={{ page: 'run', id: 41390 }}>#41390</MockLink> after commit{' '}
-                                <span className="font-mono text-xs">593064b</span>.
-                            </span>
-                        </div>
-                        <LogRows
-                            lines={MOCK_LOG_E2E}
-                            header={
-                                <>
-                                    Failure excerpt
-                                    <span className="font-mono font-normal text-tertiary">
-                                        e2e (chromium, shard 3/8) · run #41397
-                                    </span>
-                                    <span className="ml-auto">
-                                        <MockLink to={{ page: 'run', id: 41397 }}>Open run →</MockLink>
-                                    </span>
-                                </>
-                            }
-                        />
-                    </>
-                ) : (
-                    <div className="flex items-center gap-2 text-[13px] text-secondary">
-                        <StatusDot kind="success" />
-                        Passing on master — last failure {w.lastFailure}. Nothing needs attention in this workflow right
-                        now.
-                    </div>
-                )}
-            </Section>
 
             <Section
                 id="health"
