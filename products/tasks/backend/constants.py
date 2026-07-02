@@ -12,8 +12,14 @@ SnapshotKind = Literal["filesystem", "directory"]
 SNAPSHOT_KIND_FILESYSTEM: SnapshotKind = "filesystem"
 SNAPSHOT_KIND_DIRECTORY: SnapshotKind = "directory"
 DEFAULT_SANDBOX_WORKING_DIR = "/tmp/workspace"
-DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH = "/tmp"
-DEFAULT_RESUME_SNAPSHOT_MOUNT_PATH = DEFAULT_SANDBOX_WORKING_DIR
+# Directory resume snapshots capture a directory and re-mount it into the next sandbox. The mount
+# REPLACES the target directory in the running sandbox, so only the quiescent workspace dir is safe:
+# mounting over a live system directory (the old "/tmp" default) rips scratch space and sockets out
+# from under Modal's in-sandbox helpers and kills the sandbox on its first filesystem operation.
+# A snapshot's content layout matches the path it was captured from, so snapshots created for a
+# path outside this allowlist cannot be remapped — they must be invalidated on resume instead.
+DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH = DEFAULT_SANDBOX_WORKING_DIR
+ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS: frozenset[str] = frozenset({DEFAULT_SANDBOX_WORKING_DIR})
 
 ClaudePermissionMode = Literal["default", "acceptEdits", "plan", "bypassPermissions", "auto"]
 CodexPermissionMode = Literal["auto", "read-only", "full-access"]
