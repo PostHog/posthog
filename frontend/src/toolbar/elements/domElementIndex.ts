@@ -195,23 +195,23 @@ function getCandidatesFromIndex(
     return filterByPosition(candidates, eventElement, index)
 }
 
-function matchesEventDataAttribute(
-    fingerprint: ElementFingerprint,
+// derived once per chain level, not per candidate: matchesDataAttribute builds a RegExp per call
+function getMatchedDataAttribute(
     eventElement: ElementType,
     dataAttributes: string[]
-): boolean {
+): { name: string; value: string } | null {
     const matchedAttr = matchesDataAttribute(eventElement, dataAttributes)
     if (!matchedAttr) {
-        return false
+        return null
     }
     const value = eventElement.attributes?.[`attr__${matchedAttr}`]
-    return value !== undefined && fingerprint.dataAttrs.get(matchedAttr) === value
+    return value === undefined ? null : { name: matchedAttr, value }
 }
 
 function fingerprintMatchesEventElement(
     fingerprint: ElementFingerprint | undefined,
     eventElement: ElementType,
-    dataAttributes: string[]
+    matchedDataAttribute: { name: string; value: string } | null
 ): boolean {
     if (!fingerprint) {
         return false
@@ -232,7 +232,7 @@ function fingerprintMatchesEventElement(
     // mirroring elementToSelector, which early-returns on these without position
     const identifiedWithoutPosition =
         (!!eventElement.attr_id && fingerprint.id === eventElement.attr_id) ||
-        matchesEventDataAttribute(fingerprint, eventElement, dataAttributes)
+        (!!matchedDataAttribute && fingerprint.dataAttrs.get(matchedDataAttribute.name) === matchedDataAttribute.value)
     return identifiedWithoutPosition || matchesPosition(fingerprint, eventElement)
 }
 
@@ -269,10 +269,11 @@ export function matchEventToElementUsingIndex(
     let walkers = candidates.map((candidate) => ({ candidate, ancestor: candidate.parentElement }))
     for (let i = 1; i < event.elements.length && walkers.length > 1; i++) {
         const eventAncestor = event.elements[i]
+        const ancestorDataAttribute = getMatchedDataAttribute(eventAncestor, dataAttributes)
         walkers = walkers.flatMap(({ candidate, ancestor }) => {
             if (
                 !ancestor ||
-                !fingerprintMatchesEventElement(index.fingerprints.get(ancestor), eventAncestor, dataAttributes)
+                !fingerprintMatchesEventElement(index.fingerprints.get(ancestor), eventAncestor, ancestorDataAttribute)
             ) {
                 return []
             }
