@@ -1,7 +1,7 @@
 import { useActions, useValues } from 'kea'
 import { Form } from 'kea-forms'
 
-import { LemonBanner, LemonButton, LemonModal, LemonSelect, LemonSwitch } from '@posthog/lemon-ui'
+import { LemonBanner, LemonButton, LemonModal, LemonSearchableSelect, LemonSwitch } from '@posthog/lemon-ui'
 
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
@@ -14,7 +14,7 @@ export function CustomPropertySourceModal(): JSX.Element {
         customPropertySourceForm,
         isCustomPropertySourceFormSubmitting,
         materializedViews,
-        selectedSourceColumns,
+        sourceModalColumns,
         savedQueriesLoading,
         definitionsLoading,
     } = useValues(customPropertyDefinitionsLogic)
@@ -74,7 +74,7 @@ export function CustomPropertySourceModal(): JSX.Element {
                 >
                     <LemonField name="savedQuery" label="View">
                         {({ value, onChange }) => (
-                            <LemonSelect
+                            <LemonSearchableSelect
                                 value={value}
                                 onChange={(newValue) => {
                                     onChange(newValue)
@@ -96,10 +96,10 @@ export function CustomPropertySourceModal(): JSX.Element {
                         help="The column whose value is written to this property."
                     >
                         {({ value, onChange }) => (
-                            <LemonSelect
+                            <LemonSearchableSelect
                                 value={value}
                                 onChange={onChange}
-                                options={selectedSourceColumns.map((column) => ({ value: column, label: column }))}
+                                options={sourceModalColumns.map((column) => ({ value: column, label: column }))}
                                 loading={savedQueriesLoading}
                                 disabledReason={
                                     !customPropertySourceForm.savedQuery ? 'Select a view first' : undefined
@@ -115,10 +115,10 @@ export function CustomPropertySourceModal(): JSX.Element {
                         help="The column matched against each account's external ID."
                     >
                         {({ value, onChange }) => (
-                            <LemonSelect
+                            <LemonSearchableSelect
                                 value={value}
                                 onChange={onChange}
-                                options={selectedSourceColumns.map((column) => ({ value: column, label: column }))}
+                                options={sourceModalColumns.map((column) => ({ value: column, label: column }))}
                                 loading={savedQueriesLoading}
                                 disabledReason={
                                     !customPropertySourceForm.savedQuery ? 'Select a view first' : undefined

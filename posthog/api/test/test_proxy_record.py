@@ -167,6 +167,10 @@ class TestProxyRecordAPI(APIBaseTest):
         [
             ("erroring", ProxyRecord.Status.ERRORING, "Cloudflare API error"),
             ("timed_out", ProxyRecord.Status.TIMED_OUT, None),
+            # Settled non-error states are retryable too, so diagnostics that detect drift on a
+            # live proxy (e.g. the Cloudflare custom hostname went missing) can recover via Retry.
+            ("valid", ProxyRecord.Status.VALID, None),
+            ("warning", ProxyRecord.Status.WARNING, "Cloudflare custom hostname missing"),
         ]
     )
     @patch("posthog.api.proxy_record.sync_connect")
@@ -201,12 +205,10 @@ class TestProxyRecordAPI(APIBaseTest):
         [
             ("waiting", ProxyRecord.Status.WAITING),
             ("issuing", ProxyRecord.Status.ISSUING),
-            ("valid", ProxyRecord.Status.VALID),
-            ("warning", ProxyRecord.Status.WARNING),
             ("deleting", ProxyRecord.Status.DELETING),
         ]
     )
-    def test_cannot_retry_proxy_in_non_error_state(self, _name, initial_status):
+    def test_cannot_retry_proxy_in_transitional_state(self, _name, initial_status):
         record = ProxyRecord.objects.create(
             organization=self.organization,
             created_by=self.user,

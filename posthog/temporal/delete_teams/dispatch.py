@@ -2,28 +2,8 @@ import asyncio
 
 from django.conf import settings
 
-import posthoganalytics
-
 from posthog.temporal.common.client import async_connect
 from posthog.temporal.delete_teams.types import DeleteOrganizationWorkflowInputs, DeleteProjectDataWorkflowInputs
-
-TEMPORAL_DELETION_ROLLOUT_FLAG = "temporal-deletion-rollout"
-
-
-def delete_via_temporal_enabled(organization_id: str) -> bool:
-    """Whether org/project/team deletion for this organization should run on Temporal.
-
-    Evaluated at the API dispatch site so the rollout can be ramped per organization.
-    Returns False when flags are unavailable (e.g. self-hosted), keeping deletion on Celery.
-    """
-    return bool(
-        posthoganalytics.feature_enabled(
-            TEMPORAL_DELETION_ROLLOUT_FLAG,
-            organization_id,
-            groups={"organization": organization_id},
-            group_properties={"organization": {"id": organization_id}},
-        )
-    )
 
 
 def start_delete_project_data_workflow(
