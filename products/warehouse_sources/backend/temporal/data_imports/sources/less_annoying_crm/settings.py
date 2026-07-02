@@ -26,7 +26,10 @@ class LessAnnoyingCRMEndpointConfig:
     # wide window so a full refresh still returns every row. These filter on the record's domain date
     # (due/event date), NOT on a modification timestamp — see the incremental note below.
     date_window_params: Optional[tuple[str, str]] = None
-    # SortBy / SortDirection params to request a stable ascending order while paging, when supported.
+    # Sort params to request a stable ascending order while paging. Which are accepted varies per
+    # function: only GetContacts takes a `SortBy` field (e.g. DateCreated); GetTasks and GetNotes
+    # expose `SortDirection` alone (their sort column is fixed by the API), so we set direction
+    # without a `SortBy` there. Sending an unsupported `SortBy` to those functions would be rejected.
     sort_by: Optional[str] = None
     sort_direction: Optional[str] = None
     incremental_fields: list[IncrementalField] = field(default_factory=list)
