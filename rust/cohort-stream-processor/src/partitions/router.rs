@@ -7,6 +7,7 @@
 
 use std::collections::HashMap;
 use std::sync::atomic::{AtomicBool, Ordering};
+use std::sync::Arc;
 
 use dashmap::mapref::entry::Entry;
 use dashmap::DashMap;
@@ -17,6 +18,7 @@ use tokio::sync::mpsc;
 use tokio::sync::mpsc::error::TrySendError;
 use tracing::warn;
 
+use super::intake::{count_events, Admission, MeteredReceiver, PartitionIntake};
 use super::shuffle_message::ShuffleMessage;
 use crate::observability::metrics::{
     PARTITIONS_ACTIVE, PARTITION_CHANNEL_DEPTH, PARTITION_CHANNEL_FULL_TOTAL,
@@ -54,30 +56,48 @@ pub enum SendOutcome {
     ChannelClosed,
 }
 
+/// A registered worker channel: the sender and the per-partition event-intake budget its
+/// [`MeteredReceiver`] releases against. Cloning shares both (both are `Arc`), so a lookup can drop
+/// the shard guard before use.
+#[derive(Clone)]
+struct PartitionChannel {
+    sender: mpsc::Sender<Vec<ShuffleMessage>>,
+    intake: Arc<PartitionIntake>,
+}
+
 /// Routes per-partition sub-batches to long-lived per-partition worker channels.
 pub struct PartitionRouter {
-    senders: DashMap<i32, mpsc::Sender<Vec<ShuffleMessage>>>,
+    channels: DashMap<i32, PartitionChannel>,
     channel_buffer: usize,
+    /// Per-partition ceiling on un-drained events; `usize::MAX` disables it (only the mpsc slots bound).
+    intake_cap: usize,
     /// Terminal: set by [`clear`](Self::clear), never unset. Read under the shard guard so no
-    /// sender can be registered after the clear's removal pass.
+    /// channel can be registered after the clear's removal pass.
     closed: AtomicBool,
 }
 
 impl PartitionRouter {
+    /// Router with the event-intake budget disabled — only the mpsc slots bound.
     pub fn new(channel_buffer: usize) -> Self {
+        Self::with_intake_cap(channel_buffer, usize::MAX)
+    }
+
+    pub fn with_intake_cap(channel_buffer: usize, intake_cap: usize) -> Self {
         Self {
-            senders: DashMap::new(),
+            channels: DashMap::new(),
             channel_buffer,
+            intake_cap,
             closed: AtomicBool::new(false),
         }
     }
 
-    /// Register a worker channel for `partition` and return its `Receiver`.
+    /// Register a worker channel for `partition` and return its [`MeteredReceiver`].
     ///
     /// Returns `None` if: already registered with a live channel (reuses existing), or the router
-    /// is closed. If the existing channel is dead (receiver dropped), replaces it (self-heal).
-    pub fn add_partition(&self, partition: i32) -> Option<mpsc::Receiver<Vec<ShuffleMessage>>> {
-        let entry = self.senders.entry(partition);
+    /// is closed. If the existing channel is dead (receiver dropped), replaces it (self-heal) with a
+    /// fresh intake, discarding any stale counter from the prior incarnation.
+    pub fn add_partition(&self, partition: i32) -> Option<MeteredReceiver> {
+        let entry = self.channels.entry(partition);
         if self.closed.load(Ordering::SeqCst) {
             drop(entry);
             warn!(
@@ -88,9 +108,9 @@ impl PartitionRouter {
         }
         let receiver = match entry {
             Entry::Occupied(mut slot) => {
-                if slot.get().is_closed() {
-                    let (sender, receiver) = mpsc::channel(self.channel_buffer);
-                    slot.insert(sender);
+                if slot.get().sender.is_closed() {
+                    let (channel, receiver) = self.make_channel(partition);
+                    slot.insert(channel);
                     warn!(
                         partition,
                         "replacing closed worker channel on reassign (previous worker exited without revoke)"
@@ -105,8 +125,8 @@ impl PartitionRouter {
                 }
             }
             Entry::Vacant(slot) => {
-                let (sender, receiver) = mpsc::channel(self.channel_buffer);
-                slot.insert(sender);
+                let (channel, receiver) = self.make_channel(partition);
+                slot.insert(channel);
                 Some(receiver)
             }
         };
@@ -116,9 +136,16 @@ impl PartitionRouter {
         receiver
     }
 
+    fn make_channel(&self, partition: i32) -> (PartitionChannel, MeteredReceiver) {
+        let (sender, receiver) = mpsc::channel(self.channel_buffer);
+        let intake = Arc::new(PartitionIntake::new(partition, self.intake_cap));
+        let metered = MeteredReceiver::new(receiver, intake.clone());
+        (PartitionChannel { sender, intake }, metered)
+    }
+
     /// Drop the sender for `partition`, signalling the worker to shut down. Idempotent.
     pub fn remove_partition(&self, partition: i32) {
-        if self.senders.remove(&partition).is_some() {
+        if self.channels.remove(&partition).is_some() {
             self.emit_active_gauge();
         }
     }
@@ -126,7 +153,7 @@ impl PartitionRouter {
     /// Drop every sender and terminally close the router. All later `add_partition` calls refuse.
     pub fn clear(&self) {
         self.closed.store(true, Ordering::SeqCst);
-        self.senders.clear();
+        self.channels.clear();
         self.emit_active_gauge();
     }
 
@@ -160,14 +187,15 @@ impl PartitionRouter {
     ) -> Option<RouteError> {
         let dropped = batch.len();
 
-        let Some(sender) = self.sender_for(partition) else {
+        let Some(channel) = self.channel_for(partition) else {
             self.record_drop(partition, dropped, REASON_NO_WORKER);
             return Some(RouteError::NoWorker { partition, dropped });
         };
 
-        match sender.send(batch).await {
+        // Uncapped: control messages carry no events, so they must always flow.
+        match channel.sender.send(batch).await {
             Ok(()) => {
-                self.emit_channel_depth(partition, &sender);
+                self.emit_channel_depth(partition, &channel.sender);
                 None
             }
             Err(mpsc::error::SendError(returned)) => {
@@ -200,7 +228,7 @@ impl PartitionRouter {
     }
 
     fn try_send_to_partition(&self, partition: i32, batch: Vec<ShuffleMessage>) -> SendOutcome {
-        let Some(sender) = self.sender_for(partition) else {
+        let Some(channel) = self.channel_for(partition) else {
             self.record_drop(partition, batch.len(), REASON_NO_WORKER);
             return SendOutcome::NoWorker;
         };
@@ -211,20 +239,31 @@ impl PartitionRouter {
             max_offset.is_some(),
             "try_route_batch routes event messages only",
         );
-        match sender.try_send(batch) {
+        // Refuse (→ hold → pause) once the partition holds its event ceiling, before the batch
+        // reaches the mpsc slot. `count == events` on this events-only path.
+        let events = count_events(&batch);
+        if channel.intake.try_admit(events) == Admission::Rejected {
+            counter!(PARTITION_CHANNEL_FULL_TOTAL, "partition" => partition.to_string())
+                .increment(batch.len() as u64);
+            return SendOutcome::Full(batch);
+        }
+        match channel.sender.try_send(batch) {
             Ok(()) => {
-                self.emit_channel_depth(partition, &sender);
+                self.emit_channel_depth(partition, &channel.sender);
                 SendOutcome::Sent {
                     max_offset: max_offset.unwrap_or_default(),
                     count,
                 }
             }
             Err(TrySendError::Full(returned)) => {
+                // Reserved above but the slot is full: release so the counter tracks only what landed.
+                channel.intake.release(events);
                 counter!(PARTITION_CHANNEL_FULL_TOTAL, "partition" => partition.to_string())
                     .increment(returned.len() as u64);
                 SendOutcome::Full(returned)
             }
             Err(TrySendError::Closed(returned)) => {
+                channel.intake.release(events);
                 self.record_drop(partition, returned.len(), REASON_CHANNEL_CLOSED);
                 SendOutcome::ChannelClosed
             }
@@ -232,7 +271,7 @@ impl PartitionRouter {
     }
 
     pub fn partition_count(&self) -> usize {
-        self.senders.len()
+        self.channels.len()
     }
 
     /// Whether a worker channel is registered for `partition`.
@@ -243,12 +282,12 @@ impl PartitionRouter {
     /// channel at all — the idle steady state — is reported absent, letting a tick skip the guaranteed
     /// `no_worker` no-op.
     pub fn has_partition(&self, partition: i32) -> bool {
-        self.senders.contains_key(&partition)
+        self.channels.contains_key(&partition)
     }
 
-    fn sender_for(&self, partition: i32) -> Option<mpsc::Sender<Vec<ShuffleMessage>>> {
-        let sender = self.senders.get(&partition)?;
-        Some(sender.clone())
+    /// Clone the channel out from under the shard guard so callers can send after dropping it.
+    fn channel_for(&self, partition: i32) -> Option<PartitionChannel> {
+        Some(self.channels.get(&partition)?.clone())
     }
 
     fn record_drop(&self, partition: i32, dropped: usize, reason: &'static str) {
@@ -265,7 +304,7 @@ impl PartitionRouter {
     }
 
     fn emit_active_gauge(&self) {
-        gauge!(PARTITIONS_ACTIVE).set(self.senders.len() as f64);
+        gauge!(PARTITIONS_ACTIVE).set(self.channels.len() as f64);
     }
 }
 
@@ -601,5 +640,84 @@ mod tests {
 
         router.remove_partition(5);
         assert!(!router.has_partition(5), "absent after removal");
+    }
+
+    #[tokio::test]
+    async fn the_event_cap_trips_full_before_the_mpsc_slots_fill() {
+        // Two-event ceiling, 16 free slots: the intake refuses the third event with room to spare.
+        let router = PartitionRouter::with_intake_cap(16, 2);
+        let mut rx = router.add_partition(5).unwrap();
+
+        match router
+            .try_route_batch(vec![(5, event_off(1)), (5, event_off(2))])
+            .remove(&5)
+        {
+            Some(SendOutcome::Sent { count, .. }) => assert_eq!(count, 2),
+            other => panic!("expected the first two events to land, got {other:?}"),
+        }
+        match router.try_route_batch(vec![(5, event_off(3))]).remove(&5) {
+            Some(SendOutcome::Full(returned)) => assert_eq!(tags(&returned), vec![3]),
+            other => panic!("expected the over-cap event to be held, got {other:?}"),
+        }
+
+        // The budget frees on the *next* recv (it covers the in-hand batch), so step past the drain.
+        assert_eq!(tags(&rx.recv().await.unwrap()), vec![1, 2]);
+        assert!(
+            rx.try_recv().is_err(),
+            "channel now empty; this recv released the drained batch",
+        );
+        assert!(matches!(
+            router.try_route_batch(vec![(5, event_off(3))]).remove(&5),
+            Some(SendOutcome::Sent { .. }),
+        ));
+    }
+
+    #[tokio::test]
+    async fn maintenance_sends_bypass_the_event_cap() {
+        let router = PartitionRouter::with_intake_cap(16, 1);
+        let mut rx = router.add_partition(5).unwrap();
+
+        assert!(matches!(
+            router.try_route_batch(vec![(5, event_off(1))]).remove(&5),
+            Some(SendOutcome::Sent { .. }),
+        ));
+        assert!(
+            matches!(
+                router.try_route_batch(vec![(5, event_off(2))]).remove(&5),
+                Some(SendOutcome::Full(_)),
+            ),
+            "the partition is at its event ceiling",
+        );
+
+        let sweep = || ShuffleMessage::Sweep { due_before_ms: 1 };
+        assert!(
+            router.route_batch(vec![(5, sweep())]).await.is_empty(),
+            "the maintenance tick flows past a full event budget",
+        );
+
+        assert_eq!(tags(&rx.recv().await.unwrap()), vec![1]);
+        assert!(
+            matches!(rx.recv().await, Some(batch) if matches!(batch.as_slice(), [ShuffleMessage::Sweep { .. }])),
+            "the sweep was delivered despite the full event budget",
+        );
+    }
+
+    #[tokio::test]
+    async fn an_idle_partition_admits_an_over_cap_batch() {
+        let router = PartitionRouter::with_intake_cap(16, 2);
+        let mut rx = router.add_partition(5).unwrap();
+
+        match router
+            .try_route_batch(vec![
+                (5, event_off(1)),
+                (5, event_off(2)),
+                (5, event_off(3)),
+            ])
+            .remove(&5)
+        {
+            Some(SendOutcome::Sent { count, .. }) => assert_eq!(count, 3),
+            other => panic!("an idle partition must admit an over-cap batch, got {other:?}"),
+        }
+        assert_eq!(tags(&rx.recv().await.unwrap()), vec![1, 2, 3]);
     }
 }

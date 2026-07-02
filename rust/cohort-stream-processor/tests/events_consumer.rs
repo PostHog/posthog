@@ -37,8 +37,8 @@ use cohort_stream_processor::filters::{
     CatalogHandle, CohortId, FilterCatalog, TeamFiltersBuilder, TeamId,
 };
 use cohort_stream_processor::partitions::{
-    run_rebalance_worker, CohortConsumerContext, OffsetTracker, PartitionMirror, PartitionRouter,
-    ShuffleMessage,
+    run_rebalance_worker, CohortConsumerContext, MeteredReceiver, OffsetTracker, PartitionIntake,
+    PartitionMirror, PartitionRouter, ShuffleMessage,
 };
 use cohort_stream_processor::producer::{
     CaptureSink, CohortMembershipChange, KafkaMembershipSink, MembershipSink, MembershipStatus,
@@ -1102,6 +1102,7 @@ async fn durable_restart_reopens_live_state_and_fires_a_dormant_left() {
     let far_future = 4_000_000_000_000i64; // ~year 2096, well past every BASE_TS + 7d deadline
     for partition in 0..NUM_PARTITIONS {
         let (tx, rx) = mpsc::channel(4);
+        let rx = MeteredReceiver::new(rx, std::sync::Arc::new(PartitionIntake::new(0, usize::MAX)));
         let worker = Stage1Worker::spawn(
             partition as u16,
             rx,
@@ -1483,6 +1484,7 @@ async fn s3_restore_reseeds_state_resumes_at_manifest_offset_and_fires_a_dormant
     let far_future = 4_000_000_000_000i64; // ~year 2096, past every BASE_TS + 7d deadline
     for partition in 0..NUM_PARTITIONS {
         let (tx, rx) = mpsc::channel(4);
+        let rx = MeteredReceiver::new(rx, std::sync::Arc::new(PartitionIntake::new(0, usize::MAX)));
         let worker = Stage1Worker::spawn(
             partition as u16,
             rx,

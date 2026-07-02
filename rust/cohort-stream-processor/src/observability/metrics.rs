@@ -207,6 +207,10 @@ pub const PARTITION_CHANNEL_DEPTH: &str = "partition_channel_depth";
 /// Re-counted on every retry of a still-full holdover, so it is a pressure rate, not a distinct-event
 /// count.
 pub const PARTITION_CHANNEL_FULL_TOTAL: &str = "partition_channel_full_total";
+/// Un-drained events in a partition worker's channel (plus the batch it is processing), labelled by
+/// `partition` (gauge). A value pinned near `PARTITION_INTAKE_MAX_EVENTS` that never drains flags a
+/// stuck worker.
+pub const PARTITION_INTAKE_EVENTS: &str = "partition_intake_events";
 /// Partitions currently paused on the events consumer to shed downstream backpressure (gauge).
 pub const PARTITIONS_PAUSED: &str = "partitions_paused";
 /// Events currently held across all paused partitions, awaiting redispatch (gauge). Bounded — a
@@ -568,6 +572,7 @@ mod tests {
     #[test]
     fn partition_backpressure_metric_names_are_stable() {
         assert_eq!(PARTITION_CHANNEL_FULL_TOTAL, "partition_channel_full_total");
+        assert_eq!(PARTITION_INTAKE_EVENTS, "partition_intake_events");
         assert_eq!(PARTITIONS_PAUSED, "partitions_paused");
         assert_eq!(PENDING_HELD_EVENTS, "pending_held_events");
     }
