@@ -393,4 +393,10 @@ export const ConversationsZendeskImportsCreateBody = /* @__PURE__ */ zod.object(
         .min(1)
         .nullish()
         .describe('Optional cap on how many tickets to import, for testing. Omit or null to import all.'),
+    default_email_channel_id: zod
+        .uuid()
+        .nullish()
+        .describe(
+            "Optional fallback email channel for tickets whose original Zendesk recipient doesn't match a configured support address (or isn't an email). Omit or null to leave those tickets without an email channel."
+        ),
 })

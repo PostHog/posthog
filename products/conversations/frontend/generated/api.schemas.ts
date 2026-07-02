@@ -1010,6 +1010,11 @@ export interface ZendeskImportStartApi {
      * @nullable
      */
     max_tickets?: number | null
+    /**
+     * Optional fallback email channel for tickets whose original Zendesk recipient doesn't match a configured support address (or isn't an email). Omit or null to leave those tickets without an email channel.
+     * @nullable
+     */
+    default_email_channel_id?: string | null
 }
 
 /**

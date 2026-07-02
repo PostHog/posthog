@@ -37,6 +37,13 @@ class Command(BaseCommand):
             default=None,
             help="Cap total tickets imported (for testing, e.g. 10/100/1000). Omit for a full import.",
         )
+        parser.add_argument(
+            "--default-email-channel-id",
+            type=str,
+            default=None,
+            help="Fallback EmailChannel id for tickets whose Zendesk recipient doesn't match a "
+            "configured support address. Omit to leave those tickets without an email channel.",
+        )
 
     def handle(self, *args, **options) -> None:
         team_id: int = options["team_id"]
@@ -82,6 +89,7 @@ class Command(BaseCommand):
                     team_id=team_id,
                     dry_run=options["dry_run"],
                     max_tickets=options["limit"],
+                    default_email_channel_id=options["default_email_channel_id"],
                 )
             )
             job.workflow_id = workflow_id

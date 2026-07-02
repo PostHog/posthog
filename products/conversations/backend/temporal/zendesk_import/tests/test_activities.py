@@ -9,7 +9,7 @@ from parameterized import parameterized
 
 from posthog.models.comment import Comment
 
-from products.conversations.backend.models import Ticket, ZendeskImportJob
+from products.conversations.backend.models import EmailChannel, Ticket, ZendeskImportJob
 from products.conversations.backend.models.constants import Channel, Priority, Status
 from products.conversations.backend.temporal.zendesk_import.activities import (
     ImportBatchInput,
@@ -33,8 +33,9 @@ def _zd_ticket(
     subject: str = "Help",
     created_at: str = "2020-01-02T03:04:05Z",
     updated_at: str = "2020-01-03T04:05:06Z",
+    recipient: str | None = None,
 ) -> dict[str, Any]:
-    return {
+    ticket: dict[str, Any] = {
         "id": tid,
         "requester_id": requester_id,
         "status": status,
@@ -43,6 +44,9 @@ def _zd_ticket(
         "created_at": created_at,
         "updated_at": updated_at,
     }
+    if recipient is not None:
+        ticket["recipient"] = recipient
+    return ticket
 
 
 def _zd_user(uid: int, email: str, role: str | None = "end-user", name: str | None = None) -> dict[str, Any]:
@@ -93,6 +97,7 @@ class TestZendeskImportBatchActivity(BaseTest):
         download: bytes = b"filebytes",
         download_raises: bool = False,
         save_return: str | None = "https://media.posthog.test/file",
+        default_email_channel_id: str | None = None,
     ) -> tuple[Any, MagicMock]:
         client = MagicMock()
         client.fetch_tickets.return_value = tickets
@@ -109,7 +114,12 @@ class TestZendeskImportBatchActivity(BaseTest):
             patch(f"{M}.save_file_to_uploaded_media", return_value=save_return),
         ):
             result = _import_ticket_batch_sync(
-                ImportBatchInput(job_id=str(self.job.id), team_id=self.team.id, ticket_ids=ticket_ids)
+                ImportBatchInput(
+                    job_id=str(self.job.id),
+                    team_id=self.team.id,
+                    ticket_ids=ticket_ids,
+                    default_email_channel_id=default_email_channel_id,
+                )
             )
         return result, client
 
@@ -187,6 +197,46 @@ class TestZendeskImportBatchActivity(BaseTest):
 
         ticket = Ticket.objects.get(team=self.team, zendesk_ticket_id=205)
         self.assertEqual(ticket.anonymous_traits, {"name": "Ada Lovelace", "email": "requester@x.com"})
+
+    def _make_channel(self, from_email: str, token: str) -> EmailChannel:
+        return EmailChannel.objects.create(
+            team=self.team,
+            inbound_token=token,
+            from_email=from_email,
+            from_name="Support",
+            domain="acme.com",
+        )
+
+    @parameterized.expand(
+        [
+            # recipient matches a configured channel (case-insensitively) → that channel wins,
+            # even when a different default is set.
+            ("matched_wins_over_default", "Support@ACME.com", True, "matched"),
+            # recipient is a *.zendesk.com / non-configured address → fall back to the default.
+            ("unmatched_uses_default", "acme.support@acme.zendesk.com", True, "default"),
+            # recipient absent → fall back to the default.
+            ("null_uses_default", None, True, "default"),
+            # no default configured and no match → leave email_config null (don't fabricate one).
+            ("unmatched_no_default_stays_null", "acme.support@acme.zendesk.com", False, None),
+        ]
+    )
+    def test_recipient_maps_to_email_channel(
+        self, _name: str, recipient: str | None, use_default: bool, expected: str | None
+    ) -> None:
+        matched = self._make_channel("support@acme.com", "tok-matched")
+        default = self._make_channel("fallback@acme.com", "tok-default")
+
+        self._run_batch(
+            [210],
+            tickets=[_zd_ticket(210, 10, recipient=recipient)],
+            users={10: _zd_user(10, "requester@x.com", name="Ada")},
+            comments_by_ticket={210: []},
+            default_email_channel_id=str(default.id) if use_default else None,
+        )
+
+        ticket = Ticket.objects.get(team=self.team, zendesk_ticket_id=210)
+        expected_id = {"matched": matched.id, "default": default.id, None: None}[expected]
+        self.assertEqual(ticket.email_config_id, expected_id)
 
     def test_staff_reply_with_unresolved_role_is_not_attributed_to_customer(self) -> None:
         # Reported bug: a public agent reply whose author role can't be resolved (role=None) was

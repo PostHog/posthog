@@ -19,7 +19,7 @@ from rest_framework.response import Response
 
 from posthog.api.routing import TeamAndOrgViewSetMixin
 
-from products.conversations.backend.models import ZendeskImportJob
+from products.conversations.backend.models import EmailChannel, ZendeskImportJob
 from products.conversations.backend.permissions import IsConversationsAdmin
 from products.conversations.backend.temporal.zendesk_import.client import (
     ZendeskCredentials,
@@ -51,6 +51,15 @@ class ZendeskImportStartSerializer(serializers.Serializer):
         required=False,
         allow_null=True,
         min_value=1,
+    )
+    default_email_channel_id = serializers.UUIDField(
+        help_text=(
+            "Optional fallback email channel for tickets whose original Zendesk recipient doesn't "
+            "match a configured support address (or isn't an email). Omit or null to leave those "
+            "tickets without an email channel."
+        ),
+        required=False,
+        allow_null=True,
     )
 
 
@@ -132,6 +141,16 @@ class ZendeskImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         if not validate_zendesk_credentials(credentials):
             return Response({"detail": "Zendesk rejected the credentials"}, status=drf_status.HTTP_400_BAD_REQUEST)
 
+        default_email_channel_id = data.get("default_email_channel_id")
+        if (
+            default_email_channel_id is not None
+            and not EmailChannel.objects.filter(team_id=team_id, id=default_email_channel_id).exists()
+        ):
+            return Response(
+                {"detail": "The selected default email channel does not belong to this team"},
+                status=drf_status.HTTP_400_BAD_REQUEST,
+            )
+
         running = (
             ZendeskImportJob.objects.unscoped()
             .filter(
@@ -162,6 +181,9 @@ class ZendeskImportViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
                     job_id=str(job.id),
                     team_id=team_id,
                     max_tickets=data.get("max_tickets"),
+                    default_email_channel_id=(
+                        str(default_email_channel_id) if default_email_channel_id is not None else None
+                    ),
                 )
             )
             job.workflow_id = workflow_id

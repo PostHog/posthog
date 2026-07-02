@@ -1,4 +1,4 @@
-import { actions, afterMount, beforeUnmount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, beforeUnmount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { loaders } from 'kea-loaders'
 
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
@@ -6,6 +6,7 @@ import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import { conversationsZendeskImportsCreate, conversationsZendeskImportsStatusRetrieve } from '../../generated/api'
 import type { ZendeskImportJobApi } from '../../generated/api.schemas'
+import { supportSettingsLogic } from './supportSettingsLogic'
 import type { zendeskImportLogicType } from './zendeskImportLogicType'
 
 export type ZendeskImportJobStatus = ZendeskImportJobApi['status']
@@ -15,11 +16,16 @@ const POLL_INTERVAL_MS = 3000
 
 export const zendeskImportLogic = kea<zendeskImportLogicType>([
     path(['products', 'conversations', 'frontend', 'scenes', 'settings', 'zendeskImportLogic']),
+    connect(() => ({
+        values: [supportSettingsLogic, ['emailConfigs']],
+        actions: [supportSettingsLogic, ['loadEmailConfigs']],
+    })),
     actions({
         setSubdomain: (subdomain: string) => ({ subdomain }),
         setEmailAddress: (emailAddress: string) => ({ emailAddress }),
         setApiToken: (apiToken: string) => ({ apiToken }),
         setMaxTickets: (maxTickets: number | null) => ({ maxTickets }),
+        setDefaultEmailChannelId: (defaultEmailChannelId: string | null) => ({ defaultEmailChannelId }),
         submitImport: true,
         startPolling: true,
         stopPolling: true,
@@ -30,6 +36,12 @@ export const zendeskImportLogic = kea<zendeskImportLogicType>([
         apiToken: ['', { setApiToken: (_, { apiToken }) => apiToken }],
         // null = import all tickets; a number caps the import for testing.
         maxTickets: [null as number | null, { setMaxTickets: (_, { maxTickets }) => maxTickets }],
+        // Fallback email channel for tickets whose Zendesk recipient doesn't match a configured
+        // support address; null = leave those tickets without an email channel.
+        defaultEmailChannelId: [
+            null as string | null,
+            { setDefaultEmailChannelId: (_, { defaultEmailChannelId }) => defaultEmailChannelId },
+        ],
     }),
     loaders(({ values }) => ({
         importJob: [
@@ -51,6 +63,7 @@ export const zendeskImportLogic = kea<zendeskImportLogicType>([
                         email_address: values.emailAddress,
                         api_token: values.apiToken,
                         max_tickets: values.maxTickets,
+                        default_email_channel_id: values.defaultEmailChannelId,
                     })
                 },
             },
@@ -109,6 +122,7 @@ export const zendeskImportLogic = kea<zendeskImportLogicType>([
     })),
     afterMount(({ actions }) => {
         actions.loadImportJob()
+        actions.loadEmailConfigs()
     }),
     beforeUnmount(({ actions }) => {
         actions.stopPolling()

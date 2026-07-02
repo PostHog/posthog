@@ -54,12 +54,15 @@ function ZendeskImportForm(): JSX.Element {
         emailAddress,
         apiToken,
         maxTickets,
+        defaultEmailChannelId,
+        emailConfigs,
         importJob,
         importJobLoading,
         isImportRunning,
         importProgressLabel,
     } = useValues(zendeskImportLogic)
-    const { setSubdomain, setEmailAddress, setApiToken, setMaxTickets, submitImport } = useActions(zendeskImportLogic)
+    const { setSubdomain, setEmailAddress, setApiToken, setMaxTickets, setDefaultEmailChannelId, submitImport } =
+        useActions(zendeskImportLogic)
     const adminRestrictionReason = useRestrictedArea({
         scope: RestrictionScope.Organization,
         minimumAccessLevel: OrganizationMembershipLevel.Admin,
@@ -121,6 +124,21 @@ function ZendeskImportForm(): JSX.Element {
                         { label: 'First 100 tickets', value: 100 },
                         { label: 'First 1,000 tickets', value: 1000 },
                         { label: 'All tickets', value: null },
+                    ]}
+                />
+            </LemonField.Pure>
+            <LemonField.Pure
+                label="Default inbox"
+                info="Fallback email channel for tickets whose original Zendesk recipient doesn't match one of your configured support addresses (e.g. a *.zendesk.com address, or a non-email ticket). Tickets that do match are assigned to the matching channel regardless of this setting."
+            >
+                <LemonSelect<string | null>
+                    value={defaultEmailChannelId}
+                    onChange={setDefaultEmailChannelId}
+                    disabled={isImportRunning}
+                    placeholder="No default (leave unmatched tickets without an inbox)"
+                    options={[
+                        { label: 'No default', value: null },
+                        ...emailConfigs.map((config) => ({ label: config.from_email, value: config.id })),
                     ]}
                 />
             </LemonField.Pure>

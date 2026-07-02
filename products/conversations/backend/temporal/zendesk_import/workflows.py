@@ -47,6 +47,9 @@ class ZendeskImportCoordinatorInput:
     # Cap total tickets enumerated for import (ops/testing). None = no cap. Carried across
     # continue-as-new as the *remaining* budget so the cap holds over the whole run.
     max_tickets: int | None = None
+    # Fallback EmailChannel (UUID str) for tickets whose Zendesk recipient doesn't match a
+    # configured support address. None = leave email_config null in those cases.
+    default_email_channel_id: str | None = None
 
 
 @dataclass
@@ -62,6 +65,7 @@ class ZendeskImportBatchWorkflowInput:
     team_id: int
     ticket_ids: list[int]
     dry_run: bool = False
+    default_email_channel_id: str | None = None
 
 
 RETRY_POLICY = RetryPolicy(maximum_attempts=5, initial_interval=timedelta(seconds=5))
@@ -162,6 +166,7 @@ class ZendeskImportCoordinatorWorkflow:
                                     team_id=input.team_id,
                                     ticket_ids=batch,
                                     dry_run=input.dry_run,
+                                    default_email_channel_id=input.default_email_channel_id,
                                 ),
                             )
                             for offset, batch in enumerate(window)
@@ -202,6 +207,7 @@ class ZendeskImportCoordinatorWorkflow:
                             pages_processed=0,
                             dry_run=input.dry_run,
                             max_tickets=None if input.max_tickets is None else input.max_tickets - selected,
+                            default_email_channel_id=input.default_email_channel_id,
                         )
                     )
 
@@ -245,6 +251,7 @@ class ZendeskImportBatchWorkflow:
                 team_id=input.team_id,
                 ticket_ids=input.ticket_ids,
                 dry_run=input.dry_run,
+                default_email_channel_id=input.default_email_channel_id,
             ),
             start_to_close_timeout=timedelta(minutes=30),
             retry_policy=RETRY_POLICY,

@@ -27,7 +27,7 @@ with workflow.unsafe.imports_passed_through():
     from posthog.sync import database_sync_to_async
     from posthog.temporal.common.heartbeat import Heartbeater
 
-    from products.conversations.backend.models import Ticket, ZendeskImportJob
+    from products.conversations.backend.models import EmailChannel, Ticket, ZendeskImportJob
     from products.conversations.backend.person_lookup import _get_persons_by_email
     from products.conversations.backend.services.attachments import (
         CONVERSATIONS_MAX_IMAGE_BYTES,
@@ -69,6 +69,10 @@ class ImportBatchInput:
     team_id: int
     ticket_ids: list[int]
     dry_run: bool = False
+    # Fallback EmailChannel (UUID str) for tickets whose Zendesk `recipient` doesn't match a
+    # configured support address (e.g. a *.zendesk.com recipient) or is absent. None = leave the
+    # ticket's email_config null in those cases.
+    default_email_channel_id: str | None = None
 
 
 @dataclass
@@ -268,6 +272,16 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
     imported = 0
     failed = 0
 
+    # Map the team's support addresses so each ticket's Zendesk `recipient` (the address the
+    # customer originally emailed) resolves to the matching EmailChannel. Unmatched/absent
+    # recipients fall back to the caller-selected default channel, if any. Bounded to
+    # MAX_EMAIL_CONFIGS_PER_TEAM rows, so a single query up front is cheap.
+    email_channels = list(EmailChannel.objects.filter(team_id=team.id))
+    email_channels_by_addr = {(c.from_email or "").strip().lower(): c for c in email_channels}
+    default_email_channel = None
+    if input.default_email_channel_id:
+        default_email_channel = next((c for c in email_channels if str(c.id) == input.default_email_channel_id), None)
+
     # Phase 1: Fetch all comments + attachments OUTSIDE the transaction (network I/O).
     ticket_data: list[tuple[dict[str, Any], list[dict[str, Any]]]] = []
     comment_author_ids: set[int] = set()
@@ -323,6 +337,11 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
             if "@" in requester_email:
                 anonymous_traits["email"] = requester_email
 
+            # Zendesk `recipient` is the original support address the customer emailed. Match it to
+            # a configured EmailChannel; otherwise fall back to the caller-selected default (or null).
+            recipient = (zendesk_ticket.get("recipient") or "").strip().lower()
+            email_config = email_channels_by_addr.get(recipient) or default_email_channel
+
             ticket = Ticket(
                 team=team,
                 channel_source=default_channel_source(),
@@ -332,6 +351,7 @@ def _import_ticket_batch_sync(input: ImportBatchInput) -> ImportBatchOutput:
                 priority=map_zendesk_priority(zendesk_ticket.get("priority")),
                 email_subject=(zendesk_ticket.get("subject") or "")[:500] or None,
                 email_from=requester_email if "@" in requester_email else None,
+                email_config=email_config,
                 anonymous_traits=anonymous_traits,
                 zendesk_ticket_id=zendesk_id,
             )
