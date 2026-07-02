@@ -114,7 +114,9 @@ class MultitenantSAMLAuth(SAMLAuth):
             )
         except (OrganizationDomain.DoesNotExist, DjangoValidationError):
             saml_logger.warning("saml_idp_lookup_failed", idp_id=str(organization_domain_or_id))
-            raise AuthFailed(self, "Authentication request is invalid. Invalid RelayState.")
+            # `from None` drops the underlying ValueError (e.g. a malformed UUID in RelayState) so it
+            # doesn't leak into error tracking as a spurious issue — this path is handled gracefully.
+            raise AuthFailed(self, "Authentication request is invalid. Invalid RelayState.") from None
 
         if not organization_domain.organization.is_feature_available(AvailableFeature.SAML):
             saml_logger.warning(
@@ -261,7 +263,9 @@ class MultitenantSAMLAuth(SAMLAuth):
                 idp_id=str(idp_name),
                 **_saml_log_context(email),
             )
-            raise AuthFailed(self, "Authentication request is invalid. Invalid IdP identifier.")
+            # `from None` drops the underlying ValueError (e.g. a malformed UUID) so it doesn't leak
+            # into error tracking as a spurious issue — this path is handled gracefully.
+            raise AuthFailed(self, "Authentication request is invalid. Invalid IdP identifier.") from None
 
         if email.split("@")[-1].lower() != organization_domain.domain.lower():
             saml_logger.warning(
