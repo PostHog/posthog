@@ -50,6 +50,11 @@ class TestChargifySource:
     def test_source_type(self) -> None:
         assert self.source.source_type == ExternalDataSourceType.CHARGIFY
 
+    def test_subdomain_is_a_connection_host_field(self) -> None:
+        # The stored API key is sent to https://{subdomain}.chargify.com, so changing subdomain
+        # must force the key to be re-entered — otherwise it could be exfiltrated to another host.
+        assert self.source.connection_host_fields == ["subdomain"]
+
     def test_lists_tables_without_credentials(self) -> None:
         # get_schemas is a static catalog with no I/O, so the public docs table list can render.
         assert self.source.lists_tables_without_credentials is True

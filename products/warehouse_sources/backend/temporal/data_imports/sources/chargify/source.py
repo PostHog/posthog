@@ -46,6 +46,12 @@ class ChargifySource(ResumableSource[ChargifySourceConfig, ChargifyResumeConfig]
     def source_type(self) -> ExternalDataSourceType:
         return ExternalDataSourceType.CHARGIFY
 
+    @property
+    def connection_host_fields(self) -> list[str]:
+        # The stored API key is sent to `https://{subdomain}.chargify.com`, so retargeting
+        # `subdomain` must force the editor to re-enter the key (prevents credential exfiltration).
+        return ["subdomain"]
+
     def get_non_retryable_errors(self) -> dict[str, str | None]:
         # Chargify hosts are per-site subdomains, so match the stable status prefix rather
         # than a fixed hostname. A bad or under-scoped API key can never be fixed by retrying.
@@ -72,9 +78,9 @@ class ChargifySource(ResumableSource[ChargifySourceConfig, ChargifyResumeConfig]
         schemas = [
             SourceSchema(
                 name=endpoint,
-                supports_incremental=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
-                supports_append=INCREMENTAL_FIELDS.get(endpoint, None) is not None,
-                incremental_fields=INCREMENTAL_FIELDS.get(endpoint, []),
+                supports_incremental=(fields := INCREMENTAL_FIELDS.get(endpoint)) is not None,
+                supports_append=fields is not None,
+                incremental_fields=fields or [],
             )
             for endpoint in ENDPOINTS
         ]

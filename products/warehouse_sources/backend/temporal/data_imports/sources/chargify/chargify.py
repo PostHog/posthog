@@ -1,4 +1,3 @@
-import base64
 import dataclasses
 from typing import Any, Optional
 
@@ -130,10 +129,9 @@ def chargify_source(
 
 
 def validate_credentials(api_key: str, subdomain: str) -> bool:
-    basic_token = base64.b64encode(f"{api_key}:{CHARGIFY_BASIC_PASSWORD}".encode("ascii")).decode("ascii")
     res = make_tracked_session().get(
         f"{base_url(subdomain)}/customers.json",
         params={"per_page": 1},
-        headers={"Authorization": f"Basic {basic_token}"},
+        auth=(api_key, CHARGIFY_BASIC_PASSWORD),
     )
     return res.status_code == 200

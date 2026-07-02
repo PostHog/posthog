@@ -99,11 +99,13 @@ class TestGetResource:
 
     def test_bare_array_endpoints_unwrap_the_payload_key(self) -> None:
         # Chargify wraps each row under a single object key, so the selector must unwrap it.
-        assert get_resource("Customers")["endpoint"]["data_selector"] == "[*].customer"
+        endpoint_config = cast(dict[str, Any], get_resource("Customers")["endpoint"])
+        assert endpoint_config["data_selector"] == "[*].customer"
 
     def test_invoices_selects_the_wrapped_list(self) -> None:
         # The Invoices API nests its list under an "invoices" key alongside "meta".
-        assert get_resource("Invoices")["endpoint"]["data_selector"] == "invoices"
+        endpoint_config = cast(dict[str, Any], get_resource("Invoices")["endpoint"])
+        assert endpoint_config["data_selector"] == "invoices"
 
 
 def _make_http_response(body: Any, status_code: int = 200) -> Response:
