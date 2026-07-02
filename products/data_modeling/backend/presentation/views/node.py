@@ -12,6 +12,7 @@ from drf_spectacular.types import OpenApiTypes
 from drf_spectacular.utils import OpenApiParameter, extend_schema
 from rest_framework import filters, request, response, serializers, status, viewsets
 from rest_framework.decorators import action
+from rest_framework.exceptions import PermissionDenied
 from rest_framework.pagination import PageNumberPagination
 from temporalio.common import RetryPolicy
 
@@ -340,6 +341,13 @@ class NodeViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         editor) doesn't need to resolve the node itself.
         """
         from products.data_modeling.backend.presentation.views.edge import EdgeSerializer
+
+        # NodeViewSet is `scope_object = "INTERNAL"`, so AccessControlPermission does not gate it on
+        # any resource. Lineage exposes warehouse view/table names, types, and edges — the same
+        # metadata the deleted `warehouse_view`-scoped upstream endpoint gated on. Re-apply that gate
+        # here so warehouse RBAC still governs the read (warehouse_view inherits warehouse_objects).
+        if not self.user_access_control.check_access_level_for_resource("warehouse_view", required_level="viewer"):
+            raise PermissionDenied("Reading lineage requires data warehouse read access.")
 
         node_id = req.query_params.get("node_id")
         saved_query_id = req.query_params.get("saved_query_id")
