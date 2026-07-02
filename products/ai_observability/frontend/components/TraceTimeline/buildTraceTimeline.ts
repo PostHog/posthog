@@ -105,7 +105,11 @@ function kindOf(event: string): TraceBarKind {
 
 function labelOf(event: LLMTraceEvent): string {
     const p = event.properties || {}
-    return p.$ai_span_name || p.$ai_model || event.event || event.id
+    // Properties are sender-controlled and can be non-strings; rendering an
+    // object as a React child would crash the scene.
+    const name = typeof p.$ai_span_name === 'string' ? p.$ai_span_name : undefined
+    const model = typeof p.$ai_model === 'string' ? p.$ai_model : undefined
+    return name || model || event.event || event.id
 }
 
 interface TimedEvent {

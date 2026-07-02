@@ -141,6 +141,15 @@ describe('buildTraceTimeline', () => {
         expect(totalMs).toBe(1000)
     })
 
+    it('ignores non-string span names and models when labeling', () => {
+        // Sender-controlled properties can be malformed objects; rendering one
+        // as a React child crashes the scene.
+        const { bars } = buildTraceTimeline([
+            ev('a', '$ai_generation', 1000, 1, { $ai_span_name: { nested: true }, $ai_model: 'gpt-4.1' }),
+        ])
+        expect(bars[0].label).toBe('gpt-4.1')
+    })
+
     it('returns empty for no events', () => {
         expect(buildTraceTimeline([])).toEqual({ bars: [], totalMs: 0, laneCount: 0 })
     })
