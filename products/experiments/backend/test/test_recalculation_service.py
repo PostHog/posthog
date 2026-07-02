@@ -2,6 +2,7 @@ from datetime import UTC, datetime, timedelta
 
 import pytest
 from posthog.test.base import BaseTest
+from unittest.mock import patch
 
 from django.utils import timezone
 
@@ -20,6 +21,7 @@ from products.experiments.backend.models.experiment import (
 from products.experiments.backend.recalculation import (
     build_timeseries_cold_start_payload,
     get_latest_recalculation,
+    get_live_query_progress,
     get_recalculation_by_id,
     get_run_results,
     request_recalculation,
@@ -416,3 +418,42 @@ class TestTimeseriesColdStartPayload(BaseTest):
         exp.exposure_criteria = {"filterTestAccounts": True}
         exp.save()
         assert build_timeseries_cold_start_payload(exp) is None
+
+
+@pytest.mark.django_db(transaction=True)
+class TestLiveQueryProgress(BaseTest):
+    def _recalc(self, status: str) -> ExperimentMetricsRecalculation:
+        flag = FeatureFlag.objects.create(team=self.team, created_by=self.user, key=f"live-{status}", name="live")
+        exp = Experiment.objects.create(team=self.team, created_by=self.user, feature_flag=flag, name="live")
+        return ExperimentMetricsRecalculation.objects.create(team=self.team, experiment=exp, status=status)
+
+    @parameterized.expand([("pending",), ("completed",), ("failed",)])
+    def test_returns_none_without_querying_clickhouse_when_not_in_progress(self, status: str):
+        recalc = self._recalc(status)
+        with patch("products.experiments.backend.recalculation.sync_execute") as mock_execute:
+            assert get_live_query_progress(recalc) is None
+        mock_execute.assert_not_called()
+
+    def test_maps_system_processes_aggregate_for_in_progress_run(self):
+        recalc = self._recalc("in_progress")
+        with patch(
+            "products.experiments.backend.recalculation.sync_execute",
+            return_value=[(1_284_512, 9_800_000, 41_000_000, 250_000, 3)],
+        ):
+            progress = get_live_query_progress(recalc)
+        assert progress == {
+            "rows_read": 1_284_512,
+            "estimated_rows_total": 9_800_000,
+            "bytes_read": 41_000_000,
+            "active_cpu_time": 250_000,
+            "running_metrics": 3,
+        }
+
+    def test_returns_none_when_no_queries_running(self):
+        recalc = self._recalc("in_progress")
+        # system.processes aggregate returns one all-zero row when nothing matches the prefix.
+        with patch(
+            "products.experiments.backend.recalculation.sync_execute",
+            return_value=[(0, 0, 0, 0, 0)],
+        ):
+            assert get_live_query_progress(recalc) is None

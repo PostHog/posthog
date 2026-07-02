@@ -1679,6 +1679,31 @@ export interface ExperimentMetricsRecalculationApi {
     readonly result_source: ResultSourceEnumApi
     /** Per-metric results computed by this run, scoped by the run's recalc fingerprint */
     readonly results: readonly MetricRecalculationResultApi[]
+    /**
+     * Count of metric queries currently running in ClickHouse (bounded by worker-pool concurrency)
+     * @nullable
+     */
+    readonly running_metrics: number | null
+    /**
+     * Rows read so far by the currently-running metric queries (monotonic; the live progress signal)
+     * @nullable
+     */
+    readonly rows_read: number | null
+    /**
+     * ClickHouse's total_rows_approx across running queries. A soft ceiling ClickHouse revises upward mid-scan, so it can exceed or trail rows_read; treat rows_read as the reliable signal
+     * @nullable
+     */
+    readonly estimated_rows_total: number | null
+    /**
+     * Bytes read so far by the currently-running metric queries
+     * @nullable
+     */
+    readonly bytes_read: number | null
+    /**
+     * Active CPU time (microseconds) consumed by the currently-running metric queries
+     * @nullable
+     */
+    readonly active_cpu_time: number | null
 }
 
 export interface ShipVariantApi {
