@@ -609,6 +609,10 @@ services:
             KAFKA_HOSTS: 'kafka:9092'
             REDIS_URL: 'redis://redis7:6379/'
             LOGS_REDIS_HOST: redis7
+            # Hog log transformations: function health state lives on CDP redis, and
+            # encrypted function inputs need the salt keys (same as error tracking above)
+            CDP_REDIS_HOST: redis7
+            ENCRYPTION_SALT_KEYS: '00beef0000beef0000beef0000beef00'
 
     ingestion-traces:
         command: node nodejs/dist/index.js
