@@ -86,6 +86,10 @@ function formatAnswer(answer: unknown): string {
     return Array.isArray(value) ? value.map((item) => String(item)).join(', ') : String(value)
 }
 
+function captureCreateSurveyClicked(tileId: number): void {
+    posthog.capture('dashboard widget create survey clicked', { widget_type: 'survey_results', tile_id: tileId })
+}
+
 function SurveyResultsWidgetMessage({
     title,
     message,
@@ -207,100 +211,52 @@ function SurveyResultsLoadingSkeleton(): JSX.Element {
     )
 }
 
-export function SurveyResultsWidget({
+// Editable tile with no survey chosen yet: owns the optimistic pick so the selection shows
+// immediately rather than waiting for the persist + refresh round-trip.
+function SurveyResultsEmptyStatePicker({
     tileId,
     config,
-    result,
-    loading,
     onUpdateConfig,
-}: DashboardWidgetComponentProps): JSX.Element {
-    const payload = result as SurveyResultsWidgetResult | null | undefined
-
-    // Reflect the empty-state pick immediately rather than waiting for the persist + refresh round-trip.
+}: Required<Pick<DashboardWidgetComponentProps, 'tileId' | 'config' | 'onUpdateConfig'>>): JSX.Element {
     const [optimisticSurveyId, setOptimisticSurveyId] = useState<string | null>(null)
-
-    if (loading) {
-        return <SurveyResultsLoadingSkeleton />
-    }
-
-    if (!payload || payload.needsConfiguration) {
-        // No surveys in the project yet — mirror the list widget's "create one" CTA.
-        if (onUpdateConfig && payload && payload.hasSurveys === false) {
-            return (
-                <SurveyResultsWidgetMessage
-                    title="No surveys yet"
-                    message="Create a survey to start collecting feedback from your users."
-                    cta={
-                        <LemonButton
-                            type="primary"
-                            size="small"
-                            to={urls.surveys()}
-                            targetBlank
-                            onClick={() =>
-                                posthog.capture('dashboard widget create survey clicked', {
-                                    widget_type: 'survey_results',
-                                    tile_id: tileId,
-                                })
-                            }
-                        >
-                            New survey
-                        </LemonButton>
+    return (
+        <div className="w-64 max-w-full">
+            <SurveyPickerSelect
+                pickerKey={`results-tile-${tileId}`}
+                value={optimisticSurveyId}
+                fullWidth
+                onChange={async (value) => {
+                    setOptimisticSurveyId(value)
+                    try {
+                        await onUpdateConfig(patchSurveyResultsWidgetConfig(config, value))
+                    } catch {
+                        // Persist failed, drop the optimistic pick so we don't show a selection that wasn't saved.
+                        setOptimisticSurveyId((current) => (current === value ? null : current))
                     }
-                />
-            )
-        }
-        // Editable tile, no survey chosen yet — let the user pick one inline.
-        const inlinePicker = onUpdateConfig ? (
-            <div className="w-64 max-w-full">
-                <SurveyPickerSelect
-                    pickerKey={`results-tile-${tileId}`}
-                    value={optimisticSurveyId}
-                    fullWidth
-                    onChange={async (value) => {
-                        setOptimisticSurveyId(value)
-                        try {
-                            await onUpdateConfig(patchSurveyResultsWidgetConfig(config, value))
-                        } catch {
-                            // Persist failed — drop the optimistic pick so we don't show a selection that wasn't saved.
-                            setOptimisticSurveyId((current) => (current === value ? null : current))
-                        }
-                    }}
-                    onCreateNew={() =>
-                        posthog.capture('dashboard widget create survey clicked', {
-                            widget_type: 'survey_results',
-                            tile_id: tileId,
-                        })
-                    }
-                    dataAttr="survey-results-widget-empty-state-select"
-                />
-            </div>
-        ) : undefined
-        return (
-            <SurveyResultsWidgetMessage
-                title="No survey selected"
-                message={
-                    onUpdateConfig
-                        ? 'Pick a survey to see its performance and recent responses here.'
-                        : 'No survey has been selected for this tile yet.'
-                }
-                cta={inlinePicker}
+                }}
+                onCreateNew={() => captureCreateSurveyClicked(tileId)}
+                dataAttr="survey-results-widget-empty-state-select"
             />
-        )
-    }
+        </div>
+    )
+}
 
-    if (payload.surveyNotFound || !payload.survey) {
-        return (
-            <SurveyResultsWidgetMessage
-                title="Survey not found"
-                message="This survey may have been deleted. Pick another one in the widget settings."
-            />
-        )
-    }
-
-    const { survey, responses } = payload
-    const status = surveyStatus(survey)
-    const tag = STATUS_TAG[status]
-
+function SurveyResultsContent({
+    tileId,
+    survey,
+    responses,
+    stats,
+    rates,
+    hasMore,
+}: {
+    tileId: number
+    survey: NonNullable<SurveyResultsWidgetResult['survey']>
+    responses: SurveyResultsWidgetResponse[]
+    stats?: SurveyStats
+    rates?: SurveyRates
+    hasMore?: boolean
+}): JSX.Element {
+    const tag = STATUS_TAG[surveyStatus(survey)]
     return (
         <WidgetCardContent>
             <div className="flex flex-col gap-3 p-2" data-attr="survey-results-widget-body">
@@ -321,9 +277,7 @@ export function SurveyResultsWidget({
                     </Link>
                     <LemonTag type={tag.type}>{tag.label}</LemonTag>
                 </div>
-                {payload.stats && payload.rates ? (
-                    <SurveyStatsSummary stats={payload.stats} rates={payload.rates} />
-                ) : null}
+                {stats && rates ? <SurveyStatsSummary stats={stats} rates={rates} /> : null}
                 <div className="flex flex-col gap-2">
                     <h5 className="m-0 text-2xs font-semibold uppercase tracking-wide text-muted">Recent responses</h5>
                     {responses.length === 0 ? (
@@ -331,7 +285,7 @@ export function SurveyResultsWidget({
                     ) : (
                         responses.map((response) => <SurveyResponseRow key={response.uuid} response={response} />)
                     )}
-                    {payload.hasMore ? (
+                    {hasMore ? (
                         <Link to={urls.survey(survey.id)} target="_blank" className="text-xs text-muted">
                             Open the survey to see all responses.
                         </Link>
@@ -339,5 +293,81 @@ export function SurveyResultsWidget({
                 </div>
             </div>
         </WidgetCardContent>
+    )
+}
+
+export function SurveyResultsWidget({
+    tileId,
+    config,
+    result,
+    loading,
+    onUpdateConfig,
+}: DashboardWidgetComponentProps): JSX.Element {
+    const payload = result as SurveyResultsWidgetResult | null | undefined
+
+    if (loading) {
+        return <SurveyResultsLoadingSkeleton />
+    }
+
+    if (!payload || payload.needsConfiguration) {
+        // No surveys in the project yet: mirror the list widget's "create one" CTA.
+        if (onUpdateConfig && payload && payload.hasSurveys === false) {
+            return (
+                <SurveyResultsWidgetMessage
+                    title="No surveys yet"
+                    message="Create a survey to start collecting feedback from your users."
+                    cta={
+                        <LemonButton
+                            type="primary"
+                            size="small"
+                            to={urls.surveys()}
+                            targetBlank
+                            onClick={() => captureCreateSurveyClicked(tileId)}
+                        >
+                            New survey
+                        </LemonButton>
+                    }
+                />
+            )
+        }
+        return (
+            <SurveyResultsWidgetMessage
+                title="No survey selected"
+                message={
+                    onUpdateConfig
+                        ? 'Pick a survey to see its performance and recent responses here.'
+                        : 'No survey has been selected for this tile yet.'
+                }
+                cta={
+                    onUpdateConfig ? (
+                        <SurveyResultsEmptyStatePicker
+                            tileId={tileId}
+                            config={config}
+                            onUpdateConfig={onUpdateConfig}
+                        />
+                    ) : undefined
+                }
+            />
+        )
+    }
+
+    if (payload.surveyNotFound || !payload.survey) {
+        return (
+            <SurveyResultsWidgetMessage
+                title="Survey not found"
+                message="This survey may have been deleted. Pick another one in the widget settings."
+            />
+        )
+    }
+
+    return (
+        <SurveyResultsContent
+            tileId={tileId}
+            survey={payload.survey}
+            responses={payload.responses}
+            stats={payload.stats}
+            rates={payload.rates}
+            hasMore={payload.hasMore}
+        />
     )
 }
