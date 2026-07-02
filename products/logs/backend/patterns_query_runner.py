@@ -43,7 +43,9 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
       (`cityHash64(uuid) % divisor = 0`) rather than using `rand()`, so the sample — and
       therefore the mined patterns — is a pure function of the data and the divisor.
 
-    `sampled` is True whenever the window held more rows than the sample cap.
+    `sampled` is True whenever fewer rows were scanned than the window held — i.e. whenever
+    the reported per-pattern counts are extrapolated estimates rather than exact tallies,
+    whether the scan was narrowed by hash-mod sampling or by the time slices (or both).
     """
 
     query: LogsQuery
@@ -84,7 +86,6 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
 
     def _calculate(self) -> LogsQueryResponse:
         total = self._count()
-        sampled = total > self._sample_limit
 
         slices = _time_slices(
             self.query_date_range.date_from(),
@@ -109,12 +110,16 @@ class PatternsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunn
             for row in response.results
         ]
         patterns = mine_patterns(samples)
+        # `sampled` mirrors the exact condition `_serialize` uses to extrapolate: it's True
+        # whenever fewer rows were scanned than the window held (hash-mod sampling OR time-slice
+        # bounding), so the flag can never diverge from whether the reported counts are estimates.
+        scanned = len(samples)
         return LogsQueryResponse(
             results={
-                "patterns": [_serialize(p, total_count=total, scanned_count=len(samples)) for p in patterns],
-                "scanned_count": len(samples),
+                "patterns": [_serialize(p, total_count=total, scanned_count=scanned) for p in patterns],
+                "scanned_count": scanned,
                 "total_count": total,
-                "sampled": sampled,
+                "sampled": scanned < total,
                 "sample_coverage_pct": round(pool / total * 100, 2) if total else 100.0,
             }
         )

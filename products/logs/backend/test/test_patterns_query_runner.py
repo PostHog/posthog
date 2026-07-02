@@ -101,7 +101,9 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         # 60 rows, one per minute across a 1h window; a budget of 30 with 6 slices makes only
         # half the window eligible. No hash sampling kicks in (pool < sample limit), so the
         # run is fully deterministic: every eligible row is scanned, and estimates scale the
-        # sample back up to the window total.
+        # sample back up to the window total. The counts are still extrapolated (30 scanned of
+        # 60), so `sampled` must stay True even though hash-mod sampling never activated —
+        # otherwise the UI renders the estimates as exact.
         self._insert([self._log("tick", minute=m) for m in range(60)])
         window = DateRange(date_from="2026-06-23T12:00:00Z", date_to="2026-06-23T13:00:00Z")
 
@@ -111,7 +113,7 @@ class TestPatternsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         assert results["total_count"] == 60
         assert results["scanned_count"] == 30
         assert results["sample_coverage_pct"] == 50.0
-        assert results["sampled"] is False
+        assert results["sampled"] is True
         (pattern,) = results["patterns"]
         assert pattern["count"] == 30
         assert pattern["estimated_count"] == 60
