@@ -481,6 +481,35 @@ def test_bigquery_get_query_datetime_cursor_timezone_offset(field_type, last_val
 
 
 @pytest.mark.parametrize(
+    "field_type,column_type,expected_clause",
+    [
+        # The reported bug: a field configured as DateTime/Timestamp backed by a real DATE column.
+        # Formatting the initial cursor from the configured type emits a datetime literal
+        # ('1970-01-01T00:00:00') BigQuery refuses to cast ("Could not cast literal ... to type DATE").
+        # The literal must follow the column's real DATE type instead. The operator still follows the
+        # configured type (`>` for DateTime/Timestamp) — only the literal is coerced.
+        (IncrementalFieldType.DateTime, "DATE", "WHERE `cursor` > '1970-01-01'"),
+        (IncrementalFieldType.Timestamp, "DATE", "WHERE `cursor` > '1970-01-01'"),
+        # A DATETIME column keeps the naive datetime literal.
+        (IncrementalFieldType.DateTime, "DATETIME", "WHERE `cursor` > '1970-01-01T00:00:00'"),
+        # A TIMESTAMP column keeps the tz-aware literal.
+        (IncrementalFieldType.Timestamp, "TIMESTAMP", "WHERE `cursor` > '1970-01-01T00:00:00+00:00'"),
+    ],
+)
+def test_bigquery_get_query_incremental_literal_follows_real_column_type(field_type, column_type, expected_clause):
+    bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
+    bq_table.schema = [SimpleNamespace(name="cursor", field_type=column_type)]
+    sql, _ = _get_query(
+        should_use_incremental_field=True,
+        db_incremental_field_last_value=None,
+        bq_table=bq_table,
+        incremental_field="cursor",
+        incremental_field_type=field_type,
+    )
+    assert expected_clause in sql
+
+
+@pytest.mark.parametrize(
     "malicious_column",
     [
         "x` FROM `other.private` --",

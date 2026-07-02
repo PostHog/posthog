@@ -690,6 +690,20 @@ def _adapt_bq_value(value: typing.Any, bq_type: str) -> typing.Any:
     return value
 
 
+def _incremental_field_bq_type(bq_table: bigquery.Table, incremental_field: str) -> str | None:
+    """Normalized BigQuery type of the incremental cursor column, or None if not resolvable.
+
+    Reads the column's real type from the table schema so the cursor literal is formatted to match
+    the column, not the configured incremental field type. A field configured as DateTime/Timestamp
+    can be backed by a DATE column; formatting the literal from the configured type then emits a
+    datetime literal BigQuery refuses to cast to DATE.
+    """
+    for field in bq_table.schema:
+        if field.name == incremental_field:
+            return _BQ_FIELD_TYPE_NORMALIZATION.get(field.field_type.upper())
+    return None
+
+
 def _bq_row_filter_conditions(
     row_filters: list[ValidatedRowFilter] | None,
     bq_table: bigquery.Table,
@@ -749,15 +763,29 @@ def _get_query(
         else:
             last_value = db_incremental_field_last_value
 
+        # The configured `incremental_field_type` can disagree with the column's real BigQuery type —
+        # a field configured as DateTime/Timestamp that's actually backed by a DATE column. Read the
+        # column's actual type from the schema (as `_bq_row_filter_conditions` does) and format the
+        # cursor literal to match, so a DATE column gets a date literal instead of a datetime literal
+        # BigQuery refuses to cast ("Could not cast literal ... to type DATE").
+        incremental_bq_type = _incremental_field_bq_type(bq_table, incremental_field)
+
         if isinstance(last_value, datetime):
-            # BigQuery DATETIME columns are timezone-naive and reject a literal that carries
-            # a UTC offset (e.g. `1970-01-01T00:00:00+00:00`), failing with "Could not cast
-            # literal ... to type DATETIME". The shared initial cursor value is tz-aware UTC,
-            # so drop the offset for DATETIME fields. TIMESTAMP columns are timezone-aware and
-            # keep it.
-            if incremental_field_type == IncrementalFieldType.DateTime and last_value.tzinfo is not None:
-                last_value = last_value.replace(tzinfo=None)
-            last_value = f"'{last_value.isoformat()}'"
+            if incremental_bq_type == "DATE":
+                # DATE column: drop the time component so the literal casts cleanly.
+                last_value = f"'{last_value.date().isoformat()}'"
+            else:
+                # BigQuery DATETIME columns are timezone-naive and reject a literal that carries
+                # a UTC offset (e.g. `1970-01-01T00:00:00+00:00`), failing with "Could not cast
+                # literal ... to type DATETIME". The shared initial cursor value is tz-aware UTC,
+                # so drop the offset for DATETIME columns. TIMESTAMP columns are timezone-aware and
+                # keep it. When the real column type is unknown, fall back to the configured type.
+                is_datetime_column = incremental_bq_type == "DATETIME" or (
+                    incremental_bq_type is None and incremental_field_type == IncrementalFieldType.DateTime
+                )
+                if is_datetime_column and last_value.tzinfo is not None:
+                    last_value = last_value.replace(tzinfo=None)
+                last_value = f"'{last_value.isoformat()}'"
         elif isinstance(last_value, date):
             last_value = f"'{last_value.isoformat()}'"
 
