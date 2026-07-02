@@ -1103,7 +1103,7 @@ class EventeeSourceConfig(config.Config):
 
 @config.config
 class EventzillaSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
