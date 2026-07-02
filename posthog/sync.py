@@ -6,7 +6,7 @@ from time import time
 from typing import Any, Optional, ParamSpec, TypeVar, Union, overload
 
 from django.conf import settings
-from django.db import close_old_connections
+from django.db import close_old_connections, connections
 
 from asgiref.sync import SyncToAsync
 from prometheus_client import Histogram
@@ -24,6 +24,18 @@ DATABASE_SYNC_TO_ASYNC_TIME = Histogram(
 
 _P = ParamSpec("_P")
 _R = TypeVar("_R")
+
+
+def _force_close_connections() -> None:
+    """Close every connection opened on the current thread, unconditionally.
+
+    Unlike close_old_connections(), this discards connections regardless of their
+    reported health — the point is to drop a connection left mid-query, which Django
+    does not flag as unusable. Only touches connections already initialized on this
+    thread; connections are thread-local, so this never affects other threads.
+    """
+    for conn in connections.all(initialized_only=True):
+        conn.close()
 
 
 class DatabaseSyncToAsync(SyncToAsync):
@@ -49,6 +61,17 @@ class DatabaseSyncToAsync(SyncToAsync):
             close_old_connections()
         try:
             return super().thread_handler(loop, *args, **kwargs)
+        except BaseException:
+            # A cancelled or failed call (e.g. a Temporal activity timeout that kills an
+            # in-flight ClickHouse/Postgres query) can leave this thread's connection
+            # mid-query, with unread protocol bytes on the wire. When thread_sensitive is
+            # False the pool reuses threads, so the next task would inherit the poisoned
+            # connection and misread the leftover bytes as a protocol header ("lost
+            # synchronization with server"). close_old_connections() can't detect a
+            # connection stuck mid-query, so force-close this thread's connections instead.
+            if not settings.TEST:
+                _force_close_connections()
+            raise
         finally:
             # Don't close the connection in tests
             if not settings.TEST:
