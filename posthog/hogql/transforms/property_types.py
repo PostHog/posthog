@@ -534,7 +534,7 @@ class PropertySwapper(CloningVisitor):
             # HogQL's toDateTime, which lowers a string arg to
             # parseDateTime64BestEffortOrNull(str, 6, tz) and honors the offset.
             if isinstance(inner.value, str) and _is_iso8601_with_offset(inner.value):
-                new_call: ast.Expr = ast.Call(
+                new_call = ast.Call(
                     name="toDateTime",
                     args=[inner, ast.Constant(value=tz)],
                 )
