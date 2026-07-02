@@ -70,6 +70,25 @@ fn event_fixtures() {
 }
 
 #[test]
+fn message_fixtures() {
+    // Full `{ windowId: Event[] }` messages (not single events) — exercises the whole-message walk:
+    // multiple windows, mixed/interleaved event types, malformed events, and the unchanged-message path.
+    for case in fixtures("messages.json") {
+        let allow = allow_of(&case);
+        let message_json = serde_json::to_string(&case["message"]).unwrap();
+        let mut bytes = message_json.into_bytes();
+        let scrubbed =
+            anonymize_message(&allow, &mut bytes).expect("anonymize should not fail on fixtures");
+        // `None` = nothing changed, so the caller keeps the original message.
+        let actual: Value = match scrubbed {
+            Some(s) => serde_json::from_str(&s).unwrap(),
+            None => case["message"].clone(),
+        };
+        assert_eq!(actual, case["expected"], "message case: {}", case["name"]);
+    }
+}
+
+#[test]
 fn pathologically_deep_json_fails_closed_without_crashing() {
     // Untrusted rrweb could nest deep enough to overflow the walker's stack; the depth guard must
     // reject it as an error (message dropped) rather than recursing into a crash.
@@ -96,6 +115,26 @@ fn email_redaction_is_linear() {
     assert!(
         start.elapsed().as_millis() < 2000,
         "email/text scrub should be linear, took {:?}",
+        start.elapsed()
+    );
+}
+
+#[test]
+fn email_scanner_worst_case_is_linear() {
+    // The exact incident shape: a long unbroken local part + `@` + a long domain that never forms a
+    // valid `.TLD` is what made the old email regex backtrack quadratically (minutes per event). The
+    // hand-rolled scanner expands around each `@` once with disjoint domain scans, so a 256 KB
+    // `@`-bearing run must still finish in milliseconds. `email_redaction_is_linear` has no `@`, so it
+    // only covers the tokenizer — this covers the email scanner itself.
+    let local = "a".repeat(128 * 1024);
+    let domain = "1".repeat(128 * 1024); // all digits: can never satisfy `.` + >=2 letters
+    let input = format!("{local}@{domain}");
+    let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+    let start = Instant::now();
+    let _ = scrub_text(&allow, &input);
+    assert!(
+        start.elapsed().as_millis() < 2000,
+        "email scanner should be linear on an @-bearing run, took {:?}",
         start.elapsed()
     );
 }

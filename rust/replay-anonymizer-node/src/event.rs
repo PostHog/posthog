@@ -191,4 +191,45 @@ mod tests {
         let mut json = br#"{"w1":[{"type":1,"data":{}}]}"#.to_vec();
         assert!(anonymize_message(&allow, &mut json).unwrap().is_none());
     }
+
+    #[test]
+    fn recurring_inline_image_is_neutralized_across_windows() {
+        // An inline image can recur across events/windows in one message (the case the per-message blur
+        // memo targets). Every occurrence must be neutralized to a data-image — never the raw original —
+        // and identical inputs must yield identical output. This drives the real `anonymize_message`
+        // entry (route -> full snapshot -> dom -> blur), which the deterministic JSON fixtures can't
+        // cover (blurred bytes differ from the TS `sharp` output, so image parity is Rust-only).
+        use crate::testkit::png_data_uri;
+        use serde_json::json;
+        let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+        let uri = png_data_uri(40, 40, [12, 34, 56, 255]);
+        let snapshot = json!({
+            "type": 2,
+            "data": {
+                "node": { "type": 0, "childNodes": [
+                    { "type": 2, "tagName": "div", "attributes": { "rr_dataURL": uri.clone() }, "childNodes": [] }
+                ]},
+                "initialOffset": { "top": 0, "left": 0 }
+            }
+        });
+        let message = json!({ "w1": [snapshot.clone()], "w2": [snapshot] });
+        let mut bytes = serde_json::to_vec(&message).unwrap();
+        let out = anonymize_message(&allow, &mut bytes)
+            .unwrap()
+            .expect("the image should change");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        let img = |w: &str| {
+            v[w][0]["data"]["node"]["childNodes"][0]["attributes"]["rr_dataURL"]
+                .as_str()
+                .unwrap()
+                .to_string()
+        };
+        assert!(img("w1").starts_with("data:image/"), "still an image");
+        assert_ne!(img("w1"), uri, "raw inline image must not pass through");
+        assert_eq!(
+            img("w1"),
+            img("w2"),
+            "a recurring image must be neutralized consistently"
+        );
+    }
 }

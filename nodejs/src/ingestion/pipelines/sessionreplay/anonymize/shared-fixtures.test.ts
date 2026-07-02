@@ -33,12 +33,33 @@ interface EventCase {
     event: Record<string, unknown>
     expected: Record<string, unknown>
 }
+interface MessageCase {
+    name: string
+    allow: AllowSpec
+    message: Record<string, unknown[]>
+    expected: Record<string, unknown>
+}
 
 function load<T>(name: string): T[] {
     return parseJSON(fs.readFileSync(path.join(FIXTURE_DIR, name), 'utf8'))
 }
 function ctxOf(allow: AllowSpec): ScrubContext {
     return { allow: new AllowLists(allow.text, allow.url) }
+}
+
+// Mirrors the Rust `anonymize_message` whole-message walk: for each window that is an array, scrub each
+// event in place. This is the TS side of the full-message parity fixtures.
+function anonymizeMessageTs(allow: AllowSpec, message: Record<string, unknown[]>): Record<string, unknown> {
+    const ctx = ctxOf(allow)
+    const clone = structuredClone(message) as Record<string, unknown[]>
+    for (const events of Object.values(clone)) {
+        if (Array.isArray(events)) {
+            for (const event of events) {
+                anonymizeEvent(ctx, event)
+            }
+        }
+    }
+    return clone
 }
 
 // Try to load the native addon; it's built by turbo `^build` in CI. When it isn't (a dev who hasn't
@@ -59,6 +80,7 @@ describe('anonymize shared fixtures', () => {
     const textCases = load<TextCase>('text.json')
     const urlCases = load<UrlCase>('url.json')
     const eventCases = load<EventCase>('events.json')
+    const messageCases = load<MessageCase>('messages.json')
 
     describe('typescript scrubbers match the shared fixtures', () => {
         test.each(textCases.map((c) => [c.name, c] as const))('text: %s', (_name, c) => {
@@ -74,6 +96,10 @@ describe('anonymize shared fixtures', () => {
             anonymizeEvent(ctxOf(c.allow), event)
             expect(event).toEqual(c.expected)
         })
+
+        test.each(messageCases.map((c) => [c.name, c] as const))('message: %s', (_name, c) => {
+            expect(anonymizeMessageTs(c.allow, c.message)).toEqual(c.expected)
+        })
     })
 
     const describeAddon = rustAddon ? describe : describe.skip
@@ -86,6 +112,14 @@ describe('anonymize shared fixtures', () => {
             const result = await rustAddon!.anonymize(JSON.stringify({ w: [c.event] }))
             expect(result.failed).toBe(false)
             const actual = result.data === null ? c.event : (parseJSON(result.data) as { w: unknown[] }).w[0]
+            expect(actual).toEqual(c.expected)
+        })
+
+        test.each(messageCases.map((c) => [c.name, c] as const))('message: %s', async (_name, c) => {
+            rustAddon!.initAnonymizer(c.allow)
+            const result = await rustAddon!.anonymize(JSON.stringify(c.message))
+            expect(result.failed).toBe(false)
+            const actual = result.data === null ? c.message : parseJSON(result.data)
             expect(actual).toEqual(c.expected)
         })
     })
