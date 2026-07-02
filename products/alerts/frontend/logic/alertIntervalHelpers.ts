@@ -22,6 +22,11 @@ export function getDefaultSimulationRange(interval: AlertCalculationInterval): s
     }
 }
 
+export const HIGH_FREQUENCY_ALERTS_REQUIRED_MESSAGE =
+    '15-minute alert intervals require a Boost, Scale, or Enterprise platform add-on.'
+
+const REAL_TIME_ALERTS_REQUIRED_MESSAGE = 'Real-time alert intervals require a Scale or Enterprise plan.'
+
 const HIGH_FREQUENCY_INTERVALS = [
     AlertCalculationInterval.HOURLY,
     AlertCalculationInterval.EVERY_15_MINUTES,
@@ -32,10 +37,7 @@ export function isHighFrequencyAlertInterval(interval: AlertCalculationInterval)
     return HIGH_FREQUENCY_INTERVALS.includes(interval)
 }
 
-export const HIGH_FREQUENCY_ALERTS_REQUIRED_MESSAGE =
-    '15-minute alert intervals require a Boost, Scale, or Enterprise platform add-on.'
-
-export const REAL_TIME_ALERTS_REQUIRED_MESSAGE = 'Real-time alert intervals require a Scale or Enterprise plan.'
+type EntitlementResult = { blocked: true; message: string } | { blocked: false; message: null }
 
 export function blockSubmitWithoutEntitlement(
     interval: AlertCalculationInterval,
@@ -43,7 +45,7 @@ export function blockSubmitWithoutEntitlement(
         hasHighFrequencyAlertsEntitlement,
         hasRealTimeAlertsEntitlement,
     }: { hasHighFrequencyAlertsEntitlement: boolean; hasRealTimeAlertsEntitlement: boolean }
-): { blocked: boolean; message: string | null } {
+): EntitlementResult {
     if (interval === AlertCalculationInterval.EVERY_15_MINUTES && !hasHighFrequencyAlertsEntitlement) {
         return { blocked: true, message: HIGH_FREQUENCY_ALERTS_REQUIRED_MESSAGE }
     }
