@@ -10,6 +10,7 @@ import {
     useLayoutEffect,
     useMemo,
     useRef,
+    useState,
 } from 'react'
 
 import { cn } from 'lib/utils/css-classes'
@@ -17,7 +18,12 @@ import { cn } from 'lib/utils/css-classes'
 /** Within this many px of the bottom still counts as "pinned" — absorbs iOS momentum/rubber-band jitter. */
 const BOTTOM_THRESHOLD = 32
 
-const EMPTY_STYLE: CSSProperties = {}
+/**
+ * Static base for measured rows under `directDomUpdates`: the virtualizer writes each row's `translate3d`
+ * (and the container's height) directly to the DOM, so React renders no per-row offset at all — a pure
+ * scroll or a measurement settle repositions rows without re-rendering them.
+ */
+const ROW_BASE_STYLE: CSSProperties = { position: 'absolute', top: 0, left: 0, width: '100%' }
 
 /**
  * Virtual keys for the synthetic header/footer rows — reserved prefixes that never collide with a user item
@@ -38,31 +44,24 @@ interface RootContextValue {
 
 interface RowContextValue {
     index: number
-    style: CSSProperties
 }
 
 const RootContext = createContext<RootContextValue | null>(null)
 const RowContext = createContext<RowContextValue | null>(null)
 
 /**
- * Virtualized row shell: publishes per-row absolute positioning via context and defers content to
- * `renderRow`. Memoized on the values that actually change so a pure scroll (which shifts the visible
- * window but not a given row's `index`/`start`) doesn't re-render every mounted row.
+ * Virtualized row shell: publishes the row index via context and defers content to `renderRow`. Row
+ * offsets never pass through React (`directDomUpdates` writes them straight to the DOM), so a mounted row
+ * only re-renders when its index or content changes — never on scroll or measurement.
  */
 const InternalRow = memo(function InternalRow({
     index,
-    start,
     renderRow,
 }: {
     index: number
-    start: number
     renderRow: (index: number) => ReactNode
 }): JSX.Element {
-    const style = useMemo<CSSProperties>(
-        () => ({ position: 'absolute', top: 0, left: 0, width: '100%', transform: `translateY(${start}px)` }),
-        [start]
-    )
-    const value = useMemo<RowContextValue>(() => ({ index, style }), [index, style])
+    const value = useMemo<RowContextValue>(() => ({ index }), [index])
     return <RowContext.Provider value={value}>{renderRow(index)}</RowContext.Provider>
 })
 
@@ -89,12 +88,14 @@ export interface VirtualizedThreadRootProps<T> {
     /** Follow the bottom as rows grow/append; unpins when the user scrolls up. */
     stickToBottom?: boolean
     /**
-     * Item index (0-based within `items`) to align to the top of the viewport on the initial open,
-     * instead of scrolling to the bottom — e.g. open a task thread at its last user message. The thread
-     * is left unpinned so stick-to-bottom doesn't immediately pull it back down. `null`/omitted keeps the
-     * default open-at-bottom behavior. Consumed once, on first content; later changes are ignored.
+     * When this key changes to a new non-null value after the thread is first populated (e.g. the id of a
+     * just-sent human message), the matching row is scrolled to the top of the viewport, with bottom
+     * padding reserved so it can anchor there — the "sent message pins to the top, the response streams
+     * into the space below" chat pattern. The reserve also moves the true end below the viewport, so
+     * stick-to-bottom stops following until the user deliberately returns to the bottom. Pass `null`
+     * whenever the last item isn't an anchor candidate; the reserve persists until the next anchor.
      */
-    initialTopItemIndex?: number | null
+    anchorItemKey?: string | null
     maxWidthClassName?: string
     className?: string
     /**
@@ -123,7 +124,7 @@ function Root<T>({
     estimateItemHeight,
     overscanCount = 10,
     stickToBottom = true,
-    initialTopItemIndex = null,
+    anchorItemKey,
     maxWidthClassName = 'max-w-180',
     className,
     listClassName,
@@ -136,6 +137,11 @@ function Root<T>({
 
     const scrollRef = useRef<HTMLDivElement>(null)
     const didInitialScrollRef = useRef(false)
+    // Bottom padding reserved by the anchor-on-send behavior (`anchorItemKey`), fed to the virtualizer as
+    // `paddingEnd`. `undefined` in the prev-key ref means "thread not yet populated".
+    const [anchorPadding, setAnchorPadding] = useState(0)
+    const prevAnchorKeyRef = useRef<string | null | undefined>(undefined)
+    const pendingAnchorScrollRef = useRef<{ index: number; padding: number } | null>(null)
 
     const renderRow = useCallback(
         (index: number): ReactNode => {
@@ -203,6 +209,10 @@ function Root<T>({
         estimateSize: estimateVirtualRow,
         overscan: overscanCount,
         getItemKey: getVirtualItemKey,
+        paddingEnd: anchorPadding,
+        // The virtualizer writes container height + row offsets to the DOM itself, in the same tick as each
+        // measurement — no stale-offset overlap while rows measure, and React re-renders only on range change.
+        directDomUpdates: true,
         // No `gap` — inter-row spacing is baked into the measured row height via `paddingBottom` (see `Row`).
         ...(stickToBottom
             ? {
@@ -240,6 +250,58 @@ function Root<T>({
         virtualizer.scrollToIndex(rowCount - 1, { align: 'end' })
     }, [virtualized, stickToBottom, rowCount, virtualizer])
 
+    // Anchor-on-send (see `anchorItemKey`): a key change means a new anchor row (a just-sent message)
+    // landed. Reserve enough bottom padding for that row to reach the top of the viewport, then scroll it
+    // there (via the paired effect below, once the padding is in the DOM). The first populated commit only
+    // adopts the current key, so opening an existing thread still lands at the bottom rather than at its
+    // trailing message.
+    useLayoutEffect(() => {
+        if (!virtualized || items.length === 0) {
+            return
+        }
+        const prev = prevAnchorKeyRef.current
+        if (prev === undefined) {
+            prevAnchorKeyRef.current = anchorItemKey ?? null
+            return
+        }
+        if (anchorItemKey == null || anchorItemKey === prev) {
+            return
+        }
+        prevAnchorKeyRef.current = anchorItemKey
+        let anchorIndex = -1
+        for (let i = rowCount - 1; i >= 0; i--) {
+            if (getVirtualItemKey(i) === anchorItemKey) {
+                anchorIndex = i
+                break
+            }
+        }
+        // `getTotalSize()` first: it recomputes the measurements, so the `measurementsCache` read below
+        // reflects this commit's rows (including the anchor row's just-taken first measurement).
+        const totalSize = virtualizer.getTotalSize()
+        const anchorStart = anchorIndex >= 0 ? virtualizer.measurementsCache[anchorIndex]?.start : undefined
+        const viewport = scrollRef.current?.clientHeight ?? 0
+        if (anchorStart === undefined || viewport === 0) {
+            return
+        }
+        // Content below the anchor's top edge, excluding the currently reserved padding — the new reserve
+        // must top it up to a full viewport so the anchor row can sit flush at the top.
+        const contentBelow = totalSize - anchorPadding - anchorStart
+        const padding = Math.max(0, Math.ceil(viewport - contentBelow))
+        pendingAnchorScrollRef.current = { index: anchorIndex, padding }
+        setAnchorPadding(padding)
+    }, [virtualized, items.length, anchorItemKey, rowCount, getVirtualItemKey, virtualizer, anchorPadding])
+
+    // Runs every commit: performs the pending anchor scroll only once the reserved padding is committed to
+    // the DOM — scrolling earlier would clamp against the un-padded scroll range and land short of the top.
+    useLayoutEffect(() => {
+        const pending = pendingAnchorScrollRef.current
+        if (!pending || pending.padding !== anchorPadding) {
+            return
+        }
+        pendingAnchorScrollRef.current = null
+        virtualizer.scrollToIndex(pending.index, { align: 'start' })
+    })
+
     // Mobile Safari: the soft keyboard shrinks the visual (not layout) viewport, so a pinned bottom can slip
     // behind it. Re-assert on visualViewport changes.
     useEffect(() => {
@@ -272,17 +334,17 @@ function Root<T>({
         return (
             <RootContext.Provider value={rootValue}>
                 {hasHeader && (
-                    <RowContext.Provider key="header" value={{ index: 0, style: EMPTY_STYLE }}>
+                    <RowContext.Provider key="header" value={{ index: 0 }}>
                         {header}
                     </RowContext.Provider>
                 )}
                 {items.map((item, index) => (
-                    <RowContext.Provider key={getItemKey(item, index)} value={{ index, style: EMPTY_STYLE }}>
+                    <RowContext.Provider key={getItemKey(item, index)} value={{ index }}>
                         {children(item, index)}
                     </RowContext.Provider>
                 ))}
                 {hasFooter && (
-                    <RowContext.Provider key="footer" value={{ index: rowCount - 1, style: EMPTY_STYLE }}>
+                    <RowContext.Provider key="footer" value={{ index: rowCount - 1 }}>
                         {footer}
                     </RowContext.Provider>
                 )}
@@ -297,7 +359,8 @@ function Root<T>({
                     ref={scrollRef}
                     className={cn('flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain', listClassName)}
                 >
-                    <div style={{ height: virtualizer.getTotalSize(), width: '100%', position: 'relative' }}>
+                    {/* Height is written imperatively by the virtualizer (`containerRef` + `directDomUpdates`). */}
+                    <div ref={virtualizer.containerRef} style={{ position: 'relative', width: '100%' }}>
                         {virtualizer.getVirtualItems().map((vi) => {
                             const key = String(vi.key)
                             return (
@@ -307,7 +370,6 @@ function Root<T>({
                                     // indicator's rotation timer) on every appended row.
                                     key={key.startsWith(FOOTER_KEY) ? FOOTER_KEY : key}
                                     index={vi.index}
-                                    start={vi.start}
                                     renderRow={renderRow}
                                 />
                             )
@@ -320,9 +382,9 @@ function Root<T>({
 }
 
 /**
- * Row shell for content rendered inside `VirtualizedThread.Root`. Applies the virtualizer's absolute
- * positioning, measures its own height (gap included via bottom padding), and centers content with the
- * thread's container-query context.
+ * Row shell for content rendered inside `VirtualizedThread.Root`. Registers itself with the virtualizer
+ * (which measures it and positions it directly in the DOM), measures its own height (gap included via
+ * bottom padding), and centers content with the thread's container-query context.
  */
 function Row({ children, className }: { children: ReactNode; className?: string }): JSX.Element {
     const root = useContext(RootContext)
@@ -331,20 +393,35 @@ function Row({ children, className }: { children: ReactNode; className?: string 
         throw new Error('VirtualizedThread.Row must be rendered inside VirtualizedThread.Root')
     }
     const { measureElement, gap, maxWidthClassName, virtualized } = root
-    const { style, index } = row
+    const { index } = row
+
+    // Re-registers the node whenever `index` changes: the virtualizer's element cache (which both direct
+    // DOM positioning and measurement read) is addressed by the row's *virtual key*, and a row can change
+    // key without remounting — the footer's key rotates on every append. Writing `data-index` here (not as
+    // a JSX prop) keeps the attribute and the registration in one atomic step, so the virtualizer never
+    // reads a stale index off the node.
+    const measureRef = useCallback(
+        (node: HTMLDivElement | null): void => {
+            if (node) {
+                node.setAttribute('data-index', String(index))
+            }
+            measureElement(node)
+        },
+        [measureElement, index]
+    )
 
     // Flow mode: transparent — the parent container provides spacing and centering.
     if (!virtualized) {
         return <>{children}</>
     }
 
-    // The outer element carries only positioning (never a fixed height); TanStack's `measureElement` attaches
-    // a border-box `ResizeObserver` to it (keyed by `data-index`), so the cached height always tracks content
-    // growth — tool output expand/collapse, streaming markdown, a late-loading image — and includes the gap
-    // padding on the child. Border-box measurement is transform-safe, so the `translateY` positioning above
-    // does not distort it.
+    // The outer element carries only the static positioning base (never a fixed height or offset — the
+    // virtualizer writes `translate3d` to it directly); TanStack's `measureElement` attaches a border-box
+    // `ResizeObserver` to it, so the cached height always tracks content growth — tool output
+    // expand/collapse, streaming markdown, a late-loading image — and includes the gap padding on the
+    // child. Border-box measurement is transform-safe, so the imperative positioning does not distort it.
     return (
-        <div ref={measureElement} data-index={index} style={style}>
+        <div ref={measureRef} style={ROW_BASE_STYLE}>
             <div
                 className={cn('w-full mx-auto @container/thread', maxWidthClassName, className)}
                 style={{ paddingBottom: gap }}
