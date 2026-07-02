@@ -19,6 +19,30 @@ function getThreadItemKey(item: ThreadItem): string {
     return item.id
 }
 
+/**
+ * Typical rendered height per item type (px, gap excluded). These seed the virtualizer before a row is
+ * first measured; the closer they sit to reality, the less the scroll position has to be corrected while
+ * scrolling up through unvisited rows — which is what reads as drag/jumping. Rough is fine, order of
+ * magnitude matters: a collapsed tool card is ~2 lines, a markdown message is a paragraph or more.
+ */
+const THREAD_ITEM_HEIGHT_ESTIMATES: Partial<Record<ThreadItem['type'], number>> = {
+    human_message: 76,
+    assistant_message: 140,
+    assistant_thought: 28,
+    tool_invocation: 44,
+    turn_separator: 24,
+    error: 48,
+    status: 32,
+    compact_boundary: 32,
+    task_notification: 40,
+    progress: 44,
+    debug: 32,
+}
+
+function estimateThreadItemHeight(item: ThreadItem): number {
+    return THREAD_ITEM_HEIGHT_ESTIMATES[item.type] ?? 56
+}
+
 interface ThreadViewProps {
     /**
      * Pass `false` when an ancestor already owns scroll (the live Max column + auto-scroller) — rows then
@@ -153,6 +177,7 @@ export function ThreadView({
         <VirtualizedThread.Root
             items={threadItems}
             getItemKey={getThreadItemKey}
+            estimateItemHeight={estimateThreadItemHeight}
             header={header}
             footer={footer}
             stickToBottom

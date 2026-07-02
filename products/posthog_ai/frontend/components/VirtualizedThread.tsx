@@ -19,7 +19,10 @@ const BOTTOM_THRESHOLD = 32
 
 const EMPTY_STYLE: CSSProperties = {}
 
-/** Stable virtual keys for the synthetic header/footer rows — never collide with a user item key. */
+/**
+ * Virtual keys for the synthetic header/footer rows — reserved prefixes that never collide with a user item
+ * key. The footer key is a prefix, not a constant: `getVirtualItemKey` appends the item count to it.
+ */
 const HEADER_KEY = '__vt_header__'
 const FOOTER_KEY = '__vt_footer__'
 
@@ -75,6 +78,13 @@ export interface VirtualizedThreadRootProps<T> {
     gap?: number
     /** Height used until a row is measured. */
     defaultRowHeight?: number
+    /**
+     * Per-item pre-measurement height estimate in px (gap excluded — added internally). The closer the
+     * estimate to the real row height, the smaller the scroll-position correction applied when an
+     * unmeasured row above the viewport gets its first measurement — which is what makes scrolling up
+     * through unvisited history feel like dragging. Falls back to `defaultRowHeight`.
+     */
+    estimateItemHeight?: (item: T, index: number) => number
     overscanCount?: number
     /** Follow the bottom as rows grow/append; unpins when the user scrolls up. */
     stickToBottom?: boolean
@@ -110,6 +120,7 @@ function Root<T>({
     footer,
     gap = 6,
     defaultRowHeight = 56,
+    estimateItemHeight,
     overscanCount = 10,
     stickToBottom = true,
     initialTopItemIndex = null,
@@ -124,7 +135,6 @@ function Root<T>({
     const rowCount = items.length + (hasHeader ? 1 : 0) + (hasFooter ? 1 : 0)
 
     const scrollRef = useRef<HTMLDivElement>(null)
-    const pinnedRef = useRef(stickToBottom)
     const didInitialScrollRef = useRef(false)
 
     const renderRow = useCallback(
@@ -158,43 +168,65 @@ function Root<T>({
             if (i < items.length) {
                 return getItemKey(items[i], i)
             }
-            return FOOTER_KEY
+            // The item count rides in the footer key: TanStack detects "append at the end" (the
+            // `followOnAppend` stick) by a last-key change, and a constant footer key would mask every item
+            // append behind it — count grows, last key stays the footer — silently breaking follow while the
+            // footer (the streaming case's thinking indicator) is visible. The cost is one estimate-sized
+            // frame per append while the always-mounted footer re-measures under its new key.
+            return `${FOOTER_KEY}${items.length}`
         },
         [items, getItemKey, hasHeader]
+    )
+
+    // Measured heights include the gap padding (see `Row`), so estimates must too — otherwise every first
+    // measurement carries a built-in error that gets compensated as a scroll-position correction.
+    const estimateVirtualRow = useCallback(
+        (index: number): number => {
+            let i = index
+            if (hasHeader) {
+                if (i === 0) {
+                    return defaultRowHeight + gap
+                }
+                i -= 1
+            }
+            if (i < items.length) {
+                return (estimateItemHeight?.(items[i], i) ?? defaultRowHeight) + gap
+            }
+            return defaultRowHeight + gap
+        },
+        [items, hasHeader, estimateItemHeight, defaultRowHeight, gap]
     )
 
     const virtualizer = useVirtualizer({
         count: rowCount,
         getScrollElement: () => scrollRef.current,
-        estimateSize: () => defaultRowHeight,
+        estimateSize: estimateVirtualRow,
         overscan: overscanCount,
         getItemKey: getVirtualItemKey,
         // No `gap` — inter-row spacing is baked into the measured row height via `paddingBottom` (see `Row`).
         ...(stickToBottom
             ? {
-                  // Keep the end anchored on count/edge-key change (append/prepend/reorder). Height-only
-                  // growth of the last row (token streaming, same count + key) is handled by the stick effect.
+                  // The core owns stick-to-bottom entirely: `anchorTo: 'end'` re-anchors on count/edge-key
+                  // change (append/prepend/reorder), `followOnAppend` scrolls to new rows when at the end,
+                  // and the core's resize handling compensates height-only growth (token streaming) while
+                  // within `scrollEndThreshold` of the end — and stops the moment the user scrolls away.
                   anchorTo: 'end' as const,
                   followOnAppend: 'auto' as const,
                   scrollEndThreshold: BOTTOM_THRESHOLD,
-                  // Overshoot so the very first render window already emits the bottom rows (not a blank top
-                  // frame); the pre-paint `scrollToIndex` below lands them exactly in view.
-                  initialOffset: () => rowCount * defaultRowHeight,
+                  // Seed the virtual offset past the end so the very first render window already emits the
+                  // bottom rows (not a blank top frame); the pre-paint `scrollToIndex` below lands them
+                  // exactly in view. Summing the row estimates keeps this exact whatever `estimateItemHeight`
+                  // returns — a flat multiplier would undershoot and flash a mid-thread window.
+                  initialOffset: () => {
+                      let total = 0
+                      for (let i = 0; i < rowCount; i++) {
+                          total += estimateVirtualRow(i)
+                      }
+                      return total
+                  },
               }
             : {}),
     })
-
-    // Pinned tracking — direct DOM math on scroll, no re-render of ours.
-    const handleScroll = useCallback((): void => {
-        if (!stickToBottom) {
-            return
-        }
-        const el = scrollRef.current
-        if (!el) {
-            return
-        }
-        pinnedRef.current = el.scrollHeight - el.scrollTop - el.clientHeight <= BOTTOM_THRESHOLD
-    }, [stickToBottom])
 
     // Initial open (once): land at the last row before the browser paints, so a long thread never shows a
     // top-frame flicker or a visible crawl. `initialOffset` makes render #1 already emit the bottom window;
@@ -205,36 +237,8 @@ function Root<T>({
             return
         }
         didInitialScrollRef.current = true
-
-        // Open at the top of a specific item (the task thread's last user message) rather than the bottom.
-        // Leave the thread unpinned so the per-dep stick-to-bottom effect (and its already-queued
-        // `maybeStickToBottom`, which re-reads `pinnedRef` at frame time) bails instead of yanking it down.
-        const topTarget =
-            initialTopItemIndex != null && initialTopItemIndex >= 0 && initialTopItemIndex < items.length
-                ? initialTopItemIndex
-                : null
-        if (topTarget !== null) {
-            pinnedRef.current = false
-            return settleInitialScroll(
-                () => scrollItemToTop(topTarget),
-                () => listRef.current?.element?.scrollTop ?? 0
-            )
-        }
-        pinnedRef.current = true
         virtualizer.scrollToIndex(rowCount - 1, { align: 'end' })
     }, [virtualized, stickToBottom, rowCount, virtualizer])
-
-    // Follow streaming growth + append. Keyed on `getTotalSize()` — which changes only when content actually
-    // grows (measurement settle, new row), never on scroll — so this is finite, monotonic and self-terminating.
-    // This is the piece that delivers token-by-token stick, which `anchorTo: 'end'` (edge-key change only) does
-    // not. No state update of ours, so there is no re-scroll → re-render → re-measure cascade (the old crash).
-    const totalSize = virtualizer.getTotalSize()
-    useLayoutEffect(() => {
-        if (!virtualized || !stickToBottom || !pinnedRef.current || rowCount === 0) {
-            return
-        }
-        virtualizer.scrollToOffset(totalSize, { align: 'end' })
-    }, [virtualized, stickToBottom, rowCount, totalSize, virtualizer])
 
     // Mobile Safari: the soft keyboard shrinks the visual (not layout) viewport, so a pinned bottom can slip
     // behind it. Re-assert on visualViewport changes.
@@ -244,7 +248,7 @@ function Root<T>({
         }
         const viewport = window.visualViewport
         const onViewportChange = (): void => {
-            if (pinnedRef.current) {
+            if (virtualizer.isAtEnd(BOTTOM_THRESHOLD)) {
                 requestAnimationFrame(() => virtualizer.scrollToEnd())
             }
         }
@@ -291,13 +295,23 @@ function Root<T>({
             <div className={cn('flex flex-col h-full min-h-0 w-full', className)}>
                 <div
                     ref={scrollRef}
-                    onScroll={handleScroll}
                     className={cn('flex-1 min-h-0 overflow-y-auto overflow-x-hidden overscroll-contain', listClassName)}
                 >
-                    <div style={{ height: totalSize, width: '100%', position: 'relative' }}>
-                        {virtualizer.getVirtualItems().map((vi) => (
-                            <InternalRow key={String(vi.key)} index={vi.index} start={vi.start} renderRow={renderRow} />
-                        ))}
+                    <div style={{ height: virtualizer.getTotalSize(), width: '100%', position: 'relative' }}>
+                        {virtualizer.getVirtualItems().map((vi) => {
+                            const key = String(vi.key)
+                            return (
+                                <InternalRow
+                                    // The footer's virtual key rotates per append (see `getVirtualItemKey`) but its React
+                                    // identity must not — remounting it would reset footer-local state (e.g. the thinking
+                                    // indicator's rotation timer) on every appended row.
+                                    key={key.startsWith(FOOTER_KEY) ? FOOTER_KEY : key}
+                                    index={vi.index}
+                                    start={vi.start}
+                                    renderRow={renderRow}
+                                />
+                            )
+                        })}
                     </div>
                 </div>
             </div>
