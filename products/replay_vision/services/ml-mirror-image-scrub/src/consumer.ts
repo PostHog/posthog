@@ -34,9 +34,14 @@ async function scrubImage(ref: string, raw: Buffer): Promise<ScrubbedImage | nul
 async function main(): Promise<void> {
     const cfg = loadConfig()
     const s3 = makeS3(cfg)
-    await ensureBucket(s3, cfg.s3.bucket)
     const kafka = new Kafka({ clientId: 'ml-mirror-image-scrub', brokers: cfg.kafkaBrokers })
-    await ensureTopic(kafka, cfg.topic)
+    // ensureBucket/ensureTopic are local-dev conveniences: in prod the bucket + topic are provisioned by
+    // infra, and the IRSA role can't CreateBucket (ensureBucket would 403 and crash the pod on startup).
+    // Static S3 creds are only set in local dev (see makeS3), so gate on that.
+    if (cfg.s3.accessKeyId && cfg.s3.secretAccessKey) {
+        await ensureBucket(s3, cfg.s3.bucket)
+        await ensureTopic(kafka, cfg.topic)
+    }
     const stopMetrics = startMetricsServer()
 
     const store = new ImageShardStore(s3, cfg.s3.bucket)
@@ -87,7 +92,7 @@ async function main(): Promise<void> {
     await consumer.run({
         autoCommit: false,
         eachBatchAutoResolve: false,
-        eachBatch: async ({ batch, heartbeat, isRunning, isStale }) => {
+        eachBatch: async ({ batch, resolveOffset, heartbeat, isRunning, isStale }) => {
             for (const m of batch.messages) {
                 if (!isRunning() || isStale()) {
                     break
@@ -110,6 +115,9 @@ async function main(): Promise<void> {
                     partition: batch.partition,
                     offset: (Number(m.offset) + 1).toString(),
                 })
+                // Advance kafkajs past this message (autoResolve is off, so without this the same batch
+                // reprocesses forever). Durability is separate: the offset isn't committed until its shard flushes.
+                resolveOffset(m.offset)
                 await heartbeat()
             }
             if (batcher.shouldFlush(Date.now())) {
