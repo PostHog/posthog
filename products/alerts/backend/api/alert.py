@@ -704,8 +704,6 @@ class AlertSerializer(SearchMatchTypeSerializerMixin, serializers.ModelSerialize
         if calculation_interval == AlertCalculationInterval.REAL_TIME and (
             msg := AlertConfiguration.check_real_time_alert_limit(self.context["team_id"], organization)
         ):
-            import posthoganalytics  # noqa: PLC0415
-
             posthoganalytics.capture(
                 str(self.context["request"].user.distinct_id),
                 "real time alert limit reached",
