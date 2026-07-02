@@ -432,6 +432,13 @@ describe('CDP hog invocation rerun e2e', () => {
             })
         }
 
+        // The parent beforeEach inserts a `simple_fetch` destination (`fnFetch`)
+        // that also has `no_filters` and gets triggered by our `$pageview`. We
+        // don't care about its invocations or fetches — filter them out.
+        const GCLID_WEBHOOK_URL = 'https://example.com/google-ads-webhook'
+        const gclidFetchCalls = (): unknown[][] =>
+            mockFetch.mock.calls.filter(([url]) => String(url).startsWith(GCLID_WEBHOOK_URL))
+
         const runOriginalAndAssertLifecycleRow = async (gclidFn: HogFunctionType): Promise<string> => {
             mockFetch.mockResolvedValue({
                 status: 200,
@@ -461,7 +468,10 @@ describe('CDP hog invocation rerun e2e', () => {
             })
 
             const { invocations } = await eventsConsumer.processBatch([gclidGlobals])
-            expect(invocations).toHaveLength(1)
+            // At least one for our gclidFn — the parent beforeEach's fnFetch
+            // also matches this event, so we don't pin an exact count.
+            const gclidInvocations = invocations.filter((inv) => inv.functionId === gclidFn.id)
+            expect(gclidInvocations).toHaveLength(1)
 
             await waitForExpect(async () => {
                 const rows = await clickhouse.query<PersistedRow>(
@@ -477,7 +487,7 @@ describe('CDP hog invocation rerun e2e', () => {
                  FROM hog_invocation_results
                  WHERE team_id = ${team.id} AND function_id = '${gclidFn.id}' AND status = 'succeeded'`
             )
-            expect(mockFetch.mock.calls.length).toBe(1)
+            expect(gclidFetchCalls()).toHaveLength(1)
             return rows[0].invocation_id
         }
 
@@ -549,12 +559,12 @@ describe('CDP hog invocation rerun e2e', () => {
 
             await triggerRerunAndWaitForCompletion(gclidFn, originalInvocationId)
 
-            // Original + rerun both fetched. The second fetch's body should
-            // contain the value that came from `$initial_gclid` — proves the
-            // coalesce reached the fallback branch.
-            expect(mockFetch.mock.calls.length).toBeGreaterThanOrEqual(2)
-            const rerunCall = mockFetch.mock.calls[mockFetch.mock.calls.length - 1]
-            const rerunBody = String(rerunCall[1]?.body ?? '')
+            // Original + rerun both fetched to our webhook URL. The second
+            // one's body should carry the value from `$initial_gclid` —
+            // proves the coalesce reached the fallback branch.
+            const calls = gclidFetchCalls()
+            expect(calls.length).toBeGreaterThanOrEqual(2)
+            const rerunBody = String((calls[calls.length - 1] as any)[1]?.body ?? '')
             expect(rerunBody).toContain('gclid=INITIAL_TOKEN_ABC')
         })
 
@@ -589,8 +599,9 @@ describe('CDP hog invocation rerun e2e', () => {
 
             await triggerRerunAndWaitForCompletion(gclidFn, originalInvocationId)
 
-            // Only the original fetch — rerun hit the empty-gclid skip.
-            expect(mockFetch.mock.calls.length).toBe(1)
+            // Only the original fetch to our webhook — rerun hit the
+            // empty-gclid skip and never fetched.
+            expect(gclidFetchCalls()).toHaveLength(1)
         })
     })
 })
