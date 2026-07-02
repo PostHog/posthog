@@ -274,6 +274,10 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 getElementStats: async ({ url, limit }, breakpoint) => {
                     await breakpoint(150)
 
+                    if (!values.heatmapEnabled || !values.clickmapsEnabled) {
+                        return emptyElementsStatsPages
+                    }
+
                     const { href, wildcardHref } = values
                     // We re-raise below to drive getElementStatsFailure; let the global
                     // loader handler report it once rather than capturing twice.
@@ -629,7 +633,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
 
             // the first page painted; fetch the rest in one background request. Only the initial
             // trigger refetches, so an auto-load result can never re-trigger itself.
-            if (trigger === 'initial' && elementStats?.next && values.clickmapsEnabled) {
+            if (trigger === 'initial' && elementStats?.next && values.heatmapEnabled && values.clickmapsEnabled) {
                 actions.getElementStats(null, ELEMENT_STATS_AUTO_LOAD_LIMIT)
             }
         },

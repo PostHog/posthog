@@ -746,8 +746,8 @@ export const toolbarLogic = kea<toolbarLogicType>([
                             actions.patchHeatmapFilters(e.data.payload.filters)
                             actions.setHeatmapColorPalette(e.data.payload.colorPalette)
                             actions.setHeatmapFixedPositionMode(e.data.payload.fixedPositionMode)
-                            actions.setCommonFilters(e.data.payload.commonFilters)
                             actions.toggleClickmapsEnabled(false)
+                            actions.setCommonFilters(e.data.payload.commonFilters)
                             // it's ok to use we use a wildcard for the origin bc data isn't sensitive
                             // nosemgrep: javascript.browser.security.wildcard-postmessage-configuration.wildcard-postmessage-configuration
                             window.parent.postMessage({ type: PostHogAppToolbarEvent.PH_TOOLBAR_READY }, '*')
