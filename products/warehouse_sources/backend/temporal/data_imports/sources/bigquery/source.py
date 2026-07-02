@@ -71,6 +71,16 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # Matched on the stable permission name (also covers `bigquery.tables.updateData`), not
             # the volatile temp-table id.
             "bigquery.tables.update": "BigQuery denied write access to a temporary table PostHog creates in your dataset. PostHog copies query results into temporary tables before reading them, so read access alone isn't enough. Please grant your service account write access (for example the BigQuery Data Editor role) on the dataset where these temporary tables are created — your main dataset, or the temporary dataset if you configured one — then reconnect the source.",
+            # Before it can write into the `__posthog_import_...` temp tables, `_run_destination_query_with_job_retry`
+            # (WRITE_TRUNCATE, on incremental / view / row-filtered reads) needs to *create* them in the
+            # dataset they live in. A service account with only read access is denied with "Permission
+            # bigquery.tables.create denied on dataset <id>". Like `bigquery.tables.update` this is a
+            # write-side denial, distinct from the read-side ones the "Access Denied:" key below covers —
+            # and that key would match this message first and misdirect the customer to grant *read* access
+            # (Data Viewer), which can't create a table. Keep this key above "Access Denied:" so the
+            # write-specific guidance wins. Deterministic IAM config problem — retrying can't grant the
+            # permission. Matched on the stable permission name, not the volatile dataset id.
+            "bigquery.tables.create": "BigQuery denied permission to create a temporary table in your dataset. PostHog copies query results into temporary tables before reading them, so read access alone isn't enough. Please grant your service account write access (for example the BigQuery Data Editor role) on the dataset where these temporary tables are created — your main dataset, or the temporary dataset if you configured one — then reconnect the source.",
             # BigQuery prefixes every IAM/permission failure with "Access Denied:" — e.g.
             # "Access Denied: Table <id>: Permission bigquery.tables.getData denied on table <id>
             # (or it may not exist).". The matched string above only covers the REST client's

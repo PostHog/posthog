@@ -880,6 +880,24 @@ def test_temp_table_write_denial_surfaces_write_permission_guidance():
     assert "write access" in friendly
 
 
+def test_temp_table_create_denial_surfaces_write_permission_guidance():
+    # A tables.create denial on the dataset PostHog writes temp tables into also contains
+    # "Access Denied:", so both keys match. external_data_job surfaces the first matching key's
+    # message, so the create key must sit above "Access Denied:" — otherwise the customer is told
+    # to grant read access to fix a failure that needs create-table (write) permission.
+    observed_error = str(
+        Forbidden(
+            "Access Denied: Dataset prj:ds: Permission bigquery.tables.create denied on dataset "
+            "prj:ds (or it may not exist)."
+        )
+    )
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    first_key, friendly = next((key, msg) for key, msg in non_retryable_errors.items() if key in observed_error)
+    assert first_key == "bigquery.tables.create"
+    assert friendly is not None
+    assert "write access" in friendly
+
+
 @pytest.mark.parametrize(
     "observed_error",
     [
