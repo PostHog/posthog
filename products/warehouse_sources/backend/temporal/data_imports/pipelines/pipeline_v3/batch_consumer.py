@@ -422,9 +422,21 @@ class BatchConsumer:
                     )
                     break
         finally:
-            if group_conn is not None:
+            unlock_conn = group_conn
+            if unlock_conn is None:
+                # The group connection never materialized (queue-DB blip, pool
+                # exhaustion) but the leases were already claimed at fetch time.
+                # Release them via the poll connection — lease release is
+                # token-scoped, any connection works — or this pod pins the
+                # groups (every poll renews its own leases) until it can
+                # connect again, locking every other pod out of them.
                 try:
-                    await self._adapter.unlock(group_conn, batches=batches, owner_token=self._owner_token)
+                    unlock_conn = await self._ensure_poll_conn()
+                except Exception:
+                    unlock_conn = None  # queue DB fully unreachable; lease TTL is the backstop
+            if unlock_conn is not None:
+                try:
+                    await self._adapter.unlock(unlock_conn, batches=batches, owner_token=self._owner_token)
                 except Exception as e:
                     logger.exception(
                         self._event("unlock_for_batches_failed"),

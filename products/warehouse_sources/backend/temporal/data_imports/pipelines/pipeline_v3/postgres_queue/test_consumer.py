@@ -282,6 +282,28 @@ class TestProcessGroup:
         assert processed == [0]
 
 
+class TestGroupConnectionFailure:
+    @pytest.mark.asyncio
+    async def test_leases_released_when_group_connection_fails(self):
+        # Leases are claimed at fetch time on the poll connection; if opening
+        # the per-group connection then fails, the leases must still be
+        # released (via the poll connection) — otherwise every poll renews
+        # them and other pods are locked out of the groups indefinitely.
+        consumer = _make_consumer()
+        batches = [_make_batch()]
+
+        with (
+            patch.object(consumer, "_connect", new_callable=AsyncMock, side_effect=psycopg.OperationalError("no conn")),
+            patch(
+                "products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.consumer.BatchQueue.unlock_for_batches",
+                new_callable=AsyncMock,
+            ) as mock_unlock,
+        ):
+            await consumer._process_group_tracked((1, "schema-1"), batches)
+
+        mock_unlock.assert_called_once_with(consumer._poll_conn, batches=batches, owner_token=consumer._owner_token)
+
+
 class TestOwnershipFencing:
     @pytest.mark.asyncio
     @pytest.mark.parametrize("latest_attempt", [0, 2])  # waiting_retry branch / fail_run branch
