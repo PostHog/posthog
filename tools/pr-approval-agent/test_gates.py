@@ -71,6 +71,14 @@ from gates import detect_deny_categories, detect_title_scrutiny_flags, is_size_e
             id="message-routing-test-not-infra",
         ),
         pytest.param(
+            ["products/web_analytics/backend/temporal/health_checks/authorized_urls.py"],
+            id="authorized-urls-domain-config-not-auth",
+        ),
+        pytest.param(
+            ["dustbin/deploy.py"],
+            id="bin-deploy-needs-path-anchor",
+        ),
+        pytest.param(
             ["products/warehouse_sources/backend/temporal/data_imports/sources/stripe/source.py"],
             id="stripe-connector-not-billing",
         ),
@@ -198,6 +206,7 @@ def test_true_positive(files: list[str], expected_category: str) -> None:
         pytest.param("fix: stripe invoice pagination", ["billing"], id="billing-keywords"),
         pytest.param("feat(subscriptions): raise hourly org cap", [], id="insight-subscription-not-billing"),
         pytest.param("chore: migrate helm chart to terraform", ["infra_cicd"], id="infra-keywords"),
+        pytest.param("fix: authorized urls health check", ["auth"], id="title-only-past-participle"),
         pytest.param("fix(insights): trend legend overlap", [], id="neutral-title"),
         pytest.param("fix: authentication flow", ["auth"], id="authentication-long-form"),
         pytest.param("feat: stripe oauth billing sync", ["auth", "billing"], id="two-category-title"),

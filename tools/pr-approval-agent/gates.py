@@ -23,10 +23,12 @@ from pathlib import Path
 # which reads the actual diff and can refuse when the change really does
 # touch the flagged domain.
 #
-# Two pattern lists per category:
+# Three pattern lists per category:
 #   "paths"  — matched against file paths (hard deny)
 #   "any"    — matched against file paths (hard deny) and the PR title
 #              (scrutiny flag only)
+#   "titles" — matched against the PR title only (scrutiny flag, never a
+#              deny) — for words whose path-side hits are false positives
 
 _DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = {
     "auth": {
@@ -44,10 +46,16 @@ _DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = {
             "mfa",
             "authentication",
             "authenticate",
-            "authenticated",
             "authorize",
             "authorization",
+        ],
+        # Past participles hard-deny the wrong things as path patterns
+        # (web analytics' authorized_urls.py health check is domain config,
+        # not the auth system) but are natural title words.
+        "titles": [
+            "authenticated",
             "authorized",
+            r"two[_-]?factor",
         ],
         # "session" and "token" match too broadly in titles and non-auth
         # file paths (e.g. SessionAnalysisWarning, tokenize, tokenizer).
@@ -115,7 +123,7 @@ _DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = {
             "cloudflare",
             "cdn",
             "waf",
-            "bin/deploy",
+            r"(?:^|/)bin/deploy",
             r"deploy\.sh",
         ],
     },
@@ -188,6 +196,7 @@ def _compile_patterns(
     """Compile pattern definitions into regexes.
 
     "paths" patterns use path-friendly boundaries (break on _ and -).
+    "titles" patterns use natural-language word boundaries.
     "any" patterns are compiled twice: once for paths, once for titles,
     and stored as a list of (path_rx, title_rx) tuples.
     """
@@ -197,6 +206,8 @@ def _compile_patterns(
         for scope, patterns in groups.items():
             if scope == "paths":
                 compiled[category][scope] = [_compile_pattern(p, for_paths=True) for p in patterns]
+            elif scope == "titles":
+                compiled[category][scope] = [_compile_pattern(p, for_paths=False) for p in patterns]
             else:
                 # "any" — store (path_regex, title_regex) pairs
                 compiled[category][scope] = [
@@ -446,6 +457,7 @@ def detect_title_scrutiny_flags(subject: str) -> list[str]:
         category
         for category, scopes in DENY_PATTERNS.items()
         if any(title_rx.search(subject_lower) for _path_rx, title_rx in scopes.get("any", []))
+        or any(rx.search(subject_lower) for rx in scopes.get("titles", []))
     )
 
 
