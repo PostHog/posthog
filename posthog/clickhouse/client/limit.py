@@ -12,7 +12,7 @@ from prometheus_client import Counter
 
 from posthog import redis, settings
 from posthog.clickhouse.cluster import ExponentialBackoff
-from posthog.clickhouse.query_tagging import get_query_tag_value, tag_queries
+from posthog.clickhouse.query_tagging import add_fallback_query_tags, get_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 from posthog.settings import TEST
 from posthog.utils import generate_short_id
@@ -103,9 +103,14 @@ class RateLimit:
         task_id = self.get_task_id(*args, **kwargs)
         team_id: Optional[int] = kwargs.get("team_id", None)
         # Attribute blocks to the originating product surface (web_analytics, product_analytics, …)
-        # so we can track which product a saturated org's rejections come from. StrEnum → its value.
-        product_tag = get_query_tag_value("product")
-        product_label = str(product_tag) if product_tag else "unknown"
+        # so we can track which product a saturated org's rejections come from. The limiter runs
+        # before sync_execute's add_fallback_query_tags, so ad-hoc queries that only tag scene/kind
+        # (no explicit productKey) would otherwise label as "unknown" — apply the same fallback here.
+        # StrEnum → its value.
+        tags = get_query_tags()
+        if tags.product is None:
+            add_fallback_query_tags(tags)
+        product_label = str(tags.product) if tags.product else "unknown"
 
         max_concurrency: int = self.max_concurrency
 

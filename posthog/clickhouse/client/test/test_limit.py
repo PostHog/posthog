@@ -5,7 +5,10 @@ from collections.abc import Callable
 from posthog.test.base import BaseTest
 from unittest.mock import Mock, patch
 
+from parameterized import parameterized
+
 from posthog.clickhouse.client.limit import ConcurrencyLimitExceeded, RateLimit
+from posthog.clickhouse.query_tagging import Product, reset_query_tags, tag_queries
 from posthog.constants import AvailableFeature
 
 
@@ -36,6 +39,28 @@ class TestRateLimit(BaseTest):
         self.cancels.append(self.limit.use(is_api=True, team_id=8, task_id=17))
         with self.assertRaises(ConcurrencyLimitExceeded):
             self.cancels.append(self.limit.use(True, 8, 18))
+
+    @parameterized.expand(
+        [
+            # Scene-only queries carry no explicit productKey; the block counter must still attribute
+            # them via the same fallback sync_execute applies later, not record "unknown".
+            ("scene_fallback", {"scene": "SQLEditor"}, "warehouse"),
+            # An explicit product wins over the scene fallback.
+            ("explicit_product_wins", {"scene": "SQLEditor", "product": Product.WEB_ANALYTICS}, "web_analytics"),
+            # Nothing to attribute falls back to "unknown".
+            ("no_tags", {}, "unknown"),
+        ]
+    )
+    def test_block_counter_attributes_product_via_fallback(self, _name, query_tags, expected_product):
+        reset_query_tags()
+        if query_tags:
+            tag_queries(**query_tags)
+        self.cancels.append(self.limit.use(is_api=True, team_id=9, task_id=1))
+        with patch("posthog.clickhouse.client.limit.CONCURRENT_QUERY_LIMIT_EXCEEDED_COUNTER") as mock_counter:
+            with self.assertRaises(ConcurrencyLimitExceeded):
+                self.limit.use(is_api=True, team_id=9, task_id=2)
+        labeled_products = {call.kwargs.get("product") for call in mock_counter.labels.call_args_list}
+        self.assertIn(expected_product, labeled_products)
 
     def test_rate_limits_no_inference(self):
         """

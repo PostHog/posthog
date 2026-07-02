@@ -1,5 +1,6 @@
 import re
 from time import perf_counter
+from typing import NoReturn
 
 from django.core.cache import cache
 from django.http import JsonResponse, StreamingHttpResponse
@@ -167,6 +168,11 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             return new_val
         return False
 
+    def _raise_concurrency_throttled(self, exc: ConcurrencyLimitExceeded) -> NoReturn:
+        # Log the raw detail (Redis key + task id) for Loki, but surface a clean message to the user.
+        logger.warning("query_concurrency_limit_exceeded", detail=str(exc))
+        raise Throttled(detail=CONCURRENCY_LIMIT_USER_MESSAGE)
+
     @extend_schema(
         request=QueryRequest,
         responses={
@@ -287,8 +293,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             ).inc()
             raise
         except ConcurrencyLimitExceeded as c:
-            logger.warning("query_concurrency_limit_exceeded", detail=str(c))
-            raise Throttled(detail=CONCURRENCY_LIMIT_USER_MESSAGE)
+            self._raise_concurrency_throttled(c)
         except Exception as e:
             capture_exception(e)
             raise
@@ -390,8 +395,7 @@ class QueryViewSet(QueryCoalescingMixin, TeamAndOrgViewSetMixin, PydanticModelMi
             result = hogql_runner.calculate()
             return Response(result.model_dump(), status=200)
         except ConcurrencyLimitExceeded as c:
-            logger.warning("query_concurrency_limit_exceeded", detail=str(c))
-            raise Throttled(detail=CONCURRENCY_LIMIT_USER_MESSAGE)
+            self._raise_concurrency_throttled(c)
         except Exception as e:
             capture_exception(e)
             raise
