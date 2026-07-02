@@ -1,5 +1,6 @@
 import pytest
 from posthog.test.base import APIBaseTest, QueryMatchingTest
+from unittest.mock import patch
 
 from parameterized import parameterized
 from rest_framework import status
@@ -127,6 +128,25 @@ class TestDashboardDuplication(APIBaseTest, QueryMatchingTest):
 
         assert new_insight_tile["filters_overrides"] == filters_overrides
         assert new_insight_tile["show_description"] is True
+
+    def test_deep_duplicate_seeds_cache_for_new_insight_tile(self) -> None:
+        dashboard_id, _ = self.dashboard_api.create_dashboard({})
+        self.dashboard_api.create_insight({"dashboards": [dashboard_id]})
+        dashboard_json = self.dashboard_api.get_dashboard(dashboard_id)
+        original_insight_id = next(t["insight"]["id"] for t in dashboard_json["tiles"] if t["insight"] is not None)
+
+        with patch("products.dashboards.backend.api.dashboard.warm_insight_cache_task") as warm_task:
+            with self.captureOnCommitCallbacks(execute=True):
+                duplicated = self.client.post(
+                    f"/api/projects/{self.team.id}/dashboards/",
+                    {"duplicate_tiles": True, "use_dashboard": dashboard_id, "name": "dup"},
+                ).json()
+
+        new_insight_id = next(t["insight"]["id"] for t in duplicated["tiles"] if t["insight"] is not None)
+        # The freshly created insight (not the shared original) must be warmed so its dashboard tile
+        # isn't empty on first load.
+        assert new_insight_id != original_insight_id
+        warm_task.delay.assert_called_once_with(new_insight_id, duplicated["id"])
 
     @staticmethod
     def _tile_child_ids_from(dashboard_json: dict) -> list[int]:

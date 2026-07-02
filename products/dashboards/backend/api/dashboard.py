@@ -56,6 +56,7 @@ from posthog.api.shared import SearchMatchTypeSerializerMixin, UserBasicSerializ
 from posthog.api.streaming import sse_streaming_response
 from posthog.api.tagged_item import TaggedItemSerializerMixin, TaggedItemViewSetMixin
 from posthog.api.utils import action
+from posthog.caching.warming import warm_insight_cache_task
 from posthog.clickhouse.client.async_task_chain import task_chain_context
 from posthog.constants import GENERATED_DASHBOARD_PREFIX
 from posthog.event_usage import EventSource, get_event_source, report_user_action
@@ -1371,7 +1372,6 @@ class DashboardSerializer(DashboardMetadataSerializer):
             new_data = {
                 **InsightSerializer(existing_tile.insight, context=self.context).data,
                 "id": None,  # to create a new Insight
-                "last_refresh": now(),
                 "name": (existing_tile.insight.name + " (Copy)") if existing_tile.insight.name else None,
             }
             new_data.pop("dashboards", None)
@@ -1394,6 +1394,12 @@ class DashboardSerializer(DashboardMetadataSerializer):
                 show_description=existing_tile.show_description,
                 transparent_background=existing_tile.transparent_background,
             )
+
+            # The duplicated insight has no cached result and, on a brand-new dashboard, a NULL target cache age,
+            # so neither the initial cache-only load nor the periodic warming task would populate it — leaving the
+            # tile empty until someone opens the insight editor. Enqueue an initial computation for its dashboard
+            # cache key so the first dashboard load has something to serve.
+            transaction.on_commit(lambda: warm_insight_cache_task.delay(insight.id, dashboard.id))
         elif existing_tile.text:
             new_data = {
                 **TextSerializer(existing_tile.text, context=self.context).data,
