@@ -80,7 +80,7 @@ class TestGetDomain:
 
     def test_returns_none_when_not_registered_here(self, mock_get: MagicMock, _mock_key: MagicMock):
         resp = _mailgun_response(404, {"message": "domain not found"})
-        resp.raise_for_status.side_effect = requests.exceptions.HTTPError("404")
+        resp.raise_for_status.side_effect = requests.exceptions.HTTPError(response=resp)
         mock_get.return_value = resp
 
         assert get_domain("example.com") is None
