@@ -42688,6 +42688,11 @@ export namespace Schemas {
       homepage?: PinnedSceneTab | null;
     }
 
+    export interface PlaylistRecordingModifiedResponse {
+      /** True when the recording was added to or removed from the collection playlist. */
+      success: boolean;
+    }
+
     /**
      * * `Postgres` - Postgres
      */

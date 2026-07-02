@@ -1,0 +1,15 @@
+{
+    "$schema": "https://json-schema.org/draft/2020-12/schema",
+    "properties": {
+        "session_recording_id": {
+            "description": "The session recording's id — any `$session_id` value from an event.",
+            "type": "string"
+        },
+        "short_id": {
+            "description": "The `short_id` of the collection playlist to remove the recording from.",
+            "type": "string"
+        }
+    },
+    "required": ["session_recording_id", "short_id"],
+    "type": "object"
+}

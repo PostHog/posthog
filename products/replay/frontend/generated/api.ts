@@ -14,6 +14,7 @@ import type {
     PaginatedSingleSessionSummaryMinimalListApi,
     PatchedSessionRecordingApi,
     PatchedSessionRecordingPlaylistApi,
+    PlaylistRecordingModifiedResponseApi,
     SessionRecordingApi,
     SessionRecordingPlaylistApi,
     SessionRecordingPlaylistsListParams,
@@ -191,19 +192,22 @@ export const getSessionRecordingPlaylistsRecordingsCreateUrl = (
     return `/api/projects/${projectId}/session_recording_playlists/${shortId}/recordings/${sessionRecordingId}/`
 }
 
+/**
+ * Add a single session recording to a collection playlist by its session id. Only collection playlists can be populated this way — filters playlists derive their recordings from saved filters and will reject this call.
+ */
 export const sessionRecordingPlaylistsRecordingsCreate = async (
     projectId: string,
     shortId: string,
     sessionRecordingId: string,
-    sessionRecordingPlaylistApi?: NonReadonly<SessionRecordingPlaylistApi>,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getSessionRecordingPlaylistsRecordingsCreateUrl(projectId, shortId, sessionRecordingId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(sessionRecordingPlaylistApi),
-    })
+): Promise<PlaylistRecordingModifiedResponseApi> => {
+    return apiMutator<PlaylistRecordingModifiedResponseApi>(
+        getSessionRecordingPlaylistsRecordingsCreateUrl(projectId, shortId, sessionRecordingId),
+        {
+            ...options,
+            method: 'POST',
+        }
+    )
 }
 
 export const getSessionRecordingPlaylistsRecordingsDestroyUrl = (
@@ -214,16 +218,22 @@ export const getSessionRecordingPlaylistsRecordingsDestroyUrl = (
     return `/api/projects/${projectId}/session_recording_playlists/${shortId}/recordings/${sessionRecordingId}/`
 }
 
+/**
+ * Remove a single session recording from a collection playlist by its session id.
+ */
 export const sessionRecordingPlaylistsRecordingsDestroy = async (
     projectId: string,
     shortId: string,
     sessionRecordingId: string,
     options?: RequestInit
-): Promise<void> => {
-    return apiMutator<void>(getSessionRecordingPlaylistsRecordingsDestroyUrl(projectId, shortId, sessionRecordingId), {
-        ...options,
-        method: 'DELETE',
-    })
+): Promise<PlaylistRecordingModifiedResponseApi> => {
+    return apiMutator<PlaylistRecordingModifiedResponseApi>(
+        getSessionRecordingPlaylistsRecordingsDestroyUrl(projectId, shortId, sessionRecordingId),
+        {
+            ...options,
+            method: 'DELETE',
+        }
+    )
 }
 
 export const getSessionRecordingsListUrl = (projectId: string, params?: SessionRecordingsListParams) => {

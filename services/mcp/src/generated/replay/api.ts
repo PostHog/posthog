@@ -3,7 +3,7 @@
  * MCP service uses these Zod schemas for generated tool handlers.
  * To regenerate: hogli build:openapi
  *
- * PostHog API - MCP 8 enabled ops
+ * PostHog API - MCP 10 enabled ops
  * OpenAPI spec version: 1.0.0
  */
 import * as zod from 'zod'
@@ -109,6 +109,32 @@ export const SessionRecordingPlaylistsPartialUpdateBody = /* @__PURE__ */ zod.ob
         .describe(
             "JSON object with recording filter criteria. Only used when type is 'filters'. Defines which recordings match this saved filter view. When updating a filters-type playlist, you must include the existing filters alongside any other changes — omitting filters will be treated as removing them."
         ),
+})
+
+/**
+ * Add a single session recording to a collection playlist by its session id. Only collection playlists can be populated this way — filters playlists derive their recordings from saved filters and will reject this call.
+ */
+export const SessionRecordingPlaylistsRecordingsCreateParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    session_recording_id: zod.string(),
+    short_id: zod.string(),
+})
+
+/**
+ * Remove a single session recording from a collection playlist by its session id.
+ */
+export const SessionRecordingPlaylistsRecordingsDestroyParams = /* @__PURE__ */ zod.object({
+    project_id: zod
+        .string()
+        .describe(
+            "Project ID of the project you're trying to access. To find the ID of the project, make a call to /api/projects/."
+        ),
+    session_recording_id: zod.string(),
+    short_id: zod.string(),
 })
 
 export const SessionRecordingsRetrieveParams = /* @__PURE__ */ zod.object({

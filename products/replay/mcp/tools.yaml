@@ -132,12 +132,46 @@ tools:
         description: >
             List session recording playlists in the project. Returns both user-created and synthetic (system-generated)
             playlists with their metadata and recording counts.
-    session-recording-playlists-recordings-create:
+    session-recording-playlist-add-recording:
         operation: session_recording_playlists_recordings_create
-        enabled: false
-    session-recording-playlists-recordings-destroy:
+        enabled: true
+        scopes:
+            - session_recording_playlist:write
+        annotations:
+            readOnly: false
+            destructive: false
+            idempotent: true
+        title: Add recording to session recording playlist
+        description: >
+            Add a single session recording to a collection-type session recording playlist. Pass the playlist's
+            `short_id` and the recording's `session_recording_id` (any `$session_id` from an event). Only collection
+            playlists can be populated this way — filters-type playlists derive their recordings from saved filters and
+            will reject the call. Adding a recording that is already in the playlist is a no-op. Use this after
+            `session-recording-playlist-create` to populate a new collection.
+        param_overrides:
+            short_id:
+                description: The `short_id` of the collection playlist to add the recording to.
+            session_recording_id:
+                description: The session recording's id — any `$session_id` value from an event.
+    session-recording-playlist-remove-recording:
         operation: session_recording_playlists_recordings_destroy
-        enabled: false
+        enabled: true
+        scopes:
+            - session_recording_playlist:write
+        annotations:
+            readOnly: false
+            destructive: true
+            idempotent: true
+        title: Remove recording from session recording playlist
+        description: >
+            Remove a single session recording from a collection-type session recording playlist. Pass the playlist's
+            `short_id` and the recording's `session_recording_id`. Removing a recording that is not in the playlist is a
+            no-op.
+        param_overrides:
+            short_id:
+                description: The `short_id` of the collection playlist to remove the recording from.
+            session_recording_id:
+                description: The session recording's id — any `$session_id` value from an event.
     session-recording-playlists-recordings-retrieve:
         operation: session_recording_playlists_recordings_retrieve
         enabled: false

@@ -105,38 +105,6 @@ export const SessionRecordingPlaylistsPartialUpdateBody = /* @__PURE__ */ zod.ob
     _create_in_folder: zod.string().optional(),
 })
 
-export const sessionRecordingPlaylistsRecordingsCreateBodyNameMax = 400
-
-export const sessionRecordingPlaylistsRecordingsCreateBodyDerivedNameMax = 400
-
-export const SessionRecordingPlaylistsRecordingsCreateBody = /* @__PURE__ */ zod.object({
-    name: zod
-        .string()
-        .max(sessionRecordingPlaylistsRecordingsCreateBodyNameMax)
-        .nullish()
-        .describe('Human-readable name for the playlist.'),
-    derived_name: zod.string().max(sessionRecordingPlaylistsRecordingsCreateBodyDerivedNameMax).nullish(),
-    description: zod.string().optional().describe("Optional description of the playlist's purpose or contents."),
-    pinned: zod.boolean().optional().describe('Whether this playlist is pinned to the top of the list.'),
-    deleted: zod.boolean().optional().describe('Set to true to soft-delete the playlist.'),
-    filters: zod
-        .unknown()
-        .optional()
-        .describe(
-            "JSON object with recording filter criteria. Only used when type is 'filters'. Defines which recordings match this saved filter view. When updating a filters-type playlist, you must include the existing filters alongside any other changes — omitting filters will be treated as removing them."
-        ),
-    type: zod
-        .union([
-            zod.enum(['collection', 'filters']).describe('\* `collection` - Collection\n\* `filters` - Filters'),
-            zod.null(),
-        ])
-        .optional()
-        .describe(
-            "Playlist type: 'collection' for manually curated recordings, 'filters' for saved filter views. Required on create, cannot be changed after.\n\n\* `collection` - Collection\n\* `filters` - Filters"
-        ),
-    _create_in_folder: zod.string().optional(),
-})
-
 export const SessionRecordingsUpdateBody = /* @__PURE__ */ zod.object({
     person: zod
         .object({

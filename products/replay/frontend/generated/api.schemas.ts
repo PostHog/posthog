@@ -163,6 +163,11 @@ export interface PatchedSessionRecordingPlaylistApi {
     _create_in_folder?: string
 }
 
+export interface PlaylistRecordingModifiedResponseApi {
+    /** True when the recording was added to or removed from the collection playlist. */
+    success: boolean
+}
+
 export interface MinimalPersonApi {
     /** Numeric person ID. */
     readonly id: number

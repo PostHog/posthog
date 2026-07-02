@@ -6678,6 +6678,20 @@
             "readOnlyHint": true
         }
     },
+    "session-recording-playlist-add-recording": {
+        "description": "Add a single session recording to a collection-type session recording playlist. Pass the playlist's `short_id` and the recording's `session_recording_id` (any `$session_id` from an event). Only collection playlists can be populated this way — filters-type playlists derive their recordings from saved filters and will reject the call. Adding a recording that is already in the playlist is a no-op. Use this after `session-recording-playlist-create` to populate a new collection.",
+        "category": "Session replays",
+        "feature": "replay",
+        "summary": "Add recording to session recording playlist",
+        "title": "Add recording to session recording playlist",
+        "required_scopes": ["session_recording_playlist:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
     "session-recording-playlist-create": {
         "description": "Create a new session recording playlist. Set type to 'collection' for a manually curated list or 'filters' for a saved filter view. Collections cannot have filters, and filter playlists must include at least one filter criterion.",
         "category": "Session replays",
@@ -6704,6 +6718,20 @@
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": true
+        }
+    },
+    "session-recording-playlist-remove-recording": {
+        "description": "Remove a single session recording from a collection-type session recording playlist. Pass the playlist's `short_id` and the recording's `session_recording_id`. Removing a recording that is not in the playlist is a no-op.",
+        "category": "Session replays",
+        "feature": "replay",
+        "summary": "Remove recording from session recording playlist",
+        "title": "Remove recording from session recording playlist",
+        "required_scopes": ["session_recording_playlist:write"],
+        "annotations": {
+            "destructiveHint": true,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
         }
     },
     "session-recording-playlist-update": {

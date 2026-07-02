@@ -423,6 +423,12 @@ def log_playlist_activity(
         )
 
 
+class PlaylistRecordingModifiedResponseSerializer(serializers.Serializer):
+    success = serializers.BooleanField(
+        help_text="True when the recording was added to or removed from the collection playlist."
+    )
+
+
 class SessionRecordingPlaylistSerializer(serializers.ModelSerializer, UserAccessControlSerializerMixin):
     recordings_counts = serializers.SerializerMethodField()
     _create_in_folder = serializers.CharField(required=False, allow_blank=True, write_only=True)
@@ -945,6 +951,20 @@ class SessionRecordingPlaylistViewSet(
 
     # As of now, you can only "update" a session recording by adding or removing a recording from a static playlist
     @extend_schema(parameters=[OpenApiParameter("session_recording_id", OpenApiTypes.STR, OpenApiParameter.PATH)])
+    @extend_schema(
+        methods=["POST"],
+        request=None,
+        responses={200: PlaylistRecordingModifiedResponseSerializer},
+        description="Add a single session recording to a collection playlist by its session id. "
+        "Only collection playlists can be populated this way — filters playlists derive their "
+        "recordings from saved filters and will reject this call.",
+    )
+    @extend_schema(
+        methods=["DELETE"],
+        request=None,
+        responses={200: PlaylistRecordingModifiedResponseSerializer},
+        description="Remove a single session recording from a collection playlist by its session id.",
+    )
     @action(
         methods=["POST", "DELETE"],
         detail=True,
