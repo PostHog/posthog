@@ -1362,6 +1362,29 @@ error_tracking_assignment_rules: PostgresTable = PostgresTable(
     },
 )
 
+error_tracking_bypass_rules: PostgresTable = PostgresTable(
+    name="error_tracking_bypass_rules",
+    postgres_table_name="posthog_errortrackingbypassrule",
+    access_scope="error_tracking",
+    description="Rules that exempt matching exceptions from error tracking rate limits; one row per rule.",
+    fields={
+        "id": StringDatabaseField(name="id", description="Rule UUID."),
+        "team_id": IntegerDatabaseField(name="team_id"),
+        "order_key": IntegerDatabaseField(name="order_key", description="Evaluation order; lower runs first."),
+        "filters": StringJSONDatabaseField(
+            name="filters", description="JSON conditions an exception must match for the rule to apply."
+        ),
+        "bytecode": StringJSONDatabaseField(
+            name="bytecode", nullable=True, description="Compiled Hog bytecode for the filters."
+        ),
+        "disabled_data": StringJSONDatabaseField(
+            name="disabled_data", nullable=True, description="JSON state when the rule is disabled; NULL when active."
+        ),
+        "created_at": DateTimeDatabaseField(name="created_at", description="When the rule was created."),
+        "updated_at": DateTimeDatabaseField(name="updated_at", description="When the rule was last updated."),
+    },
+)
+
 error_tracking_suppression_rules: PostgresTable = PostgresTable(
     name="error_tracking_suppression_rules",
     postgres_table_name="posthog_errortrackingsuppressionrule",
@@ -2074,6 +2097,7 @@ class SystemTables(TableNode):
         "error_tracking_assignment_rules": TableNode(
             name="error_tracking_assignment_rules", table=error_tracking_assignment_rules
         ),
+        "error_tracking_bypass_rules": TableNode(name="error_tracking_bypass_rules", table=error_tracking_bypass_rules),
         "error_tracking_issue_assignments": TableNode(
             name="error_tracking_issue_assignments", table=error_tracking_issue_assignments
         ),
