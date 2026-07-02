@@ -503,14 +503,14 @@ class LLMProviderKeyViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, v
             # dependent evals — the cause no longer applies once they're attached to a live key.
             for eval_obj in Evaluation.objects.filter(
                 id__in=evaluation_ids, team_id=self.team_id, deleted=False, status="error"
-            ):
+            ).using_provider_keys():
                 eval_obj.set_status("paused")
 
             evals_enabled = 0
             if enable:
                 for eval_obj in Evaluation.objects.filter(
                     id__in=evaluation_ids, team_id=self.team_id, deleted=False, enabled=False
-                ):
+                ).using_provider_keys():
                     eval_obj.set_status("active")
                     evals_enabled += 1
 

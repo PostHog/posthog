@@ -1415,15 +1415,18 @@ class TestAssignKeyEndpoint(APIBaseTest):
             evaluation_type="hog",
             output_type="boolean",
             model_configuration=None,
+            enabled=False,
         )
 
         response = self.client.post(
             f"/api/environments/{self.team.id}/llm_analytics/provider_keys/{key.id}/assign/",
-            {"evaluation_ids": [str(hog_eval.id)]},
+            {"evaluation_ids": [str(hog_eval.id)], "enable": True},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_200_OK)
+        self.assertEqual(response.data["evals_enabled"], 0)
 
         hog_eval.refresh_from_db()
         self.assertIsNone(hog_eval.model_configuration)
+        self.assertFalse(hog_eval.enabled)
         self.assertEqual(LLMModelConfiguration.objects.filter(team=self.team).count(), 0)

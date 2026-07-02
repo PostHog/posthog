@@ -22,9 +22,10 @@ def clear_model_config_from_non_judge_evals(apps, schema_editor):
           0 sentiment rows in either region.
       - Distinct configs referenced by those evals: US 45, EU 11 (1:1 with the evals).
       - Configs also referenced by a legitimate llm_judge eval: 0 in both regions — so every
-        detached config becomes a true orphan and is safe to delete (the evaluations__isnull=True
-        guard below still protects a hypothetical shared config). No llm_judge eval is touched:
-        exclude() filters them out entirely.
+        detached config becomes a true orphan and is safe to delete. The evaluations__isnull and
+        taggers__isnull guards below still protect any config shared with an eval or a tagger
+        (Tagger also FKs LLMModelConfiguration), so a config is deleted only when nothing else
+        references it. No llm_judge eval is touched: exclude() filters them out entirely.
     ~56 rows updated + ~56 deleted total; a single UPDATE and DELETE hold locks only momentarily,
     matching the "tiny affected set" reasoning in 0007_retire_reports_for_deleted_evaluations.
 
@@ -37,7 +38,9 @@ def clear_model_config_from_non_judge_evals(apps, schema_editor):
     violating = Evaluation.objects.exclude(evaluation_type=LLM_JUDGE).filter(model_configuration__isnull=False)
     orphaned_config_ids = list(violating.values_list("model_configuration_id", flat=True))
     violating.update(model_configuration=None)
-    LLMModelConfiguration.objects.filter(id__in=orphaned_config_ids, evaluations__isnull=True).delete()
+    LLMModelConfiguration.objects.filter(
+        id__in=orphaned_config_ids, evaluations__isnull=True, taggers__isnull=True
+    ).delete()
 
 
 class Migration(migrations.Migration):
