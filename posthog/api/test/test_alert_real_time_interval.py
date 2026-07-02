@@ -94,6 +94,19 @@ class TestAlertRealTimeInterval(APIBaseTest):
         assert second.status_code == status.HTTP_400_BAD_REQUEST
         assert "limit of 1 real-time alerts" in str(second.json())
 
+    def test_real_time_limit_ignores_disabled_alerts(self) -> None:
+        self._enable_real_time_alerts(limit=1)
+        first = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request())
+        assert first.status_code == status.HTTP_201_CREATED, first.content
+
+        self.client.patch(
+            f"/api/projects/{self.team.id}/alerts/{first.json()['id']}",
+            {"enabled": False},
+        )
+
+        second = self.client.post(f"/api/projects/{self.team.id}/alerts", self._creation_request(name="second"))
+        assert second.status_code == status.HTTP_201_CREATED, second.content
+
     def test_real_time_limit_ignores_other_intervals(self) -> None:
         self._enable_real_time_alerts(limit=1)
         daily = self.client.post(
