@@ -1,21 +1,20 @@
 .BillingGaugeItem {
-    animation: BillingGaugeItem__expand 800ms cubic-bezier(0.15, 0.15, 0.2, 1) forwards;
-
     // Bars are absolutely-positioned siblings that stack by DOM order (higher-value bars paint
     // on top), so a bar above would otherwise intercept hover for the label/sections beneath it.
     // Only the interactive children opt back into pointer events.
     pointer-events: none;
+    animation: BillingGaugeItem__expand 800ms cubic-bezier(0.15, 0.15, 0.2, 1) forwards;
 
     .BillingGaugeItem__info {
         position: absolute;
         bottom: 100%;
         left: 100%;
-        pointer-events: auto;
         padding: 0 0.25rem 0.5rem;
         margin-left: -1px;
         font-size: 0.8rem;
         line-height: 1rem;
         white-space: nowrap;
+        pointer-events: auto;
         background-color: var(--color-bg-light);
         border-left: 1px solid var(--border-light);
 

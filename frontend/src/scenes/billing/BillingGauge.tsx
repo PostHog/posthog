@@ -65,8 +65,7 @@ const BillingGaugeItem = ({
     // Split the current usage bar at the billing limit: the part at or below the limit is what the
     // user pays for (solid), the part above is not charged (striped + desaturated). We only do this on
     // usage gauges (not the monetary `$` gauge, which carries a `prefix`) where a limit is actually set.
-    const hasLimit =
-        item.type === BillingGaugeItemKind.CurrentUsage && !item.prefix && !!billingLimit && billingLimit > 0
+    const hasLimit = item.type === BillingGaugeItemKind.CurrentUsage && !item.prefix && !!billingLimit
     const isOverLimit = hasLimit && item.value > (billingLimit as number)
     const paidUsage = hasLimit ? Math.min(item.value, billingLimit as number) : item.value
     const paidAmountUsd = hasLimit ? getPaidAmountUsd(paidUsage, product, discountPercent) : null
@@ -155,7 +154,7 @@ export function BillingGauge({ items, product, billing }: BillingGaugeProps): JS
         () => items.find((item) => item.type === BillingGaugeItemKind.BillingLimit)?.value,
         [items]
     )
-    const discountPercent = billing?.discount_percent || undefined
+    const discountPercent = billing?.discount_percent ?? undefined
 
     return (
         <div className="relative h-2 bg-border-light my-16">
