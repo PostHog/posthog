@@ -559,7 +559,6 @@ ignore_imports = [
     # still make directly. These resolve once cdp/exports expose the needed facades, so
     # they outlive the in-product cleanup above.
     "products.logs.backend.presentation.views.api -> products.exports.backend.models.exported_asset",
-    "products.logs.backend.presentation.views.alerts_api -> products.cdp.backend.api.hog_function",
     "products.logs.backend.presentation.views.alerts_api -> products.cdp.backend.models.hog_functions.hog_function",
     # TODO: notebooks presentation wave — the moved NotebookViewSet still reaches in-product
     # internals (collab, kernel runtime, query validation, models) and the tasks sandbox
