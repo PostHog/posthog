@@ -4,7 +4,6 @@ from typing import Optional
 
 from django.utils.timezone import now
 
-import httpx
 import structlog
 
 from posthog.kafka_client.client import ProduceResult
@@ -55,6 +54,8 @@ def _raise_for_embedding_response(response) -> None:
     because the organization has not opted into AI data processing — a common dev
     foot-gun where the underlying 403 body is hidden behind a generic HTTPStatusError.
     """
+    import httpx  # noqa: PLC0415 — keep httpx off the Django startup import path; this module loads eagerly via printer/clickhouse.py
+
     if response.status_code == 403 and "ai" in response.text.lower():
         raise httpx.HTTPStatusError(
             f"Embedding worker returned 403: {response.text}. "
