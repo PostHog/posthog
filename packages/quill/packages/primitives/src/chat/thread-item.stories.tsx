@@ -61,10 +61,18 @@ const MEMBERS = [
     { src: 'https://i.pravatar.cc/96?img=45', name: 'Alan Turing', initials: 'AT' },
 ]
 
-function MemberAvatar({ index }: { index: number }): React.ReactElement {
+function MemberAvatar({ index, href }: { index: number; href?: string }): React.ReactElement {
     const member = MEMBERS[index]
     return (
-        <Avatar size="lg">
+        <Avatar
+            size="lg"
+            render={
+                href != null ? (
+                    // eslint-disable-next-line react/forbid-elements
+                    <a href={href} />
+                ) : undefined
+            }
+        >
             <AvatarImage src={member.src} alt={member.name} />
             <AvatarFallback>{member.initials}</AvatarFallback>
         </Avatar>
@@ -167,7 +175,8 @@ export const Complete = {
 } satisfies Story
 
 /**
- * A feed of items. Authors render as profile links (foreground-colored, underline on hover).
+ * A feed of items. Authors and gutter avatars render as profile links (the avatar image's alt
+ * names the link; authors stay foreground-colored, underline on hover).
  * Continuation rows (same author) drop the header and avatar; a gutter timestamp appears when the
  * row is hovered or focused.
  */
@@ -177,7 +186,7 @@ export const Feed = {
             <ThreadItemGroup>
                 <ThreadItem>
                     <ThreadItemGutter>
-                        <MemberAvatar index={1} />
+                        <MemberAvatar index={1} href="#profile-grace" />
                     </ThreadItemGutter>
                     <ThreadItemContent>
                         <ThreadItemHeader>
@@ -231,7 +240,7 @@ export const Feed = {
 
                 <ThreadItem>
                     <ThreadItemGutter>
-                        <MemberAvatar index={2} />
+                        <MemberAvatar index={2} href="#profile-alan" />
                     </ThreadItemGutter>
                     <ThreadItemContent>
                         <ThreadItemHeader>

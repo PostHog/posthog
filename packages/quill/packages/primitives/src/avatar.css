@@ -23,6 +23,18 @@
         border-radius: var(--radius-sm);
     }
 
+    /* Avatar as a profile trigger (render={<a />} / <button />): pointer + focus ring. */
+    a.quill-avatar,
+    button.quill-avatar {
+        cursor: pointer;
+    }
+
+    a.quill-avatar:focus-visible,
+    button.quill-avatar:focus-visible {
+        outline: none;
+        box-shadow: 0 0 0 2px color-mix(in oklab, var(--ring) 30%, transparent);
+    }
+
     .quill-avatar[data-size='xs'] {
         --avatar-size: 1.25rem;
 

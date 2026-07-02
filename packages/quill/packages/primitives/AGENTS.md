@@ -683,7 +683,7 @@ Item sizes: default, sm, xs
 
 ### Avatar
 
-Compose `Avatar > AvatarImage + AvatarFallback`. The fallback (initials or a bare lucide icon — don't `size-*` it) shows when there's no image or the image errors. `size="xs"` (1.25rem), `"sm"` (1.5rem), default (2rem), or `"lg"` (2.35rem).
+Compose `Avatar > AvatarImage + AvatarFallback`. The fallback (initials or a bare lucide icon — don't `size-*` it) shows when there's no image or the image errors. `size="xs"` (1.25rem), `"sm"` (1.5rem), default (2rem), or `"lg"` (2.35rem). For a clickable profile avatar, pass `render={<a href="…" />}` (or `<button />`) — the avatar renders as that element and gains pointer + focus ring; the `AvatarImage` `alt` becomes the link's accessible name, so keep it meaningful.
 
 ```tsx
 <Avatar>
