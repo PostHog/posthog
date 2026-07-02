@@ -76,7 +76,12 @@ class TestGetRows:
         monkeypatch.setattr(mixmax, "_fetch_page", fake_fetch)
 
         rows: list[dict] = []
-        for batch in get_rows(api_key="tok", endpoint=endpoint, logger=MagicMock(), resumable_source_manager=manager):
+        for batch in get_rows(
+            api_key="tok",
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=manager,  # type: ignore[arg-type]
+        ):
             rows.extend(batch)
         return rows
 
@@ -159,10 +164,12 @@ class TestFetchPageRetries:
 
     def test_client_error_raises_immediately(self) -> None:
         # A 401 is not retryable — it must surface as an HTTPError so the sync fails fast.
+        error_response = requests.Response()
+        error_response.status_code = 401
         bad = MagicMock()
         bad.status_code = 401
         bad.ok = False
-        bad.raise_for_status.side_effect = requests.HTTPError("401 Client Error")
+        bad.raise_for_status.side_effect = requests.HTTPError("401 Client Error", response=error_response)
 
         session = MagicMock()
         session.get.return_value = bad
@@ -183,7 +190,10 @@ class TestMixmaxSource:
     )
     def test_source_response_carries_endpoint_primary_keys(self, endpoint: str, expected_pks: list[str]) -> None:
         response = mixmax_source(
-            api_key="tok", endpoint=endpoint, logger=MagicMock(), resumable_source_manager=_FakeResumableManager()
+            api_key="tok",
+            endpoint=endpoint,
+            logger=MagicMock(),
+            resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
         )
         assert response.name == endpoint
         assert response.primary_keys == expected_pks
