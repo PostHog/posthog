@@ -260,6 +260,7 @@ class TestZendeskImportBatchActivity(BaseTest):
 
         ticket = Ticket.objects.get(team=self.team, zendesk_ticket_id=208)
         staff = Comment.objects.get(team=self.team, item_id=str(ticket.id), content="staff reply")
+        assert staff.item_context is not None
         self.assertEqual(staff.item_context["author_type"], "support")
         self.assertEqual(staff.item_context["author_name"], "Marcus")
         self.assertEqual(staff.item_context["author_email"], "marcus@posthog.com")
