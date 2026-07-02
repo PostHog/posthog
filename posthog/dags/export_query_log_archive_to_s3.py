@@ -99,6 +99,7 @@ ONE_GB = 1024 * 1024 * 1024
 
 
 class QueryLogArchiveExportConfig(dagster.Config):
+    max_threads: int = 24
     s3_prefix: str = "query_log_archive"
     s3_bucket: str = settings.QUERY_LOG_ARCHIVE_EXPORT_S3_BUCKET
 
@@ -133,7 +134,7 @@ SELECT
     normalizeQuery(lc_query__query) AS hogql_shape
 FROM {SOURCE_TABLE}
 WHERE event_date = toDate('{day}') AND is_initial_query
-SETTINGS s3_truncate_on_insert = 1
+SETTINGS s3_truncate_on_insert = 1, max_threads = {config.max_threads}
 """
 
     def run(client: Client) -> str:
