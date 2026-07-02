@@ -60,7 +60,7 @@ class TestBuildUrl:
 
 class TestGetRows:
     @staticmethod
-    def _run(manager: _FakeResumableManager, pages: dict[int, dict], endpoint: str, **kwargs: Any) -> list[dict]:
+    def _run(manager: _FakeResumableManager, pages: dict[int, Any], endpoint: str, **kwargs: Any) -> list[dict]:
         def fake_fetch(session: Any, url: str, headers: dict, logger: Any) -> dict:
             # Derive the page number from the URL so the fake mirrors real page-number paging.
             page = int(parse_qs(urlparse(url).query).get("page", ["1"])[0])

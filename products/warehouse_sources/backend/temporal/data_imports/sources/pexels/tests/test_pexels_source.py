@@ -2,6 +2,8 @@ from unittest import mock
 
 from parameterized import parameterized
 
+from posthog.schema import SourceFieldInputConfig, SourceFieldInputConfigType
+
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline.typings import SourceInputs
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import PexelsSourceConfig
@@ -21,9 +23,13 @@ class TestPexelsSource:
     def test_config_fields(self) -> None:
         fields = {f.name: f for f in self.source.get_source_config.fields}
         assert set(fields) == {"api_key", "search_query"}
-        assert fields["api_key"].required is True
-        assert fields["api_key"].secret is True
-        assert fields["search_query"].required is False
+        api_key, search_query = fields["api_key"], fields["search_query"]
+        assert isinstance(api_key, SourceFieldInputConfig)
+        assert isinstance(search_query, SourceFieldInputConfig)
+        assert api_key.required is True
+        assert api_key.secret is True
+        assert api_key.type == SourceFieldInputConfigType.PASSWORD
+        assert search_query.required is False
 
     def test_schemas_without_query_exclude_search_tables(self) -> None:
         config = PexelsSourceConfig(api_key="k", search_query=None)
