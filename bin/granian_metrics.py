@@ -21,6 +21,12 @@ from prometheus_client import CONTENT_TYPE_LATEST, CollectorRegistry, Gauge, gen
 
 logger = logging.getLogger(__name__)
 
+# Loopback fetch must bypass the egress proxy: urllib honors HTTP_PROXY env by
+# default, which routes 127.0.0.1 through Smokescreen — and Smokescreen blocks
+# loopback by design. Per-code-path opt-out, never NO_PROXY (see
+# charts docs/claude/egress-proxy.md).
+_LOOPBACK_OPENER = urllib.request.build_opener(urllib.request.ProxyHandler({}))
+
 
 def create_granian_metrics() -> None:
     """
@@ -95,7 +101,7 @@ def fetch_native_metrics() -> bytes:
         if now - fetched_at < _NATIVE_CACHE_TTL_SECONDS:
             return cached
         try:
-            with urllib.request.urlopen(f"http://127.0.0.1:{port}/metrics", timeout=2) as response:
+            with _LOOPBACK_OPENER.open(f"http://127.0.0.1:{port}/metrics", timeout=2) as response:
                 body = response.read()
         except OSError:
             body = b""
