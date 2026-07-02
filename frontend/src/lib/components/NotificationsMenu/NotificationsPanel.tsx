@@ -59,7 +59,7 @@ export function NotificationsPanel(): JSX.Element {
             </div>
             {/* Only surface "Mark all read" when unread items sit on not-yet-loaded pages — the ones
                 already loaded get cleared by the 3s auto-mark-on-view as the user scrolls. */}
-            {inAppUnreadCount > loadedUnreadCount && (
+            {hasMoreNotifications && inAppUnreadCount > loadedUnreadCount && (
                 <LemonButton
                     size="xsmall"
                     type="secondary"
