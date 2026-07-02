@@ -104,7 +104,7 @@ export function Navigation({
         return (
             // eslint-disable-next-line react/forbid-dom-props
             <div
-                className="Navigation3000 flex-col"
+                className="Navigation flex-col"
                 style={
                     {
                         ...theme?.mainStyle,

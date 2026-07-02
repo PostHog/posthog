@@ -652,7 +652,7 @@
 }
 
 body:has(.Notebook--markdown-v2),
-.Navigation3000:has(.Notebook--markdown-v2),
+.Navigation:has(.Notebook--markdown-v2),
 .main-content-container:has(.Notebook--markdown-v2) > main {
     --notebook-markdown-v2-page-background: var(--color-bg-primary);
     --scene-layout-background: var(--notebook-markdown-v2-page-background);
@@ -661,7 +661,7 @@ body:has(.Notebook--markdown-v2),
 }
 
 [theme='dark']:has(.Notebook--markdown-v2),
-[theme='dark'] .Navigation3000:has(.Notebook--markdown-v2),
+[theme='dark'] .Navigation:has(.Notebook--markdown-v2),
 [theme='dark'] .main-content-container:has(.Notebook--markdown-v2) > main {
     --notebook-markdown-v2-page-background: var(--color-bg-surface-primary);
 }
