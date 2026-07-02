@@ -54,6 +54,30 @@ export {
     useChatMessageScrollerScrollable,
     useChatMessageScrollerVisibility,
 } from './chat/chat-message-scroller'
+export {
+    ThreadItemGroup,
+    ThreadItem,
+    ThreadItemGutter,
+    ThreadItemContent,
+    ThreadItemHeader,
+    ThreadItemAuthor,
+    ThreadItemTimestamp,
+    ThreadItemBody,
+    ThreadItemMention,
+    ThreadItemLink,
+    ThreadItemAttachment,
+    ThreadItemAttachmentTrigger,
+    ThreadItemAttachmentContent,
+    ThreadItemAttachmentImage,
+    ThreadItemReactions,
+    ThreadItemReaction,
+    ThreadItemReactionEmoji,
+    ThreadItemActions,
+    ThreadItemAction,
+    ThreadItemReplies,
+    ThreadItemRepliesLabel,
+    ThreadItemRepliesMeta,
+} from './chat/thread-item'
 export { ButtonGroup, ButtonGroupSeparator, ButtonGroupText, buttonGroupVariants } from './button-group'
 export { Card, CardHeader, CardFooter, CardTitle, CardDescription, CardContent } from './card'
 export { CardGroup } from './card-group'

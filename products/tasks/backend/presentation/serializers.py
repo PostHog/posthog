@@ -1,14 +1,17 @@
 import base64
+import logging
 import binascii
 from typing import Any, cast
 from zoneinfo import available_timezones
 
+import posthoganalytics
 from croniter import croniter
 from drf_spectacular.utils import PolymorphicProxySerializer
 from rest_framework import serializers
 from rest_framework_dataclasses.serializers import DataclassSerializer
 
 from posthog.api.scoped_related_fields import TeamScopedPrimaryKeyRelatedField
+from posthog.event_usage import groups
 from posthog.models.integration import Integration
 from posthog.models.user_integration import UserIntegration
 
@@ -32,6 +35,51 @@ from products.tasks.backend.facade.run_config import (
     RuntimeAdapter,
     get_reasoning_effort_error,
 )
+
+logger = logging.getLogger(__name__)
+
+
+def _capture_rejected_reasoning_effort(
+    context: dict[str, Any],
+    *,
+    runtime_adapter: str | None,
+    model: str | None,
+    reasoning_effort: str | None,
+    error: str,
+) -> None:
+    """Record a rejected runtime_adapter/model/reasoning_effort combination server-side.
+
+    This validation only ever reached the caller as a 400 response body, so recurring
+    misconfigurations (e.g. a model missing from the supported-effort map) were invisible
+    beyond individual client-side error toasts.
+    """
+    team = context.get("team")
+    logger.warning(
+        "Rejected task run reasoning_effort/model combination",
+        extra={
+            "team_id": getattr(team, "id", None),
+            "runtime_adapter": runtime_adapter,
+            "model": model,
+            "reasoning_effort": reasoning_effort,
+        },
+    )
+
+    request = context.get("request")
+    user = getattr(request, "user", None)
+    if user is None or not user.is_authenticated or not user.distinct_id:
+        return
+
+    posthoganalytics.capture(
+        distinct_id=str(user.distinct_id),
+        event="task run reasoning effort rejected",
+        properties={
+            "runtime_adapter": runtime_adapter,
+            "model": model,
+            "reasoning_effort": reasoning_effort,
+            "error": error,
+        },
+        groups=groups(team=team),
+    )
 
 
 class TaskUserBasicInfoSerializer(DataclassSerializer):
@@ -928,8 +976,8 @@ class TaskListQuerySerializer(serializers.Serializer):
         help_text=(
             "Filter by the internal flag, which controls whether a task is shown by default, not whether "
             "it is accessible. Defaults to excluding internal tasks. Use 'all' to include both internal "
-            "and user-facing tasks (available to any team member; access stays governed by task "
-            "visibility). 'true' lists only internal tasks and is a staff/debug view."
+            "and user-facing tasks, or 'true' to list only internal tasks. All values are available to any "
+            "team member; access stays governed by task visibility."
         ),
     )
     archived = serializers.ChoiceField(
@@ -1167,6 +1215,13 @@ class TaskRunCreateRequestSerializer(serializers.Serializer):
         )
         if reasoning_effort_error is not None:
             errors["reasoning_effort"] = reasoning_effort_error
+            _capture_rejected_reasoning_effort(
+                self.context,
+                runtime_adapter=attrs.get("runtime_adapter"),
+                model=attrs.get("model"),
+                reasoning_effort=attrs.get("reasoning_effort"),
+                error=reasoning_effort_error,
+            )
 
         if errors:
             raise serializers.ValidationError(errors)
@@ -1306,6 +1361,13 @@ class TaskRunBootstrapCreateRequestSerializer(serializers.Serializer):
         )
         if reasoning_effort_error is not None:
             errors["reasoning_effort"] = reasoning_effort_error
+            _capture_rejected_reasoning_effort(
+                self.context,
+                runtime_adapter=attrs.get("runtime_adapter"),
+                model=attrs.get("model"),
+                reasoning_effort=attrs.get("reasoning_effort"),
+                error=reasoning_effort_error,
+            )
 
         if errors:
             raise serializers.ValidationError(errors)

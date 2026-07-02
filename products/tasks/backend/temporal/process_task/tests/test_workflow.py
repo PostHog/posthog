@@ -60,6 +60,7 @@ def _build_context(
     state: dict | None = None,
     use_modal_resume_snapshots: bool = True,
     sandbox_event_ingest_enabled: bool = False,
+    environment: str | None = None,
 ) -> TaskProcessingContext:
     return TaskProcessingContext(
         task_id="task-id",
@@ -70,6 +71,7 @@ def _build_context(
         github_integration_id=github_integration_id,
         repository=repository,
         distinct_id="distinct-id",
+        environment=environment,
         create_pr=True,
         state=state or {},
         _branch="feature-branch",
@@ -407,6 +409,34 @@ class TestProcessTaskWorkflowUnit:
         assert result.sandbox_id == "sandbox-123"
         read_sandbox_logs_mock.assert_awaited_once_with("sandbox-123")
         cleanup_sandbox_mock.assert_awaited_once_with("sandbox-123")
+
+    async def test_run_refuses_local_environment_run_without_touching_it(self, monkeypatch):
+        # If a local (desktop-driven) run is ever cloud-dispatched again (e.g. the reconciler's
+        # environment filter regresses), the workflow must bail out without provisioning anything
+        # and — critically — without flipping the live local session's status.
+        workflow = ProcessTaskWorkflow()
+        update_task_run_status_mock = AsyncMock()
+        get_sandbox_mock = AsyncMock()
+
+        monkeypatch.setattr(
+            workflow,
+            "_get_task_processing_context",
+            AsyncMock(return_value=_build_context(github_integration_id=None, environment="local")),
+        )
+        monkeypatch.setattr(workflow, "_update_task_run_status", update_task_run_status_mock)
+        monkeypatch.setattr(workflow, "_track_workflow_event", AsyncMock())
+        monkeypatch.setattr(workflow, "_post_slack_update", AsyncMock())
+        monkeypatch.setattr(workflow, "_emit_progress", AsyncMock())
+        monkeypatch.setattr(workflow, "_get_sandbox_for_repository", get_sandbox_mock)
+        monkeypatch.setattr(process_task_workflow_module.workflow, "patched", Mock(return_value=True))
+        monkeypatch.setattr(process_task_workflow_module.workflow, "logger", Mock())
+
+        result = await workflow.run(ProcessTaskInput(run_id="run-id"))
+
+        assert result.success is False
+        assert "local" in (result.error or "")
+        update_task_run_status_mock.assert_not_awaited()
+        get_sandbox_mock.assert_not_awaited()
 
     async def test_run_marks_failed_when_context_load_fails(self, monkeypatch):
         workflow = ProcessTaskWorkflow()
