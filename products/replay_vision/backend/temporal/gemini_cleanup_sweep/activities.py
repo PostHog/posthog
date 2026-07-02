@@ -9,6 +9,7 @@ from temporalio.client import Client, WorkflowExecutionStatus
 from temporalio.service import RPCError, RPCStatusCode
 
 from posthog.temporal.common.client import async_connect
+from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.replay_vision.backend.temporal.gemini import gemini_api_key
 from products.replay_vision.backend.temporal.gemini_cleanup_sweep.constants import (
@@ -61,6 +62,12 @@ async def _classify_workflow(temporal: Client, workflow_id: str) -> str:
 @activity.defn(name="replay_vision_sweep_gemini_files_activity")
 async def sweep_gemini_files_activity(inputs: CleanupSweepInputs) -> CleanupSweepResult:
     """Reclaims orphaned Gemini files. Failures counted, never raised."""
+    # Continuous background heartbeats — a degraded-API delete fan-out otherwise outlives the heartbeat timeout.
+    async with Heartbeater(factor=4):
+        return await _sweep_gemini_files(inputs)
+
+
+async def _sweep_gemini_files(inputs: CleanupSweepInputs) -> CleanupSweepResult:
     raw_client = RawGenAIClient(api_key=gemini_api_key())
     temporal = await async_connect()
     cutoff = datetime.now(UTC) - SWEEP_MIN_AGE
