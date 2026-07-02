@@ -1947,7 +1947,8 @@ class MarketoSourceConfig(config.Config):
 
 @config.config
 class MarketstackSourceConfig(config.Config):
-    pass
+    access_key: str
+    symbols: str | None = None
 
 
 @config.config
