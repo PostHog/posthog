@@ -2,9 +2,6 @@ import type { Meta, StoryObj } from '@storybook/react'
 import { BindLogic, useActions } from 'kea'
 import { useEffect } from 'react'
 
-import { FEATURE_FLAGS } from 'lib/constants'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
-
 import { mswDecorator } from '~/mocks/browser'
 import { ActivityScope } from '~/types'
 
@@ -86,21 +83,6 @@ const meta: Meta<typeof QueryHistoryModal> = {
 export default meta
 
 export const WithHistory: Story = {}
-
-// Enables the restore-version flag so the Restore button renders on each history row
-function WithRestoreButton(): JSX.Element {
-    useEffect(() => {
-        featureFlagLogic.mount()
-        featureFlagLogic.actions.setFeatureFlags([FEATURE_FLAGS.SQL_EDITOR_QUERY_HISTORY], {
-            [FEATURE_FLAGS.SQL_EDITOR_QUERY_HISTORY]: true,
-        })
-    }, [])
-    return <OpenQueryHistoryModal />
-}
-
-export const WithRestore: Story = {
-    render: () => <WithRestoreButton />,
-}
 
 export const Empty: Story = {
     decorators: [

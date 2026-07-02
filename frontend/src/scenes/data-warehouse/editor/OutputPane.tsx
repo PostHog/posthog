@@ -62,7 +62,7 @@ import {
     copyTableToMarkdown,
 } from '../../../queries/nodes/DataTable/clipboardUtils'
 import { FixErrorButton } from './components/FixErrorButton'
-import { QueryLog } from './output-pane-tabs/QueryLog'
+import { InsightHistory } from './output-pane-tabs/InsightHistory'
 import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { sqlEditorLogic } from './sqlEditorLogic'
 import TabScroller from './TabScroller'
@@ -150,9 +150,9 @@ const outputTabs: OutputTabConfig[] = [
     },
 ]
 
-const queryLogTab: OutputTabConfig = {
-    key: OutputTab.QueryLog,
-    label: 'Query log',
+const historyTab: OutputTabConfig = {
+    key: OutputTab.History,
+    label: 'History',
     icon: <IconClock />,
 }
 
@@ -545,12 +545,16 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
     const { activeTab: rawActiveTab } = useValues(outputPaneLogic)
     const { setActiveTab } = useActions(outputPaneLogic)
     const queryHistoryEnabled = useFeatureFlag('SQL_EDITOR_QUERY_HISTORY')
-    // With the flag off, a query_log tab in the URL should not render a hidden tab
-    const activeTab = !queryHistoryEnabled && rawActiveTab === OutputTab.QueryLog ? OutputTab.Results : rawActiveTab
-    const visibleTabs = queryHistoryEnabled ? [...outputTabs, queryLogTab] : outputTabs
 
-    const { sourceQuery, exportContext, insightLoading, hasQueryInput, isEmbeddedMode } = useValues(sqlEditorLogic)
-    const { setSourceQuery, setQueryInput } = useActions(sqlEditorLogic)
+    const { sourceQuery, exportContext, insightLoading, hasQueryInput, isEmbeddedMode, editingInsight } =
+        useValues(sqlEditorLogic)
+    const { setSourceQuery } = useActions(sqlEditorLogic)
+
+    // insightLoading counts too, so the tab is there as soon as edit mode opens rather than after the fetch
+    const showHistoryTab = queryHistoryEnabled && (!!editingInsight?.id || insightLoading)
+    // If the history tab is hidden (flag off, or not editing a saved insight), fall back to results
+    const activeTab = !showHistoryTab && rawActiveTab === OutputTab.History ? OutputTab.Results : rawActiveTab
+    const visibleTabs = showHistoryTab ? [...outputTabs, historyTab] : outputTabs
     const { isDarkModeOn } = useValues(themeLogic)
     const {
         response: dataNodeResponse,
@@ -757,8 +761,7 @@ export function OutputPane({ tabId, showToolbar = true, onShareTab }: OutputPane
         progress: queryId ? progressCache[queryId] : undefined,
         showVisualizationSettings: showToolbar && isChartSettingsPanelOpen,
         isEmbeddedMode,
-        tabId,
-        setQueryInput,
+        editingInsight,
     }
     const sharedActionsProps = {
         response,
@@ -1004,8 +1007,7 @@ const Content = ({
     insightLoading,
     showVisualizationSettings,
     isEmbeddedMode,
-    tabId,
-    setQueryInput,
+    editingInsight,
 }: any): JSX.Element | null => {
     const [sortColumns, setSortColumns] = useState<SortColumn[]>([])
 
@@ -1037,12 +1039,12 @@ const Content = ({
     }, [rows, sortColumns])
     const hasError = queryCancelled || !!responseError || !!(response && 'error' in response && !!response.error)
 
-    // The query log is independent of the current query's response state, so it renders before error/loading branches
-    if (activeTab === OutputTab.QueryLog) {
+    // Version history is independent of the current query's response state, so it renders before error/loading branches
+    if (activeTab === OutputTab.History) {
         return (
-            <TabScroller data-attr="sql-editor-output-pane-query-log">
+            <TabScroller data-attr="sql-editor-output-pane-history">
                 <div className="px-4 py-2 border-t">
-                    <QueryLog tabId={tabId} onLoadQuery={setQueryInput} />
+                    <InsightHistory insight={editingInsight ?? null} />
                 </div>
             </TabScroller>
         )

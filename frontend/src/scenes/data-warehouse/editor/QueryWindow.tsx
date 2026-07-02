@@ -3,7 +3,7 @@ import { useActions, useValues } from 'kea'
 import type { editor as importedEditor } from 'monaco-editor'
 import { memo, useMemo } from 'react'
 
-import { IconClock, IconDatabase, IconGear, IconInfo, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
+import { IconDatabase, IconGear, IconInfo, IconPlayFilled, IconSidebarClose } from '@posthog/icons'
 import { LemonDivider } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
@@ -30,7 +30,6 @@ import { ConnectionSelector } from './ConnectionSelector'
 import { editorSizingLogic } from './editorSizingLogic'
 import { applyExecuteSqlToolOutput, getExecuteSqlToolContext } from './maxSqlTool'
 import { OutputPane } from './OutputPane'
-import { OutputTab, outputPaneLogic } from './outputPaneLogic'
 import { QueryFiltersMenu } from './QueryFiltersMenu'
 import { QueryPane } from './QueryPane'
 import { QueryVariablesMenu } from './QueryVariablesMenu'
@@ -178,7 +177,6 @@ export function QueryWindow({
                             disabledReason={editingView ? 'Variables are not allowed in views.' : undefined}
                         />
                         <QueryFiltersMenu />
-                        <QueryLogButton />
                         {editingView ? (
                             <AccessControlAction
                                 resourceType={AccessControlResourceType.WarehouseObjects}
@@ -433,31 +431,6 @@ function RunButton({
                 {isRunning && !onRunQuery ? 'Cancel' : 'Run'}
             </LemonButton>
         </AppShortcut>
-    )
-}
-
-function QueryLogButton(): JSX.Element | null {
-    const queryHistoryEnabled = useFeatureFlag('SQL_EDITOR_QUERY_HISTORY')
-    const { activeTab } = useValues(outputPaneLogic)
-    const { setActiveTab } = useActions(outputPaneLogic)
-
-    if (!queryHistoryEnabled) {
-        return null
-    }
-
-    const isActive = activeTab === OutputTab.QueryLog
-
-    return (
-        <LemonButton
-            type="secondary"
-            size="small"
-            icon={<IconClock />}
-            onClick={() => setActiveTab(isActive ? OutputTab.Results : OutputTab.QueryLog)}
-            active={isActive}
-            data-attr="sql-editor-query-log-button"
-        >
-            Query log
-        </LemonButton>
     )
 }
 

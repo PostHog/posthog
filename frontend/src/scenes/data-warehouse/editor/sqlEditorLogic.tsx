@@ -1245,8 +1245,8 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     query: executedSource,
                 }).actions.loadData(!switchTab ? 'force_async' : 'async', undefined, executedSource)
 
-                // Running from the query log tab should surface the results; other tabs (incl. split view) stay put
-                if (values.outputActiveTab === OutputTab.QueryLog) {
+                // Running from the history tab should surface the results; other tabs (incl. split view) stay put
+                if (values.outputActiveTab === OutputTab.History) {
                     actions.setActiveTab(OutputTab.Results)
                 }
 

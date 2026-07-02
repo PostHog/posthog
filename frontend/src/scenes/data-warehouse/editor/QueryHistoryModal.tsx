@@ -3,7 +3,7 @@ import clsx from 'clsx'
 import { useActions, useValues } from 'kea'
 import { useRef, useState } from 'react'
 
-import { IconCode, IconRevert } from '@posthog/icons'
+import { IconCode } from '@posthog/icons'
 import { LemonModal } from '@posthog/lemon-ui'
 import { LemonButton } from '@posthog/lemon-ui'
 
@@ -11,35 +11,14 @@ import { SkeletonLog } from 'lib/components/ActivityLog/ActivityLog'
 import { HumanizedActivityLogItem } from 'lib/components/ActivityLog/humanizeActivity'
 import MonacoDiffEditor from 'lib/components/MonacoDiffEditor'
 import { TZLabel } from 'lib/components/TZLabel'
-import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { PaginationControl, usePagination } from 'lib/lemon-ui/PaginationControl'
 import { ProfilePicture } from 'lib/lemon-ui/ProfilePicture'
 
 import { editorSceneLogic } from './editorSceneLogic'
 import { queryHistoryLogic } from './queryHistoryLogic'
-import { sqlEditorLogic } from './sqlEditorLogic'
-
-function getVersionQuery(logItem: HumanizedActivityLogItem): string | null {
-    const changes = logItem.unprocessed?.detail.changes
-    for (const change of changes ?? []) {
-        const after = change.after
-        if (after && typeof after === 'object' && !Array.isArray(after)) {
-            const query = (after as { query?: unknown }).query
-            if (typeof query === 'string' && query.trim() !== '') {
-                return query
-            }
-        }
-    }
-    return null
-}
 
 function QueryHistoryLogRow({ logItem }: { logItem: HumanizedActivityLogItem }): JSX.Element {
     const [isExpanded, setIsExpanded] = useState(false)
-    const queryHistoryEnabled = useFeatureFlag('SQL_EDITOR_QUERY_HISTORY')
-    const { setSuggestedQueryInput } = useActions(sqlEditorLogic)
-    const { closeHistoryModal } = useActions(editorSceneLogic)
-
-    const versionQuery = getVersionQuery(logItem)
 
     return (
         <div className={clsx('flex flex-col px-1 py-0.5', isExpanded && 'border rounded')}>
@@ -65,19 +44,6 @@ function QueryHistoryLogRow({ logItem }: { logItem: HumanizedActivityLogItem }):
                     </div>
                 </div>
                 <div className="flex flex-row gap-2">
-                    {queryHistoryEnabled && versionQuery !== null && (
-                        <LemonButton
-                            icon={<IconRevert />}
-                            tooltip="Restore this version into the editor"
-                            data-attr="sql-editor-history-restore"
-                            onClick={() => {
-                                setSuggestedQueryInput(versionQuery, 'query_history')
-                                closeHistoryModal()
-                            }}
-                        >
-                            Restore
-                        </LemonButton>
-                    )}
                     <LemonButton icon={<IconCode />} onClick={() => setIsExpanded(!isExpanded)} active={isExpanded} />
                 </div>
             </div>

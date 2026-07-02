@@ -1307,7 +1307,7 @@ describe('sqlEditorLogic', () => {
         })
 
         it.each([
-            [OutputTab.QueryLog, OutputTab.Results],
+            [OutputTab.History, OutputTab.Results],
             [OutputTab.Visualization, OutputTab.Visualization],
             [OutputTab.Both, OutputTab.Both],
         ])('running a query from the %s output tab lands on the %s tab', async (startTab, expectedTab) => {
