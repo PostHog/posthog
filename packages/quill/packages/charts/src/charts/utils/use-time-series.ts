@@ -24,7 +24,6 @@ export interface UseTimeSeriesConfig {
 export interface UseTimeSeriesResult<Meta> {
     xTickFormatter: ((value: string, index: number) => string | null) | undefined
     yTickFormatter: ((value: number) => string) | undefined
-    /** Spread onto the wrapping `<ChartLegend>`. */
     legendProps: ChartLegendRenderProps
     /** Series with legend toggling applied (hidden ones excluded) — before the value-label
      *  allowlist. Derived overlays (e.g. trend lines) resolve their sources against this. */
