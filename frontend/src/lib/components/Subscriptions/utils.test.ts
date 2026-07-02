@@ -1,4 +1,6 @@
-import { getAiSubscriptionGate, getNextDeliveryDate } from './utils'
+import { IntegrationType, SubscriptionType } from '~/types'
+
+import { coerceDeliveryConfigForScope, getAiSubscriptionGate, getNextDeliveryDate } from './utils'
 
 describe('getNextDeliveryDate', () => {
     beforeEach(() => {
@@ -108,5 +110,49 @@ describe('getAiSubscriptionGate', () => {
         ],
     ] as const)('%s', (_label, overrides, expected) => {
         expect(getAiSubscriptionGate({ ...base, ...overrides })).toMatchObject(expected)
+    })
+})
+
+describe('coerceDeliveryConfigForScope', () => {
+    const slackIntegration = (id: number, scope: string): IntegrationType =>
+        ({ id, kind: 'slack', config: { scope } }) as IntegrationType
+
+    const subscription = (args: Partial<SubscriptionType>): SubscriptionType =>
+        ({
+            target_type: 'slack',
+            integration_id: 7,
+            delivery_config: { post_all_insights_in_main_message: true },
+            ...args,
+        }) as SubscriptionType
+
+    it.each<[string, SubscriptionType, IntegrationType[] | null | undefined, boolean]>([
+        [
+            'forces the gallery flag off when the slack integration lacks files:write',
+            subscription({}),
+            [slackIntegration(7, 'chat:write,channels:read')],
+            false,
+        ],
+        [
+            'keeps the gallery flag when the slack integration has files:write',
+            subscription({}),
+            [slackIntegration(7, 'chat:write,files:write')],
+            true,
+        ],
+        [
+            'forces the gallery flag off for a non-slack target even with a files:write integration',
+            subscription({ target_type: 'email' }),
+            [slackIntegration(7, 'chat:write,files:write')],
+            false,
+        ],
+        ['forces the gallery flag off when the integration cannot be resolved', subscription({}), [], false],
+        ['forces the gallery flag off when no integrations are loaded', subscription({}), null, false],
+    ])('%s', (_label, sub, integrations, expected) => {
+        expect(coerceDeliveryConfigForScope(sub, integrations)?.post_all_insights_in_main_message).toBe(expected)
+    })
+
+    it('leaves an already-off delivery config untouched', () => {
+        const config = { post_all_insights_in_main_message: false }
+        const sub = subscription({ delivery_config: config })
+        expect(coerceDeliveryConfigForScope(sub, [])).toBe(config)
     })
 })

@@ -61,6 +61,17 @@
             },
             "type": "array"
         },
+        "delivery_config": {
+            "description": "Per-delivery rendering options. Each option documents which delivery targets it applies to.",
+            "properties": {
+                "post_all_insights_in_main_message": {
+                    "default": false,
+                    "description": "Slack only: when true, all insight images are posted in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false (threaded). Has no effect on email delivery.",
+                    "type": "boolean"
+                }
+            },
+            "type": "object"
+        },
         "enabled": {
             "description": "Whether the subscription is active. Set to false to pause delivery without deleting. Auto-set to false when the delivery integration becomes invalid.",
             "type": "boolean"

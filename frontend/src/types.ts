@@ -5330,6 +5330,9 @@ export interface SubscriptionType {
     enabled?: boolean
     summary_enabled?: boolean
     summary_prompt_guide?: string
+    delivery_config?: {
+        post_all_insights_in_main_message?: boolean
+    }
 }
 
 export type SmallTimeUnit = 'hours' | 'minutes' | 'seconds'
@@ -5423,6 +5426,7 @@ export const SLACK_INTEGRATION_SCOPES = Object.values(SlackIntegrationScope)
 export enum SlackIntegrationScopeInReview {
     ASSISTANT_WRITE = 'assistant:write',
     CHANNELS_MANAGE = 'channels:manage',
+    FILES_WRITE = 'files:write',
     IM_HISTORY = 'im:history',
     MPIM_READ = 'mpim:read',
 }
@@ -5438,6 +5442,7 @@ export interface IntegrationType {
     created_by?: UserBasicType | null
     created_at: string
     errors?: string
+    files_write_requestable?: boolean
 }
 
 export interface EmailIntegrationDomainGroupedType {

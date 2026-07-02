@@ -18,9 +18,14 @@ from products.exports.backend.models.exported_asset import ExportedAsset
 from products.exports.backend.models.subscription import Subscription
 from products.product_analytics.backend.models.insight import Insight
 
+from ee.tasks.subscriptions import SLACK_USER_CONFIG_ERRORS
 from ee.tasks.subscriptions.slack_subscriptions import (
+    MAX_SLACK_UPLOAD_BYTES,
+    SlackGalleryData,
     _block_for_asset,
+    _prepare_slack_gallery,
     _prepare_slack_message,
+    deliver_slack_gallery,
     send_slack_message_with_integration_async,
     send_slack_subscription_report,
 )
@@ -617,6 +622,72 @@ class TestSlackSubscriptionsAsyncTasks(APIBaseTest):
             assert mock_async_client.chat_postMessage.call_count == 1
             mock_sleep.assert_not_awaited()
 
+    def test_deliver_slack_gallery_uploads_files(self, MockSlackIntegration: MagicMock) -> None:
+        mock_async = self._setup_async_mock(MockSlackIntegration)
+        mock_async.files_upload_v2 = AsyncMock(return_value={"ok": True, "files": [{"id": "F1"}]})
+        gallery = SlackGalleryData(
+            channel="C1",
+            initial_comment="hi",
+            file_uploads=[{"content": b"x", "filename": "a.png", "title": "A"}],
+        )
+        result = asyncio.run(deliver_slack_gallery(self.integration, self.subscription, gallery))
+        mock_async.files_upload_v2.assert_awaited_once()
+        kwargs = mock_async.files_upload_v2.await_args.kwargs
+        assert kwargs["channel"] == "C1"
+        assert kwargs["initial_comment"] == "hi"
+        assert kwargs["file_uploads"] == gallery.file_uploads
+        assert result.main_message_sent is True
+
+    @patch("ee.tasks.subscriptions.slack_subscriptions.asyncio.sleep", new_callable=AsyncMock)
+    def test_deliver_slack_gallery_retries_timeout(
+        self, mock_sleep: AsyncMock, MockSlackIntegration: MagicMock
+    ) -> None:
+        mock_async = self._setup_async_mock(MockSlackIntegration)
+        mock_async.files_upload_v2 = AsyncMock(side_effect=[TimeoutError(), {"ok": True, "files": [{"id": "F1"}]}])
+        gallery = SlackGalleryData(
+            channel="C1",
+            initial_comment="hi",
+            file_uploads=[{"content": b"x", "filename": "a.png", "title": "A"}],
+        )
+        result = asyncio.run(deliver_slack_gallery(self.integration, self.subscription, gallery))
+        assert mock_async.files_upload_v2.await_count == 2
+        mock_sleep.assert_awaited_once_with(1)
+        assert result.main_message_sent is True
+
+    def test_deliver_slack_gallery_empty_uploads_sends_plain_message(self, MockSlackIntegration: MagicMock) -> None:
+        mock_async = self._setup_async_mock(MockSlackIntegration)
+        mock_async.files_upload_v2 = AsyncMock()
+        mock_async.chat_postMessage.return_value = {"ts": "1.234"}
+
+        gallery = SlackGalleryData(channel="C1", initial_comment="hi", file_uploads=[])
+        result = asyncio.run(deliver_slack_gallery(self.integration, self.subscription, gallery))
+
+        mock_async.files_upload_v2.assert_not_awaited()
+        mock_async.chat_postMessage.assert_awaited_once()
+        call_kwargs = mock_async.chat_postMessage.await_args.kwargs
+        assert call_kwargs["channel"] == "C1"
+        assert call_kwargs["text"] == "hi"
+        assert result.main_message_sent is True
+
+    def test_async_send_routes_to_gallery_when_flag_set(self, MockSlackIntegration: MagicMock) -> None:
+        mock_async = self._setup_async_mock(MockSlackIntegration)
+        mock_async.files_upload_v2 = AsyncMock(return_value={"ok": True})
+        self.subscription.delivery_config = {"post_all_insights_in_main_message": True}
+        self.subscription.save()
+        # Use inline content so _asset_image_bytes doesn't hit object storage in the test.
+        asset_with_content = ExportedAsset.objects.create(
+            team=self.team,
+            insight_id=self.insight.id,
+            export_format="image/png",
+            content=b"PNGBYTES",
+        )
+        assets = list(ExportedAsset.objects.filter(id=asset_with_content.id).select_related("insight"))
+        asyncio.run(
+            send_slack_message_with_integration_async(self.integration, self.subscription, assets, total_asset_count=1)
+        )
+        mock_async.files_upload_v2.assert_awaited_once()
+        mock_async.chat_postMessage.assert_not_called()
+
 
 class TestSlackErrorTruncation(APIBaseTest):
     def setUp(self) -> None:
@@ -712,6 +783,169 @@ class TestSlackSummaryNotice(APIBaseTest):
         assert all("AI summary skipped" not in text for text in texts)
 
 
+class TestSlackPostAllInMainMessage(APIBaseTest):
+    def setUp(self) -> None:
+        self.insight = Insight.objects.create(team=self.team, short_id="123456", name="My Test subscription")
+        self.insight2 = Insight.objects.create(team=self.team, short_id="654321", name="Second insight")
+
+    def _subscription(self, post_all_in_main: bool) -> Subscription:
+        return create_subscription(
+            team=self.team,
+            insight=self.insight,
+            created_by=self.user,
+            target_type="slack",
+            target_value="C123|#test",
+            delivery_config={"post_all_insights_in_main_message": post_all_in_main},
+        )
+
+    def test_prepare_slack_gallery_builds_comment_and_uploads(self) -> None:
+        subscription = create_subscription(
+            team=self.team,
+            created_by=self.user,
+            target_type="slack",
+            target_value="C123|#test",
+            insight=self.insight,
+            delivery_config={"post_all_insights_in_main_message": True},
+        )
+        ok = ExportedAsset.objects.create(
+            team=self.team, export_format="image/png", content=b"PNGBYTES", insight_id=self.insight.id
+        )
+        failed = ExportedAsset.objects.create(
+            team=self.team, export_format="image/png", exception="boom", insight_id=self.insight2.id
+        )
+        gallery = _prepare_slack_gallery(subscription, [ok, failed], total_asset_count=2)
+        assert gallery.channel == "C123"
+        assert len(gallery.file_uploads) == 1  # failed asset excluded
+        assert gallery.file_uploads[0]["content"] == b"PNGBYTES"
+        assert "View in PostHog" in gallery.initial_comment
+        # Failed assets are listed by name with a "Could not generate" notice
+        assert "Could not generate" in gallery.initial_comment
+        assert "Second insight" in gallery.initial_comment
+
+    def test_prepare_slack_gallery_includes_overflow_note_in_comment(self) -> None:
+        subscription = self._subscription(post_all_in_main=True)
+        assets = [
+            ExportedAsset.objects.create(
+                team=self.team,
+                insight_id=self.insight.id,
+                export_format="image/png",
+                content=b"PNG",
+            )
+            for _ in range(3)
+        ]
+        gallery = _prepare_slack_gallery(subscription, assets, total_asset_count=5)
+        assert "Showing 3 of 5 Insights" in gallery.initial_comment
+
+    def test_prepare_slack_gallery_no_uploads_when_all_failed(self) -> None:
+        subscription = self._subscription(post_all_in_main=True)
+        failed = ExportedAsset.objects.create(
+            team=self.team, export_format="image/png", exception="err", insight_id=self.insight.id
+        )
+        gallery = _prepare_slack_gallery(subscription, [failed], total_asset_count=1)
+        assert gallery.file_uploads == []
+        assert "Could not generate" in gallery.initial_comment
+
+    def test_prepare_slack_gallery_content_location_returns_bytes(self) -> None:
+        subscription = self._subscription(post_all_in_main=True)
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            insight_id=self.insight.id,
+            export_format="image/png",
+            content_location="s3://bucket/from-storage.png",
+        )
+        assets = list(ExportedAsset.objects.filter(id=asset.id).select_related("insight"))
+        with patch(
+            "ee.tasks.subscriptions.slack_subscriptions.object_storage.read_bytes",
+            return_value=b"STORAGEBYTES",
+        ):
+            gallery = _prepare_slack_gallery(subscription, assets, total_asset_count=1)
+        assert len(gallery.file_uploads) == 1
+        assert gallery.file_uploads[0]["content"] == b"STORAGEBYTES"
+
+    def test_prepare_slack_gallery_content_location_read_bytes_none_excludes_asset(self) -> None:
+        subscription = self._subscription(post_all_in_main=True)
+        asset = ExportedAsset.objects.create(
+            team=self.team,
+            insight_id=self.insight.id,
+            export_format="image/png",
+            content_location="s3://bucket/missing.png",
+        )
+        assets = list(ExportedAsset.objects.filter(id=asset.id).select_related("insight"))
+        with patch(
+            "ee.tasks.subscriptions.slack_subscriptions.object_storage.read_bytes",
+            return_value=None,
+        ):
+            gallery = _prepare_slack_gallery(subscription, assets, total_asset_count=1)
+        assert gallery.file_uploads == []
+        assert "Could not generate" in gallery.initial_comment
+
+    def test_prepare_slack_gallery_skips_oversized_asset(self) -> None:
+        subscription = self._subscription(post_all_in_main=True)
+        oversized = ExportedAsset.objects.create(
+            team=self.team,
+            insight_id=self.insight.id,
+            export_format="image/png",
+            content=b"x" * (MAX_SLACK_UPLOAD_BYTES + 1),
+        )
+        assets = list(ExportedAsset.objects.filter(id=oversized.id).select_related("insight"))
+        gallery = _prepare_slack_gallery(subscription, assets, total_asset_count=1)
+        assert gallery.file_uploads == []
+        assert "Could not generate" in gallery.initial_comment
+        assert "My Test subscription" in gallery.initial_comment
+
+    def _make_integration(self, ai_enabled: bool) -> Integration:
+        org = self.team.organization
+        org.is_ai_data_processing_approved = ai_enabled
+        org.save()
+        return Integration.objects.create(
+            team=self.team,
+            kind="slack",
+            integration_id="T12345",
+            config={"scope": ",".join(sorted(REQUIRED_SLACK_SCOPES))},
+            sensitive_config={"access_token": "xoxb-test"},
+        )
+
+    @parameterized.expand([("ai_enabled", True, True), ("ai_disabled", False, False)])
+    def test_prepare_slack_gallery_explore_hint_in_comment(
+        self, _name: str, ai_enabled: bool, expect_hint: bool
+    ) -> None:
+        subscription = self._subscription(post_all_in_main=True)
+        asset = ExportedAsset.objects.create(
+            team=self.team, insight_id=self.insight.id, export_format="image/png", content=b"PNG"
+        )
+        assets = list(ExportedAsset.objects.filter(id=asset.id).select_related("insight"))
+        gallery = _prepare_slack_gallery(
+            subscription, assets, total_asset_count=1, integration=self._make_integration(ai_enabled)
+        )
+        assert ("@PostHog" in gallery.initial_comment) is expect_hint
+
+    def test_prepare_slack_gallery_no_explore_hint_without_integration(self) -> None:
+        subscription = self._subscription(post_all_in_main=True)
+        asset = ExportedAsset.objects.create(
+            team=self.team, insight_id=self.insight.id, export_format="image/png", content=b"PNG"
+        )
+        assets = list(ExportedAsset.objects.filter(id=asset.id).select_related("insight"))
+        gallery = _prepare_slack_gallery(subscription, assets, total_asset_count=1)
+        assert "@PostHog" not in gallery.initial_comment
+
+    def test_default_threaded_keeps_only_first_image_in_main(self) -> None:
+        assets = [
+            ExportedAsset.objects.create(
+                team=self.team,
+                insight_id=self.insight.id,
+                export_format="image/png",
+                content_location=f"s3://bucket/test-{i}.png",
+            )
+            for i in range(3)
+        ]
+        message = _prepare_slack_message(
+            self._subscription(post_all_in_main=False), assets, total_asset_count=len(assets)
+        )
+        image_blocks = [block for block in message.blocks if block.get("type") == "image"]
+        assert len(image_blocks) == 1
+        assert len(message.thread_messages) == len(assets) - 1
+
+
 class TestSlackExploreHint(APIBaseTest):
     def setUp(self) -> None:
         self.insight = Insight.objects.create(team=self.team, short_id="123456", name="My Test subscription")
@@ -764,3 +998,10 @@ class TestSlackExploreHint(APIBaseTest):
         org.is_ai_data_processing_approved = False
         org.save()
         assert self._hint_texts(self._make_integration(REQUIRED_SLACK_SCOPES)) == []
+
+
+@pytest.mark.parametrize("error_code", ["missing_scope", "not_allowed_token_type"])
+def test_scope_revocation_errors_auto_disable(error_code: str) -> None:
+    # Guards the wiring in delivery_common: errors in this set route to auto_disable_and_return,
+    # which disables the subscription and notifies the creator when files:write is revoked.
+    assert error_code in SLACK_USER_CONFIG_ERRORS

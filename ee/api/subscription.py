@@ -35,7 +35,7 @@ from posthog.constants import (
 from posthog.event_usage import get_request_analytics_properties, groups
 from posthog.exceptions import QuotaLimitExceeded
 from posthog.exceptions_capture import capture_exception
-from posthog.models.integration import Integration
+from posthog.models.integration import Integration, SlackIntegration
 from posthog.rate_limit import SubscriptionTestDeliveryThrottle
 from posthog.resource_limits import LimitKey, check_count_limit, get_organization_limit
 from posthog.slo.context import SloSpec, slo_operation
@@ -125,6 +125,22 @@ class DashboardExportInsightsField(serializers.Field):
         return data
 
 
+class DeliveryConfigSerializer(serializers.Serializer):
+    """Typed view over the Subscription.delivery_config JSON blob. Per-delivery options are
+    declared as fields here so the generated API/MCP types stay typed and forward-compatible
+    without a migration per option."""
+
+    post_all_insights_in_main_message = serializers.BooleanField(
+        required=False,
+        default=False,
+        help_text=(
+            "Slack only: when true, all insight images are posted in the main Slack message instead "
+            "of posting the first image in the main message and the rest as threaded replies. "
+            "Defaults to false (threaded). Has no effect on email delivery."
+        ),
+    )
+
+
 class SubscriptionSerializer(serializers.ModelSerializer):
     """Standard Subscription serializer."""
 
@@ -156,6 +172,10 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "Read-only — derived from the populated target (insight → insight, "
             "dashboard → dashboard, prompt → ai_prompt)."
         ),
+    )
+    delivery_config = DeliveryConfigSerializer(
+        required=False,
+        help_text="Per-delivery rendering options. Each option documents which delivery targets it applies to.",
     )
 
     class Meta:
@@ -189,6 +209,7 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             "invite_message",
             "summary_enabled",
             "summary_prompt_guide",
+            "delivery_config",
         ]
         read_only_fields = [
             "id",
@@ -358,6 +379,15 @@ class SubscriptionSerializer(serializers.ModelSerializer):
             if "integration_id" in attrs
             else (self.instance.integration_id if self.instance else None)
         )
+        # Validate the EFFECTIVE delivery_config (submitted value, else the persisted value on a PATCH
+        # that omits it) so a PATCH that moves to a non-files:write integration — or flips target_type
+        # to email — without resubmitting delivery_config is still validated against the persisted
+        # post_all_insights_in_main_message. The UI coerces the flag off, but direct API/MCP callers wouldn't.
+        effective_delivery_config = (
+            attrs["delivery_config"]
+            if "delivery_config" in attrs
+            else (self.instance.delivery_config if self.instance else None)
+        ) or {}
 
         # Reject re-enables of subscriptions whose delivery prerequisite is still
         # permanently broken — otherwise the next delivery would just auto-disable
@@ -413,6 +443,26 @@ class SubscriptionSerializer(serializers.ModelSerializer):
                 )
             if integration.kind != "slack":
                 raise ValidationError({"integration_id": ["Slack subscriptions require a Slack integration."]})
+
+            if effective_delivery_config.get("post_all_insights_in_main_message"):
+                if SlackIntegration(integration).missing_scopes({"files:write"}):
+                    raise serializers.ValidationError(
+                        {
+                            "delivery_config": "Posting all insights in the main message requires the Slack "
+                            "'files:write' permission. Reconnect Slack to grant it."
+                        }
+                    )
+
+        # post_all_insights_in_main_message only applies to Slack delivery; reject it on non-Slack subs
+        # (effective value) so the API contract can't silently persist a value that never takes effect —
+        # e.g. PATCHing target_type slack→email while the persisted flag stays true.
+        if (
+            effective_delivery_config.get("post_all_insights_in_main_message")
+            and target_type != Subscription.SubscriptionTarget.SLACK
+        ):
+            raise ValidationError(
+                {"delivery_config": ["post_all_insights_in_main_message is only supported for Slack subscriptions."]}
+            )
 
         # Only gate non-empty writes to `summary_prompt_guide`. Clearing (empty string)
         # and field-absent PATCHes always pass through so users aren't stuck with a value
@@ -610,8 +660,14 @@ class SubscriptionSerializer(serializers.ModelSerializer):
 
         invite_message = validated_data.pop("invite_message", "")
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
+        # delivery_config is a nested serializer; DRF's default create() rejects writable nested
+        # fields, so pop it and apply it once the row exists.
+        delivery_config = validated_data.pop("delivery_config", None)
         with attribute_subscription_saves(get_request_analytics_properties(request)):
             instance: Subscription = super().create(validated_data)
+        if delivery_config is not None:
+            instance.delivery_config = delivery_config
+            instance.save(update_fields=["delivery_config"])
 
         # Bust the org-wide active-summary count cache so the next quota
         # fetch reflects this row, regardless of summary_enabled — over-busting
@@ -681,6 +737,11 @@ class SubscriptionSerializer(serializers.ModelSerializer):
         is_delete = not instance.deleted and validated_data.get("deleted") is True
         invite_message = validated_data.pop("invite_message", "")
         dashboard_export_insight_ids = validated_data.pop("dashboard_export_insights", [])
+        # delivery_config is a nested serializer; pop it and set it directly so DRF's default
+        # update() (which rejects writable nested fields) still persists it via instance.save().
+        delivery_config = validated_data.pop("delivery_config", None)
+        if delivery_config is not None:
+            instance.delivery_config = delivery_config
         analytics_props = get_request_analytics_properties(request)
 
         if is_delete:

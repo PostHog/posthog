@@ -47,6 +47,7 @@ from posthog.models.integration import (
     ANTHROPIC_WORKSPACE_LABEL_MAX_LENGTH,
     ERROR_TOKEN_REFRESH_FAILED,
     GITHUB_REPOSITORY_REFRESH_COOLDOWN_SECONDS,
+    POSTHOG_SLACK_SCOPE,
     SLACK_INTEGRATION_KINDS,
     AnthropicIntegration,
     AwsS3Integration,
@@ -379,11 +380,26 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
     """Standard Integration serializer."""
 
     created_by = UserBasicSerializer(read_only=True)
+    files_write_requestable = serializers.SerializerMethodField(
+        help_text="Slack only: whether the app currently requests the files:write scope in this environment."
+    )
 
     class Meta:
         model = Integration
-        fields = ["id", "kind", "config", "created_at", "created_by", "errors", "display_name"]
-        read_only_fields = ["id", "created_at", "created_by", "errors", "display_name"]
+        fields = [
+            "id",
+            "kind",
+            "config",
+            "created_at",
+            "created_by",
+            "errors",
+            "display_name",
+            "files_write_requestable",
+        ]
+        read_only_fields = ["id", "created_at", "created_by", "errors", "display_name", "files_write_requestable"]
+
+    def get_files_write_requestable(self, obj: Integration) -> bool:
+        return obj.kind == "slack" and "files:write" in POSTHOG_SLACK_SCOPE
 
     def validate_kind(self, value: str) -> str:
         if value == Integration.IntegrationKind.SLACK_POSTHOG_CODE.value:

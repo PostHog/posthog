@@ -124,6 +124,16 @@ export interface UserBasicApi {
 }
 
 /**
+ * Typed view over the Subscription.delivery_config JSON blob. Per-delivery options are
+ * declared as fields here so the generated API/MCP types stay typed and forward-compatible
+ * without a migration per option.
+ */
+export interface DeliveryConfigApi {
+    /** Slack only: when true, all insight images are posted in the main Slack message instead of posting the first image in the main message and the rest as threaded replies. Defaults to false (threaded). Has no effect on email delivery. */
+    post_all_insights_in_main_message?: boolean
+}
+
+/**
  * Standard Subscription serializer.
  */
 export interface SubscriptionApi {
@@ -234,6 +244,8 @@ export interface SubscriptionApi {
      * @maxLength 500
      */
     summary_prompt_guide?: string
+    /** Per-delivery rendering options. Each option documents which delivery targets it applies to. */
+    delivery_config?: DeliveryConfigApi
 }
 
 export interface PaginatedSubscriptionListApi {
@@ -378,6 +390,8 @@ export interface PatchedSubscriptionApi {
      * @maxLength 500
      */
     summary_prompt_guide?: string
+    /** Per-delivery rendering options. Each option documents which delivery targets it applies to. */
+    delivery_config?: DeliveryConfigApi
 }
 
 /**

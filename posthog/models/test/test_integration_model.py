@@ -42,6 +42,7 @@ from posthog.models.integration import (
     S3CompatibleIntegration,
     S3CredentialIntegrationError,
     SlackIntegration,
+    _build_posthog_slack_scope,
     invalidate_github_repository_caches_for_installation,
     raise_if_github_rate_limited,
 )
@@ -2741,3 +2742,9 @@ class TestPostgreSQLIntegrationModel(BaseTest):
         assert "password" not in integration.config
 
         assert integration.sensitive_config["password"] == "super-secret"
+
+
+class TestBuildPosthogSlackScope(BaseTest):
+    def test_files_write_is_requested_in_dev(self):
+        with self.settings(DEBUG=True):
+            assert "files:write" in _build_posthog_slack_scope()

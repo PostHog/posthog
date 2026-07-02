@@ -6,6 +6,7 @@ import posthog from 'posthog-js'
 
 import api, { ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { integrationsLogic } from 'lib/integrations/integrationsLogic'
 import { recordRecentSlackChannel, slackChannelId } from 'lib/integrations/slackChannel'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { isEmail } from 'lib/utils/url'
@@ -15,7 +16,7 @@ import { ExportedAssetType, ExporterFormat, SubscriptionResourceTypes, Subscript
 
 import type { subscriptionLogicType } from './subscriptionLogicType'
 import { subscriptionsLogic } from './subscriptionsLogic'
-import { AI_PROMPT_MAX_LENGTH, SubscriptionBaseProps, urlForSubscription } from './utils'
+import { AI_PROMPT_MAX_LENGTH, coerceDeliveryConfigForScope, SubscriptionBaseProps, urlForSubscription } from './utils'
 
 function validatePrompt(
     resource_type: SubscriptionType['resource_type'],
@@ -58,6 +59,7 @@ const NEW_SUBSCRIPTION: Partial<SubscriptionType> = {
     enabled: true,
     summary_enabled: false,
     summary_prompt_guide: '',
+    delivery_config: { post_all_insights_in_main_message: false },
 }
 
 export interface SubscriptionLogicProps extends SubscriptionBaseProps {
@@ -168,6 +170,10 @@ export const subscriptionLogic = kea<subscriptionLogicType>([
 
                 const payload = {
                     ...subscription,
+                    delivery_config: coerceDeliveryConfigForScope(
+                        subscription,
+                        integrationsLogic.findMounted()?.values.integrations
+                    ),
                     insight: isAi ? undefined : insightId,
                     dashboard: isAi ? undefined : props.dashboardId,
                     // AI subscriptions have no dashboard, so a carried-over insight selection would

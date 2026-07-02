@@ -198,6 +198,9 @@ class Subscription(ModelActivityMixin, models.Model):
     summary_enabled = models.BooleanField(default=False)
     summary_prompt_guide = models.CharField(max_length=500, blank=True, default="")
 
+    # Per-delivery options; see DeliveryConfigSerializer for the typed shape.
+    delivery_config = models.JSONField(default=dict)
+
     class Meta:
         indexes = [
             models.Index(fields=["integration"], name="posthog_sub_integration_idx"),
@@ -405,6 +408,7 @@ class Subscription(ModelActivityMixin, models.Model):
             "byweekday": self.byweekday,
             "bysetpos": self.bysetpos,
             "prompt_length": len(self.prompt or ""),
+            "post_all_insights_in_main_message": self.delivery_config.get("post_all_insights_in_main_message", False),
         }
 
 
