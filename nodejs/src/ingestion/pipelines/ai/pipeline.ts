@@ -9,9 +9,9 @@ import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion
 import { EventSchemaEnforcementManager } from '~/common/utils/event-schema-enforcement-manager'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { TeamManager } from '~/common/utils/team-manager'
-import { AI_EVENT_TYPES } from '~/ingestion/common/ai-event-types'
 import { CookielessManager } from '~/ingestion/common/cookieless/cookieless-manager'
 import { EventFilterManager } from '~/ingestion/common/event-filters'
+import { OverflowRedirectService } from '~/ingestion/common/overflow-redirect/overflow-redirect-service'
 import { createAllowEventsStep } from '~/ingestion/common/steps/allow-events'
 import {
     EventFiltersBatchContext,
@@ -49,12 +49,12 @@ import { createReadOnlyProcessGroupsStep } from '~/ingestion/common/steps/event-
 import { createSplitAiEventsStep } from '~/ingestion/common/steps/event-processing/split-ai-events-step'
 import { createStripPersonUpdatePropertiesStep } from '~/ingestion/common/steps/event-processing/strip-person-update-properties-step'
 import { createRecordIngestionLagStep } from '~/ingestion/common/steps/record-ingestion-lag'
+import { AI_EVENT_TYPES } from '~/ingestion/common/subpipelines/ai-event-types'
 import { addTeamToContext } from '~/ingestion/common/subpipelines/helpers'
 import { newBatchingPipeline } from '~/ingestion/framework/builders'
 import { TopHogWrapper, sum, sumOk, sumResult } from '~/ingestion/framework/extensions/tophog'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import { isDropResult } from '~/ingestion/framework/results'
-import { OverflowRedirectService } from '~/ingestion/utils/overflow-redirect/overflow-redirect-service'
 
 import { AiEventOutput, EVENTS_OUTPUT, EventOutput } from './outputs'
 import { createProcessAiEventStep } from './pipelines/steps/process-ai-event-step'

@@ -15,13 +15,13 @@ import {
 import { PostgresRouter, PostgresUse } from '~/common/utils/db/postgres'
 import { parseJSON } from '~/common/utils/json-parse'
 import { UUIDT, castTimestampOrNow } from '~/common/utils/utils'
+import { IngestionGeneralServer } from '~/servers/ingestion-general-server'
+import { PluginServerMode, PluginsServerConfig, PropertyUpdateOperation, TimestampFormat } from '~/types'
 
-import { IngestionGeneralServer } from '../../../src/servers/ingestion-general-server'
-import { PluginServerMode, PluginsServerConfig, PropertyUpdateOperation, TimestampFormat } from '../../../src/types'
-import { Clickhouse } from '../../helpers/clickhouse'
-import { waitForExpect } from '../../helpers/expectations'
-import { ensureKafkaTopics } from '../../helpers/kafka'
-import { createUserTeamAndOrganization } from '../../helpers/sql'
+import { Clickhouse } from '../helpers/clickhouse'
+import { waitForExpect } from '../helpers/expectations'
+import { ensureKafkaTopics } from '../helpers/kafka'
+import { createUserTeamAndOrganization } from '../helpers/sql'
 
 jest.mock('~/common/utils/logger')
 

@@ -5619,6 +5619,7 @@ export type APIScopeObject =
     | 'clickhouse_test_cluster_perf'
     | 'cohort'
     | 'comment'
+    | 'conversation'
     | 'customer_analytics'
     | 'customer_journey'
     | 'customer_profile_config'

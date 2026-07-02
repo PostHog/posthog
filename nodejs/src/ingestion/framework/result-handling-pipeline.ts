@@ -3,8 +3,12 @@ import { Message } from 'node-rdkafka'
 import { DlqOutput, IngestionWarningsOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
-import { ingestionPipelineResultCounter } from '~/ingestion/common/event-pipeline/metrics'
-import { logDroppedMessage, produceMessageToDLQ, redirectMessageToOutput } from '~/ingestion/common/pipeline-helpers'
+import { ingestionPipelineResultCounter } from '~/ingestion/common/metrics'
+import {
+    logDroppedMessage,
+    produceMessageToDLQ,
+    redirectMessageToOutput,
+} from '~/ingestion/framework/result-handling-helpers'
 
 import { BatchPipeline, BatchPipelineResultWithContext, OkResultWithContext } from './batch-pipeline.interface'
 import {

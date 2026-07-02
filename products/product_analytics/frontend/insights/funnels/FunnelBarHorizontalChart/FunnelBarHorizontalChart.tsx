@@ -2,9 +2,9 @@ import { useActions, useValues } from 'kea'
 import posthog from 'posthog-js'
 import { type ErrorInfo, useMemo } from 'react'
 
-import { type ChartTheme, type TooltipContext } from '@posthog/quill-charts'
+import { type TooltipContext } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartTheme } from 'lib/charts/hooks'
 import { funnelDataLogic } from 'scenes/funnels/funnelDataLogic'
 import { funnelPersonsModalLogic } from 'scenes/funnels/funnelPersonsModalLogic'
 import { insightLogic } from 'scenes/insights/insightLogic'
@@ -43,7 +43,7 @@ export function FunnelBarHorizontalChart({
     inCardView,
 }: ChartParams): JSX.Element | null {
     const { isDarkModeOn } = useValues(themeLogic)
-    const theme = useMemo<ChartTheme>(() => buildTheme(), [isDarkModeOn])
+    const theme = useChartTheme()
     const fillerColor = useMemo(() => getFillerColor(), [isDarkModeOn])
 
     const { insightProps } = useValues(insightLogic)
