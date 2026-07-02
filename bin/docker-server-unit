@@ -25,7 +25,10 @@ if [ "${USE_GRANIAN:-false}" = "true" ]; then
     # GRANIAN_BACKPRESSURE/GRANIAN_BLOCKING_THREADS (read natively by granian)
     # rather than more workers.
     export GRANIAN_WORKERS=${GRANIAN_WORKERS:-4}
-    export GRANIAN_THREADS=${GRANIAN_THREADS:-1}
+    # GRANIAN_THREADS is the historical charts-facing name and wins when both
+    # are set; GRANIAN_RUNTIME_THREADS is granian's own documented env var for
+    # --runtime-threads and must not be silently ignored.
+    export GRANIAN_THREADS=${GRANIAN_THREADS:-${GRANIAN_RUNTIME_THREADS:-1}}
 
     if [ "$GRANIAN_INTERFACE" = "wsgi" ]; then
         APP_TARGET="posthog.wsgi:application"

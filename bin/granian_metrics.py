@@ -11,7 +11,9 @@ Exposes Granian-equivalent metrics to maintain dashboard compatibility with prev
 """
 
 import os
+import time
 import logging
+import threading
 import urllib.request
 from http.server import BaseHTTPRequestHandler, ThreadingHTTPServer
 
@@ -67,21 +69,38 @@ def create_granian_metrics() -> None:
         gauge.set(int(backpressure))
 
 
+_NATIVE_CACHE_TTL_SECONDS = 5.0
+_native_cache: tuple[float, bytes] = (0.0, b"")
+_native_lock = threading.Lock()
+
+
 def fetch_native_metrics() -> bytes:
     """Fetch Granian's own Prometheus exporter output for merging.
 
     The native exporter (GRANIAN_METRICS_ENABLED) binds loopback-only, so its
     runtime metrics ride along on this scrape instead of needing a second
     scrape target. Best-effort: a scrape must not fail while granian boots.
+
+    Cached for a short TTL with the fetch serialized behind a lock, so scrape
+    volume can't multiply loopback fetches — a stalled exporter costs at most
+    one 2s wait per TTL window, not one pinned thread per scrape.
     """
+    global _native_cache
     if os.environ.get("GRANIAN_METRICS_ENABLED", "false") != "true":
         return b""
     port = os.environ.get("GRANIAN_METRICS_PORT", "9090")
-    try:
-        with urllib.request.urlopen(f"http://127.0.0.1:{port}/metrics", timeout=2) as response:
-            return response.read()
-    except OSError:
-        return b""
+    with _native_lock:
+        fetched_at, cached = _native_cache
+        now = time.monotonic()
+        if now - fetched_at < _NATIVE_CACHE_TTL_SECONDS:
+            return cached
+        try:
+            with urllib.request.urlopen(f"http://127.0.0.1:{port}/metrics", timeout=2) as response:
+                body = response.read()
+        except OSError:
+            body = b""
+        _native_cache = (now, body)
+        return body
 
 
 def main():
