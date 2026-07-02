@@ -86,7 +86,7 @@ export function MockRunPage({ id }: { id: number }): JSX.Element {
                     label="Duration"
                     value="27"
                     valueSuffix="minutes"
-                    sub={`p50 for this workflow is ${w.p50Min}m`}
+                    sub={`critical path of ${jobs.length} jobs · workflow p50 is ${w.p50Min}m`}
                 />
                 <MockStatTile label="Queue time" value="41" valueSuffix="seconds" sub="created → first job started" />
                 <MockStatTile
@@ -94,7 +94,7 @@ export function MockRunPage({ id }: { id: number }): JSX.Element {
                     value={`${jobs.length}`}
                     sub={failing ? '2 failed · 1 skipped' : 'all succeeded'}
                 />
-                <MockStatTile label="Estimated cost" value="$1.85" sub="billable minutes × tier rate" />
+                <MockStatTile label="Estimated cost" value="$1.85" sub="sum of billable job minutes × tier rate" />
             </div>
 
             <Section
@@ -153,6 +153,7 @@ export function MockPrPage({ number }: { number: number }): JSX.Element {
         {
             w: mockWorkflow('backend-ci'),
             c: p.ci === 'failing' ? ('failure' as const) : ('success' as const),
+            failedJob: 'Django tests (shard 3/6)',
             dur: '24m',
             runs: p.pushes + p.reruns,
         },
@@ -164,11 +165,12 @@ export function MockPrPage({ number }: { number: number }): JSX.Element {
                     : p.ci === 'running'
                       ? ('running' as const)
                       : ('success' as const),
+            failedJob: 'e2e (chromium, shard 3/8)',
             dur: '33m',
             runs: p.pushes + p.reruns + 1,
         },
-        { w: mockWorkflow('frontend-ci'), c: 'success' as const, dur: '13m', runs: p.pushes },
-        { w: mockWorkflow('lint'), c: 'success' as const, dur: '4m', runs: p.pushes },
+        { w: mockWorkflow('frontend-ci'), c: 'success' as const, failedJob: '', dur: '13m', runs: p.pushes },
+        { w: mockWorkflow('lint'), c: 'success' as const, failedJob: '', dur: '4m', runs: p.pushes },
     ]
 
     return (
@@ -332,6 +334,15 @@ export function MockPrPage({ number }: { number: number }): JSX.Element {
                                 ),
                             },
                             { title: 'Latest conclusion', render: (_, x) => <CiTag ci={x.c} /> },
+                            {
+                                title: 'What failed',
+                                render: (_, x) =>
+                                    x.c === 'failure' ? (
+                                        <span className="font-mono text-[10.5px] text-secondary">{x.failedJob}</span>
+                                    ) : (
+                                        <span className="text-tertiary">—</span>
+                                    ),
+                            },
                             {
                                 title: 'Runs on this PR',
                                 align: 'right',

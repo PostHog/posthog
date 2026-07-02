@@ -169,8 +169,24 @@ export function MockRepoHub(): JSX.Element {
                                 render: (_, f) => <span className="font-mono text-xs">{f.branch}</span>,
                             },
                             {
+                                title: 'PR',
+                                render: (_, f) =>
+                                    f.prNumber ? (
+                                        <MockLink to={{ page: 'pr', number: f.prNumber }}>#{f.prNumber}</MockLink>
+                                    ) : (
+                                        <span className="text-tertiary">—</span>
+                                    ),
+                            },
+                            {
                                 title: 'What failed',
-                                render: (_, f) => <span className="text-secondary">{f.summary}</span>,
+                                render: (_, f) => (
+                                    <span>
+                                        <span className="block text-secondary">{f.summary}</span>
+                                        <span className="block font-mono text-[10.5px] text-tertiary">
+                                            {f.failedJob}
+                                        </span>
+                                    </span>
+                                ),
                             },
                             {
                                 title: 'When',
@@ -291,14 +307,32 @@ export function MockRepoHub(): JSX.Element {
                                 render: (_, w) => <DeltaBadge value={w.passRateDeltaPp} unit="pp" />,
                             },
                             {
-                                title: 'p50',
+                                title: 'p50 → p95',
                                 align: 'right',
-                                render: (_, w) => <span className="tabular-nums">{w.p50Min}m</span>,
+                                render: (_, w) => (
+                                    <span className="tabular-nums">
+                                        {w.p50Min}m <span className="text-tertiary">→ {w.p95Min}m</span>
+                                    </span>
+                                ),
                             },
                             {
-                                title: 'p95',
+                                title: 'Re-runs',
                                 align: 'right',
-                                render: (_, w) => <span className="tabular-nums">{w.p95Min}m</span>,
+                                tooltip: 'Runs with attempt > 1 in the window — retry pressure is a flakiness proxy',
+                                render: (_, w) => {
+                                    const reruns = Math.round(w.runs30d * (1 - w.passRate) * 0.15)
+                                    return (
+                                        <span
+                                            className={
+                                                reruns > 50
+                                                    ? 'font-semibold tabular-nums text-warning-dark'
+                                                    : 'tabular-nums'
+                                            }
+                                        >
+                                            {reruns}
+                                        </span>
+                                    )
+                                },
                             },
                             {
                                 title: 'Cost · 30d',
@@ -392,24 +426,6 @@ export function MockRepoHub(): JSX.Element {
                 note="the run scatter from the workflow page, one level up — every run in the last 3 days"
             >
                 <RunActivityChart runs={mockActivityRuns(77, 260, 0.12, 18)} title="Run activity · all workflows" />
-                <LemonCard hoverEffect={false} className="mt-2.5 p-4">
-                    <h3 className="mb-2 text-xs font-semibold text-secondary">Failed runs per day</h3>
-                    <Sparkline
-                        type="bar"
-                        className="h-24 w-full"
-                        data={[
-                            {
-                                name: 'Failed runs',
-                                values: DAY_LABELS.map((_, i) =>
-                                    Math.round(MOCK_WORKFLOWS.reduce((a, w) => a + w.failures[i] / 2.4, 0))
-                                ),
-                                color: 'danger',
-                            },
-                        ]}
-                        labels={DAY_LABELS}
-                        maximumIndicator={false}
-                    />
-                </LemonCard>
             </Section>
 
             <Section

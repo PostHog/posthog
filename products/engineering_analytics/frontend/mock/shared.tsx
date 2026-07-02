@@ -410,6 +410,10 @@ export function MockJobsTable({ jobs }: { jobs: MockJob[] }): JSX.Element {
                     render: (_, j) => <span className="tabular-nums">{fmtMin(j.durMin)}</span>,
                 },
                 {
+                    title: 'Runner',
+                    render: (_, j) => <span className="font-mono text-[11px] text-tertiary">{j.runner}</span>,
+                },
+                {
                     title: 'Result',
                     render: (_, j) =>
                         j.conclusion === 'skipped' ? (
@@ -423,10 +427,34 @@ export function MockJobsTable({ jobs }: { jobs: MockJob[] }): JSX.Element {
     )
 }
 
+/* ============ job dots: a run row IS a rollup of its jobs — make that visible ============ */
+
+export function JobDots({ jobs }: { jobs: MockJob[] }): JSX.Element {
+    const color: Record<MockJob['conclusion'], string> = {
+        success: 'var(--success)',
+        failure: 'var(--danger)',
+        skipped: 'var(--muted)',
+    }
+    return (
+        <span className="inline-flex items-center gap-[3px]">
+            {jobs.map((j) => (
+                <span
+                    key={j.name}
+                    className="inline-block size-1.5 rounded-full"
+                    style={{ backgroundColor: color[j.conclusion], opacity: j.conclusion === 'skipped' ? 0.5 : 0.9 }}
+                    title={`${j.name} — ${j.conclusion}`}
+                />
+            ))}
+        </span>
+    )
+}
+
 /* ============ PR table: one component, same columns everywhere it appears ============ */
 
 export function MockPrTable({ prs, showAuthor = true }: { prs: MockPr[]; showAuthor?: boolean }): JSX.Element {
     const { go } = useMockNav()
+    // a State column where every row says "Open" is noise — only show it when states are mixed
+    const mixedStates = new Set(prs.map((p) => p.state)).size > 1
     return (
         <LemonTable<MockPr>
             dataSource={prs}
@@ -452,8 +480,18 @@ export function MockPrTable({ prs, showAuthor = true }: { prs: MockPr[]; showAut
                           },
                       ]
                     : []),
-                { title: 'State', render: (_, p) => <CiTag ci={p.state} /> },
-                { title: 'CI', render: (_, p) => <CiTag ci={p.ci} /> },
+                ...(mixedStates ? [{ title: 'State', render: (_: unknown, p: MockPr) => <CiTag ci={p.state} /> }] : []),
+                {
+                    title: 'CI',
+                    render: (_, p) => (
+                        <span>
+                            <CiTag ci={p.ci} />
+                            {p.failingChecks && (
+                                <span className="mt-0.5 block text-[10.5px] text-tertiary">{p.failingChecks}</span>
+                            )}
+                        </span>
+                    ),
+                },
                 {
                     title: 'Pushes',
                     align: 'right',

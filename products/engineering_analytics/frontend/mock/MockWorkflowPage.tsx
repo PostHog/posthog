@@ -16,10 +16,12 @@ import {
     mockActivityRuns,
     mockJobs,
     mockWorkflow,
+    summarizeJobs,
 } from './mockData'
 import {
     CiTag,
     DeltaBadge,
+    JobDots,
     LogRows,
     MockEntityHeader,
     MockHeaderBar,
@@ -33,6 +35,7 @@ import {
     StatusDot,
     VerdictPill,
     fmtK,
+    fmtMin,
     fmtPct,
     fmtUsd,
 } from './shared'
@@ -40,6 +43,7 @@ import {
 export function MockWorkflowPage({ slug }: { slug: string }): JSX.Element {
     const w = mockWorkflow(slug)
     const failing = w.onMaster === 'failing'
+    const shardName = w.slug === 'e2e-ci' ? 'e2e (chromium)' : 'Django tests'
 
     return (
         <div>
@@ -187,6 +191,14 @@ export function MockWorkflowPage({ slug }: { slug: string }): JSX.Element {
                                 ),
                             },
                             {
+                                title: 'Queue p50',
+                                align: 'right',
+                                tooltip: 'created → started — where runner capacity problems hide, per job',
+                                render: (_, j) => (
+                                    <span className="tabular-nums text-tertiary">{fmtMin(j.queueP50Min)}</span>
+                                ),
+                            },
+                            {
                                 title: 'p50 duration',
                                 align: 'right',
                                 render: (_, j) => <span className="tabular-nums">{j.p50Min}m</span>,
@@ -287,7 +299,7 @@ export function MockWorkflowPage({ slug }: { slug: string }): JSX.Element {
                         expandable={{
                             expandedRowRender: (r) => (
                                 <div className="p-3">
-                                    <MockJobsTable jobs={mockJobs(r.id, r.conclusion === 'failure')} />
+                                    <MockJobsTable jobs={mockJobs(r.id, r.conclusion === 'failure', shardName)} />
                                     <div className="mt-2 text-xs">
                                         <MockLink to={{ page: 'run', id: r.id }}>Open run #{r.id} →</MockLink>
                                     </div>
@@ -303,7 +315,28 @@ export function MockWorkflowPage({ slug }: { slug: string }): JSX.Element {
                                     </MockLink>
                                 ),
                             },
-                            { title: 'Conclusion', render: (_, r) => <CiTag ci={r.conclusion} /> },
+                            {
+                                title: 'Conclusion',
+                                tooltip:
+                                    'A run is a rollup of its jobs — the dots are the jobs, the failing ones are named',
+                                render: (_, r) => {
+                                    const jobs = mockJobs(r.id, r.conclusion === 'failure', shardName)
+                                    const rollup = summarizeJobs(jobs)
+                                    return (
+                                        <span>
+                                            <span className="flex items-center gap-2">
+                                                <CiTag ci={r.conclusion} />
+                                                <JobDots jobs={jobs} />
+                                            </span>
+                                            {rollup.failed.length > 0 && (
+                                                <span className="mt-0.5 block font-mono text-[10.5px] text-tertiary">
+                                                    {rollup.failed.map((j) => j.name).join(' · ')}
+                                                </span>
+                                            )}
+                                        </span>
+                                    )
+                                },
+                            },
                             {
                                 title: 'Branch',
                                 render: (_, r) => (

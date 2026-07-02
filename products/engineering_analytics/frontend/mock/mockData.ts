@@ -225,6 +225,8 @@ export interface MockPr {
     author: string
     state: 'open' | 'merged'
     ci: 'passing' | 'failing' | 'running'
+    /** which checks are red on the latest push — shown under the CI tag so a list answers "why" */
+    failingChecks?: string
     pushes: number
     reruns: number
     costUsd: number
@@ -238,6 +240,7 @@ export const MOCK_PRS: MockPr[] = [
         author: 'webjunkie',
         state: 'open',
         ci: 'failing',
+        failingChecks: 'E2E CI · Backend CI',
         pushes: 4,
         reruns: 2,
         costUsd: 12.4,
@@ -282,6 +285,7 @@ export const MOCK_PRS: MockPr[] = [
         author: 'tomasfp',
         state: 'open',
         ci: 'failing',
+        failingChecks: 'Storybook',
         pushes: 5,
         reruns: 3,
         costUsd: 16.7,
@@ -422,6 +426,9 @@ export interface MockFailure {
     workflowSlug: string
     runId: number
     branch: string
+    prNumber: number | null
+    /** which job failed — a run is a rollup of its jobs, so attribution names the job */
+    failedJob: string
     summary: string
     when: string
     log: MockLogLine[]
@@ -433,6 +440,8 @@ export const MOCK_FAILURES: MockFailure[] = [
         workflowSlug: 'e2e-ci',
         runId: 41397,
         branch: 'master',
+        prNumber: null,
+        failedJob: 'e2e (chromium, shard 3/8)',
         summary: 'retention-export.spec.ts — export menu never visible',
         when: '6m ago',
         log: MOCK_LOG_E2E,
@@ -442,6 +451,8 @@ export const MOCK_FAILURES: MockFailure[] = [
         workflowSlug: 'e2e-ci',
         runId: 41390,
         branch: 'master',
+        prNumber: null,
+        failedJob: 'e2e (chromium, shard 3/8)',
         summary: 'same spec — first red run of the window',
         when: '38m ago',
         log: MOCK_LOG_E2E,
@@ -451,6 +462,8 @@ export const MOCK_FAILURES: MockFailure[] = [
         workflowSlug: 'backend-ci',
         runId: 41371,
         branch: 'feat/retention-export',
+        prNumber: 67891,
+        failedJob: 'Django tests (shard 3/6)',
         summary: 'test_insight.py::test_retention_export — 404 != 200',
         when: '1h ago',
         log: MOCK_LOG_DJANGO,
@@ -460,6 +473,8 @@ export const MOCK_FAILURES: MockFailure[] = [
         workflowSlug: 'storybook',
         runId: 41344,
         branch: 'fix/replay-window',
+        prNumber: 67851,
+        failedJob: 'chromatic (2/4)',
         summary: 'chromatic diff on InsightCard (2 stories)',
         when: '3h ago',
         log: [
@@ -476,6 +491,7 @@ export interface MockJob {
     startMin: number
     durMin: number
     conclusion: 'success' | 'failure' | 'skipped'
+    runner: string
 }
 
 export function mockJobs(seed: number, failing: boolean, shardName: string = 'Django tests'): MockJob[] {
@@ -488,6 +504,7 @@ export function mockJobs(seed: number, failing: boolean, shardName: string = 'Dj
             startMin: 1.5 + r() * 2,
             durMin: 16 + r() * 7,
             conclusion: 'success',
+            runner: 'depot-ubuntu-latest-4',
         })
     }
     if (failing) {
@@ -500,14 +517,23 @@ export function mockJobs(seed: number, failing: boolean, shardName: string = 'Dj
         startMin: 1,
         durMin: 5.5 + r() * 2,
         conclusion: 'success',
+        runner: 'depot-ubuntu-latest',
     })
-    jobs.push({ name: 'Lint & types', queueMin: 0.4 + r(), startMin: 0.8, durMin: 3.5 + r(), conclusion: 'success' })
+    jobs.push({
+        name: 'Lint & types',
+        queueMin: 0.4 + r(),
+        startMin: 0.8,
+        durMin: 3.5 + r(),
+        conclusion: 'success',
+        runner: 'ubuntu-latest',
+    })
     jobs.push({
         name: 'Build frontend assets',
         queueMin: 0.8 + r() * 2,
         startMin: 1.2,
         durMin: 9 + r() * 3,
         conclusion: 'success',
+        runner: 'depot-ubuntu-latest-4',
     })
     jobs.push({
         name: 'Upload coverage',
@@ -515,8 +541,22 @@ export function mockJobs(seed: number, failing: boolean, shardName: string = 'Dj
         startMin: 24,
         durMin: 1.2,
         conclusion: failing ? 'skipped' : 'success',
+        runner: 'ubuntu-latest',
     })
     return jobs
+}
+
+/** Rollup of a run's jobs — a run has almost no data of its own: its conclusion, duration
+ *  (critical path), and cost all derive from the jobs underneath. */
+export function summarizeJobs(jobs: MockJob[]): { failed: MockJob[]; skipped: number; label: string } {
+    const failed = jobs.filter((j) => j.conclusion === 'failure')
+    const skipped = jobs.filter((j) => j.conclusion === 'skipped').length
+    const label = failed.length
+        ? `${failed.length}/${jobs.length} jobs failed`
+        : skipped
+          ? `${jobs.length - skipped}/${jobs.length} jobs ran`
+          : `${jobs.length} jobs`
+    return { failed, skipped, label }
 }
 
 export interface MockJobAggregate {
@@ -525,6 +565,7 @@ export interface MockJobAggregate {
     matrixSize: number | null
     /** share of workflow runs this job actually ran in (conditional jobs skip) */
     runShare: number
+    queueP50Min: number
     p50Min: number
     failureRate: number
     retries30d: number
@@ -536,6 +577,7 @@ export const MOCK_JOB_AGGREGATES: MockJobAggregate[] = [
         name: 'Django tests',
         matrixSize: 6,
         runShare: 1,
+        queueP50Min: 1.4,
         p50Min: 19,
         failureRate: 0.09,
         retries30d: 41,
@@ -545,6 +587,7 @@ export const MOCK_JOB_AGGREGATES: MockJobAggregate[] = [
         name: 'Build frontend assets',
         matrixSize: null,
         runShare: 1,
+        queueP50Min: 0.9,
         p50Min: 10,
         failureRate: 0.02,
         retries30d: 6,
@@ -554,6 +597,7 @@ export const MOCK_JOB_AGGREGATES: MockJobAggregate[] = [
         name: 'Migrations check',
         matrixSize: null,
         runShare: 0.94,
+        queueP50Min: 0.7,
         p50Min: 6,
         failureRate: 0.01,
         retries30d: 2,
@@ -563,6 +607,7 @@ export const MOCK_JOB_AGGREGATES: MockJobAggregate[] = [
         name: 'Lint & types',
         matrixSize: null,
         runShare: 1,
+        queueP50Min: 0.5,
         p50Min: 4,
         failureRate: 0.02,
         retries30d: 3,
@@ -572,6 +617,7 @@ export const MOCK_JOB_AGGREGATES: MockJobAggregate[] = [
         name: 'Visual regression',
         matrixSize: 4,
         runShare: 0.31,
+        queueP50Min: 2.1,
         p50Min: 8,
         failureRate: 0.06,
         retries30d: 12,
@@ -581,6 +627,7 @@ export const MOCK_JOB_AGGREGATES: MockJobAggregate[] = [
         name: 'Upload coverage',
         matrixSize: null,
         runShare: 0.66,
+        queueP50Min: 0.3,
         p50Min: 1.5,
         failureRate: 0.04,
         retries30d: 9,
