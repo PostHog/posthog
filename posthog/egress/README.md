@@ -1,17 +1,18 @@
-# Outbound rate limiting & egress observability
+# Outbound egress: rate limiting, observability, transport
 
 General-purpose controls for the calls PostHog makes _out_ to third-party APIs.
 GitHub is the first consumer, but the package is built for more.
-There are two independent halves:
+Three lanes, one per subpackage:
 
-- **Rate limiting** — shared, Redis-backed budgets so every worker process draws from one limit and PostHog stays inside an external API's rate limit, with priority lanes so bulk traffic can't starve critical traffic.
-- **Egress observability** — the metrics analog: request volume plus the API's own rate-limit headers, on one Prometheus metric set.
+- **`limiter/`** — shared, Redis-backed budgets so every worker process draws from one limit and PostHog stays inside an external API's rate limit, with priority lanes so bulk traffic can't starve critical traffic.
+- **`observability/`** — the metrics analog: request volume plus the API's own rate-limit headers, on one Prometheus metric set.
+- **`transport/`** — the HTTP client that composes the other two: one request that is gated _and_ recorded by construction, so no caller can bypass either.
 
-This is _outbound_ limiting — what PostHog sends.
+This is _outbound_ egress — what PostHog sends.
 It is unrelated to `posthog.rate_limit`, which throttles _inbound_ DRF requests from clients.
 
-Both halves are **domain-generic**: a mechanism plus a small per-domain adapter (a budget policy for the limiter, a metric set and response parser for observability).
-Adding a new outbound API is another adapter, not a change to the mechanism.
+All three lanes are **domain-generic** and domain-free; each third-party API is an incarnation under its own subpackage (`github/`), supplying a budget policy, a metric set + parser, and a transport subclass.
+Adding a new outbound API is another `<domain>/` folder, not a change to the mechanisms.
 
 ## Rate limiting
 
@@ -21,8 +22,8 @@ A consumer identifies a budget with a limiter key shaped `{domain}:{scope}:{id}`
 Go through the facade, never the backing library:
 
 ```python
-from posthog.rate_limiting import Priority
-from posthog.rate_limiting.github import consume_github_installation_sync
+from posthog.egress.limiter.policies import Priority
+from posthog.egress.github.limiter import consume_github_installation_sync
 
 if not consume_github_installation_sync(installation_id, priority=Priority.BATCH, source="warehouse"):
     # Budget exhausted — back off and retry, defer, or drop. The limiter never blocks or sleeps.
@@ -63,6 +64,29 @@ Record every response through the domain's recorder (e.g. `record_github_api_res
 The `source` label (e.g. `integration`, `visual_review`, `warehouse`) carries per-subsystem attribution.
 Endpoint labels are normalized to bound cardinality: owner/repo, numeric ids, commit SHAs, and free-form tails (file paths, compare refs) are templated out (`/repos/{owner}/{repo}/statuses/{sha}`), so raw-URL callers don't mint one label per commit.
 
+## Transport
+
+`github_request` is the one way to call GitHub from anywhere — it gates on the shared per-installation budget and records telemetry by construction, so a caller physically can't forget either:
+
+```python
+from posthog.egress.github.transport import github_request
+from posthog.egress.limiter.policies import Priority
+
+resp = github_request(
+    "GET",
+    url,
+    source="visual_review",
+    headers={"Authorization": f"Bearer {token}"},  # caller owns auth; the client adds Accept + API version
+    installation_id=installation_id,               # budget owner; None = identity-blind (records volume only)
+    priority=Priority.CRITICAL,                     # CRITICAL never blocks; sheddable lanes raise on denial
+)
+```
+
+It's **token-agnostic** (installation token, user token, PAT, or PostHog's shared token) and stateless.
+The generic `EgressClient` base owns the gate → request → record algorithm and the priority-based denial semantics (CRITICAL proceeds even when the budget is spent — GitHub's own 429 is the backstop; sheddable lanes raise `EgressBudgetExhausted`); `GitHubClient` fills the domain hooks.
+Response handling — what to do on a 403/429 — stays with the caller: `raise_if_github_rate_limited` / `GitHubRateLimitError` (GitHub's own 429, the reactive twin of our `EgressBudgetExhausted`) live in `github/transport.py` for callers that want to raise-and-retry.
+The model-coupled `GitHubIntegrationBase` is a _consumer_ of this, not the general path.
+
 ## The one identity rule
 
 Everything keys on the **budget owner in the external API's own id space** — for GitHub the App **installation id**, because that is what GitHub meters.
@@ -90,7 +114,10 @@ The headers are already on the response, so it needs no request restructuring �
 
 ## Adding a new egress domain
 
-- Register a budget with `register_policy("<domain>", provider)` returning a `RatePolicy`.
-- Expose a thin per-domain gate that builds the `{domain}:{scope}:{id}` key (see `github.py`).
-- For telemetry, register an observability adapter (metric set, response parser, endpoint normalizer) and record responses through it.
-- Keep the identity in the external API's id space, and remember the limiter is non-blocking — the caller owns the back-off.
+Add a `<domain>/` subpackage with three small adapters (see `github/`):
+
+- `limiter.py` — register a budget with `register_policy("<domain>", provider)` and a thin gate that builds the `{domain}:{scope}:{id}` key.
+- `observability.py` — an observability adapter (metric set, response parser, endpoint normalizer) and the recorders.
+- `transport.py` — an `EgressClient` subclass filling the domain hooks (headers, gate, recorders, normalizer, budget-exhausted error), exposed as a `<domain>_request` helper.
+
+Keep the identity in the external API's id space, keep the subpackage free of `posthog.models` imports, and remember the limiter is non-blocking — the caller owns the back-off.
