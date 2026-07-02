@@ -377,7 +377,7 @@ class AlertConfiguration(ModelActivityMixin, CreatedMetaFields, UUIDTModel):
             return None
 
         existing_count = cls.objects.filter(
-            team_id=team_id, calculation_interval=AlertCalculationInterval.REAL_TIME
+            team_id=team_id, calculation_interval=AlertCalculationInterval.REAL_TIME, enabled=True
         ).count()
         if existing_count >= allowed:
             return f"Your team has reached the limit of {allowed} real-time alerts on your plan."
