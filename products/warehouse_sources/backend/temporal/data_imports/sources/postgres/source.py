@@ -361,6 +361,17 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
                 "crypto_aead_det_decrypt). Grant the connecting role EXECUTE on that function, or remove the "
                 "view that uses it from the sync, then re-enable the sync."
             ),
+            # A selected table/view lives in a schema the connecting role has no USAGE privilege on
+            # (SQLSTATE 42501, "permission denied for schema <name>") — common with Supabase's internal
+            # `auth`/`storage` schemas when their tables are picked for sync. Distinct from the table/view
+            # SELECT denial below: granting SELECT on the tables won't help without USAGE on the schema, so
+            # it needs its own message and must precede the generic "permission denied for" so this one wins.
+            "permission denied for schema": (
+                "PostHog's database role isn't allowed to access one or more of the schemas that contain "
+                'the tables you selected to sync (PostgreSQL reported "permission denied for schema"). Grant '
+                "the connecting role USAGE on those schemas (for example: GRANT USAGE ON SCHEMA <schema> TO "
+                "<role>), along with SELECT on the tables, then re-enable the sync."
+            ),
             "permission denied for": (
                 "PostHog's database role isn't allowed to read one or more of the tables you selected to sync "
                 '(PostgreSQL reported "permission denied"). Grant the connecting role SELECT on those tables '

@@ -720,6 +720,23 @@ class TestPostgresSourceNonRetryableErrors:
         "error_msg",
         [
             # Raw psycopg message (what the activity-level check sees via str(e)).
+            "permission denied for schema analytics",
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            "InsufficientPrivilege: permission denied for schema analytics",
+        ],
+    )
+    def test_permission_denied_for_schema_returns_usage_message(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Permission-denied-for-schema error should surface an actionable message"
+        # The schema-permission message must win over the generic table-SELECT message and advise
+        # USAGE ON SCHEMA rather than the misleading "GRANT SELECT ON <table>".
+        assert "USAGE ON SCHEMA" in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg message (what the activity-level check sees via str(e)).
             'materialized view "mv_dayplan_blocks" has not been populated\nHINT:  Use the REFRESH MATERIALIZED VIEW command.',
             # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
             'ObjectNotInPrerequisiteState: materialized view "mv_dayplan_blocks" has not been populated',
