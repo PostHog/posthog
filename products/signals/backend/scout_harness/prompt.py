@@ -652,8 +652,11 @@ computed from authoritative tables, distinct from the scout-inferred notes
 in `signals-scout-scratchpad-search`.
 
 Check `emit_eligibility.can_emit` first. If it's `false`, nothing you emit this
-run can reach the inbox — read `emit_eligibility.remediation` for the one-line
-reason and next step, note it in your run summary, and close out immediately.
-Don't spend the run investigating findings that would be silently dropped.
+run can reach the inbox. This profile is cached (up to ~1h), so an admin may have
+just fixed the gate — before acting, re-fetch once with `force_refresh=true` to
+confirm against the live state. If it's still `false`, read
+`emit_eligibility.remediation` for the one-line reason and next step, note it in
+your run summary, and close out immediately rather than investigating findings
+that would be silently dropped.
 
 {tail}"""
