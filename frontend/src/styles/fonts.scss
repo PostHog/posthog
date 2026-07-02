@@ -65,3 +65,48 @@
     src: url('../../public/RoundHog-Medium.woff2') format('woff2');
     font-display: swap;
 }
+
+/* RoundHog; regular (400); latin */
+@font-face {
+    font-family: RoundHog;
+    font-style: normal;
+    font-weight: 400;
+    src: url('../../public/RoundHog.woff2') format('woff2');
+    font-display: swap;
+}
+
+/* RoundHog; regular italic (400); latin */
+@font-face {
+    font-family: RoundHog;
+    font-style: italic;
+    font-weight: 400;
+    src: url('../../public/RoundHog-Italic.woff2') format('woff2');
+    font-display: swap;
+}
+
+/* RoundHog; medium italic (500); latin */
+@font-face {
+    font-family: RoundHog;
+    font-style: italic;
+    font-weight: 500;
+    src: url('../../public/RoundHog-Medium-Italic.woff2') format('woff2');
+    font-display: swap;
+}
+
+/* RoundHog; semibold italic (700); latin */
+@font-face {
+    font-family: RoundHog;
+    font-style: italic;
+    font-weight: 700;
+    src: url('../../public/RoundHog-SemiBold-Italic.woff2') format('woff2');
+    font-display: swap;
+}
+
+/* RoundHog; bold italic (800); latin */
+@font-face {
+    font-family: RoundHog;
+    font-style: italic;
+    font-weight: 800;
+    src: url('../../public/RoundHog-Bold-Italic.woff2') format('woff2');
+    font-display: swap;
+}
