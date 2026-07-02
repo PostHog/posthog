@@ -37,7 +37,7 @@ Use **only** these `type` values — they are the complete supported set. An unk
 | `wait_until_condition`   | `{ "condition?": {"filters": {"properties": [<cond>]}}, "events?": [{"filters": {...}, "name?": ""}], "max_wait_duration": "7d" }`. `condition` is optional: an **events-only** wait is valid (server seeds a missing `condition` as `{filters: null}`). Duration rules as `delay`. |
 | `wait_until_time_window` | `{ "timezone": "UTC", "use_person_timezone?": false, "day": <"weekday" / "weekend" / "any" / ["monday",...]>, "time": <"any" / ["10:00","11:00"]> }`.                                                                                                                               |
 | `function`               | `{ "template_id": "<live template id>", "inputs": { ... }, "mappings?": [] }`. Don't guess the id or its inputs — discover them live (see below).                                                                                                                                   |
-| `function_email`         | `{ "template_id": "template-email", "inputs": {"email": {"value": {...}}}, "message_category_type?": <"marketing" / "transactional"> }`. `template_id` is the **literal** `template-email`.                                                                                         |
+| `function_email`         | `{ "template_id": "template-email", "inputs": {"email": {"value": {...}}}, "message_category_type?": <"marketing" / "transactional"> }`. `template_id` is the **literal** `template-email`. The email value's `from` is a **sender integration reference**, `{ "integrationId": <int> }` — not a bare address (see below).                                                                                         |
 | `function_sms`           | `{ "template_id": "template-twilio", "inputs": { ... }, "message_category_type?": "..." }`. `template_id` is the **literal** `template-twilio`.                                                                                                                                     |
 | `exit`                   | `{ "reason?": "Done" }`. Usually one terminal exit node.                                                                                                                                                                                                                            |
 
@@ -138,6 +138,7 @@ Must match `^\d*\.?\d+[dhm]$` — a number plus unit `m` | `h` | `d`. Examples: 
 - [ ] Every action `type` and `config` matches a row above (no types outside the supported set).
 - [ ] `on_error` is only `continue` or `abort`.
 - [ ] `function_email.template_id == "template-email"`, `function_sms.template_id == "template-twilio"`.
+- [ ] Every `function_email` sets a sender: `inputs.email.value.from == {integrationId: <int>}` (an email integration's id), not a bare address.
 - [ ] Every non-exit node has an outgoing edge; `branch` edges have an `index` matching a condition.
 - [ ] Every `conditional_branch` / `wait_until_condition` condition is wrapped: `{filters: {properties: [...]}}`, not `{properties: [...]}`.
 - [ ] All durations match `^\d*\.?\d+[dhm]$` and dodge the silent per-unit clamp.

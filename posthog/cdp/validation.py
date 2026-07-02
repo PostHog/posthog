@@ -334,7 +334,27 @@ class InputsItemSerializer(serializers.Serializer):
         elif item_type == "email" or item_type == "native_email":
             if not isinstance(value, dict):
                 raise serializers.ValidationError({"input": f"Value must be an email object."})
-            for key_ in ["from", "to", "subject"]:
+
+            required_keys = ["from", "to", "subject"]
+            if item_type == "native_email":
+                # native_email carries its sender as `from.integrationId` (an email integration's id),
+                # not a free-form address — the runtime resolves the actual sending address from that
+                # integration, and the visual editor blocks enabling without it. Validate it here with an
+                # actionable message so the sender is caught at save time rather than failing on enable.
+                sender = value.get("from")
+                if not isinstance(sender, dict) or not sender.get("integrationId"):
+                    raise serializers.ValidationError(
+                        {
+                            "input": (
+                                "Missing 'from.integrationId'. The email sender must reference an email "
+                                'integration by id, e.g. from: {"integrationId": <id>}. List the project\'s '
+                                "email integrations (kind 'email') to get a valid id."
+                            )
+                        }
+                    )
+                required_keys = ["to", "subject"]
+
+            for key_ in required_keys:
                 if not value.get(key_):
                     raise serializers.ValidationError({"input": f"Missing value for '{key_}'."})
 
