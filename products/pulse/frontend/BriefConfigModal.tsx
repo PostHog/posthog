@@ -50,7 +50,7 @@ export function BriefConfigModal(): JSX.Element {
                 <LemonField
                     name="dashboards"
                     label="Anchor dashboards"
-                    info="The brief scouts the insights on these dashboards. Leave empty to fall back to your most recently used dashboards."
+                    info="The brief scouts the insights on these dashboards. Leave empty to fall back to the team's most recently accessed dashboards."
                 >
                     {({ value, onChange }) => (
                         <LemonInputSelect
