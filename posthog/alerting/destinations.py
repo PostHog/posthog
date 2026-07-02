@@ -21,7 +21,6 @@ from django.db import transaction
 
 from posthog.cdp.internal_events import InternalEventEvent, produce_internal_event
 
-from products.cdp.backend.api.hog_function import HogFunctionSerializer
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
 from common.alerting.destinations import ALERT_ID_PROPERTY, DESTINATION_TYPE_BY_TEMPLATE_ID
@@ -33,6 +32,10 @@ class AlertDestinationOwnershipError(Exception):
 
 def create_alert_destination_hog_functions(configs: list[dict[str, Any]], *, request: Any) -> list[HogFunction]:
     """Create one HogFunction per config, atomically. Each config carries its `team`."""
+    from products.cdp.backend.api.hog_function import (
+        HogFunctionSerializer,  # noqa: PLC0415 — keeps the DRF API stack off the import path of celery/temporal workers that only dispatch
+    )
+
     created: list[HogFunction] = []
     with transaction.atomic():
         for config in configs:
@@ -57,6 +60,9 @@ def soft_delete_alert_destinations(
 
     The filtered UPDATE is the ownership check: touching fewer rows than requested
     means something in the list doesn't belong to this alert — roll back.
+
+    Standardizes on the stricter semantics (also `enabled=False`); the pre-extraction
+    logs path only set `deleted=True`, which read paths treat identically.
     """
     unique_ids = set(hog_function_ids)
     with transaction.atomic():
@@ -74,6 +80,7 @@ def soft_delete_all_alert_destinations(*, team_id: int, alert_id: str) -> int:
     return HogFunction.objects.filter(
         team_id=team_id,
         deleted=False,
+        type="internal_destination",
         template_id__in=list(DESTINATION_TYPE_BY_TEMPLATE_ID),
         filters__properties__contains=[{"key": ALERT_ID_PROPERTY, "value": alert_id}],
     ).update(deleted=True, enabled=False)
@@ -85,6 +92,7 @@ def find_alert_destination_hog_functions(*, team_id: int, alert_id: str, event_i
         HogFunction.objects.filter(
             team_id=team_id,
             deleted=False,
+            type="internal_destination",
             template_id__in=list(DESTINATION_TYPE_BY_TEMPLATE_ID),
             filters__events__contains=[{"id": event_id, "type": "events"}],
             filters__properties__contains=[{"key": ALERT_ID_PROPERTY, "value": alert_id}],
@@ -104,6 +112,7 @@ def destination_types_for_alerts(*, team_ids: Iterable[int], alert_ids: Iterable
     hog_functions = HogFunction.objects.filter(
         team_id__in=team_id_set,
         deleted=False,
+        type="internal_destination",
         template_id__in=list(DESTINATION_TYPE_BY_TEMPLATE_ID),
     ).values_list("template_id", "filters")
 

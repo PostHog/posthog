@@ -9,6 +9,12 @@ posthog/tasks/alerts/utils.py routes through decide_insight_alert_check.
 Control-plane transitions (snooze/unsnooze in the API, disable in the model's
 save hook, snooze-expiry in the prepare activity) still assign state inline —
 they predate the shared machine and match its apply_* semantics one-to-one.
+
+One deliberate divergence from the pre-adapter logic: an alert evaluated while
+SNOOZED with an active `snoozed_until` now stays SNOOZED silently, where the old
+inline code would set FIRING/ERRORED and notify. That window is unreachable in
+the scheduled path (the prepare activity skips actively-snoozed alerts and clears
+expired snoozes before evaluation) and the new behavior is the safe direction.
 """
 
 from __future__ import annotations

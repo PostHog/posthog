@@ -12,7 +12,11 @@ from posthog.models.organization import Organization
 from posthog.models.team.team import Team
 from posthog.models.utils import UUIDModel
 
-MAX_FAILURES_BEFORE_BROKEN = 5
+from common.alerting.state_machine import MAX_CONSECUTIVE_FAILURES
+
+# Alias of the shared threshold so the two can't drift; the live value is what
+# BILLING_ALERT_POLICY.max_consecutive_failures feeds the shared state machine.
+MAX_FAILURES_BEFORE_BROKEN = MAX_CONSECUTIVE_FAILURES
 
 
 class BillingAlertConfiguration(UUIDModel):

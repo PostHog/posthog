@@ -57,6 +57,8 @@ class EventKindSpec:
 
 
 def clip_hog_function_name(name: str) -> str:
+    # Unified on the logs variant ("…"); billing previously clipped with "...". Only
+    # visible on names over 400 characters.
     if len(name) <= _HOG_FUNCTION_NAME_MAX_LEN:
         return name
     return name[: _HOG_FUNCTION_NAME_MAX_LEN - 1] + "…"

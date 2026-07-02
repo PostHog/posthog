@@ -78,6 +78,9 @@ class AlertPolicy:
     # True (billing): snooze only mutes while breached — a clear check resolves and
     # un-snoozes; a breached check parks the alert in SNOOZED without notifying.
     # False (logs): a snoozed alert stays snoozed untouched until snooze_until passes.
+    # Known wart: unlike the other flags, this one changes what the SNOOZED state
+    # *means* per product, not just when to notify. If a future adopter needs another
+    # snooze-adjacent flag, split snooze handling into a strategy instead.
     clear_check_ends_snooze: bool = False
     # True: reaching BROKEN also disables the alert (outcome.disable is set).
     disable_when_broken: bool = False
@@ -201,6 +204,9 @@ def evaluate_alert_check(
 
     snoozing = snapshot.snooze_until is not None and snapshot.snooze_until > now
 
+    # Guard order is load-bearing: this stay-guard must precede error handling so that
+    # products without clear_check_ends_snooze (logs) swallow errors during an active
+    # snooze, while products with it (billing) fall through and count them.
     if snapshot.state == AlertState.SNOOZED and snoozing and not policy.clear_check_ends_snooze:
         return _stay(snapshot)
 
