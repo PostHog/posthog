@@ -3,6 +3,8 @@ from typing import Any
 import pytest
 from unittest.mock import MagicMock, patch
 
+from posthog.schema import SourceFieldInputConfig
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import NewYorkTimesSourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.new_york_times import source as source_module
@@ -31,11 +33,13 @@ class TestNewYorkTimesSource:
         assert config.label == "New York Times"
         assert config.docsUrl == "https://posthog.com/docs/cdp/sources/new-york-times"
         assert config.iconPath.endswith(".png")
-        field_names = {f.name for f in config.fields}
-        assert field_names == {"api_key", "article_search_query"}
-        api_key_field = next(f for f in config.fields if f.name == "api_key")
+        fields = {f.name: f for f in config.fields}
+        assert set(fields) == {"api_key", "article_search_query"}
+        api_key_field = fields["api_key"]
+        query_field = fields["article_search_query"]
+        assert isinstance(api_key_field, SourceFieldInputConfig)
+        assert isinstance(query_field, SourceFieldInputConfig)
         assert api_key_field.required is True
-        query_field = next(f for f in config.fields if f.name == "article_search_query")
         assert query_field.required is False
 
     def test_lists_tables_without_credentials(self) -> None:
@@ -91,14 +95,16 @@ class TestNewYorkTimesSource:
         manager = MagicMock()
         captured: dict[str, Any] = {}
 
-        def fake_source(**kwargs: Any) -> str:
+        sentinel = MagicMock()
+
+        def fake_source(**kwargs: Any) -> Any:
             captured.update(kwargs)
-            return "sentinel"
+            return sentinel
 
         with patch.object(source_module, "new_york_times_source", side_effect=fake_source):
             result = self.source.source_for_pipeline(_config(article_search_query="climate"), manager, inputs)
 
-        assert result == "sentinel"
+        assert result is sentinel
         assert captured["endpoint"] == "article_search"
         assert captured["query"] == "climate"
         assert captured["should_use_incremental_field"] is True

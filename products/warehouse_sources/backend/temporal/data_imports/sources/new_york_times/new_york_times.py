@@ -159,6 +159,7 @@ def _get_article_search_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     resume = resumable_source_manager.load_state() if resumable_source_manager.can_resume() else None
 
+    begin_date: str | None
     if resume is not None and resume.begin_date is not None:
         begin_date = resume.begin_date
         page = resume.page
