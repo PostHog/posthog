@@ -43,7 +43,7 @@ class _FakeApi:
         self,
         collections: list[dict[str, Any]],
         apps_by_collection: dict[Any, list[dict[str, Any]]],
-        reviews_pages: dict[str, list[dict[str, Any]]] | None = None,
+        reviews_pages: dict[str, list[list[dict[str, Any]]]] | None = None,
         ratings_pages: dict[str, list[list[dict[str, Any]]]] | None = None,
     ) -> None:
         self.collections = collections
@@ -143,7 +143,12 @@ class TestClampFutureValueToNow:
         assert _clamp_future_value_to_now(date(2027, 1, 1)) == date(2026, 6, 15)
 
 
-def _one_app_api(reviews_pages=None, ratings_pages=None, ext_id="111", store="gp"):
+def _one_app_api(
+    reviews_pages: dict[str, list[list[dict[str, Any]]]] | None = None,
+    ratings_pages: dict[str, list[list[dict[str, Any]]]] | None = None,
+    ext_id: str = "111",
+    store: str | None = "gp",
+) -> _FakeApi:
     return _FakeApi(
         collections=[{"id": 10, "title": "Team", "title_normalized": "team"}],
         apps_by_collection={10: [{"app_id": 1, "ext_id": ext_id, "store": store, "app": {}}]},
@@ -315,7 +320,7 @@ class TestFetchRetryClassification:
         response.ok = 200 <= status_code < 300
         response.json.return_value = json_body if json_body is not None else {}
         if not response.ok:
-            response.raise_for_status.side_effect = requests.HTTPError(f"{status_code} error")
+            response.raise_for_status.side_effect = requests.HTTPError(f"{status_code} error", response=response)
         session = mock.MagicMock()
         session.get.return_value = response
         return session
@@ -323,7 +328,7 @@ class TestFetchRetryClassification:
     @pytest.mark.parametrize("status", [429, 500, 503])
     def test_retryable_statuses_raise_retryable_error(self, status):
         session = self._session_returning(status)
-        with mock.patch.object(appfollow._fetch.retry, "sleep", lambda *_: None):
+        with mock.patch.object(appfollow._fetch.retry, "sleep", lambda *_: None):  # type: ignore[attr-defined]
             with pytest.raises(appfollow.AppfollowRetryableError):
                 appfollow._fetch(session, f"{APPFOLLOW_BASE_URL}/reviews", {}, mock.MagicMock())
 

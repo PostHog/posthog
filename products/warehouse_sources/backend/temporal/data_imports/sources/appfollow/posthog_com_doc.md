@@ -1,11 +1,3 @@
-<!--
-This is the user-facing posthog.com doc for the AppFollow source. It must be copied to the posthog.com
-repo at contents/docs/cdp/sources/appfollow.md (served at /docs/cdp/sources/appfollow). It lives here
-only because no posthog.com checkout was available when the source was implemented — it does not belong
-in the posthog repo long-term. Once moved, run:
-    python manage.py audit_source_docs --docs-dir ../posthog.com/contents/docs/cdp/sources
--->
-
 ---
 title: Linking AppFollow as a source
 sidebar: Docs
@@ -15,10 +7,18 @@ sourceId: Appfollow
 beta: true
 ---
 
-import SourceSetupIntro from "../_snippets/source-setup-intro.mdx"
-import SyncModes from "../_snippets/sync-modes.mdx"
-import TroubleshootingLink from "../_snippets/dw-troubleshooting-link.mdx"
-import AlphaRelease from "../_snippets/alpha-release.mdx"
+<!--
+This is the user-facing posthog.com doc for the AppFollow source. It must be copied to the posthog.com
+repo at contents/docs/cdp/sources/appfollow.md (served at /docs/cdp/sources/appfollow). It lives here
+only because no posthog.com checkout was available when the source was implemented — it does not belong
+in the posthog repo long-term. Once moved, run:
+    python manage.py audit_source_docs --docs-dir ../posthog.com/contents/docs/cdp/sources
+-->
+
+import SourceSetupIntro from "../\_snippets/source-setup-intro.mdx"
+import SyncModes from "../\_snippets/sync-modes.mdx"
+import TroubleshootingLink from "../\_snippets/dw-troubleshooting-link.mdx"
+import AlphaRelease from "../\_snippets/alpha-release.mdx"
 
 <AlphaRelease />
 

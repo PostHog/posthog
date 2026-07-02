@@ -20,13 +20,13 @@ auth via the `X-AppFollow-API-Token` header. Docs: <https://docs.api.appfollow.i
 
 ## Endpoints
 
-| Schema | Path | Shape | Rows under | Primary key | Incremental | Default sync |
-| --- | --- | --- | --- | --- | --- | --- |
-| `app_collections` | `/account/apps` | single request | `apps` | `[id]` | — (full refresh) | ✅ |
-| `app_lists` | `/account/apps/app?apps_id=<id>` | fan-out over collections | `apps_app` | `[app_collection_id, app_id]` | — (full refresh) | ✅ |
-| `users` | `/account/users` | single request | root list | `[id]` | — (full refresh) | ❌ |
-| `reviews` | `/reviews?ext_id=<ext_id>&from=&to=&page=` | fan-out over apps, page/`pages_count` | `reviews` | `[ext_id, review_id]` | `updated` via `last_modified` | ✅ |
-| `ratings_history` | `/meta/ratings/history?ext_id=<ext_id>&store=&from=&to=&offset=&limit=` | fan-out over apps, offset/limit | `ratings` | `[ext_id, store, date]` | `date` via `from` | ❌ |
+| Schema            | Path                                                                    | Shape                                 | Rows under | Primary key                   | Incremental                   | Default sync |
+| ----------------- | ----------------------------------------------------------------------- | ------------------------------------- | ---------- | ----------------------------- | ----------------------------- | ------------ |
+| `app_collections` | `/account/apps`                                                         | single request                        | `apps`     | `[id]`                        | — (full refresh)              | ✅           |
+| `app_lists`       | `/account/apps/app?apps_id=<id>`                                        | fan-out over collections              | `apps_app` | `[app_collection_id, app_id]` | — (full refresh)              | ✅           |
+| `users`           | `/account/users`                                                        | single request                        | root list  | `[id]`                        | — (full refresh)              | ❌           |
+| `reviews`         | `/reviews?ext_id=<ext_id>&from=&to=&page=`                              | fan-out over apps, page/`pages_count` | `reviews`  | `[ext_id, review_id]`         | `updated` via `last_modified` | ✅           |
+| `ratings_history` | `/meta/ratings/history?ext_id=<ext_id>&store=&from=&to=&offset=&limit=` | fan-out over apps, offset/limit       | `ratings`  | `[ext_id, store, date]`       | `date` via `from`             | ❌           |
 
 ## Discovery chain
 

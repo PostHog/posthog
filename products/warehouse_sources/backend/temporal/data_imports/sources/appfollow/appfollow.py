@@ -156,23 +156,19 @@ def check_credentials(api_key: str) -> int | None:
         return None
 
 
-def _iter_collections(
-    session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger
-) -> Iterator[dict[str, Any]]:
+def _iter_collections(session: requests.Session, logger: FilteringBoundLogger) -> Iterator[dict[str, Any]]:
     data = _fetch(session, f"{APPFOLLOW_BASE_URL}/account/apps", {}, logger)
     yield from _extract_rows(data, "apps")
 
 
-def _iter_apps(
-    session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger
-) -> Iterator[dict[str, Any]]:
+def _iter_apps(session: requests.Session, logger: FilteringBoundLogger) -> Iterator[dict[str, Any]]:
     """Fan out over every collection and yield each app row, enriched for keying and downstream fan-out.
 
     Each app row is stamped with its `app_collection_id` and `collection_name`, and `ext_id`/`store`
     are lifted from the nested `app` object to the top level when absent so the review/rating fan-outs
     and the composite primary key can rely on them.
     """
-    for collection in _iter_collections(session, headers, logger):
+    for collection in _iter_collections(session, logger):
         collection_id = collection.get("id")
         collection_name = collection.get("title_normalized") or collection.get("title")
         data = _fetch(session, f"{APPFOLLOW_BASE_URL}/account/apps/app", {"apps_id": collection_id}, logger)
@@ -180,10 +176,10 @@ def _iter_apps(
             nested = app.get("app") or {}
             app["app_collection_id"] = collection_id
             app["collection_name"] = collection_name
-            if not app.get("ext_id") and nested.get("ext_id"):
-                app["ext_id"] = nested.get("ext_id")
-            if not app.get("store") and nested.get("store"):
-                app["store"] = nested.get("store")
+            if not app.get("ext_id") and (nested_ext_id := nested.get("ext_id")):
+                app["ext_id"] = nested_ext_id
+            if not app.get("store") and (nested_store := nested.get("store")):
+                app["store"] = nested_store
             yield app
 
 
@@ -195,7 +191,7 @@ class _AppTarget:
 
 
 def _iter_app_targets(
-    session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger, *, dedupe_by_store: bool
+    session: requests.Session, logger: FilteringBoundLogger, *, dedupe_by_store: bool
 ) -> list[_AppTarget]:
     """Discover the apps the review/rating fan-outs iterate.
 
@@ -204,7 +200,7 @@ def _iter_app_targets(
     """
     seen: set[tuple[str, str | None]] = set()
     targets: list[_AppTarget] = []
-    for app in _iter_apps(session, headers, logger):
+    for app in _iter_apps(session, logger):
         ext_id = app.get("ext_id")
         if not ext_id:
             continue
@@ -236,7 +232,6 @@ def _resume_slice(
 
 def _get_list(
     session: requests.Session,
-    headers: dict[str, str],
     config: AppfollowEndpointConfig,
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
@@ -248,24 +243,22 @@ def _get_list(
 
 def _get_apps(
     session: requests.Session,
-    headers: dict[str, str],
     logger: FilteringBoundLogger,
 ) -> Iterator[list[dict[str, Any]]]:
-    rows = list(_iter_apps(session, headers, logger))
+    rows = list(_iter_apps(session, logger))
     if rows:
         yield rows
 
 
 def _get_reviews(
     session: requests.Session,
-    headers: dict[str, str],
     config: AppfollowEndpointConfig,
     logger: FilteringBoundLogger,
     manager: ResumableSourceManager[AppfollowResumeConfig],
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
 ) -> Iterator[list[dict[str, Any]]]:
-    targets = _iter_app_targets(session, headers, logger, dedupe_by_store=False)
+    targets = _iter_app_targets(session, logger, dedupe_by_store=False)
     remaining, resume_page = _resume_slice(targets, manager)
 
     last_modified: str | None = None
@@ -309,14 +302,13 @@ def _get_reviews(
 
 def _get_ratings(
     session: requests.Session,
-    headers: dict[str, str],
     config: AppfollowEndpointConfig,
     logger: FilteringBoundLogger,
     manager: ResumableSourceManager[AppfollowResumeConfig],
     should_use_incremental_field: bool,
     db_incremental_field_last_value: Any,
 ) -> Iterator[list[dict[str, Any]]]:
-    targets = _iter_app_targets(session, headers, logger, dedupe_by_store=True)
+    targets = _iter_app_targets(session, logger, dedupe_by_store=True)
     remaining, resume_offset = _resume_slice(targets, manager)
 
     from_date = DEFAULT_START_DATE
@@ -372,17 +364,15 @@ def get_rows(
     db_incremental_field_last_value: Any = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = APPFOLLOW_ENDPOINTS[endpoint]
-    headers = _headers(api_key)
-    session = make_tracked_session(headers=headers, redact_values=(api_key,))
+    session = make_tracked_session(headers=_headers(api_key), redact_values=(api_key,))
 
     if config.kind == "list":
-        yield from _get_list(session, headers, config, logger)
+        yield from _get_list(session, config, logger)
     elif config.kind == "apps":
-        yield from _get_apps(session, headers, logger)
+        yield from _get_apps(session, logger)
     elif config.kind == "reviews":
         yield from _get_reviews(
             session,
-            headers,
             config,
             logger,
             resumable_source_manager,
@@ -392,7 +382,6 @@ def get_rows(
     else:  # "ratings"
         yield from _get_ratings(
             session,
-            headers,
             config,
             logger,
             resumable_source_manager,
