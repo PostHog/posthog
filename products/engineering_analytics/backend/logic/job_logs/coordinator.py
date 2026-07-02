@@ -40,8 +40,12 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 logger = structlog.get_logger(__name__)
 
 # How far back to look each tick. With the per-job workflow id (one fetch per job) this bounds
-# re-scanning without a separate "already fetched" store.
-DEFAULT_LOOKBACK = timedelta(hours=2)
+# re-scanning without a separate "already fetched" store. The window must exceed the warehouse's
+# worst-case landing delay, not the job's age: discovery filters on completed_at, and rows reach the
+# jobs table only as fast as the v3 load consumer drains its queue — during backlogs that's many
+# hours, and a 2h window went blind (every row arrived already too old). The proper fix is a
+# persisted high-water-mark cursor over landed rows (deferred).
+DEFAULT_LOOKBACK = timedelta(hours=24)
 _PREFIX = re.compile(r"^[A-Za-z0-9_]*$")  # warehouse source prefixes; guards the table identifier
 # Cap total jobs returned per tick — the activity hands them back as one Temporal payload (~2 MiB
 # limit), so an incident across many sources mustn't return an unbounded list.
