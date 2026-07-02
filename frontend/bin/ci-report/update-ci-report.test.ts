@@ -1,4 +1,8 @@
-import { MARKER, parseSections, renderComment, STATUS_EMOJI, upsertSection } from './update-ci-report.mjs'
+import fs from 'node:fs'
+import os from 'node:os'
+import path from 'node:path'
+
+import { MARKER, parseSections, postSection, renderComment, STATUS_EMOJI, upsertSection } from './update-ci-report.mjs'
 
 type SectionEntry = { status: string; summary: string; inner: string }
 type SectionState = Map<string, SectionEntry>
@@ -148,5 +152,130 @@ describe('ci-report section helper', () => {
         const rendered: string = renderComment(withLegacy)
         expect(rendered).toContain('old body')
         expect(rendered.indexOf('<b>Bundle size</b>')).toBeLessThan(rendered.indexOf('legacy-check'))
+    })
+
+    describe('postSection concurrency', () => {
+        type StoredComment = { id: number; body: string }
+        // An in-memory GitHub issue-comments API — the network is the boundary being
+        // faked; assertions are on the surviving comment state, not call choreography.
+        function fakeGitHub(initialBodies: string[] = []): {
+            comments: StoredComment[]
+            afterWrite: { fn: (() => void) | null }
+        } {
+            let nextId = 100
+            const comments: StoredComment[] = initialBodies.map((body) => ({ id: ++nextId, body }))
+            const afterWrite: { fn: (() => void) | null } = { fn: null }
+            const json = (data: unknown): Response =>
+                ({ ok: true, status: 200, json: async () => data, text: async () => '' }) as unknown as Response
+            globalThis.fetch = async (url: RequestInfo | URL, options: RequestInit = {}): Promise<Response> => {
+                const method = options.method ?? 'GET'
+                const fireAfterWrite = (): void => {
+                    afterWrite.fn?.()
+                    afterWrite.fn = null
+                }
+                if (method === 'GET') {
+                    const page = Number(new URL(String(url)).searchParams.get('page') ?? '1')
+                    return json(page === 1 ? [...comments] : [])
+                }
+                if (method === 'POST') {
+                    comments.push({ id: ++nextId, body: JSON.parse(String(options.body)).body })
+                    fireAfterWrite()
+                    return json(comments.at(-1))
+                }
+                const id = Number(String(url).split('/').pop())
+                if (method === 'PATCH') {
+                    const target = comments.find((c) => c.id === id)
+                    if (target) {
+                        target.body = JSON.parse(String(options.body)).body
+                    }
+                    fireAfterWrite()
+                    return json({})
+                }
+                if (method === 'DELETE') {
+                    comments.splice(
+                        comments.findIndex((c) => c.id === id),
+                        1
+                    )
+                    return {
+                        ok: true,
+                        status: 204,
+                        json: async () => null,
+                        text: async () => '',
+                    } as unknown as Response
+                }
+                return {
+                    ok: false,
+                    status: 404,
+                    json: async () => ({}),
+                    text: async () => 'not found',
+                } as unknown as Response
+            }
+            return { comments, afterWrite }
+        }
+
+        const realFetch = globalThis.fetch
+        let tmpDir: string
+
+        beforeAll(() => {
+            tmpDir = fs.mkdtempSync(path.join(os.tmpdir(), 'ci-report-test-'))
+            const eventPath = path.join(tmpDir, 'event.json')
+            fs.writeFileSync(eventPath, JSON.stringify({ pull_request: { number: 1 } }))
+            process.env.GITHUB_TOKEN = 'test-token'
+            process.env.GITHUB_REPOSITORY = 'PostHog/posthog'
+            process.env.GITHUB_EVENT_PATH = eventPath
+        })
+
+        afterAll(() => {
+            globalThis.fetch = realFetch
+            fs.rmSync(tmpDir, { recursive: true, force: true })
+            delete process.env.GITHUB_TOKEN
+            delete process.env.GITHUB_REPOSITORY
+            delete process.env.GITHUB_EVENT_PATH
+        })
+
+        const opts = { retryDelayMs: 0 }
+
+        it('creates the comment when none exists, then a second writer joins it', async () => {
+            const github = fakeGitHub()
+            await postSection({ id: 'bundle-size', status: 'ok', summary: 'b', body: 'BUNDLE' }, opts)
+            await postSection({ id: 'eager-graph', status: 'warn', summary: 'e', body: 'EAGER' }, opts)
+            expect(github.comments).toHaveLength(1)
+            const sections = parseSections(github.comments[0].body)
+            expect([...sections.keys()]).toEqual(['bundle-size', 'eager-graph'])
+        })
+
+        it('retries when a concurrent writer clobbers the section, keeping both', async () => {
+            // The other writer read the comment before our PATCH landed and wrote after
+            // it — its render is missing our section. The verify pass must catch that
+            // and re-merge, or cross-workflow sections silently vanish.
+            const github = fakeGitHub([
+                renderComment(build([{ id: 'bundle-size', status: 'ok', summary: 'b', body: 'BUNDLE' }])),
+            ])
+            const clobber = renderComment(
+                build([
+                    { id: 'bundle-size', status: 'ok', summary: 'b', body: 'BUNDLE' },
+                    { id: 'dist-size', status: 'info', summary: 'd', body: 'DIST' },
+                ])
+            )
+            github.afterWrite.fn = () => {
+                github.comments[0].body = clobber
+            }
+            await postSection({ id: 'eager-graph', status: 'warn', summary: 'e', body: 'EAGER' }, opts)
+            expect(github.comments).toHaveLength(1)
+            const sections = parseSections(github.comments[0].body)
+            expect([...sections.keys()]).toEqual(['bundle-size', 'eager-graph', 'dist-size'])
+            expect(get(sections as SectionState, 'eager-graph').inner).toBe('EAGER')
+        })
+
+        it('merges duplicate report comments into the oldest and deletes the rest', async () => {
+            const github = fakeGitHub([
+                renderComment(build([{ id: 'bundle-size', status: 'ok', summary: 'b', body: 'BUNDLE' }])),
+                renderComment(build([{ id: 'dist-size', status: 'info', summary: 'd', body: 'DIST' }])),
+            ])
+            await postSection({ id: 'eager-graph', status: 'warn', summary: 'e', body: 'EAGER' }, opts)
+            expect(github.comments).toHaveLength(1)
+            const sections = parseSections(github.comments[0].body)
+            expect([...sections.keys()]).toEqual(['bundle-size', 'eager-graph', 'dist-size'])
+        })
     })
 })

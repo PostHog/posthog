@@ -1,13 +1,13 @@
 #!/usr/bin/env node
 import fs from 'node:fs'
 
-// One sticky comment shared by every frontend CI check. Each check owns a delimited
-// section and updates only its own; the collapsed summary lines and section order are
-// rebuilt from the fixed SECTIONS registry every time, so the layout never shifts
-// between runs and readers learn where each check lives. Safe as a plain
-// read-modify-write only because every writer runs sequentially in the single
-// frontend-bundle-size job — do not call this from parallel jobs without a locking
-// strategy.
+// One sticky comment shared by every CI check that joins it. Each check owns a
+// delimited section and updates only its own; the collapsed summary lines and section
+// order are rebuilt from the fixed SECTIONS registry every time, so the layout never
+// shifts between runs and readers learn where each check lives. Writers may run in
+// parallel jobs and workflows: GitHub has no compare-and-set for comment edits, so
+// postSection verifies its write survived and retries when a concurrent writer
+// clobbered it, and heals duplicate comments left by two writers racing to create.
 export const MARKER = '<!-- posthog-ci-report -->'
 
 // The single source of truth for which sections exist and the order they render in.
@@ -168,41 +168,87 @@ export async function listPrComments({ token, repo, prNumber }) {
     return all
 }
 
+const sleep = (ms) => new Promise((resolve) => setTimeout(resolve, ms))
+
+function sectionEquals(a, b) {
+    return !!a && !!b && a.status === b.status && a.summary === b.summary && a.inner === b.inner
+}
+
 // Post or update this run's section into the shared comment. Fork PRs run with a
 // read-only token, so a failure to read or write is warned and swallowed — the comment
 // is a nicety, never worth a red job.
-export async function postSection({ id, status, summary, body }) {
+//
+// Concurrent writers (other jobs, other workflows) race on the same comment with no
+// compare-and-set, so this is read-modify-write plus verify-and-retry: after writing,
+// re-read and check this section survived; if a concurrent writer clobbered it (they
+// read before our write and wrote after), merge again and rewrite. Two writers racing
+// to CREATE the comment can leave duplicates — every attempt merges all marker
+// comments' sections into the oldest and deletes the rest.
+export async function postSection({ id, status, summary, body }, { maxAttempts = 3, retryDelayMs = 1000 } = {}) {
     const context = resolvePrContext('comment')
     if (!context) {
         return
     }
     const { token, repo, prNumber } = context
+    // Round-trip the section through render/parse to get the form a re-read returns —
+    // renderComment normalizes summaries, so comparing against the raw input would
+    // never verify for a summary that needed normalizing.
+    const expected = parseSections(renderComment(upsertSection(new Map(), { id, status, summary, body }))).get(id)
 
-    let existing = null
-    try {
-        existing = (await listPrComments(context)).find((c) => c.body?.includes(MARKER)) ?? null
-    } catch (err) {
-        console.warn(`Could not read PR comments (read-only token on fork PRs?): ${err.message}`)
-        return
-    }
-
-    const sections = upsertSection(parseSections(existing?.body ?? ''), { id, status, summary, body })
-    const rendered = renderComment(sections)
-    try {
-        if (existing) {
-            await gh(token, `/repos/${repo}/issues/comments/${existing.id}`, {
-                method: 'PATCH',
-                body: JSON.stringify({ body: rendered }),
-            })
-            console.info(`Updated CI report section "${id}" on comment ${existing.id} (PR #${prNumber}).`)
-        } else {
-            await gh(token, `/repos/${repo}/issues/${prNumber}/comments`, {
-                method: 'POST',
-                body: JSON.stringify({ body: rendered }),
-            })
-            console.info(`Posted CI report with section "${id}" on PR #${prNumber}.`)
+    for (let attempt = 1; attempt <= maxAttempts; attempt++) {
+        let reportComments
+        try {
+            reportComments = (await listPrComments(context)).filter((c) => c.body?.includes(MARKER))
+        } catch (err) {
+            console.warn(`Could not read PR comments (read-only token on fork PRs?): ${err.message}`)
+            return
         }
-    } catch (err) {
-        console.warn(`Could not post CI report (read-only token on fork PRs?): ${err.message}`)
+
+        const merged = new Map()
+        for (const comment of reportComments) {
+            for (const [sectionId, section] of parseSections(comment.body)) {
+                merged.set(sectionId, section)
+            }
+        }
+        const rendered = renderComment(upsertSection(merged, { id, status, summary, body }))
+        const [primary, ...duplicates] = reportComments
+
+        try {
+            for (const duplicate of duplicates) {
+                await gh(token, `/repos/${repo}/issues/comments/${duplicate.id}`, { method: 'DELETE' })
+                console.info(`Merged and deleted duplicate CI report comment ${duplicate.id} (PR #${prNumber}).`)
+            }
+            if (primary) {
+                await gh(token, `/repos/${repo}/issues/comments/${primary.id}`, {
+                    method: 'PATCH',
+                    body: JSON.stringify({ body: rendered }),
+                })
+            } else {
+                await gh(token, `/repos/${repo}/issues/${prNumber}/comments`, {
+                    method: 'POST',
+                    body: JSON.stringify({ body: rendered }),
+                })
+            }
+        } catch (err) {
+            console.warn(`Could not post CI report (read-only token on fork PRs?): ${err.message}`)
+            return
+        }
+
+        try {
+            const after = (await listPrComments(context)).filter((c) => c.body?.includes(MARKER))
+            if (after.length === 1 && sectionEquals(parseSections(after[0].body).get(id), expected)) {
+                console.info(`Wrote CI report section "${id}" on PR #${prNumber} (attempt ${attempt}).`)
+                return
+            }
+        } catch (err) {
+            console.warn(`Could not verify CI report write: ${err.message}`)
+            return
+        }
+
+        if (attempt < maxAttempts) {
+            console.info(`CI report section "${id}" was clobbered by a concurrent writer — retrying.`)
+            await sleep(retryDelayMs)
+        }
     }
+    console.warn(`Gave up writing CI report section "${id}" after ${maxAttempts} attempts — a later run will heal it.`)
 }
