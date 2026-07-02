@@ -58,6 +58,7 @@ from products.replay_vision.backend.queries import (
 )
 from products.replay_vision.backend.quota import compute_quota_snapshot, sum_enabled_scanner_estimates
 from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
+from products.replay_vision.backend.tags import slugify_tag
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_EXECUTION_TIMEOUT,
     APPLY_SCANNER_WORKFLOW_NAME,
@@ -105,9 +106,15 @@ def _scanner_config_error_message(scanner_type: ScannerType, scanner_config: Any
             return "Tags can't be blank."
         if any(len(t) > _MAX_TAG_LENGTH for t in tags):
             return f"Tags can be at most {_MAX_TAG_LENGTH} characters."
-        normalized = {t.strip().lower() for t in tags}
-        if len(normalized) != len(tags):
-            return "Tags must be unique."
+        # Uniqueness on the slug, since filtering/stripping/search all compare slugified tags downstream.
+        slugged: dict[str, str] = {}
+        for t in tags:
+            slug = slugify_tag(t)
+            if not slug:
+                return "Tags must contain letters or numbers."
+            if slug in slugged:
+                return f"Tags must be unique: '{slugged[slug]}' and '{t}' are the same tag."
+            slugged[slug] = t
     if scanner_type == ScannerType.SCORER:
         scale = scanner_config.get("scale")
         if not isinstance(scale, dict):

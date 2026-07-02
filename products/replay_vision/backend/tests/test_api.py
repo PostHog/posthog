@@ -296,7 +296,19 @@ class TestReplayScannerViewSet(_VisionAPITestCase):
                 "classifier_duplicate_tags",
                 ScannerType.CLASSIFIER,
                 {"prompt": "p", "tags": ["Bug", "bug"]},
-                "Tags must be unique.",
+                "Tags must be unique: 'Bug' and 'bug' are the same tag.",
+            ),
+            (
+                "classifier_slug_colliding_tags",
+                ScannerType.CLASSIFIER,
+                {"prompt": "p", "tags": ["login issue", "login_issue"]},
+                "Tags must be unique: 'login issue' and 'login_issue' are the same tag.",
+            ),
+            (
+                "classifier_tag_without_alphanumerics",
+                ScannerType.CLASSIFIER,
+                {"prompt": "p", "tags": ["!!!"]},
+                "Tags must contain letters or numbers.",
             ),
             (
                 "monitor_missing_prompt",
