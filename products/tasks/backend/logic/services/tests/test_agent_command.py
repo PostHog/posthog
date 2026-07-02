@@ -224,6 +224,26 @@ class TestSendAgentCommand:
         assert result.status_code == 504
         assert result.retryable
 
+    @pytest.mark.parametrize(
+        "exception,expected_status",
+        [
+            # 504 means "request delivered, sandbox still processing" — callers
+            # (send_followup_to_sandbox) treat it as a still-running turn, so a
+            # ConnectTimeout (never delivered) must never map to it.
+            (requests.ReadTimeout("read timed out"), 504),
+            (requests.ConnectTimeout("connect timed out"), 502),
+        ],
+        ids=["read_timeout_maps_to_504", "connect_timeout_maps_to_502"],
+    )
+    @patch("products.tasks.backend.logic.services.agent_command.validate_sandbox_url", return_value=None)
+    @patch("products.tasks.backend.logic.services.agent_command.requests.post")
+    def test_timeout_kind_disambiguates_delivery(self, mock_post, mock_validate, exception, expected_status):
+        mock_post.side_effect = exception
+        task_run = self._make_task_run(sandbox_url="https://sandbox.modal.run/rpc")
+        result = send_agent_command(task_run, "cancel")
+        assert not result.success
+        assert result.status_code == expected_status
+
     @patch("products.tasks.backend.logic.services.agent_command.validate_sandbox_url", return_value=None)
     @patch("products.tasks.backend.logic.services.agent_command.requests.post")
     def test_5xx_is_retryable(self, mock_post, mock_validate):

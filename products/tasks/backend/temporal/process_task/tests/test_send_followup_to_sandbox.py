@@ -367,3 +367,67 @@ class TestSendFollowupActivityRefreshOrdering:
 
         args, _kwargs = _patches["refresh"].call_args
         assert args[1] == "read_only"
+
+
+class TestSendFollowupTurnTimeout:
+    """A 504 means the message was delivered and the turn is still running —
+    the activity must not fail the run or write stream markers. Any other
+    delivery failure stays fatal."""
+
+    @pytest.fixture
+    def _patches(self):
+        with (
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.TaskRun"
+            ) as mock_task_run_cls,
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.create_sandbox_connection_token"
+            ) as mock_conn_token,
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox._refresh_sandbox_mcp"
+            ),
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox.send_user_message"
+            ) as mock_user_msg,
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox._write_turn_complete"
+            ) as mock_turn_complete,
+            patch(
+                "products.tasks.backend.temporal.process_task.activities.send_followup_to_sandbox._write_error_and_complete"
+            ) as mock_error,
+        ):
+            task_run = _make_task_run_mock()
+            task_run.task.created_by = MagicMock(id=42, distinct_id="u42")
+            mock_task_run_cls.objects.select_related.return_value.get.return_value = task_run
+            mock_conn_token.return_value = "jwt"
+
+            yield {
+                "user_msg": mock_user_msg,
+                "turn_complete": mock_turn_complete,
+                "error": mock_error,
+            }
+
+    def test_read_timeout_is_non_fatal_and_writes_no_markers(self, _patches):
+        # Regression: a turn longer than FOLLOWUP_TIMEOUT_SECONDS used to fail
+        # the run and destroy a healthy sandbox mid-work.
+        _patches["user_msg"].return_value = CommandResult(
+            success=False, status_code=504, error="Sandbox request timed out", retryable=True
+        )
+
+        send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi"))
+
+        _patches["error"].assert_not_called()
+        _patches["turn_complete"].assert_not_called()
+
+    def test_undelivered_message_stays_fatal(self, _patches):
+        # The non-fatal carve-out must stay scoped to 504 — a connection
+        # failure means the user's message never arrived.
+        _patches["user_msg"].return_value = CommandResult(
+            success=False, status_code=502, error="Connection to sandbox failed", retryable=True
+        )
+
+        with pytest.raises(RuntimeError, match="Connection to sandbox failed"):
+            send_followup_to_sandbox(SendFollowupToSandboxInput(run_id="run-1", message="hi"))
+
+        _patches["error"].assert_called_once()
+        _patches["turn_complete"].assert_not_called()

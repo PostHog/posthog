@@ -171,6 +171,19 @@ def send_agent_command(
             timeout=timeout,
             params=query_params or None,
         )
+    except requests.ReadTimeout:
+        # The request body was already sent — the sandbox has the command and
+        # is still processing it. Callers rely on 504 meaning "delivered but
+        # not finished" (e.g. a long agent turn), as opposed to the connection
+        # failures below where the command never arrived. ConnectTimeout
+        # subclasses both Timeout and ConnectionError; catching ReadTimeout
+        # first keeps it in the 502 bucket.
+        return CommandResult(
+            success=False,
+            status_code=504,
+            error="Sandbox request timed out",
+            retryable=True,
+        )
     except requests.ConnectionError:
         return CommandResult(
             success=False,

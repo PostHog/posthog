@@ -99,6 +99,20 @@ def send_followup_to_sandbox(input: SendFollowupToSandboxInput) -> None:
     if result.success:
         _write_turn_complete(input.run_id, _get_stop_reason(result.data), run_uses_dedicated_stream(task_run.state))
         logger.info("send_followup_delivered", run_id=input.run_id)
+    elif result.status_code == 504:
+        # A read timeout (504) means the message reached the sandbox and the
+        # turn is simply still running — FOLLOWUP_TIMEOUT_SECONDS caps how long
+        # this activity waits for the synchronous ack, not how long a turn may
+        # take. Don't fail the run or write a sentinel: the sandbox broadcasts
+        # _posthog/turn_complete through the event stream when the turn
+        # actually ends, and run liveness stays governed by heartbeats plus the
+        # workflow inactivity timeout. Failing here used to destroy healthy
+        # sandboxes mid-work on any turn longer than 30 minutes.
+        logger.info(
+            "send_followup_turn_still_running",
+            run_id=input.run_id,
+            timeout_seconds=FOLLOWUP_TIMEOUT_SECONDS,
+        )
     else:
         logger.warning(
             "send_followup_failed",
