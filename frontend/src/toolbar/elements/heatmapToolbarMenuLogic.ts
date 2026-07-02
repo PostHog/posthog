@@ -256,11 +256,6 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                     await breakpoint(150)
 
                     const { href, wildcardHref } = values
-                    // isTooSimple always reads attr__data-attr, so request it alongside the
-                    // configured data attributes
-                    const wantedAttributes = Array.from(
-                        new Set([...toolbarConfigLogic.values.dataAttributes, 'data-attr'])
-                    )
                     // We re-raise below to drive getElementStatsFailure; let the global
                     // loader handler report it once rather than capturing twice.
                     const options = {
@@ -298,7 +293,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                                   limit: ELEMENT_STATS_PAGE_LIMIT,
                                   // the matchers only read the configured data attributes from each
                                   // element's attributes map, so let the server drop the rest
-                                  data_attributes: wantedAttributes.join(','),
+                                  data_attributes: values.wantedDataAttributes.join(','),
                               },
                               options
                           )
@@ -339,6 +334,11 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         ],
         elementCount: [(s) => [s.countedElements], (countedElements) => countedElements.length],
         loadedElementStatsCount: [(s) => [s.elementStats], (elementStats) => elementStats?.results?.length ?? 0],
+        // isTooSimple always reads attr__data-attr, so request it alongside the configured data attributes
+        wantedDataAttributes: [
+            () => [toolbarConfigLogic.selectors.dataAttributes],
+            (dataAttributes: string[]): string[] => Array.from(new Set([...dataAttributes, 'data-attr'])),
+        ],
         clickCount: [
             (s) => [s.countedElements],
             (countedElements) => (countedElements ? countedElements.map((e) => e.count).reduce((a, b) => a + b, 0) : 0),
