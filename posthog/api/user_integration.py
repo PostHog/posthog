@@ -40,6 +40,7 @@ from posthog.api.integration import (
     GitHubReposQuerySerializer,
     GitHubReposRefreshResponseSerializer,
     GitHubReposResponseSerializer,
+    github_rate_limited_response,
     validate_github_repository_name,
 )
 from posthog.auth import OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication, SessionAuthentication
@@ -228,6 +229,14 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
     permission_classes = [IsAuthenticated, APIScopePermission]
     http_method_names = ["get", "post", "delete"]
     serializer_class = UserGitHubIntegrationItemSerializer
+
+    def handle_exception(self, exc: Exception) -> Response:
+        # Personal-GitHub actions (repos, branches, refresh) raise the same egress
+        # GitHubRateLimitError as the team integration endpoints — same 429 mapping.
+        rate_limited = github_rate_limited_response(exc)
+        if rate_limited is not None:
+            return rate_limited
+        return super().handle_exception(exc)
 
     def _get_user(self) -> User:
         """Resolve the target user from the nested ``parent_lookup_uuid`` (same rules as ``UserViewSet``)."""

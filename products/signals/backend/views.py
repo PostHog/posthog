@@ -44,6 +44,7 @@ from temporalio.exceptions import WorkflowAlreadyStartedError
 from posthog.api.mixins import ValidatedRequest, validated_request
 from posthog.api.routing import TeamAndOrgViewSetMixin
 from posthog.auth import InternalAPIAuthentication, OAuthAccessTokenAuthentication, PersonalAPIKeyAuthentication
+from posthog.egress.github.transport import GitHubRateLimitError
 from posthog.exceptions_capture import capture_exception
 from posthog.models import Team, User
 from posthog.models.integration import GitHubIntegration, Integration
@@ -1995,7 +1996,16 @@ class SignalReportArtefactViewSet(
         # repository: a report's work legitimately spans multiple repos (cross-repo fixes, stacked
         # PRs). That connection boundary is the intended scope — any `task:write` holder can already
         # run agents against those same repos — and the repo/ref values are validated in `get_diff`.
-        github = GitHubIntegration.first_for_team_repository(self.team.id, repository)
+        try:
+            github = GitHubIntegration.first_for_team_repository(self.team.id, repository)
+        except GitHubRateLimitError as e:
+            response = Response(
+                {"error": "GitHub is rate limiting requests for this integration. Retry shortly."},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+            if e.retry_after:
+                response["Retry-After"] = str(e.retry_after)
+            return response
         if github is None:
             return Response(
                 {"error": f"No GitHub integration can access '{repository}'."},

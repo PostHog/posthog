@@ -23,7 +23,6 @@ import structlog
 from prometheus_client import Counter
 
 from posthog.egress.github.limiter import remember_observed_core_limit
-from posthog.egress.github.observability import record_github_api_exception, record_github_api_response
 from posthog.egress.github.transport import github_request, raise_if_github_rate_limited
 from posthog.egress.limiter.policies import Priority
 from posthog.sync import database_sync_to_async_pool
@@ -258,23 +257,6 @@ class GitHubIntegrationBase:
         )
         raise requests.RequestException(f"Unexpected status {response.status_code} verifying installation access")
 
-    def _record_github_api_response(self, response: requests.Response, method: str, endpoint: str) -> None:
-        record_github_api_response(
-            response,
-            source=self.source,
-            installation_id=self.github_installation_id,
-            method=method,
-            endpoint=endpoint,
-        )
-
-    def _record_github_api_exception(self, method: str, endpoint: str) -> None:
-        record_github_api_exception(
-            source=self.source,
-            installation_id=self.github_installation_id,
-            method=method,
-            endpoint=endpoint,
-        )
-
     def _record_github_cache_access(
         self, cache_type: Literal["repositories", "branches"], result: Literal["hit", "miss"], repository: str
     ) -> None:
@@ -307,13 +289,9 @@ class GitHubIntegrationBase:
         hook is called *before* ``save()`` so it can mutate extra fields that
         will be included in a single write.
         """
-        endpoint = "/app/installations/{installation_id}/access_tokens"
-        try:
-            response = self.client_request(f"installations/{self.github_installation_id}/access_tokens", method="POST")
-        except requests.RequestException:
-            self._record_github_api_exception("POST", endpoint)
-            raise
-        self._record_github_api_response(response, "POST", endpoint)
+        # client_request records the call via the egress transport — no manual recording here,
+        # or every refresh would count twice.
+        response = self.client_request(f"installations/{self.github_installation_id}/access_tokens", method="POST")
         try:
             data = response.json()
         except ValueError:
@@ -1286,7 +1264,8 @@ class GitHubIntegrationBase:
                     method,
                     url,
                     source=self.source,
-                    headers={"Authorization": f"Bearer {token}", **(headers or {})},
+                    # Token last: a caller-supplied Authorization must not bypass the managed lifecycle.
+                    headers={**(headers or {}), "Authorization": f"Bearer {token}"},
                     installation_id=self.github_installation_id,
                     priority=priority if priority is not None else self.priority,
                     endpoint=endpoint,

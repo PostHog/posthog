@@ -1765,7 +1765,12 @@ def post_reply_to_github(
         logger.warning("github_reply_missing_issue_info", ticket_id=ticket_id)
         return
 
-    github = GitHubIntegration.first_for_team_repository(team_id, ticket.github_repo, source="conversations")
+    try:
+        github = GitHubIntegration.first_for_team_repository(team_id, ticket.github_repo, source="conversations")
+    except GitHubRateLimitError as e:
+        # The access probe hit GitHub's limit — retry the reply later rather than dropping it.
+        logger.warning("github_reply_rate_limited", ticket_id=ticket_id)
+        raise cast(Any, post_reply_to_github).retry(exc=e, countdown=min(e.retry_after or 60, 600))
     if not github:
         logger.warning("github_reply_no_integration", team_id=team_id, repo=ticket.github_repo)
         return

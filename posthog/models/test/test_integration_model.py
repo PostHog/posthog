@@ -1220,28 +1220,6 @@ class TestGitHubIntegrationModel(BaseTest):
         assert REGISTRY.get_sample_value("github_integration_api_requests_total", labels) == previous_count + 2
 
     @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
-    def test_github_refresh_access_token_metrics_include_request_exceptions(self, mock_client_request):
-        integration = self.create_integration(
-            {"installation_id": "INSTALL", "account": {"name": "PostHog"}},
-            {"access_token": "ACCESS_TOKEN"},
-        )
-        mock_client_request.side_effect = requests.RequestException("network failure")
-
-        labels = {
-            "installation_id": integration.integration_id,
-            "method": "POST",
-            "endpoint": "/app/installations/{installation_id}/access_tokens",
-            "status_code": "exception",
-            "source": "integration",
-        }
-        previous_count = REGISTRY.get_sample_value("github_integration_api_requests_total", labels) or 0
-
-        with pytest.raises(requests.RequestException):
-            GitHubIntegration(integration).refresh_access_token()
-
-        assert REGISTRY.get_sample_value("github_integration_api_requests_total", labels) == previous_count + 1
-
-    @patch("posthog.models.github_integration_base.GitHubIntegrationBase.client_request")
     def test_github_integration_refresh_token(self, mock_client_request):
         mock_client_request.side_effect = self.mock_github_client_request(status_code=201)
 

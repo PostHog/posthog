@@ -232,7 +232,7 @@ def _fetch_file_content(github: GitHubIntegration, repository: str, path: str, r
 
 
 def _scan_repository(integration: Integration, repository: str) -> tuple[RepositoryScanEvidence, list[str]]:
-    github = GitHubIntegration(integration)
+    github = GitHubIntegration(integration, source="tasks")
     tree_paths, default_branch = _fetch_repository_tree(github, repository)
 
     found_posthog_init = False
