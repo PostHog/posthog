@@ -13,7 +13,8 @@ import { inboxSceneLogic } from '../../inboxSceneLogic'
 import { inboxTaskKickoffLogic } from '../../inboxTaskKickoffLogic'
 import { inboxBulkActionsLogic } from '../../logics/inboxBulkActionsLogic'
 import { INBOX_FLAT_TAB_LIST_PARAMS, reportListLogic } from '../../logics/reportListLogic'
-import { ACTIONABLE_ACTIONABILITY_VALUES, SignalReport, SignalReportStatus } from '../../types'
+import { SignalReport, SignalReportStatus } from '../../types'
+import { canCreateImplementationPr } from '../../utils/reportPresentation'
 import { useReportArchive } from '../cards/useReportArchive'
 import { openFeedbackReportDialog } from '../shell/FeedbackReportDialog'
 
@@ -29,26 +30,6 @@ export interface ReportDetailAction {
     onClick: (event: MouseEvent) => void
     loading?: boolean
     tooltip?: string
-}
-
-/**
- * Should the Create PR action be offered? Mirrors desktop `canCreateImplementationPr` /
- * the server-side autostart rules: only when ready & actionable, or blocked on user input.
- */
-function canCreateImplementationPr(report: SignalReport): boolean {
-    if (report.implementation_pr_url) {
-        return false
-    }
-    if (report.already_addressed === true) {
-        return false
-    }
-    if (report.status === 'pending_input') {
-        return true
-    }
-    if (report.status === 'ready') {
-        return report.actionability != null && ACTIONABLE_ACTIONABILITY_VALUES.includes(report.actionability)
-    }
-    return false
 }
 
 /**

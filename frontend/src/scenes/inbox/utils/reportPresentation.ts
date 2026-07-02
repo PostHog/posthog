@@ -2,6 +2,8 @@
 // Shared across the Inbox cards/detail so the conventional-commit + headline parsing
 // lives in exactly one place.
 
+import { ACTIONABLE_ACTIONABILITY_VALUES, SignalReport } from '../types'
+
 const MAX_HEADLINE_LENGTH = 140
 const SENTENCE_END = /([.!?])[*_`]*(?=\s|$)/
 const EDGE_EMPHASIS = /^[*_`\s]+|[*_`\s]+$/g
@@ -64,6 +66,26 @@ export function displayConventionalCommitTitle(title: string | null | undefined,
     }
     const trimmed = title?.trim()
     return trimmed ? trimmed : fallback
+}
+
+/**
+ * Should the Create PR action be offered? Mirrors desktop `canCreateImplementationPr` /
+ * the server-side autostart rules: only when ready & actionable, or blocked on user input.
+ */
+export function canCreateImplementationPr(report: SignalReport): boolean {
+    if (report.implementation_pr_url) {
+        return false
+    }
+    if (report.already_addressed === true) {
+        return false
+    }
+    if (report.status === 'pending_input') {
+        return true
+    }
+    if (report.status === 'ready') {
+        return report.actionability != null && ACTIONABLE_ACTIONABILITY_VALUES.includes(report.actionability)
+    }
+    return false
 }
 
 /**

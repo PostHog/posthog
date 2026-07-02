@@ -40,6 +40,7 @@ import { EventsTable } from '../../components/EventsTable/EventsTable'
 import { ExceptionCard } from '../../components/ExceptionCard'
 import { StackTraceActions } from '../../components/ExceptionCard/Tabs/StackTraceTab/StackTraceActions'
 import { StatusIndicator } from '../../components/Indicators'
+import { IssueAnalysis } from '../../components/IssueAnalysis/IssueAnalysis'
 import { ErrorFilters } from '../../components/IssueFilters'
 import { issueFiltersLogic } from '../../components/IssueFilters/issueFiltersLogic'
 import { Metadata } from '../../components/IssueMetadata'
@@ -302,6 +303,7 @@ const LeftHandColumn = ({ isMobile }: { isMobile: boolean }): JSX.Element => {
     const { desiredSize } = useValues(resizerLogic(resizerLogicProps))
     const hasTasks = useFeatureFlag('TASKS')
     const hasSimilarIssues = useFeatureFlag('ERROR_TRACKING_RELATED_ISSUES')
+    const hasIssueAnalysis = useFeatureFlag('ERROR_TRACKING_ISSUE_ANALYSIS')
 
     return (
         <div
@@ -317,6 +319,7 @@ const LeftHandColumn = ({ isMobile }: { isMobile: boolean }): JSX.Element => {
             }
             className={clsx('flex flex-col h-full relative bg-surface-primary', isMobile && 'flex-1 max-w-full')}
         >
+            {hasIssueAnalysis && <IssueAnalysis />}
             <TabsPrimitive
                 value={category}
                 onValueChange={(value) => setCategory(value as ErrorTrackingIssueSceneCategory)}

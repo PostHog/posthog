@@ -5141,6 +5141,8 @@ const api = {
             ordering?: string
             /** Comma-separated source products. */
             source_product?: string
+            /** Comma-separated source record IDs (e.g. error tracking issue UUIDs); requires source_product. */
+            source_id?: string
             /** Comma-separated P0–P4. */
             priority?: string
             /** Comma-separated actionability values (immediately_actionable|requires_human_input|not_actionable). */

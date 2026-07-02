@@ -25,7 +25,7 @@ export const INBOX_EVENTS = {
 type InboxEvent = (typeof INBOX_EVENTS)[keyof typeof INBOX_EVENTS]
 
 /** Action surface an `Inbox report action` fired from. */
-export type InboxReportActionSurface = 'detail_pane' | 'list_row' | 'bulk_bar'
+export type InboxReportActionSurface = 'detail_pane' | 'list_row' | 'bulk_bar' | 'issue_scene'
 
 /** How a report detail was opened. */
 export type InboxReportOpenMethod = 'click' | 'deeplink' | 'unknown'
