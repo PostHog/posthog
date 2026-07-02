@@ -124,9 +124,13 @@ export function NotificationRow({
     onNavigate?: () => void
 }): JSX.Element {
     const { navigateToNotification, toggleRead, markAsRead } = useActions(sidePanelNotificationsLogic)
-    const { projectNameForNotification, sourcePathForNotification } = useValues(sidePanelNotificationsLogic)
+    const { projectNameForNotification, sourcePathForNotification, manuallyToggledIds } =
+        useValues(sidePanelNotificationsLogic)
 
-    const autoMarkRef = useAutoMarkRead(!notification.read, () => markAsRead(notification.id))
+    // Don't auto-mark a notification the user deliberately toggled this session — respect their intent.
+    const autoMarkRef = useAutoMarkRead(!notification.read && !manuallyToggledIds.has(notification.id), () =>
+        markAsRead(notification.id)
+    )
 
     const otherProjectName = projectNameForNotification(notification)
     const describer = getNotificationDescriber(notification)

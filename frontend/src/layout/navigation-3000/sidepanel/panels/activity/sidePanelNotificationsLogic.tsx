@@ -233,6 +233,20 @@ export const sidePanelNotificationsLogic = kea<sidePanelNotificationsLogicType>(
                 markAllAsRead: () => 0,
             },
         ],
+        // Notifications the user explicitly toggled read/unread this session. They're exempt from
+        // auto-mark-on-view, so a deliberate "keep this unread" isn't silently undone 3s later.
+        // In-memory only, so a page reload clears it and auto-mark resumes for everything.
+        manuallyToggledIds: [
+            new Set<string>() as Set<string>,
+            {
+                toggleRead: (state, { id }) => {
+                    const next = new Set(state)
+                    next.add(id)
+                    return next
+                },
+                markAllAsRead: () => new Set<string>(),
+            },
+        ],
         loadedGroupKeys: [
             new Set<string>() as Set<string>,
             {
