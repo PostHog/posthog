@@ -225,6 +225,26 @@ class TestMCPAnalyticsPresentation(_MCPAnalyticsTeamScopedTestMixin, APIBaseTest
         assert call_args.args[1].user_id == self.user.id
         assert call_args.kwargs["id"].startswith(f"{CHILD_WORKFLOW_ID_PREFIX}-{self.team.id}-adhoc-")
 
+    def test_intent_clusters_recompute_dispatch_failure_reverts_to_error(self) -> None:
+        # If the workflow never starts, no activity will flip the status —
+        # the endpoint must revert its own COMPUTING write, not leave the
+        # snapshot stuck until the stale-COMPUTING sweep.
+        with (
+            patch(
+                "posthog.temporal.common.client.async_connect",
+                new=AsyncMock(side_effect=RuntimeError("temporal unreachable")),
+            ),
+            patch("posthoganalytics.feature_enabled", return_value=True),
+        ):
+            response = self.client.post(
+                f"/api/environments/{self.team.id}/mcp_analytics/intent_clusters/recompute/", {}, format="json"
+            )
+
+        assert response.status_code == status.HTTP_500_INTERNAL_SERVER_ERROR
+        snapshot = MCPIntentClusterSnapshot.objects.get(team=self.team)
+        assert snapshot.status == MCPIntentClusterSnapshot.Status.ERROR
+        assert snapshot.error_message == "Failed to start the intent clustering workflow"
+
     def test_feedback_list_is_team_scoped(self) -> None:
         MCPAnalyticsSubmission.objects.create(
             team=self.team,

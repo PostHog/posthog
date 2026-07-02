@@ -1,5 +1,7 @@
 from datetime import datetime
 
+from django.utils import timezone
+
 from posthog.models.team.team import Team
 from posthog.models.user import User
 
@@ -130,4 +132,15 @@ def trigger_intent_cluster_recompute(team: Team, user: User | None) -> None:
             task_queue=settings.MCPA_TASK_QUEUE,
         )
 
-    asyncio.run(_start())
+    try:
+        asyncio.run(_start())
+    except Exception:
+        # Dispatch failed, so no activity will ever flip the status — revert
+        # the optimistic COMPUTING write instead of leaving the snapshot stuck
+        # until the stale-COMPUTING sweep in get_intent_cluster_snapshot.
+        MCPIntentClusterSnapshot.objects.filter(team=team).update(
+            status=MCPIntentClusterSnapshot.Status.ERROR,
+            error_message="Failed to start the intent clustering workflow",
+            updated_at=timezone.now(),
+        )
+        raise
