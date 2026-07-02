@@ -47512,6 +47512,11 @@ export namespace Schemas {
          */
       readonly recording_subject_email: string | null;
       /**
+         * Distinct id of the person in the recorded session; links to the person page. Null if unidentified.
+         * @nullable
+         */
+      readonly distinct_id: string | null;
+      /**
          * Short title from the observation's summary; null if the observation had none.
          * @nullable
          */

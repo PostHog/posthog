@@ -1,6 +1,6 @@
 import { useValues } from 'kea'
 
-import { LemonTable, LemonTableColumns, Link } from '@posthog/lemon-ui'
+import { LemonCard, LemonTable, LemonTableColumns, Link, Tooltip } from '@posthog/lemon-ui'
 
 import { TZLabel } from 'lib/components/TZLabel'
 import { LemonBanner } from 'lib/lemon-ui/LemonBanner'
@@ -26,40 +26,51 @@ export const scene: SceneExport = {
 function RecordingsIncluded({ observations }: { observations: readonly RunObservationApi[] }): JSX.Element {
     const columns: LemonTableColumns<RunObservationApi> = [
         {
-            title: 'Recording',
-            key: 'recording',
+            title: 'Observation',
+            key: 'observation',
             render: (_, obs) => (
                 <Link
-                    className="font-semibold truncate max-w-xs inline-block align-bottom"
+                    className="font-semibold truncate max-w-md inline-block align-bottom"
                     to={urls.replayVisionObservation(obs.id)}
-                    title={obs.recording_subject_email || obs.session_id}
+                    title={obs.title || obs.session_id}
                 >
-                    {obs.recording_subject_email || obs.session_id}
+                    {obs.title || obs.session_id}
                 </Link>
             ),
         },
         {
-            title: 'What was observed',
-            key: 'title',
-            render: (_, obs) =>
-                obs.title ? (
-                    <span className="text-sm truncate max-w-md inline-block align-bottom" title={obs.title}>
-                        {obs.title}
-                    </span>
-                ) : (
-                    <span className="text-muted">—</span>
-                ),
+            title: 'Person',
+            key: 'person',
+            render: (_, obs) => {
+                const label = obs.recording_subject_email || obs.distinct_id
+                if (!obs.distinct_id || !label) {
+                    return (
+                        <Tooltip title="No person is associated with this recording">
+                            <span className="text-muted">No person</span>
+                        </Tooltip>
+                    )
+                }
+                return (
+                    <Link
+                        className="truncate max-w-xs inline-block align-bottom"
+                        to={urls.personByDistinctId(obs.distinct_id)}
+                        title={label}
+                    >
+                        {label}
+                    </Link>
+                )
+            },
         },
         {
-            title: 'When',
-            key: 'when',
+            title: 'Time',
+            key: 'time',
             render: (_, obs) => <TZLabel time={obs.created_at} formatDate="MMM D, YYYY" formatTime="HH:mm" />,
         },
     ]
 
     return (
         <div className="flex flex-col gap-2">
-            <h3 className="m-0">Recordings included ({observations.length})</h3>
+            <h3 className="m-0">Recordings included</h3>
             <LemonTable columns={columns} dataSource={[...observations]} rowKey="id" />
         </div>
     )
@@ -104,7 +115,9 @@ function VisionActionRunScene(): JSX.Element {
             />
 
             {run.synthesized_markdown ? (
-                <LemonMarkdown className="text-base">{run.synthesized_markdown}</LemonMarkdown>
+                <LemonCard hoverEffect={false} className="p-4">
+                    <LemonMarkdown className="text-base">{run.synthesized_markdown}</LemonMarkdown>
+                </LemonCard>
             ) : run.status === 'running' ? (
                 <div className="text-muted italic">This run is in progress — check back shortly for the summary.</div>
             ) : (

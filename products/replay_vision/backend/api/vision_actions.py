@@ -403,6 +403,11 @@ class RunObservationSerializer(serializers.Serializer):
         allow_null=True,
         help_text="Email of the person in the recorded session, captured at scan time; null if unidentified.",
     )
+    distinct_id = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Distinct id of the person in the recorded session; links to the person page. Null if unidentified.",
+    )
     title = serializers.SerializerMethodField(
         help_text="Short title from the observation's summary; null if the observation had none.",
     )
