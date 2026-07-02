@@ -33,7 +33,6 @@ from posthog.models.integration import (
     validate_slack_request,
 )
 from posthog.models.organization import OrganizationMembership
-from posthog.models.team.team import Team
 from posthog.models.user import User
 from posthog.models.user_integration import UserGitHubIntegration, UserIntegration
 from posthog.temporal.ai.slack_app import (
@@ -52,7 +51,11 @@ from posthog.user_permissions import UserPermissions
 from posthog.utils import get_instance_region
 
 from products.slack_app.backend import inbox_channel, onboarding
-from products.slack_app.backend.feature_flags import slack_oauth_link_enabled
+from products.slack_app.backend.feature_flags import (
+    is_slack_app_assistant_enabled,
+    is_slack_app_oauth_enabled,
+    is_slack_app_untagged_thread_followups_enabled,
+)
 from products.slack_app.backend.models import SlackChannel, SlackThreadTaskMapping
 from products.slack_app.backend.services import inbox_interactivity
 from products.slack_app.backend.services.integration_resolver import (
@@ -314,7 +317,7 @@ def resolve_slack_user(
             candidate_org_ids={integration.team.organization_id},
         )
 
-        if linked_user is not None and slack_oauth_link_enabled(integration, slack_team_id):
+        if linked_user is not None and is_slack_app_oauth_enabled(integration, slack_team_id):
             user_permissions = UserPermissions(user=linked_user, team=integration.team)
             if user_permissions.current_team.effective_membership_level is None:
                 logger.warning(
@@ -397,7 +400,7 @@ def resolve_slack_user(
                     ),
                     prefer_thread_message=True,
                 )
-                if slack_oauth_link_enabled(integration, slack_team_id):
+                if is_slack_app_oauth_enabled(integration, slack_team_id):
                     invite_url = build_invite_url(
                         slack_user_id=slack_user_id,
                         slack_team_id=slack_team_id,
@@ -1109,14 +1112,6 @@ def _thread_message_ignore_reason(event: dict[str, Any]) -> str | None:
     return None
 
 
-# Feature flag that gates the untagged-thread followup path per org. Off by
-# default until rollout; turning it on for an org makes every message in a
-# tagged thread eligible for classification + forward, instead of requiring a
-# fresh ``@PostHog`` mention. Naming follows the ``posthog-slack-app-*`` prefix
-# the team uses for the Slack App's product flags.
-UNTAGGED_THREAD_FOLLOWUPS_FLAG = "posthog-slack-app-untagged-thread-followups"
-
-
 def _resolve_untagged_followup_mapping(
     *,
     candidates: list[Integration],
@@ -1147,7 +1142,7 @@ def _resolve_untagged_followup_mapping(
     )
     if mapping is None:
         return None
-    if not _untagged_thread_followups_enabled(mapping.integration, slack_team_id):
+    if not is_slack_app_untagged_thread_followups_enabled(mapping.integration, slack_team_id):
         logger.info(
             "slack_app_thread_message_feature_flag_off",
             slack_team_id=slack_team_id,
@@ -1157,30 +1152,6 @@ def _resolve_untagged_followup_mapping(
         )
         return None
     return mapping
-
-
-def _untagged_thread_followups_enabled(integration: Integration, slack_team_id: str) -> bool:
-    """Return True if the integration's org has the untagged-thread followup
-    flag enabled. Fail-closed on any error — a transient PostHog API outage
-    must not silently enable the feature for everyone.
-    """
-    try:
-        enabled = posthoganalytics.feature_enabled(
-            UNTAGGED_THREAD_FOLLOWUPS_FLAG,
-            f"slack_workspace:{slack_team_id}",
-            groups={"organization": str(integration.team.organization_id)},
-            person_properties={"region": get_instance_region() or "unknown"},
-            only_evaluate_locally=False,
-            send_feature_flag_events=False,
-        )
-        return bool(enabled)
-    except Exception:
-        logger.exception(
-            "slack_app_thread_message_feature_flag_check_failed",
-            slack_team_id=slack_team_id,
-            integration_id=integration.id,
-        )
-        return False
 
 
 def _notify_missing_slack_scopes(
@@ -1321,7 +1292,7 @@ def resolve_posthog_user_from_event(
         slack_team_id=slack_team_id,
         candidate_org_ids=org_ids,
     )
-    if linked_user is not None and slack_oauth_link_enabled(probe_integration, slack_team_id):
+    if linked_user is not None and is_slack_app_oauth_enabled(probe_integration, slack_team_id):
         return linked_user
 
     if slack_email is None:
@@ -1403,7 +1374,7 @@ def _post_user_resolution_failure_reply(
     # neither is redundant. Only `user_not_found` is link-recoverable;
     # `no_team_access` means the user *is* known but lacks project access.
     _post_slack_user_feedback(slack_client, channel, slack_user_id, thread_ts, text, prefer_thread_message=True)
-    if failure_reason == "user_not_found" and slack_oauth_link_enabled(probe, probe.integration_id):
+    if failure_reason == "user_not_found" and is_slack_app_oauth_enabled(probe, probe.integration_id):
         invite_url = build_invite_url(
             slack_user_id=slack_user_id,
             slack_team_id=probe.integration_id,
@@ -1447,7 +1418,6 @@ def _start_posthog_code_workflow(
     )
 
 
-_ASSISTANT_FEATURE_FLAG = "slack-app-assistant"
 _ASSISTANT_CONTEXT_TTL_SECONDS = 60 * 60
 _ASSISTANT_SUGGESTED_PROMPTS = [
     {"title": "Fix a bug", "message": "Open a PR to fix a bug in my connected repo"},
@@ -1466,25 +1436,6 @@ _ASSISTANT_UNAVAILABLE = (
     "I can only help PostHog org members whose project has a connected repo. Make sure your Slack "
     "email matches your PostHog account and that a repo is connected, then try again."
 )
-
-
-def _assistant_enabled(team: Team) -> bool:
-    # Evaluated on the workspace's team (a stable key) so the flag is a true kill-switch we can
-    # check before resolving the DMing user — i.e. the feature stays dark when off.
-    try:
-        return bool(
-            posthoganalytics.feature_enabled(
-                _ASSISTANT_FEATURE_FLAG,
-                str(team.uuid),
-                groups={"organization": str(team.organization_id)},
-                person_properties={"region": get_instance_region() or "unknown"},
-                only_evaluate_locally=False,
-                send_feature_flag_events=False,
-            )
-        )
-    except Exception:
-        logger.warning("assistant_feature_flag_eval_failed", exc_info=True)
-        return False
 
 
 def _assistant_event_fields(event: dict) -> tuple[str, str | None, str | None, str | None]:
@@ -1555,7 +1506,7 @@ def _post_assistant_unavailable(slack: SlackIntegration, channel_id: str, thread
 
 def send_assistant_install_welcome(integration: Integration) -> None:
     """DM the installing user the moment the app is added, when the assistant is enabled for their team."""
-    if not _assistant_enabled(integration.team):
+    if not is_slack_app_assistant_enabled(integration.team):
         return
     slack_user_id = ((integration.config or {}).get("authed_user") or {}).get("id")
     if not slack_user_id:
@@ -1649,7 +1600,7 @@ def _route_assistant_event(
     probe = result.integration if result.integration in result.candidates else result.candidates[0]
 
     # Kill-switch first: stay fully dark (no user resolution, no Slack reply) when the flag is off.
-    if not _assistant_enabled(probe.team):
+    if not is_slack_app_assistant_enabled(probe.team):
         return ROUTE_HANDLED_LOCALLY
 
     # Share the mention path's user resolution + access filter, so the DM only ever sees and runs
