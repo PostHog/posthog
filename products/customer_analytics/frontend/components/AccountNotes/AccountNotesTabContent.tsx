@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { LemonInput } from '@posthog/lemon-ui'
+import { LemonInput, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { LemonTable, LemonTableColumn, LemonTableColumns } from 'lib/lemon-ui/LemonTable'
 import { atColumn } from 'lib/lemon-ui/LemonTable/columnUtils'
@@ -13,7 +13,8 @@ import type { AccountNoteApi } from 'products/customer_analytics/frontend/genera
 import { accountNotesLogic } from './accountNotesLogic'
 
 export function AccountNotesTabContent(): JSX.Element {
-    const { accountNotes, accountNotesResponseLoading, search, pagination } = useValues(accountNotesLogic)
+    const { accountNotes, accountNotesResponse, accountNotesResponseLoading, search, pagination } =
+        useValues(accountNotesLogic)
     const { setSearch } = useActions(accountNotesLogic)
     const { selectNotebook } = useActions(notebookPanelLogic)
 
@@ -76,20 +77,26 @@ export function AccountNotesTabContent(): JSX.Element {
                 className="min-w-64"
                 data-attr="account-notes-search"
             />
-            <LemonTable
-                data-attr="account-notes-table"
-                dataSource={accountNotes}
-                rowKey="short_id"
-                columns={columns}
-                loading={accountNotesResponseLoading}
-                pagination={pagination}
-                emptyState={
-                    search
-                        ? 'No notes matching your search'
-                        : "No account notes yet. Create notes from an account's Notes tab."
-                }
-                nouns={['note', 'notes']}
-            />
+            {accountNotesResponse === null ? (
+                // Dedicated initial-load state (mirrors AccountOpportunitiesExpansion); the
+                // table's own loading overlay covers subsequent search/pagination fetches.
+                <LemonSkeleton className="h-64 w-full" />
+            ) : (
+                <LemonTable
+                    data-attr="account-notes-table"
+                    dataSource={accountNotes}
+                    rowKey="short_id"
+                    columns={columns}
+                    loading={accountNotesResponseLoading}
+                    pagination={pagination}
+                    emptyState={
+                        search
+                            ? 'No notes matching your search'
+                            : "No account notes yet. Create notes from an account's Notes tab."
+                    }
+                    nouns={['note', 'notes']}
+                />
+            )}
         </div>
     )
 }
