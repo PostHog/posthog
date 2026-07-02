@@ -1295,7 +1295,13 @@ class FullStorySourceConfig(config.Config):
 
 @config.config
 class GNewsSourceConfig(config.Config):
-    pass
+    api_key: str
+    query: str
+    category: Literal[
+        "general", "world", "nation", "business", "technology", "entertainment", "sports", "science", "health"
+    ] = config.value(default="general")
+    language: str | None = None
+    country: str | None = None
 
 
 @config.config
