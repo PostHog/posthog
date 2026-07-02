@@ -1298,7 +1298,8 @@ class GNewsSourceConfig(config.Config):
 
 @config.config
 class GainsightPxSourceConfig(config.Config):
-    pass
+    api_key: str
+    region: Literal["us", "eu", "us2"] = config.value(default="us")
 
 
 @config.config
