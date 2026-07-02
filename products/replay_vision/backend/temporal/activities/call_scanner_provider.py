@@ -24,6 +24,7 @@ from pydantic import BaseModel, ValidationError
 from temporalio import activity
 
 from posthog.models import Team
+from posthog.temporal.common.heartbeat import Heartbeater
 
 from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.temporal.constants import replay_vision_distinct_id
@@ -66,6 +67,12 @@ _OutputT = TypeVar("_OutputT", bound=BaseModel)
 @track_activity()
 async def call_scanner_provider_activity(inputs: CallScannerProviderInputs) -> ScannerCallOutput:
     """Run the scanner conversation against the uploaded video + cached events; validate, finalize, return the output."""
+    # Background heartbeats let Temporal detect a dead worker in ~2 min instead of the full 10-min timeout.
+    async with Heartbeater(factor=4):
+        return await _call_scanner_provider(inputs)
+
+
+async def _call_scanner_provider(inputs: CallScannerProviderInputs) -> ScannerCallOutput:
     snapshot, team_name, llm_inputs = await asyncio.gather(
         sync_to_async(_load_snapshot)(inputs.observation_id, inputs.team_id),
         sync_to_async(_load_team_name)(inputs.team_id),

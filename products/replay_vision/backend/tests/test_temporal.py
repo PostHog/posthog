@@ -15,7 +15,12 @@ from google.genai.errors import APIError
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 from structlog.testing import capture_logs
-from temporalio.exceptions import ActivityError, ApplicationError
+from temporalio.exceptions import (
+    ActivityError,
+    ApplicationError,
+    TimeoutError as TemporalTimeoutError,
+    TimeoutType,
+)
 
 from posthog.schema import ReplayVisionScannerFindingSignalInput
 
@@ -108,7 +113,11 @@ from products.replay_vision.backend.temporal.types import (
     SessionMetadata,
     UploadedVideo,
 )
-from products.replay_vision.backend.temporal.workflow import _extract_kind_for_type, _root_cause_message
+from products.replay_vision.backend.temporal.workflow import (
+    _activity_timeout_kind,
+    _extract_kind_for_type,
+    _root_cause_message,
+)
 from products.replay_vision.backend.tests.helpers import snapshot_for as _snapshot_for
 from products.signals.backend.models import SignalSourceConfig
 
@@ -2058,6 +2067,34 @@ class TestWorkflowErrorHelpers:
 
     def test_root_cause_message_falls_back_to_str_for_bare_exceptions(self) -> None:
         assert _root_cause_message(ValueError("bad arg")) == "bad arg"
+
+    @parameterized.expand(
+        [
+            ("provider_call_timeout", "call_scanner_provider_activity", True, "provider_transient"),
+            ("upload_timeout", "replay_vision_upload_video_to_gemini_activity", True, "provider_transient"),
+            ("other_activity_timeout", "replay_vision_fetch_session_events_activity", True, None),
+            ("provider_call_non_timeout", "call_scanner_provider_activity", False, None),
+        ]
+    )
+    def test_activity_timeout_kind_maps_provider_activity_timeouts(
+        self, _label: str, activity_type: str, timed_out: bool, expected: str | None
+    ) -> None:
+        err = ActivityError(
+            "activity failed",
+            scheduled_event_id=1,
+            started_event_id=2,
+            identity="worker",
+            activity_type=activity_type,
+            activity_id="a1",
+            retry_state=None,
+        )
+        if timed_out:
+            err.__cause__ = TemporalTimeoutError(
+                "timed out", type=TimeoutType.START_TO_CLOSE, last_heartbeat_details=[]
+            )
+        else:
+            err.__cause__ = ApplicationError("boom", type="RuntimeError")
+        assert _activity_timeout_kind(err) == expected
 
 
 _DURATION_MS = 600_000  # 10-minute recording for the citation tests

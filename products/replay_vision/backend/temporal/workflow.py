@@ -6,6 +6,10 @@ from uuid import UUID
 import temporalio.workflow as wf
 from temporalio import common
 from temporalio.common import SearchAttributePair, TypedSearchAttributes, WorkflowIDReusePolicy
+from temporalio.exceptions import (
+    ActivityError,
+    TimeoutError as TemporalTimeoutError,
+)
 
 from posthog.temporal.common.base import PostHogWorkflow
 from posthog.temporal.common.errors import MAX_ERROR_MESSAGE_CHARS, truncate_for_temporal_payload, unwrap_temporal_cause
@@ -128,6 +132,19 @@ def _has_embeddable_text(model_output: object) -> bool:
     return bool(reasoning and reasoning.strip())
 
 
+# Provider-facing activities whose Temporal timeout means "provider slow", not a PostHog bug.
+_PROVIDER_TIMEOUT_ACTIVITY_TYPES = frozenset(
+    {"replay_vision_upload_video_to_gemini_activity", "call_scanner_provider_activity"}
+)
+
+
+def _activity_timeout_kind(e: BaseException) -> str | None:
+    """Map a start-to-close/heartbeat timeout of a provider-facing activity to `provider_transient`."""
+    if not isinstance(e, ActivityError) or e.activity_type not in _PROVIDER_TIMEOUT_ACTIVITY_TYPES:
+        return None
+    return FailureKind.PROVIDER_TRANSIENT.value if isinstance(e.cause, TemporalTimeoutError) else None
+
+
 def _extract_kind_for_type(e: BaseException, expected_type: str) -> str | None:
     """Pull a kind string off a kinded ApplicationError, surviving Temporal's ActivityError wrap."""
     cause = unwrap_temporal_cause(e) or e
@@ -220,6 +237,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 upload_video_to_gemini_activity,
                 UploadVideoToGeminiInputs(asset_id=asset_result.asset_id),
                 start_to_close_timeout=dt.timedelta(minutes=10),
+                heartbeat_timeout=dt.timedelta(minutes=2),
                 retry_policy=_UPLOAD_RETRY,
             )
             self._advance_phase("analyzing")
@@ -233,6 +251,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                 ),
                 # Multi-turn tool conversation (video + on-demand event lookups) needs more headroom than a single call.
                 start_to_close_timeout=dt.timedelta(minutes=10),
+                heartbeat_timeout=dt.timedelta(minutes=2),
                 retry_policy=_PROVIDER_CALL_RETRY,
             )
             self._advance_phase("finalizing")
@@ -281,7 +300,11 @@ class ApplyScannerWorkflow(PostHogWorkflow):
             if ineligible_kind is not None:
                 await self._mark_ineligible(observation_id, scanner_type, ineligible_kind, _root_cause_message(e))
             else:
-                failure_kind = _extract_kind_for_type(e, SCANNER_FAILURE_ERROR_TYPE) or FailureKind.INTERNAL_ERROR.value
+                failure_kind = (
+                    _extract_kind_for_type(e, SCANNER_FAILURE_ERROR_TYPE)
+                    or _activity_timeout_kind(e)
+                    or FailureKind.INTERNAL_ERROR.value
+                )
                 await self._mark_failed(observation_id, scanner_type, failure_kind, _root_cause_message(e))
             raise
         finally:
