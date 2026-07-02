@@ -722,7 +722,8 @@ export function buildPersonDisplayNameExpression(personDisplayNameProperties: st
     const propertyExpressions = personDisplayNameProperties.map((prop) =>
         /^[A-Za-z_$][A-Za-z0-9_$]*$/.test(prop)
             ? `toString(person.properties.${prop})`
-            : `toString(person.properties.\`${prop}\`)`
+            : // Backtick-quote non-identifier names; escape any backtick by doubling it (ClickHouse rule)
+              `toString(person.properties.\`${prop.replace(/`/g, '``')}\`)`
     )
     return `coalesce(${[...propertyExpressions, 'toString(events.distinct_id)'].join(', ')})`
 }
