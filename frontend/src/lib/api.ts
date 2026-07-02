@@ -253,7 +253,10 @@ import type {
     SessionGroupSummaryType,
     SessionSummariesConfig,
 } from 'products/session_summaries/frontend/types'
-import type { TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi } from 'products/tasks/frontend/generated/api.schemas'
+import type {
+    ClaudeTaskRunCreateSchemaApi,
+    TaskRunBootstrapCreateRequestInitialPermissionModeEnumApi,
+} from 'products/tasks/frontend/generated/api.schemas'
 import type { BlastRadiusApi } from 'products/workflows/frontend/generated/api.schemas'
 import type { OptOutEntry } from 'products/workflows/frontend/OptOuts/types'
 import type { MessageTemplate } from 'products/workflows/frontend/TemplateLibrary/types'
@@ -2987,6 +2990,8 @@ const api = {
                 serviceNames?: string[]
                 statusCodes?: number[]
                 filterGroup?: PropertyGroupFilter
+                // true counts root spans only (Traces view); false/absent counts every span (Spans view).
+                rootSpans?: boolean
             },
             signal?: AbortSignal
         ): Promise<{
@@ -5228,6 +5233,22 @@ const api = {
             async emissionReports(runId: string): Promise<SignalScoutEmissionReportLink[]> {
                 return await new ApiRequest().signalScoutRun(runId).withAction('emissions/reports').get()
             },
+            // Batched form of `emissions`: every run's findings in one request, flat newest-first
+            // (each row carries its `run_id`). POST since the run-id set can be large.
+            async emissionsBatch(runIds: string[]): Promise<SignalScoutEmission[]> {
+                return await new ApiRequest()
+                    .signalScoutRuns()
+                    .withAction('emissions/batch')
+                    .create({ data: { run_ids: runIds } })
+            },
+            // Batched form of `emissionReports`: resolves every run's findings to their inbox report
+            // in a single ClickHouse round-trip, instead of one query per run.
+            async emissionReportsBatch(runIds: string[]): Promise<SignalScoutEmissionReportLink[]> {
+                return await new ApiRequest()
+                    .signalScoutRuns()
+                    .withAction('emissions/reports/batch')
+                    .create({ data: { run_ids: runIds } })
+            },
         },
         configs: {
             // Newest-first raw array, ordered by skill_name.
@@ -5236,6 +5257,9 @@ const api = {
             },
             async update(id: string, data: SignalScoutConfigUpdate): Promise<SignalScoutConfig> {
                 return await new ApiRequest().signalScoutConfig(id).update({ data })
+            },
+            async delete(id: string): Promise<void> {
+                return await new ApiRequest().signalScoutConfig(id).delete()
             },
         },
     },
@@ -5300,7 +5324,7 @@ const api = {
         async bulkReorder(columns: Record<string, string[]>): Promise<{ updated: number; tasks: Task[] }> {
             return await new ApiRequest().tasks().withAction('bulk_reorder').create({ data: { columns } })
         },
-        async run(id: Task['id'], data?: { branch?: string | null }): Promise<Task> {
+        async run(id: Task['id'], data?: ClaudeTaskRunCreateSchemaApi): Promise<Task> {
             return await new ApiRequest()
                 .task(id)
                 .withAction('run')

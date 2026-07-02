@@ -12,6 +12,7 @@ import { urls } from 'scenes/urls'
 import { SidePanelPaneHeader } from '~/layout/navigation-3000/sidepanel/components/SidePanelPaneHeader'
 import { SidePanelContentContainer } from '~/layout/navigation-3000/sidepanel/SidePanelContentContainer'
 
+import { isMarkdownNotebookContent } from '../Notebook/markdownNotebookV2'
 import { Notebook } from '../Notebook/Notebook'
 import { NotebookListMini } from '../Notebook/NotebookListMini'
 import { notebookLogic } from '../Notebook/notebookLogic'
@@ -31,6 +32,7 @@ export function NotebookPanel(): JSX.Element | null {
     const { selectNotebook, closeSidePanel } = useActions(notebookPanelLogic)
     const { notebook } = useValues(notebookLogic({ shortId: selectedNotebook, target: NotebookTarget.Popover }))
     const editable = !notebook?.is_template
+    const isMarkdownNotebook = isMarkdownNotebookContent(notebook?.content)
     const { ref, size } = useResizeBreakpoints({
         0: 'small',
         832: 'medium',
@@ -65,7 +67,13 @@ export function NotebookPanel(): JSX.Element | null {
                             <div className="flex items-center gap-1">
                                 {selectedNotebook && <NotebookPresence shortId={selectedNotebook} />}
                                 <NotebookMenu shortId={selectedNotebook} />
-                                {contentWidthHasEffect && <NotebookExpandButton size="small" inPanel={true} />}
+                                {contentWidthHasEffect && (
+                                    <NotebookExpandButton
+                                        size="small"
+                                        inPanel={true}
+                                        isMarkdownNotebook={isMarkdownNotebook}
+                                    />
+                                )}
                                 <Link
                                     buttonProps={{
                                         iconOnly: true,

@@ -252,8 +252,11 @@ class GoogleAdsSource(
             )
             is_valid = False
 
-        is_mcc_account = job_inputs.get("is_mcc_account", {})
-        if is_mcc_account.get("enabled"):
+        # The switch-group field is a dict (`{"enabled": ..., "mcc_client_id": ...}`) when
+        # sent from the setup form, but API callers may send a plain bool, so only treat it
+        # as enabled when it's the expected dict shape.
+        is_mcc_account = job_inputs.get("is_mcc_account")
+        if isinstance(is_mcc_account, dict) and is_mcc_account.get("enabled"):
             raw_mcc_client_id = is_mcc_account.get("mcc_client_id", "")
             if raw_mcc_client_id and not re.fullmatch(r"\d{10}", clean_customer_id(raw_mcc_client_id) or ""):
                 errors.append(
@@ -293,8 +296,9 @@ class GoogleAdsSource(
         team_id: int,
         schema_name: Optional[str] = None,
     ) -> tuple[bool, str | None]:
-        from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (
-            google_ads_client,  # noqa: PLC0415
+        from products.warehouse_sources.backend.temporal.data_imports.sources.google_ads.google_ads import (  # noqa: PLC0415
+            _is_transient_grpc_error,
+            google_ads_client,
         )
 
         try:
@@ -336,5 +340,14 @@ class GoogleAdsSource(
                     False,
                     "Your Google Ads connection is no longer available — it may have been disconnected. "
                     "Please reconnect your Google Ads account.",
+                )
+            # A transient Google-side blip (INTERNAL / UNAVAILABLE) stringifies as a raw gRPC status and
+            # protobuf failure dump the user can't act on. The sync rides these out in-process; here on
+            # the interactive create path we surface a clean retry prompt instead of leaking the dump.
+            if _is_transient_grpc_error(e):
+                return (
+                    False,
+                    "Google Ads returned a temporary error while validating your credentials. This is "
+                    "usually a transient issue on Google's side — please try again in a moment.",
                 )
             return False, f"Error validating credentials: {error_message}"

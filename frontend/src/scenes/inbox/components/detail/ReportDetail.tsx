@@ -16,6 +16,7 @@ import { TZLabel } from 'lib/components/TZLabel'
 import { IconLink } from 'lib/lemon-ui/icons'
 import { LemonMarkdown } from 'lib/lemon-ui/LemonMarkdown'
 import { LemonMenu, LemonMenuItem } from 'lib/lemon-ui/LemonMenu'
+import { scoutDisplayName } from 'lib/signals/signalCardSourceLine'
 import { copyToClipboard } from 'lib/utils/copyToClipboard'
 import { addProjectIdIfMissing } from 'lib/utils/kea-router'
 import { SignalNode } from 'scenes/debug/signals/types'
@@ -23,7 +24,7 @@ import { urls } from 'scenes/urls'
 
 import { inboxReportDetailLogic } from '../../logics/inboxReportDetailLogic'
 import { SignalCard } from '../../SignalCard'
-import { InboxTabKey, INBOX_TAB_LABEL, SignalReport, SignalReportStatus } from '../../types'
+import { InboxTabKey, INBOX_TAB_LABEL, SignalReport, SignalReportStatus, SignalSourceProduct } from '../../types'
 import {
     displayConventionalCommitTitle,
     ParsedPrUrlParts,
@@ -78,10 +79,13 @@ function ReportDetailMeta({
     report,
     evidenceCount,
     actionabilityExplanation,
+    scoutName,
 }: {
     report: SignalReport
     evidenceCount: number
     actionabilityExplanation?: string | null
+    /** Authoring scout's display name, when the report was scout-authored — appended to the "Scout" chip. */
+    scoutName?: string | null
 }): JSX.Element {
     const hasSource = hasKnownSourceProduct(report.source_products)
     // "Ready" is the default terminal state; surface the status chip only until actionability is known.
@@ -109,7 +113,7 @@ function ReportDetailMeta({
         </span>
     )
     if (hasSource) {
-        stats.push(<MetaSourceStack sourceProducts={report.source_products} />)
+        stats.push(<MetaSourceStack sourceProducts={report.source_products} scoutName={scoutName} />)
     }
 
     return (
@@ -132,11 +136,22 @@ function ReportDetailMeta({
 }
 
 /** Source-product icon stack reused inside the detail meta row. */
-function MetaSourceStack({ sourceProducts }: { sourceProducts?: string[] | null }): JSX.Element | null {
+function MetaSourceStack({
+    sourceProducts,
+    scoutName,
+}: {
+    sourceProducts?: string[] | null
+    scoutName?: string | null
+}): JSX.Element | null {
     const [primary, ...overflow] = knownSourceProductEntries(sourceProducts)
     if (!primary) {
         return null
     }
+    // Name the authoring scout on a scout-authored report so it's clear at a glance who wrote it.
+    const primaryLabel =
+        primary.key === SignalSourceProduct.SIGNALS_SCOUT && scoutName
+            ? `${primary.meta.label} · ${scoutName}`
+            : primary.meta.label
     return (
         <span className="inline-flex items-center gap-1.5 min-w-0">
             <SourceProductIconRow
@@ -144,7 +159,7 @@ function MetaSourceStack({ sourceProducts }: { sourceProducts?: string[] | null 
                 className="inline-flex items-center gap-1 shrink-0"
             />
             <span>
-                {primary.meta.label}
+                {primaryLabel}
                 {overflow.length > 0 ? ` + ${overflow.length}` : null}
             </span>
         </span>
@@ -247,6 +262,9 @@ export function InboxDetailFrame({
     const evidenceCount = reportSignals !== null ? signals.length : report.signal_count
     const hasEvidence = evidenceCount > 0
 
+    // Which scout authored this report — the serializer resolves the skill_name off the backing signals.
+    const scoutName = scoutDisplayName(report.scout_name)
+
     const summaryPending =
         report.status === SignalReportStatus.IN_PROGRESS || report.status === SignalReportStatus.CANDIDATE
 
@@ -312,6 +330,7 @@ export function InboxDetailFrame({
                                 report={report}
                                 evidenceCount={evidenceCount}
                                 actionabilityExplanation={actionabilityExplanation}
+                                scoutName={scoutName}
                             />
                         </div>
                     </div>

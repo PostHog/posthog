@@ -5,7 +5,7 @@ from enum import Enum
 from functools import cached_property
 from typing import TYPE_CHECKING, Any, Literal, Optional, cast, get_args
 
-from django.db.models import Case, CharField, Exists, Model, OuterRef, Q, QuerySet, Value, When
+from django.db.models import Case, CharField, Exists, F, Model, OuterRef, Q, QuerySet, Value, When
 from django.db.models.functions import Cast
 
 from opentelemetry import trace
@@ -60,6 +60,7 @@ ACCESS_CONTROL_RESOURCES: tuple[APIScopeObject, ...] = (
     "action",
     "customer_analytics",
     "dashboard",
+    "early_access_feature",
     "endpoint",
     "experiment",
     "export",
@@ -316,6 +317,8 @@ def model_to_resource(model: Model) -> Optional[APIScopeObject]:
         return "customer_journey"
     if name in ("replayscanner", "replayobservation"):
         return "replay_scanner"
+    if name in ("visionaction", "visionactionrun"):
+        return "vision_action"
 
     if name not in API_SCOPE_OBJECTS or name in INTERNAL_API_SCOPE_OBJECTS:
         return None
@@ -389,9 +392,11 @@ class UserAccessControl:
         """
         if not EE_AVAILABLE or not self._team:
             return []
-        # select_related("team") so _row_matches can read ac.team.organization_id without a per-row FK fetch
+        # Annotate with team.organization_id only — avoids fetching the full ~150-column posthog_team row.
         return list(
-            AccessControl.objects.select_related("team").filter(self._filter_options({"team_id": self._team.id}))
+            AccessControl.objects.annotate(_team_organization_id=F("team__organization_id")).filter(
+                self._filter_options({"team_id": self._team.id})
+            )
         )
 
     @property
@@ -455,7 +460,7 @@ class UserAccessControl:
                 if (ac.resource_id is None) != value:
                     return False
             elif filter_key == "team__organization_id":
-                if ac.team.organization_id != value:
+                if ac._team_organization_id != value:  # type: ignore[attr-defined]
                     return False
             elif getattr(ac, filter_key) != value:
                 return False
@@ -478,7 +483,9 @@ class UserAccessControl:
                     span.set_attribute("rbac.resource", resource)
                 span.set_attribute("rbac.has_resource_id", filters.get("resource_id") is not None)
                 self._cache[key] = list(
-                    AccessControl.objects.select_related("team").filter(self._filter_options(filters))
+                    AccessControl.objects.annotate(_team_organization_id=F("team__organization_id")).filter(
+                        self._filter_options(filters)
+                    )
                 )
                 span.set_attribute("rbac.row_count", len(self._cache[key]))
 
@@ -552,7 +559,10 @@ class UserAccessControl:
         q = Q()
         for filters in filter_groups:
             q = q | self._filter_options(filters)
-        self._fill_filters_cache(filter_groups, list(AccessControl.objects.select_related("team").filter(q)))
+        self._fill_filters_cache(
+            filter_groups,
+            list(AccessControl.objects.annotate(_team_organization_id=F("team__organization_id")).filter(q)),
+        )
 
     def preload_access_levels(self, team: Team, resource: APIScopeObject, resource_id: Optional[str] = None) -> None:
         """

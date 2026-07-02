@@ -52,6 +52,7 @@ if TYPE_CHECKING:
         HogQLVariable,
         LogEntryPropertyFilter,
         LogPropertyFilter,
+        PersonMetadataPropertyFilter,
         PersonPropertyFilter,
         PropertyGroupFilter,
         PropertyGroupFilterValue,
@@ -85,6 +86,7 @@ def property_to_expr(
         | ElementPropertyFilter
         | SessionPropertyFilter
         | EventMetadataPropertyFilter
+        | PersonMetadataPropertyFilter
         | RevenueAnalyticsPropertyFilter
         | CohortPropertyFilter
         | RecordingPropertyFilter

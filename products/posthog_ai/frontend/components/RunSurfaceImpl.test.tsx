@@ -20,6 +20,8 @@ jest.mock('../logics/runStreamLogic', () => ({
         status != null && ['completed', 'failed', 'cancelled'].includes(status),
 }))
 
+jest.mock('../logics/taskLogic', () => ({ taskLogic: jest.fn(() => ({ __mock: 'taskLogic' })) }))
+
 jest.mock('./ThreadView', () => ({ ThreadView: () => <div data-attr="thread" /> }))
 jest.mock('./ResourcesBar', () => ({ ResourcesBar: () => <div data-attr="resources" /> }))
 jest.mock('./ContextUsageBar', () => ({ ContextUsageBar: () => <div data-attr="context" /> }))
@@ -40,6 +42,8 @@ function setValues(
         threadItems: [],
         pendingPermissionRequest: null,
         currentRunStatus: 'in_progress',
+        task: null,
+        taskLoading: false,
         ...overrides,
     })
 }
@@ -64,7 +68,7 @@ function renderLiveWithComposer(statusOrOverrides: RunStatus | null | Parameters
 describe('RunSurface', () => {
     beforeEach(() => {
         jest.clearAllMocks()
-        ;(useActions as jest.Mock).mockReturnValue({ bootstrapRun: jest.fn(), reset: jest.fn() })
+        ;(useActions as jest.Mock).mockReturnValue({ bootstrapRun: jest.fn(), reset: jest.fn(), loadTask: jest.fn() })
         setValues({})
     })
 

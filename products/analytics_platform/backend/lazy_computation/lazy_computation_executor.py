@@ -723,7 +723,12 @@ def run_lazy_computation_insert(
     )
 
     set_ch_query_started(job.id)
-    with tags_context(client_query_id=str(job.id), team_id=team.id):
+    with tags_context(
+        client_query_id=str(job.id),
+        team_id=team.id,
+        precompute_window_start=str(job.time_range_start),
+        precompute_window_end=str(job.time_range_end),
+    ):
         sync_execute(
             insert_sql,
             values,
@@ -1197,7 +1202,12 @@ def ensure_precomputed(
             base_placeholders=base_placeholders,
         )
         set_ch_query_started(job.id)
-        tag_kwargs: dict = {"client_query_id": str(job.id), "team_id": t.id}
+        tag_kwargs: dict = {
+            "client_query_id": str(job.id),
+            "team_id": t.id,
+            "precompute_window_start": str(job.time_range_start),
+            "precompute_window_end": str(job.time_range_end),
+        }
         if query_type:
             tag_kwargs["query_type"] = query_type
         with tags_context(**tag_kwargs):

@@ -8,7 +8,7 @@ import { dayjs } from 'lib/dayjs'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { trackedActionToUrl } from 'lib/logic/scenes/trackedActionToUrl'
 import { tabUiStateLogic } from 'lib/logic/tabUiStateLogic'
-import { uuid } from 'lib/utils/dom'
+import { inStorybook, inStorybookTestRunner, uuid } from 'lib/utils/dom'
 import { objectsEqual } from 'lib/utils/objects'
 import { Scene } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
@@ -327,7 +327,7 @@ export const maxLogic = kea<maxLogicType>([
         headline: [
             (s) => [s.conversation, s.toolHeadlines, s.frontendConversationId],
             (conversation, toolHeadlines, frontendConversationId) => {
-                if (process.env.STORYBOOK) {
+                if (inStorybook() || inStorybookTestRunner()) {
                     return HEADLINES[0] // Preventing UI snapshots from being different every time
                 }
 
@@ -874,7 +874,7 @@ export const QUESTION_SUGGESTIONS_DATA: readonly SuggestionGroup[] = [
                 content: 'Create a survey to collect NPS responses from users',
             },
             {
-                content: 'Create a survey to CSAT responses from users',
+                content: 'Create a survey to collect CSAT responses from users',
             },
             {
                 content: 'Create a survey to measure product market fit',

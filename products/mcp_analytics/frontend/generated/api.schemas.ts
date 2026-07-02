@@ -404,11 +404,14 @@ export type McpAnalyticsSessionsListParams = {
      */
     date_to?: string
     /**
-     * Number of results to return per page.
+     * Maximum number of sessions to return per page. Defaults to 100; values above 500 are rejected.
+     * @minimum 1
+     * @maximum 500
      */
     limit?: number
     /**
-     * The initial index from which to return the results.
+     * Number of sessions to skip before returning results. Combine with limit to page through sessions; the response's has_next flag indicates whether more remain.
+     * @minimum 0
      */
     offset?: number
     /**

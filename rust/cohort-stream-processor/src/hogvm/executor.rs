@@ -4,14 +4,40 @@
 //! The hot path reuses one [`CohortEvaluator`] per event: the STL context and globals are set once
 //! and only the program is swapped per condition, amortizing the context build across all conditions.
 
-use std::sync::Arc;
+use std::sync::{Arc, LazyLock};
 
+use dashmap::DashSet;
 use hogvm::{sync_execute, ExecutionContext, Program, VmError};
 use metrics::counter;
 use serde_json::Value;
-use tracing::debug;
+use tracing::info;
 
 use crate::observability::metrics::{STAGE1_HOGVM_ERROR, STAGE1_HOGVM_UNKNOWN_FUNCTION};
+
+/// Unknown-native function names already logged once. Bounded by the HogQL native surface
+/// (~hundreds max), so it never grows without bound; keeps the per-event unknown-function path
+/// observable in prod logs without a line per event.
+static SEEN_UNKNOWN_FNS: LazyLock<DashSet<String>> = LazyLock::new(DashSet::new);
+
+/// HogVM stack ceiling for cohort evaluation. A `person.properties.X IN (...)` leaf compiles to a
+/// tuple build that pushes every list element before `In` pops them, so peak depth ≈ list size.
+/// Production catalogs already hold IN-lists of several thousand elements (largest observed ~8.6k).
+/// A correctness floor, not a tuning knob — it must exceed real list sizes regardless of environment
+/// (and independent of the VM's own default ceiling).
+const COHORT_HOGVM_MAX_STACK_DEPTH: usize = 32_768;
+/// Step ceiling. Cohort filter bytecode is loop-free, so step count ≈ program length and raising this
+/// cannot cause a runaway; kept above the stack ceiling so a max-size tuple build can't trip it.
+const COHORT_HOGVM_MAX_STEPS: usize = 131_072;
+
+/// Build the cohort evaluator's [`ExecutionContext`]: coercing comparisons plus the raised
+/// stack/step ceilings. Both construction sites route through this so production and the parity path
+/// share identical limits — a large `IN`-list must not overflow in one and succeed in the other.
+fn cohort_execution_context(program: Program) -> ExecutionContext {
+    ExecutionContext::with_defaults(program)
+        .with_coercing_comparisons()
+        .with_max_stack_depth(COHORT_HOGVM_MAX_STACK_DEPTH)
+        .with_max_steps(COHORT_HOGVM_MAX_STEPS)
+}
 
 /// The classified outcome of evaluating one program; [`CohortEvaluator::evaluate`] collapses this to
 /// a `bool` but the variants preserve *why* a non-match happened.
@@ -43,7 +69,7 @@ impl CohortEvaluator {
         // A bare header is a valid program; `set_program` replaces this seed before the first evaluation.
         let seed = Program::new(vec![Value::from("_H"), Value::from(1)])
             .expect("a bare bytecode header is a valid program");
-        let context = ExecutionContext::with_defaults(seed).with_coercing_comparisons();
+        let context = cohort_execution_context(seed);
         Self { context }
     }
 
@@ -87,9 +113,7 @@ pub fn evaluate_detailed(bytecode: &[Value], globals: Value) -> EvalOutcome {
         Ok(program) => program,
         Err(error) => return classify_failure(error),
     };
-    let context = ExecutionContext::with_defaults(program)
-        .with_globals(globals)
-        .with_coercing_comparisons();
+    let context = cohort_execution_context(program).with_globals(globals);
     run(&context)
 }
 
@@ -103,15 +127,71 @@ fn outcome_to_bool(outcome: EvalOutcome) -> bool {
         EvalOutcome::Matched(matched) => matched,
         EvalOutcome::UnknownFunction(name) => {
             // `name` is bytecode-derived from user cohort filters; keep it out of the metric label
-            // (bounded counter) and surface the specific function only in a debug log.
+            // (bounded counter) and surface the specific function in a log instead. Log each
+            // distinct name once at info — the counter already tracks volume, so a per-event line
+            // would be spam.
             counter!(STAGE1_HOGVM_UNKNOWN_FUNCTION).increment(1);
-            debug!(function = %name, "cohort bytecode called a function with no registered Rust native");
+            // Steady state is a read-only `contains` (no allocation; the same handful of names recur
+            // forever). Only on first sight do we clone-and-insert: `insert` returns `true` for
+            // exactly one thread, so the log fires once even when several race past `contains` at once.
+            if !SEEN_UNKNOWN_FNS.contains(name.as_str()) && SEEN_UNKNOWN_FNS.insert(name.clone()) {
+                info!(function = %name, "cohort bytecode called a function with no registered Rust native");
+            }
             false
         }
-        EvalOutcome::VmError(_) => {
-            counter!(STAGE1_HOGVM_ERROR).increment(1);
+        EvalOutcome::VmError(error) => {
+            counter!(STAGE1_HOGVM_ERROR, "reason" => vm_error_reason(&error)).increment(1);
             false
         }
+    }
+}
+
+/// Collapse a [`VmError`] into a bounded `reason` label for [`STAGE1_HOGVM_ERROR`]. The bucket set is
+/// fixed and small so the Prometheus series count stays constant; the `_` arm keeps the match total
+/// over the `#[non_exhaustive]` enum and folds in `VmError::Other`. `UnknownFunction`/`UnknownSymbol`
+/// are normally routed to [`EvalOutcome::UnknownFunction`] (separate counter) — mapped here only for
+/// totality in case [`classify_failure`] ever changes.
+fn vm_error_reason(error: &VmError) -> &'static str {
+    match error {
+        VmError::InvalidValue(..)
+        | VmError::CannotCoerce(..)
+        | VmError::InvalidNumber(_)
+        | VmError::IntegerOverflow => "type_coercion",
+
+        VmError::StackOverflow | VmError::StackUnderflow | VmError::StackIndexOutOfBounds => {
+            "stack"
+        }
+
+        VmError::NotImplemented(_) => "not_implemented",
+
+        VmError::UnknownGlobal(_) | VmError::UnknownProperty(_) => "unknown_ref",
+
+        VmError::NotAnOperation(_)
+        | VmError::InvalidOperation(_)
+        | VmError::EndOfProgram(_)
+        | VmError::InvalidBytecode(_)
+        | VmError::InvalidCall(_)
+        | VmError::NotEnoughArguments(..)
+        | VmError::CaptureOutOfBounds(_)
+        | VmError::NoFrame => "program",
+
+        VmError::UncaughtException(..) | VmError::InvalidException => "exception",
+
+        VmError::DivisionByZero
+        | VmError::HeapIndexOutOfBounds
+        | VmError::UseAfterFree
+        | VmError::ExpectedObject
+        | VmError::UnexpectedPopTry
+        | VmError::InvalidIndex
+        | VmError::CycleDetected
+        | VmError::IndexOutOfBounds(..)
+        | VmError::OutOfResource(_)
+        | VmError::NativeCallFailed(_)
+        | VmError::InvalidRegex(..) => "runtime",
+
+        VmError::UnknownFunction(_) | VmError::UnknownSymbol(_) => "unknown_function",
+
+        _ => "other", // VmError::Other + any future #[non_exhaustive] variant
     }
 }
 
@@ -138,10 +218,12 @@ mod tests {
     const OP_LT: i64 = 15;
     const OP_TRUE: i64 = 29;
     const OP_FALSE: i64 = 30;
+    const OP_IN: i64 = 21;
     const OP_INTEGER: i64 = 33;
     const OP_STRING: i64 = 32;
     // Fixtures terminate explicitly with RETURN, mirroring what the catalog loader stores.
     const OP_RETURN: i64 = 38;
+    const OP_TUPLE: i64 = 44;
 
     fn header() -> Vec<Value> {
         vec![json!("_H"), json!(1)]
@@ -330,5 +412,112 @@ mod tests {
         assert!(!evaluate(&bc, globals(json!(5))));
         assert!(evaluate(&bc, globals(json!("20"))));
         assert!(!evaluate(&bc, globals(json!("05"))));
+    }
+
+    /// `header + N×(OP_INTEGER, i) + OP_TUPLE N` — the exact shape a `person.properties.X IN (...)`
+    /// leaf compiles its list to. Building the tuple pushes all N elements before they are popped, so
+    /// peak stack depth ≈ N.
+    fn tuple_build_program(n: i64) -> Vec<Value> {
+        let mut bc = header();
+        for i in 0..n {
+            bc.extend_from_slice(&[json!(OP_INTEGER), json!(i)]);
+        }
+        bc.extend_from_slice(&[json!(OP_TUPLE), json!(n), json!(OP_RETURN)]);
+        bc
+    }
+
+    #[test]
+    fn large_tuple_overflows_at_shallow_depth_but_evaluates_in_cohort_context() {
+        // N comfortably above a 128-deep stack, small enough to be instant.
+        let prog = tuple_build_program(200);
+
+        // Control: an explicit 128-deep stack (the old `with_defaults` value, before the ceiling was
+        // raised) must StackOverflow on the tuple build, pinning the failure the cohort context avoids.
+        let program = Program::new(prog.clone()).expect("valid program");
+        let control = ExecutionContext::with_defaults(program).with_max_stack_depth(128);
+        assert!(
+            matches!(sync_execute(&control, false), Err(failure) if matches!(failure.error, VmError::StackOverflow)),
+            "expected StackOverflow at a stack depth of 128",
+        );
+
+        // Fix, free-function site (parity path): no overflow. A tuple result coerces to false, so we
+        // only assert `Matched`, i.e. not a `VmError`.
+        assert!(matches!(
+            evaluate_detailed(&prog, json!({})),
+            EvalOutcome::Matched(_)
+        ));
+
+        // Fix, reused-evaluator site (production hot path): likewise no overflow.
+        let mut evaluator = CohortEvaluator::new();
+        evaluator.set_globals(json!({}));
+        assert!(matches!(
+            evaluator.evaluate_detailed(Arc::new(prog)),
+            EvalOutcome::Matched(_)
+        ));
+    }
+
+    /// `<needle> IN (0..n)` over integer literals. The compiler emits `right, left, op` and `In` pops
+    /// the needle (top) then the haystack, so the n-element tuple is built first, then the needle.
+    fn int_in_list_program(n: i64, needle: i64) -> Vec<Value> {
+        let mut bc = header();
+        for i in 0..n {
+            bc.extend_from_slice(&[json!(OP_INTEGER), json!(i)]);
+        }
+        bc.extend_from_slice(&[json!(OP_TUPLE), json!(n)]);
+        bc.extend_from_slice(&[
+            json!(OP_INTEGER),
+            json!(needle),
+            json!(OP_IN),
+            json!(OP_RETURN),
+        ]);
+        bc
+    }
+
+    #[test]
+    fn vm_error_reason_buckets_one_representative_per_class() {
+        // One representative `VmError` per bucket. Catches a forgotten or mis-bucketed variant: a
+        // new `#[non_exhaustive]` variant left unhandled silently falls into `other`, and moving an
+        // existing variant (e.g. `DivisionByZero` out of `runtime`) breaks the label breakdown.
+        let cases: [(VmError, &str); 11] = [
+            (
+                VmError::InvalidValue("a".into(), "b".into()),
+                "type_coercion",
+            ),
+            (VmError::IntegerOverflow, "type_coercion"),
+            (VmError::StackOverflow, "stack"),
+            (VmError::NotImplemented("x".into()), "not_implemented"),
+            (VmError::UnknownGlobal("g".into()), "unknown_ref"),
+            (VmError::InvalidBytecode("b".into()), "program"),
+            (
+                VmError::UncaughtException("t".into(), "m".into()),
+                "exception",
+            ),
+            (VmError::DivisionByZero, "runtime"),
+            // The `max_steps` blowup (`vm.rs` synthesizes `OutOfResource`) must stay visible.
+            (VmError::OutOfResource("steps".into()), "runtime"),
+            (VmError::UnknownFunction("f".into()), "unknown_function"),
+            (VmError::Other("o".into()), "other"),
+        ];
+        for (error, expected) in &cases {
+            assert_eq!(
+                vm_error_reason(error),
+                *expected,
+                "wrong bucket for {error:?}"
+            );
+        }
+    }
+
+    #[test]
+    fn large_in_list_membership_is_correct_at_raised_depth() {
+        // A 200-element list overflows the default depth; at the cohort ceiling it must yield correct
+        // membership both ways — proving the raise restores correctness, not just silences the error.
+        assert!(matches!(
+            evaluate_detailed(&int_in_list_program(200, 5), json!({})),
+            EvalOutcome::Matched(true)
+        ));
+        assert!(matches!(
+            evaluate_detailed(&int_in_list_program(200, 9999), json!({})),
+            EvalOutcome::Matched(false)
+        ));
     }
 }
