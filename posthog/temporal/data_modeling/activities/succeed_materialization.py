@@ -11,9 +11,14 @@ from temporalio import activity
 from posthog.exceptions_capture import capture_exception
 from posthog.sync import database_sync_to_async_pool
 
-from products.data_modeling.backend.facade.models import DataModelingJob, DataModelingJobStatus, Node
+from products.data_modeling.backend.facade.models import (
+    DataModelingJob,
+    DataModelingJobEngine,
+    DataModelingJobStatus,
+    Node,
+)
 
-from .utils import update_node_system_properties
+from .utils import clear_node_suspension, update_node_system_properties
 
 LOGGER = get_logger(__name__)
 
@@ -33,16 +38,18 @@ class SucceedMaterializationInputs:
 def _succeed_node_and_data_modeling_job(inputs: SucceedMaterializationInputs):
     node = None
     if inputs.update_node:
-        node = Node.objects.get(id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id)
-        status = DataModelingJobStatus.COMPLETED
-        update_node_system_properties(
-            node,
-            status=status,
-            job_id=inputs.job_id,
-            rows=inputs.row_count,
-            duration_seconds=inputs.duration_seconds,
-        )
-        node.save()
+        with transaction.atomic():
+            node = Node.objects.select_for_update().get(id=inputs.node_id, team_id=inputs.team_id, dag_id=inputs.dag_id)
+            status = DataModelingJobStatus.COMPLETED
+            update_node_system_properties(
+                node,
+                status=status,
+                job_id=inputs.job_id,
+                rows=inputs.row_count,
+                duration_seconds=inputs.duration_seconds,
+            )
+            clear_node_suspension(node, engine=DataModelingJobEngine.CLICKHOUSE)
+            node.save()
 
     job = DataModelingJob.objects.get(id=inputs.job_id)
 

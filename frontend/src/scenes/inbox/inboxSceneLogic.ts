@@ -181,8 +181,7 @@ interface InboxOpenTracking {
 /**
  * Inbox scene orchestrator. Owns the active tab, the selected report (loaded by id),
  * the project-wide Runs list, and session-analysis. The per-tab report
- * lists + their counts live in the keyed `reportListLogic` (one instance per flat tab),
- * so this logic no longer holds a shared report list.
+ * lists + their counts live in the keyed `reportListLogic` (one instance per flat tab).
  */
 export const inboxSceneLogic = kea<inboxSceneLogicType>([
     path(['scenes', 'inbox', 'inboxSceneLogic']),
