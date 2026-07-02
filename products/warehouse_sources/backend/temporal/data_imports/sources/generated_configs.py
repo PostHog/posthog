@@ -1140,7 +1140,7 @@ class FastbillSourceConfig(config.Config):
 
 @config.config
 class FastlySourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1273,7 +1273,8 @@ class FreshsalesSourceConfig(config.Config):
 
 @config.config
 class FreshserviceSourceConfig(config.Config):
-    pass
+    domain: str
+    api_key: str
 
 
 @config.config
@@ -1360,7 +1361,7 @@ class GojiberrySourceConfig(config.Config):
 
 @config.config
 class GoldcastSourceConfig(config.Config):
-    pass
+    access_key: str
 
 
 @config.config
@@ -1440,7 +1441,7 @@ class GoogleTasksSourceConfig(config.Config):
 
 @config.config
 class GoogleWebfontsSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -1477,7 +1478,8 @@ class GreytHrSourceConfig(config.Config):
 
 @config.config
 class GridlySourceConfig(config.Config):
-    pass
+    api_key: str
+    view_id: str
 
 
 @config.config
@@ -1513,7 +1515,8 @@ class HeightSourceConfig(config.Config):
 
 @config.config
 class HellobatonSourceConfig(config.Config):
-    pass
+    company: str
+    api_key: str
 
 
 @config.config
@@ -1555,7 +1558,8 @@ class HubspotSourceConfig(config.Config):
 
 @config.config
 class HuggingFaceSourceConfig(config.Config):
-    pass
+    api_token: str
+    author: str
 
 
 @config.config
@@ -1570,7 +1574,8 @@ class HuntrSourceConfig(config.Config):
 
 @config.config
 class IP2WhoisSourceConfig(config.Config):
-    pass
+    api_key: str
+    domains: str
 
 
 @config.config
@@ -1610,7 +1615,8 @@ class InsightfulSourceConfig(config.Config):
 
 @config.config
 class InsightlySourceConfig(config.Config):
-    pass
+    pod: str
+    api_key: str
 
 
 @config.config
@@ -1783,7 +1789,8 @@ class LaunchDarklySourceConfig(config.Config):
 
 @config.config
 class LeadfeederSourceConfig(config.Config):
-    pass
+    api_token: str
+    start_date: str | None = None
 
 
 @config.config
@@ -2029,7 +2036,7 @@ class MissiveSourceConfig(config.Config):
 
 @config.config
 class MixMaxSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2121,7 +2128,8 @@ class NewRelicSourceConfig(config.Config):
 
 @config.config
 class NewYorkTimesSourceConfig(config.Config):
-    pass
+    api_key: str
+    article_search_query: str | None = None
 
 
 @config.config
@@ -2151,12 +2159,13 @@ class NinjaOneRMMSourceConfig(config.Config):
 
 @config.config
 class NoCRMSourceConfig(config.Config):
-    pass
+    subdomain: str
+    api_key: str
 
 
 @config.config
 class NorthpassLMSSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2217,7 +2226,7 @@ class OnepagecrmSourceConfig(config.Config):
 
 @config.config
 class OnfleetSourceConfig(config.Config):
-    pass
+    api_key: str
 
 
 @config.config
@@ -2350,7 +2359,7 @@ class PaperformSourceConfig(config.Config):
 
 @config.config
 class PapersignSourceConfig(config.Config):
-    pass
+    api_token: str
 
 
 @config.config
@@ -2427,7 +2436,8 @@ class PersonioSourceConfig(config.Config):
 
 @config.config
 class PexelsSourceConfig(config.Config):
-    pass
+    api_key: str
+    search_query: str | None = None
 
 
 @config.config

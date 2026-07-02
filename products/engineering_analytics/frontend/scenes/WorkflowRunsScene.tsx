@@ -48,8 +48,8 @@ function RunnerCostTable({ costs }: { costs: WorkflowRunnerCostApi[] }): JSX.Ele
             render: (_, cost) => <BillableBadge minutes={cost.billable_minutes} costUsd={cost.estimated_cost_usd} />,
         },
     ]
-    // Where the money goes — one stacked bar over the table, a segment per tier sized by its $ share.
-    // Free (GitHub-hosted) runners are $0, so they don't take a slice; the bar reads as "billable spend".
+    // One stacked bar over the table, a segment per tier sized by its $ share. Free (GitHub-hosted)
+    // runners are $0, so they don't take a slice; the bar reads as "billable spend".
     const costSegments = costs.map((cost, i) => ({
         key: `${cost.provider}:${cost.runner_label}`,
         label: cost.runner_label || cost.provider,
@@ -76,8 +76,8 @@ function RunnerCostTable({ costs }: { costs: WorkflowRunnerCostApi[] }): JSX.Ele
     )
 }
 
-// The window floors finished runs (the endpoint requires a date_from), so "all time" is out; relative
-// windows + Custom only. Covers a CI-health "right now" (24h) through a monthly-ish spend window.
+// The endpoint requires a date_from (floors finished runs), so "all time" is out — relative windows +
+// Custom only, from a 24h "right now" view through a monthly-ish spend window.
 const WORKFLOW_DATE_OPTIONS = dateMapping.filter(({ key }) =>
     [
         'Custom',
