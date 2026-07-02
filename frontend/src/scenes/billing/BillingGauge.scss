@@ -38,6 +38,32 @@
         &.BillingGaugeItem--within-usage-limit {
             background: var(--brand-blue);
         }
+
+        // When split at the billing limit, the two sections below paint the bar instead.
+        &.BillingGaugeItem--split {
+            background: transparent;
+        }
+    }
+
+    .BillingGaugeItem__section {
+        // Usage at or below the billing limit — what the user actually pays for.
+        &--paid {
+            background: var(--brand-blue);
+        }
+
+        // Usage above the billing limit — not charged, so shown striped and desaturated.
+        &--over-limit {
+            background:
+                repeating-linear-gradient(
+                    -45deg,
+                    var(--brand-blue),
+                    var(--brand-blue) 4px,
+                    transparent 4px,
+                    transparent 8px
+                ),
+                var(--color-border-primary-opaque);
+            opacity: 0.5;
+        }
     }
 
     &.BillingGaugeItem--projected_usage {
