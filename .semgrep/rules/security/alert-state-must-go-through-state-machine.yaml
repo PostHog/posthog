@@ -1,16 +1,17 @@
-# Enforces the invariant that ALL writes to LogsAlertConfiguration.state and
-# LogsAlertConfiguration.consecutive_failures go through alert_state_machine.apply_outcome.
+# Enforces the invariant that ALL writes to an alert configuration's `state` and
+# `consecutive_failures` go through the product's alert state machine module.
 #
-# See products/logs/backend/alert_state_machine.py for the full transition API —
-# there are dedicated helpers for every legal control-plane transition
+# The decision logic is shared across products in common/alerting/state_machine.py;
+# each product owns one module that is the single legal mutator of its alert model:
+#   - products/logs/backend/alert_state_machine.py (apply_outcome)
+#
+# There are dedicated helpers for every legal control-plane transition
 # (apply_user_reset, apply_enable, apply_disable, apply_snooze, apply_unsnooze,
 # apply_threshold_change), and the check-driven path goes through evaluate_alert_check.
-# Every outcome flows through apply_outcome, which is the ONLY mutator in the
-# codebase allowed to assign these fields.
 #
-# If you need a new transition, add a helper in alert_state_machine.py rather than
-# bypassing this rule — the point is to keep the legal-transitions table readable
-# in one file.
+# If you need a new transition, add a helper in common/alerting/state_machine.py (or
+# the product's state machine module) rather than bypassing this rule — the point is
+# to keep the legal-transitions table readable in one place.
 rules:
     - id: logs-alert-state-direct-mutation
       patterns:
@@ -32,9 +33,9 @@ rules:
               update_fields = apply_outcome(alert, outcome)
               alert.save(update_fields=update_fields)
 
-          If you need a new transition type, add a helper in alert_state_machine.py
-          (e.g. apply_<your_action>) and a ControlPlaneOutcome return — do not
-          mutate these fields directly.
+          If you need a new transition type, add a helper in
+          common/alerting/state_machine.py (e.g. apply_<your_action>) and a
+          ControlPlaneOutcome return — do not mutate these fields directly.
       languages: [python]
       severity: ERROR
       metadata:
