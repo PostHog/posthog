@@ -31,8 +31,8 @@ prod-eu  ops        roles/shared roles/ops/shared roles/ops/prod roles/ops/prod-
 
 local    logs       roles/logs/local
 dev      logs       roles/shared roles/logs/shared roles/logs/dev
-prod-us  logs       roles/shared roles/logs/shared roles/logs/prod-us
-prod-eu  logs       roles/shared roles/logs/shared roles/logs/prod-eu
+prod-us  logs       roles/shared roles/logs/shared roles/logs/prod roles/logs/prod-us
+prod-eu  logs       roles/shared roles/logs/shared roles/logs/prod roles/logs/prod-eu
 
 # AI_EVENTS satellite (LLM analytics). local/hobby run the MSK variant
 # (kafka_ai_events_json + ai_events_json_mv) with a sharded_ai_events data table
