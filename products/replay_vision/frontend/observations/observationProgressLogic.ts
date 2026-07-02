@@ -1,4 +1,4 @@
-import { actions, afterMount, kea, key, listeners, path, props, reducers } from 'kea'
+import { actions, kea, key, listeners, path, props, reducers } from 'kea'
 
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -103,6 +103,8 @@ export const observationProgressLogic = kea<observationProgressLogicType>([
     key((props) => props.observationId),
 
     actions({
+        // Idempotent — callers that know the observation is in flight open the stream; settled rows never do.
+        startStream: true,
         setProgress: (progress: ObservationProgress) => ({ progress }),
         streamCompleted: true,
         setStreamError: (error: string) => ({ error }),
@@ -123,28 +125,33 @@ export const observationProgressLogic = kea<observationProgressLogicType>([
         ],
     }),
 
-    listeners(({ props }) => ({
+    listeners(({ props, actions, cache }) => ({
+        startStream: () => {
+            const teamId = teamLogic.values.currentTeamId
+            if (cache.streamStarted || !teamId) {
+                return
+            }
+            cache.streamStarted = true
+            // Disposable so the fetch is aborted on unmount and paused while the tab is hidden.
+            cache.disposables.add(() => {
+                const controller = new AbortController()
+                void consumeProgressStream(teamId, props.observationId, controller.signal, actions).catch(() => {
+                    // Network/abort errors are non-fatal — the bar falls back to its time-based animation.
+                })
+                return () => controller.abort()
+            }, 'progressStream')
+        },
         streamCompleted: () => {
+            // The observation settled — dispose the stream so tab hide/show cycles don't resurrect it.
+            cache.disposables.dispose('progressStream')
             // Refresh the dock list so the finished card swaps its progress bar for the result immediately,
             // instead of lingering until the next poll. No-op where the dock isn't mounted (e.g. details page).
             if (props.sessionId) {
                 observationsDockLogic.findMounted({ sessionId: props.sessionId })?.actions.loadObservations()
             }
         },
+        setStreamError: () => {
+            cache.disposables.dispose('progressStream')
+        },
     })),
-
-    afterMount(({ props, actions, cache }) => {
-        const teamId = teamLogic.values.currentTeamId
-        if (!teamId) {
-            return
-        }
-        // Disposable so the fetch is aborted on unmount and paused while the tab is hidden.
-        cache.disposables.add(() => {
-            const controller = new AbortController()
-            void consumeProgressStream(teamId, props.observationId, controller.signal, actions).catch(() => {
-                // Network/abort errors are non-fatal — the bar falls back to its time-based animation.
-            })
-            return () => controller.abort()
-        }, 'progressStream')
-    }),
 ])
