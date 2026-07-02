@@ -577,7 +577,13 @@ export class HogExecutorService {
                                 : null
                         },
                         postHogCapture: (event) => {
-                            const distinctId = event.distinct_id || globals.event?.distinct_id || globals.person?.id
+                            // Deliberately do NOT fall back to `globals.person?.id`: `person.id` is the person
+                            // UUID, which was never ingested as a distinct_id. Capturing against it mints a
+                            // brand-new deterministic (UUIDv5) "phantom" person instead of updating the intended
+                            // one — corrupting profiles and misfiring downstream condition steps. If there's no
+                            // usable distinct_id we skip capture rather than emit an unattributable event, matching
+                            // `resolveEmailEngagementDistinctId` in email-tracking.service.ts.
+                            const distinctId = event.distinct_id || globals.event?.distinct_id
                             const eventName = event.event
                             const eventProperties = event.properties || {}
 
@@ -586,7 +592,11 @@ export class HogExecutorService {
                             }
 
                             if (!distinctId) {
-                                throw new Error("[HogFunction] - postHogCapture call missing 'distinct_id' property")
+                                addLog(
+                                    'warn',
+                                    `postHogCapture was called without a usable distinct_id, so the event was not captured. Capturing against a person UUID would create a disconnected phantom person rather than updating the intended one.`
+                                )
+                                return
                             }
 
                             if (result.capturedPostHogEvents.length > 0) {

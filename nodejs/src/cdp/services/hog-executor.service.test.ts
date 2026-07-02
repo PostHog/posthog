@@ -736,7 +736,9 @@ describe('Hog Executor', () => {
             `)
         })
 
-        it('falls back to person.id for distinct_id when event.distinct_id is empty (batch invocations)', async () => {
+        it('skips capture and does not fall back to person.id when distinct_id is empty (batch invocations)', async () => {
+            // person.id is the person UUID, never ingested as a distinct_id. Capturing against it would
+            // mint a phantom person, so capture must be skipped rather than emit an unattributable event.
             const fn = createHogFunction({
                 ...HOG_EXAMPLES.posthog_capture,
                 ...HOG_INPUTS_EXAMPLES.simple_fetch,
@@ -756,8 +758,10 @@ describe('Hog Executor', () => {
                 },
             } as any)
             const result = await executor.execute(createExampleInvocation(fn, globals))
-            expect(result?.capturedPostHogEvents).toHaveLength(1)
-            expect(result?.capturedPostHogEvents[0].distinct_id).toBe('person-uuid-123')
+            expect(result?.capturedPostHogEvents).toEqual([])
+            expect(cleanLogs(result?.logs.map((log) => log.message) ?? [])).toContain(
+                'postHogCapture was called without a usable distinct_id, so the event was not captured. Capturing against a person UUID would create a disconnected phantom person rather than updating the intended one.'
+            )
         })
 
         it('allows events that have already used their postHogCapture a maximum of 10 times', async () => {
