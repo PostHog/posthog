@@ -268,6 +268,7 @@ describe('sourceWizardLogic', () => {
             ['my-prefix', true], // hyphen — rejected by the backend, previously allowed here
             ['2things', true], // leading digit
             ['___', true], // only underscores
+            [' my ', true], // backend strips only underscores, not whitespace
             ['my_prefix', false],
             ['_leading', false],
             ['', false], // empty prefix is allowed
