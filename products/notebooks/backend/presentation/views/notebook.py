@@ -51,14 +51,13 @@ from products.notebooks.backend.data_v2 import is_data_v2_enabled
 from products.notebooks.backend.data_v2_serializers import (
     NotebookDataV2RunRequestSerializer,
     NotebookDataV2RunResponseSerializer,
-    NotebookDataV2StartResponseSerializer,
 )
 from products.notebooks.backend.kernel_runtime import build_notebook_sandbox_config, get_kernel_runtime
 from products.notebooks.backend.models import KernelRuntime, Notebook, NotebookNodeRun
 from products.notebooks.backend.python_analysis import analyze_python_globals, annotate_python_nodes
 from products.notebooks.backend.query_validation import InvalidNotebookQueryError, normalize_notebook_query_nodes
-from products.notebooks.backend.temporal.client import start_data_v2_run_workflow, start_data_v2_start_workflow
-from products.notebooks.backend.temporal.data_v2 import DataV2RunInput, DataV2StartInput
+from products.notebooks.backend.temporal.client import start_data_v2_run_workflow
+from products.notebooks.backend.temporal.data_v2 import DataV2RunInput
 from products.tasks.backend.facade.exceptions import SandboxProvisionError
 from products.tasks.backend.facade.sandbox import SandboxStatus
 
@@ -908,28 +907,6 @@ class NotebookViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixin, ForbidD
             return Response({"detail": "Failed to start run."}, status=503)
 
         return Response({"run_id": str(run.id)})
-
-    @extend_schema(responses=NotebookDataV2StartResponseSerializer)
-    @action(methods=["POST"], url_path="data_v2/start", detail=True)
-    def data_v2_start(self, request: Request, **kwargs):
-        user = self._current_user()
-        if not (settings.DEBUG or is_data_v2_enabled(user)):
-            raise Http404()
-
-        notebook = self._get_notebook_for_kernel()
-        try:
-            start_data_v2_start_workflow(
-                DataV2StartInput(
-                    notebook_short_id=notebook.short_id,
-                    team_id=self.team_id,
-                    user_id=user.id if isinstance(user, User) else None,
-                )
-            )
-        except Exception:
-            logger.exception("notebook_data_v2_start_failed", notebook_short_id=notebook.short_id)
-            return Response({"detail": "Failed to start instance."}, status=503)
-
-        return Response({"status": "starting"})
 
     @extend_schema(
         parameters=[

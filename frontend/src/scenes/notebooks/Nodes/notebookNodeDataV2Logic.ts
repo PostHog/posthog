@@ -17,9 +17,7 @@ export const notebookNodeDataV2Logic = kea<notebookNodeDataV2LogicType>([
     key((props) => props.nodeId),
     actions({
         runQuery: (code: string) => ({ code }),
-        startInstance: true,
         setIsRunning: (isRunning: boolean) => ({ isRunning }),
-        setIsStarting: (isStarting: boolean) => ({ isStarting }),
         setRunError: (runError: string | null) => ({ runError }),
     }),
     reducers({
@@ -30,32 +28,15 @@ export const notebookNodeDataV2Logic = kea<notebookNodeDataV2LogicType>([
                 setIsRunning: (_, { isRunning }) => isRunning,
             },
         ],
-        isStarting: [
-            false,
-            {
-                startInstance: () => true,
-                setIsStarting: (_, { isStarting }) => isStarting,
-            },
-        ],
         runError: [
             null as string | null,
             {
                 runQuery: () => null,
-                startInstance: () => null,
                 setRunError: (_, { runError }) => runError,
             },
         ],
     }),
     listeners(({ props, actions }) => ({
-        startInstance: async () => {
-            try {
-                await api.notebooks.dataV2Start(props.notebookShortId)
-            } catch (error) {
-                actions.setRunError(error instanceof Error ? error.message : 'Failed to start instance')
-            } finally {
-                actions.setIsStarting(false)
-            }
-        },
         runQuery: async ({ code }) => {
             try {
                 const { run_id } = await api.notebooks.dataV2Run(props.notebookShortId, {

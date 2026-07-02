@@ -110,7 +110,6 @@ class TestDataV2Run(APIBaseTest):
         super().setUp()
         self.notebook = Notebook.objects.create(team=self.team, short_id="nbrun01")
         self.run_url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/data_v2/run/"
-        self.start_url = f"/api/projects/{self.team.id}/notebooks/{self.notebook.short_id}/data_v2/start/"
 
     @patch("products.notebooks.backend.presentation.views.notebook.start_data_v2_run_workflow")
     @patch("products.notebooks.backend.presentation.views.notebook.is_data_v2_enabled", return_value=True)
@@ -134,14 +133,6 @@ class TestDataV2Run(APIBaseTest):
         run = NotebookNodeRun.objects.for_team(self.team.id).filter(notebook=self.notebook).first()
         assert run is not None
         self.assertEqual(run.status, NotebookNodeRun.Status.FAILED)
-
-    @patch("products.notebooks.backend.presentation.views.notebook.start_data_v2_start_workflow")
-    @patch("products.notebooks.backend.presentation.views.notebook.is_data_v2_enabled", return_value=True)
-    def test_start_instance_enqueues_workflow(self, _mock_enabled, mock_start):
-        response = self.client.post(self.start_url, format="json")
-        self.assertEqual(response.status_code, 200)
-        self.assertEqual(response.json()["status"], "starting")
-        mock_start.assert_called_once()
 
 
 class TestDataV2Activities(APIBaseTest):

@@ -4,6 +4,8 @@ import { LemonButton } from '@posthog/lemon-ui'
 
 import { createPostHogWidgetNode } from 'scenes/notebooks/Nodes/NodeWrapper'
 
+import { notebookKernelInfoLogic } from '../Notebook/notebookKernelInfoLogic'
+import { notebookSettingsLogic } from '../Notebook/notebookSettingsLogic'
 import { NotebookNodeProps, NotebookNodeType } from '../types'
 import { notebookNodeDataV2Logic } from './notebookNodeDataV2Logic'
 import { notebookNodeLogic } from './notebookNodeLogic'
@@ -34,10 +36,23 @@ const Component = ({
     const notebookShortId = notebookLogic.props.shortId
 
     const dataLogic = notebookNodeDataV2Logic({ nodeId, notebookShortId, updateAttributes })
-    const { isRunning, isStarting, runError } = useValues(dataLogic)
-    const { runQuery, startInstance } = useActions(dataLogic)
+    const { isRunning, runError } = useValues(dataLogic)
+    const { runQuery } = useActions(dataLogic)
+
+    const { isRunning: isKernelRunning, isStarting: isKernelStarting } = useValues(
+        notebookKernelInfoLogic({ shortId: notebookShortId })
+    )
+    const { setShowKernelInfo } = useActions(notebookSettingsLogic)
 
     const result = attributes.result ?? null
+
+    const runDisabledReason = isRunning
+        ? 'Running…'
+        : !isKernelRunning
+          ? isKernelStarting
+              ? 'Kernel is starting…'
+              : 'Start the kernel from the Kernel info panel'
+          : undefined
 
     return (
         <div data-attr="notebook-node-data-v2" className="flex h-full flex-col gap-2 p-2">
@@ -55,21 +70,16 @@ const Component = ({
                     type="primary"
                     size="small"
                     loading={isRunning}
-                    disabledReason={isRunning ? 'Running…' : undefined}
+                    disabledReason={runDisabledReason}
                     onClick={() => runQuery(attributes.code ?? '')}
                 >
                     Run
                 </LemonButton>
-                <LemonButton
-                    type="secondary"
-                    size="small"
-                    loading={isStarting}
-                    disabledReason={isStarting ? 'Starting…' : undefined}
-                    onClick={() => startInstance()}
-                >
-                    Start instance
-                </LemonButton>
-                <span className="text-[10px] uppercase tracking-wide text-muted">revamped-py-notebooks</span>
+                {!isKernelRunning && (
+                    <LemonButton type="secondary" size="small" onClick={() => setShowKernelInfo(true)}>
+                        Open kernel info
+                    </LemonButton>
+                )}
             </div>
             {runError ? (
                 <div className="rounded border border-danger p-2 text-sm text-danger">{runError}</div>

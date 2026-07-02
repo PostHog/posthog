@@ -14,7 +14,6 @@ import type {
     NotebookCollabSaveApi,
     NotebookDataV2RunRequestApi,
     NotebookDataV2RunResponseApi,
-    NotebookDataV2StartResponseApi,
     NotebookMarkdownSaveApi,
     NotebooksListParams,
     PaginatedNotebookMinimalListApi,
@@ -298,27 +297,6 @@ export const notebooksDataV2RunsStreamRetrieve = async (
     return apiMutator<string>(getNotebooksDataV2RunsStreamRetrieveUrl(projectId, shortId, runId), {
         ...options,
         method: 'GET',
-    })
-}
-
-export const getNotebooksDataV2StartCreateUrl = (projectId: string, shortId: string) => {
-    return `/api/projects/${projectId}/notebooks/${shortId}/data_v2/start/`
-}
-
-/**
- * The API for interacting with Notebooks. This feature is in early access and the API can have breaking changes without announcement.
- */
-export const notebooksDataV2StartCreate = async (
-    projectId: string,
-    shortId: string,
-    notebookApi?: NonReadonly<NotebookApi>,
-    options?: RequestInit
-): Promise<NotebookDataV2StartResponseApi> => {
-    return apiMutator<NotebookDataV2StartResponseApi>(getNotebooksDataV2StartCreateUrl(projectId, shortId), {
-        ...options,
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json', ...options?.headers },
-        body: JSON.stringify(notebookApi),
     })
 }
 
