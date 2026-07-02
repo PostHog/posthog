@@ -33,5 +33,12 @@
         "oxfmt": "^0.35.0",
         "oxlint": "^1.0.0",
         "typescript": "^5.7.2"
+    },
+    "packageManager": "pnpm@10.29.3",
+    "pnpm": {
+        "onlyBuiltDependencies": [
+            "esbuild",
+            "sharp"
+        ]
     }
 }
