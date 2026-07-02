@@ -133,6 +133,7 @@ the row lists both.
 | easypromos              | HTTP                        | requests                                                        | ✅                          |
 | freshdesk               | HTTP                        | requests                                                        | ✅                          |
 | freshsales              | HTTP                        | requests                                                        | ✅                          |
+| freshservice            | HTTP                        | requests                                                        | ✅                          |
 | elasticemail            | HTTP                        | requests                                                        | ✅                          |
 | elasticsearch           | HTTP                        | requests                                                        | ✅                          |
 | emailoctopus            | HTTP                        | requests                                                        | ✅                          |
@@ -412,7 +413,6 @@ doesn't conflict with concurrent PRs.
 - freshbooks
 - freshcaller
 - freshchat
-- freshservice
 - fulcrum
 - gainsight_px
 - gitbook
