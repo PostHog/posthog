@@ -894,13 +894,17 @@ jobs:
         runs-on: ubuntu-latest
         continue-on-error: true
         timeout-minutes: 10
-        if: always() && github.repository == 'PostHog/posthog' && github.event_name != 'pull_request'
+        # Storybook CI is skipped on merge_group, so visual-regression won't run there;
+        # != 'skipped' keeps this from spinning a runner that downloads nothing, while still
+        # uploading failed-test results (the flake signal Trunk needs) on master push.
+        if: always() && github.repository == 'PostHog/posthog' && github.event_name != 'pull_request' && needs.visual-regression.result != 'skipped'
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1
+                  persist-credentials: false
             - name: Download JUnit artifacts
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
               continue-on-error: true
               with:
                   path: ./junit-artifacts

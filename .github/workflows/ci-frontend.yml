@@ -648,6 +648,10 @@ jobs:
                   CHANGED_FILES: ${{ needs.select-jest-tests.outputs.changed_files }}
                   JEST_JUNIT_OUTPUT_DIR: ${{ github.workspace }}/junit-results
                   JEST_JUNIT_OUTPUT_NAME: junit-${{ matrix.segment }}-${{ matrix.chunk }}.xml
+                  # Trunk attributes flakes by test file; jest-junit's default suite name is the
+                  # top-level describe, which collides across files. Anchor identity to the file.
+                  JEST_JUNIT_SUITE_NAME: '{filepath}'
+                  JEST_JUNIT_ADD_FILE_ATTRIBUTE: 'true'
               run: |
                   if [ "$MODE" = "selective" ]; then
                       # --findRelatedTests walks jest's import graph from the changed
@@ -677,6 +681,7 @@ jobs:
                   name: junit-results-frontend-${{ matrix.segment }}-${{ matrix.chunk }}
                   path: junit-results/junit-*.xml
                   if-no-files-found: ignore
+                  retention-days: 1
 
     calculate-running-time:
         name: Calculate running time
@@ -762,13 +767,16 @@ jobs:
         runs-on: ubuntu-latest
         continue-on-error: true
         timeout-minutes: 10
-        if: always() && github.repository == 'PostHog/posthog' && github.event_name != 'pull_request'
+        # != 'skipped' (not == 'success'): a failed shard still emits junit, and failing
+        # results are exactly the flake signal Trunk needs. Only bail when jest never ran.
+        if: always() && github.repository == 'PostHog/posthog' && github.event_name != 'pull_request' && needs.jest.result != 'skipped'
         steps:
             - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
               with:
                   fetch-depth: 1
+                  persist-credentials: false
             - name: Download JUnit artifacts
-              uses: actions/download-artifact@37930b1c2abaa49bbe596cd826c3c89aef350131 # v7.0.0
+              uses: actions/download-artifact@634f93cb2916e3fdff6788551b99b062d0335ce0 # v6.0.0
               continue-on-error: true
               with:
                   path: ./junit-artifacts
