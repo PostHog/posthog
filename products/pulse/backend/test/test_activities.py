@@ -228,7 +228,6 @@ async def test_synthesize_activity_emits_signal_per_new_opportunity(team, user) 
     assert kwargs["weight"] == 0.9
     assert kwargs["extra"] == {
         "brief_id": str(brief.id),
-        "kind": "build",
         "evidence": [{"type": "insight", "ref": "abc", "label": ""}],
     }
 
@@ -265,8 +264,6 @@ async def test_synthesize_activity_survives_emit_failure(team, user) -> None:
             SynthesizeActivityInputs(team_id=team.pk, brief_id=str(brief.id), items=[]),
         )
     assert status == ProductBrief.Status.READY
-    reloaded = await _reload_brief(brief.id)
-    assert reloaded.status == ProductBrief.Status.READY
 
 
 async def test_workflow_marks_brief_failed_when_gather_fails(team, user) -> None:

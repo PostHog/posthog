@@ -71,7 +71,6 @@ GITHUB_ISSUE_EXTRA = {
 
 PULSE_OPPORTUNITY_EXTRA = {
     "brief_id": "0197a000-0000-0000-0000-000000000000",
-    "kind": "build",
     "evidence": [{"type": "insight", "ref": "abc123", "label": "Pageviews"}],
 }
 

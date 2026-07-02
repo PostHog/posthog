@@ -675,7 +675,9 @@ class SignalReportViewSet(
         # unless an explicit `status` filter asks for them.
         if self.action in self._SUPPRESSED_VISIBLE_ACTIONS:
             return queryset
-        return queryset.exclude(status=SignalReport.Status.SUPPRESSED)
+        # DELETED is already stripped upstream (_exclude_deleted_signal_reports); excluding the
+        # full hidden set here keeps this surface aligned with INBOX_HIDDEN_STATUSES consumers.
+        return queryset.exclude(status__in=SignalReport.INBOX_HIDDEN_STATUSES)
 
     def _apply_signal_report_search_filter(self, queryset):
         search = self.request.query_params.get("search")

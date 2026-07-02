@@ -1,3 +1,4 @@
+import asyncio
 import dataclasses
 
 import structlog
@@ -26,9 +27,6 @@ logger = structlog.get_logger(__name__)
 # chatty low-priority source can't crowd out actionable items.
 MAX_ITEMS = 50
 KIND_PRIORITY: dict[str, int] = {"health": 0, "signal": 1, "movement": 2, "context": 3}
-# Fallback when a created opportunity can't be matched back to its LLM confidence (shouldn't
-# happen — fingerprints are minted from the same output); matches emit_signal's own default.
-DEFAULT_OPPORTUNITY_SIGNAL_WEIGHT = 0.5
 
 
 def _get_team(team_id: int) -> Team:
@@ -104,30 +102,41 @@ async def _emit_opportunity_signals(brief: ProductBrief, out: BriefOut, created:
     """Surface newly created opportunities in the signals inbox via the signals facade.
 
     Deduped fingerprints never re-emit (they were surfaced by an earlier brief), delivery is
-    opt-in per team (a `pulse` SignalSourceConfig row, checked inside emit_signal), and the
+    opt-in per team (a `pulse` SignalSourceConfig row, checked inside emit_signal), and each
     emit is best-effort — a failure must never fail the brief.
     """
     confidence_by_fingerprint = {
         opportunity_fingerprint(o.kind, o.fingerprint_hint): o.confidence for o in out.opportunities
     }
-    for opportunity in created:
-        try:
-            await emit_signal(
-                team=brief.team,
-                source_product="pulse",
-                source_type=f"opportunity_{opportunity.kind}",
-                source_id=str(opportunity.id),
-                description=f"{opportunity.title}\n\n{opportunity.summary}",
-                weight=confidence_by_fingerprint.get(opportunity.fingerprint, DEFAULT_OPPORTUNITY_SIGNAL_WEIGHT),
-                extra={"brief_id": str(brief.id), "kind": opportunity.kind, "evidence": opportunity.evidence},
-            )
-        except Exception:
-            logger.exception(
-                "pulse_opportunity_signal_emit_failed",
-                team_id=brief.team_id,
-                brief_id=str(brief.id),
-                opportunity_id=str(opportunity.id),
-            )
+    # Independent fire-and-forget emits; gather avoids paying a serial Temporal connect per opportunity.
+    await asyncio.gather(
+        *(_emit_opportunity_signal(brief, opportunity, confidence_by_fingerprint) for opportunity in created)
+    )
+
+
+async def _emit_opportunity_signal(
+    brief: ProductBrief, opportunity: Opportunity, confidence_by_fingerprint: dict[str, float]
+) -> None:
+    try:
+        await emit_signal(
+            team=brief.team,
+            source_product="pulse",
+            source_type=f"opportunity_{opportunity.kind}",
+            source_id=str(opportunity.id),
+            description=f"{opportunity.title}\n\n{opportunity.summary}",
+            # The LLM's confidence passes through as the signal weight (weight 1.0 triggers
+            # signals' summary path). The map cannot miss — fingerprints are minted from the
+            # same output — so a broken invariant surfaces here as a logged emit failure.
+            weight=confidence_by_fingerprint[opportunity.fingerprint],
+            extra={"brief_id": str(brief.id), "evidence": opportunity.evidence},
+        )
+    except Exception:
+        logger.exception(
+            "pulse_opportunity_signal_emit_failed",
+            team_id=brief.team_id,
+            brief_id=str(brief.id),
+            opportunity_id=str(opportunity.id),
+        )
 
 
 @temporalio.activity.defn
