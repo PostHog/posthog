@@ -1,0 +1,38 @@
+#
+# Dockerfile.ml-mirror-image-scrub - Session Replay ML-mirror image-scrub consumer worker
+#
+# Reads raw inlined images off the session_replay_image_scrub Kafka topic, scrubs them, and writes
+# the result to S3 under a content reference. Stage 1 scrub is a lean sharp-only blur.
+#
+# Deliberately NOT the plugin-server workspace build: this is a standalone package with its own small
+# dep set, so the image stays lean. kafkajs is pure JS (no librdkafka), sharp ships prebuilt libvips,
+# and there is no browser or ML runtime here.
+#
+# Major-only node tag so a rebuild picks up the latest 24.x (node + bundled OpenSSL/V8 patches);
+# -bookworm-slim so glibc matches sharp's prebuilt binaries. (No weekly cron yet — the base only
+# refreshes when the image is rebuilt; add a schedule trigger to the workflow if that's not enough.)
+FROM node:24-bookworm-slim
+WORKDIR /code/app
+SHELL ["/bin/bash", "-e", "-o", "pipefail", "-c"]
+
+ARG COMMIT_HASH
+RUN echo ${COMMIT_HASH:-unknown} > /code/commit.txt
+
+# Production deps only (sharp/libvips prebuilt; kafkajs/ioredis/aws-sdk/tsx are pure JS). Only this
+# package is copied (no root pnpm-workspace.yaml), so pnpm treats this dir as its own project root.
+COPY products/replay_vision/services/ml-mirror-image-scrub/package.json products/replay_vision/services/ml-mirror-image-scrub/pnpm-lock.yaml ./
+RUN --mount=type=cache,id=pnpm,target=/tmp/pnpm-store-v24 \
+    corepack enable && \
+    CI=1 pnpm install --prod --frozen-lockfile --store-dir /tmp/pnpm-store-v24
+
+COPY products/replay_vision/services/ml-mirror-image-scrub/tsconfig.json ./
+COPY products/replay_vision/services/ml-mirror-image-scrub/src ./src
+
+RUN groupadd -g 10001 posthog && \
+    useradd -u 10001 -g posthog -m -d /home/posthog posthog && \
+    chown -R posthog:posthog /code
+USER posthog
+
+ENV NODE_ENV=production
+
+CMD ["pnpm", "start"]
