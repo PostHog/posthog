@@ -31,7 +31,10 @@ from products.ai_observability.backend.summarization.llm.schema import (
 )
 from products.dashboards.backend.models.dashboard import Dashboard
 from products.dashboards.backend.models.dashboard_tile import DashboardTile
-from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
+from products.data_modeling.backend.facade.models import (
+    DataWarehouseSavedQuery,
+    DataWarehouseSavedQueryColumnAnnotation,
+)
 from products.experiments.backend.models.experiment import Experiment
 from products.feature_flags.backend.models.feature_flag import FeatureFlag
 from products.product_analytics.backend.models.insight import Insight
@@ -733,6 +736,49 @@ class TestReadDataTool(BaseTest):
         assert "- total_count (integer)" in result
         assert "- event (string)" in result
 
+    async def test_table_schema_includes_view_descriptions(self):
+        """A saved-query view's descriptions reach read_data via DataWarehouseSavedQueryColumnAnnotation,
+        the same way physical-table annotations do — closing the parity gap where views returned bare fields."""
+        view = await DataWarehouseSavedQuery.objects.acreate(
+            team=self.team,
+            name="revenue_summary",
+            query={"kind": "HogQLQuery", "query": "SELECT count() as total_count, event FROM events GROUP BY event"},
+            columns={
+                "total_count": {"hogql": "IntegerDatabaseField", "clickhouse": "UInt64", "valid": True},
+                "event": {"hogql": "StringDatabaseField", "clickhouse": "String", "valid": True},
+            },
+        )
+        with team_scope(self.team.pk, canonical=True):
+            await DataWarehouseSavedQueryColumnAnnotation.objects.acreate(
+                team=self.team,
+                saved_query=view,
+                column_name="",
+                description="Event counts per event name.",
+                description_source=DataWarehouseSavedQueryColumnAnnotation.DescriptionSource.USER_EDITED,
+            )
+            await DataWarehouseSavedQueryColumnAnnotation.objects.acreate(
+                team=self.team,
+                saved_query=view,
+                column_name="total_count",
+                description="Number of events with this name.",
+                description_source=DataWarehouseSavedQueryColumnAnnotation.DescriptionSource.AI_GENERATED,
+            )
+
+        state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
+        context_manager = MagicMock()
+        context_manager.check_user_has_billing_access = AsyncMock(return_value=False)
+        context_manager.check_has_audit_logs_access = AsyncMock(return_value=False)
+        tool = await ReadDataTool.create_tool_class(
+            team=self.team, user=self.user, state=state, context_manager=context_manager
+        )
+
+        result, _ = await tool._arun_impl({"kind": "data_warehouse_table", "table_name": "revenue_summary"})
+
+        assert "Table `revenue_summary` — Event counts per event name. with fields:" in result
+        assert "- total_count (integer) — Number of events with this name." in result
+        # A column without an annotation stays bare.
+        assert "- event (string)" in result
+
     async def test_table_schema_returns_posthog_table_fields(self):
         """Test that data_warehouse_table returns schema for core PostHog tables."""
         state = AssistantState(messages=[], root_tool_call_id=str(uuid4()))
@@ -749,7 +795,10 @@ class TestReadDataTool(BaseTest):
 
         result, _ = await tool._arun_impl({"kind": "data_warehouse_table", "table_name": "events"})
 
-        assert "Table `events` with fields:" in result
+        # Native tables surface their curated schema descriptions too (a table-level description may be
+        # appended to the header), so match name and "with fields:" tolerantly rather than exactly.
+        assert result.startswith("Table `events`")
+        assert "with fields:" in result
         assert "- event (string)" in result
         assert "- timestamp (datetime)" in result
 
@@ -768,7 +817,8 @@ class TestReadDataTool(BaseTest):
 
         result, _ = await tool._arun_impl({"kind": "data_warehouse_table", "table_name": "groups"})
 
-        assert "Table `groups` with fields:" in result
+        assert result.startswith("Table `groups`")
+        assert "with fields:" in result
         assert "- index (integer, aliased from group_type_index)" in result
         assert "- key (string, aliased from group_key)" in result
 
