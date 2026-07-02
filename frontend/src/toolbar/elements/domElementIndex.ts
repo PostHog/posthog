@@ -195,9 +195,23 @@ function getCandidatesFromIndex(
     return filterByPosition(candidates, eventElement, index)
 }
 
+function matchesEventDataAttribute(
+    fingerprint: ElementFingerprint,
+    eventElement: ElementType,
+    dataAttributes: string[]
+): boolean {
+    const matchedAttr = matchesDataAttribute(eventElement, dataAttributes)
+    if (!matchedAttr) {
+        return false
+    }
+    const value = eventElement.attributes?.[`attr__${matchedAttr}`]
+    return value !== undefined && fingerprint.dataAttrs.get(matchedAttr) === value
+}
+
 function fingerprintMatchesEventElement(
     fingerprint: ElementFingerprint | undefined,
-    eventElement: ElementType
+    eventElement: ElementType,
+    dataAttributes: string[]
 ): boolean {
     if (!fingerprint) {
         return false
@@ -213,7 +227,13 @@ function fingerprintMatchesEventElement(
             return false
         }
     }
-    return matchesPosition(fingerprint, eventElement)
+    // an id or configured data attribute identifies the ancestor on its own, so DOM drift that
+    // shifts sibling positions (cookie banners, injected wrappers) shouldn't kill the match —
+    // mirroring elementToSelector, which early-returns on these without position
+    const identifiedWithoutPosition =
+        (!!eventElement.attr_id && fingerprint.id === eventElement.attr_id) ||
+        matchesEventDataAttribute(fingerprint, eventElement, dataAttributes)
+    return identifiedWithoutPosition || matchesPosition(fingerprint, eventElement)
 }
 
 export function isTooSimple(element: ElementType): boolean {
@@ -250,7 +270,10 @@ export function matchEventToElementUsingIndex(
     for (let i = 1; i < event.elements.length && walkers.length > 1; i++) {
         const eventAncestor = event.elements[i]
         walkers = walkers.flatMap(({ candidate, ancestor }) => {
-            if (!ancestor || !fingerprintMatchesEventElement(index.fingerprints.get(ancestor), eventAncestor)) {
+            if (
+                !ancestor ||
+                !fingerprintMatchesEventElement(index.fingerprints.get(ancestor), eventAncestor, dataAttributes)
+            ) {
                 return []
             }
             return [{ candidate, ancestor: ancestor.parentElement }]
@@ -273,29 +296,34 @@ export function matchEventToElementUsingIndex(
     return null
 }
 
+// each chain level costs a selector query, so a single deep-chain event (legitimately deep DOM or a
+// forged chain) could otherwise hold the main thread for an unbounded uninterruptible stretch
+const MAX_SELECTOR_CHAIN_LEVELS = 10
+
 export function matchEventToElementUsingSelectors(
     event: ElementsEventType,
     dataAttributes: string[],
     matchLinksByHref: boolean,
     pageElements: HTMLElement[],
-    selectorCache: Record<string, HTMLElement[]>,
+    selectorCache: Map<string, HTMLElement[]>,
     hasShadowRoots: boolean
 ): CountedHTMLElement | null {
     let lastSelector: string | undefined
 
-    for (let i = 0; i < event.elements.length; i++) {
+    const chainDepth = Math.min(event.elements.length, MAX_SELECTOR_CHAIN_LEVELS)
+    for (let i = 0; i < chainDepth; i++) {
         const element = event.elements[i]
         const selector =
             elementToSelector(matchLinksByHref ? element : { ...element, href: undefined }, dataAttributes) || '*'
         const combinedSelector = lastSelector ? `${selector} > ${lastSelector}` : selector
 
         try {
-            let domElements: HTMLElement[] | undefined = selectorCache[combinedSelector]
+            let domElements: HTMLElement[] | undefined = selectorCache.get(combinedSelector)
             if (domElements === undefined) {
                 domElements = hasShadowRoots
                     ? Array.from(querySelectorAllDeep(combinedSelector, document, pageElements))
                     : Array.from(document.querySelectorAll<HTMLElement>(combinedSelector))
-                selectorCache[combinedSelector] = domElements
+                selectorCache.set(combinedSelector, domElements)
             }
 
             if (domElements.length === 1) {
@@ -323,9 +351,14 @@ export function matchEventToElementUsingSelectors(
                 }
             }
         } catch {
-            toolbarLogger.warn('heatmap', 'Failed to resolve heatmap element with selector', {
-                selector: combinedSelector,
-            })
+            // sentinel-cache the failing selector so repeated rows neither re-throw nor re-log,
+            // and truncate: event-derived selectors can embed long customer-page attribute values
+            if (!selectorCache.has(combinedSelector)) {
+                selectorCache.set(combinedSelector, [])
+                toolbarLogger.warn('heatmap', 'Failed to resolve heatmap element with selector', {
+                    selector: combinedSelector.slice(0, 200),
+                })
+            }
             break
         }
 

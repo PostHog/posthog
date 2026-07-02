@@ -292,13 +292,43 @@ describe('domElementIndex', () => {
                     { tag_name: 'section', attr_class: ['outer-b'] },
                 ],
             },
+            {
+                name: 'ignores drifted sibling position when the ancestor is identified by id',
+                html: `
+                    <div class="injected-banner"></div>
+                    <div id="main-panel"><button class="btn" id="target"></button></div>
+                    <div class="other"><button class="btn"></button></div>
+                `,
+                event: [
+                    { tag_name: 'button', attr_class: ['btn'], nth_child: 1, nth_of_type: 1 },
+                    { tag_name: 'div', attr_id: 'main-panel', nth_child: 1, nth_of_type: 1 },
+                ],
+            },
+            {
+                name: 'ignores drifted sibling position when the ancestor is identified by a data attribute',
+                html: `
+                    <div class="injected-banner"></div>
+                    <div data-attr="main-panel"><button class="btn" id="target"></button></div>
+                    <div class="other"><button class="btn"></button></div>
+                `,
+                event: [
+                    { tag_name: 'button', attr_class: ['btn'], nth_child: 1, nth_of_type: 1 },
+                    {
+                        tag_name: 'div',
+                        attributes: { 'attr__data-attr': 'main-panel' },
+                        nth_child: 1,
+                        nth_of_type: 1,
+                    },
+                ],
+                dataAttributes: ['data-attr'],
+            },
         ]
 
-        it.each(parentChainCases)('$name', ({ html, event }) => {
+        it.each(parentChainCases)('$name', ({ html, event, dataAttributes = [] }) => {
             const { container, cleanup } = createTestDOM(html)
             try {
                 const index = buildDOMIndex(getAllElements(container))
-                const result = matchEventToElementUsingIndex(createEvent(event), [], false, index)
+                const result = matchEventToElementUsingIndex(createEvent(event), dataAttributes, false, index)
 
                 expect(result).not.toBeNull()
                 expect(result?.element.id).toBe('target')
@@ -464,7 +494,7 @@ describe('domElementIndex', () => {
                 try {
                     const pageElements = collectAllElementsDeep('*', document) as HTMLElement[]
                     const index = buildDOMIndex(pageElements)
-                    const selectorCache: Record<string, HTMLElement[]> = {}
+                    const selectorCache = new Map<string, HTMLElement[]>()
 
                     const eventObj = createEvent(event)
 

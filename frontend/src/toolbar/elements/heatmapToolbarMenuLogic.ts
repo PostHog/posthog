@@ -20,7 +20,7 @@ import { toolbarApi } from '~/toolbar/toolbarApi'
 import { toolbarConfigLogic } from '~/toolbar/toolbarConfigLogic'
 import { toolbarPosthogJS } from '~/toolbar/toolbarPosthogJS'
 import { CountedHTMLElement, ElementsEventType } from '~/toolbar/types'
-import { elementIsVisible, invalidateZoomCache, trimElement } from '~/toolbar/utils'
+import { TOOLBAR_ID, elementIsVisible, invalidateZoomCache, trimElement } from '~/toolbar/utils'
 import { PropertyFilterType, PropertyOperator } from '~/types'
 
 import type { heatmapToolbarMenuLogicType } from './heatmapToolbarMenuLogicType'
@@ -41,10 +41,12 @@ function yieldToMain(): Promise<void> {
     })
 }
 
+export type ClickmapProcessingTrigger = 'initial' | 'pagination' | 'refresh' | 'toggle'
+
 interface ElementProcessingCache {
     pageElements?: HTMLElement[]
     domIndex?: DOMIndex
-    selectorToElements: Record<string, HTMLElement[]>
+    selectorToElements: Map<string, HTMLElement[]>
     lastHref?: string
     intersectionObserver?: IntersectionObserver
     visibilityCache: WeakMap<HTMLElement, boolean>
@@ -61,7 +63,7 @@ function invalidatePageElementsCache(cache: ElementProcessingCache): void {
 function getCachedPageElements(
     cache: ElementProcessingCache,
     href: string
-): { pageElements: HTMLElement[]; domIndex: DOMIndex; hasShadowRoots: boolean } {
+): { pageElements: HTMLElement[]; domIndex: DOMIndex; hasShadowRoots: boolean; cacheHit: boolean } {
     const hrefChanged = cache.lastHref !== href
     const cacheValid = cache.pageElements && !hrefChanged && !cache.cacheInvalidated
 
@@ -69,16 +71,24 @@ function getCachedPageElements(
         return {
             pageElements: cache.pageElements,
             domIndex: cache.domIndex,
-            hasShadowRoots: cache.domIndex.hasShadowRoots,
+            // attachShadow() emits no light-DOM mutation, so the build-time flag can go stale —
+            // recheck the snapshot on every run
+            hasShadowRoots: cache.pageElements.some((el) => el.shadowRoot && el.id !== TOOLBAR_ID),
+            cacheHit: true,
         }
     }
 
     cache.pageElements = collectAllElementsDeep('*', document)
     cache.domIndex = buildDOMIndex(cache.pageElements)
     cache.lastHref = href
-    cache.selectorToElements = {}
+    cache.selectorToElements = new Map()
     cache.cacheInvalidated = false
-    return { pageElements: cache.pageElements, domIndex: cache.domIndex, hasShadowRoots: cache.domIndex.hasShadowRoots }
+    return {
+        pageElements: cache.pageElements,
+        domIndex: cache.domIndex,
+        hasShadowRoots: cache.domIndex.hasShadowRoots,
+        cacheHit: false,
+    }
 }
 
 const emptyElementsStatsPages: PaginatedResponse<ElementsEventType> = {
@@ -142,7 +152,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         updateElementMetrics: (observedElements: [HTMLElement, boolean][]) => ({ observedElements }),
         startElementObservation: true,
         stopElementObservation: true,
-        processElements: true,
+        processElements: (trigger: ClickmapProcessingTrigger) => ({ trigger }),
         refreshClickmap: true,
         setIsRefreshing: (isRefreshing: boolean) => ({ isRefreshing }),
         setProcessedElements: (elements: CountedHTMLElement[]) => ({ elements }),
@@ -369,7 +379,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         },
     })),
     listeners(({ actions, values, cache }) => ({
-        processElements: async (_, breakpoint) => {
+        processElements: async ({ trigger }, breakpoint) => {
             const SLICE_BUDGET_MS = 10
             const startedAt = performance.now()
 
@@ -383,7 +393,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
 
             cache.visibilityCache = cache.visibilityCache || new WeakMap<HTMLElement, boolean>()
             const cursorPointerCache = new WeakMap<HTMLElement, boolean>()
-            const { pageElements, domIndex, hasShadowRoots } = getCachedPageElements(
+            const { pageElements, domIndex, hasShadowRoots, cacheHit } = getCachedPageElements(
                 cache as ElementProcessingCache,
                 href
             )
@@ -391,48 +401,70 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             const totalEvents = eventsToProcess.length
 
             const allTrimmedElements: CountedHTMLElement[] = []
+            let indexMatchedCount = 0
+            let fallbackMatchedCount = 0
+            let completed = false
             let sliceStart = performance.now()
 
-            for (let i = 0; i < totalEvents; i++) {
-                const event = eventsToProcess[i]
-                const matched =
-                    matchEventToElementUsingIndex(event, dataAttributes, matchLinksByHref, domIndex) ||
-                    matchEventToElementUsingSelectors(
-                        event,
-                        dataAttributes,
-                        matchLinksByHref,
-                        pageElements,
-                        (cache as ElementProcessingCache).selectorToElements,
-                        hasShadowRoots
-                    )
+            try {
+                for (let i = 0; i < totalEvents; i++) {
+                    const event = eventsToProcess[i]
+                    let matched = matchEventToElementUsingIndex(event, dataAttributes, matchLinksByHref, domIndex)
+                    if (matched) {
+                        indexMatchedCount += 1
+                    } else {
+                        matched = matchEventToElementUsingSelectors(
+                            event,
+                            dataAttributes,
+                            matchLinksByHref,
+                            pageElements,
+                            (cache as ElementProcessingCache).selectorToElements,
+                            hasShadowRoots
+                        )
+                        if (matched) {
+                            fallbackMatchedCount += 1
+                        }
+                    }
 
-                if (matched) {
-                    const trimmed = trimElement(matched.element, { cursorPointerCache })
-                    if (trimmed && elementIsVisible(trimmed, cache.visibilityCache as WeakMap<HTMLElement, boolean>)) {
-                        allTrimmedElements.push({ ...matched, element: trimmed })
+                    if (matched) {
+                        const trimmed = trimElement(matched.element, { cursorPointerCache })
+                        if (
+                            trimmed &&
+                            elementIsVisible(trimmed, cache.visibilityCache as WeakMap<HTMLElement, boolean>)
+                        ) {
+                            allTrimmedElements.push({ ...matched, element: trimmed })
+                        }
+                    }
+
+                    if (performance.now() - sliceStart > SLICE_BUDGET_MS) {
+                        actions.setProcessingProgress(i + 1, totalEvents)
+                        await yieldToMain()
+                        breakpoint()
+                        sliceStart = performance.now()
                     }
                 }
 
-                if (performance.now() - sliceStart > SLICE_BUDGET_MS) {
-                    actions.setProcessingProgress(i + 1, totalEvents)
-                    await yieldToMain()
-                    breakpoint()
-                    sliceStart = performance.now()
-                }
+                breakpoint()
+                actions.setProcessedElements(aggregateAndSortElements(allTrimmedElements))
+                actions.startElementObservation()
+                actions.setIsRefreshing(false)
+                completed = true
+            } finally {
+                // fire on cancelled runs too — the slow pages that get superseded are exactly
+                // the ones we most need to see
+                toolbarPosthogJS.capture('toolbar clickmap processed', {
+                    event_count: totalEvents,
+                    matched_element_count: allTrimmedElements.length,
+                    index_matched_count: indexMatchedCount,
+                    fallback_matched_count: fallbackMatchedCount,
+                    page_element_count: pageElements.length,
+                    has_shadow_roots: hasShadowRoots,
+                    duration_ms: Math.round(performance.now() - startedAt),
+                    trigger,
+                    cache_hit: cacheHit,
+                    completed,
+                })
             }
-
-            breakpoint()
-            actions.setProcessedElements(aggregateAndSortElements(allTrimmedElements))
-            actions.startElementObservation()
-            actions.setIsRefreshing(false)
-
-            toolbarPosthogJS.capture('toolbar clickmap processed', {
-                event_count: totalEvents,
-                matched_element_count: allTrimmedElements.length,
-                page_element_count: pageElements.length,
-                has_shadow_roots: hasShadowRoots,
-                duration_ms: Math.round(performance.now() - startedAt),
-            })
         },
 
         enableHeatmap: () => {
@@ -510,7 +542,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
                 actions.stopElementObservation()
                 actions.resetElementStats()
                 cache.pageElements = undefined
-                cache.selectorToElements = {}
+                cache.selectorToElements = new Map()
                 cache.lastHref = undefined
                 cache.visibilityCache = new WeakMap()
             }
@@ -522,12 +554,12 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             }
         },
 
-        getElementStatsSuccess: () => {
-            actions.processElements()
+        getElementStatsSuccess: ({ elementStats }) => {
+            actions.processElements(elementStats?.previous ? 'pagination' : 'initial')
         },
 
         setMatchLinksByHref: () => {
-            actions.processElements()
+            actions.processElements('toggle')
         },
 
         refreshClickmap: () => {
@@ -536,7 +568,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
             }
             actions.setIsRefreshing(true)
             invalidatePageElementsCache(cache as ElementProcessingCache)
-            actions.processElements()
+            actions.processElements('refresh')
         },
 
         patchHeatmapFilters: ({ filters }) => {
@@ -547,7 +579,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
         },
     })),
     afterMount(({ actions, cache, values }) => {
-        cache.selectorToElements = {}
+        cache.selectorToElements = new Map()
         cache.visibilityCache = new WeakMap()
 
         cache.disposables.add(() => {
@@ -611,7 +643,7 @@ export const heatmapToolbarMenuLogic = kea<heatmapToolbarMenuLogicType>([
     }),
     beforeUnmount(({ cache }) => {
         cache.pageElements = undefined
-        cache.selectorToElements = {}
+        cache.selectorToElements = new Map()
         cache.visibilityCache = new WeakMap()
         cache.lastHref = undefined
         cache.cacheInvalidated = false
