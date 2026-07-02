@@ -29,6 +29,10 @@ TICKETS_SHOW_MANY_BATCH = 100
 MAX_RATE_LIMIT_RETRIES = 3
 MAX_RATE_LIMIT_SLEEP_SECONDS = 30
 
+# Stream attachment bodies in bounded chunks so an oversized file is aborted mid-download
+# instead of being fully buffered in the worker's memory before the size check.
+ATTACHMENT_CHUNK_BYTES = 64 * 1024
+
 # A Zendesk subdomain is a single DNS label: alphanumerics + hyphens, no leading/trailing
 # hyphen, <= 63 chars. Pinning to this stops a crafted subdomain (e.g. "attacker.example#")
 # from resolving the base host to something other than "<label>.zendesk.com" (SSRF).
@@ -58,6 +62,14 @@ class ZendeskRateLimitError(Exception):
 
     Retryable by default, so Temporal's RetryPolicy reschedules the activity and
     absorbs the longer wait out-of-thread.
+    """
+
+
+class ZendeskAttachmentTooLargeError(Exception):
+    """Raised when an attachment exceeds the caller's byte cap.
+
+    Distinct from a transport failure so the caller can skip the attachment (count it
+    as oversized) without treating it as a retryable download error.
     """
 
 
@@ -190,17 +202,37 @@ class ZendeskImportClient:
             params = None
         return comments
 
-    def download_attachment(self, content_url: str) -> bytes:
+    def download_attachment(self, content_url: str, *, max_bytes: int) -> bytes:
         self._assert_expected_host(content_url)
         attempt = 0
         while True:
-            response = self._session.get(content_url, headers=self._headers, timeout=120)
-            if response.status_code == 429:
-                self._handle_rate_limit(response, content_url, attempt)
-                attempt += 1
-                continue
-            response.raise_for_status()
-            return response.content
+            with self._session.get(content_url, headers=self._headers, timeout=120, stream=True) as response:
+                if response.status_code == 429:
+                    self._handle_rate_limit(response, content_url, attempt)
+                    attempt += 1
+                    continue
+                response.raise_for_status()
+                # Precheck the declared size so a server-advertised oversized body is rejected
+                # before we read any of it.
+                declared = response.headers.get("Content-Length")
+                if declared is not None:
+                    try:
+                        if int(declared) > max_bytes:
+                            raise ZendeskAttachmentTooLargeError(
+                                f"Attachment exceeds {max_bytes} bytes (Content-Length={declared})"
+                            )
+                    except ValueError:
+                        pass
+                # A lying/absent Content-Length can't sneak past: abort once streamed bytes
+                # cross the cap instead of buffering the whole response.
+                buffer = bytearray()
+                for chunk in response.iter_content(chunk_size=ATTACHMENT_CHUNK_BYTES):
+                    if not chunk:
+                        continue
+                    buffer.extend(chunk)
+                    if len(buffer) > max_bytes:
+                        raise ZendeskAttachmentTooLargeError(f"Attachment exceeds {max_bytes} bytes while streaming")
+                return bytes(buffer)
 
 
 def validate_zendesk_credentials(credentials: ZendeskCredentials) -> bool:

@@ -29,7 +29,11 @@ from products.conversations.backend.services.attachments import (
     build_content_with_images,
     save_file_to_uploaded_media,
 )
-from products.conversations.backend.temporal.zendesk_import.client import ZendeskCredentials, ZendeskImportClient
+from products.conversations.backend.temporal.zendesk_import.client import (
+    ZendeskAttachmentTooLargeError,
+    ZendeskCredentials,
+    ZendeskImportClient,
+)
 from products.conversations.backend.temporal.zendesk_import.constants import EMAIL_RESOLUTION_BATCH_SIZE
 from products.conversations.backend.temporal.zendesk_import.mappers import (
     default_channel_source,
@@ -132,21 +136,21 @@ def _process_attachments(
         if not content_url:
             continue
         try:
-            raw = client.download_attachment(content_url)
+            raw = client.download_attachment(content_url, max_bytes=CONVERSATIONS_MAX_IMAGE_BYTES)
+        except ZendeskAttachmentTooLargeError:
+            logger.warning(
+                "zendesk_import_attachment_too_large",
+                team_id=team.id,
+                file_name=file_name,
+                max_bytes=CONVERSATIONS_MAX_IMAGE_BYTES,
+            )
+            continue
         except Exception as exc:
             logger.warning(
                 "zendesk_import_attachment_download_failed",
                 team_id=team.id,
                 file_name=file_name,
                 error=str(exc),
-            )
-            continue
-        if len(raw) > CONVERSATIONS_MAX_IMAGE_BYTES:
-            logger.warning(
-                "zendesk_import_attachment_too_large",
-                team_id=team.id,
-                file_name=file_name,
-                bytes_size=len(raw),
             )
             continue
         is_image = content_type.startswith("image/")
