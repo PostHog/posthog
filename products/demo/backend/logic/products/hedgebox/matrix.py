@@ -61,7 +61,7 @@ from products.data_tools.backend.models.join import DataWarehouseJoin
 from products.demo.backend.logic.matrix.matrix import Cluster, Matrix
 from products.demo.backend.logic.matrix.models import SimEvent
 from products.demo.backend.logic.matrix.randomization import Industry
-from products.endpoints.backend.models import Endpoint, EndpointVersion
+from products.endpoints.backend.facade.models import Endpoint, EndpointVersion
 from products.error_tracking.backend.models import (
     ErrorTrackingIssue,
     ErrorTrackingIssueFingerprintV2,

@@ -6,6 +6,10 @@ import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene
 
 import { mswDecorator } from '~/mocks/browser'
 
+import __trendsNumber from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsNumber.json'
+import __trendsNumberCompareNullPrevious from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsNumberCompareNullPrevious.json'
+import __trendsNumberEmpty from '../../../../mocks/fixtures/api/projects/team_id/insights/trendsNumberEmpty.json'
+
 type Story = StoryObj<{}>
 const meta: Meta = {
     title: 'Scenes-App/Insights/BoldNumber',
@@ -36,17 +40,11 @@ const meta: Meta = {
 }
 export default meta
 
-export const Default: Story = createInsightStory(
-    require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsNumber.json')
-)
+export const Default: Story = createInsightStory(__trendsNumber as any)
 Default.parameters = { testOptions: { waitForSelector: '.BoldNumber__value' } }
 
-export const EmptyResult: Story = createInsightStory(
-    require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsNumberEmpty.json')
-)
+export const EmptyResult: Story = createInsightStory(__trendsNumberEmpty as any)
 EmptyResult.parameters = { testOptions: { waitForSelector: '[data-attr="insight-empty-state"]' } }
 
-export const CompareNullPrevious: Story = createInsightStory(
-    require('../../../../mocks/fixtures/api/projects/team_id/insights/trendsNumberCompareNullPrevious.json')
-)
+export const CompareNullPrevious: Story = createInsightStory(__trendsNumberCompareNullPrevious as any)
 CompareNullPrevious.parameters = { testOptions: { waitForSelector: '.BoldNumber__value' } }
