@@ -77,6 +77,35 @@ describe('ci-report section helper', () => {
         }
     )
 
+    it.each([
+        ['a summary containing newlines', 'over\nbudget', ' — over budget'],
+        ['a null summary', null as unknown as string, ''],
+        ['a whitespace-only summary', ' \n ', ''],
+    ])(
+        'renders %s on a single line so the wrapper survives re-parse',
+        (_name: string, summary: string, suffix: string) => {
+            const rendered: string = renderComment(build([{ id: 'bundle-size', status: 'ok', summary, body: 'x' }]))
+            expect(rendered).toContain(`<summary>${STATUS_EMOJI.ok} <b>Bundle size</b>${suffix}</summary>`)
+            expect(renderComment(parseSections(rendered))).toBe(rendered)
+        }
+    )
+
+    it('normalizes a multi-line summary replayed from persisted meta, not just fresh upserts', () => {
+        const persisted = [
+            MARKER,
+            '## 🤖 CI report',
+            '',
+            `<!-- ci-report:section:bundle-size:${sectionMeta({ status: 'ok', summary: 'line1\nline2' })} -->`,
+            '## Bundle size',
+            '',
+            'old body',
+            '<!-- ci-report:section-end:bundle-size -->',
+        ].join('\n')
+        const rendered: string = renderComment(parseSections(persisted))
+        expect(rendered).toContain('<b>Bundle size</b> — line1 line2</summary>')
+        expect(renderComment(parseSections(rendered))).toBe(rendered)
+    })
+
     it('strips the in-body heading from sections written before the collapsible layout', () => {
         const legacy = [
             MARKER,
