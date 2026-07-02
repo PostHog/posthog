@@ -213,13 +213,21 @@ class TestEncryptionSaltKeysCheck(SimpleTestCase):
     # System check that ENCRYPTION_SALT_KEYS entries are valid Fernet keys (exactly 32 bytes). Each is
     # used directly as a Fernet key, so a wrong-length one would otherwise crash opaquely on first use.
 
-    @override_settings(ENCRYPTION_SALT_KEYS=["00beef0000beef0000beef0000beef00"])
+    @override_settings(ENCRYPTION_SALT_KEYS=["d" * 32])
     def test_single_valid_key_passes(self):
         assert check_encryption_salt_keys(None) == []
 
-    @override_settings(ENCRYPTION_SALT_KEYS=get_list("00beef0000beef0000beef0000beef00," + "a" * 32))
+    @override_settings(ENCRYPTION_SALT_KEYS=get_list("d" * 32 + "," + "a" * 32))
     def test_two_valid_keys_pass(self):
         assert check_encryption_salt_keys(None) == []
+
+    @override_settings(ENCRYPTION_SALT_KEYS=["00beef0000beef0000beef0000beef00"])
+    def test_publicly_known_default_key_warns(self):
+        # The shipped default is in the public repo — anything keyed with it (encrypted fields,
+        # masked warehouse columns) has no secrecy. Losing this warning would let self-hosted
+        # instances run security features on a known key, silently.
+        messages = check_encryption_salt_keys(None)
+        assert [m.id for m in messages] == ["posthog.W005"]
 
     @override_settings(ENCRYPTION_SALT_KEYS=get_list(",".join(["a" * 32, "b" * 32, "c" * 32])))
     def test_three_valid_keys_pass(self):
