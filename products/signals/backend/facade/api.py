@@ -1,6 +1,6 @@
 import enum
 import dataclasses
-from datetime import timedelta
+from datetime import datetime, timedelta
 from typing import get_args
 
 from django.conf import settings
@@ -571,3 +571,52 @@ def _fire_first_scout_run(team_id: int, skill_name: str) -> bool:
     except Exception:
         logger.warning("persona_scout_first_run_dispatch_failed", team_id=team_id, skill_name=skill_name, exc_info=True)
         return False
+
+
+@dataclasses.dataclass(frozen=True)
+class ScoutRunDigest:
+    """Per-scout outcome of the runs since a provisioning moment — feeds the Slack
+    first-patrol digest."""
+
+    skill_name: str
+    summary: str
+    notifications_sent: int
+    reports_filed: int
+
+
+def collect_scout_run_digests(
+    *, team_id: int, scout_config_ids: list[str], since_iso: str
+) -> list[ScoutRunDigest] | None:
+    """Digest rows for COMPLETED scout runs on the given configs since ``since_iso`` — one per
+    skill (newest run wins). ``None`` when no run has completed yet, so the caller can retry
+    later rather than reporting on nothing."""
+    from products.signals.backend.models import (
+        SignalScoutRun,  # noqa: PLC0415 — keeps the scout stack off the facade import path
+    )
+    from products.tasks.backend.facade import api as tasks_facade  # noqa: PLC0415 — same
+
+    since = datetime.fromisoformat(since_iso)
+    runs = list(
+        SignalScoutRun.objects.for_team(team_id)
+        .select_related("task_run")
+        .filter(scout_config_id__in=scout_config_ids, created_at__gte=since)
+        .order_by("created_at")
+    )
+    completed = [run for run in runs if run.task_run.status == tasks_facade.TaskRunStatus.COMPLETED]
+    if not completed:
+        return None
+    digests: list[ScoutRunDigest] = []
+    seen: set[str] = set()
+    for run in reversed(completed):
+        if run.skill_name in seen:
+            continue
+        seen.add(run.skill_name)
+        digests.append(
+            ScoutRunDigest(
+                skill_name=run.skill_name,
+                summary=run.summary or "",
+                notifications_sent=len(run.notifications or []),
+                reports_filed=len(run.emitted_report_ids or []) + len(run.edited_report_ids or []),
+            )
+        )
+    return list(reversed(digests))

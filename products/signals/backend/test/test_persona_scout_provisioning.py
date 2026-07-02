@@ -1,9 +1,14 @@
+from datetime import timedelta
+
 import pytest
 from posthog.test.base import BaseTest
 from unittest.mock import patch
 
-from products.signals.backend.facade.api import provision_persona_scouts
+from django.utils import timezone
+
+from products.signals.backend.facade.api import collect_scout_run_digests, provision_persona_scouts
 from products.signals.backend.models import SignalScoutConfig
+from products.signals.backend.test.test_scout_harness_api import _make_run
 from products.skills.backend.models.skills import LLMSkill
 
 CSM_SKILLS = [
@@ -93,3 +98,35 @@ class TestProvisionPersonaScouts(BaseTest):
         assert results[0].config_id is None
         assert not LLMSkill.objects.filter(team=self.team, name=skill, deleted=False).exists()
         assert not SignalScoutConfig.objects.for_team(self.team.id).filter(skill_name=skill).exists()
+
+
+class TestCollectScoutRunDigests(BaseTest):
+    def _digests(self, config_ids, since="2020-01-01T00:00:00"):
+        return collect_scout_run_digests(team_id=self.team.id, scout_config_ids=config_ids, since_iso=since)
+
+    def test_returns_none_until_a_run_completes(self):
+        run = _make_run(self.team, task_run_status="in_progress")
+        assert self._digests([str(run.scout_config_id)]) is None
+
+    def test_completed_runs_digest_with_newest_per_skill(self):
+        older = _make_run(self.team, task_run_status="completed", summary="old sweep")
+        newer = _make_run(
+            self.team,
+            task_run_status="completed",
+            summary="fresh sweep, all clear",
+            scout_config=older.scout_config,
+            notifications=[{"ts": "1"}],
+            emitted_report_ids=["r1"],
+        )
+        digests = self._digests([str(older.scout_config_id)])
+        assert digests is not None
+        assert len(digests) == 1
+        assert digests[0].summary == "fresh sweep, all clear"
+        assert digests[0].notifications_sent == 1
+        assert digests[0].reports_filed == 1
+        assert newer.skill_name == digests[0].skill_name
+
+    def test_runs_before_provisioning_are_excluded(self):
+        run = _make_run(self.team, task_run_status="completed", summary="pre-existing run")
+        future = (timezone.now() + timedelta(hours=1)).isoformat()
+        assert self._digests([str(run.scout_config_id)], since=future) is None
