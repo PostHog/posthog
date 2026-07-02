@@ -1,3 +1,4 @@
+from collections.abc import Sequence
 from datetime import UTC, date, datetime
 from typing import Any
 
@@ -154,7 +155,7 @@ def _page(n: int, start_id: int = 1) -> list[dict]:
 def _collect(
     manager: _FakeResumableManager,
     monkeypatch: Any,
-    responses: list[tuple[list[dict], int | None]],
+    responses: Sequence[tuple[list[dict], int | None]],
     endpoint: str = "leads",
     **kwargs: Any,
 ) -> tuple[list[dict], list[str]]:
