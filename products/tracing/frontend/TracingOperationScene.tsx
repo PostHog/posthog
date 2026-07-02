@@ -124,7 +124,7 @@ export function TracingOperationScene(): JSX.Element {
                             icon={<IconChevronLeft />}
                             onClick={() => setSampleIndex(sampleIndex - 1)}
                             disabledReason={
-                                samplesLoading ? 'Loading samples…' : sampleIndex === 0 ? 'First sample' : undefined
+                                samplesLoading ? 'Loading samples…' : sampleIndex <= 0 ? 'First sample' : undefined
                             }
                         />
                         <span className="text-sm whitespace-nowrap">

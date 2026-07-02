@@ -213,7 +213,7 @@ export const tracingOperationSceneLogic = kea<tracingOperationSceneLogicType>([
                 actions.setDurationSelection(selection)
             }
             const sample = parseInt(String(searchParams.sample), 10)
-            if (!isNaN(sample) && sample !== values.sampleIndex) {
+            if (!isNaN(sample) && sample >= 0 && sample !== values.sampleIndex) {
                 actions.setSampleIndex(sample)
             }
         },

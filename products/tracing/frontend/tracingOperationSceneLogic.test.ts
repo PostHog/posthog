@@ -1,3 +1,5 @@
+import { router } from 'kea-router'
+
 import api from 'lib/api'
 
 import { initKeaTests } from '~/test/init'
@@ -91,5 +93,10 @@ describe('tracingOperationSceneLogic', () => {
         await logic.asyncActions.fetchSampleTrace({ sample: logic.values.currentSample! })
         expect(getTraceSpy).toHaveBeenLastCalledWith('trace-2', expect.anything())
         expect(logic.values.selectedSpanId).toBe('span-2')
+    })
+
+    it('ignores a negative sample index restored from the URL', () => {
+        router.actions.push('/tracing/operation', { sample: '-1' })
+        expect(logic.values.sampleIndex).toBe(0)
     })
 })
