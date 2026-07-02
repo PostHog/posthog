@@ -80,6 +80,16 @@ function isNetworkError(error: unknown): boolean {
     return error instanceof TypeError
 }
 
+// A non-2xx response from the external status page reflects the status vendor's own uptime, not a
+// PostHog defect. Server errors (5xx — including Cloudflare's 52x connection-timeout family, e.g. 522)
+// and rate limiting (429) are transient and outside our control, so they're noise in error tracking
+// rather than real bugs. Treat them like the network errors above and skip capturing them. A client
+// error (4xx) can still signal a real integration problem on our side (e.g. a wrong URL), so those
+// are left to surface.
+function isTransientStatusPageError(status: number): boolean {
+    return status >= 500 || status === 429
+}
+
 let currentStatus: NormalizedStatus = DEFAULT_STATUS
 
 export function setIncidentStatus(status: NormalizedStatus): void {
@@ -236,16 +246,18 @@ export const incidentStatusLogic = kea<incidentStatusLogicType>([
                     // The incident.io status page is external (posthogstatus.com), so the fetch can fail
                     // for reasons outside our control: ad blockers, tracking-protection extensions, DNS
                     // hiccups, brief status-page outages. Swallow the failure (degrading to 'operational'
-                    // via the rawStatus selector). We report a reachable-but-erroring status page (non-2xx)
-                    // and unexpected errors, but skip the expected network-level failures so they don't
-                    // pollute error tracking as a recurring issue.
+                    // via the rawStatus selector). We skip the expected network-level failures and
+                    // transient status-page errors (5xx/429) so they don't pollute error tracking as a
+                    // recurring issue, but still report other unexpected non-2xx responses and errors.
                     try {
                         const response = await fetch(`${STATUS_PAGE_BASE}/api/v1/summary`)
                         if (!response.ok) {
-                            posthog.captureException(
-                                new Error(`incident.io summary fetch returned ${response.status}`),
-                                { status: response.status, statusText: response.statusText }
-                            )
+                            if (!isTransientStatusPageError(response.status)) {
+                                posthog.captureException(
+                                    new Error(`incident.io summary fetch returned ${response.status}`),
+                                    { status: response.status, statusText: response.statusText }
+                                )
+                            }
                             return null
                         }
                         const data: Summary = await response.json()
