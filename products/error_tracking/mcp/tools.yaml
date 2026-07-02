@@ -92,9 +92,9 @@ tools:
             idempotent: true
         title: List error tracking bypass rules
         description: >
-            List rate limit bypass rules for the current project. Exception events matching a rule skip the
-            project-wide and per-issue exception rate limits. Returns rules in evaluation order with their filters and
-            disabled state. Supports pagination with `limit` and `offset`.
+            List rate limit bypass rules for the current project. Exception events matching a rule skip the project-wide
+            and per-issue exception rate limits. Returns rules in evaluation order with their filters and disabled
+            state. Supports pagination with `limit` and `offset`.
     error-tracking-bypass-rules-partial-update:
         operation: error_tracking_bypass_rules_partial_update
         enabled: false
