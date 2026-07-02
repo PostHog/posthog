@@ -1,7 +1,5 @@
 import { GetObjectCommand, S3Client } from '@aws-sdk/client-s3'
 
-import { initAnonymizer } from '@posthog/replay-anonymizer'
-
 import { initializePrometheusLabels } from '~/common/api/router'
 import { defaultConfig, overrideConfigWithEnv } from '~/common/config/config'
 import { KafkaProducerRegistry } from '~/common/outputs/kafka-producer-registry'
@@ -116,7 +114,10 @@ export class IngestionSessionReplayMlMirrorServer implements NodeServer {
         const allow = await loadAllowLists(this.buildAllowListFetcher(s3Client, bucket))
         const useRustAnonymizer = this.config.SESSION_RECORDING_ML_RUST_ANONYMIZER
         if (useRustAnonymizer) {
-            // The native addon holds its own copy of the (immutable) allow lists; set it once at startup.
+            // Lazy require so the native addon is only loaded (and only needs to ship) when the flag is
+            // on; the addon holds its own copy of the immutable allow lists, set once at startup.
+            const { initAnonymizer } =
+                require('@posthog/replay-anonymizer') as typeof import('@posthog/replay-anonymizer')
             initAnonymizer(allow.entries())
             logger.info('🦀', 'ml_mirror_rust_anonymizer_enabled')
         }

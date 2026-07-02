@@ -5,7 +5,9 @@ use std::path::Path;
 use std::time::Instant;
 
 use common_replay_anonymizer::allow_lists::AllowLists;
-use common_replay_anonymizer::{anonymize_event_str, text::scrub_text, url::scrub_url_opts};
+use common_replay_anonymizer::{
+    anonymize_event_str, anonymize_message, text::scrub_text, url::scrub_url_opts,
+};
 use serde_json::Value;
 
 fn fixtures(name: &str) -> Vec<Value> {
@@ -65,6 +67,19 @@ fn event_fixtures() {
         let actual: Value = serde_json::from_str(&scrubbed).unwrap();
         assert_eq!(actual, case["expected"], "event case: {}", case["name"]);
     }
+}
+
+#[test]
+fn pathologically_deep_json_fails_closed_without_crashing() {
+    // Untrusted rrweb could nest deep enough to overflow the walker's stack; the depth guard must
+    // reject it as an error (message dropped) rather than recursing into a crash.
+    let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+    let mut deep = String::from("{\"w\":");
+    deep.push_str(&"[".repeat(4000));
+    deep.push_str(&"]".repeat(4000));
+    deep.push('}');
+    let mut bytes = deep.into_bytes();
+    assert!(anonymize_message(&allow, &mut bytes).is_err());
 }
 
 #[test]

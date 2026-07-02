@@ -70,9 +70,16 @@ pub fn as_usize(v: &OwnedValue) -> Option<usize> {
     }
 }
 
-/// Reads a small non-negative integer field (rrweb `type`/`source` enums).
+/// Reads a small non-negative integer field (rrweb `type`/`source` enums). Accepts an integral float
+/// too (JS `typeof x === 'number'` matches `2.0`), so a float-encoded discriminant still routes to the
+/// right scrubber rather than silently passing through unscrubbed.
 pub fn as_small_uint(v: &OwnedValue) -> Option<u8> {
     match v {
+        OwnedValue::Static(StaticNode::F64(f))
+            if f.fract() == 0.0 && *f >= 0.0 && *f <= u8::MAX as f64 =>
+        {
+            Some(*f as u8)
+        }
         OwnedValue::Static(StaticNode::I64(n)) => u8::try_from(*n).ok(),
         OwnedValue::Static(StaticNode::U64(n)) => u8::try_from(*n).ok(),
         _ => None,

@@ -38,16 +38,23 @@ function getRustAnonymizer(): RustAnonymizer {
  * Fail-closed: any addon error drops the message.
  */
 async function anonymizeWithRust(parsedMessage: ParsedMessageData): Promise<{ failed: boolean }> {
-    const eventsJson = JSON.stringify(parsedMessage.eventsByWindowId)
-    const result = await getRustAnonymizer().anonymize(eventsJson)
-    if (result.failed) {
-        logger.warn('🙈', 'anonymize_event_failed', { error: result.error ?? 'rust anonymizer failed' })
+    try {
+        const eventsJson = JSON.stringify(parsedMessage.eventsByWindowId)
+        const result = await getRustAnonymizer().anonymize(eventsJson)
+        if (result.failed) {
+            logger.warn('🙈', 'anonymize_event_failed', { error: result.error ?? 'rust anonymizer failed' })
+            return { failed: true }
+        }
+        if (result.data !== null) {
+            parsedMessage.eventsByWindowId = parseJSON(result.data) as Record<string, SnapshotEvent[]>
+        }
+        return { failed: false }
+    } catch (error) {
+        // A rejected promise (native panic, addon load failure, re-parse error) must fail closed —
+        // never let un-anonymized data reach the unencrypted bucket.
+        logger.warn('🙈', 'anonymize_event_failed', { error: String(error) })
         return { failed: true }
     }
-    if (result.data !== null) {
-        parsedMessage.eventsByWindowId = parseJSON(result.data) as Record<string, SnapshotEvent[]>
-    }
-    return { failed: false }
 }
 
 /**

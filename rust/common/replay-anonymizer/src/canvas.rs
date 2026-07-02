@@ -316,18 +316,23 @@ fn process_raw_buffer(
         return false;
     };
     let length = length_opt.unwrap_or_else(|| full.len().saturating_sub(start));
-    if length != expected || start + length > full.len() {
+    // `start`/`length` come from untrusted JSON numbers; guard against overflow (release builds don't
+    // check arithmetic) so a crafted pair can't produce a reversed/out-of-range slice panic.
+    let Some(end) = start.checked_add(length) else {
+        return false;
+    };
+    if length != expected || end > full.len() {
         return false;
     }
-    let rgba = b64().encode(&full[start..start + length]);
+    let rgba = b64().encode(&full[start..end]);
     let mut merged = full.clone();
-    for b in &mut merged[start..start + length] {
+    for b in &mut merged[start..end] {
         *b = 0;
     }
     if let Some(pix) = pixelate_raw_rgba(&rgba, w, h) {
         if let Ok(outbuf) = b64().decode(pix.as_bytes()) {
             if outbuf.len() == length {
-                merged[start..start + length].copy_from_slice(&outbuf);
+                merged[start..end].copy_from_slice(&outbuf);
             }
         }
     }

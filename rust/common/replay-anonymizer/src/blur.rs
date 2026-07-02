@@ -9,6 +9,24 @@ const DOWNSAMPLE_RATIO: f32 = 0.12;
 const BLUR_SIGMA: f32 = 2.34;
 const MAX_LONG_SIDE: f32 = 96.0;
 
+// Bounds on decoding fully untrusted image bytes: a tiny compressed image can declare huge dimensions
+// (a decompression bomb). Reject those to the blank/placeholder fallback rather than allocating GBs.
+const MAX_IMAGE_SIDE: u32 = 16_384;
+const MAX_IMAGE_ALLOC_BYTES: u64 = 256 * 1024 * 1024;
+
+fn decode_limited(bytes: &[u8]) -> Option<DynamicImage> {
+    let mut limits = image::Limits::default();
+    limits.max_image_width = Some(MAX_IMAGE_SIDE);
+    limits.max_image_height = Some(MAX_IMAGE_SIDE);
+    limits.max_alloc = Some(MAX_IMAGE_ALLOC_BYTES);
+    let reader = image::ImageReader::new(std::io::Cursor::new(bytes))
+        .with_guessed_format()
+        .ok()?;
+    let mut reader = reader;
+    reader.limits(limits);
+    reader.decode().ok()
+}
+
 /// A 1x1 transparent PNG: the fail-safe stand-in used when the real blur can't be produced.
 pub const BLANK_PNG_BASE64: &str =
     "iVBORw0KGgoAAAANSUhEUgAAAAEAAAABCAQAAAC1HAwCAAAAC0lEQVR42mNk+M9QDwADhgGAWjR9awAAAABJRU5ErkJggg==";
@@ -49,7 +67,7 @@ pub fn blur_image_data_uri(s: &str) -> Option<String> {
     let bytes = base64::engine::general_purpose::STANDARD
         .decode(payload.as_bytes())
         .ok()?;
-    let img = image::load_from_memory(&bytes).ok()?; // can't read the header -> None
+    let img = decode_limited(&bytes)?; // can't read the header / exceeds limits -> None
     let (w, h) = img.dimensions();
     let (tw, th) = target_dims(w, h);
     // Downsample (fit: fill) then Gaussian blur, mirroring the TS pipeline order.

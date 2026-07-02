@@ -32,12 +32,19 @@ fn bytes_to_latin1(bytes: &[u8]) -> String {
     bytes.iter().map(|&b| b as char).collect()
 }
 
+// Cap decompressed `cv` size so a gzip bomb can't OOM the worker thread.
+const MAX_DECOMPRESSED_BYTES: u64 = 256 * 1024 * 1024;
+
 fn decompress_string(s: &str) -> Result<OwnedValue> {
     let raw = latin1_to_bytes(s)?;
     let mut json = Vec::new();
     GzDecoder::new(&raw[..])
+        .take(MAX_DECOMPRESSED_BYTES + 1)
         .read_to_end(&mut json)
         .context("gunzip cv data")?;
+    if json.len() as u64 > MAX_DECOMPRESSED_BYTES {
+        bail!("cv payload decompresses beyond {MAX_DECOMPRESSED_BYTES} bytes");
+    }
     let value = simd_json::to_owned_value(&mut json).context("parse cv payload")?;
     Ok(value)
 }
@@ -153,4 +160,44 @@ pub fn scrub_compressed_mutation(allow: &AllowLists, event: &mut Object) -> Resu
     }
 
     Ok(changed)
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::json::{as_array, as_object, as_str};
+
+    #[test]
+    fn compressed_mutation_scrubs_then_re_gzips_and_preserves_subfields() {
+        let allow = AllowLists::new(["keep"], Vec::<String>::new());
+        let texts: OwnedValue =
+            simd_json::to_owned_value(&mut br#"[{"id":5,"value":"keep secret"}]"#.to_vec())
+                .unwrap();
+        let texts_gz = compress_to_string(&texts).unwrap();
+
+        let mut data = Object::default();
+        data.insert("source".to_string(), OwnedValue::Static(StaticNode::U64(0)));
+        data.insert("texts".to_string(), OwnedValue::String(texts_gz));
+        let mut event = Object::default();
+        event.insert("data".to_string(), OwnedValue::Object(Box::new(data)));
+
+        let changed = scrub_compressed_mutation(&allow, &mut event).unwrap();
+        assert!(changed);
+
+        let data = as_object(event.get("data").unwrap()).unwrap();
+        // Still a gzipped string, and it round-trips to the scrubbed value.
+        let out_gz = as_str(data.get("texts").unwrap()).unwrap();
+        let decoded = decompress_string(out_gz).unwrap();
+        let value = as_str(
+            as_object(&as_array(&decoded).unwrap()[0])
+                .unwrap()
+                .get("value")
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(value, "keep ******");
+        // Absent sub-fields stay absent (not resurrected as empty).
+        assert!(!data.contains_key("attributes"));
+        assert!(!data.contains_key("adds"));
+    }
 }

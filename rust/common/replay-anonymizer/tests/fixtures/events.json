@@ -185,6 +185,46 @@
     }
   },
   {
+    "name": "canvas fillText args are text-scrubbed",
+    "allow": { "text": ["hello"], "url": [] },
+    "event": {
+      "type": 3,
+      "data": { "source": 9, "id": 1, "type": 0, "commands": [{ "property": "fillText", "args": ["Hello secret", 10, 20] }] }
+    },
+    "expected": {
+      "type": 3,
+      "data": { "source": 9, "id": 1, "type": 0, "commands": [{ "property": "fillText", "args": ["Hello ******", 10, 20] }] }
+    }
+  },
+  {
+    "name": "data-* attributes: free text scrubbed, single token left to email pass",
+    "allow": { "text": ["call"], "url": [] },
+    "event": {
+      "type": 2,
+      "data": {
+        "node": {
+          "type": 0,
+          "childNodes": [
+            { "type": 2, "tagName": "div", "attributes": { "data-note": "call bob", "data-id": "x1y2" }, "childNodes": [] }
+          ]
+        },
+        "initialOffset": { "top": 0, "left": 0 }
+      }
+    },
+    "expected": {
+      "type": 2,
+      "data": {
+        "node": {
+          "type": 0,
+          "childNodes": [
+            { "type": 2, "tagName": "div", "attributes": { "data-note": "call ***", "data-id": "x1y2" }, "childNodes": [] }
+          ]
+        },
+        "initialOffset": { "top": 0, "left": 0 }
+      }
+    }
+  },
+  {
     "name": "unknown event type passes through unchanged",
     "allow": { "text": [], "url": [] },
     "event": { "type": 0, "data": { "href": "https://example.com/secret" } },

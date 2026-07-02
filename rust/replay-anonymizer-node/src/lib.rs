@@ -32,15 +32,20 @@ fn anonymize(mut cx: FunctionContext) -> JsResult<JsPromise> {
     let json = cx.argument::<JsString>(0)?.value(&mut cx);
     let promise = cx
         .task(move || -> Result<Option<String>, String> {
-            let guard = ALLOW
-                .read()
-                .map_err(|_| "allow lists lock poisoned".to_string())?;
-            let allow = guard.as_ref().ok_or_else(|| {
-                "anonymizer not initialized (call initAnonymizer first)".to_string()
-            })?;
-            let mut bytes = json.into_bytes();
-            common_replay_anonymizer::anonymize_message(allow, &mut bytes)
-                .map_err(|e| e.to_string())
+            // Contain any panic on untrusted input so it fails closed (rejected promise -> the caller
+            // drops the message) rather than risking process abort.
+            std::panic::catch_unwind(std::panic::AssertUnwindSafe(|| {
+                let guard = ALLOW
+                    .read()
+                    .map_err(|_| "allow lists lock poisoned".to_string())?;
+                let allow = guard.as_ref().ok_or_else(|| {
+                    "anonymizer not initialized (call initAnonymizer first)".to_string()
+                })?;
+                let mut bytes = json.into_bytes();
+                common_replay_anonymizer::anonymize_message(allow, &mut bytes)
+                    .map_err(|e| e.to_string())
+            }))
+            .unwrap_or_else(|_| Err("panic while anonymizing".to_string()))
         })
         .promise(|mut cx, result: Result<Option<String>, String>| {
             let obj = cx.empty_object();
