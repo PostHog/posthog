@@ -87,6 +87,23 @@ describe('ticketActivityDescriber', () => {
         expect(getTextContent(result)).toContain('Max AI')
     })
 
+    it('describes a workflow-driven snooze clear as "removed snooze", not "snooze expired"', () => {
+        const result = ticketActivityDescriber(
+            ticketLogItem({
+                detail: {
+                    merge: null,
+                    name: 'Ticket #2043',
+                    changes: [snoozeCleared],
+                    trigger: { job_type: 'hog_flow', job_id: 'flow-123', payload: { name: 'Escalation workflow' } },
+                },
+            })
+        )
+        const text = getTextContent(result)
+        expect(text).toContain('Escalation workflow')
+        expect(text).toContain('removed snooze')
+        expect(text).not.toContain('snooze expired')
+    })
+
     it('describes a manual unsnooze (user present) as "removed snooze"', () => {
         const result = ticketActivityDescriber(
             ticketLogItem({

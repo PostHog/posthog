@@ -105,11 +105,13 @@ const ticketActionsMapping: Record<
             }
         }
         if (before && !after) {
-            // The same set→null change happens for a manual unsnooze and the system
-            // wake task auto-expiring the snooze — tell them apart by actor. Only claim
-            // "reopened" when the expiry actually flipped the ticket back to open; a
-            // snooze on an already-resolved ticket clears without reopening it.
-            if (logItem?.user) {
+            // The same set→null change happens for a deliberate unsnooze and the system
+            // wake task auto-expiring the snooze — tell them apart by actor. A workflow
+            // clearing the snooze is deliberate too (it has a trigger but no user), so only
+            // a change with neither a user nor a trigger is a genuine auto-expiry. Only claim
+            // "reopened" when the expiry actually flipped the ticket back to open; a snooze
+            // on an already-resolved ticket clears without reopening it.
+            if (logItem?.user || logItem?.detail?.trigger?.job_type === 'hog_flow') {
                 return { description: [<>removed snooze</>] }
             }
             const reopened = (logItem?.detail?.changes ?? []).some((c) => c.field === 'status' && c.after === 'open')
