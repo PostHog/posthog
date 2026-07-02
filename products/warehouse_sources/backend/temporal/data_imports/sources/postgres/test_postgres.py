@@ -1114,6 +1114,11 @@ class TestIsConnectionDroppedError:
             # retrying internally. Same transient pooler class as EDBHANDLEREXITED; recovers on
             # reconnect once a session returns a connection to the pool.
             psycopg.errors.InternalError_("(ECHECKOUTRETRIES) failed to check out a connection after multiple retries"),
+            # Supavisor also surfaces a closed upstream backend connection as an XX000 InternalError_
+            # with no "(ECODE)" prefix — "Internal error (authenticated): :closed". The pooler's
+            # upstream connection was closed (idle cull, failover, restart); same transient class,
+            # recovers on reconnect. Matched on the full phrase so it can't catch unrelated XX000s.
+            psycopg.errors.InternalError_("Internal error (authenticated): :closed"),
             # Supavisor reports a transient timeout reaching the upstream backend as a
             # ConnectionFailure (08006, an OperationalError) carrying the Erlang-tuple reason
             # "{:error, :etimedout}" — a transient drop the in-process recovery must catch.
@@ -1151,8 +1156,9 @@ class TestIsConnectionDroppedError:
             ValueError("server conn crashed?"),
             Exception("server conn crashed?"),
             # A genuine XX000 internal error that isn't the Supavisor pooler drop must stay
-            # non-recoverable — the InternalError_ match is scoped to the known pooler codes
-            # ("(EDBHANDLEREXITED)" / "(ECHECKOUTRETRIES)"), not every XX000.
+            # non-recoverable — the InternalError_ match is scoped to the known pooler signatures
+            # ("(EDBHANDLEREXITED)" / "(ECHECKOUTRETRIES)" / "internal error (authenticated): :closed"),
+            # not every XX000.
             psycopg.errors.InternalError_("XX000: internal error: something went wrong"),
             # libpq's bare English "Connection refused" is a permanent wrong-host/port
             # misconfiguration (non-retryable in source.py) and must NOT be confused with Supavisor's

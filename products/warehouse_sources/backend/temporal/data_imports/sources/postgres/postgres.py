@@ -226,9 +226,17 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
 #   - ECHECKOUTRETRIES ("failed to check out a connection after multiple retries"): the pooler
 #     couldn't hand us a backend connection after retrying internally — its pool was momentarily
 #     exhausted or every backend was busy. A slot frees the moment another session returns one.
-# Both are the same transient class as the libpq drops above and recover on reconnect. Genuine
+#   - "Internal error (authenticated): :closed": the pooler's upstream backend connection was
+#     closed (idle cull, failover, restart) — this variant carries no "(ECODE)" prefix, so it's
+#     matched on the full "internal error (authenticated): :closed" phrase to keep it from
+#     catching unrelated XX000s. Same transient class; recovers on reconnect.
+# All are the same transient class as the libpq drops above and recover on reconnect. Genuine
 # XX000 internal errors (data corruption, etc.) carry a different code and stay non-recoverable.
-_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS = ("edbhandlerexited", "echeckoutretries")
+_POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
+    "edbhandlerexited",
+    "echeckoutretries",
+    "internal error (authenticated): :closed",
+)
 
 # Connect-time capacity errors: the source refuses a *new* connection because it has hit a
 # connection limit, not because anything is misconfigured. PostgreSQL raises "sorry, too many
