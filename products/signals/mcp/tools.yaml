@@ -465,11 +465,11 @@ tools:
             server already committed it, re-sending the same request within the run returns the original report instead
             of a duplicate. This is a safety net, not a license to retry freely: a request with any changed field is a
             new report, so still use `inbox-reports-list` to find a prior report and `signals-scout-edit-report` to
-            update it rather than re-authoring. `suggested_reviewers` is the
-            primary way a report reaches a human (each a `github_login` and/or a PostHog `user_uuid` resolved
-            server-side); for a concrete, fixable issue, passing `repository` + `priority` + `suggested_reviewers` also
-            opens a draft PR automatically (autostart, custom_agent parity); omit them to just surface the report.
-            Opt-in: only available to scouts that list `emit_report` in their skill's `allowed_tools`.
+            update it rather than re-authoring. `suggested_reviewers` is the primary way a report reaches a human (each
+            a `github_login` and/or a PostHog `user_uuid` resolved server-side); for a concrete, fixable issue, passing
+            `repository` + `priority` + `suggested_reviewers` also opens a draft PR automatically (autostart,
+            custom_agent parity); omit them to just surface the report. Opt-in: only available to scouts that list
+            `emit_report` in their skill's `allowed_tools`.
     signals-scout-emit-signal:
         operation: signals_scout_emit_signal
         enabled: true
