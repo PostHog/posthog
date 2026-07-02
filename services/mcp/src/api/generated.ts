@@ -60167,6 +60167,7 @@ export namespace Schemas {
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
      * * `InstanceSetting` - InstanceSetting
+     * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
      * @minLength 1
      */
@@ -60248,6 +60249,7 @@ export namespace Schemas {
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
       InstanceSetting: 'InstanceSetting',
+      SignalReport: 'SignalReport',
       SignalScoutConfig: 'SignalScoutConfig',
     } as const;
 
@@ -60315,6 +60317,7 @@ export namespace Schemas {
      * * `ProductTour` - ProductTour
      * * `Ticket` - Ticket
      * * `InstanceSetting` - InstanceSetting
+     * * `SignalReport` - SignalReport
      * * `SignalScoutConfig` - SignalScoutConfig
      */
     export type ActivityLogListScopesItem = typeof ActivityLogListScopesItem[keyof typeof ActivityLogListScopesItem];
@@ -60384,6 +60387,7 @@ export namespace Schemas {
       ProductTour: 'ProductTour',
       Ticket: 'Ticket',
       InstanceSetting: 'InstanceSetting',
+      SignalReport: 'SignalReport',
       SignalScoutConfig: 'SignalScoutConfig',
     } as const;
 
