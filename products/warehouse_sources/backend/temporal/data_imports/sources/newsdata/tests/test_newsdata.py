@@ -10,8 +10,8 @@ from parameterized import parameterized
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.newsdata import newsdata
 from products.warehouse_sources.backend.temporal.data_imports.sources.newsdata.newsdata import (
+    NewsDataError,
     NewsDataResumeConfig,
-    NewsDataRetryableError,
     _build_query_params,
     _page_url,
     _raise_for_error_body,
@@ -86,7 +86,7 @@ class TestPageUrl:
 class TestRaiseForErrorBody:
     def test_error_status_raises(self) -> None:
         # NewsData reports hard failures (unsupported param, quota exhausted) in a 200-body envelope.
-        with pytest.raises(NewsDataRetryableError):
+        with pytest.raises(NewsDataError):
             _raise_for_error_body(
                 {"status": "error", "results": {"message": "quota exceeded", "code": "TooManyRequests"}},
                 "https://newsdata.io/api/1/latest",
@@ -122,7 +122,11 @@ def _collect(manager: _FakeResumableManager, monkeypatch: Any, endpoint: str, pa
 
     rows: list[dict] = []
     for batch in get_rows(
-        api_key="pub_test", endpoint=endpoint, logger=MagicMock(), resumable_source_manager=manager, **kwargs
+        api_key="pub_test",
+        endpoint=endpoint,
+        logger=MagicMock(),
+        resumable_source_manager=manager,  # type: ignore[arg-type]
+        **kwargs,
     ):
         rows.extend(batch)
     return rows
@@ -160,7 +164,7 @@ class TestGetRowsPagination:
                 api_key="pub_test",
                 endpoint="sources",
                 logger=MagicMock(),
-                resumable_source_manager=_FakeResumableManager(),
+                resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
             )
         )
 
@@ -260,7 +264,9 @@ class TestFetchPageRetries:
         unauthorized = MagicMock()
         unauthorized.status_code = 401
         unauthorized.ok = False
-        unauthorized.raise_for_status.side_effect = requests.HTTPError("401 Client Error: Unauthorized")
+        unauthorized.raise_for_status.side_effect = requests.HTTPError(
+            "401 Client Error: Unauthorized", response=_response_with_status(401)
+        )
 
         session = MagicMock()
         session.get.return_value = unauthorized

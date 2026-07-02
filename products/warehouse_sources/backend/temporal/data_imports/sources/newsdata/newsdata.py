@@ -27,6 +27,10 @@ class NewsDataRetryableError(Exception):
     """Raised for 429/5xx responses so tenacity retries with backoff."""
 
 
+class NewsDataError(Exception):
+    """Raised for permanent API failures (unsupported param, quota exhausted) that must not retry."""
+
+
 @dataclasses.dataclass
 class NewsDataResumeConfig:
     # Opaque `nextPage` cursor token to resume pagination from. None means "start at the first page".
@@ -86,7 +90,7 @@ def _raise_for_error_body(payload: dict[str, Any], page_url: str) -> None:
     if payload.get("status") == "error":
         results = payload.get("results")
         message = results.get("message") if isinstance(results, dict) else str(results)
-        raise NewsDataRetryableError(f"NewsData API returned error status: {message} (url={page_url})")
+        raise NewsDataError(f"NewsData API returned error status: {message} (url={page_url})")
 
 
 @retry(
@@ -124,7 +128,7 @@ def validate_credentials(api_key: str) -> bool:
     # needs a valid key. An invalid or missing key returns HTTP 401.
     url = f"{NEWSDATA_BASE_URL}/sources"
     try:
-        response = make_tracked_session().get(url, headers=_get_headers(api_key), timeout=10)
+        response = make_tracked_session(redact_values=(api_key,)).get(url, headers=_get_headers(api_key), timeout=10)
         return response.status_code == 200
     except Exception:
         return False
@@ -150,7 +154,8 @@ def get_rows(
     config = NEWSDATA_ENDPOINTS[endpoint]
     headers = _get_headers(api_key)
     # One session reused across every page so urllib3 keeps the connection alive between requests.
-    session = make_tracked_session()
+    # `redact_values` masks the API key anywhere it surfaces in logged/captured telemetry.
+    session = make_tracked_session(redact_values=(api_key,))
 
     params = _build_query_params(config, should_use_incremental_field, db_incremental_field_last_value)
 
