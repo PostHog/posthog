@@ -70,6 +70,9 @@ class CspReportBuffer:
         self._sender: threading.Thread | None = None
         # Sender threads don't survive fork, so remember which process started ours.
         self._sender_pid: int | None = None
+        # atexit doesn't deduplicate handlers, so register once per process even
+        # if the sender thread gets restarted.
+        self._atexit_pid: int | None = None
 
     def enqueue(self, events: list[dict[str, Any]], *, token: str) -> None:
         """Add events to the buffer without ever blocking the caller.
@@ -100,13 +103,20 @@ class CspReportBuffer:
             self._sender_pid = os.getpid()
             self._sender = threading.Thread(target=self._run, name="csp-report-buffer-sender", daemon=True)
             self._sender.start()
-            atexit.register(self._drain_on_exit)
+            if self._atexit_pid != os.getpid():
+                atexit.register(self._drain_on_exit)
+                self._atexit_pid = os.getpid()
 
     def _run(self) -> None:
         while True:
-            batch = self._collect()
-            if batch:
-                self._flush(batch)
+            # A crashed sender would silently strand queued events until the next
+            # enqueue restarts it — never let an exception escape the loop.
+            try:
+                batch = self._collect()
+                if batch:
+                    self._flush(batch)
+            except Exception:
+                logger.exception("csp_report_buffer_sender_error")
 
     def _collect(self) -> list[tuple[str, dict[str, Any]]]:
         """Wait up to ``flush_interval`` for work, then drain up to ``flush_max_events``."""
@@ -143,7 +153,9 @@ class CspReportBuffer:
                 logger.warning("csp_report_buffer_flush_failed", batch_size=len(events), error=str(exc))
 
     def _drain_on_exit(self) -> None:
-        # Best-effort final flush, bounded to one batch so shutdown can't hang.
+        # Best-effort final flush of at most one batch. The capture call itself can
+        # still take its full timeout/retry budget — that has to fit inside the
+        # pod's termination grace, it is not bounded here.
         items: list[tuple[str, dict[str, Any]]] = []
         while len(items) < self.flush_max_events:
             try:
