@@ -55,14 +55,17 @@ describe('maxSettingsLogic', () => {
         }
     )
 
-    it('lets non-HTTP errors propagate so real regressions stay visible', async () => {
-        // A programming error (not an ApiError) should surface as a failure, not be silently swallowed.
-        jest.spyOn(api.coreMemory, 'list').mockRejectedValueOnce(new TypeError('boom'))
+    it('falls back to null without throwing on a browser-level fetch failure', async () => {
+        // `TypeError: Failed to fetch` (offline, aborted, or ad-blocked requests) is not an ApiError,
+        // so a narrow `instanceof ApiError` catch would let it escape as an uncaught frontend error.
+        // Core memory is optional UI state, so it must resolve as success with null instead.
+        jest.spyOn(api.coreMemory, 'list').mockRejectedValueOnce(new TypeError('Failed to fetch'))
         logic = maxSettingsLogic()
         logic.mount()
 
         await expectLogic(logic)
-            .toDispatchActions(['loadCoreMemoryFailure'])
+            .toDispatchActions(['loadCoreMemorySuccess'])
+            .toNotHaveDispatchedActions(['loadCoreMemoryFailure'])
             .toMatchValues({ coreMemory: null, isLoading: false })
     })
 })

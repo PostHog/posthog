@@ -3,7 +3,6 @@ import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
 import api from 'lib/api'
-import { ApiError } from 'lib/api-error'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 
 import { CoreMemory } from '~/types'
@@ -51,14 +50,12 @@ export const maxSettingsLogic = kea<maxSettingsLogicType>([
                 try {
                     const response = await api.coreMemory.list()
                     return response.results[0] || null
-                } catch (error) {
-                    // Non-OK responses (e.g. 403 when lacking access to the environment, or upstream
-                    // timeouts) shouldn't surface as uncaught frontend errors — fall back to empty state.
-                    // Anything that isn't an HTTP error (a real regression in the API client) still propagates.
-                    if (error instanceof ApiError) {
-                        return null
-                    }
-                    throw error
+                } catch {
+                    // Core memory is optional UI state, so any failure loading it — an HTTP error
+                    // (e.g. 403 when lacking environment access) or a browser-level network failure
+                    // (`TypeError: Failed to fetch` from offline/aborted/blocked requests) — should
+                    // fall back to empty state rather than surface as an uncaught frontend error.
+                    return null
                 }
             },
             updateCoreMemory: async (data: CoreMemoryForm) => {
