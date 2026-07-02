@@ -46,7 +46,17 @@ dev      ai_events  roles/shared
 prod-us  ai_events  roles/shared roles/ai_events/shared roles/ai_events/prod
 prod-eu  ai_events  roles/shared roles/ai_events/shared roles/ai_events/prod
 
+# AUX satellite: auxiliary tables (error tracking, hog invocations, message assets,
+# property values, web/marketing preaggregated). Local models the MSK ingest variant;
+# prod (WarpStream + ingestion_warnings + custom_metrics) is a dump-only follow-up.
+# roles/aux/local is listed before roles/shared to work around PostHog/chschema#80
+# (a dictionary is dropped when its layer is composed after another layer).
+local    aux        roles/aux/local roles/shared
+
+# SESSIONS satellite: the local node runs only the shared query_log_archive path
+# (session tables are prod-only), so it composes roles/shared alone. prod session /
+# sessionsv3 tables are a dump-only follow-up.
+local    sessions   roles/shared
+
 # prod-us  data       roles/shared roles/data/shared roles/data/prod-us
 # prod-us  endpoints  roles/shared
-# prod-us  aux        roles/shared
-# prod-us  sessions   roles/shared
