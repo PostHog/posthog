@@ -506,7 +506,7 @@ const RETRY_BLOCKING_STATUSES: ProxyRecord['status'][] = ['waiting', 'issuing', 
 
 function DiagnosticCheckRow({ check, record }: { check: DiagnosticCheckResult; record: ProxyRecord }): JSX.Element {
     const { retryRecord } = useActions(proxyLogic)
-    const retryInFlight = RETRY_BLOCKING_STATUSES.includes(record.status)
+    const retryBlocked = RETRY_BLOCKING_STATUSES.includes(record.status)
 
     return (
         <div className="border rounded p-3 flex flex-col gap-2 bg-surface-secondary">
@@ -533,8 +533,8 @@ function DiagnosticCheckRow({ check, record }: { check: DiagnosticCheckResult; r
                             <LemonButton
                                 type="secondary"
                                 size="small"
-                                loading={retryInFlight}
-                                disabledReason={retryInFlight ? 'A retry is already in progress' : undefined}
+                                loading={retryBlocked}
+                                disabledReason={retryBlocked ? 'A retry is already in progress' : undefined}
                                 onClick={() => retryRecord(record.id)}
                             >
                                 Retry
