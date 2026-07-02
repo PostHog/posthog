@@ -572,6 +572,7 @@ export async function runSession(rev: AgentRevision, session: AgentSession, deps
                     toolCallId,
                     args,
                     policy,
+                    maxOpenApprovals: rev.spec.limits.max_open_approvals,
                 })
                 // `principal` + Slack: post Approve/Reject buttons in-thread
                 // (best-effort; skip a deduped re-queue).

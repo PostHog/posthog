@@ -49,12 +49,19 @@ function makeSession(over: Partial<AgentSession> = {}): AgentSession {
 }
 
 /**
- * Minimal stub: queueApprovalResult only calls `upsertQueued` + `findLatestByArgs`
- * on the happy path. The PG-backed wire path is covered by approval-gated e2e.
+ * Minimal stub: queueApprovalResult only calls `upsertQueued`,
+ * `findLatestByArgs`, and `countQueuedBySession`. The PG-backed wire path is
+ * covered by approval-gated e2e. `upserts` records writes so cap cases can
+ * assert no row was created; `queuedCount` / `previous` arm the cap branch.
  */
-function makeStubStore(): ApprovalStore {
+function makeStubStore(
+    opts: { queuedCount?: number; previous?: ApprovalRequest | null } = {}
+): ApprovalStore & { upserts: UpsertApprovalRequestInput[] } {
+    const upserts: UpsertApprovalRequestInput[] = []
     return {
+        upserts,
         async upsertQueued(input: UpsertApprovalRequestInput): Promise<UpsertApprovalRequestResult> {
+            upserts.push(input)
             return {
                 request: {
                     id: input.id,
@@ -82,9 +89,12 @@ function makeStubStore(): ApprovalStore {
             }
         },
         async findLatestByArgs(): Promise<ApprovalRequest | null> {
-            return null
+            return opts.previous ?? null
         },
-    } as unknown as ApprovalStore
+        async countQueuedBySession(): Promise<number> {
+            return opts.queuedCount ?? 0
+        },
+    } as unknown as ApprovalStore & { upserts: UpsertApprovalRequestInput[] }
 }
 
 const POLICY: ApprovalPolicy = {
@@ -110,6 +120,7 @@ describe('queueApprovalResult: model-facing envelope', () => {
             toolCallId: 'tc-1',
             args: { note: 'apples' },
             policy: POLICY,
+            maxOpenApprovals: 10,
         })
         const envelope = parseEnvelope((out.content[0] as { text: string }).text)
         expect(envelope.approval).toMatchObject({
@@ -131,6 +142,7 @@ describe('queueApprovalResult: model-facing envelope', () => {
             toolCallId: 'tc-1',
             args: { note: 'apples' },
             policy: { ...POLICY, type: 'agent' },
+            maxOpenApprovals: 10,
         })
         const envelope = parseEnvelope((out.content[0] as { text: string }).text)
         expect(envelope.approval).toMatchObject({
@@ -163,10 +175,62 @@ describe('queueApprovalResult: model-facing envelope', () => {
             toolCallId: 'tc-1',
             args: { note: 'apples' },
             policy: POLICY,
+            maxOpenApprovals: 10,
         })
         const envelope = parseEnvelope((out.content[0] as { text: string }).text)
         expect(envelope.approval.approver_hint).not.toBeUndefined()
         expect(envelope.approval.approval_url).not.toBeUndefined()
+    })
+
+    // Per-session cap (`spec.limits.max_open_approvals`): a model looping on
+    // a gated tool with distinct args must not flood approvers.
+    it('returns approval_budget_exhausted and writes no row at the cap', async () => {
+        const store = makeStubStore({ queuedCount: 10 })
+        const out = await queueApprovalResult({
+            approvals: store,
+            session: makeSession(),
+            revisionId: TEST_REV_ID,
+            turn: 1,
+            toolName: '@posthog/memory-write',
+            toolCallId: 'tc-cap',
+            args: { note: 'one too many' },
+            policy: POLICY,
+            maxOpenApprovals: 10,
+        })
+        const body = JSON.parse((out.content[0] as { text: string }).text) as {
+            error?: { code: string; message: string }
+        }
+        expect(body.error?.code).toBe('approval_budget_exhausted')
+        expect(body.error?.message).toContain('10')
+        // No row written, and no `queued` details → the driver skips the
+        // approval card + Slack buttons for this result.
+        expect(store.upserts).toHaveLength(0)
+        expect(out.details?.queued).toBeUndefined()
+        expect(out.terminate).toBe(false)
+    })
+
+    it('an identical re-ask past the cap still dedupes onto its existing queued row', async () => {
+        const previous = {
+            state: 'queued',
+            decision_reason: null,
+        } as ApprovalRequest
+        const store = makeStubStore({ queuedCount: 10, previous })
+        const out = await queueApprovalResult({
+            approvals: store,
+            session: makeSession(),
+            revisionId: TEST_REV_ID,
+            turn: 2,
+            toolName: '@posthog/memory-write',
+            toolCallId: 'tc-dedupe',
+            args: { note: 'same ask again' },
+            policy: POLICY,
+            maxOpenApprovals: 10,
+        })
+        // The upsert dedupes server-side; the point is the cap didn't block
+        // the re-ask (which doesn't grow the approver queue).
+        const envelope = parseEnvelope((out.content[0] as { text: string }).text)
+        expect(envelope.approval.state).toBe('queued')
+        expect(store.upserts).toHaveLength(1)
     })
 })
 

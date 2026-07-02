@@ -63,6 +63,15 @@ export function approvalMarkerRequestId(msg: ConversationMessage): string | null
 /**
  * Gated-tool `execute`: upsert the queued row, return the synthetic queued
  * result. `terminate` is false — the model reads the envelope and continues.
+ *
+ * Capped at `maxOpenApprovals` open (queued) rows per session
+ * (`spec.limits.max_open_approvals`): a model looping on a gated tool with
+ * distinct args would otherwise flood approvers — args-hash dedupe only
+ * collapses identical calls. An identical re-ask dedupes onto its existing
+ * queued row and is always allowed; only a call that would insert a NEW row
+ * counts against the cap. At the cap the model receives a synthetic
+ * `approval_budget_exhausted` error (no row written, no approver ping) and
+ * continues the turn.
  */
 export async function queueApprovalResult(input: {
     approvals: ApprovalStore
@@ -74,10 +83,35 @@ export async function queueApprovalResult(input: {
     toolCallId: string
     args: Record<string, unknown>
     policy: ApprovalPolicy
+    maxOpenApprovals: number
 }): Promise<AgentToolResult<ToolResultDetails>> {
     const argsHash = hashCanonicalArgs(input.args)
     const previous = await input.approvals.findLatestByArgs(input.session.id, input.toolName, argsHash)
     const lastAssistant = findLastAssistant(input.session.conversation)
+
+    if (previous?.state !== 'queued') {
+        const open = await input.approvals.countQueuedBySession(input.session.id)
+        if (open >= input.maxOpenApprovals) {
+            return {
+                content: [
+                    {
+                        type: 'text',
+                        text: JSON.stringify({
+                            error: {
+                                code: 'approval_budget_exhausted',
+                                message:
+                                    `this session already has ${open} approval request(s) awaiting a decision ` +
+                                    `(limit ${input.maxOpenApprovals}). The call was NOT queued. Do not re-issue ` +
+                                    `gated calls; tell the user to decide the pending requests first.`,
+                            },
+                        }),
+                    },
+                ],
+                details: {},
+                terminate: false,
+            }
+        }
+    }
 
     const upsert = await input.approvals.upsertQueued({
         id: randomUUID(),
