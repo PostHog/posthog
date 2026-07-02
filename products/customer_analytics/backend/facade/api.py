@@ -719,7 +719,7 @@ def _definition_source_view(definition: CustomPropertyDefinition) -> contracts.C
     """The source bound to this definition (reverse one-to-one ``source``), or None. List reads
     ``select_related("source")`` so this stays a cache hit; detail reads pay one extra query."""
     try:
-        source = definition.source  # type: ignore[attr-defined]
+        source = definition.source
     except CustomPropertySource.DoesNotExist:
         return None
     return _to_custom_property_source_view(source)

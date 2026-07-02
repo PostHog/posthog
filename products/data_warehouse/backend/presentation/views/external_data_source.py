@@ -106,6 +106,7 @@ from products.warehouse_sources.backend.facade.api import (
     validate_source_prefix,
 )
 from products.warehouse_sources.backend.facade.models import (
+    CustomOAuth2Integration,
     DataWarehouseTable,
     ExternalDataJob,
     ExternalDataSchema,
@@ -946,9 +947,29 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             existing_hosts = manifest_request_hosts(existing_job_inputs.get("manifest_json"))
             manifest_host_added = bool(new_hosts - existing_hosts)
 
+        # An integration-backed OAuth2 custom source carries no secret in job_inputs — the client secret +
+        # tokens live in the CustomOAuth2Integration row and are injected at sync time, keyed by the
+        # non-secret `auth_oauth2_integration_id`. So `has_preserved_credentials` never sees a preserved
+        # secret for it, yet a host change would still redirect that injected token to the new host. A source
+        # that still has a bound integration row is preserving that credential — and clearing the job_inputs
+        # pointer does NOT unbind the row, so keying off the pointer alone let an editor clear it, move the
+        # host, then re-add the pointer to redirect the still-bound token. Gate on the actual row binding too.
+        source_has_bound_integration = source_type_model == ExternalDataSourceType.CUSTOM and (
+            CustomOAuth2Integration.objects.for_team(instance.team_id).filter(external_data_source=instance).exists()
+        )
+        existing_integration_id = existing_job_inputs.get("auth_oauth2_integration_id")
+        preserved_oauth2_integration = source_has_bound_integration or (
+            bool(existing_integration_id)
+            and incoming_job_inputs.get("auth_oauth2_integration_id", existing_integration_id)
+            == existing_integration_id
+        )
+
         if connection_host_changed or ssh_tunnel_changed or manifest_host_added:
             gate_sensitive_fields = sensitive_fields - _CREATION_ONLY_SECRET_FIELDS
-            if has_preserved_credentials(existing_job_inputs, incoming_job_inputs, gate_sensitive_fields):
+            preserved_credentials = has_preserved_credentials(
+                existing_job_inputs, incoming_job_inputs, gate_sensitive_fields
+            )
+            if preserved_credentials or preserved_oauth2_integration:
                 if ssh_tunnel_changed:
                     raise ValidationError("Changing the SSH tunnel requires re-entering your database credentials.")
                 if manifest_host_added:
@@ -1042,6 +1063,17 @@ class ExternalDataSourceSerializers(UserAccessControlSerializerMixin, serializer
             if isinstance(source, (PostgresSource, MySQLSource)):
                 credentials_valid, credentials_error = source.validate_credentials_for_access_method(
                     cast(Any, source_config), instance.team_id, instance.access_method
+                )
+            elif isinstance(source, CustomSource):
+                # Pass the source being updated so an integration-backed OAuth2 source can only validate
+                # with the integration bound to it — not another source's, whose token the probe would
+                # otherwise mint and send to the submitted manifest host. owner_user_id additionally gates
+                # an as-yet-unbound integration to its creator.
+                credentials_valid, credentials_error = source.validate_credentials(
+                    source_config,
+                    instance.team_id,
+                    source_id=str(instance.pk),
+                    owner_user_id=self.context["request"].user.id,
                 )
             else:
                 credentials_valid, credentials_error = source.validate_credentials(source_config, instance.team_id)
@@ -2569,6 +2601,13 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
             credentials_valid, credentials_error = source.validate_credentials_for_access_method(
                 cast(Any, source_config), self.team_id, access_method
             )
+        elif isinstance(source, CustomSource):
+            # Schema discovery for an as-yet-uncreated source: an integration-backed manifest may only use
+            # an unbound integration owned by the requester, or the probe could send another source's token
+            # to the submitted host.
+            credentials_valid, credentials_error = source.validate_credentials(
+                source_config, self.team_id, owner_user_id=self.request.user.id
+            )
         else:
             credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)
         if not credentials_valid:
@@ -2776,6 +2815,7 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
                 self.team_id,
                 serializer.validated_data["resource_name"],
                 serializer.validated_data["limit"],
+                owner_user_id=self.request.user.id,
             )
         except ValueError as e:
             # ManifestValidationError (a ValueError) for manifest/graph/URL issues, or a plain
@@ -2980,6 +3020,12 @@ class ExternalDataSourceViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMixi
         if isinstance(source, (PostgresSource, MySQLSource)):
             credentials_valid, credentials_error = source.validate_credentials_for_access_method(
                 cast(Any, source_config), self.team_id, access_method
+            )
+        elif isinstance(source, CustomSource):
+            # Create-time validation for an integration-backed manifest may only use an unbound integration
+            # owned by the requester, so the probe can't send another source's token to the submitted host.
+            credentials_valid, credentials_error = source.validate_credentials(
+                source_config, self.team_id, owner_user_id=self.request.user.id
             )
         else:
             credentials_valid, credentials_error = source.validate_credentials(source_config, self.team_id)

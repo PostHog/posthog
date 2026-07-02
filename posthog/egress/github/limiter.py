@@ -11,23 +11,22 @@ Importing this module registers the policy as a side effect — import it (direc
 
 from django.conf import settings
 
-from posthog.rate_limiting.outbound import get_outbound_rate_limiter
-from posthog.rate_limiting.policies import Priority, RatePolicy, register_policy
+from posthog.egress.limiter.outbound import get_outbound_rate_limiter
+from posthog.egress.limiter.policies import Priority, RatePolicy, register_policy
 
 GITHUB_DOMAIN = "github"
 
-# No reserves are active yet. A reserve only helps once a higher-priority lane actually gates through
-# the limiter — and today the only callers are warehouse (BATCH) and the job-logs worker (NORMAL),
-# both deferrable background jobs. The CRITICAL lane (auth, token refresh, webhook CRUD) still calls
-# GitHub without acquiring, so reserving headroom for it would just hard-cap the two real callers
-# below GitHub's actual budget with no beneficiary (and silently drop the job-logs ceiling). The
-# priority *mechanism* is wired end to end (callers already declare BATCH/NORMAL), so activating
-# reserves when CRITICAL is gated is a one-line change here — e.g. {Priority.BATCH: 0.30} to shed
-# warehouse polling first. Until then the shared budget alone (13.5k under GitHub's 15k) is the guard.
+# No reserves are active yet — a deliberate default, not a limitation. Every GitHub call now gates
+# through the limiter: user-facing traffic at CRITICAL (integration, visual review, conversations,
+# error tracking), warehouse at BATCH, the job-logs worker at NORMAL. So a BATCH reserve would now
+# have a real beneficiary — it would shed deferrable warehouse polling before critical traffic as the
+# budget fills. It stays empty until the grant/deny metrics show the shared budget (13.5k under
+# GitHub's 15k) actually getting tight; turning it on is a one-line change here — e.g.
+# {Priority.BATCH: 0.30} to shed warehouse polling first.
 _RESERVE: dict[Priority, float] = {}
 
 # Default under GitHub's real 15k/hr ceiling so the reactive backoff (GitHubRateLimitError in
-# posthog/models/integration.py) absorbs drift between our local count and GitHub's actual
+# posthog/egress/github/transport.py) absorbs drift between our local count and GitHub's actual
 # counter — clock skew, multi-process races, and untracked PAT traffic on the same account.
 _DEFAULT_HOURLY_BUDGET = 13_500
 
