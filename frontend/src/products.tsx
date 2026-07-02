@@ -156,6 +156,7 @@ export const productScenes: Record<string, () => Promise<any>> = {
     Skill: () => import('../../products/skills/frontend/LLMSkillScene'),
     SlackTaskContext: () => import('../../products/tasks/frontend/SlackTaskContextScene'),
     Tracing: () => import('../../products/tracing/frontend/TracingScene'),
+    TracingOperation: () => import('../../products/tracing/frontend/TracingOperationScene'),
     UserInterviews: () => import('../../products/user_interviews/frontend/UserInterviews'),
     UserInterview: () => import('../../products/user_interviews/frontend/UserInterview'),
     UserInterviewResponse: () => import('../../products/user_interviews/frontend/UserInterviewResponse'),
@@ -305,6 +306,7 @@ export const productRoutes: Record<string, [string, string]> = {
     '/skills/:name': ['Skill', 'skill'],
     '/slack-task-context': ['SlackTaskContext', 'slackTaskContext'],
     '/tracing': ['Tracing', 'tracing'],
+    '/tracing/operation': ['TracingOperation', 'tracingOperation'],
     '/user_research': ['UserInterviews', 'userInterviews'],
     '/user_research/:topicId/response/:responseId': ['UserInterviewResponse', 'userInterviewResponse'],
     '/user_research/:id': ['UserInterview', 'userInterview'],
@@ -872,6 +874,14 @@ export const productConfiguration: Record<string, any> = {
         description: 'Monitor and analyze distributed traces to understand service performance and debug issues.',
         iconType: 'tracing',
     },
+    TracingOperation: {
+        name: 'Operation',
+        projectBased: true,
+        layout: 'app-container',
+        activityScope: 'Tracing',
+        description: 'Latency distribution and sample traces for a single operation.',
+        iconType: 'tracing',
+    },
     UserInterviews: {
         name: 'User research',
         projectBased: true,
@@ -1313,6 +1323,8 @@ export const productUrls = {
     slackTaskContext: (): string => '/slack-task-context',
     toolbarLaunch: (): string => '/toolbar',
     tracing: (): string => '/tracing',
+    tracingOperation: (serviceName: string, spanName: string): string =>
+        combineUrl('/tracing/operation', { service: serviceName, name: spanName }).url,
     userInterviews: (): string => '/user_research',
     userInterview: (id: string): string => `/user_research/${id}`,
     userInterviewResponse: (topicId: string, responseId: string): string =>
@@ -2237,7 +2249,7 @@ export const getTreeItemsProducts = (): FileSystemImport[] => [
         flag: FEATURE_FLAGS.TRACING,
         tags: ['alpha'],
         sceneKey: 'Tracing',
-        sceneKeys: ['Tracing'],
+        sceneKeys: ['Tracing', 'TracingOperation'],
     },
     {
         path: 'User research',

@@ -119,14 +119,20 @@ def run_duration_histogram_query(
     service_names: list[str] | None = None,
     status_codes: list[int] | None = None,
     filter_group: PropertyGroupFilter | None = None,
+    root_spans: bool = True,
 ) -> TraceSpansQueryResponse | CachedTraceSpansQueryResponse:
-    """Run the per-bucket trace-duration histogram (root spans, stacked by service)."""
+    """Run the per-bucket duration histogram, stacked by service.
+
+    Root spans by default (a distribution of traces); `root_spans=False` buckets every
+    matching span — pair with a span name filter for operation-scoped distributions.
+    """
     return _run_duration_histogram_query(
         team=team,
         date_range=date_range,
         service_names=service_names,
         status_codes=status_codes,
         filter_group=filter_group,
+        root_spans=root_spans,
     )
 
 

@@ -223,7 +223,7 @@ export interface _TracingCountResponseApi {
     traceCount: number
 }
 
-export interface _TracingTimeseriesQueryBodyApi {
+export interface _TracingDurationHistogramQueryBodyApi {
     /** Date range for the query. Defaults to last hour. */
     dateRange?: _TracingDateRangeApi
     /** Filter by service names. */
@@ -232,11 +232,13 @@ export interface _TracingTimeseriesQueryBodyApi {
     statusCodes?: number[]
     /** Property filters for the query. */
     filterGroup?: _SpanPropertyFilterApi[]
+    /** When true (default), bucket root-span durations only — a distribution of traces. When false, bucket every matching span — used with a span name filter for operation-scoped distributions. */
+    rootSpans?: boolean
 }
 
-export interface _TracingTimeseriesRequestApi {
-    /** The sparkline / duration-histogram query to execute. */
-    query: _TracingTimeseriesQueryBodyApi
+export interface _TracingDurationHistogramRequestApi {
+    /** The duration-histogram query to execute. */
+    query: _TracingDurationHistogramQueryBodyApi
 }
 
 export interface _HasSpansResponseApi {
