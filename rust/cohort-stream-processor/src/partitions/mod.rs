@@ -14,7 +14,7 @@ pub mod rebalance;
 pub mod router;
 pub mod shuffle_message;
 
-pub use backpressure::{Backpressure, PauseDeltas};
+pub use backpressure::Backpressure;
 pub use follower::{Follower, FollowerSet, PartitionMirror};
 pub use offset_tracker::{MarkOutcome, OffsetTracker};
 pub use partitioner::{

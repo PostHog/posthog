@@ -43,9 +43,13 @@ pub enum RouteError {
 /// backpressure — the events are returned to be held and retried — not a drop.
 #[derive(Debug)]
 pub enum SendOutcome {
-    /// Delivered. `max_offset` is the highest event offset (for the dispatch ceiling); `count` the
-    /// number of messages delivered.
-    Sent { max_offset: i64, count: usize },
+    /// Delivered. `max_offset` is the highest event offset — used to raise the dispatch ceiling, and
+    /// `None` for a batch that carries no events (no offset to ceiling on); `count` the number of
+    /// messages delivered.
+    Sent {
+        max_offset: Option<i64>,
+        count: usize,
+    },
     /// Channel full: carries the un-sent sub-batch to hold, pause, and redispatch. No drop recorded.
     Full(Vec<ShuffleMessage>),
     /// No worker registered (never assigned, or revoked): dropped and recorded; Kafka replays.
@@ -205,19 +209,13 @@ impl PartitionRouter {
             return SendOutcome::NoWorker;
         };
         let count = batch.len();
-        // Events-only path: every message carries an offset, so `max` is `Some` for a non-empty batch.
+        // `None` for a batch carrying no events. Carried through as-is rather than defaulted to 0, so a
+        // future non-Event caller can't fabricate a ceiling; `route_and_fold` only marks when `Some`.
         let max_offset = batch.iter().filter_map(ShuffleMessage::event_offset).max();
-        debug_assert!(
-            max_offset.is_some(),
-            "try_route_batch routes event messages only",
-        );
         match sender.try_send(batch) {
             Ok(()) => {
                 self.emit_channel_depth(partition, &sender);
-                SendOutcome::Sent {
-                    max_offset: max_offset.unwrap_or_default(),
-                    count,
-                }
+                SendOutcome::Sent { max_offset, count }
             }
             Err(TrySendError::Full(returned)) => {
                 counter!(PARTITION_CHANNEL_FULL_TOTAL, "partition" => partition.to_string())
@@ -508,13 +506,13 @@ mod tests {
 
         match outcomes.remove(&5) {
             Some(SendOutcome::Sent { max_offset, count }) => {
-                assert_eq!((max_offset, count), (3, 2));
+                assert_eq!((max_offset, count), (Some(3), 2));
             }
             other => panic!("expected Sent for 5, got {other:?}"),
         }
         match outcomes.remove(&6) {
             Some(SendOutcome::Sent { max_offset, count }) => {
-                assert_eq!((max_offset, count), (2, 1));
+                assert_eq!((max_offset, count), (Some(2), 1));
             }
             other => panic!("expected Sent for 6, got {other:?}"),
         }
