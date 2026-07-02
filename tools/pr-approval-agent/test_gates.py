@@ -2,7 +2,13 @@
 
 import pytest
 
-from gates import detect_deny_categories, detect_title_scrutiny_flags, is_size_exempt, substantive_size
+from gates import (
+    dependency_manifests_without_lockfile,
+    detect_deny_categories,
+    detect_title_scrutiny_flags,
+    is_size_exempt,
+    substantive_size,
+)
 
 # ── False positives that should NOT trigger ──────────────────────
 
@@ -69,6 +75,18 @@ from gates import detect_deny_categories, detect_title_scrutiny_flags, is_size_e
         pytest.param(
             ["products/warehouse_sources/backend/temporal/data_imports/sources/stripe/source.py"],
             id="stripe-connector-not-billing",
+        ),
+        pytest.param(
+            ["frontend/package.json"],
+            id="manifest-without-lockfile-not-deps",
+        ),
+        pytest.param(
+            ["pyproject.toml"],
+            id="pyproject-without-lockfile-not-deps",
+        ),
+        pytest.param(
+            ["common/esbuilder/tsconfig.json"],
+            id="tsconfig-not-deps",
         ),
     ],
 )
@@ -148,14 +166,24 @@ def test_no_false_positive(files: list[str]) -> None:
             id="billing-file",
         ),
         pytest.param(
-            ["package.json"],
+            ["pnpm-lock.yaml"],
             "deps_toolchain",
-            id="package-json",
+            id="pnpm-lockfile",
         ),
         pytest.param(
-            ["pyproject.toml"],
+            ["rust/Cargo.lock"],
             "deps_toolchain",
-            id="pyproject-toml",
+            id="cargo-lockfile",
+        ),
+        pytest.param(
+            ["requirements.txt"],
+            "deps_toolchain",
+            id="requirements-pins-directly",
+        ),
+        pytest.param(
+            ["frontend/package.json", "pnpm-lock.yaml"],
+            "deps_toolchain",
+            id="manifest-with-lockfile",
         ),
     ],
 )
@@ -298,3 +326,38 @@ def test_substantive_size_counts_only_non_exempt_files() -> None:
 
     assert lines == 90
     assert file_count == 2
+
+
+# ── Dependency manifests without a lockfile ──────────────────────
+
+
+@pytest.mark.parametrize(
+    "files, expected",
+    [
+        pytest.param(
+            ["frontend/package.json", "frontend/src/app.ts"],
+            ["frontend/package.json"],
+            id="manifest-only-flagged",
+        ),
+        pytest.param(
+            ["frontend/package.json", "pnpm-lock.yaml"],
+            [],
+            id="lockfile-present-hard-denies-instead",
+        ),
+        pytest.param(
+            ["common/esbuilder/tsconfig.json"],
+            ["common/esbuilder/tsconfig.json"],
+            id="tsconfig-flagged",
+        ),
+        pytest.param(
+            ["posthog/api/insight.py"],
+            [],
+            id="no-manifests",
+        ),
+    ],
+)
+def test_dependency_manifests_without_lockfile(files: list[str], expected: list[str]) -> None:
+    # The deny-list no longer blocks manifest-only changes, so this helper is
+    # what routes them to the reviewer's scripts/hooks guard — if it breaks,
+    # a package.json scripts edit sails through with no scrutiny at all.
+    assert dependency_manifests_without_lockfile(files) == expected

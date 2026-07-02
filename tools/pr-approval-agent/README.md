@@ -139,19 +139,24 @@ Sub-classified by risk to calibrate scrutiny:
 
 Deny-listed categories where even a small diff can have high blast radius:
 
-| Category           | Patterns                                                                                          |
-| ------------------ | ------------------------------------------------------------------------------------------------- |
-| **auth**           | auth, authentication, authorize, login, signup, oauth, saml, sso, permission, oidc, credential, … |
-| **crypto_secrets** | crypto, encrypt, decrypt, secret, key, cert, signing, .env, vault                                 |
-| **migrations**     | migrations/, migrate, backfill, schema_change                                                     |
-| **infra_cicd**     | terraform, k8s, helm, dockerfile, .github/workflows, iam, cloudflare, etc.                        |
-| **billing**        | billing, payment, stripe, invoice, pricing                                                        |
-| **public_api**     | openapi, api_schema, swagger, public_api                                                          |
-| **deps_toolchain** | package.json, requirements.txt, pyproject.toml, pnpm-lock, uv.lock, Cargo.toml, go.mod, etc.      |
+| Category           | Patterns                                                                                              |
+| ------------------ | ----------------------------------------------------------------------------------------------------- |
+| **auth**           | auth, authentication, authorize, login, signup, oauth, saml, sso, permission, oidc, credential, …     |
+| **crypto_secrets** | crypto, encrypt, decrypt, secret, key, cert, signing, .env, vault                                     |
+| **migrations**     | migrations/, migrate, backfill, schema_change                                                         |
+| **infra_cicd**     | terraform, k8s, helm, dockerfile, .github/workflows, iam, cloudflare, etc.                            |
+| **billing**        | billing, payment, stripe, invoice, pricing                                                            |
+| **public_api**     | openapi, api_schema, swagger, public_api                                                              |
+| **deps_toolchain** | lockfiles (pnpm-lock, uv.lock, Cargo.lock, go.sum, …), requirements.txt, Makefile, Dockerfile, .nvmrc |
 
 Notably absent, on purpose (calibrated against ~440 deny-listed PRs over 120 days):
 `subscription` (means scheduled insight deliveries here, not payments) and
 `routing`/`deploy` (every match was app-level routing or docs, never infra).
+Dependency _manifests_ (package.json, pyproject.toml, tsconfig, Cargo.toml,
+go.mod) don't hard-deny either: without a lockfile change they can't pull in
+third-party code. They're kept out of the T0 fast path, and the reviewer
+prompt must REFUSE if manifest scripts or lifecycle hooks changed — those
+execute in CI.
 Data warehouse connector sources (`products/warehouse_sources/.../sources/`)
 are exempt from the **auth** and **billing** categories — connector code
 legitimately does OAuth and talks to the Stripe API without touching

@@ -244,3 +244,20 @@ def test_persistent_bot_eyes_yields_wait_not_refuse(monkeypatch: pytest.MonkeyPa
 
     output = pipeline.to_dict()
     assert output["final_verdict"] == "WAIT"
+
+
+def test_dep_manifest_pr_gets_t1_scrutiny_not_t0(monkeypatch: pytest.MonkeyPatch) -> None:
+    # package.json is .json so the allow-list would classify it T0; manifest
+    # scripts execute in CI, so these PRs must keep full T1 review now that
+    # the deps deny-list no longer blocks them.
+    monkeypatch.setattr(review_pr, "_POSTHOG_AVAILABLE", False)
+
+    pipeline = Pipeline(pr_number=1, repo="PostHog/posthog")
+    pr = _fake_pr(head_sha="abc123")
+    pr.files = [{"filename": "frontend/package.json", "additions": 2, "deletions": 1, "status": "M"}]
+    pipeline.pr = pr
+
+    pipeline._classify()
+
+    assert pipeline.classification["tier"] == "T1-agent"
+    assert pipeline.classification["dep_manifests_without_lockfile"] == ["frontend/package.json"]

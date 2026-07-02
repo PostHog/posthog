@@ -31,6 +31,7 @@ from gates import (
     MAX_LINES,
     assign_tier,
     classify_files,
+    dependency_manifests_without_lockfile,
     detect_deny_categories,
     detect_ownership,
     detect_title_scrutiny_flags,
@@ -311,7 +312,10 @@ class Pipeline:
         safe_migrations = safe_migration_files(pr.check_runs, file_paths)
         deny = detect_deny_categories(file_paths, ignored_files=safe_migrations)
         title_flags = [c for c in detect_title_scrutiny_flags(pr.title) if c not in deny]
-        allow_only = is_allow_listed_only(file_paths)
+        # Dependency manifests are .json/.toml so they'd otherwise ride the
+        # allow-list into the T0 fast path — but manifest scripts execute in
+        # CI, so they get full T1 scrutiny even though they no longer deny.
+        allow_only = is_allow_listed_only(file_paths) and not has_dependency_changes(file_paths)
         is_test = test_only(categories)
         ownership_rules = parse_codeowners_soft(CODEOWNERS_SOFT)
         ownership = detect_ownership(file_paths, ownership_rules)
@@ -347,6 +351,7 @@ class Pipeline:
             "allow_listed_only": allow_only,
             "is_test_only": is_test,
             "has_dep_changes": has_dependency_changes(file_paths),
+            "dep_manifests_without_lockfile": dependency_manifests_without_lockfile(file_paths),
             "has_ci_changes": has_ci_workflow_changes(file_paths),
             "ownership": ownership,
         }
