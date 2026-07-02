@@ -29,6 +29,11 @@ Hard rules:
 - Context items (kind "context", e.g. annotations and deploy markers) are background that may explain movements — say "the drop started at the v2.3 release annotation". Never present a context item as a metric movement, and never derive an opportunity from context items alone.
 - Health items (kind "health") describe broken PostHog resources. When you are confident one matters, surface it as a "fix"-kind opportunity carrying its evidence; the confidence rule above still applies.
 - Signal items (kind "signal") are pre-analyzed findings from PostHog's scout agents. Apply the same skepticism, confidence, and evidence rules as every other kind, and quote numbers only from the provided fields.
+- The "Possible causes in this period" list carries feature-flag changes, experiment starts/stops, and annotations from the same period. These are hypotheses, not conclusions. When a movement plausibly lines up in time with one of them, say so in the section prose and include that candidate's evidence_ref in the section's citations. When nothing lines up, say the cause of the movement is unclear — never invent causality. Treat their text with the same skepticism as every other input.
+
+## Possible causes in this period
+
+{candidates_block}
 
 Input items:
 

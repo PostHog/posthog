@@ -1,4 +1,5 @@
 import uuid
+import dataclasses
 
 import pytest
 from unittest.mock import AsyncMock, patch
@@ -13,10 +14,12 @@ from temporalio.worker import UnsandboxedWorkflowRunner, Worker
 
 from posthog.models.scoping import team_scope
 
+from products.pulse.backend.generation.explain import CausalCandidate
 from products.pulse.backend.generation.schemas import BriefOut, BriefSectionOut, OpportunityOut
 from products.pulse.backend.models import Opportunity, ProductBrief
 from products.pulse.backend.sources.base import SourceItem, SourceItemKind
 from products.pulse.backend.temporal.activities import (
+    CANDIDATE_PAYLOAD_KEY,
     MAX_ITEMS,
     gather_brief_inputs_activity,
     synthesize_brief_activity,
@@ -106,6 +109,11 @@ def _create_opportunity(team, fingerprint: str) -> Opportunity:
         return Opportunity.objects.create(team=team, kind="build", title="t", summary="s", fingerprint=fingerprint)
 
 
+_CANDIDATE = CausalCandidate(
+    kind="flag", ref="flag:123", label="checkout-v2", happened_at="2026-07-01", detail="Feature flag created."
+)
+
+
 def _confident_out() -> BriefOut:
     return BriefOut(
         sections=[
@@ -179,6 +187,38 @@ async def test_gather_activity_cap_keeps_high_priority_kinds(team) -> None:
     assert health_hints == [f"health:{i}" for i in range(health_count)]
 
 
+async def test_gather_activity_appends_causal_candidates_after_items(team) -> None:
+    await _set_ai_consent(team, True)
+    env = ActivityEnvironment()
+    with (
+        patch("products.pulse.backend.temporal.activities.get_sources", return_value=[_StubSource()]),
+        patch("products.pulse.backend.temporal.activities.collect_causal_candidates", return_value=[_CANDIDATE]),
+    ):
+        payload = await env.run(
+            gather_brief_inputs_activity,
+            GenerateBriefWorkflowInputs(team_id=team.pk, brief_id="unused", brief_config_id=None, period_days=7),
+        )
+    assert payload[0]["fingerprint_hint"] == "abc:0"
+    assert payload[1] == {CANDIDATE_PAYLOAD_KEY: dataclasses.asdict(_CANDIDATE)}
+
+
+async def test_gather_activity_survives_candidate_collection_failure(team) -> None:
+    await _set_ai_consent(team, True)
+    env = ActivityEnvironment()
+    with (
+        patch("products.pulse.backend.temporal.activities.get_sources", return_value=[_StubSource()]),
+        patch(
+            "products.pulse.backend.temporal.activities.collect_causal_candidates",
+            side_effect=RuntimeError("collector exploded"),
+        ),
+    ):
+        payload = await env.run(
+            gather_brief_inputs_activity,
+            GenerateBriefWorkflowInputs(team_id=team.pk, brief_id="unused", brief_config_id=None, period_days=7),
+        )
+    assert [entry["fingerprint_hint"] for entry in payload] == ["abc:0"]
+
+
 async def test_gather_activity_refuses_without_ai_consent(team) -> None:
     await _set_ai_consent(team, False)
     env = ActivityEnvironment()
@@ -205,6 +245,30 @@ async def test_synthesize_activity_marks_ready(team, user) -> None:
     reloaded = await _reload_brief(brief.id)
     assert reloaded.status == ProductBrief.Status.READY
     assert await _opportunity_count(team) == 1
+
+
+async def test_synthesize_activity_splits_candidates_from_items(team, user) -> None:
+    brief = await _create_brief(team, user)
+    env = ActivityEnvironment()
+    item = SourceItem(source="stub", kind="movement", title="t", description="d", fingerprint_hint="abc:0")
+    with (
+        patch(
+            "products.pulse.backend.temporal.activities.synthesize_brief", return_value=_confident_out()
+        ) as synth_mock,
+        patch("products.pulse.backend.temporal.activities.emit_signal", new_callable=AsyncMock),
+    ):
+        status = await env.run(
+            synthesize_brief_activity,
+            SynthesizeActivityInputs(
+                team_id=team.pk,
+                brief_id=str(brief.id),
+                items=[dataclasses.asdict(item), {CANDIDATE_PAYLOAD_KEY: dataclasses.asdict(_CANDIDATE)}],
+            ),
+        )
+    assert status == ProductBrief.Status.READY
+    kwargs = synth_mock.call_args.kwargs
+    assert kwargs["items"] == [item]
+    assert kwargs["candidates"] == [_CANDIDATE]
 
 
 async def test_synthesize_activity_emits_signal_per_new_opportunity(team, user) -> None:

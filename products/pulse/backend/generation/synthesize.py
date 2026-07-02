@@ -4,6 +4,7 @@ from posthog.models.team import Team
 from posthog.models.user import User
 from posthog.sync import database_sync_to_async
 
+from products.pulse.backend.generation.explain import CausalCandidate
 from products.pulse.backend.generation.prompts import SYNTHESIZE_PROMPT, sanitize_for_prompt
 from products.pulse.backend.generation.schemas import KIND_DESCRIPTIONS, BriefOut
 from products.pulse.backend.models import BriefConfig
@@ -46,10 +47,29 @@ def _render_items(items: list[SourceItem]) -> str:
     return "\n".join(blocks)
 
 
+def _render_candidates(candidates: list[CausalCandidate]) -> str:
+    # Labels and details carry untrusted free text (flag keys, experiment names, annotation
+    # content) — same render-boundary sanitization as items.
+    if not candidates:
+        return "None identified."
+    return "\n".join(
+        f"- [{candidate.kind}] {sanitize_for_prompt(candidate.label)} — {candidate.happened_at} — "
+        f"{sanitize_for_prompt(candidate.detail)} (evidence_ref: {sanitize_for_prompt(candidate.ref)})"
+        for candidate in candidates
+    )
+
+
 async def synthesize_brief(
-    *, team: Team, user: User, config: BriefConfig | None, items: list[SourceItem], period_days: int
+    *,
+    team: Team,
+    user: User,
+    config: BriefConfig | None,
+    items: list[SourceItem],
+    period_days: int,
+    candidates: list[CausalCandidate] | None = None,
 ) -> BriefOut:
-    # Quiet periods must cost ~nothing: no items, no LLM call.
+    # Quiet periods must cost ~nothing: no items, no LLM call. Candidates alone are not a
+    # brief — they only ever explain movements, so they can't rescue an empty period.
     if not items:
         return BriefOut(sections=[], opportunities=[])
     rendered = SYNTHESIZE_PROMPT.format(
@@ -57,6 +77,7 @@ async def synthesize_brief(
         period_days=period_days,
         max_opportunities=MAX_OPPORTUNITIES,
         kind_descriptions=", ".join(f'"{kind}" = {description}' for kind, description in KIND_DESCRIPTIONS.items()),
+        candidates_block=_render_candidates(candidates or []),
         items_block=_render_items(items),
     )
     llm = MaxChatOpenAI(

@@ -8,6 +8,7 @@ from temporalio.exceptions import ApplicationError
 from posthog.models.team import Team
 from posthog.sync import database_sync_to_async
 
+from products.pulse.backend.generation.explain import CausalCandidate, collect_causal_candidates
 from products.pulse.backend.generation.persist import opportunity_fingerprint, persist_brief_output
 from products.pulse.backend.generation.schemas import BriefOut
 from products.pulse.backend.generation.synthesize import synthesize_brief
@@ -27,6 +28,10 @@ logger = structlog.get_logger(__name__)
 # chatty low-priority source can't crowd out actionable items.
 MAX_ITEMS = 50
 KIND_PRIORITY: dict[str, int] = {"health": 0, "signal": 1, "movement": 2, "context": 3}
+
+# Causal candidates ride in the gather payload under this marker key so the workflow definition
+# stays untouched (no new stage, replay-safe rollout); the synthesize activity splits them out.
+CANDIDATE_PAYLOAD_KEY = "causal_candidate"
 
 
 def _get_team(team_id: int) -> Team:
@@ -73,9 +78,22 @@ async def gather_brief_inputs_activity(inputs: GenerateBriefWorkflowInputs) -> l
     if failed_sources and not items:
         # Nothing gathered AND sources broke: that's a failure to retry, not a quiet week.
         raise ApplicationError(f"brief gather produced no items and {failed_sources} source(s) failed")
+    candidates: list[CausalCandidate] = []
+    if items:  # a quiet week short-circuits synthesis, so candidates would be dead payload
+        try:
+            # Once per brief, not per movement — the synthesize prompt lines candidates up with
+            # movements itself. Best-effort: a collector failure degrades to no explanations.
+            candidates = await database_sync_to_async(collect_causal_candidates, thread_sensitive=False)(
+                team, inputs.period_days
+            )
+        except Exception:
+            logger.exception("pulse_causal_candidates_failed", team_id=team.id)
     # Stable sort: highest-priority kinds survive the cap, source order preserved within a kind.
     items.sort(key=lambda item: KIND_PRIORITY.get(item.kind, len(KIND_PRIORITY)))
-    return [dataclasses.asdict(item) for item in items[:MAX_ITEMS]]
+    return [
+        *(dataclasses.asdict(item) for item in items[:MAX_ITEMS]),
+        *({CANDIDATE_PAYLOAD_KEY: dataclasses.asdict(candidate)} for candidate in candidates),
+    ]
 
 
 @temporalio.activity.defn
@@ -83,13 +101,17 @@ async def synthesize_brief_activity(inputs: SynthesizeActivityInputs) -> str:
     brief = await database_sync_to_async(_get_brief, thread_sensitive=False)(inputs.team_id, inputs.brief_id)
     if brief.created_by is None:
         raise ApplicationError("brief has no creating user for LLM attribution", non_retryable=True)
-    items = [SourceItem(**item) for item in inputs.items]
+    items = [SourceItem(**entry) for entry in inputs.items if CANDIDATE_PAYLOAD_KEY not in entry]
+    candidates = [
+        CausalCandidate(**entry[CANDIDATE_PAYLOAD_KEY]) for entry in inputs.items if CANDIDATE_PAYLOAD_KEY in entry
+    ]
     out = await synthesize_brief(
         team=brief.team,
         user=brief.created_by,
         config=brief.config,
         items=items,
         period_days=brief.period_days,
+        candidates=candidates,
     )
     created = await database_sync_to_async(persist_brief_output, thread_sensitive=False)(
         brief=brief, out=out, items=items
