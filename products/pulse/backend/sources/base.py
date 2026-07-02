@@ -5,8 +5,8 @@ from posthog.models.team import Team
 
 from products.pulse.backend.models import BriefConfig
 
-SourceItemKind = Literal["movement", "context", "health"]
-EvidenceType = Literal["insight", "dashboard", "annotation", "alert", "subscription"]
+SourceItemKind = Literal["movement", "context", "health", "signal"]
+EvidenceType = Literal["insight", "dashboard", "annotation", "alert", "subscription", "signal_report"]
 
 
 class EvidenceRef(TypedDict):
