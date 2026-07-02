@@ -65,6 +65,9 @@ DEFAULT_LIMIT = 100
 # genuinely transient cuts.
 SUBSCRIPTION_PAGE_LIMIT = 20
 
+# Small write batch so each chunk (and its durable `earliest` watermark) commits well inside the heartbeat window, letting a large backfill make progress every attempt.
+STRIPE_CHUNK_SIZE = 1000
+
 _JSON_WHITESPACE = frozenset(b" \t\n\r\f\v")
 _OPEN_BRACE = ord("{")
 _CLOSE_BRACE = ord("}")
@@ -266,6 +269,27 @@ class StripeResumeConfig:
     starting_after: str
 
 
+def _batch_and_yield(
+    objects: Any,
+    batcher: Batcher,
+    incremental_field_name: Optional[str] = None,
+    stop_at_or_before: Optional[int] = None,
+):
+    """Batch raw Stripe objects into pa.Tables and yield them, stopping early once we reach an object
+    we already have (`stop_at_or_before`). Yielding in small batches lets the pipeline write and
+    persist the incremental watermark frequently, so progress survives a heartbeat timeout or redeploy."""
+    for obj in objects:
+        if stop_at_or_before is not None and incremental_field_name is not None:
+            if obj[incremental_field_name] <= stop_at_or_before:
+                break
+        batcher.batch(obj)
+        while batcher.should_yield():
+            yield batcher.get_table()
+
+    while batcher.should_yield(include_incomplete_chunk=True):
+        yield batcher.get_table()
+
+
 def _build_resources(
     client: StripeClient, logger: Optional[FilteringBoundLogger] = None
 ) -> dict[str, Union[StripeResource, StripeNestedResource]]:
@@ -352,7 +376,7 @@ def get_rows(
     default_params = {"limit": DEFAULT_LIMIT}
     resources = _build_resources(client, logger=logger)
 
-    batcher = Batcher(logger=logger)
+    batcher = Batcher(logger=logger, chunk_size=STRIPE_CHUNK_SIZE)
 
     if endpoint in WEBHOOK_ONLY_ENDPOINTS:
         # Webhook-only resources (e.g. Discount) have no Stripe list endpoint — Discount
@@ -474,7 +498,7 @@ def get_rows(
                 f"created[lt]": db_incremental_field_earliest_value,
             },
         )
-        yield from stripe_objects.auto_paging_iter()
+        yield from _batch_and_yield(stripe_objects.auto_paging_iter(), batcher)
 
     # check for any objects more than the maximum object we already have
     if db_incremental_field_last_value is not None:
@@ -488,12 +512,12 @@ def get_rows(
                 f"created[gt]": db_incremental_field_last_value,
             },
         )
-        last_value_cursor = _coerce_incremental_cursor(db_incremental_field_last_value)
-        for obj in stripe_objects.auto_paging_iter():
-            if last_value_cursor is not None and obj[incremental_field_name] <= last_value_cursor:
-                break
-
-            yield obj
+        yield from _batch_and_yield(
+            stripe_objects.auto_paging_iter(),
+            batcher,
+            incremental_field_name=incremental_field_name,
+            stop_at_or_before=_coerce_incremental_cursor(db_incremental_field_last_value),
+        )
 
 
 def _webhook_table_transformer(table: pa.Table) -> pa.Table:
