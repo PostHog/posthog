@@ -417,12 +417,15 @@ describe('CDP hog invocation rerun e2e', () => {
                         value: 'https://example.com/google-ads-webhook',
                         bytecode: ['_h', 32, 'https://example.com/google-ads-webhook'],
                     },
-                    // `{person.properties.gclid}` — no coalesce; the real
-                    // template also falls back to `$initial_gclid`, but for
-                    // the bug reproduction one lookup is enough.
+                    // Exact expression from `google.template.ts:24` so the
+                    // reproduction also verifies hog can access `$initial_gclid`
+                    // via dot notation (the `$` prefix is a common gotcha
+                    // point).
                     gclid: {
-                        value: '{person.properties.gclid}',
-                        bytecode: await compileHog('return person.properties.gclid'),
+                        value: '{person.properties.gclid ?? person.properties.$initial_gclid}',
+                        bytecode: await compileHog(
+                            'return person.properties.gclid ?? person.properties.$initial_gclid'
+                        ),
                     },
                 },
                 ...HOG_FILTERS_EXAMPLES.no_filters,
@@ -506,10 +509,17 @@ describe('CDP hog invocation rerun e2e', () => {
             }, 30_000)
         }
 
-        it('reruns the invocation when Postgres person still has the field', async () => {
-            // Healthy path: the Postgres person still has `gclid`, so the
-            // worker's rehydration populates `globals.person.properties.gclid`,
-            // `inputs.gclid` resolves to it, and the rerun fetches.
+        it('reruns via the `$initial_gclid` fallback when the person has it set', async () => {
+            // Matches the production scenario the customer's persons actually
+            // have: bare `gclid` isn't on the person (it lives on the event),
+            // but `$initial_gclid` is set via $set_once from first touch. The
+            // template's coalesce should fall through to `$initial_gclid` and
+            // the rerun should fetch with that value.
+            //
+            // If this test FAILS (fetch fires only once), hog can't access
+            // `$initial_gclid` via dot notation on the input expression, and
+            // the production bug is a compiler / input-eval issue, not a
+            // person-lookup issue.
             const gclidFn = await buildGclidFn()
             const originalInvocationId = await runOriginalAndAssertLifecycleRow(gclidFn)
 
@@ -519,7 +529,13 @@ describe('CDP hog invocation rerun e2e', () => {
                     id: '1',
                     uuid: 'dd3d6f80-60ad-45c3-bd61-e2300f2ba7e1',
                     team_id: team.id,
-                    properties: { email: 'rerun-e2e@posthog.com', gclid: 'ABC123' },
+                    properties: {
+                        email: 'rerun-e2e@posthog.com',
+                        // No bare `gclid` here — matches production person
+                        // state where SDK autocapture only writes
+                        // `$initial_gclid` via $set_once on first touch.
+                        $initial_gclid: 'INITIAL_TOKEN_ABC',
+                    },
                     properties_last_updated_at: {},
                     properties_last_operation: null,
                     created_at: DateTime.utc(),
@@ -533,8 +549,13 @@ describe('CDP hog invocation rerun e2e', () => {
 
             await triggerRerunAndWaitForCompletion(gclidFn, originalInvocationId)
 
-            // Original + rerun both fetched.
+            // Original + rerun both fetched. The second fetch's body should
+            // contain the value that came from `$initial_gclid` — proves the
+            // coalesce reached the fallback branch.
             expect(mockFetch.mock.calls.length).toBeGreaterThanOrEqual(2)
+            const rerunCall = mockFetch.mock.calls[mockFetch.mock.calls.length - 1]
+            const rerunBody = String(rerunCall[1]?.body ?? '')
+            expect(rerunBody).toContain('gclid=INITIAL_TOKEN_ABC')
         })
 
         it('skips the rerun when Postgres person no longer has the field', async () => {
