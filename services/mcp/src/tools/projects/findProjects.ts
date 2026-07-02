@@ -13,7 +13,22 @@ interface FoundProject {
     organization_name: string
 }
 
-export const findProjectsHandler: ToolBase<typeof schema, FoundProject[]>['handler'] = async (
+interface IncompleteOrganization {
+    id: string
+    name: string
+    error: string
+}
+
+interface ProjectsFindResult {
+    projects: FoundProject[]
+    // Present only when one or more organizations could not be searched. Lets the
+    // caller tell "no such project" apart from "the search was incomplete" (a
+    // permission gap or a transient error), rather than reading a partial result
+    // as authoritative.
+    incomplete_organizations?: IncompleteOrganization[]
+}
+
+export const findProjectsHandler: ToolBase<typeof schema, ProjectsFindResult>['handler'] = async (
     context: Context,
     params: z.infer<typeof schema>
 ) => {
@@ -25,32 +40,46 @@ export const findProjectsHandler: ToolBase<typeof schema, FoundProject[]>['handl
     const needle = params.name?.trim().toLowerCase()
 
     const perOrg = await Promise.all(
-        orgsResult.data.map(async (org: Schemas.OrganizationBasic) => {
-            const projectsResult = await context.api.organizations().projects({ orgId: org.id }).list()
-            // Skip orgs we can't enumerate rather than failing the whole search — the
-            // caller still gets matches from the orgs they can access.
-            if (!projectsResult.success) {
-                return [] as FoundProject[]
+        orgsResult.data.map(
+            async (
+                org: Schemas.OrganizationBasic
+            ): Promise<{ projects: FoundProject[]; incomplete?: IncompleteOrganization }> => {
+                const projectsResult = await context.api.organizations().projects({ orgId: org.id }).list()
+                // Don't fail the whole search when one org can't be read — return its
+                // matches empty and record it so the caller knows the result is partial.
+                if (!projectsResult.success) {
+                    return {
+                        projects: [],
+                        incomplete: { id: org.id, name: org.name, error: projectsResult.error.message },
+                    }
+                }
+                const projects = projectsResult.data
+                    .filter(
+                        (project: Schemas.ProjectBackwardCompat) =>
+                            !needle || project.name?.toLowerCase().includes(needle)
+                    )
+                    .map(
+                        (project: Schemas.ProjectBackwardCompat): FoundProject => ({
+                            id: project.id,
+                            name: project.name,
+                            organization: org.id,
+                            organization_name: org.name,
+                        })
+                    )
+                return { projects }
             }
-            return projectsResult.data
-                .filter(
-                    (project: Schemas.ProjectBackwardCompat) => !needle || project.name?.toLowerCase().includes(needle)
-                )
-                .map(
-                    (project: Schemas.ProjectBackwardCompat): FoundProject => ({
-                        id: project.id,
-                        name: project.name,
-                        organization: org.id,
-                        organization_name: org.name,
-                    })
-                )
-        })
+        )
     )
 
-    return perOrg.flat()
+    const projects = perOrg.flatMap((result) => result.projects)
+    const incompleteOrganizations = perOrg.flatMap((result) => (result.incomplete ? [result.incomplete] : []))
+
+    return incompleteOrganizations.length > 0
+        ? { projects, incomplete_organizations: incompleteOrganizations }
+        : { projects }
 }
 
-const tool = (): ToolBase<typeof schema, FoundProject[]> => ({
+const tool = (): ToolBase<typeof schema, ProjectsFindResult> => ({
     name: 'projects-find',
     schema,
     handler: findProjectsHandler,

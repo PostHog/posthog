@@ -40,10 +40,12 @@ describe('projects-find handler', () => {
 
         const result = await findProjectsHandler(context, { name: 'marketing' })
 
-        expect(result).toEqual([
+        expect(result.projects).toEqual([
             { id: 1, name: 'Marketing site', organization: 'org-a', organization_name: 'Org A' },
             { id: 2, name: 'Marketing app', organization: 'org-b', organization_name: 'Org B' },
         ])
+        // No org failed, so the caller sees no incompleteness signal.
+        expect(result.incomplete_organizations).toBeUndefined()
     })
 
     it('matches the name filter case-insensitively and drops non-matches', async () => {
@@ -59,7 +61,9 @@ describe('projects-find handler', () => {
 
         const result = await findProjectsHandler(context, { name: 'CHECK' })
 
-        expect(result).toEqual([{ id: 1, name: 'Checkout', organization: 'org-a', organization_name: 'Org A' }])
+        expect(result.projects).toEqual([
+            { id: 1, name: 'Checkout', organization: 'org-a', organization_name: 'Org A' },
+        ])
     })
 
     it('returns every project when no name filter is given', async () => {
@@ -75,24 +79,29 @@ describe('projects-find handler', () => {
 
         const result = await findProjectsHandler(context, {})
 
-        expect(result.map((p) => p.id)).toEqual([1, 2])
+        expect(result.projects.map((p) => p.id)).toEqual([1, 2])
     })
 
-    it('skips organizations whose project list fails instead of failing the whole search', async () => {
+    it('reports organizations it could not search instead of silently dropping them', async () => {
         const context = createContext({
             list: ok([
                 { id: 'org-a', name: 'Org A' },
                 { id: 'org-b', name: 'Org B' },
             ]),
             projectsByOrg: {
-                'org-a': fail('403 forbidden'),
+                'org-a': fail('503 service unavailable'),
                 'org-b': ok([{ id: 2, name: 'Billing' }]),
             },
         })
 
         const result = await findProjectsHandler(context, {})
 
-        expect(result).toEqual([{ id: 2, name: 'Billing', organization: 'org-b', organization_name: 'Org B' }])
+        expect(result.projects).toEqual([{ id: 2, name: 'Billing', organization: 'org-b', organization_name: 'Org B' }])
+        // The unreadable org surfaces so the caller can tell a partial search apart
+        // from a genuine "no match".
+        expect(result.incomplete_organizations).toEqual([
+            { id: 'org-a', name: 'Org A', error: '503 service unavailable' },
+        ])
     })
 
     it('throws when the organization list itself fails', async () => {

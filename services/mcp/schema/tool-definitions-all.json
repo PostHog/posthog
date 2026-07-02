@@ -6348,7 +6348,7 @@
         }
     },
     "projects-find": {
-        "description": "Find projects by name across ALL organizations you can access, not just the active one. Pass `name` for a case-insensitive substring match, or omit it to list every project. Each result includes the project `id` plus its `organization` id and name, so you can `switch-project` (and `switch-organization` if it lives in a different org) instead of guessing or enumerating project ids. Use this to resolve a project the user names when you don't already know its id.",
+        "description": "Find projects by name across ALL organizations you can access, not just the active one. Pass `name` for a case-insensitive substring match, or omit it to list every project. Returns `projects`, each with the project `id` plus its `organization` id and name, so you can `switch-project` (and `switch-organization` if it lives in a different org) instead of guessing or enumerating project ids. If any organization could not be searched, it is listed under `incomplete_organizations` so you can tell an empty result apart from an incomplete search. Use this to resolve a project the user names when you don't already know its id.",
         "category": "Organization & project management",
         "feature": "workspace",
         "summary": "Find projects by name across all your organizations.",
