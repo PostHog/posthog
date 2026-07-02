@@ -122,6 +122,8 @@ class SlackSettings(UUIDModel):
         choices=SlackPermissionMode.choices,
         default=SlackPermissionMode.ASK_BEFORE_WRITE,
         db_default=SlackPermissionMode.ASK_BEFORE_WRITE,
+        null=True,
+        blank=True,
         help_text="Controls how Slack-started agent runs handle tool calls that can write.",
     )
     # Keys mirror the task-run request serializer.

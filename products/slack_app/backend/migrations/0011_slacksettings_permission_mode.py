@@ -22,6 +22,8 @@ class Migration(migrations.Migration):
                 default="ask_before_write",
                 help_text="Controls how Slack-started agent runs handle tool calls that can write.",
                 max_length=32,
+                null=True,
+                blank=True,
             ),
         ),
     ]
