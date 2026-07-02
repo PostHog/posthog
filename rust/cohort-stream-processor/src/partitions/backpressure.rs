@@ -1,11 +1,10 @@
-//! The events consume loop's per-partition backpressure state: the holdover of un-dispatched events
-//! per partition, kept broker-free so its transitions are unit-testable in isolation.
+//! The events consume loop's per-partition holdover of un-dispatched events, kept broker-free so its
+//! transitions are unit-testable in isolation.
 //!
 //! A partition holds a non-empty entry in [`pending`](Backpressure::pending) **iff** its events could
 //! not be dispatched, so [`held_partitions`](Backpressure::held_partitions) (`pending.keys()`) is
-//! exactly the set to keep paused. Applying that target to the consumer — and re-asserting it so a
-//! swallowed pause error or a rebalance that reset librdkafka's pause flags self-heals — is owned by
-//! the pauser task (`run_pauser_loop`), not this struct.
+//! exactly the paused target. Applying and re-asserting that target on the consumer is owned by the
+//! pauser task (`run_pauser_loop`), not this struct.
 
 use std::collections::{HashMap, HashSet};
 
@@ -37,8 +36,8 @@ impl Backpressure {
         std::mem::take(&mut self.pending).into_iter().collect()
     }
 
-    /// Partitions with an outstanding holdover — the paused target, and the set a fresh dispatch must
-    /// queue new events behind (never leapfrog) rather than sending them.
+    /// Partitions with an outstanding holdover: the paused target, and the set fresh events must queue
+    /// behind rather than leapfrog.
     pub fn held_partitions(&self) -> HashSet<i32> {
         self.pending.keys().copied().collect()
     }

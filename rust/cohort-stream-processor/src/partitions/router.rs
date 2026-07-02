@@ -43,9 +43,8 @@ pub enum RouteError {
 /// backpressure — the events are returned to be held and retried — not a drop.
 #[derive(Debug)]
 pub enum SendOutcome {
-    /// Delivered. `max_offset` is the highest event offset — used to raise the dispatch ceiling, and
-    /// `None` for a batch that carries no events (no offset to ceiling on); `count` the number of
-    /// messages delivered.
+    /// Delivered. `max_offset` is the highest event offset (raises the dispatch ceiling), or `None` if
+    /// the batch carries no events; `count` is the number delivered.
     Sent {
         max_offset: Option<i64>,
         count: usize,
@@ -209,8 +208,8 @@ impl PartitionRouter {
             return SendOutcome::NoWorker;
         };
         let count = batch.len();
-        // `None` for a batch carrying no events. Carried through as-is rather than defaulted to 0, so a
-        // future non-Event caller can't fabricate a ceiling; `route_and_fold` only marks when `Some`.
+        // `None` for an event-less batch — carried through, not defaulted to 0, so a future non-Event
+        // caller can't fabricate a ceiling (`route_and_fold` only marks when `Some`).
         let max_offset = batch.iter().filter_map(ShuffleMessage::event_offset).max();
         match sender.try_send(batch) {
             Ok(()) => {

@@ -305,17 +305,12 @@ impl EventDispatcher {
         for (partition, outcome) in self.router.try_route_batch(messages) {
             match outcome {
                 SendOutcome::Sent { max_offset, count } => {
-                    // The ceiling is raised *after* `try_send` hands the batch to the worker's channel,
-                    // so a worker on another thread could in principle mark this batch processed before
-                    // this mark lands and trip a spurious `CappedAheadOfDispatch`. Unreachable in
-                    // practice — processing an event is ~hundreds of store reads while this mark is
-                    // microseconds away on the same task — and harmless if it ever fired: the marks are
-                    // monotonic, so the next dispatch corrects the ceiling, and commits derive from
-                    // `processed` (never advanced past the true handoff), so the worst case is a
-                    // conservative re-commit that per-key replay dedup absorbs. Marking before the send
-                    // is not an option: `try_send` only reports `Sent` once the worker can already see
-                    // the batch, and pre-marking would raise the ceiling for `Full`/dropped sub-batches
-                    // too. `None` (a batch with no events) leaves the ceiling untouched.
+                    // Ceiling raised after `try_send`, so a worker could mark this batch processed first
+                    // and trip a spurious `CappedAheadOfDispatch`. Harmless (marks are monotonic and
+                    // commits derive from `processed`, so the next dispatch corrects it) and near
+                    // unreachable (per-event work is ~hundreds of reads; this mark is microseconds off).
+                    // Marking before the send would wrongly raise the ceiling for `Full`/dropped
+                    // sub-batches. `None` carries no offset, so it leaves the ceiling untouched.
                     if let Some(max_offset) = max_offset {
                         self.tracker.mark_dispatched(partition, max_offset + 1);
                     }
@@ -961,9 +956,9 @@ impl CohortStreamEventsConsumer {
             self.handle.clone(),
         ));
 
-        // Apply pause/resume off the consume loop: librdkafka `pause`/`resume` are synchronous, un-timed
-        // FFI calls, so a wedged client must never delay the liveness heartbeat. The loop hands the
-        // pauser task the paused *target* (the held-partition set); the task owns the re-assertion.
+        // Apply pause/resume off the consume loop: librdkafka's are synchronous, un-timed FFI, so a
+        // wedged client must never delay the heartbeat. The loop hands over the paused *target* (the
+        // held-partition set); the pauser task owns re-asserting it.
         let (pause_tx, pause_rx) = tokio::sync::mpsc::unbounded_channel::<HashSet<i32>>();
         let pauser_task = tokio::spawn(run_pauser_loop(self.pauser.clone(), pause_rx));
 
@@ -974,8 +969,8 @@ impl CohortStreamEventsConsumer {
         let mut prev_assignment: Option<HashSet<i32>> = None;
         // Untouched until boot recovery completes below, so nothing pauses during boot.
         let mut backpressure = Backpressure::new();
-        // The paused target we last handed the pauser task, so we only send while backpressure is
-        // active (plus the one cycle it clears) and stay silent in the healthy steady state.
+        // Last paused target sent to the pauser task: lets us send only while backpressure is active
+        // (plus the cycle it clears) and stay silent otherwise.
         let mut prev_paused_target: HashSet<i32> = HashSet::new();
 
         loop {
@@ -1154,11 +1149,10 @@ impl CohortStreamEventsConsumer {
             .dispatch_events_nonblocking(outcome.events, &backpressure.held_partitions());
         backpressure.absorb(full);
 
-        // Hand the pauser task the paused target (the still-held partitions). It owns the idempotent
-        // pause/resume re-assertion, so a wedged librdkafka call can never delay the heartbeat below.
-        // Send while the target is non-empty — re-asserting each cycle so a swallowed pause error or a
-        // rebalance that reset the toppar self-heals — plus the one cycle it clears (to flush the
-        // resumes); stay silent in the healthy steady state.
+        // Hand the pauser task the paused target (the still-held partitions); it re-asserts pause
+        // idempotently, so no librdkafka call can delay the heartbeat below. Send every cycle the
+        // target is non-empty (re-asserting heals a swallowed pause error or a rebalance-reset toppar),
+        // plus the one cycle it clears (to resume); stay silent otherwise.
         let target = backpressure.held_partitions();
         if !target.is_empty() || !prev_paused_target.is_empty() {
             if pause_tx.send(target.clone()).is_err() {
@@ -1341,12 +1335,10 @@ async fn run_commit_loop(
     }
 }
 
-/// Applies the paused-partition target off the consume loop, so a blocking librdkafka `pause`/`resume`
-/// can never delay the liveness heartbeat. Owns the `applied` set and re-asserts the full target on
-/// every update: librdkafka `pause`/`resume` are idempotent, so re-pausing the whole target self-heals
-/// both a pause whose error [`ConsumerPauser`] swallowed last cycle and a partition librdkafka silently
-/// un-paused across a revoke→reassign rebalance. `applied` is a best-effort record used only to compute
-/// which partitions to resume (the ones that left the target). Exits when the sender is dropped.
+/// Applies the paused-partition target off the consume loop, so blocking librdkafka `pause`/`resume`
+/// never delays the heartbeat. Re-asserts the full target every update — idempotent in librdkafka — so
+/// a swallowed pause error or a rebalance-reset toppar self-heals. `applied` tracks only which
+/// partitions to resume (those that left the target). Exits when the sender is dropped.
 async fn run_pauser_loop(
     pauser: Arc<dyn PartitionPauser>,
     mut rx: tokio::sync::mpsc::UnboundedReceiver<HashSet<i32>>,
@@ -1391,8 +1383,8 @@ mod tests {
     const BEHAVIORAL_HASH: [u8; 16] = *b"0123456789abcdef";
     const BASE_TS: &str = "2026-05-26 12:34:56.789000";
 
-    /// A broker-free [`PartitionPauser`] that records every pause/resume call, so the pauser task's
-    /// re-assertion wiring can be exercised without a Kafka client.
+    /// Broker-free [`PartitionPauser`] recording every pause/resume call, to exercise the pauser task
+    /// without a Kafka client.
     #[derive(Default)]
     struct RecordingPauser {
         paused: std::sync::Mutex<Vec<Vec<i32>>>,
@@ -1436,9 +1428,8 @@ mod tests {
         let (tx, rx) = tokio::sync::mpsc::unbounded_channel::<HashSet<i32>>();
         let task = tokio::spawn(run_pauser_loop(pauser.clone(), rx));
 
-        // Two cycles with a stable held target: the full target is re-paused each cycle. That
-        // idempotent re-assertion is exactly what heals a swallowed pause error or a partition
-        // librdkafka silently un-paused across a rebalance.
+        // Stable target over two cycles: re-paused each time. That idempotent re-assertion is what
+        // heals a swallowed pause error or a rebalance-reset toppar.
         tx.send(HashSet::from([5])).unwrap();
         tx.send(HashSet::from([5])).unwrap();
         // Partition 5 drains and 7 becomes held: 5 leaves the target (resumed), 7 is paused.
