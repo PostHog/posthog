@@ -1,7 +1,6 @@
 import React, { useMemo } from 'react'
 
 import { ChartLegend } from '../../components/Legend/ChartLegend'
-import { useChartLegend } from '../../components/Legend/useChartLegend'
 import type {
     ChartLegendConfig,
     ChartTheme,
@@ -15,28 +14,23 @@ import type {
 } from '../../core/types'
 import { ReferenceLines } from '../../overlays/ReferenceLine'
 import { ValueLabels } from '../../overlays/ValueLabels'
-import { buildGoalLineReferenceLines, goalLineValueDomain, type GoalLineConfig } from '../../utils/goal-lines'
+import type { GoalLineConfig } from '../../utils/goal-lines'
 import {
     buildYAxes,
     normalizeYAxisList,
     primaryYAxisConfig,
-    useXTickFormatter,
-    useYTickFormatter,
     type XAxisConfig,
     type YAxisConfig,
 } from '../../utils/use-axis-formatters'
 import { LineChart } from '../LineChart/LineChart'
 import {
-    resolveValueLabelsConfig,
-    useSeriesWithValueLabelAllowlist,
-    type ValueLabelsConfig,
-} from '../utils/use-value-labels'
-import {
     useDerivedSeries,
     type ConfidenceIntervalConfig,
     type MovingAverageConfig,
     type TrendLineConfig,
-} from './utils/use-derived-series'
+} from '../utils/use-derived-series'
+import { useGoalLines, useTimeSeriesChrome } from '../utils/use-time-series-chrome'
+import type { ValueLabelsConfig } from '../utils/use-value-labels'
 
 export type { ConfidenceIntervalConfig, MovingAverageConfig, TrendLineConfig }
 
@@ -119,31 +113,18 @@ export function TimeSeriesLineChart<Meta = unknown>({
         [yAxis, axisList]
     )
 
-    const xTickFormatter = useXTickFormatter(xAxis, labels)
-    const yTickFormatter = useYTickFormatter(primaryYAxis)
+    const { xTickFormatter, yTickFormatter, legendProps, chartSeries, valueLabelsConfig, valueLabelFormatter } =
+        useTimeSeriesChrome(series, labels, theme, { xAxis, yAxis: primaryYAxis, valueLabels, legend })
 
-    // Toggling works off the raw series so the legend lists the user's series (not derived trend
-    // lines / CI bands); hidden ones flow through the derived pipeline already excluded.
-    const { visibleSeries, legendProps } = useChartLegend(series, theme, legend)
-
-    const valueLabelsConfig = resolveValueLabelsConfig(valueLabels)
-    const seriesAfterValueLabels = useSeriesWithValueLabelAllowlist(visibleSeries, valueLabelsConfig?.seriesKeys)
-
-    const finalSeries = useDerivedSeries(seriesAfterValueLabels, {
+    const finalSeries = useDerivedSeries(chartSeries, {
         confidenceIntervals,
         movingAverage,
         trendLines,
         comparisonOf,
     })
 
-    const valueLabelFormatter = valueLabelsConfig ? (valueLabelsConfig.formatter ?? yTickFormatter) : undefined
-
-    const referenceLines = useMemo(() => buildGoalLineReferenceLines(goalLines, finalSeries), [goalLines, finalSeries])
-
-    // Extend the value axis to cover goal lines that sit outside the data range, so a goal line
-    // off the data's natural scale still renders inside the plot. Memoized so the `{ include }`
-    // object stays referentially stable and doesn't re-trigger scale recomputation each render.
-    const valueDomain = useMemo(() => goalLineValueDomain(referenceLines), [referenceLines])
+    // Goal lines scale against the drawn (post-derived) series, unlike bar/combo.
+    const { referenceLines, valueDomain } = useGoalLines(goalLines, finalSeries)
 
     // `startAtZero === false` floats the primary axis to its data range; the default (undefined/true)
     // keeps the baseline clamped to 0. A log scale has no zero baseline to clamp, so it's a no-op there.

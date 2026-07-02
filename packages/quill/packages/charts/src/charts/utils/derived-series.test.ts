@@ -1,4 +1,4 @@
-import type { Series } from '../../../core/types'
+import type { Series } from '../../core/types'
 import { buildConfidenceIntervalSeries, buildMovingAverageSeries, buildTrendLineSeries } from './derived-series'
 
 const SOURCE: Series = {
