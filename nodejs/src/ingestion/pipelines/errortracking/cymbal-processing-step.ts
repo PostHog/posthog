@@ -1,5 +1,5 @@
 import { logger } from '~/common/utils/logger'
-import { invalidTimestampCounter } from '~/ingestion/common/event-pipeline/metrics'
+import { invalidTimestampCounter } from '~/ingestion/common/metrics'
 import { parseEventTimestamp } from '~/ingestion/common/timestamps'
 import { BatchProcessingStep } from '~/ingestion/framework/base-batch-pipeline'
 import { PipelineWarning } from '~/ingestion/framework/pipeline.interface'

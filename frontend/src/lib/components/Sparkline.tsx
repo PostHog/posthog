@@ -20,6 +20,8 @@ import { LemonSkeleton } from '../lemon-ui/LemonSkeleton'
 // AlertHistoryChart, which also uses the annotation plugin) are safe.
 Chart.register(annotationPlugin)
 
+const HIGHLIGHT_COLOR = '#8f8f8f'
+
 export interface SparklineReferenceLine {
     /** Y-axis value the dashed line is drawn at, in the same units as the series data. */
     value: number
@@ -77,12 +79,13 @@ export interface SparklineProps {
     /** Format the per-series tooltip value. Defaults to `humanFriendlyNumber`. */
     renderTooltipValue?: (value: number) => string
     /**
-     * Inclusive label-index range to highlight as a translucent box behind the bars.
-     * Used to mirror an external selection (e.g. the rows currently visible in a
-     * paired virtualized list) onto the chart. Out-of-range or inverted ranges are
-     * clamped; pass `null`/`undefined` to clear.
+     * X-axis value range to highlight as a translucent box behind the bars. Values are
+     * in the x-axis's own units: epoch ms for a time scale (positioned with sub-bar
+     * precision), or a label for a category scale. Used to mirror an external selection
+     * (e.g. the rows currently visible in a paired virtualized list) onto the chart.
+     * Callers pass an already-ordered `xMin <= xMax`; pass `null`/`undefined` to clear.
      */
-    highlightedRange?: { startIndex: number; endIndex: number } | null
+    highlightedRange?: { xMin: number | string; xMax: number | string } | null
     /**
      * Bar indices that are still being ingested (incomplete). Those bars render with a faded
      * diagonal-hatch fill, and hovering one adds `tooltip` to the hover tooltip. Used to flag the
@@ -333,31 +336,16 @@ export function Sparkline({
                             }
 
                             if (highlightedRange && labels && labels.length > 0) {
-                                const lastIdx = labels.length - 1
-                                const lo = Math.max(0, Math.min(highlightedRange.startIndex, highlightedRange.endIndex))
-                                const hi = Math.min(
-                                    lastIdx,
-                                    Math.max(highlightedRange.startIndex, highlightedRange.endIndex)
-                                )
-                                if (lo <= hi) {
-                                    // Match the cursor-row highlight hue (`--primary-highlight`):
-                                    // orange in light mode, amber in dark. Read the concrete
-                                    // per-theme token since the semantic var is a nested `var()`
-                                    // that doesn't resolve off-DOM (e.g. on the chart canvas).
-                                    const isDark = document.body.getAttribute('theme') === 'dark'
-                                    const primary = getColorVar(isDark ? 'primary-3000-dark' : 'primary-3000-light')
-                                    annotations.highlightedRange = {
-                                        type: 'box',
-                                        xMin: labels[lo],
-                                        // Extend to the next bucket's start so the last bar is fully enclosed.
-                                        xMax: labels[hi + 1] ?? labels[hi],
-                                        // Drawn under the bars so the data stays legible.
-                                        drawTime: 'beforeDatasetsDraw',
-                                        // 10% fill mirrors the cursor row; a stronger border marks the window edges.
-                                        backgroundColor: hexToRGBA(primary, 0.1),
-                                        borderColor: hexToRGBA(primary, 0.8),
-                                        borderWidth: 1,
-                                    }
+                                annotations.highlightedRange = {
+                                    type: 'box',
+                                    xMin: highlightedRange.xMin,
+                                    xMax: highlightedRange.xMax,
+                                    // Drawn under the bars so the data stays legible.
+                                    drawTime: 'beforeDatasetsDraw',
+                                    // Faint fill with a stronger border to mark the window edges.
+                                    backgroundColor: hexToRGBA(HIGHLIGHT_COLOR, 0.1),
+                                    borderColor: hexToRGBA(HIGHLIGHT_COLOR, 0.8),
+                                    borderWidth: 1,
                                 }
                             }
 

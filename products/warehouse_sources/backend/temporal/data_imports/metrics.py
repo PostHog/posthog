@@ -29,6 +29,10 @@ _TERMINAL_STATUS_TO_METRIC: dict[str, tuple[str, str]] = {
 # emission on the first terminal transition.
 TERMINAL_JOB_STATUSES: frozenset[str] = frozenset(_TERMINAL_STATUS_TO_METRIC)
 
+# latest_error written when lock takeover force-fails a stuck-RUNNING job; sentinel that
+# lets update_external_job_status permit Failed -> Completed for takeover-failed jobs only.
+LOCK_TAKEOVER_LATEST_ERROR = "Lock takeover: workflow terminated but job was stuck in RUNNING"
+
 
 def get_data_import_finished_metric(source_type: str | None, status: str) -> MetricCounter:
     source_type = source_type or "unknown"

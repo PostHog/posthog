@@ -3,7 +3,7 @@ import { loaders } from 'kea-loaders'
 
 import { lemonToast } from '@posthog/lemon-ui'
 
-import api from 'lib/api'
+import api, { ApiError } from 'lib/api'
 import { keyForInsightLogicProps } from 'scenes/insights/sharedUtils'
 import { teamLogic } from 'scenes/teamLogic'
 
@@ -70,8 +70,11 @@ export const funnelCorrelationLogic = kea<funnelCorrelationLogicType>([
                                 result_type: FunnelCorrelationResultsType.Events,
                             })) as FunnelCorrelation[],
                         }
-                    } catch {
-                        lemonToast.error('Failed to load correlation results', { toastId: 'funnel-correlation-error' })
+                    } catch (error) {
+                        const detail = error instanceof ApiError ? error.detail : null
+                        lemonToast.error(detail || 'Failed to load correlation results', {
+                            toastId: 'funnel-correlation-error',
+                        })
                         return { events: [] }
                     }
                 },
