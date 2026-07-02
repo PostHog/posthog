@@ -140,9 +140,9 @@ export function canRenderSqlBarGraph(props: LineGraphProps): boolean {
 }
 
 /**
- * Mixed bar + line/area series render on quill's {@link TimeSeriesComboChart}. Trend lines and
- * percent-stacked layouts (unsupported by ComboChart) and right y-axis series (a single tick
- * formatter can't honor a second gutter's settings yet) still fall back to legacy chart.js.
+ * Mixed bar + line/area series render on quill's {@link TimeSeriesComboChart}. Percent-stacked
+ * bars are supported as long as every line/area series is routed to the right axis — one sharing
+ * the bars' axis can't be reconciled with the bars' [0, 1] percent scale, so that case falls back.
  */
 export function canRenderSqlComboGraph(props: LineGraphProps): boolean {
     const { visualizationType, yData, chartSettings } = props
@@ -158,8 +158,16 @@ export function canRenderSqlComboGraph(props: LineGraphProps): boolean {
     if (!yData || !hasMixedSeriesTypes(yData, visualizationType)) {
         return false
     }
-    // ComboChart supports only stacked/grouped bars, not percent (stackBars100).
-    if (barLayoutForDisplay(visualizationType, chartSettings) === 'percent') {
+    // Percent-stacked bars clamp their axis to [0, 1] — a line/area series sharing that same axis
+    // would plot its raw values off-scale with no way to reconcile the two domains. Only allow a
+    // percent-stack combo when every non-bar series is routed to the right axis instead.
+    if (
+        visualizationType === ChartDisplayType.ActionsStackedBar &&
+        chartSettings.stackBars100 &&
+        yData.some(
+            (series) => seriesDisplayType(visualizationType, series.settings) !== 'bar' && !isRightAxisSeries(series)
+        )
+    ) {
         return false
     }
     return true
@@ -175,12 +183,15 @@ export function barLayoutForDisplay(
     return 'grouped'
 }
 
-/** Bar layout for the combo path — stacked for stacked-bar charts, grouped otherwise. ComboChart
- *  doesn't support percent, so {@link canRenderSqlComboGraph} keeps stackBars100 on the legacy path. */
+/** Bar layout for the combo path. */
 export function comboBarLayoutForDisplay(
-    visualizationType: ChartDisplayType
+    visualizationType: ChartDisplayType,
+    chartSettings: ChartSettings
 ): NonNullable<TimeSeriesComboChartConfig['barLayout']> {
-    return visualizationType === ChartDisplayType.ActionsStackedBar ? 'stacked' : 'grouped'
+    if (visualizationType === ChartDisplayType.ActionsStackedBar) {
+        return chartSettings.stackBars100 ? 'percent' : 'stacked'
+    }
+    return 'grouped'
 }
 
 /** Returns true when {@link MAX_SERIES} is exceeded and the user should be warned (not on dashboards). */
@@ -470,6 +481,8 @@ export function buildComboChartConfig({
 
     const leftSeries = seriesForAxis(ySeriesData, 'left')
     const rightSeries = seriesForAxis(ySeriesData, 'right')
+    const barLayout = comboBarLayoutForDisplay(visualizationType, chartSettings)
+    const isPercent = barLayout === 'percent'
 
     return {
         xAxis: buildXAxisConfig(xData, chartSettings, timezone),
@@ -479,16 +492,22 @@ export function buildComboChartConfig({
                       buildYAxisConfig(chartSettings.leftYAxisSettings, leftSeries, chartSettings.yAxisAtZero, {
                           id: 'left',
                           position: 'left',
+                          forceLinear: isPercent,
                       }),
                       buildYAxisConfig(chartSettings.rightYAxisSettings, rightSeries, chartSettings.yAxisAtZero, {
                           id: 'right',
                           position: 'right',
+                          forceLinear: isPercent,
                       }),
                   ]
-                : buildYAxisConfig(chartSettings.leftYAxisSettings, leftSeries, chartSettings.yAxisAtZero),
+                : buildYAxisConfig(chartSettings.leftYAxisSettings, leftSeries, chartSettings.yAxisAtZero, {
+                      forceLinear: isPercent,
+                  }),
         goalLines: schemaGoalLinesToConfigs(goalLines),
-        barLayout: comboBarLayoutForDisplay(visualizationType),
-        trendLines: buildTrendLineConfigs(ySeriesData),
+        barLayout,
+        // Percent bars scale against a [0, 1] domain; trend lines plot raw series values, so they'd
+        // render off-scale and invisible.
+        trendLines: isPercent ? [] : buildTrendLineConfigs(ySeriesData),
         legend: buildLegendConfig(chartSettings),
         valueLabels: buildValueLabelsConfig(chartSettings, ySeriesData),
         tooltip: {
