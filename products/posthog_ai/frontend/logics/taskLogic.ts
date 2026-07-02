@@ -2,8 +2,6 @@ import { kea, key, listeners, path, props, reducers } from 'kea'
 import { loaders } from 'kea-loaders'
 import { router } from 'kea-router'
 
-import { lemonToast } from '@posthog/lemon-ui'
-
 import api from 'lib/api'
 
 import { isApiNotFound, loadErrorMessage } from '../lib/load-error'
@@ -33,20 +31,16 @@ export const taskLogic = kea<taskLogicType>([
                     }
                 },
                 runTask: async () => {
-                    const response = await api.tasks.run(props.taskId)
-                    lemonToast.success('Task run started')
-                    return response
+                    return await api.tasks.run(props.taskId)
                 },
                 deleteTask: async () => {
                     await api.tasks.delete(props.taskId)
-                    lemonToast.success('Task archived')
                     tasksLogic.findAllMounted().forEach((logic) => logic.actions.loadTasks())
                     router.actions.push('/tasks')
                     return null
                 },
                 updateTask: async ({ data }: { data: TaskUpsertProps }) => {
                     const updatedTask = await api.tasks.update(props.taskId, data)
-                    lemonToast.success('Task updated')
                     tasksLogic.findAllMounted().forEach((logic) => logic.actions.loadTasks())
                     return updatedTask
                 },

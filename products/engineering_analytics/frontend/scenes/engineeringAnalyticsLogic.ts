@@ -480,9 +480,10 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
     kea<engineeringAnalyticsLogicType>([
         path(['products', 'engineering_analytics', 'frontend', 'scenes', 'engineeringAnalyticsLogic']),
 
-        // The Workflows tab reads the shared CI-analytics window; the loader and reload listener use it.
+        // The Workflows tab reads the shared CI-analytics window and branch scope; the loader and reload
+        // listeners use them.
         connect(() => ({
-            values: [engineeringAnalyticsFiltersLogic, ['dateFrom', 'dateTo']],
+            values: [engineeringAnalyticsFiltersLogic, ['dateFrom', 'dateTo', 'appliedBranch']],
         })),
 
         actions({
@@ -492,11 +493,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             setCiStatusFilter: (ciStatus: CIStatusFilter) => ({ ciStatus }),
             setSearch: (search: string) => ({ search }),
             setStuckOnly: (stuckOnly: boolean) => ({ stuckOnly }),
-            // Branch is filtered server-side (it's aggregated away in workflow health), so typing only
-            // stages the value in branchInput; applyBranchFilter promotes it to appliedBranch and reloads.
-            setBranchFilter: (branch: string) => ({ branch }),
-            applyBranchFilter: true,
-            setAppliedBranch: (branch: string) => ({ branch }),
             applyCardFilter: (card: CardFilter) => ({ card }),
             setSourceId: (sourceId: string | null) => ({ sourceId }),
             setCostLensEnabled: (enabled: boolean) => ({ enabled }),
@@ -655,11 +651,6 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 DEFAULT_FILTERS.search,
                 { setSearch: (_, { search }) => search, resetFilters: () => DEFAULT_FILTERS.search },
             ],
-            // Exact git branch to scope workflow health to; '' means all branches. branchInput is the
-            // staged text in the box; appliedBranch is what the loader sends. Server-side filter, so
-            // appliedBranch persists across date reloads (e.g. "main on last 30d" → "main on last 90d").
-            branchInput: ['', { setBranchFilter: (_, { branch }) => branch }],
-            appliedBranch: ['', { setAppliedBranch: (_, { branch }) => branch }],
             // Leaving the open backlog (e.g. switching to Merged) exits the stuck lens — stuck implies open.
             stuckOnly: [
                 DEFAULT_FILTERS.stuckOnly,
@@ -891,26 +882,11 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             },
             // Cards, PR list, workflow health, and quarantine are all per-source — reload them all.
             setSourceId: () => actions.refresh(),
-            // The shared window scopes workflow health; reload it when the window changes.
+            // The shared window and branch scope workflow health; reload it when either changes.
             [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => {
                 actions.loadWorkflowHealth()
             },
-            setBranchFilter: ({ branch }) => {
-                // The input's clear (×) only fires onChange(''), never Enter/blur — apply on empty so
-                // clearing resets to all-branches immediately instead of leaving the old branch scoped.
-                if (branch.trim() === '') {
-                    actions.applyBranchFilter()
-                }
-            },
-            applyBranchFilter: () => {
-                const next = values.branchInput.trim()
-                // Skip the reload when the box is unchanged (e.g. a focus/blur with no edit).
-                if (next === values.appliedBranch) {
-                    return
-                }
-                actions.setAppliedBranch(next)
-            },
-            setAppliedBranch: () => {
+            [engineeringAnalyticsFiltersLogic.actionTypes.setAppliedBranch]: () => {
                 actions.loadWorkflowHealth()
             },
             applyCardFilter: ({ card }) => {
@@ -962,44 +938,20 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                 }
                 return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
             },
-            // Mirror the applied branch into `?q=` so a branch-scoped view is shareable and survives reload.
-            setAppliedBranch: ({ branch }) => {
-                const searchParams = { ...router.values.searchParams }
-                if (branch) {
-                    searchParams.q = branch
-                } else {
-                    delete searchParams.q
-                }
-                return [router.values.location.pathname, searchParams, router.values.hashParams, { replace: true }]
-            },
         })),
 
         urlToAction(({ actions, values }) => {
             // The chosen source rides in `?source=` so it survives tab switches and deep-links into a PR's detail.
+            // (The shared branch scope in `?q=` is hydrated by engineeringAnalyticsFiltersLogic, not here.)
             const applySource = (source: string | undefined): void => {
                 const next = source ?? null
                 if (next !== values.sourceId) {
                     actions.setSourceId(next)
                 }
             }
-            // `?q=` deep-links a branch-scoped workflow view (e.g. ?q=master). Stage it in the box and apply.
-            const applyBranchFromUrl = (q: string | undefined): void => {
-                const next = (q ?? '').trim()
-                if (next === values.appliedBranch) {
-                    return
-                }
-                actions.setBranchFilter(next)
-                // An empty value already applies+loads via setBranchFilter's listener; a real branch needs the apply.
-                if (next !== '') {
-                    actions.setAppliedBranch(next)
-                }
-            }
             return {
                 [urls.engineeringAnalytics()]: (_, searchParams) => applySource(searchParams.source),
-                [urls.engineeringAnalyticsWorkflows()]: (_, searchParams) => {
-                    applySource(searchParams.source)
-                    applyBranchFromUrl(searchParams.q)
-                },
+                [urls.engineeringAnalyticsWorkflows()]: (_, searchParams) => applySource(searchParams.source),
             }
         }),
 

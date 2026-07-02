@@ -24,11 +24,18 @@ export type ErrorTrackingGroupingRule = ErrorTrackingBaseRule & {
     issue?: { id: string; name: string | null } | null
 }
 
-export type ErrorTrackingRule = ErrorTrackingSuppressionRule | ErrorTrackingGroupingRule | ErrorTrackingAssignmentRule
+export type ErrorTrackingBypassRule = ErrorTrackingBaseRule
+
+export type ErrorTrackingRule =
+    | ErrorTrackingSuppressionRule
+    | ErrorTrackingGroupingRule
+    | ErrorTrackingAssignmentRule
+    | ErrorTrackingBypassRule
 export type ErrorTrackingRuleNew = ErrorTrackingRule & { id: 'new' }
 
 export enum ErrorTrackingRuleType {
     Assignment = 'assignment_rules',
+    Bypass = 'bypass_rules',
     Grouping = 'grouping_rules',
     Suppression = 'suppression_rules',
 }

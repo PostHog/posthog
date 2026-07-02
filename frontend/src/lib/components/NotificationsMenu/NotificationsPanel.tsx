@@ -18,8 +18,14 @@ import { notificationsMenuLogic } from './notificationsMenuLogic'
 export function NotificationsPanel(): JSX.Element {
     const { activeTab } = useValues(notificationsMenuLogic)
     const { setActiveTab } = useActions(notificationsMenuLogic)
-    const { groups, inAppUnreadCount, importantChangesLoading, hasMoreNotifications, isLoadingMore } =
-        useValues(sidePanelNotificationsLogic)
+    const {
+        groups,
+        loadedUnreadCount,
+        inAppUnreadCount,
+        importantChangesLoading,
+        hasMoreNotifications,
+        isLoadingMore,
+    } = useValues(sidePanelNotificationsLogic)
     const { markAllAsRead, loadMoreNotifications } = useActions(sidePanelNotificationsLogic)
     const { closePanel } = useActions(panelLayoutLogic)
 
@@ -46,14 +52,22 @@ export function NotificationsPanel(): JSX.Element {
                     onClick={() => setActiveTab('unread')}
                 >
                     Unread
-                    {inAppUnreadCount > 0 && (
-                        <span className="ml-1 text-[10px] text-danger font-bold">{inAppUnreadCount}</span>
+                    {loadedUnreadCount > 0 && (
+                        <span className="ml-1 text-[10px] text-danger font-bold">{loadedUnreadCount}</span>
                     )}
                 </button>
             </div>
-            {inAppUnreadCount > 0 && (
-                <LemonButton size="xsmall" type="secondary" onClick={() => markAllAsRead()} className="ml-auto">
-                    Mark all as read
+            {/* Only surface "Mark all read" when unread items sit on not-yet-loaded pages — the ones
+                already loaded get cleared by the 3s auto-mark-on-view as the user scrolls. */}
+            {hasMoreNotifications && inAppUnreadCount > loadedUnreadCount && (
+                <LemonButton
+                    size="xsmall"
+                    type="secondary"
+                    onClick={() => markAllAsRead()}
+                    className="ml-auto"
+                    data-attr="notifications-mark-all-read"
+                >
+                    Mark all read
                 </LemonButton>
             )}
         </div>
@@ -73,7 +87,7 @@ export function NotificationsPanel(): JSX.Element {
                     </div>
                 ) : filteredGroups.length > 0 ? (
                     <>
-                        <div className="flex flex-col gap-px">
+                        <div className="flex flex-col gap-1">
                             {filteredGroups.map((group: NotificationGroup) => (
                                 <NotificationGroupRow
                                     key={group.group_key}

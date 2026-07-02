@@ -11,6 +11,7 @@ credentials.
 from __future__ import annotations
 
 import math
+import time
 import typing
 import contextlib
 import collections
@@ -395,11 +396,15 @@ def delete_all_temp_destination_tables(
                     bq.delete_table(table.reference)
                     if logger:
                         logger.debug(f"Deleted bigquery table {table.table_id}")
-        except (Forbidden, NotFound) as e:
+        except (Forbidden, NotFound, RefreshError) as e:
             # Best-effort cleanup. If the service account has lost permission to list/delete
-            # tables, or the dataset no longer exists, there's nothing to recover here — log
-            # quietly rather than capturing an expected, non-actionable condition that would
-            # otherwise fire on every sync for an affected source.
+            # tables, the dataset no longer exists, or a token refresh fails for any reason
+            # (rejected credentials from a rotated/revoked key — `RefreshError: invalid_grant` — or
+            # a transient refresh error), there's nothing to recover here. Rejected credentials, the
+            # common case, are already surfaced with an actionable message on the main sync path via
+            # `get_non_retryable_errors`; a transient refresh failure just leaves temp tables to be
+            # cleaned up on the next run. Log quietly rather than capturing an expected,
+            # non-actionable condition that would otherwise fire on every sync for an affected source.
             if logger:
                 logger.warning(f"Skipping temp table cleanup for dataset {dataset_id}: {e}")
         except Exception as e:
@@ -764,6 +769,66 @@ def _get_query(
         return f"SELECT {select_clause} FROM {table_ref} WHERE {' AND '.join(filter_conditions)}", query_parameters
 
     return f"SELECT {select_clause} FROM {table_ref}", query_parameters
+
+
+# BigQuery's job-metadata store is eventually consistent: `client.query()` inserts a job and then
+# reads it straight back. When the auto-retried `jobs.insert` loses its first response, the retry
+# hits a 409 whose recovery `get_job` momentarily 404s for the job it just created (surfacing as
+# `NotFound: ... Not found: Job <project>:<id>`). The race clears within moments, so retry a few
+# times before surfacing the error.
+_JOB_NOT_FOUND_MAX_ATTEMPTS = 4
+_JOB_NOT_FOUND_RETRY_BACKOFF_SECONDS = 0.5
+
+
+def _is_transient_job_not_found(error: NotFound) -> bool:
+    """True for BigQuery's transient "Job ... not found" lookup race.
+
+    Must be distinguished from a genuine `NotFound` — a missing dataset/table, or a dataset absent
+    from the queried region — that no retry can fix (and which is deliberately treated as
+    non-retryable elsewhere), so match only the job-lookup wording, never "Not found: Dataset" /
+    "Not found: Table" / "was not found in location".
+    """
+    message = str(error)
+    return "Not found: Job" in message or "Job not found" in message
+
+
+def _run_destination_query_with_job_retry(
+    client: bigquery.Client,
+    query: str,
+    *,
+    destination_table: bigquery.Table,
+    query_parameters: list[bigquery.ScalarQueryParameter],
+    project: str,
+) -> None:
+    """Run a copy-into-temp-table query, retrying BigQuery's transient job-metadata race.
+
+    The 404 is raised from inside `client.query()` (its post-insert `get_job` reload), so recovering
+    means creating a fresh job — retrying `job.result()` alone can't. Re-running writes the same
+    temp table, so `WRITE_TRUNCATE` keeps a retry — or a stale table left behind by a lost first
+    attempt — idempotent instead of tripping the default empty-table check.
+    """
+    job_config = QueryJobConfig(
+        destination=destination_table,
+        query_parameters=query_parameters,
+        write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
+    )
+    attempt = 0
+    while True:
+        try:
+            job = client.query(query, job_config=job_config, project=project)
+            _ = job.result()
+            return
+        except NotFound as e:
+            attempt += 1
+            if not _is_transient_job_not_found(e) or attempt >= _JOB_NOT_FOUND_MAX_ATTEMPTS:
+                raise
+            structlog.get_logger().warning(
+                "Retrying BigQuery copy query after transient job-not-found (attempt %s/%s): %s",
+                attempt,
+                _JOB_NOT_FOUND_MAX_ATTEMPTS,
+                e,
+            )
+            time.sleep(_JOB_NOT_FOUND_RETRY_BACKOFF_SECONDS * attempt)
 
 
 class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigquery.Client, Any]):
@@ -1138,9 +1203,13 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                     )
 
                     destination_table = bigquery.Table(bq_destination_table_id)
-                    job_config = QueryJobConfig(destination=destination_table, query_parameters=query_parameters)
-                    job = bq_client.query(query, job_config=job_config, project=bq_table.project)
-                    _ = job.result()
+                    _run_destination_query_with_job_retry(
+                        bq_client,
+                        query,
+                        destination_table=destination_table,
+                        query_parameters=query_parameters,
+                        project=bq_table.project,
+                    )
 
                     bq_table = bq_client.get_table(destination_table)
 
@@ -1161,9 +1230,13 @@ class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigqu
                     )
 
                     destination_table = bigquery.Table(bq_destination_table_id)
-                    job_config = QueryJobConfig(destination=destination_table, query_parameters=query_parameters)
-                    job = bq_client.query(query, job_config=job_config, project=bq_table.project)
-                    _ = job.result()
+                    _run_destination_query_with_job_retry(
+                        bq_client,
+                        query,
+                        destination_table=destination_table,
+                        query_parameters=query_parameters,
+                        project=bq_table.project,
+                    )
 
                     bq_table = bq_client.get_table(destination_table)
 

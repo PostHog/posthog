@@ -5,8 +5,8 @@ import { IngestionWarningsOutput } from '~/common/outputs'
 import { EVENTS_OUTPUT, EventOutput } from '~/common/outputs'
 import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { MessageSizeTooLarge } from '~/common/utils/db/error'
-import { eventProcessedAndIngestedCounter } from '~/ingestion/common/event-pipeline/metrics'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
+import { eventProcessedAndIngestedCounter } from '~/ingestion/common/metrics'
 import { isOkResult } from '~/ingestion/framework/results'
 import { createTestEventHeaders } from '~/tests/helpers/event-headers'
 import { createTestMessage } from '~/tests/helpers/kafka-message'
@@ -26,7 +26,7 @@ jest.mock('~/ingestion/common/ingestion-warnings', () => ({
 }))
 
 // Mock the metrics module
-jest.mock('~/ingestion/common/event-pipeline/metrics', () => ({
+jest.mock('~/ingestion/common/metrics', () => ({
     eventProcessedAndIngestedCounter: {
         inc: jest.fn(),
     },

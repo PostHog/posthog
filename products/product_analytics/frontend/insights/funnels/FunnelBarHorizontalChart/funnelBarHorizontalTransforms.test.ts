@@ -3,9 +3,11 @@ import { EntityTypes, FunnelStepReference, type FunnelStepWithConversionMetrics 
 import {
     buildFunnelBarHorizontalCompareData,
     buildFunnelBarHorizontalData,
+    type FunnelBarHorizontalSegmentMeta,
     type FunnelBarHorizontalStepData,
     FUNNEL_BAR_HORIZONTAL_FILLER_KEY,
     FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX,
+    resolveFunnelBarHorizontalHover,
 } from './funnelBarHorizontalTransforms'
 
 type StepOverrides = Partial<FunnelStepWithConversionMetrics> & {
@@ -433,6 +435,83 @@ describe('buildFunnelBarHorizontalData', () => {
 
                 expect(step.bars.map((bar) => bar.series[0].color)).toEqual(['#solid', '#dimmed', '#solid', '#dimmed'])
             })
+        })
+    })
+
+    describe('resolveFunnelBarHorizontalHover', () => {
+        // Aggregate steps inherit breakdown_value from their first variant (aggregateBreakdownResult
+        // spreads it) — mirrored here so the whole-step case proves the label gets cleared.
+        const step = makeStep({
+            count: 40,
+            fromBasisStep: 0.4,
+            name: 'Signed up',
+            breakdown_value: 'mobile',
+            nested_breakdown: [
+                makeStep({ count: 30, fromBasisStep: 0.5, breakdown_value: 'mobile' }),
+                makeStep({ count: 10, fromBasisStep: 0.25, breakdown_value: 'desktop' }),
+            ],
+        })
+
+        const segmentEntry = (
+            breakdownIndex: number | null,
+            color: string
+        ): {
+            series: { key: string; label: string; data: number[]; meta: FunnelBarHorizontalSegmentMeta }
+            value: number
+            color: string
+            yPixel: number
+        } => ({
+            series: {
+                key: `${FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX}${breakdownIndex ?? 0}`,
+                label: '',
+                data: [0],
+                meta: { isDropOff: false, breakdownIndex },
+            },
+            value: 0,
+            color,
+            yPixel: 100,
+        })
+        const breakdownSeriesData = [segmentEntry(0, '#aaa'), segmentEntry(1, '#bbb')]
+
+        it.each([
+            {
+                description: 'hovering a later breakdown segment resolves that variant, not the first',
+                seriesData: breakdownSeriesData,
+                hoveredSeriesKey: `${FUNNEL_BAR_HORIZONTAL_SEGMENT_KEY_PREFIX}1`,
+                hoverPosition: null,
+                expected: { series: step.nested_breakdown![1], isDropOffHover: false, color: '#bbb' },
+            },
+            {
+                description:
+                    'hovering the filler on a breakdown bar resolves the whole step as drop-off, without the inherited breakdown label',
+                seriesData: breakdownSeriesData,
+                hoveredSeriesKey: FUNNEL_BAR_HORIZONTAL_FILLER_KEY,
+                hoverPosition: null,
+                expected: {
+                    series: { ...step, breakdown: undefined, breakdown_value: undefined },
+                    isDropOffHover: true,
+                    color: undefined,
+                },
+            },
+            {
+                description: 'hovering the filler on a single-segment bar (compare) resolves its variant as drop-off',
+                seriesData: [segmentEntry(1, '#ccc')],
+                hoveredSeriesKey: FUNNEL_BAR_HORIZONTAL_FILLER_KEY,
+                hoverPosition: null,
+                expected: { series: step.nested_breakdown![1], isDropOffHover: true, color: '#ccc' },
+            },
+            {
+                description: 'without a hovered key, falls back to the first segment + cursor-past-end heuristic',
+                seriesData: breakdownSeriesData,
+                hoveredSeriesKey: undefined,
+                hoverPosition: { x: 150, y: 10 },
+                expected: { series: step.nested_breakdown![0], isDropOffHover: true, color: '#aaa' },
+            },
+        ])('$description', ({ seriesData, hoveredSeriesKey, hoverPosition, expected }) => {
+            const target = resolveFunnelBarHorizontalHover({ hoveredSeriesKey, seriesData, hoverPosition }, step, 1)
+            expect(target?.series).toEqual(expected.series)
+            expect(target?.isDropOffHover).toBe(expected.isDropOffHover)
+            expect(target?.color).toBe(expected.color)
         })
     })
 

@@ -67,6 +67,29 @@ describe('ComboChart', () => {
         expect(chart.yRightTicks().length).toBeGreaterThan(0)
     })
 
+    describe('percent barLayout', () => {
+        it('applies a default percent formatter when the consumer omits one', () => {
+            const { chart } = renderHogChart(
+                <ComboChart series={BAR_AND_LINE} labels={LABELS} theme={THEME} config={{ barLayout: 'percent' }} />
+            )
+            expect(chart.yTicks().some((t) => /\d+%/.test(t))).toBe(true)
+        })
+
+        it('renders a custom percent formatter when the consumer supplies one', () => {
+            const formatter = jest.fn((v: number) => `${Math.round(v * 1000) / 10}‰`)
+            const { chart } = renderHogChart(
+                <ComboChart
+                    series={BAR_AND_LINE}
+                    labels={LABELS}
+                    theme={THEME}
+                    config={{ barLayout: 'percent', yTickFormatter: formatter }}
+                />
+            )
+            expect(formatter).toHaveBeenCalled()
+            expect(chart.yTicks().some((t) => t.endsWith('‰'))).toBe(true)
+        })
+    })
+
     describe('hover & tooltip', () => {
         it('lists every visible series at the hovered x', async () => {
             const { chart } = renderHogChart(<ComboChart series={BAR_AND_LINE} labels={LABELS} theme={THEME} />)

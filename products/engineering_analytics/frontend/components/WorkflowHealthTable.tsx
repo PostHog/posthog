@@ -138,11 +138,13 @@ export function WorkflowHealthTable({
     dataAttr = 'engineering-analytics-workflow-table',
 }: WorkflowHealthTableProps): JSX.Element {
     const { searchParams } = useValues(router)
-    // Carry the active CI-analytics window into the drill-down so opening a workflow from a non-default
-    // window keeps it instead of snapping back to the default (the tab links already preserve it this way).
+    // Carry the active CI-analytics window and branch scope into the drill-down so opening a workflow from a
+    // non-default window/branch keeps it instead of snapping back to defaults (the tab links preserve them
+    // the same way). Without the branch (`q`), the detail page would widen to all branches and show more runs.
     const windowParams: Record<string, string> = {
         ...(searchParams.date_from ? { date_from: searchParams.date_from } : {}),
         ...(searchParams.date_to ? { date_to: searchParams.date_to } : {}),
+        ...(searchParams.q ? { q: searchParams.q } : {}),
     }
     const columns: LemonTableColumns<WorkflowHealthRow> = [
         {

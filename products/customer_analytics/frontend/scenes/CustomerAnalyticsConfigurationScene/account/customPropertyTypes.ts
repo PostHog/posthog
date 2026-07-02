@@ -3,6 +3,7 @@ import { humanFriendlyCurrency, humanFriendlyLargeNumber, humanFriendlyNumber, p
 import type {
     CustomPropertyDefinitionApi,
     CustomPropertyDisplayTypeEnumApi,
+    CustomPropertySourceApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 // The backend stores the granular display type directly, so the form value maps 1:1 to the API.
@@ -61,4 +62,31 @@ export function formatCustomPropertyValue(
         default:
             return raw
     }
+}
+
+export type SourceSyncStatusLevel = 'synced' | 'error' | 'disabled' | 'pending'
+
+export interface SourceSyncStatus {
+    level: SourceSyncStatusLevel
+    label: string
+    tooltip?: string
+}
+
+// Derives the displayed sync state from the source's stored fields. The backend records only
+// `is_enabled` + `last_sync_error` + `last_synced_at`; status is computed, not stored.
+export function sourceSyncStatus(source: CustomPropertySourceApi): SourceSyncStatus {
+    if (!source.is_enabled) {
+        return {
+            level: 'disabled',
+            label: 'Disabled',
+            tooltip: source.last_sync_error ?? 'Syncing is turned off for this source.',
+        }
+    }
+    if (source.last_sync_error) {
+        return { level: 'error', label: 'Sync error', tooltip: source.last_sync_error }
+    }
+    if (!source.last_synced_at) {
+        return { level: 'pending', label: 'Awaiting first sync' }
+    }
+    return { level: 'synced', label: 'Synced' }
 }

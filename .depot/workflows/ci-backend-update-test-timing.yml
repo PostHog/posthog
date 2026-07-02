@@ -1,0 +1,91 @@
+# Depot CI mirror of .github/workflows/ci-backend-update-test-timing.yml. Refreshes the
+# .test_durations the shadow restores for sharding, saving it to Depot Cache (the GitHub Actions
+# Cache copy is a separate store the shadow can't read). Merges timing artifacts from the newest
+# master ci-backend run; no test execution. Needs GH_APP_POSTHOG_TESTS_* in `depot ci secrets`.
+name: Depot CI shadow - update test timing
+on:
+    workflow_dispatch: {}
+    schedule:
+        - cron: '0 1,7,13,19 * * *'
+permissions:
+    contents: read
+    actions: read
+jobs:
+    refresh-depot-test-durations:
+        name: Refresh .test_durations in Depot Cache
+        runs-on: depot-ubuntu-latest
+        timeout-minutes: 10
+        steps:
+            - name: Get app token
+              id: app-token
+              uses: actions/create-github-app-token@1b10c78c7865c340bc4f6099eb2f838309f1e8c3 # v3.1.1
+              with:
+                  client-id: ${{ secrets.GH_APP_POSTHOG_TESTS_APP_ID }}
+                  private-key: ${{ secrets.GH_APP_POSTHOG_TESTS_PRIVATE_KEY }}
+
+            - uses: actions/checkout@de0fac2e4500dabe0009e67214ff5f5447ce83dd # v6.0.2
+
+            - name: Install uv
+              uses: astral-sh/setup-uv@37802adc94f370d6bfd71619e3f0bf239e1f3b78 # v7.6.0
+              with:
+                  version: '0.11.14' # pinned: unpinned setup-uv calls GH API on every job, exhausts rate limit
+
+            - name: Find newest Backend CI run with timing artifacts
+              id: find-backend-run
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  REPO: ${{ github.repository }}
+              run: |
+                  cutoff_date=$(date -u -d '14 days ago' +%Y-%m-%dT%H:%M:%SZ 2>/dev/null || date -u -v-14d +%Y-%m-%dT%H:%M:%SZ)
+                  primary=$(gh api "repos/$REPO/actions/workflows/ci-backend.yml/runs?status=success&branch=master&per_page=100&created=>=$cutoff_date" \
+                      --jq '.workflow_runs[] | select(
+                          (.updated_at | fromdateiso8601) - (.run_started_at | fromdateiso8601) > 300
+                      ) | .id' | head -25 | \
+                      while read -r id; do
+                          count=$(gh api "repos/$REPO/actions/runs/$id/artifacts?per_page=100" \
+                              --jq '[.artifacts[] | select(.name | startswith("timing_data-")) | select(.expired == false)] | length' 2>/dev/null)
+                          if [ "$count" -ge "38" ]; then echo "$id"; break; fi
+                      done)
+                  if [ -z "$primary" ]; then
+                      echo "::error::No suitable Backend CI run found with timing artifacts"
+                      exit 1
+                  fi
+                  echo "run_id=$primary" >> "$GITHUB_OUTPUT"
+
+            - name: Download timing artifacts
+              env:
+                  GH_TOKEN: ${{ steps.app-token.outputs.token }}
+                  BACKEND_RUN_ID: ${{ steps.find-backend-run.outputs.run_id }}
+              run: |
+                  gh run download "$BACKEND_RUN_ID" \
+                      --pattern "timing_data-Core-*" \
+                      --pattern "timing_data-Temporal-*" \
+                      --pattern "timing_data-Products-*" \
+                      --dir timing_artifacts
+                  gh run download "$BACKEND_RUN_ID" \
+                      --pattern "junit-results-backend-core-*" \
+                      --pattern "junit-results-backend-temporal-*" \
+                      --dir junit_artifacts || echo "::warning::No JUnit artifacts — statistical carrier detection"
+
+            - name: Merge into .test_durations
+              run: |
+                  uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/core_durations \
+                      --segment Core --junit-dir junit_artifacts
+                  uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/temporal_durations \
+                      --segment Temporal --junit-dir junit_artifacts
+                  uv run .github/scripts/optimize_test_durations.py timing_artifacts /tmp/products_durations \
+                      --segment Products
+                  uv run .github/scripts/optimize_test_durations.py .test_durations \
+                      --merge-files /tmp/core_durations /tmp/temporal_durations /tmp/products_durations
+                  rm -rf timing_artifacts junit_artifacts /tmp/core_durations /tmp/temporal_durations /tmp/products_durations
+
+            - name: Compute cache key
+              id: durations-meta
+              run: echo "cache_key=posthog-test-durations-$(date -u +%FT%H%M%SZ)" >> "$GITHUB_OUTPUT"
+
+            - name: Save test durations to Depot Cache
+              uses: actions/cache/save@cdf6c1fa76f9f475f3d7449005a359c84ca0f306 # v5.0.3
+              continue-on-error: true
+              with:
+                  path: .test_durations
+                  key: ${{ steps.durations-meta.outputs.cache_key }}
