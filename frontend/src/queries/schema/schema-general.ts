@@ -179,6 +179,7 @@ export enum NodeKind {
     ActorsPropertyTaxonomyQuery = 'ActorsPropertyTaxonomyQuery',
     TracesQuery = 'TracesQuery',
     TraceQuery = 'TraceQuery',
+    SessionQuery = 'SessionQuery',
     TraceNeighborsQuery = 'TraceNeighborsQuery',
     VectorSearchQuery = 'VectorSearchQuery',
     DocumentSimilarityQuery = 'DocumentSimilarityQuery',
@@ -258,6 +259,7 @@ export type AnyDataNode =
     | RecordingsQuery
     | TracesQuery
     | TraceQuery
+    | SessionQuery
     | TraceNeighborsQuery
     | VectorSearchQuery
     | UsageMetricsQuery
@@ -371,6 +373,7 @@ export type QuerySchema =
     | ActorsPropertyTaxonomyQuery
     | TracesQuery
     | TraceQuery
+    | SessionQuery
     | TraceNeighborsQuery
     | VectorSearchQuery
 
@@ -1097,6 +1100,7 @@ export interface DataTableNode
                     | ExperimentFunnelsQuery
                     | ExperimentTrendsQuery
                     | TracesQuery
+                    | SessionQuery
                     | EndpointsUsageTableQuery
                     | AccountsQuery
                 )['response']
@@ -1136,6 +1140,7 @@ export interface DataTableNode
         | ExperimentTrendsQuery
         | TracesQuery
         | TraceQuery
+        | SessionQuery
         | EndpointsUsageTableQuery
         | AccountsQuery
     /** Columns shown in the table, unless the `source` provides them. */
@@ -5621,6 +5626,24 @@ export interface TraceQuery extends DataNode<TraceQueryResponse> {
     properties?: AnyPropertyFilter[]
 }
 
+export interface SessionQueryResponse extends AnalyticsQueryResponseBase {
+    results: LLMTrace[]
+    hasMore?: boolean
+    limit?: integer
+    offset?: integer
+    columns?: string[]
+}
+
+export interface SessionQuery extends DataNode<SessionQueryResponse> {
+    kind: NodeKind.SessionQuery
+    sessionId: string
+    dateRange?: DateRange
+    limit?: integer
+    offset?: integer
+    /** Include stored sentiment evaluation results for returned traces and generation events. */
+    includeSentiment?: boolean
+}
+
 export interface TraceNeighborsQueryResponse {
     /** ID of the newer trace (chronologically after current) */
     newerTraceId?: string
@@ -5651,6 +5674,7 @@ export interface TraceNeighborsQuery extends DataNode<TraceNeighborsQueryRespons
 
 export type CachedTracesQueryResponse = CachedQueryResponse<TracesQueryResponse>
 export type CachedTraceQueryResponse = CachedQueryResponse<TraceQueryResponse>
+export type CachedSessionQueryResponse = CachedQueryResponse<SessionQueryResponse>
 export type CachedTraceNeighborsQueryResponse = CachedQueryResponse<TraceNeighborsQueryResponse>
 
 // NOTE: Keep in sync with posthog/models/exchange_rate/currencies.py

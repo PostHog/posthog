@@ -71,6 +71,34 @@ describe('aiObservabilitySessionDataLogic', () => {
         expect(traceQueryCalls()[1].dateRange?.date_from).toBe('-24h')
     })
 
+    it('hydrates full traces from the session response without trace fanout', async () => {
+        logic.unmount()
+        const trace = traceWithEvents([
+            {
+                id: 'generation-1',
+                event: '$ai_generation',
+                createdAt: '2026-01-01T00:00:01Z',
+                properties: {
+                    $ai_input: [{ role: 'user', content: 'hello' }],
+                    $ai_output_choices: [{ role: 'assistant', content: 'hi' }],
+                },
+            },
+        ] as LLMTrace['events'])
+        querySpy.mockClear()
+
+        logic = aiObservabilitySessionDataLogic({
+            sessionId: 'session-1',
+            query: sessionLogic.values.query,
+            cachedResults: { results: [trace] } as any,
+        })
+        logic.mount()
+        await settleListeners()
+
+        expect(traceQueryCalls()).toHaveLength(0)
+        expect(logic.values.fullTraces['trace-1']).toEqual(trace)
+        expect(logic.values.sessionTurns[0].isLoaded).toBe(true)
+    })
+
     it('expands the first trace event when opening the drawer without a focus target', async () => {
         querySpy.mockImplementation((query) => {
             return Promise.resolve({

@@ -62,6 +62,7 @@ from posthog.schema import (
     SamplingRate,
     SessionAttributionExplorerQuery,
     SessionBatchEventsQuery,
+    SessionQuery,
     SessionsQuery,
     SessionsTimelineQuery,
     StickinessQuery,
@@ -298,6 +299,7 @@ RunnableQueryNode = Union[
     ActorsQuery,
     EventsQuery,
     SessionBatchEventsQuery,
+    SessionQuery,
     HogQLQuery,
     InsightActorsQuery,
     FunnelsActorsQuery,
@@ -501,6 +503,17 @@ def get_query_runner(
 
         return SessionBatchEventsQueryRunner(
             query=cast(SessionBatchEventsQuery | dict[str, Any], query),
+            team=team,
+            timings=timings,
+            limit_context=limit_context,
+            modifiers=modifiers,
+            user=user,
+        )
+    if kind == "SessionQuery":
+        from .ai.session_query_runner import SessionQueryRunner
+
+        return SessionQueryRunner(
+            query=cast(SessionQuery | dict[str, Any], query),
             team=team,
             timings=timings,
             limit_context=limit_context,

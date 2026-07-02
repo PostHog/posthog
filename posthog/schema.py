@@ -7852,6 +7852,51 @@ class TraceSpansTreeQueryResponse(BaseModel):
     )
 
 
+class SessionQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    columns: list[str] | None = None
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hasMore: bool | None = None
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[LLMTrace]
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries."
+        ),
+    )
+
+
 class TracesQueryResponse(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -12979,6 +13024,62 @@ class CachedTraceSpansTreeQueryResponse(BaseModel):
         default=None, description="The date range used for the query"
     )
     results: list[SpanTreeNode]
+    timezone: str
+    timings: list[QueryTiming] | None = Field(
+        default=None,
+        description=("Measured timings for different parts of the query generation process"),
+    )
+    warnings: list[DataWarehouseSyncWarning] | None = Field(
+        default=None,
+        description=(
+            "Warnings about data warehouse sources referenced by the query whose latest"
+            " sync failed, is paused, hit a billing limit, or is otherwise stale."
+            " Results may not reflect current source data. Accumulated across every"
+            " HogQL execution that contributes to this response — so insights backed by"
+            " warehouse tables (Trends, Funnels, etc.) receive the same warnings as raw"
+            " HogQL queries."
+        ),
+    )
+
+
+class CachedSessionQueryResponse(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    cache_key: str
+    cache_target_age: AwareDatetime | None = None
+    calculation_trigger: str | None = Field(
+        default=None,
+        description=("What triggered the calculation of the query, leave empty if user/immediate"),
+    )
+    columns: list[str] | None = None
+    error: str | None = Field(
+        default=None,
+        description=(
+            "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
+        ),
+    )
+    hasMore: bool | None = None
+    hogql: str | None = Field(default=None, description="Generated HogQL query.")
+    is_cached: bool
+    last_refresh: AwareDatetime
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    next_allowed_client_refresh: AwareDatetime
+    offset: int | None = None
+    query_metadata: dict[str, Any] | None = None
+    query_status: QueryStatus | None = Field(
+        default=None,
+        description=("Query status indicates whether next to the provided data, a query is still running."),
+    )
+    resolved_compare_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None,
+        description=("The resolved previous/comparison period date range, when comparing against another period"),
+    )
+    resolved_date_range: ResolvedDateRangeResponse | None = Field(
+        default=None, description="The date range used for the query"
+    )
+    results: list[LLMTrace]
     timezone: str
     timings: list[QueryTiming] | None = Field(
         default=None,
@@ -22082,6 +22183,25 @@ class TraceQuery(BaseModel):
     version: float | None = Field(default=None, description="version of the node, used for schema migrations")
 
 
+class SessionQuery(BaseModel):
+    model_config = ConfigDict(
+        extra="forbid",
+    )
+    dateRange: DateRange | None = None
+    includeSentiment: bool | None = Field(
+        default=None,
+        description="Include stored sentiment evaluation results for returned traces and generation events.",
+    )
+    kind: Literal["SessionQuery"] = "SessionQuery"
+    limit: int | None = None
+    modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
+    offset: int | None = None
+    response: SessionQueryResponse | None = None
+    sessionId: str
+    tags: QueryLogTags | None = None
+    version: float | None = Field(default=None, description="version of the node, used for schema migrations")
+
+
 class TraceSpansSymbolStatsQuery(BaseModel):
     model_config = ConfigDict(
         extra="forbid",
@@ -27658,6 +27778,7 @@ class DataTableNode(BaseModel):
         | ExperimentTrendsQuery
         | TracesQuery
         | TraceQuery
+        | SessionQuery
         | EndpointsUsageTableQuery
         | AccountsQuery
     ) = Field(..., description="Source of the events")
@@ -27752,6 +27873,7 @@ class HogQLAutocomplete(BaseModel):
         | RecordingsQuery
         | TracesQuery
         | TraceQuery
+        | SessionQuery
         | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
@@ -27849,6 +27971,7 @@ class HogQLMetadata(BaseModel):
         | RecordingsQuery
         | TracesQuery
         | TraceQuery
+        | SessionQuery
         | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
@@ -27981,6 +28104,7 @@ class MaxInsightContext(BaseModel):
         | ActorsPropertyTaxonomyQuery
         | TracesQuery
         | TraceQuery
+        | SessionQuery
         | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
@@ -28110,6 +28234,7 @@ class QueryRequest(BaseModel):
         | ActorsPropertyTaxonomyQuery
         | TracesQuery
         | TraceQuery
+        | SessionQuery
         | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
@@ -28231,6 +28356,7 @@ class QuerySchemaRoot(
         | ActorsPropertyTaxonomyQuery
         | TracesQuery
         | TraceQuery
+        | SessionQuery
         | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
@@ -28322,6 +28448,7 @@ class QuerySchemaRoot(
         | ActorsPropertyTaxonomyQuery
         | TracesQuery
         | TraceQuery
+        | SessionQuery
         | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
@@ -28418,6 +28545,7 @@ class QueryUpgradeRequest(BaseModel):
         | ActorsPropertyTaxonomyQuery
         | TracesQuery
         | TraceQuery
+        | SessionQuery
         | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
@@ -28514,6 +28642,7 @@ class QueryUpgradeResponse(BaseModel):
         | ActorsPropertyTaxonomyQuery
         | TracesQuery
         | TraceQuery
+        | SessionQuery
         | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
@@ -28787,6 +28916,7 @@ class VisualizationArtifactContent(BaseModel):
         | ActorsPropertyTaxonomyQuery
         | TracesQuery
         | TraceQuery
+        | SessionQuery
         | TraceNeighborsQuery
         | VectorSearchQuery
         | UsageMetricsQuery
