@@ -180,14 +180,17 @@ function sectionEquals(a, b) {
 // Only the report comments this tooling wrote itself. The marker alone is not enough:
 // anyone can comment on a public-repo PR, and a human "Quote reply" of the report keeps
 // the marker inside `> ` prefixes — matching on substring would adopt, merge, or DELETE
-// comments we do not own.
+// comments we do not own. The login is the identity behind the `github.token` the
+// posting workflow steps pass — moving them to a custom app token changes the login and
+// would orphan every existing report comment, so handle that transition here too.
 function isReportComment(comment) {
     return comment.user?.login === 'github-actions[bot]' && comment.body?.startsWith(MARKER)
 }
 
-// A concurrent writer racing us can delete or replace the comment between our read and
-// write — that conflict surfaces as a 404 and is retryable. Anything else (403 on a
-// fork's read-only token, 5xx) is not worth retrying for a nicety comment.
+// A concurrent healer racing us can delete the comment between our read and our write —
+// that surfaces as a 404 and is retryable. (A concurrent PATCH never 404s; the verify
+// pass catches it.) Anything else (403 on a fork's read-only token, 5xx) is not worth
+// retrying for a nicety comment.
 function isWriteConflict(err) {
     return err.status === 404
 }
@@ -213,6 +216,9 @@ export async function postSection({ id, status, summary, body }, { maxAttempts =
     // renderComment normalizes summaries, so comparing against the raw input would
     // never verify for a summary that needed normalizing.
     const expected = parseSections(renderComment(upsertSection(new Map(), { id, status, summary, body }))).get(id)
+    // Jittered so two writers that collided do not retry in lockstep and re-collide on
+    // every attempt.
+    const backoff = () => sleep(retryDelayMs * (0.5 + Math.random()))
 
     for (let attempt = 1; attempt <= maxAttempts; attempt++) {
         let reportComments
@@ -247,6 +253,9 @@ export async function postSection({ id, status, summary, body }, { maxAttempts =
         } catch (err) {
             if (isWriteConflict(err)) {
                 console.info(`CI report comment changed under section "${id}" — re-reading and retrying.`)
+                if (attempt < maxAttempts) {
+                    await backoff()
+                }
                 continue
             }
             console.warn(`Could not post CI report (read-only token on fork PRs?): ${err.message}`)
@@ -277,9 +286,7 @@ export async function postSection({ id, status, summary, body }, { maxAttempts =
 
         if (attempt < maxAttempts) {
             console.info(`CI report section "${id}" was clobbered by a concurrent writer — retrying.`)
-            // Jitter so two writers that clobbered each other do not retry in lockstep
-            // and re-collide on every attempt.
-            await sleep(retryDelayMs * (0.5 + Math.random()))
+            await backoff()
         }
     }
     console.warn(
