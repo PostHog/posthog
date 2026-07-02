@@ -620,9 +620,18 @@ class LogsQueryRunner(AnalyticsQueryRunner[LogsQueryResponse], LogsQueryRunnerMi
                     "live_logs_checkpoint": LIVE_LOGS_CHECKPOINT_QUERY,
                     # Attribute maps dominate payload size. When excluded we still SELECT a column
                     # (an empty map) so the positional result mapping in _calculate stays stable.
-                    "attributes": parse_expr("map() AS attributes" if self.query.excludeAttributes else "attributes"),
+                    # The empty-map projection must NOT be aliased back to `attributes` /
+                    # `resource_attributes`: that alias shadows the real table column within the same
+                    # query scope, so an attribute filter in the WHERE clause would resolve against the
+                    # empty map and crash the resolver. Use a distinct alias so filters keep resolving
+                    # against the real MapStringDatabaseField column.
+                    "attributes": parse_expr(
+                        "map() AS excluded_attributes" if self.query.excludeAttributes else "attributes"
+                    ),
                     "resource_attributes": parse_expr(
-                        "map() AS resource_attributes" if self.query.excludeAttributes else "resource_attributes"
+                        "map() AS excluded_resource_attributes"
+                        if self.query.excludeAttributes
+                        else "resource_attributes"
                     ),
                 },
             )

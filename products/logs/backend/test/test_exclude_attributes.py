@@ -34,12 +34,15 @@ class TestLogsExcludeAttributes(ClickhouseTestMixin, APIBaseTest):
         sync_execute("TRUNCATE TABLE IF EXISTS logs32")
         super().tearDownClass()
 
-    def _run(self, *, exclude: bool) -> list[dict]:
+    def _run(self, *, exclude: bool, attribute_filters: list[dict] | None = None) -> list[dict]:
+        filter_group: dict = {"type": "AND", "values": []}
+        if attribute_filters:
+            filter_group["values"] = [{"type": "AND", "values": attribute_filters}]
         query = LogsQuery(
             dateRange=DateRange(date_from=DATE_FROM, date_to=DATE_TO),
             serviceNames=["argo-rollouts"],
             severityLevels=[],
-            filterGroup={"type": "AND", "values": []},
+            filterGroup=filter_group,
             excludeAttributes=exclude,
         )
         return LogsQueryRunner(query, self.team).run().results
@@ -60,3 +63,23 @@ class TestLogsExcludeAttributes(ClickhouseTestMixin, APIBaseTest):
         else:
             self.assertTrue(results[0]["attributes"])
             self.assertEqual(results[0]["resource_attributes"]["service.name"], "argo-rollouts")
+
+    def test_attribute_filter_with_excluded_attributes(self):
+        # Filtering on an attribute while attributes are excluded from the result set used to crash
+        # the HogQL resolver: the empty-map projection was aliased back to `attributes`, shadowing
+        # the real column the filter resolves against. The dotted OTel-style key exercises the
+        # reported failure (a chain like attributes['log.file.path__str']).
+        results = self._run(
+            exclude=True,
+            attribute_filters=[
+                {
+                    "key": "log.file.path",
+                    "operator": "icontains",
+                    "type": "log_attribute",
+                    "value": "argo-rollouts-dashboard",
+                }
+            ],
+        )
+        self.assertEqual(len(results), 1)
+        # The filter matched against the real column, but the output map is still excluded.
+        self.assertEqual(results[0]["attributes"], {})
