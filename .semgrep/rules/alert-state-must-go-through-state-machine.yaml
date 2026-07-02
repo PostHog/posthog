@@ -1,0 +1,86 @@
+# Enforces the invariant that ALL writes to an alert configuration's `state` and
+# `consecutive_failures` go through the product's alert state machine module.
+#
+# The decision logic is shared across products in common/alerting/state_machine.py;
+# each product owns one module that is the single legal mutator of its alert model:
+#   - products/logs/backend/alert_state_machine.py (apply_outcome)
+#   - products/billing_alerts/backend/logic/state_machine.py
+#
+# There are dedicated helpers for every legal control-plane transition
+# (apply_user_reset, apply_enable, apply_disable, apply_snooze, apply_unsnooze,
+# apply_threshold_change), and the check-driven path goes through evaluate_alert_check.
+#
+# If you need a new transition, add a helper in common/alerting/state_machine.py (or
+# the product's state machine module) rather than bypassing this rule — the point is
+# to keep the legal-transitions table readable in one place.
+rules:
+    - id: logs-alert-state-direct-mutation
+      patterns:
+          - pattern-either:
+                - pattern: $ALERT.state = $VALUE
+                - pattern: $ALERT.consecutive_failures = $VALUE
+      message: |
+          Direct mutation of LogsAlertConfiguration.state / .consecutive_failures
+          bypasses alert_state_machine.py, which is the single source of truth for
+          alert state transitions.
+
+          Route state changes through the state machine instead:
+
+              from products.logs.backend.alert_state_machine import (
+                  apply_outcome, apply_user_reset, apply_disable, ...
+              )
+
+              outcome = apply_user_reset(alert.to_snapshot())
+              update_fields = apply_outcome(alert, outcome)
+              alert.save(update_fields=update_fields)
+
+          If you need a new transition type, add a helper in
+          common/alerting/state_machine.py (e.g. apply_<your_action>) and a
+          ControlPlaneOutcome return — do not mutate these fields directly.
+      languages: [python]
+      severity: ERROR
+      metadata:
+          category: correctness
+          subcategory: audit
+          confidence: HIGH
+      paths:
+          include:
+              - '/products/logs/backend/**/*.py'
+          exclude:
+              # The state machine itself — apply_outcome is the one legal mutator.
+              - '/products/logs/backend/alert_state_machine.py'
+              # Test files — fixtures and parametrized snapshots set state directly.
+              - '/products/logs/backend/test/**'
+              - '/products/logs/backend/**/test_*.py'
+
+    - id: billing-alert-state-direct-mutation
+      patterns:
+          - pattern-either:
+                - pattern: $ALERT.state = $VALUE
+                - pattern: $ALERT.consecutive_failures = $VALUE
+      message: |
+          Direct mutation of BillingAlertConfiguration.state / .consecutive_failures
+          bypasses logic/state_machine.py, which is the single source of truth for
+          billing alert state transitions (decisions come from
+          common/alerting/state_machine.py with BILLING_ALERT_POLICY).
+
+          Route state changes through the state machine module instead — see
+          evaluate_and_record_billing_alert / record_billing_alert_failure. If you
+          need a new transition type, add a helper in
+          common/alerting/state_machine.py and wire it through the billing state
+          machine module — do not mutate these fields directly.
+      languages: [python]
+      severity: ERROR
+      metadata:
+          category: correctness
+          subcategory: audit
+          confidence: HIGH
+      paths:
+          include:
+              - '/products/billing_alerts/backend/**/*.py'
+          exclude:
+              # The state machine module — the one legal mutator.
+              - '/products/billing_alerts/backend/logic/state_machine.py'
+              # Test files — fixtures set state directly.
+              - '/products/billing_alerts/backend/test/**'
+              - '/products/billing_alerts/backend/**/test_*.py'

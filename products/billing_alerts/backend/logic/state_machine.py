@@ -10,59 +10,54 @@ import structlog
 from posthog.exceptions_capture import capture_exception
 
 from products.billing_alerts.backend.logic.evaluator import BillingAlertEvaluation, evaluate_billing_alert
-from products.billing_alerts.backend.models import (
-    MAX_FAILURES_BEFORE_BROKEN,
-    BillingAlertConfiguration,
-    BillingAlertEvent,
+from products.billing_alerts.backend.models import BillingAlertConfiguration, BillingAlertEvent
+
+from common.alerting.state_machine import (
+    BILLING_ALERT_POLICY,
+    AlertCheckOutcome,
+    AlertSnapshot,
+    AlertState,
+    CheckInput,
+    NotificationAction,
+    evaluate_alert_check,
+    evaluate_alert_failure,
 )
 
 logger = structlog.get_logger(__name__)
 
-
-def _cooldown_suppresses(alert: BillingAlertConfiguration, now: datetime) -> bool:
-    if alert.last_notified_at is None or alert.cooldown_hours <= 0:
-        return False
-    return alert.last_notified_at + timedelta(hours=alert.cooldown_hours) > now
-
-
-def _snooze_suppresses(alert: BillingAlertConfiguration, now: datetime) -> bool:
-    return bool(alert.snooze_until and alert.snooze_until > now)
+_NOTIFICATION_EVENT_KINDS: dict[NotificationAction, str] = {
+    NotificationAction.NONE: BillingAlertEvent.Kind.CHECK,
+    NotificationAction.FIRE: BillingAlertEvent.Kind.FIRING,
+    NotificationAction.RESOLVE: BillingAlertEvent.Kind.RESOLVED,
+    NotificationAction.ERROR: BillingAlertEvent.Kind.ERRORED,
+    NotificationAction.BROKEN: BillingAlertEvent.Kind.BROKEN_CONFIG,
+}
 
 
-def _state_after(alert: BillingAlertConfiguration, evaluation: BillingAlertEvaluation, now: datetime) -> str:
-    if evaluation.is_inconclusive:
-        return alert.state
-    if evaluation.threshold_breached and _snooze_suppresses(alert, now):
-        return BillingAlertConfiguration.State.SNOOZED
-    if evaluation.threshold_breached:
-        return BillingAlertConfiguration.State.FIRING
-    return BillingAlertConfiguration.State.NOT_FIRING
+def _to_snapshot(alert: BillingAlertConfiguration) -> AlertSnapshot:
+    return AlertSnapshot(
+        state=AlertState(alert.state),
+        cooldown=timedelta(hours=alert.cooldown_hours),
+        last_notified_at=alert.last_notified_at,
+        snooze_until=alert.snooze_until,
+        consecutive_failures=alert.consecutive_failures,
+    )
 
 
-def _event_kind(
+def _decide(
     alert: BillingAlertConfiguration,
     evaluation: BillingAlertEvaluation,
-    next_state: str,
     now: datetime,
-) -> str:
-    if evaluation.is_inconclusive:
-        return BillingAlertEvent.Kind.CHECK
-    if evaluation.threshold_breached:
-        if next_state == alert.State.SNOOZED:
-            return BillingAlertEvent.Kind.CHECK
-        if alert.state == alert.State.FIRING and _cooldown_suppresses(alert, now):
-            return BillingAlertEvent.Kind.CHECK
-        return BillingAlertEvent.Kind.FIRING
-    if (
-        alert.state
-        in (
-            BillingAlertConfiguration.State.FIRING,
-            BillingAlertConfiguration.State.SNOOZED,
-        )
-        and not evaluation.threshold_breached
-    ):
-        return BillingAlertEvent.Kind.RESOLVED
-    return BillingAlertEvent.Kind.CHECK
+) -> AlertCheckOutcome:
+    return evaluate_alert_check(
+        _to_snapshot(alert),
+        CheckInput(
+            threshold_breached=evaluation.threshold_breached,
+            is_inconclusive=evaluation.is_inconclusive,
+        ),
+        now,
+        policy=BILLING_ALERT_POLICY,
+    )
 
 
 def event_should_dispatch(event: BillingAlertEvent) -> bool:
@@ -87,21 +82,19 @@ def record_billing_alert_failure(
     with transaction.atomic():
         locked_alert = BillingAlertConfiguration.objects.select_for_update().get(pk=alert.pk)
         state_before = locked_alert.state
-        locked_alert.consecutive_failures += 1
-        next_state = (
-            BillingAlertConfiguration.State.BROKEN
-            if locked_alert.consecutive_failures >= MAX_FAILURES_BEFORE_BROKEN
-            else BillingAlertConfiguration.State.ERRORED
+        outcome = evaluate_alert_failure(
+            _to_snapshot(locked_alert),
+            error_message=str(error),
+            is_transient_error=is_transient_error,
+            policy=BILLING_ALERT_POLICY,
         )
-        event_kind = (
-            BillingAlertEvent.Kind.BROKEN_CONFIG
-            if next_state == BillingAlertConfiguration.State.BROKEN
-            else BillingAlertEvent.Kind.ERRORED
-        )
+        next_state = outcome.new_state.value
+        event_kind = _NOTIFICATION_EVENT_KINDS[outcome.notification]
         locked_alert.state = next_state
+        locked_alert.consecutive_failures = outcome.consecutive_failures
         locked_alert.last_checked_at = now
         locked_alert.next_check_at = now + timedelta(hours=locked_alert.check_interval_hours)
-        if next_state == BillingAlertConfiguration.State.BROKEN:
+        if outcome.disable:
             locked_alert.enabled = False
         locked_alert.save(
             update_fields=[
@@ -153,8 +146,9 @@ def evaluate_and_record_billing_alert(
         with transaction.atomic():
             locked_alert = BillingAlertConfiguration.objects.select_for_update().get(pk=alert.pk)
             state_before = locked_alert.state
-            next_state = _state_after(locked_alert, evaluation, now)
-            event_kind = _event_kind(locked_alert, evaluation, next_state, now)
+            outcome = _decide(locked_alert, evaluation, now)
+            next_state = outcome.new_state.value
+            event_kind = _NOTIFICATION_EVENT_KINDS[outcome.notification]
             event_defaults = {
                 "period_start": evaluation.period_start,
                 "period_end": evaluation.period_end,
@@ -194,7 +188,7 @@ def evaluate_and_record_billing_alert(
             locked_alert.state = next_state
             locked_alert.last_checked_at = now
             locked_alert.next_check_at = now + timedelta(hours=locked_alert.check_interval_hours)
-            locked_alert.consecutive_failures = 0
+            locked_alert.consecutive_failures = outcome.consecutive_failures
             locked_alert.save(
                 update_fields=[
                     "state",

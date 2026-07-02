@@ -32,6 +32,12 @@ layer = "modules"
 utility = true
 
 [[modules]]
+path = "common.alerting"
+depends_on = []
+layer = "modules"
+utility = true
+
+[[modules]]
 path = "ee"
 depends_on = [
     "products.cohorts",
