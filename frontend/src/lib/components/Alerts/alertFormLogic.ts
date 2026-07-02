@@ -63,6 +63,7 @@ export type AlertFormType = Pick<
     | 'skip_weekend'
     | 'schedule_restriction'
     | 'detector_config'
+    | 'forecast_config'
     | 'investigation_agent_enabled'
     | 'investigation_gates_notifications'
     | 'investigation_inconclusive_action'
@@ -317,6 +318,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                       skip_weekend: false,
                       schedule_restriction: null,
                       detector_config: null,
+                      forecast_config: null,
                       investigation_agent_enabled: false,
                       investigation_gates_notifications: false,
                       investigation_inconclusive_action: 'notify',
@@ -352,6 +354,7 @@ export const alertFormLogic = kea<alertFormLogicType>([
                           }
                         : alert.config,
                     detector_config: alert.detector_config ?? null,
+                    forecast_config: alert.forecast_config ?? null,
                     // Investigation agent only applies to anomaly (detector-based) alerts — force off otherwise.
                     investigation_agent_enabled: alert.detector_config
                         ? (alert.investigation_agent_enabled ?? false)

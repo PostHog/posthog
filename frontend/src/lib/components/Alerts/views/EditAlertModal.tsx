@@ -134,6 +134,7 @@ export function EditAlertModal({
     const { currentTeam } = useValues(teamLogic)
     const projectTimezone = currentTeam?.timezone ?? 'UTC'
     const anomalyDetectionEnabled = useFeatureFlag('ALERTS_ANOMALY_DETECTION')
+    const forecastAlertsEnabled = useFeatureFlag('FORECAST_ALERTS')
     const inlineNotificationsEnabled = useFeatureFlag('ALERTS_INLINE_NOTIFICATIONS')
     const investigationAgentEnabled = useFeatureFlag('ALERTS_INVESTIGATION_AGENT')
 
@@ -160,7 +161,7 @@ export function EditAlertModal({
 
     const creatingNewAlert = alertForm.id === undefined
     const can_check_ongoing_interval = canCheckOngoingInterval(alertForm, { isTrendsFunnel })
-    const alertMode = alertForm.detector_config ? 'detector' : 'threshold'
+    const alertMode = alertForm.forecast_config ? 'forecast' : alertForm.detector_config ? 'detector' : 'threshold'
     const nextPlannedEvaluationStale = useMemo(
         () =>
             isNextPlannedEvaluationStale(
@@ -290,6 +291,7 @@ export function EditAlertModal({
                                         anomalyDetectionEnabled={
                                             anomalyDetectionEnabled && supportsAnomalyDetection(alertForm.config)
                                         }
+                                        forecastAlertsEnabled={forecastAlertsEnabled}
                                         investigationAgentEnabled={investigationAgentEnabled}
                                         simulationResult={simulationResult}
                                         simulationResultLoading={simulationResultLoading}

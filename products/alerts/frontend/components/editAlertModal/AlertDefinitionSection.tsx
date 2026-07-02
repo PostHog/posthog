@@ -21,12 +21,14 @@ import {
     isFunnelsAlertConfig,
     isHogQLAlertConfig,
     isTrendsAlertConfig,
+    supportsForecast,
 } from 'lib/components/Alerts/types'
 import { DetectorSelector, getDefaultWindow } from 'lib/components/Alerts/views/DetectorSelector'
+import { ForecastSelector, getDefaultForecastConfig } from 'lib/components/Alerts/views/ForecastSelector'
 import { SimulationSummary } from 'lib/components/Alerts/views/SimulationSummary'
 import { LemonField } from 'lib/lemon-ui/LemonField'
 
-import { AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
+import { AlertConditionType, ForecastConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
 
 import { getDefaultSimulationRange } from 'products/alerts/frontend/logic/alertIntervalHelpers'
 
@@ -64,7 +66,7 @@ export interface HogQLDefinitionProps {
 
 export interface AlertDefinitionSectionProps {
     alertForm: AlertFormType
-    alertMode: 'detector' | 'threshold'
+    alertMode: 'detector' | 'threshold' | 'forecast'
     thresholdBoundsFormError?: string
     isNonTimeSeriesDisplay: boolean
     // Kind-specific inputs, grouped so the shared section only carries the bundle for the active kind.
@@ -72,6 +74,7 @@ export interface AlertDefinitionSectionProps {
     funnel: FunnelDefinitionProps
     hogql: HogQLDefinitionProps
     anomalyDetectionEnabled: boolean
+    forecastAlertsEnabled: boolean
     investigationAgentEnabled: boolean
     simulationResult: AlertSimulationResult | null
     simulationResultLoading: boolean
@@ -97,6 +100,7 @@ export function AlertDefinitionSection({
     funnel,
     hogql,
     anomalyDetectionEnabled,
+    forecastAlertsEnabled,
     investigationAgentEnabled,
     simulationResult,
     simulationResultLoading,
@@ -122,7 +126,9 @@ export function AlertDefinitionSection({
                 <LemonBanner type="warning">
                     {alertMode === 'detector'
                         ? 'For trends with breakdown, the detector will independently monitor each breakdown value (up to 25) and fire if any is anomalous.'
-                        : 'For trends with breakdown, the alert will fire if any of the breakdown values breaches the threshold.'}
+                        : alertMode === 'forecast'
+                          ? "Forecast alerts don't support breakdowns yet — switch to threshold or anomaly detection, or remove the breakdown."
+                          : 'For trends with breakdown, the alert will fire if any of the breakdown values breaches the threshold.'}
                 </LemonBanner>
             )}
             {isTrendsAlertConfig(alertForm.config) ? (
@@ -151,7 +157,7 @@ export function AlertDefinitionSection({
                 />
             ) : null}
 
-            {anomalyDetectionEnabled && (
+            {(anomalyDetectionEnabled || forecastAlertsEnabled) && (
                 <LemonSegmentedButton
                     fullWidth
                     value={alertMode}
@@ -163,8 +169,13 @@ export function AlertDefinitionSection({
                                 window: getDefaultWindow(alertForm.calculation_interval),
                                 preprocessing: { diffs_n: 1 },
                             })
+                            onSetAlertFormValue('forecast_config', null)
+                        } else if (value === 'forecast') {
+                            onSetAlertFormValue('forecast_config', getDefaultForecastConfig())
+                            onSetAlertFormValue('detector_config', null)
                         } else {
                             onSetAlertFormValue('detector_config', null)
+                            onSetAlertFormValue('forecast_config', null)
                         }
                     }}
                     options={[
@@ -179,17 +190,41 @@ export function AlertDefinitionSection({
                             tooltip:
                                 'Automatically detect unusual changes using AI (ohhh fancy, jk its just good old stats and ml stuff). No manual thresholds needed.',
                         },
+                        ...(forecastAlertsEnabled && supportsForecast(alertForm.config)
+                            ? [
+                                  {
+                                      value: 'forecast',
+                                      label: 'Forecast',
+                                      tooltip:
+                                          'Alert on where this metric is heading — fire before a threshold is breached, or when a value leaves its expected range.',
+                                  },
+                              ]
+                            : []),
                     ]}
                 />
             )}
 
-            {alertMode === 'threshold' ? (
+            {alertMode === 'forecast' && (
+                <ForecastSelector
+                    value={alertForm.forecast_config ?? null}
+                    onChange={(config) => {
+                        onSetAlertFormValue('forecast_config', config)
+                        onClearSimulation()
+                        onClearSimulationOverlay()
+                    }}
+                    calculationInterval={alertForm.calculation_interval}
+                />
+            )}
+
+            {alertMode === 'threshold' ||
+            (alertMode === 'forecast' &&
+                alertForm.forecast_config?.condition === ForecastConditionType.FUTURE_BREACH) ? (
                 <div className="deprecated-space-y-2">
                     {thresholdBoundsFormError ? (
                         <LemonBanner type="error">{thresholdBoundsFormError}</LemonBanner>
                     ) : null}
                     <div className="flex flex-wrap gap-x-3 gap-y-2 items-center">
-                        {supportsRelativeConditions && (
+                        {alertMode === 'threshold' && supportsRelativeConditions && (
                             <Group name={['condition']}>
                                 <LemonField name="type">
                                     {({ value, onChange }) => (
@@ -306,29 +341,31 @@ export function AlertDefinitionSection({
                         </LemonField>
                         {/* Funnels always compare as a percentage of the prior period, so the unit
                             toggle is hidden for them (the threshold is pinned to PERCENTAGE). */}
-                        {!isFunnelAlert && alertForm.condition.type !== AlertConditionType.ABSOLUTE_VALUE && (
-                            <Group name={['threshold', 'configuration']}>
-                                <LemonField name="type">
-                                    <LemonSegmentedButton
-                                        options={[
-                                            {
-                                                value: InsightThresholdType.PERCENTAGE,
-                                                label: '%',
-                                                tooltip: 'Percent',
-                                            },
-                                            {
-                                                value: InsightThresholdType.ABSOLUTE,
-                                                label: '#',
-                                                tooltip: 'Absolute number',
-                                            },
-                                        ]}
-                                    />
-                                </LemonField>
-                            </Group>
-                        )}
+                        {alertMode === 'threshold' &&
+                            !isFunnelAlert &&
+                            alertForm.condition.type !== AlertConditionType.ABSOLUTE_VALUE && (
+                                <Group name={['threshold', 'configuration']}>
+                                    <LemonField name="type">
+                                        <LemonSegmentedButton
+                                            options={[
+                                                {
+                                                    value: InsightThresholdType.PERCENTAGE,
+                                                    label: '%',
+                                                    tooltip: 'Percent',
+                                                },
+                                                {
+                                                    value: InsightThresholdType.ABSOLUTE,
+                                                    label: '#',
+                                                    tooltip: 'Absolute number',
+                                                },
+                                            ]}
+                                        />
+                                    </LemonField>
+                                </Group>
+                            )}
                     </div>
                 </div>
-            ) : (
+            ) : alertMode === 'detector' ? (
                 <DetectorSelector
                     value={alertForm.detector_config ?? null}
                     onChange={(config) => {
@@ -338,7 +375,7 @@ export function AlertDefinitionSection({
                     }}
                     calculationInterval={alertForm.calculation_interval}
                 />
-            )}
+            ) : null}
 
             {alertMode === 'detector' && alertForm.detector_config && investigationAgentEnabled && (
                 <div className="deprecated-space-y-2">

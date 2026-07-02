@@ -1,4 +1,10 @@
-import { AlertCalculationInterval, AlertConditionType, InsightThresholdType } from '~/queries/schema/schema-general'
+import {
+    AlertCalculationInterval,
+    AlertConditionType,
+    ForecastConditionType,
+    ForecastEngineType,
+    InsightThresholdType,
+} from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
 
 import type { AlertFormType } from './alertFormLogic'
@@ -89,5 +95,25 @@ describe('alertFormSchema', () => {
                 },
             })
         ).toEqual({})
+    })
+
+    // A band-deviation forecast scores the actual against the forecast's own uncertainty band, so it
+    // has no user-set threshold — bounds must not be required. A future-breach forecast still checks
+    // against the threshold bounds below, so it must keep requiring them.
+    it.each([
+        [ForecastConditionType.BAND_DEVIATION, true],
+        [ForecastConditionType.FUTURE_BREACH, false],
+    ])('thresholdAlertHasBounds with empty bounds and forecast condition %s is %s', (condition, expected) => {
+        expect(
+            thresholdAlertHasBounds({
+                ...baseAlert,
+                forecast_config: {
+                    type: 'ForecastConfig',
+                    engine: ForecastEngineType.PROPHET,
+                    condition,
+                },
+                threshold: { configuration: { type: InsightThresholdType.ABSOLUTE, bounds: {} } },
+            })
+        ).toBe(expected)
     })
 })
