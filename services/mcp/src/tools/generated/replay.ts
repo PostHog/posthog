@@ -51,6 +51,33 @@ const sessionRecordingGet = (): ToolBase<typeof SessionRecordingGetSchema, WithP
         },
     })
 
+const SessionRecordingPlaylistAddRecordingSchema = SessionRecordingPlaylistsRecordingsCreateParams.omit({
+    project_id: true,
+}).extend({
+    short_id: SessionRecordingPlaylistsRecordingsCreateParams.shape['short_id'].describe(
+        'The `short_id` of the collection playlist to add the recording to.'
+    ),
+    session_recording_id: SessionRecordingPlaylistsRecordingsCreateParams.shape['session_recording_id'].describe(
+        "The session recording's id — any `$session_id` value from an event."
+    ),
+})
+
+const sessionRecordingPlaylistAddRecording = (): ToolBase<
+    typeof SessionRecordingPlaylistAddRecordingSchema,
+    Schemas.PlaylistRecordingModifiedResponse
+> => ({
+    name: 'session-recording-playlist-add-recording',
+    schema: SessionRecordingPlaylistAddRecordingSchema,
+    handler: async (context: Context, params: z.infer<typeof SessionRecordingPlaylistAddRecordingSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PlaylistRecordingModifiedResponse>({
+            method: 'POST',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recording_playlists/${encodeURIComponent(String(params.short_id))}/recordings/${encodeURIComponent(String(params.session_recording_id))}/`,
+        })
+        return result
+    },
+})
+
 const SessionRecordingPlaylistCreateSchema = SessionRecordingPlaylistsCreateBody
 
 const sessionRecordingPlaylistCreate = (): ToolBase<
@@ -105,6 +132,33 @@ const sessionRecordingPlaylistGet = (): ToolBase<
         const result = await context.api.request<Schemas.SessionRecordingPlaylist>({
             method: 'GET',
             path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recording_playlists/${encodeURIComponent(String(params.short_id))}/`,
+        })
+        return result
+    },
+})
+
+const SessionRecordingPlaylistRemoveRecordingSchema = SessionRecordingPlaylistsRecordingsDestroyParams.omit({
+    project_id: true,
+}).extend({
+    short_id: SessionRecordingPlaylistsRecordingsDestroyParams.shape['short_id'].describe(
+        'The `short_id` of the collection playlist to remove the recording from.'
+    ),
+    session_recording_id: SessionRecordingPlaylistsRecordingsDestroyParams.shape['session_recording_id'].describe(
+        "The session recording's id — any `$session_id` value from an event."
+    ),
+})
+
+const sessionRecordingPlaylistRemoveRecording = (): ToolBase<
+    typeof SessionRecordingPlaylistRemoveRecordingSchema,
+    Schemas.PlaylistRecordingModifiedResponse
+> => ({
+    name: 'session-recording-playlist-remove-recording',
+    schema: SessionRecordingPlaylistRemoveRecordingSchema,
+    handler: async (context: Context, params: z.infer<typeof SessionRecordingPlaylistRemoveRecordingSchema>) => {
+        const projectId = await context.stateManager.getProjectId()
+        const result = await context.api.request<Schemas.PlaylistRecordingModifiedResponse>({
+            method: 'DELETE',
+            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recording_playlists/${encodeURIComponent(String(params.short_id))}/recordings/${encodeURIComponent(String(params.session_recording_id))}/`,
         })
         return result
     },
@@ -171,60 +225,6 @@ const sessionRecordingPlaylistsList = (): ToolBase<
             },
         })
         return await withPostHogUrl(context, result, '/replay')
-    },
-})
-
-const SessionRecordingPlaylistAddRecordingSchema = SessionRecordingPlaylistsRecordingsCreateParams.omit({
-    project_id: true,
-}).extend({
-    short_id: SessionRecordingPlaylistsRecordingsCreateParams.shape['short_id'].describe(
-        'The `short_id` of the collection playlist to add the recording to.'
-    ),
-    session_recording_id: SessionRecordingPlaylistsRecordingsCreateParams.shape['session_recording_id'].describe(
-        "The session recording's id — any `$session_id` value from an event."
-    ),
-})
-
-const sessionRecordingPlaylistAddRecording = (): ToolBase<
-    typeof SessionRecordingPlaylistAddRecordingSchema,
-    Schemas.PlaylistRecordingModifiedResponse
-> => ({
-    name: 'session-recording-playlist-add-recording',
-    schema: SessionRecordingPlaylistAddRecordingSchema,
-    handler: async (context: Context, params: z.infer<typeof SessionRecordingPlaylistAddRecordingSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PlaylistRecordingModifiedResponse>({
-            method: 'POST',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recording_playlists/${encodeURIComponent(String(params.short_id))}/recordings/${encodeURIComponent(String(params.session_recording_id))}/`,
-        })
-        return result
-    },
-})
-
-const SessionRecordingPlaylistRemoveRecordingSchema = SessionRecordingPlaylistsRecordingsDestroyParams.omit({
-    project_id: true,
-}).extend({
-    short_id: SessionRecordingPlaylistsRecordingsDestroyParams.shape['short_id'].describe(
-        'The `short_id` of the collection playlist to remove the recording from.'
-    ),
-    session_recording_id: SessionRecordingPlaylistsRecordingsDestroyParams.shape['session_recording_id'].describe(
-        "The session recording's id — any `$session_id` value from an event."
-    ),
-})
-
-const sessionRecordingPlaylistRemoveRecording = (): ToolBase<
-    typeof SessionRecordingPlaylistRemoveRecordingSchema,
-    Schemas.PlaylistRecordingModifiedResponse
-> => ({
-    name: 'session-recording-playlist-remove-recording',
-    schema: SessionRecordingPlaylistRemoveRecordingSchema,
-    handler: async (context: Context, params: z.infer<typeof SessionRecordingPlaylistRemoveRecordingSchema>) => {
-        const projectId = await context.stateManager.getProjectId()
-        const result = await context.api.request<Schemas.PlaylistRecordingModifiedResponse>({
-            method: 'DELETE',
-            path: `/api/projects/${encodeURIComponent(String(projectId))}/session_recording_playlists/${encodeURIComponent(String(params.short_id))}/recordings/${encodeURIComponent(String(params.session_recording_id))}/`,
-        })
-        return result
     },
 })
 
@@ -721,12 +721,12 @@ const AssistantRecordingsQuery = z.object({
 export const GENERATED_TOOLS: Record<string, () => ToolBase<ZodObjectAny>> = {
     'session-recording-delete': sessionRecordingDelete,
     'session-recording-get': sessionRecordingGet,
+    'session-recording-playlist-add-recording': sessionRecordingPlaylistAddRecording,
     'session-recording-playlist-create': sessionRecordingPlaylistCreate,
     'session-recording-playlist-get': sessionRecordingPlaylistGet,
+    'session-recording-playlist-remove-recording': sessionRecordingPlaylistRemoveRecording,
     'session-recording-playlist-update': sessionRecordingPlaylistUpdate,
     'session-recording-playlists-list': sessionRecordingPlaylistsList,
-    'session-recording-playlist-add-recording': sessionRecordingPlaylistAddRecording,
-    'session-recording-playlist-remove-recording': sessionRecordingPlaylistRemoveRecording,
     'session-recording-summaries-list': sessionRecordingSummariesList,
     'session-recording-summary-get': sessionRecordingSummaryGet,
     'query-session-recordings-list': createQueryWrapper({
