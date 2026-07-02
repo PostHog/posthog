@@ -66,15 +66,16 @@ def _dt(value: str) -> datetime:
 
 
 def _ago(days: int) -> str:
-    # Seed dates relative to real time: HogQL now() runs server-side and ignores
-    # freezegun, so window/age assertions must share the clock the query uses.
-    return (timezone.now() - timedelta(days=days)).strftime("%Y-%m-%d %H:%M:%S")
+    return _ago_with_duration(days, 0)[0]
 
 
 def _ago_with_duration(days: int, duration_seconds: int) -> tuple[str, str]:
+    # Seed dates relative to real time: HogQL now() runs server-side and ignores
+    # freezegun, so window/age assertions must share the clock the query uses.
     started_at = timezone.now() - timedelta(days=days)
     updated_at = started_at + timedelta(seconds=duration_seconds)
-    return started_at.strftime("%Y-%m-%d %H:%M:%S"), updated_at.strftime("%Y-%m-%d %H:%M:%S")
+    fmt = "%Y-%m-%d %H:%M:%S"
+    return started_at.strftime(fmt), updated_at.strftime(fmt)
 
 
 def _job_row(
@@ -720,23 +721,23 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         # Every success shares one duration, so the success-only p50/p95 are exactly 100 while the
         # completed population (cheap cancels + one expensive failure) lands elsewhere.
         conclusions = [("success", 100)] * 2 + [("cancelled", 1)] * 3 + [("failure", 1000)]
-        rows = []
-        for index, (conclusion, duration_seconds) in enumerate(conclusions):
-            started_at, updated_at = _ago_with_duration(1, duration_seconds)
-            rows.append(
+        self._create_table(
+            "github_workflow_runs",
+            _WORKFLOW_RUNS_COLUMNS,
+            [
                 _run_row(
                     9000 + index,
                     "CI",
                     f"{conclusion}-{index}",
                     "completed",
                     conclusion,
-                    started_at,
-                    updated_at,
+                    *_ago_with_duration(1, duration_seconds),
                     pr_number=90,
                     head_branch="feature/ci",
                 )
-            )
-        self._create_table("github_workflow_runs", _WORKFLOW_RUNS_COLUMNS, rows)
+                for index, (conclusion, duration_seconds) in enumerate(conclusions)
+            ],
+        )
 
         legacy = next(
             item for item in api.list_workflow_health(team=self.team, date_from="-30d") if item.workflow_name == "CI"
@@ -777,16 +778,13 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
             ],
         )
 
-        legacy = next(
-            item for item in api.list_workflow_health(team=self.team, date_from="-30d") if item.workflow_name == "CI"
-        )
         pull_request = next(
             item
             for item in api.list_workflow_health(team=self.team, date_from="-30d", run_scope="pull_request")
             if item.workflow_name == "CI"
         )
 
-        assert legacy.run_count == 5
+        # 1 exactly: over-exclusion drops to 0, a leaked master/main/unattributed row raises it above 1.
         assert pull_request.run_count == 1
 
     def test_workflow_health_includes_cost_when_jobs_synced(self) -> None:

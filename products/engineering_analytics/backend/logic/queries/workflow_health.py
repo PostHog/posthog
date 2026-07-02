@@ -27,6 +27,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
     branch_filter_clause,
+    date_to_filter_clause,
     run_scope_filter_clause,
 )
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_workflow_window_costs
@@ -97,15 +98,13 @@ def query_workflow_health(
     curated: CuratedGitHubSource,
     date_from: datetime,
     date_to: datetime | None,
-    branch: str | None = None,
-    run_scope: WorkflowHealthRunScope = WorkflowHealthRunScope.ALL,
-    duration_filter: WorkflowHealthDurationFilter = WorkflowHealthDurationFilter.COMPLETED,
+    branch: str | None,
+    run_scope: WorkflowHealthRunScope,
+    duration_filter: WorkflowHealthDurationFilter,
 ) -> list[WorkflowHealthItem]:
     granularity = _pick_granularity(date_from, date_to)
-    date_to_clause = "AND run_started_at <= {date_to}" if date_to is not None else ""
     placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
-    if date_to is not None:
-        placeholders["date_to"] = ast.Constant(value=date_to)
+    date_to_clause = date_to_filter_clause(date_to, placeholders)
     branch_clause = branch_filter_clause(branch, placeholders)
     run_scope_clause = run_scope_filter_clause(run_scope)
     duration_condition = _DURATION_CONDITION[duration_filter]

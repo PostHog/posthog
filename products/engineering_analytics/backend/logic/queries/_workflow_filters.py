@@ -4,6 +4,8 @@ Clauses qualify columns with ``r`` — every consuming template reads the runs
 source as ``FROM __RUNS_SOURCE__ AS r`` (or joins it as ``r``).
 """
 
+from datetime import datetime
+
 from posthog.hogql import ast
 
 from products.engineering_analytics.backend.facade.contracts import WorkflowHealthRunScope
@@ -21,11 +23,19 @@ def branch_filter_clause(branch: str | None, placeholders: dict[str, ast.Expr]) 
     return "AND r.head_branch = {branch}"
 
 
+def date_to_filter_clause(date_to: datetime | None, placeholders: dict[str, ast.Expr]) -> str:
+    """Optional window end; registers its ``{date_to}`` placeholder."""
+    if date_to is None:
+        return ""
+    placeholders["date_to"] = ast.Constant(value=date_to)
+    return "AND r.run_started_at <= {date_to}"
+
+
 def run_scope_filter_clause(run_scope: WorkflowHealthRunScope) -> str:
     if run_scope == WorkflowHealthRunScope.PULL_REQUEST:
         # A default-branch run can still carry a PR association (its SHA matches an open PR),
-        # so PR attribution alone doesn't keep trunk runs out. The warehouse source doesn't
-        # sync the repo's default branch, so exclude the common default-branch names instead —
-        # cheap string check first, short-circuiting the JSON-derived pr_number.
+        # so attribution (pr_number > 0 — see the workflow_runs builder docstring) alone doesn't
+        # keep trunk runs out. The source doesn't record which branch is the repo's default, so
+        # exclude the common default-branch names instead.
         return "AND r.head_branch NOT IN ('master', 'main') AND r.pr_number > 0"
     return ""

@@ -26,6 +26,7 @@ from products.engineering_analytics.backend.logic.cost import PRCostAggregate, a
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
     branch_filter_clause,
+    date_to_filter_clause,
     run_scope_filter_clause,
 )
 
@@ -176,9 +177,9 @@ def query_workflow_window_costs(
     date_from: datetime,
     date_to: datetime | None,
     branch: str | None,
-    run_scope: WorkflowHealthRunScope = WorkflowHealthRunScope.ALL,
+    run_scope: WorkflowHealthRunScope,
 ) -> dict[str, PRCostAggregate]:
-    """Per-workflow billable cost over [date_from, date_to] (optional branch), keyed by workflow_name.
+    """Per-workflow billable cost over [date_from, date_to] (optional branch/run_scope), keyed by workflow_name.
 
     Empty when the jobs source isn't synced. Mirrors the PR-list cost: grouped per workflow×label in SQL,
     expanded back through aggregate_pr_cost.
@@ -187,10 +188,7 @@ def query_workflow_window_costs(
     if jobs_source is None:
         return {}
     placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
-    date_to_clause = ""
-    if date_to is not None:
-        date_to_clause = "AND r.run_started_at <= {date_to}"
-        placeholders["date_to"] = ast.Constant(value=date_to)
+    date_to_clause = date_to_filter_clause(date_to, placeholders)
     branch_clause = branch_filter_clause(branch, placeholders)
     run_scope_clause = run_scope_filter_clause(run_scope)
     sql = (
@@ -249,10 +247,7 @@ def query_workflow_runner_costs(
         "workflow_name": ast.Constant(value=workflow_name),
         "date_from": ast.Constant(value=date_from),
     }
-    date_to_clause = ""
-    if date_to is not None:
-        date_to_clause = "AND r.run_started_at <= {date_to}"
-        placeholders["date_to"] = ast.Constant(value=date_to)
+    date_to_clause = date_to_filter_clause(date_to, placeholders)
     branch_clause = branch_filter_clause(branch, placeholders)
     sql = (
         _RUNNER_COST_SELECT.replace("__JOBS_SOURCE__", jobs_source)
