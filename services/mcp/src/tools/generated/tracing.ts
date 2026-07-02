@@ -17,7 +17,7 @@ import {
     TracingSpansValuesRetrieveQueryParams,
 } from '@/generated/tracing/api'
 import { withUiApp } from '@/resources/ui-apps'
-import { pickResponseFields } from '@/tools/tool-utils'
+import { withPostHogUrl, pickResponseFields } from '@/tools/tool-utils'
 import type { Context, ToolBase, ZodObjectAny } from '@/tools/types'
 
 const ApmAttributeBreakdownSchema = TracingSpansAttributeBreakdownCreateBody
@@ -238,7 +238,7 @@ const apmTraceGet = (): ToolBase<typeof ApmTraceGetSchema, unknown> =>
                 body,
             })
             const filtered = pickResponseFields(result, ['results']) as typeof result
-            return filtered
+            return await withPostHogUrl(context, filtered, `/tracing/?trace=${params.trace_id}`)
         },
     })
 

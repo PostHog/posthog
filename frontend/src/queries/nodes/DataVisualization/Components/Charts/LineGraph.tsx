@@ -52,7 +52,6 @@ import {
     AREA_FILL_OPACITY,
     canRenderSqlBarGraph,
     canRenderSqlComboGraph,
-    canRenderSqlLineGraph,
     capYSeriesData,
     exceedsMaxSeries,
     isAreaSeries,
@@ -743,16 +742,16 @@ export function sqlChartComponentFor(
     props: LineGraphProps,
     newChartsEnabled: boolean
 ): (props: LineGraphProps) => JSX.Element {
-    if (newChartsEnabled && canRenderSqlLineGraph(props)) {
-        return SqlLineGraph
+    if (!newChartsEnabled) {
+        return LegacyLineGraph
     }
-    if (newChartsEnabled && canRenderSqlBarGraph(props)) {
-        return SqlBarGraph
-    }
-    if (newChartsEnabled && canRenderSqlComboGraph(props)) {
+    if (canRenderSqlComboGraph(props)) {
         return SqlComboGraph
     }
-    return LegacyLineGraph
+    if (canRenderSqlBarGraph(props)) {
+        return SqlBarGraph
+    }
+    return SqlLineGraph
 }
 
 export const LineGraph = (props: LineGraphProps): JSX.Element => {

@@ -11,8 +11,6 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { ScoutDetailView } from './components/config/scouts/ScoutDetailView'
-import { AgentRunDetail } from './components/detail/AgentRunDetail'
-import { InboxDetailHeader } from './components/detail/InboxDetailHeader'
 import { ReportDetail, ReportDetailSkeleton } from './components/detail/ReportDetail'
 import { FindingsPanel } from './components/findings/FindingsPanel'
 import { InboxOnboardingBanner, InboxOnboardingTakeover } from './components/onboarding/InboxOnboarding'
@@ -27,7 +25,7 @@ import { ReportsTab } from './components/tabs/ReportsTab'
 import { RunsTab } from './components/tabs/RunsTab'
 import { inboxSceneLogic } from './inboxSceneLogic'
 import { inboxOnboardingLogic } from './logics/inboxOnboardingLogic'
-import { InboxTabKey, SignalReport } from './types'
+import { InboxTabKey, SignalReport, SignalRun } from './types'
 
 export const scene: SceneExport = {
     component: InboxScene,
@@ -42,7 +40,15 @@ function isReportListTab(tab: InboxTabKey): boolean {
     return tab === 'pulls' || tab === 'reports' || tab === 'not-actionable' || tab === 'archived'
 }
 
-function ActiveTabBody({ tab, runsReports }: { tab: InboxTabKey; runsReports: SignalReport[] }): JSX.Element {
+function ActiveTabBody({
+    tab,
+    signalRuns,
+    signalRunsLoading,
+}: {
+    tab: InboxTabKey
+    signalRuns: SignalRun[]
+    signalRunsLoading: boolean
+}): JSX.Element {
     switch (tab) {
         case 'pulls':
             return <PullRequestsTab />
@@ -53,7 +59,7 @@ function ActiveTabBody({ tab, runsReports }: { tab: InboxTabKey; runsReports: Si
         case 'archived':
             return <ArchivedTab />
         case 'runs':
-            return <RunsTab reports={runsReports} />
+            return <RunsTab runs={signalRuns} loading={signalRunsLoading} />
         case 'config':
             return <AgentSetupColumn layout="stacked" />
     }
@@ -68,7 +74,7 @@ function ActiveTabBody({ tab, runsReports }: { tab: InboxTabKey; runsReports: Si
  * and chrome-less.
  */
 function InboxListView(): JSX.Element {
-    const { activeTab, runsTabReports } = useValues(inboxSceneLogic)
+    const { activeTab, signalRuns, signalRunsLoading } = useValues(inboxSceneLogic)
     const { onboardingMode } = useValues(inboxOnboardingLogic)
     const { ref: widthRef, size } = useResizeBreakpoints(
         { 0: 'narrow', [SETUP_RAIL_MIN_PX]: 'wide' },
@@ -101,7 +107,11 @@ function InboxListView(): JSX.Element {
                     {onboarding ? (
                         <InboxOnboardingTakeover />
                     ) : (
-                        <ActiveTabBody tab={effectiveTab} runsReports={runsTabReports} />
+                        <ActiveTabBody
+                            tab={effectiveTab}
+                            signalRuns={signalRuns}
+                            signalRunsLoading={signalRunsLoading}
+                        />
                     )}
                 </div>
             </div>
@@ -116,20 +126,11 @@ function InboxListView(): JSX.Element {
 
 /**
  * Detail view: replaces the list full-width. Report / PR / Not actionable render the unified
- * `ReportDetail`, which owns its own merged header (back link, title, copy link). The Runs view
- * keeps `AgentRunDetail` under the shared `InboxDetailHeader`.
+ * `ReportDetail`, which owns its own merged header (back link, title, copy link). The Runs tab no
+ * longer opens an in-inbox detail — its rows link out to the standalone Tasks scene.
  */
 function InboxDetailView({ report }: { report: SignalReport }): JSX.Element {
     const { activeTab } = useValues(inboxSceneLogic)
-
-    if (activeTab === 'runs') {
-        return (
-            <div className="flex flex-col min-h-0 flex-1 overflow-auto">
-                <InboxDetailHeader report={report} tab={activeTab} />
-                <AgentRunDetail report={report} />
-            </div>
-        )
-    }
 
     return (
         <div className="flex flex-col min-h-0 flex-1 overflow-auto">

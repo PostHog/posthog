@@ -1,6 +1,6 @@
 import { useActions, useValues } from 'kea'
 
-import { IconNotification } from '@posthog/icons'
+import { IconCheckCircle, IconNotification } from '@posthog/icons'
 import { LemonButton, LemonSkeleton } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
@@ -51,16 +51,29 @@ export function NotificationsPanel(): JSX.Element {
                     )}
                 </button>
             </div>
-            {loadedUnreadCount > 0 && (
-                <LemonButton size="xsmall" type="secondary" onClick={() => markAllAsRead()} className="ml-auto">
-                    Mark all as read
-                </LemonButton>
-            )}
         </div>
     )
 
+    // "Mark all as read" is a rare action, so tuck it into the panel's overflow (⋯) menu
+    // rather than pinning a button in the header. Only surfaced when there's something to clear.
+    const panelActions =
+        loadedUnreadCount > 0
+            ? [
+                  {
+                      'data-attr': 'notifications-mark-all-read',
+                      onClick: () => markAllAsRead(),
+                      children: (
+                          <>
+                              <IconCheckCircle />
+                              Mark all as read
+                          </>
+                      ),
+                  },
+              ]
+            : undefined
+
     return (
-        <PanelLayoutPanel searchField={header}>
+        <PanelLayoutPanel searchField={header} panelActionsNewSceneLayout={panelActions}>
             <ScrollableShadows
                 direction="vertical"
                 styledScrollbars

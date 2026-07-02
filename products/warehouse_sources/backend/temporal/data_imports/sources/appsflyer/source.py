@@ -54,6 +54,10 @@ class AppsFlyerSource(SimpleSource[AppsFlyerSourceConfig]):
             "401 Client Error: Unauthorized for url: https://hq1.appsflyer.com": "AppsFlyer authentication failed. Please check your API token (V2).",
             "403 Client Error: Forbidden for url: https://hq1.appsflyer.com": "AppsFlyer denied access. Please check that your account's subscription includes the aggregate Pull API and the app id is correct.",
             "404 Client Error: Not Found for url: https://hq1.appsflyer.com": "AppsFlyer app not found. Please check the app id.",
+            # AppsFlyer overloads 416 as a catch-all for request/authorization validation failures on
+            # the aggregate Pull API (e.g. the account isn't authorized for this report or app id). The
+            # request shape is fixed, so retrying the identical call can never satisfy it.
+            "416 Client Error: Requested Range Not Satisfiable for url: https://hq1.appsflyer.com": "AppsFlyer rejected the report request. Please check that your account's subscription is authorized for this report and that the app id is correct.",
         }
 
     @property

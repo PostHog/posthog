@@ -14114,6 +14114,47 @@ export namespace Schemas {
     } as const;
 
     /**
+     * Binds a materialized data-warehouse view column to a custom property definition; the view's
+     * values are synced onto matching accounts on each materialization.
+     */
+    export interface CustomPropertySource {
+      readonly id: string;
+      /** UUID of the custom property definition this source feeds. One source per definition. */
+      definition: string;
+      /** UUID of the data-warehouse saved query (materialized view) to read values from. */
+      saved_query: string;
+      /**
+         * Column in the view whose value is written to the property.
+         * @maxLength 400
+         */
+      source_column: string;
+      /**
+         * Column in the view whose value matches an account's external_id.
+         * @maxLength 400
+         */
+      key_column: string;
+      /** Whether the source syncs. Auto-disabled after repeated failures or a missing view; re-enabling resets the failure count. */
+      is_enabled?: boolean;
+      /** Consecutive failed sync runs; the source auto-disables at the cap. */
+      readonly consecutive_failures: number;
+      /**
+         * When the most recent sync run finished.
+         * @nullable
+         */
+      readonly last_synced_at: string | null;
+      /**
+         * Error summary from the last run, or null if it succeeded.
+         * @nullable
+         */
+      readonly last_sync_error: string | null;
+      readonly created_at: string;
+      /** @nullable */
+      readonly created_by: number | null;
+      /** @nullable */
+      readonly updated_at: string | null;
+    }
+
+    /**
      * A place that uses a custom property definition (read-only).
      */
     export interface CustomPropertyReference {
@@ -14131,8 +14172,7 @@ export namespace Schemas {
      * A team-scoped definition of a custom account property — the attribute side of the model.
      *
      * Holds only the property's shape (name, display type, big-number flag). Per-account values are
-     * stored separately, so this serializer never reads or writes account values. The numeric-only
-     * big-number rule and the unique-name conflict are enforced behind the facade.
+     * stored separately, so this serializer never reads or writes account values.
      */
     export interface CustomPropertyDefinition {
       readonly id: string;
@@ -14158,6 +14198,8 @@ export namespace Schemas {
       display_type: CustomPropertyDisplayTypeEnum;
       /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
       is_big_number?: boolean;
+      /** The data-warehouse view-sync binding feeding this property, or null when values are set manually. */
+      readonly source: CustomPropertySource | null;
       readonly created_at: string;
       /** @nullable */
       readonly created_by: number | null;
@@ -14165,6 +14207,25 @@ export namespace Schemas {
       readonly updated_at: string | null;
       /** Workflows that use this property, resolved by definition id. */
       readonly references: readonly CustomPropertyReference[];
+    }
+
+    /**
+     * Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so
+     * they are intentionally absent — only these reach the facade's update.
+     */
+    export interface CustomPropertySourceUpdate {
+      /**
+         * Column in the view whose value is written to the property.
+         * @maxLength 400
+         */
+      source_column?: string;
+      /**
+         * Column in the view whose value matches an account's external_id.
+         * @maxLength 400
+         */
+      key_column?: string;
+      /** Whether the source syncs; re-enabling it resets the failure count. */
+      is_enabled?: boolean;
     }
 
     /**
@@ -15618,6 +15679,7 @@ export namespace Schemas {
      * * `InforNexus` - InforNexus
      * * `Insightful` - Insightful
      * * `Insightly` - Insightly
+     * * `Instantly` - Instantly
      * * `Instatus` - Instatus
      * * `Intruder` - Intruder
      * * `Invoiced` - Invoiced
@@ -15920,6 +15982,11 @@ export namespace Schemas {
      * * `AppLovin` - AppLovin
      * * `Baserow` - Baserow
      * * `Plunk` - Plunk
+     * * `Dub` - Dub
+     * * `AirOps` - AirOps
+     * * `Podium` - Podium
+     * * `Loops` - Loops
+     * * `Redis` - Redis
      */
     export type ExternalDataSourceTypeEnum = typeof ExternalDataSourceTypeEnum[keyof typeof ExternalDataSourceTypeEnum];
 
@@ -16273,6 +16340,7 @@ export namespace Schemas {
       InforNexus: 'InforNexus',
       Insightful: 'Insightful',
       Insightly: 'Insightly',
+      Instantly: 'Instantly',
       Instatus: 'Instatus',
       Intruder: 'Intruder',
       Invoiced: 'Invoiced',
@@ -16575,6 +16643,11 @@ export namespace Schemas {
       AppLovin: 'AppLovin',
       Baserow: 'Baserow',
       Plunk: 'Plunk',
+      Dub: 'Dub',
+      AirOps: 'AirOps',
+      Podium: 'Podium',
+      Loops: 'Loops',
+      Redis: 'Redis',
     } as const;
 
     /**
@@ -16942,6 +17015,7 @@ export namespace Schemas {
        * * `InforNexus` - InforNexus
        * * `Insightful` - Insightful
        * * `Insightly` - Insightly
+       * * `Instantly` - Instantly
        * * `Instatus` - Instatus
        * * `Intruder` - Intruder
        * * `Invoiced` - Invoiced
@@ -17243,7 +17317,12 @@ export namespace Schemas {
        * * `NextdoorAds` - NextdoorAds
        * * `AppLovin` - AppLovin
        * * `Baserow` - Baserow
-       * * `Plunk` - Plunk */
+       * * `Plunk` - Plunk
+       * * `Dub` - Dub
+       * * `AirOps` - AirOps
+       * * `Podium` - Podium
+       * * `Loops` - Loops
+       * * `Redis` - Redis */
       source_type: ExternalDataSourceTypeEnum;
     }
 
@@ -17897,6 +17976,9 @@ export namespace Schemas {
       Archived: 'archived',
     } as const;
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface EarlyAccessFeature {
       readonly id: string;
       readonly feature_flag: MinimalFeatureFlag;
@@ -17924,8 +18006,16 @@ export namespace Schemas {
       /** Feature flag payload for this early access feature */
       readonly payload: EarlyAccessFeaturePayload;
       readonly created_at: string;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface EarlyAccessFeatureSerializerCreateOnly {
       readonly id: string;
       /**
@@ -17956,6 +18046,11 @@ export namespace Schemas {
       feature_flag_id?: number;
       readonly feature_flag: MinimalFeatureFlag;
       _create_in_folder?: string;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level: string | null;
     }
 
     export interface Edge {
@@ -21401,8 +21496,8 @@ export namespace Schemas {
       id?: number | null;
       /** Defaults to 'ExperimentEventExposureConfig' when omitted. Pass 'ActionsNode' for an action-based exposure. */
       kind?: Kind1 | null;
-      /** Event property filters. Pass an empty array if no filters needed. */
-      properties: EventPropertyFilter[];
+      /** Property filters (event, person, and other supported types). Pass an empty array if no filters needed. */
+      properties: (EventPropertyFilter | PersonPropertyFilter | PersonMetadataPropertyFilter | ElementPropertyFilter | EventMetadataPropertyFilter | SessionPropertyFilter | CohortPropertyFilter | RecordingPropertyFilter | LogEntryPropertyFilter | GroupPropertyFilter | FeaturePropertyFilter | FlagPropertyFilter | HogQLPropertyFilter | EmptyPropertyFilter | DataWarehousePropertyFilter | DataWarehousePersonPropertyFilter | ErrorTrackingIssueFilter | LogPropertyFilter | SpanPropertyFilter | RevenueAnalyticsPropertyFilter | WorkflowVariablePropertyFilter)[];
     }
 
     export interface ExperimentApiExposureCriteria {
@@ -22754,6 +22849,7 @@ export namespace Schemas {
        * * `InforNexus` - InforNexus
        * * `Insightful` - Insightful
        * * `Insightly` - Insightly
+       * * `Instantly` - Instantly
        * * `Instatus` - Instatus
        * * `Intruder` - Intruder
        * * `Invoiced` - Invoiced
@@ -23055,7 +23151,12 @@ export namespace Schemas {
        * * `NextdoorAds` - NextdoorAds
        * * `AppLovin` - AppLovin
        * * `Baserow` - Baserow
-       * * `Plunk` - Plunk */
+       * * `Plunk` - Plunk
+       * * `Dub` - Dub
+       * * `AirOps` - AirOps
+       * * `Podium` - Podium
+       * * `Loops` - Loops
+       * * `Redis` - Redis */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection credentials and a 'schemas' array. Keys depend on source_type. */
       payload: ExternalDataSourceCreatePayload;
@@ -31148,6 +31249,15 @@ export namespace Schemas {
       results: CustomPropertyDefinition[];
     }
 
+    export interface PaginatedCustomPropertySourceList {
+      count: number;
+      /** @nullable */
+      next?: string | null;
+      /** @nullable */
+      previous?: string | null;
+      results: CustomPropertySource[];
+    }
+
     export interface PaginatedCustomerJourneyList {
       count: number;
       /** @nullable */
@@ -33218,6 +33328,11 @@ export namespace Schemas {
       readonly is_suggested_reviewer: boolean;
       /** Distinct source products contributing signals to this report (from ClickHouse). */
       readonly source_products: readonly string[];
+      /**
+         * skill_name slug of the scout that authored this report, when scout-authored (from ClickHouse); null otherwise.
+         * @nullable
+         */
+      readonly scout_name: string | null;
       /**
          * PR URL from the latest implementation task run, if available.
          * @nullable
@@ -36222,8 +36337,7 @@ export namespace Schemas {
      * A team-scoped definition of a custom account property — the attribute side of the model.
      *
      * Holds only the property's shape (name, display type, big-number flag). Per-account values are
-     * stored separately, so this serializer never reads or writes account values. The numeric-only
-     * big-number rule and the unique-name conflict are enforced behind the facade.
+     * stored separately, so this serializer never reads or writes account values.
      */
     export interface PatchedCustomPropertyDefinition {
       readonly id?: string;
@@ -36249,6 +36363,8 @@ export namespace Schemas {
       display_type?: CustomPropertyDisplayTypeEnum;
       /** Abbreviate large numbers (e.g. 10,000 → 10K). Only applies to numeric properties. */
       is_big_number?: boolean;
+      /** The data-warehouse view-sync binding feeding this property, or null when values are set manually. */
+      readonly source?: CustomPropertySource | null;
       readonly created_at?: string;
       /** @nullable */
       readonly created_by?: number | null;
@@ -36256,6 +36372,25 @@ export namespace Schemas {
       readonly updated_at?: string | null;
       /** Workflows that use this property, resolved by definition id. */
       readonly references?: readonly CustomPropertyReference[];
+    }
+
+    /**
+     * Writable fields for updating a source. ``definition`` and ``saved_query`` are create-only, so
+     * they are intentionally absent — only these reach the facade's update.
+     */
+    export interface PatchedCustomPropertySourceUpdate {
+      /**
+         * Column in the view whose value is written to the property.
+         * @maxLength 400
+         */
+      source_column?: string;
+      /**
+         * Column in the view whose value matches an account's external_id.
+         * @maxLength 400
+         */
+      key_column?: string;
+      /** Whether the source syncs; re-enabling it resets the failure count. */
+      is_enabled?: boolean;
     }
 
     export interface PatchedCustomerJourney {
@@ -36560,6 +36695,9 @@ export namespace Schemas {
      */
     export type PatchedEarlyAccessFeaturePayload = { [key: string]: unknown };
 
+    /**
+     * Mixin for serializers to add user access control fields
+     */
     export interface PatchedEarlyAccessFeature {
       readonly id?: string;
       readonly feature_flag?: MinimalFeatureFlag;
@@ -36587,6 +36725,11 @@ export namespace Schemas {
       /** Feature flag payload for this early access feature */
       readonly payload?: PatchedEarlyAccessFeaturePayload;
       readonly created_at?: string;
+      /**
+         * The effective access level the user has for this object
+         * @nullable
+         */
+      readonly user_access_level?: string | null;
     }
 
     export interface PatchedEdge {
@@ -49024,6 +49167,7 @@ export namespace Schemas {
        * * `InforNexus` - InforNexus
        * * `Insightful` - Insightful
        * * `Insightly` - Insightly
+       * * `Instantly` - Instantly
        * * `Instatus` - Instatus
        * * `Intruder` - Intruder
        * * `Invoiced` - Invoiced
@@ -49325,7 +49469,12 @@ export namespace Schemas {
        * * `NextdoorAds` - NextdoorAds
        * * `AppLovin` - AppLovin
        * * `Baserow` - Baserow
-       * * `Plunk` - Plunk */
+       * * `Plunk` - Plunk
+       * * `Dub` - Dub
+       * * `AirOps` - AirOps
+       * * `Podium` - Podium
+       * * `Loops` - Loops
+       * * `Redis` - Redis */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type — the same fields the create flow accepts (host, port, password, API key, …). Checked against a live connection before being stored. */
       payload: SourceCredentialCreatePayload;
@@ -49719,6 +49868,7 @@ export namespace Schemas {
        * * `InforNexus` - InforNexus
        * * `Insightful` - Insightful
        * * `Insightly` - Insightly
+       * * `Instantly` - Instantly
        * * `Instatus` - Instatus
        * * `Intruder` - Intruder
        * * `Invoiced` - Invoiced
@@ -50020,7 +50170,12 @@ export namespace Schemas {
        * * `NextdoorAds` - NextdoorAds
        * * `AppLovin` - AppLovin
        * * `Baserow` - Baserow
-       * * `Plunk` - Plunk */
+       * * `Plunk` - Plunk
+       * * `Dub` - Dub
+       * * `AirOps` - AirOps
+       * * `Podium` - Podium
+       * * `Loops` - Loops
+       * * `Redis` - Redis */
       source_type: ExternalDataSourceTypeEnum;
       /** Source config as flat keys. For source_type 'Custom': 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the manifest's declared auth type — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic). Secrets stay in these auth_* keys, never inline in the manifest. */
       payload?: SourcePreviewRequestPayload;
@@ -50406,6 +50561,7 @@ export namespace Schemas {
        * * `InforNexus` - InforNexus
        * * `Insightful` - Insightful
        * * `Insightly` - Insightly
+       * * `Instantly` - Instantly
        * * `Instatus` - Instatus
        * * `Intruder` - Intruder
        * * `Invoiced` - Invoiced
@@ -50707,7 +50863,12 @@ export namespace Schemas {
        * * `NextdoorAds` - NextdoorAds
        * * `AppLovin` - AppLovin
        * * `Baserow` - Baserow
-       * * `Plunk` - Plunk */
+       * * `Plunk` - Plunk
+       * * `Dub` - Dub
+       * * `AirOps` - AirOps
+       * * `Podium` - Podium
+       * * `Loops` - Loops
+       * * `Redis` - Redis */
       source_type: ExternalDataSourceTypeEnum;
       /** Connection details as flat keys for the source_type (discover required fields with the wizard tool). Prefer references over raw secrets: pass {'credential_id': <id>} referencing the connection details the user stored via the connect-link page (discover ids with the stored_credentials endpoint) — they are merged in server-side and deleted once consumed. An already-connected OAuth integration can be passed via its id key instead (e.g. {'hubspot_integration_id': 123}). For source_type 'Custom' (a user-defined REST API) the keys are 'manifest_json' (a stringified RESTAPIConfig describing client.base_url, auth, and resources) plus the credential for the auth type the manifest declares — 'auth_token' (bearer), 'auth_api_key' (api_key), or 'auth_password' (http_basic); keep secrets in these auth_* keys, never inline in the manifest. A 'schemas' array is NOT required — all discovered tables are enabled automatically with sensible sync defaults. */
       payload?: SourceSetupPayload;
@@ -61050,6 +61211,17 @@ export namespace Schemas {
     offset?: number;
     };
 
+    export type CustomPropertySourcesListParams = {
+    /**
+     * Number of results to return per page.
+     */
+    limit?: number;
+    /**
+     * The initial index from which to return the results.
+     */
+    offset?: number;
+    };
+
     export type CustomerJourneysListParams = {
     /**
      * Number of results to return per page.
@@ -66297,9 +66469,14 @@ export namespace Schemas {
      */
     created_by?: number;
     /**
-     * When true, list internal tasks instead of user-facing ones. Honored in debug environments or for staff users; ignored for non-staff users in production. Defaults to excluding internal tasks.
+     * Filter by the internal flag, which controls whether a task is shown by default, not whether it is accessible. Defaults to excluding internal tasks. Use 'all' to include both internal and user-facing tasks, or 'true' to list only internal tasks. All values are available to any team member; access stays governed by task visibility.
+     *
+     * * `true` - true
+     * * `false` - false
+     * * `all` - all
+     * @minLength 1
      */
-    internal?: boolean;
+    internal?: TasksListInternal;
     /**
      * Number of results to return per page.
      * @minimum 1
@@ -66353,6 +66530,15 @@ export namespace Schemas {
 
 
     export const TasksListArchived = {
+      True: 'true',
+      False: 'false',
+      All: 'all',
+    } as const;
+
+    export type TasksListInternal = typeof TasksListInternal[keyof typeof TasksListInternal];
+
+
+    export const TasksListInternal = {
       True: 'true',
       False: 'false',
       All: 'all',
