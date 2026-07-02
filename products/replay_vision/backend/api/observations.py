@@ -309,6 +309,9 @@ class _ObservationOrderByFilter(OrderByFilter):
     _allowed_keys = frozenset(_ALL_ORDER_KEYS)
 
     def _handle(self, qs: QuerySet[ReplayObservation], key: str, descending: bool) -> QuerySet[ReplayObservation]:
+        if key in ("started_at", "completed_at"):
+            # Null until the row starts/settles — keep in-flight rows out of the way regardless of direction.
+            return self._order_nulls_last(qs, key, descending)
         if key in OBSERVATION_ORDER_FIELDS:
             return self._order_plain(qs, key, descending)
         if key == "recording_subject_email":
@@ -382,7 +385,8 @@ class ReplayObservationFilter(django_filters.FilterSet):
         help_text=(
             "Sort observations by created_at, started_at, completed_at, status, recording_subject_email, "
             "result_score, result_verdict, or scanner_version. Prefix with `-` for descending. Keys that can be "
-            "null (recording_subject_email, result_*, scanner_version) sort nulls last regardless of direction."
+            "null (started_at, completed_at, recording_subject_email, result_*, scanner_version) sort nulls "
+            "last regardless of direction."
         ),
     )
 
@@ -433,7 +437,7 @@ class ReplayObservationFilter(django_filters.FilterSet):
                 description=(
                     "Sort observations. Plain keys: created_at, started_at, completed_at, status, "
                     "recording_subject_email. JSONB keys: result_score (scorer), result_verdict (monitor), "
-                    "scanner_version. Prefix with `-` for descending."
+                    "scanner_version. Prefix with `-` for descending; nullable keys sort nulls last either way."
                 ),
             )
         ]

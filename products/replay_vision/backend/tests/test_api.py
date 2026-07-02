@@ -857,6 +857,20 @@ class TestReplayObservationViewSet(_VisionAPITestCase):
         resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?order_by=recording_subject_email")
         self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["s2", "s1", "s3"])
 
+    def test_order_by_completed_at_descending_sorts_in_flight_rows_last(self) -> None:
+        now = timezone.now()
+        self._create_observation(
+            session_id="done-old",
+            status=ObservationStatus.SUCCEEDED,
+            completed_at=now - timezone.timedelta(hours=2),
+        )
+        self._create_observation(session_id="done-new", status=ObservationStatus.SUCCEEDED, completed_at=now)
+        self._create_observation(
+            session_id="in-flight"
+        )  # pending, completed_at null — Postgres puts nulls first on DESC by default
+        resp = self.client.get(f"{self.observations_url(str(self.scanner.id))}?order_by=-completed_at")
+        self.assertEqual([r["session_id"] for r in resp.json()["results"]], ["done-new", "done-old", "in-flight"])
+
     def test_retrieve_observation_exposes_scanner_result_when_succeeded(self) -> None:
         obs = self._create_observation(
             status=ObservationStatus.SUCCEEDED,
