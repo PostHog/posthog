@@ -17,8 +17,6 @@ interface AxisLabelsProps {
     /** When set, truncate category tick labels wider than this (px) with an ellipsis and reveal
      *  the full value on hover. Omitted (default) renders labels untruncated. */
     maxCategoryLabelWidth?: number
-    /** Draw a short tick mark on the axis next to each visible label. */
-    showTickMarks?: boolean
 }
 
 // Minimum gap (px) required between adjacent kept labels. Category labels are often words and get
@@ -227,7 +225,7 @@ function YTickLabel({
         <div
             data-attr={dataAttr}
             title={title}
-            style={{ ...TICK_STYLE_BASE, ...titleStyle(title), ...edge, top: y, transform: 'translateY(calc(-50% + 3px))', color }}
+            style={{ ...TICK_STYLE_BASE, ...titleStyle(title), ...edge, top: y, transform: 'translateY(-50%)', color }}
         >
             {text}
         </div>
@@ -267,70 +265,6 @@ function XTickLabel({
     )
 }
 
-// Length (px) of a tick mark measured outward from the plot edge.
-const TICK_MARK_LENGTH = 4
-// The axis line is canvas-drawn while ticks are DOM overlays, so subpixel rounding can leave a hairline
-// gap between them. The axis line is 1px wide, so extending each tick this far past the plot edge makes
-// it reach the line's far side — closing the gap — without poking visibly into the plot.
-const TICK_MARK_AXIS_OVERLAP = 1
-
-const TICK_MARK_STYLE_BASE: React.CSSProperties = { position: 'absolute', pointerEvents: 'none' }
-
-/** Short mark crossing a value/category axis line, aligned to a label, so the two stay visually joined. */
-function YTickMark({
-    y,
-    side,
-    box,
-    color,
-    offset = 0,
-}: {
-    y: number
-    side: 'left' | 'right'
-    box: ChartBox
-    color: string
-    offset?: number
-}): React.ReactElement {
-    // Pull the inner edge `TICK_MARK_AXIS_OVERLAP` px past the plot edge so the tick crosses the axis line.
-    const edge =
-        side === 'left'
-            ? { right: box.width - box.plotLeft + offset - TICK_MARK_AXIS_OVERLAP }
-            : { left: box.plotLeft + box.plotWidth + offset - TICK_MARK_AXIS_OVERLAP }
-    return (
-        <div
-            aria-hidden
-            data-attr={side === 'left' ? 'hog-chart-axis-tickmark-y' : 'hog-chart-axis-tickmark-yr'}
-            style={{
-                ...TICK_MARK_STYLE_BASE,
-                ...edge,
-                top: y,
-                width: TICK_MARK_LENGTH + TICK_MARK_AXIS_OVERLAP,
-                height: 1,
-                transform: 'translateY(-50%)',
-                background: color,
-            }}
-        />
-    )
-}
-
-function XTickMark({ x, box, color }: { x: number; box: ChartBox; color: string }): React.ReactElement {
-    return (
-        <div
-            aria-hidden
-            data-attr="hog-chart-axis-tickmark-x"
-            style={{
-                ...TICK_MARK_STYLE_BASE,
-                left: x,
-                // Start `TICK_MARK_AXIS_OVERLAP` px above the plot's bottom edge so the tick crosses the axis line.
-                top: box.plotTop + box.plotHeight - TICK_MARK_AXIS_OVERLAP,
-                width: 1,
-                height: TICK_MARK_LENGTH + TICK_MARK_AXIS_OVERLAP,
-                transform: 'translateX(-50%)',
-                background: color,
-            }}
-        />
-    )
-}
-
 export const AxisLabels = React.memo(function AxisLabels({
     xTickFormatter,
     yTickFormatter,
@@ -340,7 +274,6 @@ export const AxisLabels = React.memo(function AxisLabels({
     orientation = 'vertical',
     labelToCoord,
     maxCategoryLabelWidth = 0,
-    showTickMarks = false,
 }: AxisLabelsProps): React.ReactElement | null {
     const { scales, dimensions, labels, yGutters } = useChartLayout()
     const yTicks = scales.yTicks()
@@ -379,25 +312,27 @@ export const AxisLabels = React.memo(function AxisLabels({
                         }
                         const { text, title } = truncateWithTitle(fullText, maxCategoryLabelWidth)
                         return (
-                            <React.Fragment key={`y-cat-${i}`}>
-                                <YTickLabel
-                                    y={y}
-                                    side="left"
-                                    box={dimensions}
-                                    text={text}
-                                    title={title}
-                                    color={axisColor}
-                                    dataAttr="hog-chart-axis-tick-y"
-                                />
-                                {showTickMarks && <YTickMark y={y} side="left" box={dimensions} color={axisColor} />}
-                            </React.Fragment>
+                            <YTickLabel
+                                key={`y-cat-${i}`}
+                                y={y}
+                                side="left"
+                                box={dimensions}
+                                text={text}
+                                title={title}
+                                color={axisColor}
+                                dataAttr="hog-chart-axis-tick-y"
+                            />
                         )
                     })}
                 {visibleValueTicks.map(({ tick, text, x }) => (
-                    <React.Fragment key={`x-val-${tick}`}>
-                        <XTickLabel x={x} box={dimensions} text={text} color={axisColor} dataAttr="hog-chart-axis-tick-x" />
-                        {showTickMarks && <XTickMark x={x} box={dimensions} color={axisColor} />}
-                    </React.Fragment>
+                    <XTickLabel
+                        key={`x-val-${tick}`}
+                        x={x}
+                        box={dimensions}
+                        text={text}
+                        color={axisColor}
+                        dataAttr="hog-chart-axis-tick-x"
+                    />
                 ))}
             </>
         )
@@ -412,42 +347,30 @@ export const AxisLabels = React.memo(function AxisLabels({
                         return null
                     }
                     return (
-                        <React.Fragment key={`${gutter.key}-${tick}`}>
-                            <YTickLabel
-                                y={y}
-                                side={gutter.side}
-                                offset={gutter.offset}
-                                box={dimensions}
-                                text={gutter.formatter(tick)}
-                                color={axisColor}
-                                dataAttr={gutter.side === 'left' ? 'hog-chart-axis-tick-y' : 'hog-chart-axis-tick-yr'}
-                            />
-                            {showTickMarks && (
-                                <YTickMark
-                                    y={y}
-                                    side={gutter.side}
-                                    offset={gutter.offset}
-                                    box={dimensions}
-                                    color={axisColor}
-                                />
-                            )}
-                        </React.Fragment>
+                        <YTickLabel
+                            key={`${gutter.key}-${tick}`}
+                            y={y}
+                            side={gutter.side}
+                            offset={gutter.offset}
+                            box={dimensions}
+                            text={gutter.formatter(tick)}
+                            color={axisColor}
+                            dataAttr={gutter.side === 'left' ? 'hog-chart-axis-tick-y' : 'hog-chart-axis-tick-yr'}
+                        />
                     )
                 })
             )}
 
             {visibleXLabels.map(({ index, text, title, x }) => (
-                <React.Fragment key={`x-${index}`}>
-                    <XTickLabel
-                        x={x}
-                        box={dimensions}
-                        text={text}
-                        title={title}
-                        color={axisColor}
-                        dataAttr="hog-chart-axis-tick-x"
-                    />
-                    {showTickMarks && <XTickMark x={x} box={dimensions} color={axisColor} />}
-                </React.Fragment>
+                <XTickLabel
+                    key={`x-${index}`}
+                    x={x}
+                    box={dimensions}
+                    text={text}
+                    title={title}
+                    color={axisColor}
+                    dataAttr="hog-chart-axis-tick-x"
+                />
             ))}
         </>
     )

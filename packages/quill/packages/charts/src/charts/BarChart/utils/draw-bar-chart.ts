@@ -123,6 +123,7 @@ export function drawBarChartStatic(
     if (showGrid) {
         drawGrid(baseDrawCtx, {
             gridColor: theme.gridColor,
+            gridDash: theme.gridDashPattern,
             orientation: isHorizontal ? 'horizontal' : 'vertical',
             categoryTicks: computeGridTicks(d3Scales, drawLabels, isHorizontal, xTickFormatter),
         })
@@ -176,7 +177,7 @@ export function drawBarChartStatic(
     })
 
     if (!showGrid && showAxisLines) {
-        drawAxes(baseDrawCtx, { axisColor: theme.axisColor ?? theme.gridColor })
+        drawAxes(baseDrawCtx, { axisColor: theme.axisLineColor ?? theme.axisColor ?? theme.gridColor })
     }
 }
 

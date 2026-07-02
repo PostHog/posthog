@@ -453,6 +453,13 @@ export function drawPoints(drawCtx: DrawContext, series: ResolvedSeries, yValues
     }
 }
 
+/** Snap a coordinate to the nearest half-pixel so a 1px stroke fills exactly one pixel row/column.
+ *  Every axis-adjacent stroke — grid lines, axis baselines, tick marks — must share this rule, or
+ *  they land one pixel apart and visibly misalign. */
+function snapToPixel(coord: number): number {
+    return Math.round(coord) + 0.5
+}
+
 export interface DrawAxesOptions {
     axisColor?: string
 }
@@ -464,10 +471,10 @@ export function drawAxes(drawCtx: DrawContext, options: DrawAxesOptions = {}): v
     ctx.strokeStyle = options.axisColor ?? 'rgba(0, 0, 0, 0.15)'
     ctx.lineWidth = 1
     ctx.setLineDash([])
-    // Snap the corner to the rounded plot edge so the L lines up with the zero baseline and the first
-    // tick mark (which anchor to the plot edge) rather than sitting a pixel inside it.
-    const axisX = Math.round(dimensions.plotLeft)
-    const axisY = Math.round(dimensions.plotTop + dimensions.plotHeight)
+    // snapToPixel matches drawGrid's tick snapping, so the bottom baseline coincides exactly with a
+    // zero-value grid line and with drawTickMarks' ticks.
+    const axisX = snapToPixel(dimensions.plotLeft)
+    const axisY = snapToPixel(dimensions.plotTop + dimensions.plotHeight)
     // Route both strokes through the shared, snapped corner (axisX, axisY) so the L meets cleanly
     // even when plotLeft/plotHeight are fractional.
     ctx.beginPath()
@@ -480,8 +487,55 @@ export function drawAxes(drawCtx: DrawContext, options: DrawAxesOptions = {}): v
     ctx.stroke()
 }
 
+/** Length (px) of an axis tick mark, measured outward from the plot edge. */
+export const TICK_MARK_LENGTH = 4
+
+/** Pixel positions for canvas tick marks: `xs` tick below the plot's bottom edge, `ys` tick outside
+ *  the left or right plot edge (`offset` pushes stacked multi-axis gutters further outward). */
+export interface TickMarkCoords {
+    xs: number[]
+    ys: { y: number; side: 'left' | 'right'; offset: number }[]
+}
+
+/** Draws short tick marks extending outward from the plot edges, one per visible axis label.
+ *  Canvas-drawn with the same snapping as `drawAxes`/`drawGrid` so each tick continues its
+ *  axis/grid line exactly — a DOM overlay can't guarantee that across subpixel rounding. */
+export function drawTickMarks(
+    ctx: CanvasRenderingContext2D,
+    dimensions: ChartDimensions,
+    coords: TickMarkCoords,
+    color?: string
+): void {
+    ctx.strokeStyle = color ?? 'rgba(0, 0, 0, 0.15)'
+    ctx.lineWidth = 1
+    ctx.setLineDash([])
+    const axisY = snapToPixel(dimensions.plotTop + dimensions.plotHeight)
+    ctx.beginPath()
+    for (const x of coords.xs) {
+        const tickX = snapToPixel(x)
+        ctx.moveTo(tickX, axisY)
+        ctx.lineTo(tickX, axisY + TICK_MARK_LENGTH)
+    }
+    for (const { y, side, offset } of coords.ys) {
+        const tickY = snapToPixel(y)
+        if (side === 'left') {
+            const edge = snapToPixel(dimensions.plotLeft - offset)
+            ctx.moveTo(edge - TICK_MARK_LENGTH, tickY)
+            ctx.lineTo(edge, tickY)
+        } else {
+            const edge = snapToPixel(dimensions.plotLeft + dimensions.plotWidth + offset)
+            ctx.moveTo(edge, tickY)
+            ctx.lineTo(edge + TICK_MARK_LENGTH, tickY)
+        }
+    }
+    ctx.stroke()
+}
+
 export interface DrawGridOptions {
     gridColor?: string
+    /** Canvas dash pattern (e.g. `[3, 3]`) for the interior grid lines. Solid when omitted.
+     *  The plot-edge baseline strokes stay solid either way — only the interior lines dash. */
+    gridDash?: number[]
     orientation?: 'vertical' | 'horizontal'
     /** Cross-axis grid line positions (x-pixels in vertical mode, y-pixels in horizontal). */
     categoryTicks?: number[]
@@ -507,7 +561,7 @@ export function drawGrid(drawCtx: DrawContext, options: DrawGridOptions = {}): v
 
     ctx.strokeStyle = gridColor
     ctx.lineWidth = 1
-    ctx.setLineDash([])
+    ctx.setLineDash(options.gridDash ?? [])
 
     // Skip the first category tick when it falls right next to the axis baseline
     // (left edge in vertical mode, top edge in horizontal) — otherwise it renders
@@ -532,6 +586,7 @@ export function drawGrid(drawCtx: DrawContext, options: DrawGridOptions = {}): v
             ctx.lineTo(dimensions.plotLeft + dimensions.plotWidth, y)
             ctx.stroke()
         }
+        ctx.setLineDash([])
         const axisY = Math.round(dimensions.plotTop) + 0.5
         ctx.beginPath()
         ctx.moveTo(dimensions.plotLeft, axisY)
@@ -566,6 +621,7 @@ export function drawGrid(drawCtx: DrawContext, options: DrawGridOptions = {}): v
         ctx.stroke()
     }
 
+    ctx.setLineDash([])
     const axisX = Math.round(dimensions.plotLeft) + 0.5
     ctx.beginPath()
     ctx.moveTo(axisX, dimensions.plotTop)

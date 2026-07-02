@@ -182,7 +182,7 @@ function LineChartInner<Meta = unknown>({
             // Grid sits behind the data; the L-axis is drawn after the series (below) so the line
             // doesn't paint over the baseline where it meets the axis.
             if (showGrid) {
-                drawGrid(baseDrawCtx, { gridColor: theme.gridColor })
+                drawGrid(baseDrawCtx, { gridColor: theme.gridColor, gridDash: theme.gridDashPattern })
             }
 
             // Area then line+points per series, clipped vertically (shared with ComboChart). Areas use
@@ -202,7 +202,7 @@ function LineChartInner<Meta = unknown>({
             })
 
             if (showAxisLines) {
-                drawAxes(baseDrawCtx, { axisColor: theme.axisColor ?? theme.gridColor })
+                drawAxes(baseDrawCtx, { axisColor: theme.axisLineColor ?? theme.axisColor ?? theme.gridColor })
             }
         },
         [showGrid, showAxisLines, stackedData, smooth]

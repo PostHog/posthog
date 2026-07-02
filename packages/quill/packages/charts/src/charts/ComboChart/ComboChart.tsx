@@ -191,7 +191,7 @@ function ComboChartInner<Meta = unknown>({
                     (label) => bandCenter(comboScales, label),
                     xTickFormatter
                 ).map((entry) => entry.x)
-                drawGrid(baseDrawCtx, { gridColor: theme.gridColor, categoryTicks })
+                drawGrid(baseDrawCtx, { gridColor: theme.gridColor, gridDash: theme.gridDashPattern, categoryTicks })
             }
 
             // ── 1. Bars ──────────────────────────────────────────────────────────────────────
@@ -227,7 +227,7 @@ function ComboChartInner<Meta = unknown>({
             })
 
             if (!showGrid && showAxisLines) {
-                drawAxes(baseDrawCtx, { axisColor: theme.axisColor ?? theme.gridColor })
+                drawAxes(baseDrawCtx, { axisColor: theme.axisLineColor ?? theme.axisColor ?? theme.gridColor })
             }
         },
         [

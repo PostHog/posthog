@@ -1,11 +1,21 @@
 import React, { useMemo } from 'react'
 
-import { AxisLabels } from '../overlays/AxisLabels'
+import {
+    AxisLabels,
+    computeVisibleValueTicks,
+    computeVisibleXLabels,
+    computeVisibleYTicks,
+} from '../overlays/AxisLabels'
 import { AxisTitles } from '../overlays/AxisTitles'
 import { DefaultTooltip } from '../overlays/DefaultTooltip'
 import { Tooltip } from '../overlays/Tooltip'
 import { normalizeAxisLabel } from '../utils/axis-labels'
-import { composeDrawHoverWithCrosshair, composeDrawHoverWithSelection } from './canvas-renderer'
+import {
+    composeDrawHoverWithCrosshair,
+    composeDrawHoverWithSelection,
+    drawTickMarks,
+    type TickMarkCoords,
+} from './canvas-renderer'
 import { ChartHoverContext, ChartLayoutContext } from './chart-context'
 import type { ChartHoverContextValue, ChartLayoutContextValue } from './chart-context'
 import { ChartShell, countVisibleSeries, useCanvasBounds, useColoredSeries } from './chart-shell'
@@ -209,6 +219,79 @@ export function Chart<Meta = unknown>({
 
     const resolvedYFormatter = useResolvedYFormatter(scales, yTickFormatter)
 
+    // Computed once and shared with AxisLabels and AxisTitles via context so they can't drift.
+    const yGutters = useMemo<Gutter[]>(
+        () =>
+            !scales || hideYAxis || axisOrientation === 'horizontal'
+                ? []
+                : computeYAxisGutters(scales, {
+                      yTicks: scales.yTicks(),
+                      yTickFormatter: resolvedYFormatter,
+                      userYTickFormatter: yTickFormatter,
+                      yAxisFormatters,
+                      titles: yAxisTitles,
+                  }),
+        [scales, hideYAxis, axisOrientation, resolvedYFormatter, yTickFormatter, yAxisFormatters, yAxisTitles]
+    )
+
+    // Mirrors AxisLabels' visible-label computation (same pure helpers, same inputs) so every tick
+    // mark sits next to a rendered label. Drawn on canvas rather than as DOM overlays so ticks share
+    // the axis/grid stroke snapping and can't drift a pixel against those lines.
+    const tickMarkCoords = useMemo<TickMarkCoords | null>(() => {
+        if (!showTickMarks || !scales || !dimensions) {
+            return null
+        }
+        if (axisOrientation === 'horizontal') {
+            const labelToY = labelToCoord ?? scales.x
+            const ys = hideYAxis
+                ? []
+                : labels
+                      .filter((label, i) => !xTickFormatter || xTickFormatter(label, i) !== null)
+                      .map((label) => labelToY(label))
+                      .filter((y): y is number => y != null && isFinite(y))
+                      .map((y) => ({ y, side: 'left' as const, offset: 0 }))
+            const xs = hideXAxis
+                ? []
+                : computeVisibleValueTicks(scales.yTicks(), scales.y, resolvedYFormatter).map((t) => t.x)
+            return { xs, ys }
+        }
+        const xs = hideXAxis
+            ? []
+            : computeVisibleXLabels(labels, scales.x, xTickFormatter, maxCategoryLabelWidth).map((l) => l.x)
+        const ys = yGutters.flatMap((gutter) =>
+            computeVisibleYTicks(gutter.ticks, gutter.scale)
+                .map((tick) => gutter.scale(tick))
+                .filter((y) => isFinite(y))
+                .map((y) => ({ y, side: gutter.side, offset: gutter.offset }))
+        )
+        return { xs, ys }
+    }, [
+        showTickMarks,
+        scales,
+        dimensions,
+        axisOrientation,
+        labels,
+        xTickFormatter,
+        maxCategoryLabelWidth,
+        yGutters,
+        hideXAxis,
+        hideYAxis,
+        resolvedYFormatter,
+        labelToCoord,
+    ])
+
+    const drawStaticWithTicks = useMemo(() => {
+        if (!tickMarkCoords) {
+            return drawStatic
+        }
+        // Same color expression the chart types pass to drawAxes, so ticks match their axis line.
+        const tickColor = theme.axisLineColor ?? theme.axisColor ?? theme.gridColor
+        return (args: ChartDrawArgs): void => {
+            drawStatic(args)
+            drawTickMarks(args.ctx, args.dimensions, tickMarkCoords, tickColor)
+        }
+    }, [drawStatic, tickMarkCoords, theme.axisColor, theme.gridColor])
+
     const { hoverIndex, hoverPosition, tooltipCtx, dragRect, handlers } = useChartInteraction<Meta>({
         scales,
         dimensions,
@@ -252,7 +335,7 @@ export function Chart<Meta = unknown>({
         hoverPosition,
         theme,
         dragRect,
-        drawStatic,
+        drawStatic: drawStaticWithTicks,
         drawHover: composedDrawHover,
         hoverAnimationMs,
     })
@@ -281,21 +364,6 @@ export function Chart<Meta = unknown>({
         [axisOrientation, xTickFormatter, isPercent]
     )
     const axisColor = theme.axisColor ?? DEFAULT_AXIS_COLOR
-
-    // Computed once and shared with AxisLabels and AxisTitles via context so they can't drift.
-    const yGutters = useMemo<Gutter[]>(
-        () =>
-            !scales || hideYAxis || axisOrientation === 'horizontal'
-                ? []
-                : computeYAxisGutters(scales, {
-                      yTicks: scales.yTicks(),
-                      yTickFormatter: resolvedYFormatter,
-                      userYTickFormatter: yTickFormatter,
-                      yAxisFormatters,
-                      titles: yAxisTitles,
-                  }),
-        [scales, hideYAxis, axisOrientation, resolvedYFormatter, yTickFormatter, yAxisFormatters, yAxisTitles]
-    )
 
     const layoutValue = useMemo<ChartLayoutContextValue | null>(() => {
         if (!scales || !dimensions) {
@@ -340,7 +408,6 @@ export function Chart<Meta = unknown>({
                         orientation={axisOrientation}
                         labelToCoord={labelToCoord}
                         maxCategoryLabelWidth={maxCategoryLabelWidth}
-                        showTickMarks={showTickMarks}
                     />
                     <AxisTitles
                         xAxisLabel={xAxisLabel}
