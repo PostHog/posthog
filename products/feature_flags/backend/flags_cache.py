@@ -931,7 +931,9 @@ def get_cache_stats() -> dict[str, Any]:
 # The signal handlers themselves stay; their tails simplify at cutover.
 
 # Per-team gate that routes invalidation to Kafka instead of Celery — see
-# _enqueue_invalidation for why the two paths are mutually exclusive.
+# _enqueue_invalidation for why the two paths are mutually exclusive. The key
+# string is kept as "dual-write" (not renamed to match KAFKA_ROUTING_FLAG) since
+# it's the live PostHog flag key — renaming it would repoint the rollout.
 KAFKA_ROUTING_FLAG = "flags-cache-kafka-dual-write"
 
 

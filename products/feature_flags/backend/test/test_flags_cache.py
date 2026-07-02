@@ -828,7 +828,7 @@ class TestServiceFlagsKafkaRouting(BaseTest):
     @patch("products.feature_flags.backend.flags_cache._route_to_kafka", return_value=False)
     @patch("products.feature_flags.backend.tasks.update_team_service_flags_cache")
     @patch("django.db.transaction.on_commit", lambda fn: fn())
-    def test_flag_off_celery_broker_raise_propagates(self, mock_task, mock_gate, mock_produce):
+    def test_flag_off_celery_broker_failure_propagates(self, mock_task, mock_gate, mock_produce):
         mock_task.delay.side_effect = RuntimeError("celery broker unreachable")
 
         # Celery is the sole path when the flag is off, so a broker failure
