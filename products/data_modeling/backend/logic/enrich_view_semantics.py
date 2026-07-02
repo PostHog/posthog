@@ -22,6 +22,7 @@ from temporalio.common import RetryPolicy, WorkflowIDReusePolicy
 from temporalio.exceptions import WorkflowAlreadyStartedError
 
 from posthog.exceptions_capture import capture_exception
+from posthog.llm.gateway_client import Product
 from posthog.llm.semantic_enrichment import (
     DEFAULT_ENRICHMENT_MODEL,
     MAX_BUSINESS_CONTEXT_CHARS,
@@ -50,7 +51,7 @@ logger = structlog.get_logger(__name__)
 VIEW_ENRICHMENT_FEATURE_FLAG = "data-modeling-semantic-enrichment"
 # Reuse the warehouse gateway product tag — no new llm-gateway config/deploy needed. Telemetry (below)
 # distinguishes the two surfaces, and billing can split later if it ever needs to.
-GATEWAY_PRODUCT = "warehouse_semantic_enrichment"
+GATEWAY_PRODUCT: Product = "warehouse_semantic_enrichment"
 
 # HogQL view definitions are user-authored and can be arbitrarily long; cap what we ship to the model.
 MAX_VIEW_DEFINITION_CHARS = 20_000

@@ -18,6 +18,7 @@ from products.data_modeling.backend.logic.enrich_view_semantics import (
     build_view_enrichment_prompt,
     compute_enrichment_hash,
     enrich_view_semantics_sync,
+    maybe_dispatch_enrichment,
 )
 from products.data_modeling.backend.models.datawarehouse_managed_viewset import DataWarehouseManagedViewSet
 from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
@@ -278,3 +279,46 @@ class TestComputeEnrichmentHash:
         sq.table_id = uuid.uuid4()
         sq.last_run_at = timezone.now()
         assert compute_enrichment_hash(sq) != unsampled
+
+
+class TestMaybeDispatchEnrichment:
+    @parameterized.expand(["deleted", "is_test", "managed_viewset", "empty_query", "no_columns", "hash_matches"])
+    def test_skips_dispatch_when_not_needed(self, condition):
+        team = _team()
+        sq = _saved_query(team, columns=_columns("amount"), query="SELECT amount FROM events")
+        if condition == "deleted":
+            sq.deleted = True
+        elif condition == "is_test":
+            sq.is_test = True
+        elif condition == "managed_viewset":
+            sq.managed_viewset = DataWarehouseManagedViewSet.objects.create(
+                team=team, kind=DataWarehouseManagedViewSetKind.REVENUE_ANALYTICS
+            )
+        elif condition == "empty_query":
+            sq.query = {}
+        elif condition == "no_columns":
+            sq.columns = {}
+        elif condition == "hash_matches":
+            sq.semantic_enrichment_hash = compute_enrichment_hash(sq)
+
+        with patch("django.db.transaction.on_commit") as on_commit:
+            maybe_dispatch_enrichment(sq)
+
+        on_commit.assert_not_called()
+
+    def test_dispatches_on_commit_when_definition_changed(self):
+        team = _team()
+        sq = _saved_query(team, columns=_columns("amount"), query="SELECT amount FROM events")
+        # A freshly saved view has no stored hash, so its definition counts as changed and must enrich.
+        assert compute_enrichment_hash(sq) != sq.semantic_enrichment_hash
+
+        with (
+            patch("django.db.transaction.on_commit") as on_commit,
+            patch.object(enrich, "_start_enrichment_workflow") as start_workflow,
+        ):
+            maybe_dispatch_enrichment(sq)
+            on_commit.assert_called_once()
+            # Dispatch is deferred to commit; run the scheduled callback to confirm what it starts.
+            on_commit.call_args.args[0]()
+
+        start_workflow.assert_called_once_with(sq.team_id, str(sq.id))
