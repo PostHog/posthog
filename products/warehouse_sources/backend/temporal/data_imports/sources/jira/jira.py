@@ -63,11 +63,16 @@ def _format_jql_datetime(value: Any) -> str:
     return (dt - INCREMENTAL_LOOKBACK).strftime(JQL_DATETIME_FORMAT)
 
 
+# The enhanced ``/search/jql`` endpoint rejects unbounded queries (400 "Unbounded JQL queries are not
+# allowed here"). On a full sync there's no watermark, so anchor to an epoch floor to keep the query bounded
+# while still scanning every issue.
+JQL_FLOOR_DATETIME = "1970-01-01 00:00"
+
+
 def _build_issues_jql(incremental_field: str | None, last_value: Any) -> str:
     field = incremental_field or "updated"
-    where = f'{field} >= "{_format_jql_datetime(last_value)}"' if last_value else ""
-    order = f"ORDER BY {field} ASC"
-    return f"{where} {order}".strip()
+    since = _format_jql_datetime(last_value) if last_value else JQL_FLOOR_DATETIME
+    return f'{field} >= "{since}" ORDER BY {field} ASC'
 
 
 def _extract_items(data: Any, data_key: str | None) -> list[dict[str, Any]]:
