@@ -119,7 +119,9 @@ def _flatten_item(item: dict[str, Any], account_id: str | None) -> dict[str, Any
     and keep `id`/`type`. Fan-out rows also carry the parent `account_id` so the composite primary key
     stays unique across every account.
     """
-    row: dict[str, Any] = {"id": item.get("id"), "type": item.get("type")}
+    # `id` is the primary key, so read it directly: a malformed item without one should fail loudly
+    # rather than seed a row under a `None` key that later merges multi-match or duplicate.
+    row: dict[str, Any] = {"id": item["id"], "type": item.get("type")}
     attributes = item.get("attributes")
     if isinstance(attributes, dict):
         row.update(attributes)

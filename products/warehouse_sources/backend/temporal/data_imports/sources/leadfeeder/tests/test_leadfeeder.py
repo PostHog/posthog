@@ -88,6 +88,11 @@ class TestFlattenItem:
     def test_handles_missing_attributes(self) -> None:
         assert _flatten_item({"id": "1", "type": "accounts"}, account_id=None) == {"id": "1", "type": "accounts"}
 
+    def test_missing_id_fails_loudly(self) -> None:
+        # `id` is the primary key: a missing one must raise rather than seed a row under a None key.
+        with pytest.raises(KeyError):
+            _flatten_item({"type": "leads", "attributes": {"name": "Acme"}}, account_id="1")
+
 
 class TestToDateStr:
     @parameterized.expand(
