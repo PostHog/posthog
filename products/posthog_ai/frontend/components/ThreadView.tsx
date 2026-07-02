@@ -1,5 +1,5 @@
 import { useValues } from 'kea'
-import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+import { memo, useCallback, useEffect, useMemo, useState } from 'react'
 
 import { inStorybookTestRunner } from 'lib/utils/dom'
 
@@ -155,15 +155,6 @@ export function ThreadView({
         ]
     )
 
-    // Rule 11 here: https://x.com/shadcn/status/2070394918720221522 - open scrolled to the top of the last user message.
-    // `VirtualizedThread` reads this only on first content, so capture it once the thread first has items and never
-    // recompute as it streams. `-1` (no user message) falls through to open-at-bottom.
-    const initialTopItemIndexRef = useRef<number | null>(null)
-    if (initialTopItemIndexRef.current === null && threadItems.length > 0) {
-        initialTopItemIndexRef.current = threadItems.findLastIndex((item: ThreadItem) => item.type === 'human_message')
-    }
-    const initialTopItemIndex = initialTopItemIndexRef.current
-
     const renderItem = useCallback(
         (item: ThreadItem, index: number): JSX.Element => (
             <VirtualizedThread.Row className={rowClassName}>
@@ -189,7 +180,6 @@ export function ThreadView({
             header={header}
             footer={footer}
             stickToBottom
-            initialTopItemIndex={initialTopItemIndex}
             virtualized={virtualized}
             className={className}
             listClassName={listClassName}
