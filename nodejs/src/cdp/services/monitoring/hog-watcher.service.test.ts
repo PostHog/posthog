@@ -632,4 +632,53 @@ describe('HogWatcher', () => {
             )
         })
     })
+
+    describe('observeAggregatedResults', () => {
+        // Cost curve with the default config: lower=50ms, upper=550ms, cost=100.
+        it('charges no cost when the aggregate duration is below the lower bound', async () => {
+            await watcher.observeAggregatedResults([{ hogFunction, totalDurationMs: 50 }])
+            const state = await watcher.getPersistedState(hogFunctionId)
+            expect(watcherConfig.bucketSize - state.tokens).toEqual(0)
+        })
+
+        it('charges the full cost at the upper bound', async () => {
+            await watcher.observeAggregatedResults([{ hogFunction, totalDurationMs: 550 }])
+            const state = await watcher.getPersistedState(hogFunctionId)
+            expect(watcherConfig.bucketSize - state.tokens).toEqual(100)
+        })
+
+        it('scales cost with total VM time past the upper bound', async () => {
+            // (1050 - 50) / (550 - 50) = 2 → twice the max single-message cost
+            await watcher.observeAggregatedResults([{ hogFunction, totalDurationMs: 1050 }])
+            const state = await watcher.getPersistedState(hogFunctionId)
+            expect(watcherConfig.bucketSize - state.tokens).toEqual(200)
+        })
+
+        it('accumulates cost across observations for the same function', async () => {
+            await watcher.observeAggregatedResults([
+                { hogFunction, totalDurationMs: 300 },
+                { hogFunction, totalDurationMs: 300 },
+            ])
+            const state = await watcher.getPersistedState(hogFunctionId)
+            expect(watcherConfig.bucketSize - state.tokens).toEqual(100) // 50 + 50
+        })
+
+        it('marks a function degraded once its bucket drops to the threshold', async () => {
+            // cost 2000 leaves tokens at 8000 = 80% of the bucket → degraded
+            await watcher.observeAggregatedResults([{ hogFunction, totalDurationMs: 10050 }])
+            const state = await watcher.getPersistedState(hogFunctionId)
+            expect(state.tokens).toEqual(8000)
+            expect(state.state).toEqual(HogWatcherState.degraded)
+        })
+
+        it('charges each function independently', async () => {
+            const other = createHogFunction({ id: 'other-fn', team_id: 2 })
+            await watcher.observeAggregatedResults([
+                { hogFunction, totalDurationMs: 550 },
+                { hogFunction: other, totalDurationMs: 50 },
+            ])
+            expect(watcherConfig.bucketSize - (await watcher.getPersistedState(hogFunctionId)).tokens).toEqual(100)
+            expect(watcherConfig.bucketSize - (await watcher.getPersistedState('other-fn')).tokens).toEqual(0)
+        })
+    })
 })
