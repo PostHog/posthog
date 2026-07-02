@@ -11,7 +11,7 @@ from posthog.products import Products
 from posthog.schema_enums import ProductKey
 
 from products.growth.backend.models import ProductPushCampaign
-from products.growth.backend.product_push.selection import PUSH_PRODUCT_PATHS
+from products.growth.backend.product_push.selection import PUSH_PRODUCT_PATHS, project_uses_product
 
 
 class ProductPushCampaignSerializer(serializers.ModelSerializer):
@@ -99,5 +99,7 @@ class ProductPushCampaignViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet
             team = Team.objects.filter(id=team_id, organization=self.organization).only("id", "project_id").first()
             if team is None:
                 raise ValidationError({"team_id": "Must be a team belonging to this organization."})
+            if project_uses_product(team.project_id, campaign.product_key):
+                return Response(status=status.HTTP_204_NO_CONTENT)
 
         return Response(self.get_serializer(campaign).data)
