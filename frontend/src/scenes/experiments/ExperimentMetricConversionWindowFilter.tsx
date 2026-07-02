@@ -8,6 +8,23 @@ import { SceneSection } from '~/layout/scenes/components/SceneSection'
 import { ExperimentMetric } from '~/queries/schema/schema-general'
 import { FunnelConversionWindowTimeUnit } from '~/types'
 
+// Validates the conversion window limit. Returns an error message when a time window is
+// selected but the value is blank or out of bounds, otherwise undefined.
+export function getConversionWindowError(metric: ExperimentMetric): string | undefined {
+    if (metric.conversion_window_unit === undefined) {
+        return undefined
+    }
+    const [min, max] = TIME_INTERVAL_BOUNDS[metric.conversion_window_unit]
+    const value = metric.conversion_window
+    if (value == null || isNaN(value)) {
+        return 'Enter a conversion window limit'
+    }
+    if (value < min || value > max) {
+        return `Conversion window limit must be between ${min} and ${max}`
+    }
+    return undefined
+}
+
 export function ExperimentMetricConversionWindowFilter({
     metric,
     handleSetMetric,
@@ -15,6 +32,7 @@ export function ExperimentMetricConversionWindowFilter({
     metric: ExperimentMetric
     handleSetMetric: (newMetric: ExperimentMetric) => void
 }): JSX.Element {
+    const conversionWindowError = getConversionWindowError(metric)
     const options: LemonSelectOption<FunnelConversionWindowTimeUnit>[] = Object.keys(TIME_INTERVAL_BOUNDS).map(
         (unit) => ({
             label: capitalizeFirstLetter(pluralize(metric.conversion_window ?? 72, unit, `${unit}s`, false)),
@@ -67,37 +85,36 @@ export function ExperimentMetricConversionWindowFilter({
                     ]}
                 />
                 {metric.conversion_window_unit !== undefined && (
-                    <div className="flex items-center gap-2">
-                        <LemonInput
-                            type="number"
-                            className="max-w-20"
-                            fullWidth={false}
-                            min={intervalBounds[0]}
-                            max={intervalBounds[1]}
-                            // Allow the field to be cleared while editing instead of snapping back to 1
-                            value={metric.conversion_window}
-                            status={metric.conversion_window == null ? 'danger' : 'default'}
-                            onChange={(value) => {
-                                handleSetMetric({
-                                    ...metric,
-                                    conversion_window: value == null || isNaN(value) ? undefined : value,
-                                })
-                            }}
-                            // Never persist a blank window: restore the minimum valid value on blur
-                            onBlur={() => {
-                                if (metric.conversion_window == null) {
-                                    handleSetMetric({ ...metric, conversion_window: intervalBounds[0] })
+                    <div className="flex flex-col gap-1">
+                        <div className="flex items-center gap-2">
+                            <LemonInput
+                                type="number"
+                                className="max-w-20"
+                                fullWidth={false}
+                                min={intervalBounds[0]}
+                                max={intervalBounds[1]}
+                                // Allow the field to be cleared while editing instead of snapping back to 1.
+                                // Save is blocked while it's blank (see getConversionWindowError), so we
+                                // don't force a value here.
+                                value={metric.conversion_window}
+                                status={conversionWindowError ? 'danger' : 'default'}
+                                onChange={(value) => {
+                                    handleSetMetric({
+                                        ...metric,
+                                        conversion_window: value == null || isNaN(value) ? undefined : value,
+                                    })
+                                }}
+                            />
+                            <LemonSelect
+                                dropdownMatchSelectWidth={false}
+                                value={metric.conversion_window_unit}
+                                onChange={(value) =>
+                                    handleSetMetric({ ...metric, conversion_window_unit: value || undefined })
                                 }
-                            }}
-                        />
-                        <LemonSelect
-                            dropdownMatchSelectWidth={false}
-                            value={metric.conversion_window_unit}
-                            onChange={(value) =>
-                                handleSetMetric({ ...metric, conversion_window_unit: value || undefined })
-                            }
-                            options={options}
-                        />
+                                options={options}
+                            />
+                        </div>
+                        {conversionWindowError && <div className="text-danger text-xs">{conversionWindowError}</div>}
                     </div>
                 )}
             </div>
