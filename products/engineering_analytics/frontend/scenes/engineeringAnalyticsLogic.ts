@@ -192,6 +192,29 @@ export function workflowFailureTrend(buckets: WorkflowHealthBucket[]): WorkflowT
     return 'flat'
 }
 
+/** 'failing'/'passing' key off the latest settled run; rows with nothing completed show only under 'all'. */
+export type WorkflowStatusFilter = 'all' | 'failing' | 'passing'
+
+export interface WorkflowFilters {
+    search: string
+    status: WorkflowStatusFilter
+}
+
+export const DEFAULT_WORKFLOW_FILTERS: WorkflowFilters = { search: '', status: 'all' }
+
+export function filterWorkflowHealth(rows: WorkflowHealthRow[], filters: WorkflowFilters): WorkflowHealthRow[] {
+    const search = filters.search.trim().toLowerCase()
+    return rows.filter((row) => {
+        if (filters.status === 'failing' && row.latestRunFailed !== true) {
+            return false
+        }
+        if (filters.status === 'passing' && row.latestRunFailed !== false) {
+            return false
+        }
+        return !search || row.workflowName.toLowerCase().includes(search)
+    })
+}
+
 export function prKeyOf(row: Pick<PullRequestRow, 'repoOwner' | 'repoName' | 'number'>): string {
     return `${row.repoOwner}/${row.repoName}#${row.number}`
 }
@@ -504,6 +527,9 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             setRepo: (repo: string | null) => ({ repo }),
             setCiStatusFilter: (ciStatus: CIStatusFilter) => ({ ciStatus }),
             setSearch: (search: string) => ({ search }),
+            setWorkflowSearch: (search: string) => ({ search }),
+            setWorkflowStatusFilter: (status: WorkflowStatusFilter) => ({ status }),
+            resetWorkflowFilters: true,
             setStuckOnly: (stuckOnly: boolean) => ({ stuckOnly }),
             applyCardFilter: (card: CardFilter) => ({ card }),
             setSourceId: (sourceId: string | null) => ({ sourceId }),
@@ -677,6 +703,20 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
                     resetFilters: () => DEFAULT_FILTERS.stuckOnly,
                 },
             ],
+            workflowSearch: [
+                DEFAULT_WORKFLOW_FILTERS.search,
+                {
+                    setWorkflowSearch: (_, { search }) => search,
+                    resetWorkflowFilters: () => DEFAULT_WORKFLOW_FILTERS.search,
+                },
+            ],
+            workflowStatusFilter: [
+                DEFAULT_WORKFLOW_FILTERS.status,
+                {
+                    setWorkflowStatusFilter: (_, { status }) => status,
+                    resetWorkflowFilters: () => DEFAULT_WORKFLOW_FILTERS.status,
+                },
+            ],
             // Which connected GitHub source to read; null = the backend default (oldest connected).
             // URL-synced via `source` so it survives tab switches and deep-links into a PR's detail.
             sourceId: [null as string | null, { setSourceId: (_, { sourceId }) => sourceId }],
@@ -772,6 +812,30 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             fleetTruncated: [
                 (s) => [s.workflowHealth],
                 (workflowHealth): boolean => workflowHealth.length >= WORKFLOW_HEALTH_LIMIT,
+            ],
+            workflowFilters: [
+                (s) => [s.workflowSearch, s.workflowStatusFilter],
+                (search, status): WorkflowFilters => ({ search, status }),
+            ],
+            filteredWorkflowHealth: [
+                (s) => [s.workflowHealth, s.workflowFilters],
+                (workflowHealth, workflowFilters): WorkflowHealthRow[] =>
+                    filterWorkflowHealth(workflowHealth, workflowFilters),
+            ],
+            hasActiveWorkflowFilters: [
+                (s) => [s.workflowFilters],
+                (workflowFilters): boolean =>
+                    !objectsEqual(
+                        { ...workflowFilters, search: workflowFilters.search.trim() },
+                        DEFAULT_WORKFLOW_FILTERS
+                    ),
+            ],
+            // Cost data rides on the job-level source — until it's synced, every row's cost fields are
+            // null and the cost column/tile would be a wall of dashes, so the scenes hide them instead.
+            workflowCostAvailable: [
+                (s) => [s.workflowHealth],
+                (workflowHealth): boolean =>
+                    workflowHealth.some((row) => row.billableMinutes != null || row.estimatedCostUsd != null),
             ],
             filters: [
                 (s) => [s.stateFilter, s.author, s.repo, s.ciStatusFilter, s.search, s.stuckOnly],
@@ -973,6 +1037,8 @@ export const engineeringAnalyticsLogic: LogicWrapper<engineeringAnalyticsLogicTy
             return {
                 [urls.engineeringAnalytics()]: (_, searchParams) => applySource(searchParams.source),
                 [urls.engineeringAnalyticsPullRequestList()]: (_, searchParams) => applySource(searchParams.source),
+                [urls.engineeringAnalyticsWorkflows()]: (_, searchParams) => applySource(searchParams.source),
+                [urls.engineeringAnalyticsTestHealth()]: (_, searchParams) => applySource(searchParams.source),
             }
         }),
 

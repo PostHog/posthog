@@ -48,6 +48,7 @@ export const manifest: ProductManifest = {
     routes: {
         '/engineering-analytics': ['EngineeringAnalytics', 'engineeringAnalytics'],
         '/engineering-analytics/pulls': ['EngineeringAnalytics', 'engineeringAnalyticsPullRequestList'],
+        '/engineering-analytics/workflows': ['EngineeringAnalytics', 'engineeringAnalyticsWorkflows'],
         '/engineering-analytics/test-health': ['EngineeringAnalytics', 'engineeringAnalyticsTestHealth'],
         '/engineering-analytics/:repoOwner/:repoName/pull/:number': [
             'EngineeringAnalyticsPullRequest',
@@ -63,8 +64,6 @@ export const manifest: ProductManifest = {
         ],
     },
     redirects: {
-        // Workflows stopped being a tab — they're a section of the repo hub landing now.
-        '/engineering-analytics/workflows': '/engineering-analytics',
         // The author surface was removed: analytics stay at team/repo level (see README locked decisions).
         '/engineering-analytics/authors': '/engineering-analytics',
         '/engineering-analytics/author/:handle': '/engineering-analytics',
@@ -72,6 +71,7 @@ export const manifest: ProductManifest = {
     urls: {
         engineeringAnalytics: (): string => '/engineering-analytics',
         engineeringAnalyticsPullRequestList: (): string => '/engineering-analytics/pulls',
+        engineeringAnalyticsWorkflows: (): string => '/engineering-analytics/workflows',
         engineeringAnalyticsTestHealth: (): string => '/engineering-analytics/test-health',
         engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
             `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/pull/${number}`,

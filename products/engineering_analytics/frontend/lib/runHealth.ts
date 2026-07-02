@@ -67,6 +67,10 @@ export interface FleetRow {
     lastFailureAt?: string | null
     billableMinutes?: number | null
     estimatedCostUsd?: number | null
+    /** Per-bucket completed/success counts — the weights behind the fleet-wide pass rate. */
+    buckets?: { completed: number; successes: number }[]
+    /** Runs in the window that were a 2nd+ attempt — retry pressure. */
+    rerunCycles?: number
 }
 
 export interface FleetSummary {
@@ -78,6 +82,11 @@ export interface FleetSummary {
     /** Currently green but below the success-rate floor — flaky. */
     flakyNow: number
     totalRuns: number
+    /** Fleet-wide passes ÷ completed runs, summed across every row's buckets — the same weighting as each
+     *  row's own success rate. Null when nothing has completed (or no row carries buckets). */
+    passRate: number | null
+    /** Re-runs (attempt > 1) summed across workflows — fleet retry pressure. */
+    rerunCycles: number
     billableMinutes: number | null
     estimatedCostUsd: number | null
 }
@@ -169,6 +178,20 @@ export function computeFleetSummary(rows: FleetRow[]): FleetSummary {
     ).length
     const totalRuns = rows.reduce((sum, row) => sum + row.runCount, 0)
 
+    // Completed-run-weighted, so a 3-run workflow can't move the fleet as much as a 3,000-run one.
+    // (A previous-window twin is deliberately absent: the endpoint has no prev completed counts, so an
+    // honest fleet-level delta isn't computable — don't fake one from unweighted per-row prev rates.)
+    let completedRuns = 0
+    let passedRuns = 0
+    for (const row of rows) {
+        for (const bucket of row.buckets ?? []) {
+            completedRuns += bucket.completed
+            passedRuns += bucket.successes
+        }
+    }
+    const passRate = completedRuns > 0 ? passedRuns / completedRuns : null
+    const rerunCycles = rows.reduce((sum, row) => sum + (row.rerunCycles ?? 0), 0)
+
     // Gate each cost field on whether any row carries a real value — free runners report null, and a
     // bare sum would turn "no cost data" into a misleading $0.00 / 0 min.
     const hasBillable = rows.some((row) => row.billableMinutes != null)
@@ -196,6 +219,8 @@ export function computeFleetSummary(rows: FleetRow[]): FleetSummary {
         failingNow,
         flakyNow,
         totalRuns,
+        passRate,
+        rerunCycles,
         billableMinutes,
         estimatedCostUsd,
     }

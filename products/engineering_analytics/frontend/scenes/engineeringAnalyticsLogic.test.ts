@@ -1,7 +1,9 @@
+import { router } from 'kea-router'
 import { expectLogic } from 'kea-test-utils'
 
 import { ApiConfig, ApiError } from 'lib/api'
 import { dayjs } from 'lib/dayjs'
+import { urls } from 'scenes/urls'
 
 import { initKeaTests } from '~/test/init'
 
@@ -28,10 +30,13 @@ import { engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersL
 import {
     DEFAULT_FILTERS,
     DEFAULT_QUARANTINE_FILTERS,
+    DEFAULT_WORKFLOW_FILTERS,
     PullRequestRow,
     QuarantineEntryRow,
+    WorkflowHealthRow,
     engineeringAnalyticsLogic,
     filterPullRequests,
+    filterWorkflowHealth,
     workflowFailureSeries,
     filterQuarantineEntries,
     inferOwnerFromSelector,
@@ -200,6 +205,24 @@ const WORKFLOWS: WorkflowHealthItemApi[] = [
         latest_run_conclusion: 'success',
     },
 ]
+function makeWorkflow(overrides: Partial<WorkflowHealthRow> = {}): WorkflowHealthRow {
+    return {
+        repoOwner: 'posthog',
+        repoName: 'posthog',
+        workflowName: 'CI',
+        runCount: 10,
+        successRate: 1,
+        p50Seconds: 60,
+        p95Seconds: 120,
+        lastFailureAt: null,
+        latestRunFailed: false,
+        latestRunConclusion: 'success',
+        granularity: 'day',
+        buckets: [],
+        ...overrides,
+    }
+}
+
 const SOURCES: GitHubSourceApi[] = [
     { id: 'src-older', repo: 'posthog/posthog', prefix: 'older' },
     { id: 'src-newer', repo: 'posthog/posthog.com', prefix: 'website' },
@@ -444,6 +467,62 @@ describe('engineeringAnalyticsLogic', () => {
         expect(mockCiCards).toHaveBeenLastCalledWith('1', { source_id: 'src-newer' })
         expect(mockPullRequests).toHaveBeenLastCalledWith('1', { source_id: 'src-newer' })
         expect(mockWorkflowHealth).toHaveBeenLastCalledWith('1', { date_from: '-7d', source_id: 'src-newer' })
+    })
+
+    it.each([
+        // 'failing'/'passing' key off the latest settled run; a row with nothing completed
+        // (latestRunFailed null) must show only under 'all' — it is neither green nor red.
+        ['failing keeps only rows whose latest run failed', { status: 'failing' as const }, ['E2E']],
+        ['passing keeps only settled green rows', { status: 'passing' as const }, ['CI']],
+        ['unsettled rows show only under all', {}, ['CI', 'E2E', 'Nightly']],
+        ['search is case-insensitive over the name', { search: 'NIGHT' }, ['Nightly']],
+    ])('filterWorkflowHealth: %s', (_label, overrides, expected) => {
+        const rows = [
+            makeWorkflow({ workflowName: 'CI', latestRunFailed: false }),
+            makeWorkflow({ workflowName: 'E2E', latestRunFailed: true }),
+            makeWorkflow({ workflowName: 'Nightly', latestRunFailed: null, latestRunConclusion: null }),
+        ]
+        expect(
+            filterWorkflowHealth(rows, { ...DEFAULT_WORKFLOW_FILTERS, ...overrides }).map((row) => row.workflowName)
+        ).toEqual(expected)
+    })
+
+    it('resetWorkflowFilters returns the workflow filters to defaults and clears hasActiveWorkflowFilters', () => {
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        expect(logic.values.hasActiveWorkflowFilters).toBe(false)
+
+        logic.actions.setWorkflowSearch('e2e')
+        logic.actions.setWorkflowStatusFilter('failing')
+        expect(logic.values.hasActiveWorkflowFilters).toBe(true)
+
+        logic.actions.resetWorkflowFilters()
+        expect(logic.values.workflowFilters).toEqual(DEFAULT_WORKFLOW_FILTERS)
+        expect(logic.values.hasActiveWorkflowFilters).toBe(false)
+    })
+
+    it('workflowCostAvailable flips on once any row carries cost data', async () => {
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
+        expect(logic.values.workflowCostAvailable).toBe(false)
+
+        mockWorkflowHealth.mockResolvedValue([{ ...WORKFLOWS[0], billable_minutes: 12, estimated_cost_usd: 0.5 }])
+        logic.actions.loadWorkflowHealth()
+        await expectLogic(logic).toDispatchActions(['loadWorkflowHealthSuccess'])
+        expect(logic.values.workflowCostAvailable).toBe(true)
+    })
+
+    it.each([
+        ['workflows', () => urls.engineeringAnalyticsWorkflows()],
+        ['test health', () => urls.engineeringAnalyticsTestHealth()],
+    ])('the %s route applies ?source like the other tabs', async (_label, url) => {
+        logic = engineeringAnalyticsLogic()
+        logic.mount()
+
+        router.actions.push(url(), { source: 'src-newer' })
+        await expectLogic(logic).toDispatchActions(['setSourceId'])
+        expect(logic.values.sourceId).toBe('src-newer')
     })
 
     it('resetFilters returns every filter to defaults and clears hasActiveFilters', async () => {

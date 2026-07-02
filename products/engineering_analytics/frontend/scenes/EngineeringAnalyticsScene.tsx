@@ -17,6 +17,7 @@ import {
     engineeringAnalyticsSceneLogic,
 } from './engineeringAnalyticsSceneLogic'
 import { EngineeringAnalyticsTestHealth } from './EngineeringAnalyticsTestHealth'
+import { EngineeringAnalyticsWorkflows } from './EngineeringAnalyticsWorkflows'
 import { RepoOverviewScene } from './RepoOverviewScene'
 
 export const scene: SceneExport = {
@@ -46,6 +47,13 @@ export function EngineeringAnalyticsScene(): JSX.Element {
             content: <EngineeringAnalyticsPullRequests />,
             link: combineUrl(urls.engineeringAnalyticsPullRequestList(), linkParams).url,
             'data-attr': 'engineering-analytics-pull-requests-tab',
+        },
+        {
+            key: 'workflows',
+            label: 'Workflows',
+            content: <EngineeringAnalyticsWorkflows />,
+            link: combineUrl(urls.engineeringAnalyticsWorkflows(), linkParams).url,
+            'data-attr': 'engineering-analytics-workflows-tab',
         },
         {
             key: 'test-health',

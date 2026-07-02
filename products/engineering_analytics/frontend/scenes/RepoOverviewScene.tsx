@@ -3,7 +3,7 @@
 // attention, workflows, cost). Facets are sections here, not tabs.
 
 import { useActions, useValues } from 'kea'
-import { combineUrl } from 'kea-router'
+import { combineUrl, router } from 'kea-router'
 
 import { IconBox, IconOpenSidebar } from '@posthog/icons'
 import { LemonButton, LemonCard, LemonTable, LemonTag, Link } from '@posthog/lemon-ui'
@@ -51,23 +51,23 @@ function RepoEntityHeader({
     failuresLoading: boolean
     defaultBranch: string
 }): JSX.Element {
-    const name = repoFullName.split('/')[1] || repoFullName || 'Repository'
+    const name = repoFullName.split('/')[1] || repoFullName || 'GitHub repository'
     return (
         <EntityHeader
             icon={<IconBox />}
             title={name}
+            // No slug line when the source hasn't reported a repo name — placeholder text reads worse
+            // than nothing.
             slug={
-                <>
-                    {repoFullName || 'connected GitHub source'}
-                    {repoFullName && (
-                        <>
-                            {' · '}
-                            <Link to={`https://github.com/${repoFullName}`} target="_blank" targetBlankIcon>
-                                View on GitHub
-                            </Link>
-                        </>
-                    )}
-                </>
+                repoFullName ? (
+                    <>
+                        {repoFullName}
+                        {' · '}
+                        <Link to={`https://github.com/${repoFullName}`} target="_blank" targetBlankIcon>
+                            View on GitHub
+                        </Link>
+                    </>
+                ) : undefined
             }
             right={
                 failuresLoading ? undefined : failingWorkflowCount > 0 ? (
@@ -278,6 +278,7 @@ export function RepoOverviewScene(): JSX.Element {
         githubSources,
     } = useValues(engineeringAnalyticsLogic)
     const { loadOverview, loadMasterFailures } = useActions(repoOverviewLogic)
+    const { searchParams } = useValues(router)
 
     if (notConnected) {
         return <ConnectGitHubSource />
@@ -295,7 +296,9 @@ export function RepoOverviewScene(): JSX.Element {
 
     return (
         <div className="flex flex-col gap-4">
-            <ScopeBar repoSlot={<SourceScopeChip />} />
+            {/* The entity header below is the repo identity — the scope bar only adds the source
+                picker (multi-source teams) so the repo name isn't stated twice on one screen. */}
+            <ScopeBar repoSlot={<SourceScopeChip pickerOnly />} />
 
             <RepoEntityHeader
                 repoFullName={
@@ -462,15 +465,35 @@ export function RepoOverviewScene(): JSX.Element {
                 title="Workflows"
                 note="every row opens the workflow page — same skeleton, one level down"
             >
-                <WorkflowHealthTable
-                    rows={workflowHealth}
-                    loading={workflowHealthLoading}
-                    sourceId={sourceId}
-                    showCost={jobsAvailable}
-                    defaultSorting={{ columnKey: 'runCount', order: -1 }}
-                    pageSize={HUB_TABLE_PAGE_SIZE}
-                    emptyState="No workflow runs in the window."
-                />
+                <LemonCard hoverEffect={false} className="p-0">
+                    <WorkflowHealthTable
+                        rows={workflowHealth}
+                        loading={workflowHealthLoading}
+                        sourceId={sourceId}
+                        showCost={jobsAvailable}
+                        defaultSorting={{ columnKey: 'runCount', order: -1 }}
+                        pageSize={HUB_TABLE_PAGE_SIZE}
+                        emptyState="No workflow runs in the window."
+                    />
+                    <div className="border-t border-primary px-4 py-2 text-[11px] text-tertiary">
+                        Showing top {Math.min(HUB_TABLE_PAGE_SIZE, workflowHealth.length)} of {workflowHealth.length}{' '}
+                        workflows —{' '}
+                        <Link
+                            to={
+                                // A bare link would reset the shared window/branch scope (the filters logic
+                                // re-hydrates from the URL on every route) — carry it, plus the source.
+                                combineUrl(urls.engineeringAnalyticsWorkflows(), {
+                                    ...(searchParams.date_from ? { date_from: searchParams.date_from } : {}),
+                                    ...(searchParams.date_to ? { date_to: searchParams.date_to } : {}),
+                                    ...(searchParams.q ? { q: searchParams.q } : {}),
+                                    ...(sourceId ? { source: sourceId } : {}),
+                                }).url
+                            }
+                        >
+                            view all →
+                        </Link>
+                    </div>
+                </LemonCard>
             </Section>
 
             <Section id="cost" title="Cost" note="where the window's spend goes">
