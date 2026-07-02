@@ -31,7 +31,7 @@ interface UseRadialInteractionResult<Meta> {
     handlers: {
         onMouseMove: (e: React.MouseEvent<HTMLDivElement>) => void
         onMouseLeave: () => void
-        onClick: () => void
+        onClick: (e: React.MouseEvent<HTMLDivElement>) => void
     }
 }
 
@@ -130,26 +130,37 @@ export function useRadialInteraction<Meta = unknown>({
         clearTooltip()
     }, [isPinned, clearTooltip])
 
-    const onClick = useCallback(() => {
-        const idx = hoverIndexRef.current
-        if (idx < 0 || !onSliceClick) {
-            return
-        }
-        const lo = layoutRef.current
-        if (!lo) {
-            return
-        }
-        const slice = lo.slices[idx]
-        if (!slice) {
-            return
-        }
-        onSliceClick({
-            sliceIndex: idx,
-            series: slice.series,
-            value: slice.value,
-            fraction: slice.fraction,
-        })
-    }, [hoverIndexRef, layoutRef, onSliceClick])
+    const onClick = useCallback(
+        (e: React.MouseEvent<HTMLDivElement>) => {
+            if (!onSliceClick) {
+                return
+            }
+            const lo = layoutRef.current
+            if (!lo || lo.slices.length === 0) {
+                return
+            }
+            // Resolve the slice under the cursor at click time rather than trusting the last hover
+            // index: a fast click, or one landing right on a slice boundary, can fire before
+            // mousemove has settled `hoverIndex`, which would otherwise silently drop the click.
+            // Fall back to the hover index when the click lands outside the slices (e.g. on a
+            // pinned tooltip covering the wedge).
+            const rect = (e.currentTarget as HTMLElement).getBoundingClientRect()
+            const cursor = { x: e.clientX - rect.left, y: e.clientY - rect.top }
+            const hit = sliceAt(lo, cursor, { outerSlack: hitOuterSlack })
+            const idx = hit >= 0 ? hit : hoverIndexRef.current
+            const slice = idx >= 0 ? lo.slices[idx] : null
+            if (!slice) {
+                return
+            }
+            onSliceClick({
+                sliceIndex: idx,
+                series: slice.series,
+                value: slice.value,
+                fraction: slice.fraction,
+            })
+        },
+        [hoverIndexRef, layoutRef, onSliceClick, hitOuterSlack]
+    )
 
     const handlers = useMemo(() => ({ onMouseMove, onMouseLeave, onClick }), [onMouseMove, onMouseLeave, onClick])
 

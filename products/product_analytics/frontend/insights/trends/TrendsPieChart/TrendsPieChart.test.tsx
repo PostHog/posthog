@@ -1,6 +1,6 @@
 import '@testing-library/jest-dom'
 
-import { cleanup, screen, waitFor } from '@testing-library/react'
+import { cleanup, fireEvent, screen, waitFor } from '@testing-library/react'
 
 import { setupJsdom, setupSyncRaf } from '@posthog/quill-charts/testing'
 
@@ -62,5 +62,23 @@ describe('TrendsPieChart (ActionsPie)', () => {
             { timeout: 5000 }
         )
         expect([...sliceLabels()].sort()).toEqual([...expectedLabels].sort())
+    })
+
+    it('drills into all actors when the aggregation total is clicked', async () => {
+        renderInsight({ query: pieByHedgehog() })
+        await screen.findByRole('img', { name: /pie chart with/i }, { timeout: 5000 })
+
+        // The prominent total invites clicks — it must open the persons modal rather than
+        // sit inert (the reported dead click).
+        const total = await screen.findByTestId('trend-pie-total')
+        expect(total).toHaveClass('cursor-pointer')
+        fireEvent.click(total)
+
+        await waitFor(
+            () => {
+                expect(personsModal.get()).toBeInTheDocument()
+            },
+            { timeout: 5000 }
+        )
     })
 })

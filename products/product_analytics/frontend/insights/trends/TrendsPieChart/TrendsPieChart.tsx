@@ -26,7 +26,7 @@ import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 import { cohortsModel } from '~/models/cohortsModel'
 import { groupsModel } from '~/models/groupsModel'
 import { propertyDefinitionsModel } from '~/models/propertyDefinitionsModel'
-import { InsightVizNode } from '~/queries/schema/schema-general'
+import { InsightVizNode, NodeKind } from '~/queries/schema/schema-general'
 import { QueryContext } from '~/queries/types'
 
 import { InsightSeriesTooltip } from '../../shared/InsightSeriesTooltip'
@@ -198,6 +198,32 @@ export function TrendsPieChart({ context, showPersonsModal = true }: TrendsPieCh
         [handleSliceClick]
     )
 
+    // The aggregation total is the most prominent number on the chart, so users click it expecting
+    // a drill-down. Open all actors matching the base query (no breakdown) — the sum's audience —
+    // mirroring the BoldNumber total. Slice-level breakdowns stay on the slices themselves.
+    const handleTotalClick = useCallback(() => {
+        if (onDataPointClick) {
+            onDataPointClick({}, (indexedResults ?? [])[0])
+            return
+        }
+        if (!showPersonsModal || formula || hasDataWarehouseSeries || !querySource) {
+            return
+        }
+        openPersonsModal({
+            title: (actorLabel: string) => `All ${actorLabel}`,
+            query: {
+                kind: NodeKind.InsightActorsQuery,
+                source: querySource,
+                includeRecordings: true,
+            },
+            additionalSelect: {
+                value_at_data_point: 'event_count',
+                matched_recordings: 'matched_recordings',
+            },
+            orderBy: ['event_count DESC, actor_id DESC'],
+        })
+    }, [onDataPointClick, indexedResults, showPersonsModal, formula, hasDataWarehouseSeries, querySource])
+
     const renderCount = useCallback(
         (value: number) => formatAggregationAxisValueWithShareOfTotal(trendsFilter, value, total, baseCurrency),
         [trendsFilter, total, baseCurrency]
@@ -260,7 +286,11 @@ export function TrendsPieChart({ context, showPersonsModal = true }: TrendsPieCh
                 onError={handleChartError}
             />
             {showAggregation && (
-                <div className="text-7xl text-center font-bold m-0">
+                <div
+                    className={`text-7xl text-center font-bold m-0${canHandleClick ? ' cursor-pointer' : ''}`}
+                    onClick={canHandleClick ? handleTotalClick : undefined}
+                    data-attr="trend-pie-total"
+                >
                     {formatAggregationAxisValue(trendsFilter, total, baseCurrency)}
                 </div>
             )}
