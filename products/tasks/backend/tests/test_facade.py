@@ -221,6 +221,50 @@ class TestFacadeReadsAndMappers(TestCase):
         self.assertEqual(stale.status, TaskRun.Status.FAILED.value)
         self.assertEqual(stale.error_message, "boom")
 
+    @parameterized.expand(
+        [
+            # A directory snapshot captured at a still-allowed path is carried into the new run.
+            ("workspace_path", "/tmp/workspace", True),
+            # A legacy "/tmp" capture is unusable (its content only fits that path, and mounting
+            # over the live /tmp killed sandboxes) — resuming must drop it, not carry it forward
+            # with the path stripped, or downstream defaulting would remount mismatched content.
+            ("legacy_tmp_path", "/tmp", False),
+        ]
+    )
+    def test_run_task_resume_carries_only_usable_directory_snapshots(
+        self, _name: str, prior_mount_path: str, expect_carried: bool
+    ):
+        task = self._make_task()
+        previous_run = TaskRun.objects.create(
+            task=task,
+            team=self.team,
+            status=TaskRun.Status.COMPLETED,
+            state={
+                "snapshot_external_id": "im-dir",
+                "snapshot_kind": "directory",
+                "snapshot_mount_path": prior_mount_path,
+            },
+        )
+
+        with patch("products.tasks.backend.facade.api._trigger_task_processing_workflow"):
+            result = facade.run_task(
+                task.id,
+                self.team.id,
+                self.user.id,
+                validated_data={"mode": "interactive", "resume_from_run_id": str(previous_run.id)},
+            )
+
+        assert result is not None and result.error is None
+        new_run = task.runs.exclude(id=previous_run.id).get()
+        if expect_carried:
+            self.assertEqual(new_run.state.get("snapshot_external_id"), "im-dir")
+            self.assertEqual(new_run.state.get("snapshot_kind"), "directory")
+            self.assertEqual(new_run.state.get("snapshot_mount_path"), prior_mount_path)
+        else:
+            self.assertNotIn("snapshot_external_id", new_run.state)
+            self.assertNotIn("snapshot_kind", new_run.state)
+            self.assertNotIn("snapshot_mount_path", new_run.state)
+
     def test_stale_queued_created_at_hard_cap(self):
         task = self._make_task()
         now = django_timezone.now()

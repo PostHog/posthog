@@ -58,6 +58,18 @@ class BigQuerySource(SQLSource[BigQuerySourceConfig]):
             # be repaired by retrying — the user must re-upload an intact JSON key file. Matched on the
             # stable "Unable to load PEM file" wording rather than the volatile InvalidData detail.
             "Unable to load PEM file": "We couldn't read the private key in your Google Cloud JSON key file — it appears truncated or corrupted. Please download a fresh service account key from Google Cloud and re-upload the JSON file.",
+            # Writing query results into the `__posthog_import_...` temp tables PostHog creates
+            # (`WRITE_TRUNCATE` in `_run_destination_query_with_job_retry`, on incremental / view /
+            # row-filtered reads) needs write access on the dataset those tables live in. When the
+            # service account only has read access, BigQuery rejects the copy with "Permission
+            # bigquery.tables.update denied on table <temp id>". This is a distinct problem from the
+            # read-side denials the "Access Denied:" key below covers — and that key would match this
+            # message first and misdirect the customer to grant *read* access (Data Viewer), which
+            # can't fix a *write* failure. Keep this key above "Access Denied:" so the write-specific
+            # guidance wins. Deterministic IAM config problem — retrying can't grant the permission.
+            # Matched on the stable permission name (also covers `bigquery.tables.updateData`), not
+            # the volatile temp-table id.
+            "bigquery.tables.update": "BigQuery denied write access to a temporary table PostHog creates in your dataset. PostHog copies query results into temporary tables before reading them, so read access alone isn't enough. Please grant your service account write access (for example the BigQuery Data Editor role) on the dataset where these temporary tables are created — your main dataset, or the temporary dataset if you configured one — then reconnect the source.",
             # BigQuery prefixes every IAM/permission failure with "Access Denied:" — e.g.
             # "Access Denied: Table <id>: Permission bigquery.tables.getData denied on table <id>
             # (or it may not exist).". The matched string above only covers the REST client's

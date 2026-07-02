@@ -545,6 +545,19 @@ class PostgresSource(SQLSource[PostgresSourceConfig], SSHTunnelMixin, ValidateDa
             # against the source data, so retrying re-evaluates the same view and hits the same row.
             "cannot call jsonb_each on a non-object": "A view you're syncing calls jsonb_each() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
             "cannot call jsonb_each_text on a non-object": "A view you're syncing calls jsonb_each_text() on a JSON value that isn't an object for at least one row, so Postgres can't evaluate the view and we can't read it. Guard the call in your view definition (for example only call jsonb_each_text() when jsonb_typeof(col) = 'object'), or remove that view from the sync.",
+            # A selected relation is a postgres_fdw foreign table and the connecting role has no user
+            # mapping for the foreign server it points at, so every SELECT fails with
+            # "UndefinedObject: user mapping not found for user <user>, server <server>" (SQLSTATE
+            # 42704). The mapping is fixed server-side config only the customer can create, so
+            # retrying re-reads into the same wall. Match the stable fragment and exclude the volatile
+            # user/server names.
+            "user mapping not found for": (
+                "One of the tables you selected to sync is a foreign table (postgres_fdw), and "
+                "PostHog's database role has no user mapping for the foreign server it points at "
+                '(PostgreSQL reported "user mapping not found"). Create a user mapping for the '
+                "connecting role on that foreign server (CREATE USER MAPPING ...), or remove the "
+                "foreign table from the sync, then re-enable the sync."
+            ),
         }
 
     def reconcile_schema_metadata(
