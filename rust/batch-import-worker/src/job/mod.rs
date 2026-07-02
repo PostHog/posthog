@@ -220,6 +220,20 @@ pub(crate) async fn select_and_fetch_next_chunk(
         )));
     }
 
+    // A single record larger than the read window fills a whole non-final chunk with no
+    // line terminator, so the parser can't advance past it. Without this the loop would
+    // crawl one byte per iteration (and, on the temp-bucket backend, issue a ranged GET
+    // of up to chunk_size per byte). Fail fast with an actionable, non-transient error
+    // that pauses the job.
+    if !is_last_chunk && chunk_bytes == chunk_size && parsed.consumed <= 1 && parsed.data.is_empty()
+    {
+        return Err(Error::from(UserError::new(format!(
+            "A single record in part {} exceeds the maximum chunk size ({chunk_size} bytes) \
+             and cannot be processed; split the oversized record into smaller ones.",
+            next_part.key
+        ))));
+    }
+
     // If we consumed no bytes and have no parsed data but there was data to consume, something went wrong.
     // Note: don't error if we have no parsed data but have consumed bytes - invalid events may have been all filtered out
     if parsed.consumed == 0 && parsed.data.is_empty() && chunk_bytes > 0 {
@@ -1238,6 +1252,26 @@ mod tests {
             }))
         }
 
+        /// A transform that runs the real newline parser to compute `consumed`
+        /// (validating each complete line as JSON) but emits no events. This
+        /// reproduces the parser's real boundary behavior — a chunk with no line
+        /// terminator yields `consumed == 1` — which is what the oversized-record
+        /// guard keys on, without standing up the full captured-event pipeline.
+        fn newline_consumed_transform() -> Arc<ParserFn> {
+            Arc::new(Box::new(|bytes: Vec<u8>| {
+                let parser = crate::parse::format::newline_delim(true, |line: &str| {
+                    serde_json::from_str::<serde_json::Value>(line)
+                        .map(|_| ())
+                        .map_err(anyhow::Error::from)
+                });
+                let parsed = parser(bytes)?;
+                Ok(Parsed {
+                    consumed: parsed.consumed,
+                    data: Vec::new(),
+                })
+            }))
+        }
+
         fn count_raw_files(dir: &Path) -> usize {
             let mut count = 0;
             let mut stack = vec![dir.to_path_buf()];
@@ -1356,6 +1390,51 @@ mod tests {
                 peak_raw, 1,
                 "exactly one .raw should exist while the part is in flight"
             );
+        }
+
+        #[tokio::test]
+        async fn test_record_larger_than_chunk_size_fails_fast() {
+            // A single JSON record with no interior newline, larger than the read window.
+            // Without the guard the loop would crawl one byte per iteration forever.
+            let server = MockServer::start();
+            let huge_record = format!("{{\"event\":\"{}\"}}", "x".repeat(5000));
+            assert!(!huge_record.contains('\n'));
+            let _mock = server.mock(|when, then| {
+                when.method(Method::GET).path("/export");
+                then.status(200).body(gzip_bytes(huge_record.as_bytes()));
+            });
+
+            let staging = TempDir::new().unwrap();
+            let source = build_source(server.url("/export"), staging.path(), 1);
+            source.prepare_for_job().await.unwrap();
+            let keys = source.keys().await.unwrap();
+
+            let state = Mutex::new(job_state(&keys));
+            let model = Mutex::new(dummy_model(job_state(&keys)));
+            let transform = newline_consumed_transform();
+
+            // Read window (1024) is far smaller than the 5000-byte record.
+            let result = select_and_fetch_next_chunk(
+                &state,
+                &model,
+                &source,
+                &transform,
+                1024,
+                Uuid::now_v7(),
+            )
+            .await;
+
+            let err = result.expect_err("oversized record must fail fast, not crawl");
+            // Actionable, user-facing message so the job pauses (not a transient retry).
+            let user_msg = crate::error::get_user_message(&err);
+            assert!(
+                user_msg.contains("exceeds the maximum chunk size"),
+                "unexpected message: {user_msg}"
+            );
+            assert!(!crate::error::is_rate_limited_error(&err));
+            assert!(!crate::error::is_timeout_error(&err));
+            assert!(!crate::error::is_transient_network_error(&err));
+            assert!(!crate::error::is_transient_server_error(&err));
         }
 
         #[tokio::test]
