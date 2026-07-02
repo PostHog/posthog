@@ -720,6 +720,30 @@ class TestPostgresSourceNonRetryableErrors:
         "error_msg",
         [
             # Raw psycopg message (what the activity-level check sees via str(e)).
+            "permission denied for schema extensions",
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            "InsufficientPrivilege: permission denied for schema extensions",
+        ],
+    )
+    def test_permission_denied_for_schema_errors_are_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Permission-denied-for-schema error should be non-retryable: {error_msg}"
+
+    def test_permission_denied_for_schema_returns_usage_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = "permission denied for schema extensions"
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Permission-denied-for-schema error should surface an actionable message"
+        # The schema-USAGE message must win over the generic table-SELECT message and advise USAGE
+        # rather than the misleading "GRANT SELECT ON <table>".
+        assert "USAGE" in friendly[0]
+        assert "GRANT SELECT" not in friendly[0]
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg message (what the activity-level check sees via str(e)).
             'materialized view "mv_dayplan_blocks" has not been populated\nHINT:  Use the REFRESH MATERIALIZED VIEW command.',
             # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
             'ObjectNotInPrerequisiteState: materialized view "mv_dayplan_blocks" has not been populated',
@@ -750,6 +774,27 @@ class TestPostgresSourceNonRetryableErrors:
         non_retryable = source.get_non_retryable_errors()
         is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
         assert is_non_retryable, f"jsonb_each on non-object error should be non-retryable: {error_msg}"
+
+    @pytest.mark.parametrize(
+        "error_msg",
+        [
+            # Raw psycopg message (what the activity-level check sees via str(e)).
+            'user mapping not found for user "svc_role", server "remote_server"',
+            # Temporal-wrapped message (what the workflow-level check sees) — carries the class name.
+            'UndefinedObject: user mapping not found for user "svc_role", server "remote_server"',
+        ],
+    )
+    def test_missing_fdw_user_mapping_is_non_retryable(self, source, error_msg):
+        non_retryable = source.get_non_retryable_errors()
+        is_non_retryable = any(pattern in error_msg for pattern in non_retryable.keys())
+        assert is_non_retryable, f"Missing FDW user mapping error should be non-retryable: {error_msg}"
+
+    def test_missing_fdw_user_mapping_returns_friendly_message(self, source):
+        non_retryable = source.get_non_retryable_errors()
+        error_msg = 'user mapping not found for user "svc_role", server "remote_server"'
+        friendly = [reason for pattern, reason in non_retryable.items() if pattern in error_msg and reason]
+        assert friendly, "Missing FDW user mapping error should surface an actionable message"
+        assert "CREATE USER MAPPING" in friendly[0]
 
     @pytest.mark.parametrize(
         "error_msg",

@@ -1,6 +1,6 @@
 import pytest
-from posthog.test.base import BaseTest
-from unittest.mock import patch
+from posthog.test.base import BaseTest, ClickhouseTestMixin
+from unittest.mock import Mock, patch
 
 from django.apps import apps
 
@@ -8,6 +8,7 @@ from parameterized import parameterized
 
 from products.customer_analytics.backend.logic.custom_property_sync import (
     MAX_CONSECUTIVE_SYNC_FAILURES,
+    _read_view,
     record_sync_outcome,
     run_custom_property_sync,
     sync_custom_property_values,
@@ -135,6 +136,23 @@ class CustomPropertySyncTest(TeamScopedTestMixin, BaseTest):
         assert source.consecutive_failures == 1
         assert source.last_sync_error == "boom"
         mock_capture.assert_called_once()
+
+
+@patch("posthoganalytics.feature_enabled", new=Mock(return_value=True))
+class ReadViewAccessControlTest(ClickhouseTestMixin, TeamScopedTestMixin, BaseTest):
+    def test_userless_sync_reads_view_despite_warehouse_access_control(self):
+        # The Celery sync runs with no user, so HogQL warehouse-view access control (flag on)
+        # fails closed and denies the view unless the sync bypasses it.
+        view = DataWarehouseSavedQuery.objects.create(
+            team=self.team,
+            name="account_health_scores",
+            query={"kind": "HogQLQuery", "query": "SELECT 'acme' AS org_id, 100 AS health_score"},
+            columns={"org_id": "String", "health_score": "Int64"},
+        )
+
+        rows = _read_view(self.team, view.name, ["health_score", "org_id"])
+
+        assert rows == [(100, "acme")]
 
 
 class RecordSyncOutcomeTest(TeamScopedTestMixin, BaseTest):

@@ -120,5 +120,22 @@ describe('KafkaOffsetManager', () => {
                 },
             ])
         })
+
+        it('should not move a partition backwards when a lower offset is tracked last', async () => {
+            // A drop for a lower offset can be tracked after a higher recorded offset; committing the
+            // lower one would replay everything in between.
+            offsetManager.trackOffset({ partition: 1, offset: 101 })
+            offsetManager.trackOffset({ partition: 1, offset: 99 })
+
+            await offsetManager.commit()
+
+            expect(mockCommitOffsets).toHaveBeenCalledWith([
+                {
+                    topic: 'test_topic',
+                    partition: 1,
+                    offset: 102,
+                },
+            ])
+        })
     })
 })

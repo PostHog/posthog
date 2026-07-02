@@ -51,7 +51,7 @@ from posthog.permissions import APIScopePermission
 from posthog.rate_limit import UserAuthenticationThrottle
 from posthog.user_permissions import UserPermissions
 
-from products.slack_app.backend.feature_flags import slack_oauth_link_enabled
+from products.slack_app.backend.feature_flags import is_slack_app_oauth_enabled
 from products.slack_app.backend.services.slack_user_oauth import build_invite_url
 
 logger = structlog.get_logger(__name__)
@@ -560,7 +560,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
                 continue
             # Feature-flag check per workspace so an org that hasn't rolled out
             # the flag yet doesn't show up in another org's picker.
-            if not slack_oauth_link_enabled(integration, integration.integration_id):
+            if not is_slack_app_oauth_enabled(integration, integration.integration_id):
                 continue
             # `(config or {}).get("team", {})` doesn't defend against an explicit
             # ``config["team"] = None`` — dict.get returns the literal None
@@ -618,7 +618,7 @@ class UserIntegrationViewSet(viewsets.GenericViewSet):
                 "This project has no Slack workspace connected. Ask an admin to install the Slack app first."
             )
 
-        if not slack_oauth_link_enabled(workspace, workspace.integration_id):
+        if not is_slack_app_oauth_enabled(workspace, workspace.integration_id):
             raise exceptions.PermissionDenied("Slack identity linking is not enabled for this organization.")
 
         if UserIntegration.objects.filter(

@@ -86,15 +86,28 @@ def is_bot_author(user: dict) -> bool:
     return "[bot]" in login or login in _BOT_MACHINE_USERS
 
 
+# Stamphog's own review identities: REFUSE/ESCALATE comment reviews post via
+# the GitHub App (stamphog[bot]); APPROVE reviews post via the workflow's
+# GITHUB_TOKEN (github-actions[bot]) so they count toward branch protection.
+_SELF_REVIEW_LOGINS = {"stamphog[bot]", "github-actions[bot]"}
+
+
 def _normalize_reviews_for_prompt(reviews_raw: list[dict], head_sha: str) -> list[dict]:
     """Normalize top-level reviews for the reviewer prompt.
 
     Preserve trusted/bot reviews, and annotate whether each review was left on
     the current PR head. This lets the LLM distinguish active feedback from
     older context that may already have been addressed in follow-up commits.
+
+    Stamphog's own prior reviews are excluded: they describe an earlier
+    snapshot of the PR, are never independent review signal, and the reviewer
+    has no way to recognize them as its own — re-reading a stale verdict after
+    the PR state changed makes it suspect tampering and refuse forever.
     """
     normalized_reviews = []
     for review in reviews_raw:
+        if review.get("user", {}).get("login") in _SELF_REVIEW_LOGINS:
+            continue
         if not (
             review.get("author_association") in _TRUSTED_ASSOCIATIONS
             or review.get("author_association") == "BOT"

@@ -129,7 +129,9 @@ def _read_view(team: Team, view_name: str, columns: list[str]) -> list:
         select_from=ast.JoinExpr(table=ast.Field(chain=[view_name])),
     )
     with tags_context(product=Product.CUSTOMER_ANALYTICS, feature=Feature.ACCOUNTS, team_id=team.pk):
-        return execute_hogql_query(query, team=team).results or []
+        # Runs as a userless system sync, so bypass user-scoped warehouse-view access control
+        # (it fails closed without a user); tenant isolation still holds via team.
+        return execute_hogql_query(query, team=team, bypass_warehouse_access_control=True).results or []
 
 
 def record_sync_outcome(

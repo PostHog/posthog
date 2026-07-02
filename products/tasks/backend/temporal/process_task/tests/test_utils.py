@@ -37,10 +37,18 @@ class TestRunStateSnapshotPaths(TestCase):
                 {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": DEFAULT_SANDBOX_WORKING_DIR},
                 DEFAULT_SANDBOX_WORKING_DIR,
             ),
+            # A disallowed stored path invalidates the snapshot (None) — it must NOT be remapped
+            # to the default: the snapshot's content layout only fits the path it was captured
+            # from. "/tmp" is the legacy default whose re-mount killed the sandbox.
+            (
+                "legacy_tmp_directory_snapshot",
+                {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": "/tmp"},
+                None,
+            ),
             (
                 "unsupported_directory_snapshot_path",
                 {"snapshot_kind": SNAPSHOT_KIND_DIRECTORY, "snapshot_mount_path": "/tmp/agent-env"},
-                DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
+                None,
             ),
             ("filesystem_snapshot", {"snapshot_kind": "filesystem"}, None),
         ]

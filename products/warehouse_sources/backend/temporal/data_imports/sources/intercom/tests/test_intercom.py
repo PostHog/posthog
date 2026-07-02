@@ -22,6 +22,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.intercom.i
     _build_search_body,
     _company_segments_generator,
     _conversation_parts_generator,
+    _drain_company_ids,
     _is_scroll_exists,
     _is_server_error,
     _iter_companies,
@@ -367,6 +368,46 @@ class TestSubstreamGenerators:
         last_scroll = max(i for i, u in enumerate(urls) if u.endswith("/companies/scroll"))
         first_segments = min(i for i, u in enumerate(urls) if u.endswith("/segments"))
         assert last_scroll < first_segments
+
+    def test_company_segments_restarts_scroll_on_expired_cursor(self):
+        # The observed failure: the companies scroll cursor expires mid-drain and
+        # the continuation 404s (GET /companies/scroll?scroll_param=...). Because ids
+        # are drained before any segment is yielded, restarting the walk from the
+        # beginning is safe — nothing has been written yet — so the drain re-walks
+        # and the sync continues instead of failing the whole run.
+        mock_session = mock.MagicMock()
+        mock_session.get.side_effect = [
+            # First drain: one page, then the continuation 404s (expired scroll).
+            _make_response({"data": [{"id": "co1"}], "scroll_param": "s1"}),
+            _make_response(None, status_code=404, text="Not Found"),
+            # Restarted drain from the beginning: walks to completion.
+            _make_response({"data": [{"id": "co1"}], "scroll_param": "s2"}),
+            _make_response({"data": []}),
+            # Segment fetch for the drained company.
+            _make_response({"data": [{"id": "seg1"}]}),
+        ]
+
+        segments = list(_company_segments_generator(mock_session))
+
+        assert [s["id"] for s in segments] == ["seg1"]
+        assert segments[0]["company_id"] == "co1"
+        # The retried open carries no scroll_param — a scroll only restarts from
+        # the beginning, never resumes from the dead cursor.
+        assert mock_session.get.call_args_list[2].kwargs["params"] is None
+
+    def test_drain_company_ids_reraises_expired_cursor_after_max_retries(self):
+        # A persistently-invalidated scroll must surface after the bounded retries
+        # rather than re-walking forever.
+        mock_session = mock.MagicMock()
+        mock_session.get.side_effect = [
+            _make_response(None, status_code=404, text="Not Found")
+            for _ in range(intercom_module._SCROLL_EXPIRED_MAX_RETRIES + 1)
+        ]
+
+        with pytest.raises(HTTPError):
+            _drain_company_ids(mock_session)
+
+        assert mock_session.get.call_count == intercom_module._SCROLL_EXPIRED_MAX_RETRIES + 1
 
     def test_iter_companies_walks_scroll(self):
         # `POST /companies/list` is capped at 10,000 companies (60 * 167 page

@@ -16,7 +16,6 @@ from posthog.schema import (
     ExperimentVariantResultBayesian,
     ExperimentVariantResultFrequentist,
     ExperimentVariantTrendsBaseStats,
-    SessionData,
 )
 
 from posthog.hogql import ast
@@ -179,17 +178,6 @@ def get_variant_result(
         field: row_dict[alias] for alias, field in _ALIAS_TO_STATS_FIELD.items() if alias in row_dict
     }
 
-    # steps_event_data is the only column needing structural conversion
-    # (raw tuples → SessionData); all other aliases map directly via _ALIAS_TO_STATS_FIELD.
-    if "steps_event_data" in row_dict and row_dict["steps_event_data"] is not None:
-        base_stats["step_sessions"] = [
-            [
-                SessionData(person_id=person_id, session_id=session_id, event_uuid=event_uuid, timestamp=timestamp)
-                for person_id, session_id, event_uuid, timestamp in step_sessions
-            ]
-            for step_sessions in row_dict["steps_event_data"]
-        ]
-
     return breakdown_tuple, ExperimentStatsBase(**base_stats)
 
 
@@ -239,18 +227,6 @@ def aggregate_variants_across_breakdowns(
             aggregated_stats["step_counts"] = [
                 sum(step_values) for step_values in zip(*[v.step_counts for v in variant_list if v.step_counts])
             ]
-
-            # Aggregate step_sessions across breakdowns for actors view
-            if variant_list[0].step_sessions is not None:
-                aggregated_stats["step_sessions"] = [
-                    [
-                        session
-                        for variant in variant_list
-                        if variant.step_sessions
-                        for session in variant.step_sessions[step_idx]
-                    ]
-                    for step_idx in range(len(variant_list[0].step_sessions))
-                ]
 
         if variant_list[0].denominator_sum is not None:
             aggregated_stats.update(
@@ -312,8 +288,6 @@ def validate_variant_result(
     # Include funnel-specific fields if present
     if hasattr(variant_result, "step_counts") and variant_result.step_counts is not None:
         validated_result.step_counts = variant_result.step_counts
-    if hasattr(variant_result, "step_sessions") and variant_result.step_sessions is not None:
-        validated_result.step_sessions = variant_result.step_sessions
 
     # Include ratio-specific fields if present
     if hasattr(variant_result, "denominator_sum") and variant_result.denominator_sum is not None:
@@ -539,7 +513,6 @@ def get_frequentist_experiment_result(
             sum=test_variant_validated.sum,
             sum_squares=test_variant_validated.sum_squares,
             step_counts=test_variant_validated.step_counts,
-            step_sessions=getattr(test_variant_validated, "step_sessions", None),
             validation_failures=test_variant_validated.validation_failures,
         )
 
@@ -643,7 +616,6 @@ def get_bayesian_experiment_result(
             sum=test_variant_validated.sum,
             sum_squares=test_variant_validated.sum_squares,
             step_counts=test_variant_validated.step_counts,
-            step_sessions=getattr(test_variant_validated, "step_sessions", None),
             validation_failures=test_variant_validated.validation_failures,
         )
 
