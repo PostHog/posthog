@@ -175,19 +175,18 @@ export function ScannerObservationsTable({ scannerId }: { scannerId: string }): 
                         </Link>
                     )
                 }
-                const tooltip = label.is_correct ? 'Marked correct' : label.feedback || 'Marked incorrect'
+                const feedback = !label.is_correct ? label.feedback : null
+                const content = (
+                    <span className="flex items-center gap-1">
+                        <LemonTag type={label.is_correct ? 'success' : 'danger'}>
+                            {label.is_correct ? 'Correct' : 'Incorrect'}
+                        </LemonTag>
+                        {feedback ? <span className="text-xs text-muted truncate">{feedback}</span> : null}
+                    </span>
+                )
                 return (
                     <Link to={to} className="block max-w-[20rem]">
-                        <Tooltip title={tooltip}>
-                            <span className="flex items-center gap-1">
-                                <LemonTag type={label.is_correct ? 'success' : 'danger'}>
-                                    {label.is_correct ? 'Correct' : 'Incorrect'}
-                                </LemonTag>
-                                {!label.is_correct && label.feedback ? (
-                                    <span className="text-xs text-muted truncate">{label.feedback}</span>
-                                ) : null}
-                            </span>
-                        </Tooltip>
+                        {feedback ? <Tooltip title={feedback}>{content}</Tooltip> : content}
                     </Link>
                 )
             },
