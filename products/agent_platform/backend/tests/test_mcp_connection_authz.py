@@ -4,9 +4,8 @@ from typing import Any
 
 from posthog.test.base import APIBaseTest
 
-from rest_framework import serializers
-
 from parameterized import parameterized
+from rest_framework import serializers
 
 from posthog.models import User
 

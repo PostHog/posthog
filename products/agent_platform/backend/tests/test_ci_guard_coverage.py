@@ -49,7 +49,7 @@ def _agents_filter_patterns() -> list[str]:
 def test_ci_agents_filter_covers_every_generated_artifact() -> None:
     patterns = _agents_filter_patterns()
     generated = sorted(p.name for p in _GENERATED_DIR.glob("*.generated.json"))
-    assert generated, "no *.generated.json artifacts found — did the path change?"
+    assert len(generated) >= 4, "generated artifacts missing — did the path change?"
 
     for name in generated:
         rel = f"products/agent_platform/backend/logic/{name}"

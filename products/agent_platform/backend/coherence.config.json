@@ -1,0 +1,10 @@
+{
+    "outputDir": ".coherence-out",
+    "entryDir": "logic",
+    "ignore": ["migrations", "__pycache__", ".coherence-out"],
+    "codeExt": ["py"],
+    "typecheck": ["python", "-m", "ruff", "check", "."],
+    "test": ["env", "DJANGO_SETTINGS_MODULE=posthog.settings", "python", "-m", "pytest", "-q", "-k"],
+    "testMatch": "[1-9][0-9]* passed",
+    "language": "python"
+}

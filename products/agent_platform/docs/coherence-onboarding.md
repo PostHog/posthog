@@ -169,6 +169,13 @@ Run: `node /tmp/coherence/dist/cli.js <command>` from that root.
 5. CI: `verify --staged` (edit-loop) + `verify` + `log --strict` (blocks a PR
    that silently drops a boundary).
 
+### Version pin
+
+Use `daniloc/coherence` at commit `a2a6399` or later. Earlier mains lack four
+things this repo's specs depend on: `it.each` domain recognition, domain-floor
+detection, the NOT-FOUND hard-fail on `via test` claims, and Python support
+(`language: "python"` — the Django backend has its own config + spec).
+
 ### The local gate (this repo, today)
 
 `verify` is not wired into this repo's CI — the harness is a personal-repo tool,
