@@ -4,6 +4,13 @@ import { AlertCalculationInterval } from '~/queries/schema/schema-general'
 
 export function getSimulationRangeOptions(interval: AlertCalculationInterval): { label: string; value: string }[] {
     switch (interval) {
+        case AlertCalculationInterval.REAL_TIME:
+            return [
+                { label: 'Last 2h', value: '-2h' },
+                { label: 'Last 6h', value: '-6h' },
+                { label: 'Last 12h', value: '-12h' },
+                { label: 'Last 24h', value: '-24h' },
+            ]
         case AlertCalculationInterval.EVERY_15_MINUTES:
             return [
                 { label: 'Last 12h', value: '-12h' },
@@ -44,6 +51,8 @@ export function getSimulationRangeOptions(interval: AlertCalculationInterval): {
 
 export function alertCalculationIntervalToLabel(interval: AlertCalculationInterval): string {
     switch (interval) {
+        case AlertCalculationInterval.REAL_TIME:
+            return 'Real time'
         case AlertCalculationInterval.EVERY_15_MINUTES:
             return '15 minutes'
         case AlertCalculationInterval.HOURLY:
