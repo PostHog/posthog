@@ -68,7 +68,8 @@ Deny-list (hard gate)
   ▼
 Size ceiling (hard gate)
   - >500 substantive lines or >20 substantive files → too large for auto-review
-  - Docs (.md/.txt/.rst), snapshots (.snap/.ambr, __snapshots__/), images,
+  - Docs (.md/.txt/.rst anywhere; artifact-extension files under docs/),
+    snapshots (.snap/.ambr, __snapshots__/), images,
     `.lock`-extension files (e.g. `yarn.lock`), and generated/ artifacts
     (regenerated-artifact extensions only: .ts/.tsx/.js/.jsx/.json/.md/.snap/.pyi/.txt)
     don't count toward the ceiling — they inflate diffs without adding review

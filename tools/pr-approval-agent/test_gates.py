@@ -262,6 +262,7 @@ def test_dwh_source_mixed_still_denies(files: list[str], subject: str) -> None:
     [
         pytest.param("docs/internal/monorepo-layout.md", True, id="markdown"),
         pytest.param(".agents/skills/foo/SKILL.md", True, id="skill-markdown"),
+        pytest.param("docs/example-snippet.ts", True, id="docs-dir-artifact-extension"),
         pytest.param("posthog/api/test/__snapshots__/test_api.ambr", True, id="ambr-snapshot"),
         pytest.param("frontend/__snapshots__/scene.storyshot", True, id="snapshots-dir"),
         pytest.param("frontend/src/generated/core/api.schemas.ts", True, id="generated-dir"),
