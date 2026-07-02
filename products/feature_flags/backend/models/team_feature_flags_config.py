@@ -20,11 +20,10 @@ class TeamFeatureFlagsConfig(models.Model):
     team = models.OneToOneField("posthog.Team", on_delete=models.CASCADE, primary_key=True, db_constraint=False)
 
     # Allows SDKs to send slim $feature_flag_called events for flags without a
-    # linked experiment. Absent row or False = full events (legacy behavior).
-    # default=False is the legacy fallback for rows created outside the signal
-    # below (e.g. lazily via get_or_create_team_extension); the signal's
-    # defaults give new teams True.
+    # linked experiment. False = full events (legacy behavior). Stays False for
+    # all teams, new or existing, until SDKs support the slim event shape;
+    # flip via management command once they do.
     minimal_flag_called_events = models.BooleanField(default=False)
 
 
-register_team_extension_signal(TeamFeatureFlagsConfig, defaults={"minimal_flag_called_events": True}, logger=logger)
+register_team_extension_signal(TeamFeatureFlagsConfig, logger=logger)

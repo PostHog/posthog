@@ -7,11 +7,11 @@ from products.feature_flags.backend.models import TeamFeatureFlagsConfig
 
 
 class TestTeamFeatureFlagsConfig(BaseTest):
-    def test_new_team_gets_minimal_flag_called_events_enabled(self):
+    def test_new_team_config_defaults_to_disabled(self):
         team = Team.objects.create(organization=self.organization, name="New Team")
 
         config = TeamFeatureFlagsConfig.objects.get(team=team)
-        self.assertTrue(config.minimal_flag_called_events)
+        self.assertFalse(config.minimal_flag_called_events)
 
     def test_lazily_created_config_defaults_to_disabled(self):
         # A team without a row models a legacy team predating this extension.
