@@ -1967,27 +1967,34 @@ export const sqlEditorLogic = kea<sqlEditorLogicType>([
                     actions.updateViewSuccess(view, draftId)
                 }
             },
-            updateViewSuccess: ({ view, draftId }) => {
+            updateViewSuccess: async ({ view, draftId }) => {
                 if (draftId) {
                     actions.deleteDraft(draftId, view?.name)
                 }
-                // Refresh the tab's baseline so `changesToSave` compares against the just-saved query,
-                // not the pre-edit one — otherwise reverting to the original wrongly disables "Update view".
                 if (values.activeTab?.view && values.activeTab.view.id === view.id && view.query) {
-                    // The save advanced the server's activity-log head. Adopt the new latest_history_id so
-                    // the optimistic-concurrency check re-bases on the just-saved state, instead of flagging
-                    // a false "edited by another user" conflict when the user reverts and saves again.
-                    const savedView = values.dataWarehouseSavedQueryMapById[view.id]
+                    // Refresh the baseline query immediately so `changesToSave` reflects the just-saved
+                    // state (and the Update button disables) before we go back to the network.
                     actions.updateTab({
                         ...values.activeTab,
-                        view: {
-                            ...values.activeTab.view,
-                            query: view.query,
-                            latest_history_id: savedView?.latest_history_id ?? values.activeTab.view.latest_history_id,
-                        },
+                        view: { ...values.activeTab.view, query: view.query },
                     })
-                    // Drop the stale in-progress edit marker so the next divergence re-bases on the new head.
-                    actions.deleteInProgressViewEdit(view.id)
+                    // Re-read the server's activity-log head and adopt it as the new base. The concurrency
+                    // check — both the frontend guard and the backend's edited_history_id check — keys off
+                    // this head; without re-basing, reverting the query and saving again is misread as a
+                    // foreign edit and wrongly raises "View has been edited by another user".
+                    const refreshedView = await api.dataWarehouseSavedQueries.get(view.id)
+                    if (refreshedView?.latest_history_id && values.activeTab?.view?.id === view.id) {
+                        actions.updateTab({
+                            ...values.activeTab,
+                            view: { ...values.activeTab.view, latest_history_id: refreshedView.latest_history_id },
+                        })
+                        // Point the edit marker at the new head directly (not just clear it) so a fast
+                        // revert-and-save can't re-base on the stale pre-save head before this refetch lands.
+                        actions.setInProgressViewEdit(view.id, refreshedView.latest_history_id)
+                    } else {
+                        // No head to adopt — clear the stale marker and let the next edit re-base.
+                        actions.deleteInProgressViewEdit(view.id)
+                    }
                 }
             },
             deleteDraftSuccess: ({ draftId, viewName }) => {

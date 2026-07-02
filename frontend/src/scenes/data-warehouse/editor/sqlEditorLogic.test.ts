@@ -169,8 +169,11 @@ describe('sqlEditorLogic', () => {
     const TAB_ID = '1'
     let queryEndpointMock: jest.Mock
     let materializeEndpointMock: jest.Mock
+    // Lets a test control the server's current activity-log head returned by the saved-query GET.
+    let serverViewHistoryId: string | null = null
 
     beforeEach(async () => {
+        serverViewHistoryId = null
         queryEndpointMock = jest.fn(() => [200, { tables: {}, joins: [] }])
         materializeEndpointMock = jest.fn(() => [200, {}])
         useMocks({
@@ -188,7 +191,10 @@ describe('sqlEditorLogic', () => {
                 '/api/environments/:team_id/warehouse_saved_queries/': { results: [MOCK_VIEW] },
                 '/api/environments/:team_id/warehouse_saved_queries/:id/': ({ params }) => {
                     if (params.id === MOCK_VIEW.id) {
-                        return [200, MOCK_VIEW]
+                        return [
+                            200,
+                            { ...MOCK_VIEW, latest_history_id: serverViewHistoryId ?? MOCK_VIEW.latest_history_id },
+                        ]
                     }
                     return [404]
                 },
@@ -788,7 +794,7 @@ describe('sqlEditorLogic', () => {
                 query: { kind: NodeKind.HogQLQuery, query: 'SELECT 2' },
                 types: [],
             })
-            await expectLogic(logic).toDispatchActions(['updateViewSuccess', 'updateTab'])
+            await expectLogic(logic).toDispatchActions(['updateViewSuccess', 'updateTab']).toFinishAllListeners()
             expect(logic.values.editingView?.query?.query).toBe('SELECT 2')
             expect(logic.values.changesToSave).toBe(false)
 
@@ -797,33 +803,33 @@ describe('sqlEditorLogic', () => {
             expect(logic.values.changesToSave).toBe(true)
         })
 
-        it('advances the saved view history id after an update so a re-save is not a false conflict', async () => {
+        it('re-bases the concurrency head to the server head after a successful update', async () => {
+            // The server reports 'server-head' as its current activity-log head.
+            serverViewHistoryId = 'server-head'
             logic = sqlEditorLogic({
                 tabId: TAB_ID,
                 monaco: createMockMonaco(),
                 editor: createMockEditor(),
             })
             logic.mount()
-            // Ensure the view is in the loaded list so the update loader refreshes its map entry.
-            await expectLogic(dataWarehouseViewsLogic).toDispatchActions(['loadDataWarehouseSavedQueriesSuccess'])
 
-            // Open the view with an existing activity-log head.
-            logic.actions.createTab(MOCK_VIEW.query.query, { ...MOCK_VIEW, latest_history_id: 'h1' })
+            // Open the view with an out-of-date head to prove the update re-reads the server's head.
+            logic.actions.createTab(MOCK_VIEW.query.query, { ...MOCK_VIEW, latest_history_id: 'stale-head' })
             await expectLogic(logic).toDispatchActions(['createTab', 'updateTab'])
-            expect(logic.values.editingView?.latest_history_id).toBe('h1')
+            expect(logic.values.editingView?.latest_history_id).toBe('stale-head')
 
             logic.actions.setQueryInput('SELECT 2')
             logic.actions.updateView({
                 id: MOCK_VIEW.id,
                 query: { kind: NodeKind.HogQLQuery, query: 'SELECT 2' },
-                edited_history_id: 'h1',
+                edited_history_id: 'server-head',
                 types: [],
             })
-            await expectLogic(logic).toDispatchActions(['updateView', 'updateViewSuccess', 'updateTab'])
+            await expectLogic(logic).toDispatchActions(['updateView', 'updateViewSuccess']).toFinishAllListeners()
 
-            // The baseline history advances to the server's new head, so the stale 'h1' no longer
-            // trips the "edited by another user" conflict on the next save.
-            expect(logic.values.editingView?.latest_history_id).toBe('updated-history-id')
+            // The baseline history is re-based to the server's current head, so the next save's
+            // edited_history_id matches instead of tripping the "edited by another user" conflict.
+            expect(logic.values.editingView?.latest_history_id).toBe('server-head')
             expect(logic.values.suggestionPayload).toBe(null)
         })
     })
