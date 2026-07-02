@@ -31,6 +31,9 @@ class ReviewBlindSpotsConfigSerializer(serializers.Serializer):
     description = serializers.CharField(
         allow_blank=True, help_text="The blind-spots skill's description, for display in the config UI."
     )
+    body = serializers.CharField(
+        allow_blank=True, help_text="The blind-spots skill's SKILL.md body, for the read-only skill viewer."
+    )
 
 
 class ReviewBlindSpotsConfigSelectSerializer(serializers.Serializer):
@@ -88,7 +91,12 @@ class ReviewBlindSpotsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
             team_id=self.team_id, name__startswith=REVIEW_HOG_BLIND_SPOTS_PREFIX, is_latest=True, deleted=False
         ).order_by("name")
         items = [
-            {"skill_name": s.name, "active": active_by_name.get(s.name, False), "description": s.description}
+            {
+                "skill_name": s.name,
+                "active": active_by_name.get(s.name, False),
+                "description": s.description,
+                "body": s.body,
+            }
             for s in skills
         ]
         return Response(ReviewBlindSpotsConfigSerializer(items, many=True).data)
@@ -142,6 +150,6 @@ class ReviewBlindSpotsConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericView
                 config.save(update_fields=["enabled", "updated_at"])
         return Response(
             ReviewBlindSpotsConfigSerializer(
-                {"skill_name": skill_name, "active": True, "description": skill.description}
+                {"skill_name": skill_name, "active": True, "description": skill.description, "body": skill.body}
             ).data
         )

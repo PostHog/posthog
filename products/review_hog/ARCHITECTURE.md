@@ -176,6 +176,153 @@ read `FINAL_REPORT.md` there first (config glossary + coverage matrix + ranking)
    dupes are rare — chunks are distinct concerns), and dedup as **plain LLM calls** instead of a sandbox
    agent (it compares finding texts + prior comments, no repo access needed) — faster for sure.
 
+### ✅ BUILT 2026-07-02 — Inbox "Code review" tab: onboarding/settings UI + `ReviewUserSettings` backend
+
+The first ReviewHog UI surface (uncommitted): one scrollable onboarding-and-settings page, live from load
+(no save step), per the Claude Design handoff at `playground/reviewhog-ui/design_handoff_reviewhog_onboarding`
+— concept kept, all components swapped for LemonUI. Decisions locked with the user: staff-only tab +
+**Alpha** tag; label trigger **default ON** (opt-out — default-off would have halted the posthog/posthog
+label flow); urgency threshold = pure **priority** filter (not placement); perspectives keep the min-1
+floor and blind-spots/validator are **exactly-one-active with deactivation blocked on BE and FE**.
+
+- **Placement:** new `'code-review'` `InboxTabKey` after `'archived'`, staff-gated via
+  `INBOX_STAFF_ONLY_TAB_KEYS`, tag from the new `INBOX_TAB_TAG` map ("Alpha" vs "Staff"). Body =
+  `CodeReviewTab` (hero → pipeline diagram → trigger toggles → urgency slider → perspectives →
+  blind-spot check → validation criteria → read-only skill drawer). The tab body sits behind the Inbox
+  onboarding takeover like every tab — on a fresh dev project, enable one scout/source to see it.
+- **Where the code lives (and why not `products/review_hog/frontend/`):** `frontend/src/scenes/inbox/`
+  (`components/tabs/CodeReviewTab.tsx`, `logics/reviewHogSettingsLogic.ts`) — the Inbox precedent
+  (signals' whole inbox UI lives there; products contribute only `frontend/generated/`). The
+  products-dir attempt required adding kea deps to `products/review_hog/package.json`, and
+  `pnpm install` hard-failed on `ERR_PNPM_TRUST_DOWNGRADE` for kea's `reselect@5.1.1` (a supply-chain
+  guard — not bypassed).
+- **`ReviewUserSettings`** (migration 0008; one row per team+user, `db_constraint=False` FKs):
+  `review_inbox_prs` (default off, **stored but inert** — the Inbox auto-review trigger doesn't exist),
+  `review_labeled_prs` (default on), `urgency_threshold` (`consider`/`should_fix`/`must_fix`, default
+  `should_fix`, values mirror `IssuePriority`). GET/PATCH singleton at `review_hog/settings` — the
+  action method is `user_settings` because a method named `settings` shadows DRF's `APIView.settings`
+  and breaks the whole view (found by test).
+- **Label gate:** `resolve_acting_user_activity` now returns the acting user's settings snapshot
+  (fixed at resolve time, so mid-run edits can't flip gates between stages). The workflow skips —
+  before any sandbox spend — when `inputs.acting_user_id is None` (cloud label path) and the PR
+  author's `review_labeled_prs` is off; explicit CLI/eval runs stay ungated.
+- **Urgency threshold:** `PUBLISHED_PRIORITIES` is gone → `published_priorities_for(threshold)` in
+  `constants.py` (+ `DEFAULT_URGENCY_THRESHOLD`); the derived set is a required param through
+  `build_review_body` and `publish_persisted_review`/`publish_review`/`_build_inline_comments`, fed
+  from `BuildBodyInput.urgency_threshold` / `PublishInput.urgency_threshold` (dataclass defaults keep
+  in-flight payloads deserializing) on the **workflow** path. "All issues" publishes `consider`
+  findings inline too. The standalone `publish_review` command always uses `DEFAULT_URGENCY_THRESHOLD`
+  (should_fix) — see the adversarial-review follow-up below for why it doesn't take a per-user
+  threshold.
+- **Skill lists feed the drawer:** the three config list endpoints (+ PATCH responses) now include the
+  skill `body`; "Edit skill ↗" links to `/skills/review-hog`.
+- **"Create your own …":** task kickoff mirroring Inbox "Make a scout" (`api.tasks.create` →
+  `urls.taskDetail`), origin `USER_CREATED`, with inline authoring prompts that carry the naming
+  contract (`review-hog-{perspective,blind-spots,validation}-<slug>`, category `review_hog`, then
+  enable/select in this tab). No ReviewHog authoring MCP skill yet — the prompt self-describes.
+- **Verified:** 321 review_hog tests (`backend/tests` + `backend/reviewer/tests`, the product's actual
+  `backend:test` scope) + ruff + tach; jest inbox suite; oxlint/tsgo clean on the touched files
+  (repo-wide `pnpm format` is a footgun: its `--fix-dangerously` pass mangled 5 unrelated files —
+  reverted; lint targeted paths instead). Live smoke on dev: tab renders with real synced skills,
+  drawer shows the canonical SKILL.md body, threshold click PATCHes and persists (`must_fix` verified in
+  DB, then reset), blind-spot deactivation blocked with the toast. New workflow tests cover the opt-out
+  skip, the CLI-override bypass, and threshold threading into body+publish.
+- **Still deferred:** reset-to-canonical (needs the force-re-pull helper in `lazy_seed`); the
+  "Review all your Inbox PRs" behavior (toggle stores, nothing consumes); non-staff rollout.
+
+#### ✅ Follow-up 2026-07-02 — adversarial review (partial) caught a real regression; fixed 2, reverted 1 as overengineered
+
+A 5-lens adversarial-review workflow (temporal/version-skew, threshold-plumbing, API/tenancy,
+frontend-logic, test-adequacy — each finding cross-checked by 3 independent verifiers) was launched
+against the change above. **It was aborted mid-run** when the session branched — only the
+"threshold" dimension's findings finished full verification; **temporal, API, frontend, and tests
+dimensions never completed** (one finder hadn't even returned; three others' findings were never
+verified). Treat this feature as reviewed only on the threshold-plumbing axis, not the other four.
+
+Two confirmed findings, handled differently:
+
+1. **Real regression, fixed.** Making `published_priorities` a required param on `build_review_body` /
+   `publish_review` / `_build_inline_comments` broke 17 tests in
+   `backend/reviewer/tests/{test_prepare_validation_markdown,test_publish_review}.py` (`TypeError:
+missing required argument`) — those call sites were never updated. Caught only because the
+   adversarial reviewer ran the product's real `backend:test` script (`backend/tests` **+**
+   `backend/reviewer/tests`); my own verification during the build had only run `backend/tests`,
+   silently skipping the second directory the whole session. Fixed: all 8 call sites now pass a
+   `_DEFAULT_PUBLISHED = published_priorities_for(IssuePriority.SHOULD_FIX)` test constant (matching
+   prior implicit behavior), plus two comments that assumed the old "consider never publishes"
+   absolute rule reworded to "below the default threshold." **Lesson: verify against a product's
+   `package.json` `backend:test` script, not a hand-picked test path** — `backend/reviewer/tests/` is
+   easy to forget since `backend/tests/` alone still "looks" green.
+2. **Real but low-severity, first over-fixed then right-sized.** The standalone `publish_review`
+   command rebuilt inline comments/the publish gate from a threshold derived at publish time
+   (`--user-id`'s _current_ settings, or the default), while the frozen `report_markdown` body had
+   been rendered at run time with whatever threshold the acting user had _then_ — the two can diverge
+   if settings change between a run and a later manual publish, posting a body and comments that
+   silently disagree. First fix: persisted the build-time threshold on `ReviewReport`
+   (`built_urgency_threshold`, migration 0009) and had the command read it back. **Reverted per the
+   user's call — a schema migration is disproportionate for a manual, local-only ops tool.**
+   Right-sized fix instead: dropped the `--user-id` flag entirely (the flag was the source of the
+   drift, added earlier in this same session) and made the command always publish at
+   `DEFAULT_URGENCY_THRESHOLD` — deterministic, no per-run tracking, small residual accepted (a run
+   built at a non-default threshold and republished manually still gates on the default going
+   forward; acceptable for a dev-only tool, unlike the production workflow path which snapshots one
+   threshold to both `BuildBodyInput` and `PublishInput` and has no such gap).
+
+All 321 tests green after both changes. `makemigrations --check` confirms zero model/migration drift
+(migration 0009 was generated, applied, unapplied, and deleted in the same session — nothing landed).
+
+#### ✅ Follow-up 2026-07-02 — full 10-agent adversarial review (qa-team); all five axes now covered
+
+The aborted partial review above was rerun in full: 8 specialists (security, database, reliability,
+performance, frontend, compatibility, data-integrity, copy) + 2 independent generalists over the whole
+staged diff. Full report with convergence analysis in repo-root `QAREPORT.md`. Fixed this session:
+
+- **Environments 500 (real bug, database agent).** `settings.py::_get_or_create` mixed a canonicalized
+  `for_team` filter with a raw-URL-id create kwarg — on a child (environment) team the get never
+  matches, the row lands on the parent (`RootTeamMixin.save` rewrite), and every call after the first
+  500s on the unique constraint. Fixed by resolving `resolve_effective_team_id` once and using it for
+  both; regression test creates a child team and reads twice. **The three sibling config viewsets share
+  the latent pattern in their upserts (pre-existing) — follow-up, ideally together with a decision on
+  how `LLMSkill` (env-scoped lookups) and `ReviewSkillConfig` (root-scoped) should interact under
+  environments.**
+- **Slider PATCH flood (5 agents converged).** `LemonSlider.onChange` fires per mousemove; it was wired
+  straight to the `updateSettings` loader → dozens of PATCHes per drag plus out-of-order responses
+  overwriting newer state. Fixed: dispatch only on a stop change, and a trailing `breakpoint()` in the
+  loader drops stale responses (take-latest). Trigger switches got `settingsLoading` disabled-guards
+  (double-submission rule); slider/stop-buttons stay drag-friendly by design.
+- **Enum lockstep (4 agents).** `UrgencyThreshold` ↔ `IssuePriority` mirrored by comment only; drift
+  fails at `IssuePriority(...)` in build/publish — after all sandbox spend — or silently unpublishes a
+  priority class (a member missing from `_PRIORITY_RANK` drops out of every set). Locked with two
+  cheap tests in `test_constants.py` (value-set equality; `consider` set == every `IssuePriority`).
+- **Load-failure dead-end (5 agents).** A failed initial load left permanent skeletons + an untrue
+  "Loading…" with no retry. Added `loadAll` (mount + retry) and an error `LemonBanner` with Retry.
+- **`text-2xs` doesn't exist** (frontend agent; the token is `text-xxs`) — pipeline fine print and
+  slider hints rendered at inherited size. Fixed (3 spots).
+- **Papercuts:** DRF bare-string 400s now surface in toasts (`error?.data?.[0]` fallback — `ApiError.detail`
+  is null for list bodies); dropped the duplicate generic toast in `updateSettingsFailure` (global
+  loaders toast already carries the detail); drawer no longer blanks mid-close (open flag separate from
+  content); switch `aria-label`s + stop-button `aria-pressed`/load-guard; copy fixes (coming-soon leads
+  the inert-toggle blurb, "One validator always runs" grammar, per-user-toggles vs team-wide-skill-edit
+  disclosure, de-jargoned slider/pipeline lines); workflow gate comment now warns the next trigger must
+  add a source input instead of reusing `acting_user_id is None`.
+- **Right-sized on user review:** a serializer `update(update_fields=…)` override (concurrent-PATCH
+  lost-update guard) and dropping `required=False` (typed-required GET responses) were built, then
+  reverted as overengineering for a 3-field self-scoped row — the narrow lost-update window and
+  all-optional response types are accepted.
+
+Reviewed and deliberately not fixed (see QAREPORT.md): skill `body` on INTERNAL config endpoints
+bypasses `llm_analytics` RBAC (LOW — same-team only; route through the skills API or add the resource
+check before non-staff rollout); endpoints not staff-gated (intentional, self-scoped — docstring says
+so now); `workflow.patched()` for the gate's deploy-window nondeterminism edge (vanishingly rare for a
+staff alpha); unpaginated list responses carrying every skill body (fine at ~5 skills, serve on demand
+before GA); single-active double-click can transiently leave two rows enabled cross-tab (alphabetical
+loader pick is the backstop); redundant standalone `team_id` index (sibling-consistent); Title-Case
+enum labels leaking into generated docs; the opt-out skips review compute but not PR-snapshot ingestion.
+
+Verified after fixes: 324 backend tests (both dirs), 31 inbox jest tests, ruff + targeted oxlint/oxfmt,
+tsgo clean on touched files (whole-app tsgo fails on unrelated stale-typegen in other products),
+`hogli build:openapi` round-trips with zero generated drift.
+
 ### ✅ Stage 1 — mergeability + docs (current)
 
 - **Merged `origin/master`** (6 conflicts, all in shared infra — resolved, staged, **not committed**):
@@ -1862,9 +2009,10 @@ overwrite the edited row with disk canonical as a new version, re-stamping `cano
 2026-07-02; the helper's main consumer is the future UI button anyway). Deferred until the ReviewHog skills
 **UI** lands.
 
-**⏭ DEFERRED — a ReviewHog skills UI.** No ReviewHog scene exists yet (scouts surface their logic in the new
-Signals inbox); editing + reset are API/MCP-only for now. Building the "see + edit + reset my review skills"
-surface is its own step, and is what "reset to canonical" rides in with.
+**✅ 2026-07-02 — the ReviewHog UI landed** as the Inbox "Code review" tab (see the dated BUILT section near
+the top): enable/select skills per user, view bodies read-only, trigger + threshold settings; editing still
+happens in the Skills editor (`/skills/review-hog`, linked from every card). **Reset to canonical remains
+deferred** — it still needs the `lazy_seed` force-re-pull helper plus a button on that tab.
 
 ##### ✅ BUILT 2026-06-29 — per-user perspective ENABLEMENT (users can author + run custom perspectives)
 

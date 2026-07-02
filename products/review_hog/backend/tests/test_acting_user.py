@@ -3,6 +3,7 @@ from posthog.test.base import BaseTest
 from parameterized import parameterized
 from social_django.models import UserSocialAuth
 
+from products.review_hog.backend.models import ReviewUserSettings
 from products.review_hog.backend.temporal.activities import _resolve_acting_user
 
 _SELF = "SELF"
@@ -27,4 +28,24 @@ class TestResolveActingUser(BaseTest):
     )
     def test_resolve_acting_user(self, _name: str, author: str, override: int | None, expected: object) -> None:
         result = _resolve_acting_user(self.team.id, author, override)
-        assert result == (self.user.id if expected == _SELF else expected)
+        assert result.acting_user_id == (self.user.id if expected == _SELF else expected)
+
+    def test_settings_default_when_user_has_no_row(self) -> None:
+        # No settings row → the resolve result carries the defaults (labeled reviews on, should_fix),
+        # so the gate and publish behave as before this feature for users who never opened the UI.
+        result = _resolve_acting_user(self.team.id, "octocat", None)
+        assert result.review_labeled_prs is True
+        assert result.urgency_threshold == "should_fix"
+
+    def test_settings_row_flows_into_the_result(self) -> None:
+        # The author's saved opt-out + threshold must reach the workflow — if resolve stops loading
+        # them, the label gate and publish silently revert to defaults.
+        ReviewUserSettings.objects.for_team(self.team.id).create(
+            team_id=self.team.id,
+            user_id=self.user.id,
+            review_labeled_prs=False,
+            urgency_threshold=ReviewUserSettings.UrgencyThreshold.MUST_FIX,
+        )
+        result = _resolve_acting_user(self.team.id, "octocat", None)
+        assert result.review_labeled_prs is False
+        assert result.urgency_threshold == "must_fix"

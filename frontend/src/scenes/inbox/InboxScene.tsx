@@ -21,6 +21,7 @@ import { AgentSetupColumn } from './components/shell/AgentSetupColumn'
 import { InboxScopeSelect } from './components/shell/InboxScopeSelect'
 import { InboxTabBar } from './components/shell/InboxTabBar'
 import { ArchivedTab } from './components/tabs/ArchivedTab'
+import { CodeReviewTab } from './components/tabs/CodeReviewTab'
 import { NotActionableTab } from './components/tabs/NotActionableTab'
 import { PullRequestsTab } from './components/tabs/PullRequestsTab'
 import { ReportsTab } from './components/tabs/ReportsTab'
@@ -54,6 +55,8 @@ function ActiveTabBody({ tab, runsReports }: { tab: InboxTabKey; runsReports: Si
             return <ArchivedTab />
         case 'runs':
             return <RunsTab reports={runsReports} />
+        case 'code-review':
+            return <CodeReviewTab />
         case 'config':
             return <AgentSetupColumn layout="stacked" />
     }

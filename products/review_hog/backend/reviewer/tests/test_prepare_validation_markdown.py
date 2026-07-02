@@ -1,10 +1,15 @@
 import pytest
 
+from products.review_hog.backend.reviewer.constants import published_priorities_for
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRFileUpdate
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
 from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, LineRange
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList, FileInfo
 from products.review_hog.backend.reviewer.tools.prepare_validation_markdown import build_review_body
+
+# The default (should_fix) threshold — matches the pre-threshold PUBLISHED_PRIORITIES behavior these
+# tests were written against.
+_DEFAULT_PUBLISHED = published_priorities_for(IssuePriority.SHOULD_FIX)
 
 
 def _issue(issue_id: str, priority: IssuePriority = IssuePriority.MUST_FIX) -> Issue:
@@ -46,7 +51,13 @@ def test_only_validated_issues_count_and_chunk_appears() -> None:
         "1-1-2": IssueValidation(is_valid=False, argumentation="not a bug", category="code_quality"),
     }
 
-    body = build_review_body(chunks_data=chunks_data, issues=issues, validations=validations, pr_files=_pr_files())
+    body = build_review_body(
+        chunks_data=chunks_data,
+        issues=issues,
+        validations=validations,
+        pr_files=_pr_files(),
+        published_priorities=_DEFAULT_PUBLISHED,
+    )
 
     assert "# ReviewHog Report" in body
     assert "## Business logic" in body  # chunk_type humanized into the header
@@ -60,7 +71,13 @@ def test_chunk_with_no_valid_issue_is_skipped() -> None:
     issues = [_issue("1-1-1")]
     validations = {"1-1-1": IssueValidation(is_valid=True, argumentation="real", category="bug")}
 
-    body = build_review_body(chunks_data=chunks_data, issues=issues, validations=validations, pr_files=_pr_files())
+    body = build_review_body(
+        chunks_data=chunks_data,
+        issues=issues,
+        validations=validations,
+        pr_files=_pr_files(),
+        published_priorities=_DEFAULT_PUBLISHED,
+    )
 
     assert "## Bugfix" in body
     assert "## Frontend" not in body
@@ -71,7 +88,7 @@ def test_chunk_with_no_valid_issue_is_skipped() -> None:
     [
         (IssuePriority.SHOULD_FIX, None, True, 240, True),  # valid should_fix off-diff → surfaced, not dropped
         (IssuePriority.MUST_FIX, None, True, 240, True),  # valid must_fix off-diff → surfaced
-        (IssuePriority.CONSIDER, None, True, 240, False),  # consider stays DB-only, never in the body
+        (IssuePriority.CONSIDER, None, True, 240, False),  # below the default should_fix threshold → not surfaced
         (IssuePriority.SHOULD_FIX, None, False, 240, False),  # invalid → not surfaced
         (IssuePriority.SHOULD_FIX, None, True, 1, False),  # on-diff → goes inline, not the body section
         (IssuePriority.CONSIDER, IssuePriority.SHOULD_FIX, True, 240, True),  # validator upgrade surfaces it
@@ -106,7 +123,13 @@ def test_other_findings_section_membership(
         )
     }
 
-    body = build_review_body(chunks_data=chunks_data, issues=[issue], validations=validations, pr_files=_pr_files())
+    body = build_review_body(
+        chunks_data=chunks_data,
+        issues=[issue],
+        validations=validations,
+        pr_files=_pr_files(),
+        published_priorities=_DEFAULT_PUBLISHED,
+    )
 
     assert ("Membership marker finding" in body) is expected_in_section
 
@@ -130,7 +153,13 @@ def test_chunk_count_reflects_effective_priority(
         "1-1-1": IssueValidation(is_valid=True, argumentation="reason", category="bug", adjusted_priority=adjusted)
     }
 
-    body = build_review_body(chunks_data=chunks_data, issues=[issue], validations=validations, pr_files=_pr_files())
+    body = build_review_body(
+        chunks_data=chunks_data,
+        issues=[issue],
+        validations=validations,
+        pr_files=_pr_files(),
+        published_priorities=_DEFAULT_PUBLISHED,
+    )
 
     if expected_count_line is None:
         assert "**Issues:**" not in body

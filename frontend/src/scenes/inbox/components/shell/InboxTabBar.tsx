@@ -12,6 +12,7 @@ import {
     INBOX_STAFF_ONLY_TAB_KEYS,
     INBOX_TAB_KEYS,
     INBOX_TAB_LABEL,
+    INBOX_TAB_TAG,
     InboxFlatListTabKey,
     InboxTabKey,
 } from '../../types'
@@ -75,9 +76,9 @@ export function InboxTabBar({
             <span className="flex items-center gap-1.5">
                 <span>{INBOX_TAB_LABEL[key]}</span>
                 {isFlatListTabKey(key) && <FlatTabCount tabKey={key} />}
-                {isStaffOnlyTabKey(key) && (
-                    <LemonTag type="completion" size="small">
-                        Staff
+                {INBOX_TAB_TAG[key] && (
+                    <LemonTag type={INBOX_TAB_TAG[key] === 'Alpha' ? 'warning' : 'completion'} size="small">
+                        {INBOX_TAB_TAG[key]}
                     </LemonTag>
                 )}
             </span>

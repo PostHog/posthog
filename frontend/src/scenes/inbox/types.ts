@@ -112,9 +112,17 @@ export enum SignalSourceConfigStatus {
 
 // ── Inbox 2.0 IA: tabs + scope ──────────────────────────────────────────────
 
-export type InboxTabKey = 'pulls' | 'reports' | 'not-actionable' | 'runs' | 'archived' | 'config'
+export type InboxTabKey = 'pulls' | 'reports' | 'not-actionable' | 'runs' | 'archived' | 'code-review' | 'config'
 
-export const INBOX_TAB_KEYS: InboxTabKey[] = ['pulls', 'reports', 'not-actionable', 'runs', 'archived', 'config']
+export const INBOX_TAB_KEYS: InboxTabKey[] = [
+    'pulls',
+    'reports',
+    'not-actionable',
+    'runs',
+    'archived',
+    'code-review',
+    'config',
+]
 
 export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
     pulls: 'Pull requests',
@@ -122,6 +130,7 @@ export const INBOX_TAB_LABEL: Record<InboxTabKey, string> = {
     'not-actionable': 'Not actionable',
     runs: 'Runs',
     archived: 'Archive',
+    'code-review': 'Code review',
     config: 'Configuration',
 }
 
@@ -137,9 +146,16 @@ export const INBOX_REPORT_TAB_KEYS: InboxTabKey[] = ['pulls', 'reports', 'not-ac
 
 /**
  * Tabs only visible to staff users (internal). Non-staff see Pull requests + Reports.
- * Not-actionable reports and the project-wide Runs debug view are internal.
+ * Not-actionable reports, the project-wide Runs debug view, and the ReviewHog alpha are internal.
  */
-export const INBOX_STAFF_ONLY_TAB_KEYS: InboxTabKey[] = ['not-actionable', 'runs']
+export const INBOX_STAFF_ONLY_TAB_KEYS: InboxTabKey[] = ['not-actionable', 'runs', 'code-review']
+
+/** Small tag rendered next to a tab's label in the tab bar. */
+export const INBOX_TAB_TAG: Partial<Record<InboxTabKey, 'Staff' | 'Alpha'>> = {
+    'not-actionable': 'Staff',
+    runs: 'Staff',
+    'code-review': 'Alpha',
+}
 
 /** The flat report-list tabs that share the keyed reportListLogic + InboxReportList primitive. */
 export const INBOX_FLAT_LIST_TAB_KEYS = ['pulls', 'reports', 'not-actionable', 'archived'] as const

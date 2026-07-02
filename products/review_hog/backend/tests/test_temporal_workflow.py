@@ -17,6 +17,7 @@ from temporalio.worker import Worker
 
 from products.review_hog.backend.reviewer.constants import BLIND_SPOT_PASS_NUMBER
 from products.review_hog.backend.temporal.activities import (
+    BuildBodyInput,
     DedupResult,
     LoadBlindSpotsInput,
     LoadedBlindSpotsSkillDTO,
@@ -53,17 +54,25 @@ def _stage_kwargs() -> dict:
 
 
 async def _run_full_review_pr_workflow(
-    *, publish: bool, already_published: bool = False, acting_user_id: int | None = 3
+    *,
+    publish: bool,
+    already_published: bool = False,
+    acting_user_id: int | None = 3,
+    review_labeled_prs: bool = True,
+    input_acting_user_id: int | None = None,
 ) -> dict:
     # Runs the real ReviewPRWorkflow with activity stand-ins, recording what fanned out + published.
     # already_published drives the early-exit gate; acting_user_id None means the author isn't a
-    # PostHog user, so the workflow skips the review.
+    # PostHog user, so the workflow skips the review. review_labeled_prs is the author's label
+    # opt-out; input_acting_user_id is the CLI override on the workflow input (the ungated path).
     split_calls: list[int] = []
     # Each review unit as (pass_number, chunk_id, blind_spot_check, skill_name, wave lens names) — the
     # blind-spot fields let the fan-out test pin the second round's routing contract.
     review_calls: list[tuple[int, int, bool, str, tuple[str, ...]]] = []
     validate_calls: list[int] = []
     publish_calls: list[int] = []
+    # The urgency threshold each downstream consumer received (must be the resolve snapshot's value).
+    threshold_calls: list[tuple[str, str]] = []
     # The user id the parent threads into the perspective / blind-spots / validation loads (should be
     # the RESOLVED value, not the None workflow input) — guards each per-user selection seam.
     load_user_ids: list[int | None] = []
@@ -88,7 +97,10 @@ async def _run_full_review_pr_workflow(
 
     @activity.defn(name="resolve_acting_user_activity")
     async def resolve_acting_user(input) -> ResolveActingUserResult:
-        return ResolveActingUserResult(acting_user_id=acting_user_id)
+        # A non-default threshold, so the threading asserts can't pass on the dataclass defaults.
+        return ResolveActingUserResult(
+            acting_user_id=acting_user_id, review_labeled_prs=review_labeled_prs, urgency_threshold="must_fix"
+        )
 
     @activity.defn(name="sync_review_skills_activity")
     async def sync_skills(input) -> None:
@@ -150,12 +162,14 @@ async def _run_full_review_pr_workflow(
         return ValidateChunkResult(chunk_id=input.chunk_id, validated_count=len(input.issues_json))
 
     @activity.defn(name="build_body_activity")
-    async def build_body(input) -> None:
+    async def build_body(input: BuildBodyInput) -> None:
+        threshold_calls.append(("body", input.urgency_threshold))
         return None
 
     @activity.defn(name="publish_review_activity")
     async def publish_act(input: PublishInput) -> None:
         publish_calls.append(input.pr_number)
+        threshold_calls.append(("publish", input.urgency_threshold))
         return None
 
     task_queue = str(uuid.uuid4())
@@ -190,7 +204,14 @@ async def _run_full_review_pr_workflow(
             result = await env.client.execute_workflow(
                 ReviewPRWorkflow.run,
                 ReviewPRWorkflowInputs(
-                    team_id=1, user_id=2, pr_url="u", owner="o", repo="r", pr_number=7, publish=publish
+                    team_id=1,
+                    user_id=2,
+                    pr_url="u",
+                    owner="o",
+                    repo="r",
+                    pr_number=7,
+                    publish=publish,
+                    acting_user_id=input_acting_user_id,
                 ),
                 id=str(uuid.uuid4()),
                 task_queue=task_queue,
@@ -203,6 +224,7 @@ async def _run_full_review_pr_workflow(
         "validate": validate_calls,
         "publish": publish_calls,
         "load_user_ids": load_user_ids,
+        "thresholds": threshold_calls,
     }
 
 
@@ -233,6 +255,9 @@ async def test_review_pr_workflow_runs_all_stages_and_fans_out():
 async def test_review_pr_workflow_publishes_only_when_publish_true():
     recorded = await _run_full_review_pr_workflow(publish=True)
     assert recorded["publish"] == [7]  # publish=True → posts the review back to the PR
+    # The acting user's threshold snapshot (not the dataclass default) reaches both consumers, so
+    # body counts and posted comments gate on the same set.
+    assert recorded["thresholds"] == [("body", "must_fix"), ("publish", "must_fix")]
 
 
 @pytest.mark.asyncio
@@ -257,6 +282,26 @@ async def test_review_pr_workflow_skips_when_author_maps_to_no_user():
     assert recorded["review"] == []
     assert recorded["validate"] == []
     assert recorded["publish"] == []
+
+
+@pytest.mark.asyncio
+async def test_review_pr_workflow_skips_when_author_opted_out_of_label_reviews():
+    # The label trigger's per-author opt-out: an author who turned labeled-PR reviews off gets no
+    # review and no publish — before any sandbox spend, like the unmapped-author gate.
+    recorded = await _run_full_review_pr_workflow(publish=True, review_labeled_prs=False)
+    assert recorded["result"] == "rep-1"
+    assert recorded["split"] == []
+    assert recorded["review"] == []
+    assert recorded["publish"] == []
+
+
+@pytest.mark.asyncio
+async def test_review_pr_workflow_cli_override_ignores_label_opt_out():
+    # An explicit CLI/eval invocation (acting-user override on the input) must run even when that
+    # user opted out of the label trigger — the opt-out gates only the cloud path.
+    recorded = await _run_full_review_pr_workflow(publish=False, review_labeled_prs=False, input_acting_user_id=3)
+    assert recorded["split"] == [1]
+    assert len(recorded["review"]) > 0
 
 
 async def _run_validate_workflow(*, issues_json: list[str], validate_chunk) -> tuple[int, list]:

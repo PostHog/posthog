@@ -4,6 +4,7 @@ from github import GithubException
 from parameterized import parameterized
 
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
+from products.review_hog.backend.reviewer.constants import published_priorities_for
 from products.review_hog.backend.reviewer.models.issues_review import IssuePriority, LineRange
 from products.review_hog.backend.reviewer.tools.publish_review import (
     _build_inline_comments,
@@ -15,6 +16,10 @@ _GITHUB = "products.review_hog.backend.reviewer.tools.publish_review.Github"
 _REPORT = "products.review_hog.backend.reviewer.tools.publish_review.ReviewReport"
 _LOAD_FINDINGS = "products.review_hog.backend.reviewer.tools.publish_review.load_valid_findings"
 _POST = "products.review_hog.backend.reviewer.tools.publish_review._post_github_review"
+
+# The default (should_fix) threshold — matches the pre-threshold PUBLISHED_PRIORITIES behavior these
+# tests were written against.
+_DEFAULT_PUBLISHED = published_priorities_for(IssuePriority.SHOULD_FIX)
 
 
 class TestPostGithubReview:
@@ -144,6 +149,7 @@ class TestPublishReviewGate:
             token="t",
             head_sha="sha",
             post_promo=False,
+            published_priorities=_DEFAULT_PUBLISHED,
         )
 
         assert posted is True
@@ -156,8 +162,8 @@ class TestPublishReviewGate:
     def test_skips_when_only_consider_findings(
         self, mock_report_cls: MagicMock, mock_load: MagicMock, mock_post: MagicMock
     ) -> None:
-        # consider stays DB-only: a run whose only valid finding is `consider` has nothing publishable,
-        # so it posts nothing (guards the off-diff fix against accidentally surfacing considers).
+        # Below the default should_fix threshold: a run whose only valid finding is `consider` has
+        # nothing publishable, so it posts nothing (guards the off-diff fix against over-surfacing).
         self._wire_report(mock_report_cls)
         mock_load.return_value = [(_finding(priority=IssuePriority.CONSIDER), _verdict())]
 
@@ -172,6 +178,7 @@ class TestPublishReviewGate:
             token="t",
             head_sha="sha",
             post_promo=False,
+            published_priorities=_DEFAULT_PUBLISHED,
         )
 
         assert posted is False
@@ -212,6 +219,7 @@ class TestPublishReviewGate:
             token="t",
             head_sha="sha",
             post_promo=False,
+            published_priorities=_DEFAULT_PUBLISHED,
         )
 
         assert posted is expected_posted
@@ -230,7 +238,9 @@ class TestPublishReviewGate:
         self, _name: str, base: IssuePriority, adjusted: IssuePriority, expected_count: int
     ) -> None:
         diff_lines = {"src/auth.py": {240}}
-        comments = _build_inline_comments([(_finding(priority=base), _verdict(adjusted_priority=adjusted))], diff_lines)
+        comments = _build_inline_comments(
+            [(_finding(priority=base), _verdict(adjusted_priority=adjusted))], diff_lines, _DEFAULT_PUBLISHED
+        )
 
         assert len(comments) == expected_count
         if expected_count:

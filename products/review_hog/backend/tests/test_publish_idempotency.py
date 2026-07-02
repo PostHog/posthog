@@ -93,7 +93,7 @@ class TestPublishIdempotency(BaseTest):
     def test_first_publish_posts_promo_and_records_watermark(self, _token, _snapshot, mock_publish) -> None:
         mock_publish.return_value = True
         report_id = self._report()
-        _publish(self.team.id, report_id, "sha1", 1, "PostHog", "posthog", 1)
+        _publish(self.team.id, report_id, "sha1", 1, "PostHog", "posthog", 1, "should_fix")
         assert mock_publish.call_count == 1
         assert mock_publish.call_args.kwargs["post_promo"] is True
         assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).published_head_sha == "sha1"
@@ -103,7 +103,7 @@ class TestPublishIdempotency(BaseTest):
     @patch(_TOKEN, return_value="tok")
     def test_republish_same_head_is_skipped(self, _token, _snapshot, mock_publish) -> None:
         report_id = self._report(published_head_sha="sha1")
-        _publish(self.team.id, report_id, "sha1", 1, "PostHog", "posthog", 1)
+        _publish(self.team.id, report_id, "sha1", 1, "PostHog", "posthog", 1, "should_fix")
         mock_publish.assert_not_called()
 
     @patch(_PUBLISH)
@@ -112,7 +112,7 @@ class TestPublishIdempotency(BaseTest):
     def test_new_head_publishes_without_promo(self, _token, _snapshot, mock_publish) -> None:
         mock_publish.return_value = True
         report_id = self._report(published_head_sha="oldsha")
-        _publish(self.team.id, report_id, "sha2", 1, "PostHog", "posthog", 1)
+        _publish(self.team.id, report_id, "sha2", 1, "PostHog", "posthog", 1, "should_fix")
         assert mock_publish.call_count == 1
         assert mock_publish.call_args.kwargs["post_promo"] is False
         assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).published_head_sha == "sha2"
@@ -125,6 +125,6 @@ class TestPublishIdempotency(BaseTest):
         # later turn with a valid finding can still publish at the same head.
         mock_publish.return_value = False
         report_id = self._report()
-        _publish(self.team.id, report_id, "sha1", 1, "PostHog", "posthog", 1)
+        _publish(self.team.id, report_id, "sha1", 1, "PostHog", "posthog", 1, "should_fix")
         assert mock_publish.call_count == 1
         assert ReviewReport.objects.for_team(self.team.id).get(id=report_id).published_head_sha is None

@@ -213,3 +213,46 @@ class ReviewSkillConfig(UUIDModel, TeamScopedRootMixin):
             # The loaders seek WHERE team=? AND user=? AND enabled=true to resolve a run's skills.
             models.Index(fields=["team", "user", "enabled"], name="reviewhog_skillcfg_lookup_idx"),
         ]
+
+
+class ReviewUserSettings(UUIDModel, TeamScopedRootMixin):
+    """Per-(team, user) ReviewHog settings: what gets reviewed and how strict publishing is.
+
+    One row per user per project, created with defaults on first read. `review_labeled_prs` is the
+    label trigger's opt-out — the workflow gates on the PR author's row (no row = the defaults).
+    `urgency_threshold` is the minimum priority a validated finding needs to be published; it snaps
+    to a run at acting-user resolution, so mid-run edits don't flip gates between body and publish.
+    `review_inbox_prs` is stored but not consumed yet (the Inbox auto-review trigger doesn't exist).
+    """
+
+    class UrgencyThreshold(models.TextChoices):
+        # Values mirror `IssuePriority` so the threshold compares directly against finding priorities.
+        CONSIDER = "consider"  # "All issues"
+        SHOULD_FIX = "should_fix"
+        MUST_FIX = "must_fix"
+
+    # FKs to the hot posthog_team / posthog_user tables use db_constraint=False so creating this
+    # table takes no lock on the parents (app-level enforcement only).
+    team = models.ForeignKey("posthog.Team", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    user = models.ForeignKey("posthog.User", on_delete=models.CASCADE, related_name="+", db_constraint=False)
+    review_inbox_prs = models.BooleanField(default=False, db_default=False)
+    review_labeled_prs = models.BooleanField(default=True, db_default=True)
+    urgency_threshold = models.CharField(
+        max_length=20,
+        choices=UrgencyThreshold.choices,
+        default=UrgencyThreshold.SHOULD_FIX,
+        db_default=UrgencyThreshold.SHOULD_FIX.value,
+    )
+    created_at = models.DateTimeField(auto_now_add=True)
+    updated_at = models.DateTimeField(auto_now=True)
+
+    class Meta:
+        constraints = [
+            models.UniqueConstraint(fields=["team", "user"], name="uniq_review_user_settings_per_user"),
+        ]
+
+    @classmethod
+    def load(cls, team_id: int, user_id: int) -> "ReviewUserSettings":
+        """The user's settings row, or an unsaved instance carrying the defaults when none exists."""
+        row = cls.objects.for_team(team_id).filter(user_id=user_id).first()
+        return row if row is not None else cls(team_id=team_id, user_id=user_id)

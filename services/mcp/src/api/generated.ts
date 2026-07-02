@@ -40085,6 +40085,16 @@ export namespace Schemas {
       readonly updated_at?: string;
     }
 
+    export interface PatchedReviewBlindSpotsConfigSelect {
+      /** Set true to make this the single blind-spots skill that runs on the user's PR reviews. Only true is accepted — the blind-spot check is single-active, so you switch by selecting a different skill, not by deactivating the current one. */
+      active?: boolean;
+    }
+
+    export interface PatchedReviewPerspectiveConfigUpdate {
+      /** Set true to run this perspective on the user's PR reviews, false to stop running it. */
+      enabled?: boolean;
+    }
+
     export interface PatchedReviewQueueItemUpdate {
       /** Review queue ID that should own this pending trace. */
       queue_id?: string;
@@ -40096,6 +40106,38 @@ export namespace Schemas {
          * @maxLength 255
          */
       name?: string;
+    }
+
+    /**
+     * * `consider` - Consider
+     * * `should_fix` - Should Fix
+     * * `must_fix` - Must Fix
+     */
+    export type UrgencyThresholdEnum = typeof UrgencyThresholdEnum[keyof typeof UrgencyThresholdEnum];
+
+
+    export const UrgencyThresholdEnum = {
+      Consider: 'consider',
+      ShouldFix: 'should_fix',
+      MustFix: 'must_fix',
+    } as const;
+
+    export interface PatchedReviewUserSettings {
+      /** Automatically review pull requests opened by PostHog agents from the user's Inbox. Stored but not consumed yet — the Inbox auto-review trigger is not built. */
+      review_inbox_prs?: boolean;
+      /** Review the user's pull requests when the trigger label is added on GitHub. On by default; turning it off makes the label trigger skip PRs this user authored. */
+      review_labeled_prs?: boolean;
+      /** Minimum priority a validated finding needs to be published: 'consider' publishes everything, 'should_fix' (default) drops consider-level findings, 'must_fix' publishes only blocking issues.
+       *
+       * * `consider` - Consider
+       * * `should_fix` - Should Fix
+       * * `must_fix` - Must Fix */
+      urgency_threshold?: UrgencyThresholdEnum;
+    }
+
+    export interface PatchedReviewValidatorConfigSelect {
+      /** Set true to make this the single validator that runs on the user's PR reviews. Only true is accepted — validators are single-active, so you switch by selecting a different one, not by deactivating the current one. */
+      active?: boolean;
     }
 
     export type PatchedRoleMembersItem = { [key: string]: unknown };
@@ -47096,6 +47138,28 @@ export namespace Schemas {
 
     export type RetrieveFileDownloadResponse = RetrieveBasicOutput | RetrieveCompletedOutput | RetrieveFailedOutput;
 
+    export interface ReviewBlindSpotsConfig {
+      /** Name of the `review-hog-blind-spots-*` skill this row represents (the sweep's identity). */
+      skill_name: string;
+      /** Whether this blind-spots skill runs the sweep on the requesting user's PR reviews on this project. */
+      active: boolean;
+      /** The blind-spots skill's description, for display in the config UI. */
+      description: string;
+      /** The blind-spots skill's SKILL.md body, for the read-only skill viewer. */
+      body: string;
+    }
+
+    export interface ReviewPerspectiveConfig {
+      /** Name of the `review-hog-perspective-*` skill this row toggles (the perspective's identity). */
+      skill_name: string;
+      /** Whether this perspective runs on the acting user's PR reviews on this project. */
+      enabled: boolean;
+      /** The perspective skill's description, for display in the config UI. */
+      description: string;
+      /** The perspective skill's SKILL.md body, for the read-only skill viewer. */
+      body: string;
+    }
+
     export interface ReviewQueueCreate {
       /**
          * Human-readable queue name.
@@ -47119,6 +47183,30 @@ export namespace Schemas {
       clean: number;
       processing: number;
       stale: number;
+    }
+
+    export interface ReviewUserSettings {
+      /** Automatically review pull requests opened by PostHog agents from the user's Inbox. Stored but not consumed yet — the Inbox auto-review trigger is not built. */
+      review_inbox_prs?: boolean;
+      /** Review the user's pull requests when the trigger label is added on GitHub. On by default; turning it off makes the label trigger skip PRs this user authored. */
+      review_labeled_prs?: boolean;
+      /** Minimum priority a validated finding needs to be published: 'consider' publishes everything, 'should_fix' (default) drops consider-level findings, 'must_fix' publishes only blocking issues.
+       *
+       * * `consider` - Consider
+       * * `should_fix` - Should Fix
+       * * `must_fix` - Must Fix */
+      urgency_threshold?: UrgencyThresholdEnum;
+    }
+
+    export interface ReviewValidatorConfig {
+      /** Name of the `review-hog-validation-*` skill this row represents (the validator's identity). */
+      skill_name: string;
+      /** Whether this validator is the one that validates the requesting user's PR reviews on this project. */
+      active: boolean;
+      /** The validator skill's description, for display in the config UI. */
+      description: string;
+      /** The validator skill's SKILL.md body, for the read-only skill viewer. */
+      body: string;
     }
 
     export interface RevokeOtherSessionsResponse {

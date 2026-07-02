@@ -27,12 +27,13 @@ from posthog.temporal.common.heartbeat import Heartbeater
 from posthog.temporal.common.scoped import scoped_temporal
 from posthog.temporal.common.utils import close_db_connections
 
-from products.review_hog.backend.models import ReviewReport
+from products.review_hog.backend.models import ReviewReport, ReviewUserSettings
 from products.review_hog.backend.reviewer.constants import (
     REVIEW_INITIAL_PERMISSION_MODE,
     REVIEW_MODEL,
     REVIEW_REASONING_EFFORT,
     REVIEW_RUNTIME_ADAPTER,
+    published_priorities_for,
 )
 from products.review_hog.backend.reviewer.lazy_seed import (
     sync_canonical_blind_spots,
@@ -42,7 +43,7 @@ from products.review_hog.backend.reviewer.lazy_seed import (
 from products.review_hog.backend.reviewer.models import generate_all_schemas
 from products.review_hog.backend.reviewer.models.github_meta import PRFile, PRMetadata
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
-from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuesReview
+from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority, IssuesReview
 from products.review_hog.backend.reviewer.models.split_pr_into_chunks import Chunk, ChunksList
 from products.review_hog.backend.reviewer.persistence import (
     finalize_review_report,
@@ -149,6 +150,10 @@ class ResolveActingUserResult:
     # The user whose enabled perspectives drive this review; None when the PR author maps to no PostHog
     # org user — we apply PostHog-stored skills, so the parent then skips the review.
     acting_user_id: int | None
+    # The acting user's `ReviewUserSettings`, snapshotted here so mid-run edits don't flip gates
+    # between stages. Defaults match the model's (and cover payloads serialized before these existed).
+    review_labeled_prs: bool = True
+    urgency_threshold: str = IssuePriority.SHOULD_FIX.value
 
 
 @dataclass
@@ -267,6 +272,9 @@ class BuildBodyInput:
     head_sha: str
     run_index: int
     issues_json: list[str]
+    # The acting user's threshold, snapshotted at resolve time. Defaulted so payloads serialized
+    # before the field existed still deserialize (they keep today's should_fix behavior).
+    urgency_threshold: str = IssuePriority.SHOULD_FIX.value
 
 
 @dataclass
@@ -278,6 +286,8 @@ class PublishInput:
     owner: str
     repo: str
     pr_number: int
+    # Same snapshot as `BuildBodyInput.urgency_threshold`, so body counts and comments agree.
+    urgency_threshold: str = IssuePriority.SHOULD_FIX.value
 
 
 # --- Setup activities ------------------------------------------------------------------------------
@@ -401,29 +411,39 @@ async def fetch_pr_data_activity(input: FetchPRDataInput) -> ReviewMeta:
     return await database_sync_to_async(_fetch_and_persist, thread_sensitive=False)(input)
 
 
-def _resolve_acting_user(team_id: int, author_login: str, override_user_id: int | None) -> int | None:
+def _resolve_acting_user(team_id: int, author_login: str, override_user_id: int | None) -> ResolveActingUserResult:
     if override_user_id is not None:
-        return override_user_id
-    matches = resolve_org_github_login_to_users(team_id, [author_login])
-    user = matches.get(author_login.strip().lower()) if author_login else None
-    return user.id if user is not None else None
+        acting_user_id: int | None = override_user_id
+    else:
+        matches = resolve_org_github_login_to_users(team_id, [author_login])
+        user = matches.get(author_login.strip().lower()) if author_login else None
+        acting_user_id = user.id if user is not None else None
+    if acting_user_id is None:
+        return ResolveActingUserResult(acting_user_id=None)
+    settings = ReviewUserSettings.load(team_id, acting_user_id)
+    return ResolveActingUserResult(
+        acting_user_id=acting_user_id,
+        review_labeled_prs=settings.review_labeled_prs,
+        # str() unwraps the TextChoices member an unsaved defaults instance carries — the payload
+        # must hold the plain value.
+        urgency_threshold=str(settings.urgency_threshold),
+    )
 
 
 @activity.defn
 @scoped_temporal()
 @close_db_connections
 async def resolve_acting_user_activity(input: ResolveActingUserInput) -> ResolveActingUserResult:
-    """Resolve the user whose enabled perspectives drive this review.
+    """Resolve the user whose enabled perspectives drive this review, plus their settings snapshot.
 
     Production: the PR author, mapped GitHub-login → PostHog org user (`resolve_org_github_login_to_users`).
     Returns None when the author isn't a PostHog org user — the parent then skips the review (no
     fallback: we apply the author's PostHog-stored perspectives, so the author must be a PostHog user).
     The CLI/eval passes an explicit `override_user_id` to test a known user's perspectives on any PR.
     """
-    acting_user_id = await database_sync_to_async(_resolve_acting_user, thread_sensitive=False)(
+    return await database_sync_to_async(_resolve_acting_user, thread_sensitive=False)(
         input.team_id, input.author_login, input.override_user_id
     )
-    return ResolveActingUserResult(acting_user_id=acting_user_id)
 
 
 def _sync_review_skills(team_id: int) -> None:
@@ -811,7 +831,9 @@ async def validate_chunk_activity(input: ValidateChunkInput) -> ValidateChunkRes
 # --- Build body + finalize + publish ---------------------------------------------------------------
 
 
-def _build_and_finalize(team_id: int, report_id: str, head_sha: str, run_index: int, issues_json: list[str]) -> None:
+def _build_and_finalize(
+    team_id: int, report_id: str, head_sha: str, run_index: int, issues_json: list[str], urgency_threshold: str
+) -> None:
     issues = [Issue.model_validate_json(j) for j in issues_json]
     # Verdicts come from the DB (the same rows publish reads), so a partially-failed chunk shows the
     # same findings in the body and the posted comments.
@@ -821,7 +843,13 @@ def _build_and_finalize(team_id: int, report_id: str, head_sha: str, run_index: 
     # in an "Other findings" section (the same snapshot publish positions inline comments against).
     snapshot = load_pr_snapshot(team_id=team_id, report_id=report_id, head_sha=head_sha)
     pr_files = snapshot.pr_files if snapshot is not None else []
-    body = build_review_body(chunks_data=chunks_data, issues=issues, validations=validations, pr_files=pr_files)
+    body = build_review_body(
+        chunks_data=chunks_data,
+        issues=issues,
+        validations=validations,
+        pr_files=pr_files,
+        published_priorities=published_priorities_for(IssuePriority(urgency_threshold)),
+    )
     finalize_review_report(team_id=team_id, report_id=report_id, body_markdown=body)
 
 
@@ -831,12 +859,19 @@ def _build_and_finalize(team_id: int, report_id: str, head_sha: str, run_index: 
 async def build_body_activity(input: BuildBodyInput) -> None:
     """Render the review body and finalize the turn (store the body, bump the run watermark)."""
     await database_sync_to_async(_build_and_finalize, thread_sensitive=False)(
-        input.team_id, input.report_id, input.head_sha, input.run_index, input.issues_json
+        input.team_id, input.report_id, input.head_sha, input.run_index, input.issues_json, input.urgency_threshold
     )
 
 
 def _publish(
-    team_id: int, report_id: str, head_sha: str, run_index: int, owner: str, repo: str, pr_number: int
+    team_id: int,
+    report_id: str,
+    head_sha: str,
+    run_index: int,
+    owner: str,
+    repo: str,
+    pr_number: int,
+    urgency_threshold: str,
 ) -> None:
     token = _installation_token(team_id, f"{owner}/{repo}")
     publish_persisted_review(
@@ -848,6 +883,7 @@ def _publish(
         repo=repo,
         pr_number=pr_number,
         token=token,
+        published_priorities=published_priorities_for(IssuePriority(urgency_threshold)),
     )
 
 
@@ -861,5 +897,12 @@ async def publish_review_activity(input: PublishInput) -> None:
     only when publishing is enabled, so reaching here means publish.
     """
     await database_sync_to_async(_publish, thread_sensitive=False)(
-        input.team_id, input.report_id, input.head_sha, input.run_index, input.owner, input.repo, input.pr_number
+        input.team_id,
+        input.report_id,
+        input.head_sha,
+        input.run_index,
+        input.owner,
+        input.repo,
+        input.pr_number,
+        input.urgency_threshold,
     )

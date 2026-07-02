@@ -8,7 +8,7 @@ durable finding/verdict rows), so the body stays a summary.
 
 import logging
 
-from products.review_hog.backend.reviewer.constants import PUBLISHED_PRIORITIES, effective_priority
+from products.review_hog.backend.reviewer.constants import effective_priority
 from products.review_hog.backend.reviewer.diff_position import (
     build_diff_line_map,
     find_diff_position,
@@ -16,7 +16,7 @@ from products.review_hog.backend.reviewer.diff_position import (
 )
 from products.review_hog.backend.reviewer.models.github_meta import PRFile
 from products.review_hog.backend.reviewer.models.issue_validation import IssueValidation
-from products.review_hog.backend.reviewer.models.issues_review import Issue
+from products.review_hog.backend.reviewer.models.issues_review import Issue, IssuePriority
 from products.review_hog.backend.reviewer.models.prepare_validation_markdown import (
     ValidationMarkdownReport,
     ValidationMarkdownReportChunk,
@@ -33,17 +33,20 @@ def build_review_body(
     issues: list[Issue],
     validations: dict[str, IssueValidation],
     pr_files: list[PRFile],
+    published_priorities: set[IssuePriority],
 ) -> str:
     """Render the PR-facing review body from this turn's in-process pipeline objects.
 
     `validations` is keyed by the live issue id (`{pass}-{chunk}-{issue}`); only issues the
     validator ruled valid appear in the report. `pr_files` (this turn's reviewed diff) decides which
     valid findings can't be anchored to an inline comment — those are surfaced in an "Other findings"
-    section instead of being silently dropped at publish.
+    section instead of being silently dropped at publish. `published_priorities` is the acting user's
+    urgency-threshold set (`published_priorities_for`), shared with the publisher so counts and
+    comments agree.
     """
     report = _assemble_report(chunks_data, issues, validations)
-    off_diff = _off_diff_publishable_findings(issues, validations, pr_files)
-    return _render_review_body(report, off_diff)
+    off_diff = _off_diff_publishable_findings(issues, validations, pr_files, published_priorities)
+    return _render_review_body(report, off_diff, published_priorities)
 
 
 def _assemble_report(
@@ -86,8 +89,9 @@ def _off_diff_publishable_findings(
     issues: list[Issue],
     validations: dict[str, IssueValidation],
     pr_files: list[PRFile],
+    published_priorities: set[IssuePriority],
 ) -> list[tuple[Issue, IssueValidation]]:
-    """Valid must/should-fix findings whose line isn't on the diff, so they get no inline comment.
+    """Valid publishable findings whose line isn't on the diff, so they get no inline comment.
 
     GitHub only takes inline comments on changed lines, so a valid finding on a changed file but an
     unchanged line would otherwise vanish at publish. The body surfaces these instead of dropping them.
@@ -98,7 +102,7 @@ def _off_diff_publishable_findings(
         validation = validations.get(issue.id)
         if validation is None or not validation.is_valid:
             continue
-        if effective_priority(issue.priority, validation.adjusted_priority) not in PUBLISHED_PRIORITIES:
+        if effective_priority(issue.priority, validation.adjusted_priority) not in published_priorities:
             continue
         if find_diff_position(issue.file, issue.lines, diff_lines) is not None:
             continue  # has an inline anchor → posted inline, not here
@@ -109,6 +113,7 @@ def _off_diff_publishable_findings(
 def _render_review_body(
     report: ValidationMarkdownReport,
     off_diff_findings: list[tuple[Issue, IssueValidation]],
+    published_priorities: set[IssuePriority],
 ) -> str:
     """Render the top-level review body: the per-chunk overview plus any off-diff findings section."""
     lines = [
@@ -118,7 +123,7 @@ def _render_review_body(
 
     for chunk_report in report.chunks:
         chunk = chunk_report.chunk
-        issue_count = sum(1 for vi in chunk_report.validated_issues if vi.effective_priority in PUBLISHED_PRIORITIES)
+        issue_count = sum(1 for vi in chunk_report.validated_issues if vi.effective_priority in published_priorities)
 
         chunk_type = chunk.chunk_type.replace("_", " ").capitalize() if chunk.chunk_type else "Changes"
         lines.extend([f"## {chunk_type}", ""])

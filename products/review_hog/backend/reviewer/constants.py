@@ -20,9 +20,20 @@ MAX_CONCURRENT_SANDBOXES = 10
 # (a total wipeout — e.g. the sandbox layer down — must not look like a clean PR).
 FAN_OUT_FAILURE_FLOOR = 0.70
 
-# Priorities surfaced in the review body's per-chunk count and published as inline comments
-# (CONSIDER is body-only context). Shared by the body renderer and the publisher so the two never drift.
-PUBLISHED_PRIORITIES = {IssuePriority.MUST_FIX, IssuePriority.SHOULD_FIX}
+# Severity order backing the urgency-threshold comparison.
+_PRIORITY_RANK = {IssuePriority.CONSIDER: 0, IssuePriority.SHOULD_FIX: 1, IssuePriority.MUST_FIX: 2}
+
+# The threshold applied when no per-user setting is available (matches `ReviewUserSettings`' default).
+DEFAULT_URGENCY_THRESHOLD = IssuePriority.SHOULD_FIX
+
+
+def published_priorities_for(threshold: IssuePriority) -> set[IssuePriority]:
+    """Priorities at or above the acting user's urgency threshold — the set that gates publishing.
+
+    Shared by the body renderer and the publisher so the two never drift. A pure priority filter:
+    findings below the threshold are dropped everywhere; placement (inline vs body) is unchanged.
+    """
+    return {priority for priority, rank in _PRIORITY_RANK.items() if rank >= _PRIORITY_RANK[threshold]}
 
 
 def effective_priority(base: IssuePriority, adjusted: IssuePriority | None) -> IssuePriority:

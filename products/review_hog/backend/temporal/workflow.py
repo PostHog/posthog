@@ -342,6 +342,15 @@ class ReviewPRWorkflow:
                 "skipping review (no perspectives to apply)"
             )
             return report_id
+        # The label trigger's per-author opt-out. Only the cloud path (no explicit acting-user
+        # override) is gated — an explicit CLI/eval invocation always runs. A second cloud trigger
+        # (e.g. Inbox PRs) needs its own trigger-source input, not this gate.
+        if inputs.acting_user_id is None and not acting.review_labeled_prs:
+            workflow.logger.info(
+                f"PR author '{meta.author_login}' (user {acting.acting_user_id}) has labeled-PR reviews "
+                "turned off; skipping review"
+            )
+            return report_id
         acting_user_id = acting.acting_user_id
 
         await workflow.execute_activity(
@@ -450,6 +459,7 @@ class ReviewPRWorkflow:
                 head_sha=head_sha,
                 run_index=stage.run_index,
                 issues_json=dedup.issues_json,
+                urgency_threshold=acting.urgency_threshold,
             ),
             start_to_close_timeout=_QUICK_TIMEOUT,
             retry_policy=_RETRY,
@@ -467,6 +477,7 @@ class ReviewPRWorkflow:
                     owner=inputs.owner,
                     repo=inputs.repo,
                     pr_number=inputs.pr_number,
+                    urgency_threshold=acting.urgency_threshold,
                 ),
                 start_to_close_timeout=_QUICK_TIMEOUT,
                 retry_policy=_RETRY,

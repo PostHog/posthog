@@ -5,13 +5,14 @@ from github.PullRequest import PullRequest, ReviewComment
 
 from products.review_hog.backend.models import ReviewReport
 from products.review_hog.backend.reviewer.artefact_content import ReviewIssueFinding, ValidationVerdict
-from products.review_hog.backend.reviewer.constants import PUBLISHED_PRIORITIES, effective_priority
+from products.review_hog.backend.reviewer.constants import effective_priority
 from products.review_hog.backend.reviewer.diff_position import (
     build_diff_line_map,
     find_diff_position,
     format_line_ranges,
 )
 from products.review_hog.backend.reviewer.models.github_meta import PRFile
+from products.review_hog.backend.reviewer.models.issues_review import IssuePriority
 from products.review_hog.backend.reviewer.persistence import load_pr_snapshot, load_valid_findings
 
 logger = logging.getLogger(__name__)
@@ -27,6 +28,7 @@ def publish_persisted_review(
     repo: str,
     pr_number: int,
     token: str,
+    published_priorities: set[IssuePriority],
 ) -> bool:
     """Publish an already-computed review for `report_id` at `head_sha`, idempotently. Returns whether it posted.
 
@@ -55,6 +57,7 @@ def publish_persisted_review(
         head_sha=head_sha,
         # The alpha promo comment is posted once per report (first real publish), not every turn.
         post_promo=report.published_head_sha is None,
+        published_priorities=published_priorities,
     )
     if posted:
         report.published_head_sha = head_sha
@@ -83,6 +86,7 @@ def publish_review(
     token: str,
     head_sha: str,
     post_promo: bool,
+    published_priorities: set[IssuePriority],
 ) -> bool:
     """Publish the review to GitHub: the stored body plus inline comments from the durable rows.
 
@@ -106,16 +110,16 @@ def publish_review(
     valid_findings = load_valid_findings(team_id=team_id, report_id=report_id, run_index=run_index)
 
     diff_lines = build_diff_line_map(pr_files)
-    comments = _build_inline_comments(valid_findings, diff_lines)
+    comments = _build_inline_comments(valid_findings, diff_lines, published_priorities)
 
     # Gate on whether there's anything worth posting, NOT on whether any comment positioned: a valid
-    # must/should-fix finding on an off-diff line has no inline anchor but is surfaced in the body's
+    # publishable finding on an off-diff line has no inline anchor but is surfaced in the body's
     # "Other findings" section, so the body must still post rather than dropping the whole review. The
     # validator's priority override wins over the reviewer's, so the gate reads the effective priority.
     publishable = [
         finding
         for finding, verdict in valid_findings
-        if effective_priority(finding.priority, verdict.adjusted_priority) in PUBLISHED_PRIORITIES
+        if effective_priority(finding.priority, verdict.adjusted_priority) in published_priorities
     ]
     if not publishable:
         logger.info("No publishable issues found, skipping review")
@@ -207,12 +211,13 @@ def _format_issue_comment(finding: ReviewIssueFinding, verdict: ValidationVerdic
 def _build_inline_comments(
     valid_findings: list[tuple[ReviewIssueFinding, ValidationVerdict]],
     diff_lines: dict[str, set[int]],
+    published_priorities: set[IssuePriority],
 ) -> list[ReviewComment]:
     """Build inline comment dicts for the GitHub PR review API from valid finding/verdict rows."""
     comments: list[ReviewComment] = []
 
     for finding, verdict in valid_findings:
-        if effective_priority(finding.priority, verdict.adjusted_priority) not in PUBLISHED_PRIORITIES:
+        if effective_priority(finding.priority, verdict.adjusted_priority) not in published_priorities:
             continue
 
         position = find_diff_position(finding.file, finding.lines, diff_lines)

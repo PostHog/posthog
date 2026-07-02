@@ -31,6 +31,9 @@ class ReviewValidatorConfigSerializer(serializers.Serializer):
     description = serializers.CharField(
         allow_blank=True, help_text="The validator skill's description, for display in the config UI."
     )
+    body = serializers.CharField(
+        allow_blank=True, help_text="The validator skill's SKILL.md body, for the read-only skill viewer."
+    )
 
 
 class ReviewValidatorConfigSelectSerializer(serializers.Serializer):
@@ -87,7 +90,12 @@ class ReviewValidatorConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
             team_id=self.team_id, name__startswith=REVIEW_HOG_VALIDATION_PREFIX, is_latest=True, deleted=False
         ).order_by("name")
         items = [
-            {"skill_name": s.name, "active": active_by_name.get(s.name, False), "description": s.description}
+            {
+                "skill_name": s.name,
+                "active": active_by_name.get(s.name, False),
+                "description": s.description,
+                "body": s.body,
+            }
             for s in skills
         ]
         return Response(ReviewValidatorConfigSerializer(items, many=True).data)
@@ -137,6 +145,6 @@ class ReviewValidatorConfigViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewS
                 config.save(update_fields=["enabled", "updated_at"])
         return Response(
             ReviewValidatorConfigSerializer(
-                {"skill_name": skill_name, "active": True, "description": skill.description}
+                {"skill_name": skill_name, "active": True, "description": skill.description, "body": skill.body}
             ).data
         )
