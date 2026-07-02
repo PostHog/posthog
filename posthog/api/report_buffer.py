@@ -34,6 +34,7 @@ from posthog.settings.ingestion import (
     CSP_REPORT_BUFFER_MAX_BYTES,
     CSP_REPORT_BUFFER_MAX_EVENT_BYTES,
     CSP_REPORT_BUFFER_MAX_EVENTS,
+    CSP_REPORT_BUFFER_MAX_TOKEN_SHARE,
 )
 
 logger = structlog.get_logger(__name__)
@@ -58,6 +59,7 @@ CSP_BUFFER_FAILED = Counter(
 CSP_BUFFER_DEPTH = Gauge(
     "csp_report_buffer_depth",
     "Current number of events waiting in the forward buffer.",
+    multiprocess_mode="livesum",
 )
 
 
@@ -67,7 +69,7 @@ class CspReportBuffer:
         maxsize: int = CSP_REPORT_BUFFER_MAX_EVENTS,
         flush_interval: float = CSP_REPORT_BUFFER_FLUSH_INTERVAL_SECONDS,
         flush_max_events: int = CSP_REPORT_BUFFER_FLUSH_MAX_EVENTS,
-        max_token_share: float = 0.5,
+        max_token_share: float = CSP_REPORT_BUFFER_MAX_TOKEN_SHARE,
         max_bytes: int = CSP_REPORT_BUFFER_MAX_BYTES,
         max_event_bytes: int = CSP_REPORT_BUFFER_MAX_EVENT_BYTES,
     ) -> None:
@@ -75,6 +77,9 @@ class CspReportBuffer:
         self.flush_max_events = flush_max_events
         self.max_bytes = max_bytes
         self.max_event_bytes = max_event_bytes
+        # maxsize=0 makes queue.Queue unbounded, which silently removes the count
+        # bound — the opposite of what zeroing the knob looks like it should do.
+        maxsize = max(1, maxsize)
         self._queue: queue.Queue[tuple[str, dict[str, Any], int]] = queue.Queue(maxsize=maxsize)
         self._lock = threading.Lock()
         self._sender: threading.Thread | None = None
@@ -123,6 +128,11 @@ class CspReportBuffer:
             with self._counts_lock:
                 self._total_bytes += size
             accepted += 1
+            # _total_bytes is incremented after put and decremented after remove,
+            # matched per item, so the unlocked read below is safe under the GIL:
+            # it can only read a transiently stale total, never tear, and the count
+            # self-corrects. Worst case is one over- or under-eviction, tolerable
+            # for a best-effort buffer.
             while self._total_bytes > self.max_bytes:
                 if not self._evict_oldest("bytes_overflow"):
                     break

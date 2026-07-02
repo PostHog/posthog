@@ -61,8 +61,8 @@ def get_csp_event(request):
             token = ""
 
         if settings.CSP_REPORT_BUFFERED_FORWARD:
-            # Missing token would fail capture-side validation; without the synchronous
-            # round-trip that has to be surfaced before enqueueing.
+            # Buffered mode never makes the synchronous capture call that would
+            # reject an empty token, so reject it here before enqueueing.
             if not token:
                 return cors_response(
                     request,
