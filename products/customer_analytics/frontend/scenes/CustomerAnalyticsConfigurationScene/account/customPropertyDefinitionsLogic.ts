@@ -54,20 +54,6 @@ const DEFAULT_FORM_VALUES: CustomPropertyFormValues = {
     isEnabled: true,
 }
 
-export interface CustomPropertySourceFormValues {
-    savedQuery: string | null
-    sourceColumn: string | null
-    keyColumn: string | null
-    isEnabled: boolean
-}
-
-const DEFAULT_SOURCE_FORM_VALUES: CustomPropertySourceFormValues = {
-    savedQuery: null,
-    sourceColumn: null,
-    keyColumn: null,
-    isEnabled: true,
-}
-
 const serializeDefinition = ({
     name,
     description,
@@ -114,8 +100,6 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         openEditModal: (definition: CustomPropertyDefinitionApi) => ({ definition }),
         closeModal: true,
         setEditingDefinition: (definition: CustomPropertyDefinitionApi) => ({ definition }),
-        openSourceModal: (definition: CustomPropertyDefinitionApi) => ({ definition }),
-        closeSourceModal: true,
     }),
     reducers({
         modalVisible: [
@@ -135,20 +119,6 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 closeModal: () => null,
             },
         ],
-        sourceModalVisible: [
-            false,
-            {
-                openSourceModal: () => true,
-                closeSourceModal: () => false,
-            },
-        ],
-        sourceDefinition: [
-            null as CustomPropertyDefinitionApi | null,
-            {
-                openSourceModal: (_, { definition }) => definition,
-                closeSourceModal: () => null,
-            },
-        ],
     }),
     loaders(({ actions, values }) => ({
         definitions: [
@@ -161,18 +131,6 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 deleteDefinition: async ({ id }: { id: string }): Promise<CustomPropertyDefinitionApi[]> => {
                     await customPropertyDefinitionsDestroy(String(values.currentProjectId), id)
                     return values.definitions.filter((definition) => definition.id !== id)
-                },
-                removeSource: async ({
-                    definition,
-                }: {
-                    definition: CustomPropertyDefinitionApi
-                }): Promise<CustomPropertyDefinitionApi[]> => {
-                    if (definition.source) {
-                        await customPropertySourcesDestroy(String(values.currentProjectId), definition.source.id)
-                    }
-                    // Re-fetch so the cleared `source` is reflected — it can't be derived locally.
-                    const response = await customPropertyDefinitionsList(String(values.currentProjectId))
-                    return response.results
                 },
             },
         ],
@@ -259,36 +217,6 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 }
             },
         },
-        customPropertySourceForm: {
-            defaults: DEFAULT_SOURCE_FORM_VALUES,
-            errors: ({ savedQuery, sourceColumn, keyColumn }: CustomPropertySourceFormValues) => ({
-                savedQuery: !savedQuery ? 'Select a view' : undefined,
-                sourceColumn: !sourceColumn ? 'Select the value column' : undefined,
-                keyColumn: !keyColumn ? 'Select the key column' : undefined,
-            }),
-            submit: async ({ savedQuery, sourceColumn, keyColumn, isEnabled }: CustomPropertySourceFormValues) => {
-                const definition = values.sourceDefinition
-                if (!definition || !savedQuery || !sourceColumn || !keyColumn) {
-                    return
-                }
-                if (definition.source) {
-                    // saved_query is create-only — only the mutable fields are sent on update.
-                    await customPropertySourcesPartialUpdate(String(values.currentProjectId), definition.source.id, {
-                        source_column: sourceColumn,
-                        key_column: keyColumn,
-                        is_enabled: isEnabled,
-                    })
-                } else {
-                    await customPropertySourcesCreate(String(values.currentProjectId), {
-                        definition: definition.id,
-                        saved_query: savedQuery,
-                        source_column: sourceColumn,
-                        key_column: keyColumn,
-                        is_enabled: isEnabled,
-                    })
-                }
-            },
-        },
     })),
     selectors({
         materializedViews: [
@@ -299,13 +227,6 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         selectedSourceColumns: [
             (s) => [s.savedQueries, s.customPropertyForm],
             (savedQueries: DataWarehouseSavedQuery[], form: CustomPropertyFormValues): string[] => {
-                const view = savedQueries.find((query) => query.id === form.savedQuery)
-                return (view?.columns ?? []).map((column) => column.name)
-            },
-        ],
-        sourceModalColumns: [
-            (s) => [s.savedQueries, s.customPropertySourceForm],
-            (savedQueries: DataWarehouseSavedQuery[], form: CustomPropertySourceFormValues): string[] => {
                 const view = savedQueries.find((query) => query.id === form.savedQuery)
                 return (view?.columns ?? []).map((column) => column.name)
             },
@@ -324,7 +245,7 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
             },
         ],
     }),
-    listeners(({ actions, values }) => ({
+    listeners(({ actions }) => ({
         openCreateModal: () => {
             actions.resetCustomPropertyForm()
             actions.loadSavedQueries()
@@ -377,36 +298,6 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         loadDefinitionsFailure: ({ error }) => {
             posthog.captureException(error, { scope: 'customPropertyDefinitionsLogic.load' })
             lemonToast.error('Failed to load custom properties')
-        },
-        openSourceModal: ({ definition }) => {
-            actions.loadSavedQueries()
-            if (definition.source) {
-                actions.setCustomPropertySourceFormValues({
-                    savedQuery: definition.source.saved_query,
-                    sourceColumn: definition.source.source_column,
-                    keyColumn: definition.source.key_column,
-                    isEnabled: definition.source.is_enabled ?? true,
-                })
-            } else {
-                actions.resetCustomPropertySourceForm()
-            }
-        },
-        submitCustomPropertySourceFormSuccess: () => {
-            lemonToast.success(values.sourceDefinition?.source ? 'Sync updated' : 'Sync configured')
-            actions.loadDefinitions()
-            actions.closeSourceModal()
-        },
-        submitCustomPropertySourceFormFailure: ({ error }) => {
-            posthog.captureException(error, { scope: 'customPropertyDefinitionsLogic.submitSource' })
-            lemonToast.error((error as { detail?: string })?.detail ?? 'Failed to save sync configuration')
-        },
-        removeSourceSuccess: () => {
-            lemonToast.success('Sync removed')
-            actions.closeSourceModal()
-        },
-        removeSourceFailure: ({ error }) => {
-            posthog.captureException(error, { scope: 'customPropertyDefinitionsLogic.removeSource' })
-            lemonToast.error('Failed to remove sync')
         },
         createWorkflowForPropertySuccess: ({ newWorkflowUrl }) => {
             if (newWorkflowUrl && window.open(newWorkflowUrl, '_blank')) {

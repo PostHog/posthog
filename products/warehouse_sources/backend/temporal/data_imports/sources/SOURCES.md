@@ -62,6 +62,7 @@ the row lists both.
 | attentive               | HTTP (webhook-first)        | requests (webhook management)                                   | ✅                          |
 | attio                   | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
 | aviationstack           | HTTP                        | requests                                                        | ✅                          |
+| awin                    | HTTP                        | requests                                                        | ✅                          |
 | azure_devops            | HTTP                        | requests                                                        | ✅                          |
 | bamboohr                | HTTP                        | requests                                                        | ✅                          |
 | beamer                  | HTTP                        | requests                                                        | ✅                          |
@@ -221,6 +222,7 @@ the row lists both.
 | onfleet                 | HTTP (cursor pagination)    | requests                                                        | ✅                          |
 | open_exchange_rates     | HTTP                        | requests                                                        | ✅                          |
 | orb                     | HTTP                        | requests + `rest_source.RESTClient`                             | ✅                          |
+| openaq                  | HTTP                        | requests                                                        | ✅                          |
 | openweather             | HTTP                        | requests                                                        | ✅                          |
 | ortto                   | HTTP                        | requests                                                        | ✅                          |
 | oura                    | HTTP                        | requests                                                        | ✅                          |
@@ -357,7 +359,6 @@ doesn't conflict with concurrent PRs.
 - appstack
 - apptivo
 - auth0
-- awin
 - aws_cloudtrail
 - azure_blob
 - azure_table_storage
@@ -546,7 +547,6 @@ doesn't conflict with concurrent PRs.
 - onepagecrm
 - onesignal
 - open_data_dc
-- openaq
 - openfda
 - opinion_stage
 - opsgenie
