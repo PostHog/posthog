@@ -111,11 +111,12 @@ describe('maxLogic', () => {
         // Wait for initial conversationHistory load to complete
         await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess'])
 
-        // Simulate asking Max a question (which starts a new conversation)
+        // Simulate asking Max a question (which starts a new conversation and opens a stream)
         await expectLogic(logic, () => {
             logic.actions.setQuestion('Test question')
             logic.actions.setConversationId(mockConversationId)
-        }).toDispatchActions(['setQuestion', 'setConversationId'])
+            logic.actions.incrActiveStreamingThreads()
+        }).toDispatchActions(['setQuestion', 'setConversationId', 'incrActiveStreamingThreads'])
 
         // Now simulate the race condition: when pollConversation is called from loadConversationHistorySuccess,
         // it will get a 404 for the conversation that doesn't exist yet on the backend
@@ -127,13 +128,43 @@ describe('maxLogic', () => {
         // Wait a bit for any async operations
         await expectLogic(logic).delay(50)
 
-        // The conversation should NOT be reset - conversationId should still be set
+        // The conversation must NOT be reset - generation is still in flight
         await expectLogic(logic).toMatchValues({
             conversationId: mockConversationId,
         })
+    })
 
-        // Verify no error toast was shown and no reset occurred
-        expect(Array.isArray(logic.values.conversationHistory)).toBe(true)
+    it('resets to a fresh chat when a stale or deleted chat link 404s', async () => {
+        const staleConversationId = 'stale-conversation-id'
+
+        useMocks({
+            ...maxMocks,
+            get: {
+                ...maxMocks.get,
+                '/api/environments/:team_id/conversations/': { results: [] },
+                [`/api/environments/:team_id/conversations/${staleConversationId}`]: () => [
+                    404,
+                    { detail: 'Not found' },
+                ],
+            },
+        })
+
+        logic = maxLogic({ panelId: 'test' })
+        logic.mount()
+
+        await expectLogic(logic).toDispatchActions(['loadConversationHistorySuccess'])
+
+        // Open a conversation from a stale link: no active stream, id isn't the local frontend one.
+        await expectLogic(logic, () => {
+            logic.actions.setConversationId(staleConversationId)
+        }).toMatchValues({ conversationId: staleConversationId })
+
+        // The 404 must not be swallowed silently — it should route the user back to a usable chat.
+        await expectLogic(logic, () => {
+            logic.actions.pollConversation(staleConversationId, 0, 0)
+        })
+            .toDispatchActions(['startNewConversation'])
+            .toMatchValues({ conversationId: null })
     })
 
     it('manages suggestion group selection correctly', async () => {
