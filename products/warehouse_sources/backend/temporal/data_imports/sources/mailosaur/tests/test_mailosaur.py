@@ -1,6 +1,7 @@
 from datetime import UTC, date, datetime
 from typing import Any
 
+import pytest
 from unittest.mock import MagicMock, patch
 
 from parameterized import parameterized
@@ -63,12 +64,18 @@ class TestFormatReceivedAfter:
             ("utc_datetime", datetime(2026, 3, 4, 2, 58, 14, tzinfo=UTC), "2026-03-04T02:58:14Z"),
             ("naive_datetime", datetime(2026, 3, 4, 2, 58, 14), "2026-03-04T02:58:14Z"),
             ("date_value", date(2026, 3, 4), "2026-03-04T00:00:00Z"),
-            ("string_passthrough", "already-a-cursor", "already-a-cursor"),
             ("none", None, None),
         ]
     )
     def test_format(self, _name: str, value: Any, expected: str | None) -> None:
         assert _format_received_after(value) == expected
+
+    @parameterized.expand([("int_epoch", 1234567890), ("string", "not-a-date")])
+    def test_unexpected_type_raises(self, _name: str, value: Any) -> None:
+        # The messages cursor is a DateTime; an int/str would produce a receivedAfter Mailosaur
+        # silently ignores (a full re-fetch), so we fail loud instead.
+        with pytest.raises(TypeError):
+            _format_received_after(value)
 
 
 class TestValidateCredentials:

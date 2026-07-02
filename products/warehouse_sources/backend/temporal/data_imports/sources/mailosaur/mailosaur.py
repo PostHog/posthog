@@ -47,14 +47,16 @@ def _auth(api_key: str) -> tuple[str, str]:
 
 def _format_received_after(value: Any) -> str | None:
     """Format an incremental cursor value as an ISO-8601 UTC timestamp for `receivedAfter`."""
+    if value is None:
+        return None
     if isinstance(value, datetime):
         dt = value if value.tzinfo is not None else value.replace(tzinfo=UTC)
         return dt.astimezone(UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     if isinstance(value, date):
         return datetime.combine(value, datetime.min.time(), tzinfo=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
-    if value:
-        return str(value)
-    return None
+    # The messages cursor is a DateTime field, so anything else is a bug — fail loud rather than
+    # sending Mailosaur an unparseable receivedAfter it would silently ignore (a full re-fetch).
+    raise TypeError(f"Unsupported receivedAfter value type: {type(value)!r}")
 
 
 def _extract_items(data: Any) -> list[dict[str, Any]]:
@@ -112,7 +114,9 @@ def validate_credentials(api_key: str) -> tuple[bool, str | None]:
     """
     url = f"{MAILOSAUR_BASE_URL}/api/servers"
     try:
-        response = make_tracked_session().get(url, auth=_auth(api_key), headers=MAILOSAUR_HEADERS, timeout=10)
+        response = make_tracked_session(redact_values=(api_key,)).get(
+            url, auth=_auth(api_key), headers=MAILOSAUR_HEADERS, timeout=10
+        )
     except requests.exceptions.RequestException as e:
         return False, str(e)
 
@@ -211,8 +215,9 @@ def get_rows(
 ) -> Iterator[list[dict[str, Any]]]:
     config = MAILOSAUR_ENDPOINTS[endpoint]
     # One session reused across every page (and, for the fan-out, every server) so urllib3
-    # keeps the connection alive instead of re-handshaking per request.
-    session = make_tracked_session()
+    # keeps the connection alive instead of re-handshaking per request. `redact_values` masks
+    # the API key in logged URLs and captured samples.
+    session = make_tracked_session(redact_values=(api_key,))
 
     if config.fan_out_over_servers:
         received_after = (
