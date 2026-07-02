@@ -1296,6 +1296,7 @@ export const taxonomicFilterLogic = kea<taxonomicFilterLogicType>([
                         ),
                         // Recently-used entries are stored stripped of `active`, so treat only an explicit
                         // `false` as disabled — otherwise recent flags are wrongly disabled and unselectable.
+                        // Keep in sync with the Feature Flags group in utils/buildTaxonomicGroups.tsx.
                         getIsDisabled: (featureFlag: FeatureFlagType) => featureFlag.active === false,
                         localItemsSearch: (items, query) => {
                             if (!query) {

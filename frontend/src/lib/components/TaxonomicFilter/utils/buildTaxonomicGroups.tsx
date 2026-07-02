@@ -831,6 +831,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             ),
             // Recently-used entries are stored stripped of `active`, so treat only an explicit
             // `false` as disabled — otherwise recent flags are wrongly disabled and unselectable.
+            // Keep in sync with the Feature Flags group in taxonomicFilterLogic.tsx.
             getIsDisabled: (featureFlag: FeatureFlagType) => featureFlag.active === false,
             localItemsSearch: (items: TaxonomicDefinitionTypes[], query: string): TaxonomicDefinitionTypes[] => {
                 // Note: This function doesn't have direct access to the current value
