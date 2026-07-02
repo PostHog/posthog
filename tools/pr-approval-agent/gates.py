@@ -424,11 +424,11 @@ def detect_deny_categories(files: list[str], ignored_files: set[str] | None = No
     """Categories hard-denied by the changed file paths. Titles never deny."""
     hits: set[str] = set()
     ignored_files_lower = {f.lower() for f in ignored_files or set()}
-    paths_lower = [f.lower() for f in files if f.lower() not in ignored_files_lower]
+    paths_lower = [fl for f in files if (fl := f.lower()) not in ignored_files_lower]
 
     for category, scopes in DENY_PATTERNS.items():
         category_paths = [p for p in paths_lower if not _is_exempt_path(category, p)]
-        path_regexes = list(scopes.get("paths", [])) + [path_rx for path_rx, _title_rx in scopes.get("any", [])]
+        path_regexes = scopes.get("paths", []) + [path_rx for path_rx, _title_rx in scopes.get("any", [])]
         if any(rx.search(p) for rx in path_regexes for p in category_paths):
             hits.add(category)
     return sorted(hits)
