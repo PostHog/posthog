@@ -67,41 +67,45 @@ def _target_from_schema(schema: ExternalDataSchema) -> RepartitionTarget:
     )
 
 
+def _needs_pre_extraction_detection(schema: ExternalDataSchema) -> bool:
+    """Whether to measure the on-disk table for a repartition need, using only in-memory schema state.
+
+    Keeps the healthy no-op path free of any I/O (no job fetch, no delta-log read): we only fall through
+    to the on-disk measurement for a non-CDC table (CDC is excluded from the controller, matching the
+    post-load call site in load.py) whose last post-load measurement is over budget or was never
+    recorded. The never-recorded case covers a table whose merge OOMs every run, so post-load detection
+    never ran to record one — the chicken-and-egg this whole path exists to break.
+    """
+    if schema.sync_type == ExternalDataSchema.SyncType.CDC:
+        return False
+    last_measured = schema.max_partition_bytes
+    return last_measured is None or last_measured > target_partition_bytes()
+
+
 def _maybe_flag_pre_extraction(
     schema: ExternalDataSchema,
     job: ExternalDataJob,
     helper: DeltaTableHelper,
     logger: FilteringBoundLogger,
 ) -> dict[str, Any] | None:
-    """Detect an over-budget partition against the on-disk table before extraction, and flag it.
+    """Measure the on-disk table before extraction and flag a repartition if it's over budget.
 
     The post-load detector (`maybe_flag_for_repartition`) only runs after a merge completes, so a table
     whose merge OOMs every run can never flag itself for repair — the classic chicken-and-egg. Running
     the same detection (same feature-flag, budget, and cooldown gating) here, pre-extraction, closes
     that gap: the on-disk table already reflects the over-budget layout, so we can flag and — in this
     same run — rewrite it before the merge that would OOM. Returns the pending target set by detection,
-    or None if nothing was flagged. Never raises.
+    or None if nothing was flagged (or the table couldn't be measured). Never raises.
     """
-    # CDC tables are excluded from the controller, matching the post-load call site in load.py.
-    if schema.sync_type == ExternalDataSchema.SyncType.CDC:
-        return None
-
-    # Cheap in-memory gate: skip the extra delta-log read on the healthy path. The post-load detector
-    # records `max_partition_bytes` after every successful merge, so a table with a known within-budget
-    # measurement can't need repair. We only reach the full on-disk measurement when the last recording
-    # was over budget or never happened — the latter covering a table whose merge always OOMs (so
-    # post-load never ran to record it).
-    last_measured = schema.max_partition_bytes
-    if last_measured is not None and last_measured <= target_partition_bytes():
-        return None
-
     try:
         delta_table = async_to_sync(helper.get_delta_table)()
         if delta_table is None:
+            logger.debug("repartition: no delta table on disk, cannot measure for repartition")
             return None
         async_to_sync(maybe_flag_for_repartition)(schema, schema.source, job, delta_table, logger)
     except Exception as e:
         # Detection is best-effort; a failure here must not block the sync.
+        logger.warning("repartition: pre-extraction detection failed", exc_info=True)
         capture_exception(e)
         return None
     return schema.repartition_pending
@@ -121,6 +125,15 @@ def maybe_repartition_table_activity(inputs: RepartitionActivityInputs) -> None:
         logger.warning("repartition: schema not found, skipping activity", schema_id=inputs.schema_id)
         return
 
+    pending = schema.repartition_pending
+    swap = schema.repartition_swap
+
+    # Fast no-op path: nothing queued and the in-memory gate says no on-disk measurement is needed.
+    # Return here — before fetching the job — so the common healthy invocation stays a single DB query.
+    if pending is None and swap is None and not _needs_pre_extraction_detection(schema):
+        logger.debug("repartition: nothing queued and no detection needed, nothing to do")
+        return
+
     try:
         job = ExternalDataJob.objects.get(id=inputs.job_id)
     except ExternalDataJob.DoesNotExist:
@@ -129,15 +142,13 @@ def maybe_repartition_table_activity(inputs: RepartitionActivityInputs) -> None:
 
     helper = DeltaTableHelper(resource_name=schema.name, job=job, logger=logger)
 
-    pending = schema.repartition_pending
-    swap = schema.repartition_swap
     if pending is None and swap is None:
-        # Nothing was queued by a prior run's post-load detection. Measure the on-disk table now and
-        # self-flag if it's over budget — the only path that can rescue a table which OOMs its merge
-        # every run (and so never reaches post-load detection to flag itself).
+        # Nothing was queued by a prior run's post-load detection, but the gate flagged the table for an
+        # on-disk measurement. Measure now and self-flag if it's over budget — the only path that can
+        # rescue a table which OOMs its merge every run (and so never reaches post-load detection).
         pending = _maybe_flag_pre_extraction(schema, job, helper, logger)
         if pending is None:
-            logger.debug("repartition: nothing queued and table within budget, nothing to do")
+            logger.debug("repartition: pre-extraction measurement found no repartition needed")
             return
 
     target = RepartitionTarget.from_dict(pending) if pending is not None else _target_from_schema(schema)
