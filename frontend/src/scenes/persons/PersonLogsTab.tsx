@@ -1,12 +1,11 @@
 import { useValues } from 'kea'
-import { useMemo } from 'react'
 
 import { IconGear } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { urls } from 'scenes/urls'
 
-import { FilterLogicalOperator, LogPropertyFilter, PersonType, PropertyFilterType, PropertyOperator } from '~/types'
+import { PersonType } from '~/types'
 
 import { LogsViewer } from 'products/logs/frontend/components/LogsViewer/LogsViewer'
 import { DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY, logsConfigLogic } from 'products/logs/frontend/logsConfigLogic'
@@ -14,27 +13,12 @@ import { DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY, logsConfigLogic } from 'product
 // Renders the Logs tab on the person profile. Mounted only when the tab is active
 // (LemonTabs renders just the active tab's content), so `logsConfigLogic` only fetches
 // the team's `logs_distinct_id_attribute_key` on demand rather than on every team load.
-// While the config loads, falls back to the default key — accurate for the vast majority
-// of teams; non-default teams briefly see the wrong filter then resolve to the override.
+// The config only drives the caption here — the query is scoped via `personId`, which the
+// backend expands to the person's distinct ids and matches against the configured key.
 export function PersonLogsTab({ person }: { person: PersonType }): JSX.Element {
     const { logsConfig } = useValues(logsConfigLogic)
     const distinctIdAttributeKey = logsConfig?.logs_distinct_id_attribute_key ?? DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY
     const isCustomizedKey = distinctIdAttributeKey !== DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY
-
-    const pinnedFilters = useMemo(
-        () => ({
-            type: FilterLogicalOperator.And,
-            values: [
-                {
-                    key: distinctIdAttributeKey,
-                    type: PropertyFilterType.LogAttribute,
-                    operator: PropertyOperator.Exact,
-                    value: person.distinct_ids,
-                } as LogPropertyFilter,
-            ],
-        }),
-        [distinctIdAttributeKey, person.distinct_ids]
-    )
 
     return (
         <div className="flex flex-col h-[calc(100vh-16rem)] min-h-[25rem]">
@@ -57,7 +41,7 @@ export function PersonLogsTab({ person }: { person: PersonType }): JSX.Element {
             </p>
             <LogsViewer
                 id={`person-${person.uuid ?? person.id}`}
-                pinnedFilters={pinnedFilters}
+                personId={String(person.uuid ?? person.id)}
                 showFullScreenButton={false}
                 showSavedViewsButton={false}
             />

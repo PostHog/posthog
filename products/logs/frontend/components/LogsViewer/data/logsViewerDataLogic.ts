@@ -127,7 +127,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
         ],
         values: [
             logsViewerFiltersLogic({ id }),
-            ['filters', 'utcDateRange', 'filterGroup', 'queryFilterGroup'],
+            ['filters', 'utcDateRange', 'filterGroup', 'queryFilterGroup', 'personId'],
             logsViewerConfigLogic({ id }),
             ['sparklineBreakdownBy', 'orderBy'],
         ],
@@ -292,6 +292,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                             filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                             severityLevels: values.filters.severityLevels,
                             serviceNames: values.filters.serviceNames,
+                            personId: values.personId,
                         },
                         signal,
                     })
@@ -326,6 +327,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                             filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                             severityLevels: values.filters.severityLevels,
                             serviceNames: values.filters.serviceNames,
+                            personId: values.personId,
                             after: values.nextCursor,
                         },
                         signal,
@@ -355,6 +357,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                             severityLevels: values.filters.severityLevels,
                             serviceNames: values.filters.serviceNames,
                             sparklineBreakdownBy: values.sparklineBreakdownBy,
+                            personId: values.personId,
                         },
                         signal,
                     })
@@ -704,6 +707,7 @@ export const logsViewerDataLogic = kea<logsViewerDataLogicType>([
                         filterGroup: values.queryFilterGroup as PropertyGroupFilter,
                         severityLevels: values.filters.severityLevels,
                         serviceNames: values.filters.serviceNames,
+                        personId: values.personId,
                         liveLogsCheckpoint: values.liveLogsCheckpoint ?? undefined,
                     },
                     signal,

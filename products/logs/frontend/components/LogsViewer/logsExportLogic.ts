@@ -54,7 +54,7 @@ export const logsExportLogic = kea<logsExportLogicType>([
             logsViewerLogic({ id }),
             ['selectedLogsArray', 'attributeColumns'],
             logsViewerFiltersLogic({ id }),
-            ['filters', 'utcDateRange'],
+            ['filters', 'utcDateRange', 'personId'],
             logsViewerDataLogic({ id }),
             ['maxExportableLogs'],
             logsViewerConfigLogic({ id }),
@@ -105,6 +105,7 @@ export const logsExportLogic = kea<logsExportLogicType>([
                 severityLevels: values.filters.severityLevels,
                 serviceNames: values.filters.serviceNames,
                 orderBy: values.orderBy,
+                personId: values.personId,
             }
             posthog.capture('logs exported', { format: 'csv', source: 'server', totalLogsCount })
             try {

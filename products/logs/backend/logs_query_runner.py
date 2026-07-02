@@ -26,6 +26,11 @@ from posthog.hogql_queries.insights.paginators import HogQLHasMorePaginator
 from posthog.hogql_queries.query_runner import AnalyticsQueryRunner, QueryRunner
 from posthog.hogql_queries.utils.query_date_range import QueryDateRange
 from posthog.models.filters.mixins.utils import cached_property
+from posthog.models.person.person import MAX_LIMIT_DISTINCT_IDS, get_distinct_ids_for_subquery
+from posthog.models.person.util import get_person_by_pk_or_uuid
+from posthog.personhog_client.caller_tag import personhog_caller_tag
+
+from products.logs.backend.models import DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY, TeamLogsConfig
 
 if TYPE_CHECKING:
     from posthog.models import Team, User
@@ -339,6 +344,9 @@ class LogsFilterBuilder:
                         exprs.append(get_lowercase_index_hint(log_filter, team=self.team))
                     exprs.append(property_to_expr(log_filter, team=self.team))
 
+        if self.query.personId:
+            exprs.append(self._person_scope_expr())
+
         exprs.append(ast.Placeholder(expr=ast.Field(chain=["filters"])))
 
         if self.query.searchTerm:
@@ -418,6 +426,34 @@ class LogsFilterBuilder:
             )
 
         return ast.And(exprs=exprs)
+
+    def _person_scope_expr(self) -> ast.Expr:
+        # Expand personId server-side: person pages cap how many distinct ids they load
+        # (groupArray(101) / list serializer), so a client-built distinct-ids filter would
+        # silently drop ids on persons with many of them.
+        with personhog_caller_tag("persons/logs-query"):
+            person = get_person_by_pk_or_uuid(
+                self.team.pk, str(self.query.personId), distinct_id_limit=MAX_LIMIT_DISTINCT_IDS
+            )
+        distinct_ids = get_distinct_ids_for_subquery(person, self.team)
+        if not distinct_ids:
+            # Unknown person (or another team's person): match nothing. property_to_expr
+            # treats an empty value list as always-true, which would return every log.
+            return ast.Constant(value=False)
+        config = TeamLogsConfig.objects.filter(team=self.team).first()
+        attribute_key = config.logs_distinct_id_attribute_key if config else DEFAULT_LOGS_DISTINCT_ID_ATTRIBUTE_KEY
+        # Force the __str map: attributes_map_str holds every attribute value (stringified),
+        # while attributes_map_float only exists for numeric values — all-numeric distinct ids
+        # must not route there via the usual value-type detection.
+        return property_to_expr(
+            LogPropertyFilter(
+                key=f"{attribute_key}__str",
+                operator=PropertyOperator.EXACT,
+                type=LogPropertyFilterType.LOG_ATTRIBUTE,
+                value=list(distinct_ids),
+            ),
+            team=self.team,
+        )
 
     def resource_filter(self, *, existing_filters):
         negative_resource_filter = ast.Constant(value=True)

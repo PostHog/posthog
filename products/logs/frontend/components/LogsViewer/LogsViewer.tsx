@@ -38,6 +38,11 @@ export interface LogsViewerProps {
     // Filters enforced by the embedding scene. Merged into the user-editable filterGroup
     // and rendered without an X so users can't accidentally drop the scope.
     pinnedFilters?: UniversalFiltersGroup
+    // Scope all logs and sparkline queries to this person (uuid or numeric id). Expanded
+    // server-side to the person's distinct ids and matched against the team's configured
+    // distinct-id log attribute — unlike a pinned distinct-ids filter, not capped by how
+    // many ids the person page happened to load.
+    personId?: string
     // Hide the filter bar (levels/services/search/date range) entirely. For embeds where the
     // scope is fixed by `pinnedFilters` and editing filters in place isn't wanted. @default true
     showFilterBar?: boolean
@@ -49,10 +54,11 @@ export function LogsViewer({
     showSavedViewsButton = false,
     initialFilters,
     pinnedFilters,
+    personId,
     showFilterBar = true,
 }: LogsViewerProps): JSX.Element {
     return (
-        <BindLogic logic={logsViewerFiltersLogic} props={{ id, initialFilters, pinnedFilters }}>
+        <BindLogic logic={logsViewerFiltersLogic} props={{ id, initialFilters, pinnedFilters, personId }}>
             <BindLogic logic={logsViewerConfigLogic} props={{ id }}>
                 <BindLogic logic={logsViewerDataLogic} props={{ id }}>
                     <BindLogic logic={logDetailsModalLogic} props={{ id }}>

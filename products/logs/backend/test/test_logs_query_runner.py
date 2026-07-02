@@ -1,5 +1,6 @@
 import os
 import json
+from uuid import uuid4
 
 from freezegun import freeze_time
 from posthog.test.base import APIBaseTest, ClickhouseTestMixin
@@ -24,8 +25,11 @@ from posthog.hogql.query import HogQLQueryExecutor
 
 from posthog.clickhouse.client import sync_execute
 from posthog.clickhouse.client.connection import Workload
+from posthog.models import Team
+from posthog.test.persons import create_person
 
 from products.logs.backend.logs_query_runner import LogsQueryRunner
+from products.logs.backend.models import TeamLogsConfig
 
 
 class TestAttributeFilters(APIBaseTest):
@@ -1003,3 +1007,139 @@ class TestLogsQueryRunner(ClickhouseTestMixin, APIBaseTest):
         }
         response = self._make_logs_api_request(query_params)
         self.assertGreater(len(response["results"]), 0)
+
+
+class TestLogsPersonIdFilter(ClickhouseTestMixin, APIBaseTest):
+    # `personId` on LogsQuery is expanded server-side to the person's distinct ids. Person
+    # pages cap how many distinct ids they load client-side, so a client-built distinct-id
+    # filter silently misses logs for id-heavy persons — the bug this class guards against.
+    # Tests share one ClickHouse team; each uses unique distinct-id values for isolation.
+
+    def _insert_logs(self, rows: list[dict]) -> None:
+        payload = "\n".join(json.dumps({**row, "team_id": self.team.id}) for row in rows)
+        sync_execute(f"""
+            INSERT INTO logs
+            FORMAT JSONEachRow
+            {payload}
+        """)
+
+    def _log_row(self, distinct_id_value: str, attribute_key: str = "posthogDistinctId") -> dict:
+        return {
+            "uuid": str(uuid4()),
+            "timestamp": "2026-03-01 10:00:00.000000",
+            "observed_timestamp": "2026-03-01 10:00:01.000000",
+            "body": f"log for {distinct_id_value}",
+            "severity_text": "info",
+            "severity_number": 9,
+            "service_name": "person-id-test-svc",
+            "resource_attributes": {"service.name": "person-id-test-svc"},
+            "attributes_map_str": {f"{attribute_key}__str": distinct_id_value},
+        }
+
+    def _person_query(self, person_id: str) -> LogsQuery:
+        return LogsQuery(
+            kind="LogsQuery",
+            dateRange=DateRange(date_from="2026-03-01T00:00:00Z", date_to="2026-03-02T00:00:00Z"),
+            serviceNames=[],
+            severityLevels=[],
+            filterGroup=PropertyGroupFilter(
+                type=FilterLogicalOperator.AND_,
+                values=[PropertyGroupFilterValue(type=FilterLogicalOperator.AND_, values=[])],
+            ),
+            personId=person_id,
+        )
+
+    def _run(self, person_id: str) -> list:
+        return LogsQueryRunner(query=self._person_query(person_id), team=self.team).calculate().results
+
+    def test_person_id_expands_to_all_distinct_ids(self):
+        person = create_person(team=self.team, distinct_ids=["person-id-test-a1", "person-id-test-a2"])
+        create_person(team=self.team, distinct_ids=["person-id-test-other"])
+        self._insert_logs(
+            [
+                self._log_row("person-id-test-a1"),
+                self._log_row("person-id-test-a2"),
+                self._log_row("person-id-test-other"),
+            ]
+        )
+
+        results = self._run(str(person.uuid))
+
+        self.assertEqual(
+            sorted(r["attributes"]["posthogDistinctId"] for r in results),
+            ["person-id-test-a1", "person-id-test-a2"],
+        )
+
+    @parameterized.expand([("unknown_person",), ("person_from_another_team",)])
+    def test_person_id_without_matching_person_matches_nothing(self, case: str):
+        # An empty distinct-id list must never reach property_to_expr: it treats an empty
+        # value list as always-true, which would leak every log in the project onto the tab.
+        self._insert_logs([self._log_row("person-id-test-leak")])
+        if case == "unknown_person":
+            person_id = str(uuid4())
+        else:
+            other_team = Team.objects.create(organization=self.organization)
+            person_id = str(create_person(team=other_team, distinct_ids=["person-id-test-leak"]).uuid)
+
+        self.assertEqual(self._run(person_id), [])
+
+    def test_person_id_respects_configured_attribute_key(self):
+        TeamLogsConfig.objects.update_or_create(team=self.team, defaults={"logs_distinct_id_attribute_key": "user.id"})
+        person = create_person(team=self.team, distinct_ids=["person-id-test-cfg"])
+        self._insert_logs(
+            [
+                self._log_row("person-id-test-cfg", attribute_key="user.id"),
+                self._log_row("person-id-test-cfg", attribute_key="posthogDistinctId"),
+            ]
+        )
+
+        results = self._run(str(person.uuid))
+
+        self.assertEqual([r["attributes"]["user.id"] for r in results], ["person-id-test-cfg"])
+
+    def test_person_id_filter_targets_string_attribute_map_for_numeric_ids(self):
+        # All-numeric distinct ids must not route to the float attribute map — only the
+        # string map is guaranteed to hold every attribute value.
+        person = create_person(team=self.team, distinct_ids=["12345", "67890"])
+        runner = LogsQueryRunner(query=self._person_query(str(person.uuid)), team=self.team)
+        executor = HogQLQueryExecutor(
+            query_type="LogsQuery",
+            query=runner.to_query(),
+            modifiers=runner.modifiers,
+            team=runner.team,
+            workload=Workload.LOGS,
+            timings=runner.timings,
+            limit_context=runner.limit_context,
+            filters=HogQLFilters(dateRange=runner.query.dateRange),
+            settings=runner.settings,
+        )
+        executor.generate_clickhouse_sql()
+        assert executor.clickhouse_prepared_ast is not None
+        query_str = executor.clickhouse_prepared_ast.to_hogql()
+
+        self.assertIn("posthogDistinctId__str", query_str)
+        self.assertNotIn("posthogDistinctId__float", query_str)
+        self.assertIn("12345", query_str)
+        self.assertIn("67890", query_str)
+
+    def test_person_id_via_query_and_sparkline_apis(self):
+        # The logs endpoints hand-build LogsQuery from request data — a personId omitted
+        # from that whitelist silently un-scopes the person tab.
+        person = create_person(team=self.team, distinct_ids=["person-id-test-api"])
+        self._insert_logs([self._log_row("person-id-test-api"), self._log_row("person-id-test-api-unrelated")])
+        query_params = {
+            "dateRange": {"date_from": "2026-03-01T00:00:00Z", "date_to": "2026-03-02T00:00:00Z"},
+            "filterGroup": {"type": "AND", "values": [{"type": "AND", "values": []}]},
+            "personId": str(person.uuid),
+        }
+
+        response = self.client.post(f"/api/projects/{self.team.id}/logs/query", data={"query": query_params})
+        self.assertEqual(response.status_code, status.HTTP_200_OK)
+        results = response.json()["results"]
+        self.assertEqual([r["attributes"]["posthogDistinctId"] for r in results], ["person-id-test-api"])
+
+        sparkline_response = self.client.post(
+            f"/api/projects/{self.team.id}/logs/sparkline", data={"query": query_params}
+        )
+        self.assertEqual(sparkline_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(sum(bucket["count"] for bucket in sparkline_response.json()), 1)

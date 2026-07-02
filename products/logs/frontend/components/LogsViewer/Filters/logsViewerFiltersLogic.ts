@@ -31,13 +31,17 @@ export const DEFAULT_SERVICE_NAMES = [] as LogsQuery['serviceNames']
 export interface LogsViewerFiltersLogicProps {
     id: string
     initialFilters?: Partial<LogsViewerFilters>
-    // Filters enforced by the embedding scene (e.g. the person profile Logs tab pins
-    // a distinct_id filter so the tab can't fall back to project-wide logs). Kept
+    // Filters enforced by the embedding scene (e.g. the tracing span drawer pins a
+    // trace_id filter so the tab can't fall back to project-wide logs). Kept
     // entirely separate from the user-editable `filterGroup` — combined with it only
     // at query-build time via `queryFilterGroup` so the chips never see them and
-    // can't drift when the pinned shape changes (e.g. `logs_distinct_id_attribute_key`
-    // resolves to a non-default key after mount).
+    // can't drift when the pinned shape changes.
     pinnedFilters?: UniversalFiltersGroup
+    // Scope every query to this person (uuid or numeric id). Expanded server-side to the
+    // person's distinct ids and matched against the team's configured distinct-id log
+    // attribute — unlike a pinned distinct-ids filter, not capped by how many ids the
+    // person page happened to load.
+    personId?: string
 }
 
 // Combines the user-editable filterGroup with pinned filters (prepended to the inner
@@ -90,6 +94,9 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
         // can read it via useValues without going through the kea selector input-prop
         // machinery (which doesn't accept optional props).
         setPinnedFilters: (pinnedFilters: UniversalFiltersGroup | undefined) => ({ pinnedFilters }),
+
+        // Mirror of the `personId` prop into state, same rationale as `setPinnedFilters`.
+        setPersonId: (personId: string | undefined) => ({ personId }),
 
         zoomDateRange: (multiplier: number) => ({ multiplier }),
 
@@ -154,6 +161,12 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
             undefined as UniversalFiltersGroup | undefined,
             {
                 setPinnedFilters: (_, { pinnedFilters }) => pinnedFilters,
+            },
+        ],
+        personId: [
+            undefined as string | undefined,
+            {
+                setPersonId: (_, { personId }) => personId,
             },
         ],
     }),
@@ -241,6 +254,9 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
         if (!equal(logicProps.pinnedFilters, oldProps.pinnedFilters)) {
             actions.setPinnedFilters(logicProps.pinnedFilters)
         }
+        if (logicProps.personId !== oldProps.personId) {
+            actions.setPersonId(logicProps.personId)
+        }
     }),
 
     afterMount(({ actions, props: logicProps }) => {
@@ -249,6 +265,9 @@ export const logsViewerFiltersLogic = kea<logsViewerFiltersLogicType>([
         }
         if (logicProps.pinnedFilters) {
             actions.setPinnedFilters(logicProps.pinnedFilters)
+        }
+        if (logicProps.personId) {
+            actions.setPersonId(logicProps.personId)
         }
     }),
 ])

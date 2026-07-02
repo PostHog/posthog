@@ -3386,6 +3386,8 @@ export interface LogsQuery extends DataNode<LogsQueryResponse> {
     resourceFingerprint?: string
     /** Omit the per-log `attributes` and `resource_attributes` maps from results to keep payloads compact */
     excludeAttributes?: boolean
+    /** Show logs for a given person */
+    personId?: string
 }
 
 export interface LogsQueryResponse extends AnalyticsQueryResponseBase {
