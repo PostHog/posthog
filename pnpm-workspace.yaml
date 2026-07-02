@@ -17,6 +17,9 @@ packages:
     - products/*
     - products/agent_platform/services/*
     - products/agent_platform/packages/*
+    # Standalone: own lockfile, keeps heavy (Stage 2 ML) deps out of the root install. Not matched by the
+    # single-level globs above today; the negation keeps it out if a products/*/services glob is ever added.
+    - '!products/replay_vision/services/ml-mirror-image-scrub'
     - docs/onboarding
     - services/agent-proxy
     - services/oauth-proxy
