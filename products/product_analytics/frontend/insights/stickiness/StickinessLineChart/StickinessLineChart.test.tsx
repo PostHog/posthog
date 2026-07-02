@@ -121,19 +121,24 @@ describe('StickinessLineChart', () => {
             expect(personsModal.get()).not.toBeInTheDocument()
         })
 
-        it('shared mode: clicking a data point does not open the persons modal', async () => {
-            // Shared/exported pages set this global before React mounts; trendsDataLogic.hasPersonsModal reads it.
-            window.POSTHOG_EXPORTED_DATA = { type: ExportType.Embed }
-            try {
+        describe('shared mode', () => {
+            beforeEach(() => {
+                // Shared/exported pages set this global before React mounts; trendsDataLogic.hasPersonsModal reads it.
+                window.POSTHOG_EXPORTED_DATA = { type: ExportType.Embed }
+            })
+
+            afterEach(() => {
+                delete (window as { POSTHOG_EXPORTED_DATA?: unknown }).POSTHOG_EXPORTED_DATA
+            })
+
+            it('clicking a data point does not open the persons modal', async () => {
                 renderInsight({ query: buildStickinessQuery(), inSharedMode: true })
 
                 await chart.clickAtIndex(2)
 
                 // Sharing-token auth can't run person-level queries, so shared views must not offer the drill-down.
                 expect(personsModal.get()).not.toBeInTheDocument()
-            } finally {
-                delete (window as { POSTHOG_EXPORTED_DATA?: unknown }).POSTHOG_EXPORTED_DATA
-            }
+            })
         })
     })
 

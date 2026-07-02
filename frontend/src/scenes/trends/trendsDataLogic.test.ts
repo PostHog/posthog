@@ -435,19 +435,24 @@ describe('trendsDataLogic', () => {
             await expectLogic(logic).toMatchValues({ hasPersonsModal: true })
         })
 
-        it('is false on shared/exported views', async () => {
-            // Set before mounting: the global is read inside the selector, so it must be
-            // in place when the selector first computes (as on real shared pages, where
-            // Django injects it before React runs).
-            window.POSTHOG_EXPORTED_DATA = { type: ExportType.Embed }
-            try {
+        describe('on shared/exported views', () => {
+            beforeEach(async () => {
+                // Set before mounting: the global is read inside the selector, so it must be
+                // in place when the selector first computes (as on real shared pages, where
+                // Django injects it before React runs). The outer beforeEach has already
+                // mounted everything, so remount with the global in place.
+                window.POSTHOG_EXPORTED_DATA = { type: ExportType.Embed }
                 initKeaTests(false)
                 await initTrendsDataLogic()
+            })
 
-                await expectLogic(logic).toMatchValues({ hasPersonsModal: false })
-            } finally {
+            afterEach(() => {
                 delete (window as { POSTHOG_EXPORTED_DATA?: unknown }).POSTHOG_EXPORTED_DATA
-            }
+            })
+
+            it('is false', async () => {
+                await expectLogic(logic).toMatchValues({ hasPersonsModal: false })
+            })
         })
 
         it('is false when the query opts out via hidePersonsModal', async () => {

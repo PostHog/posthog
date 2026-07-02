@@ -131,10 +131,17 @@ describe('TrendsBarChart (ActionsBar)', () => {
         expect(personsModal.title()).toMatch(/12 Jun/)
     })
 
-    it('shared mode: clicking a bar does not open the persons modal', async () => {
-        // Shared/exported pages set this global before React mounts; trendsDataLogic.hasPersonsModal reads it.
-        window.POSTHOG_EXPORTED_DATA = { type: ExportType.Embed }
-        try {
+    describe('shared mode', () => {
+        beforeEach(() => {
+            // Shared/exported pages set this global before React mounts; trendsDataLogic.hasPersonsModal reads it.
+            window.POSTHOG_EXPORTED_DATA = { type: ExportType.Embed }
+        })
+
+        afterEach(() => {
+            delete (window as { POSTHOG_EXPORTED_DATA?: unknown }).POSTHOG_EXPORTED_DATA
+        })
+
+        it('clicking a bar does not open the persons modal', async () => {
             renderInsight({ query: trendsBar(), inSharedMode: true })
             await screen.findByRole('img', { name: /chart with/i }, { timeout: 5000 })
 
@@ -142,9 +149,7 @@ describe('TrendsBarChart (ActionsBar)', () => {
 
             // Sharing-token auth can't run person-level queries, so shared views must not offer the drill-down.
             expect(personsModal.get()).not.toBeInTheDocument()
-        } finally {
-            delete (window as { POSTHOG_EXPORTED_DATA?: unknown }).POSTHOG_EXPORTED_DATA
-        }
+        })
     })
 
     it('renders InsightEmptyState when all series are zero', async () => {
