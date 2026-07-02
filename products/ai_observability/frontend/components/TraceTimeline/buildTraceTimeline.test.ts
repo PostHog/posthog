@@ -84,6 +84,25 @@ describe('buildTraceTimeline', () => {
         expect(laneCount).toBe(3)
     })
 
+    it('keeps children directly beneath their parent when an overlapping sibling spills over', () => {
+        // Two concurrent top-level spans (title [1000,5000] and memory [1000,1800]) plus a
+        // later span (root [6000,9000]) with a generation inside. Depth-banded layouts wedge
+        // memory's overflow lane between root and its child; flame packing must not.
+        const { bars, laneCount } = buildTraceTimeline([
+            ev('title', '$ai_span', 5000, 4, { $ai_span_id: 'title' }),
+            ev('title-gen', '$ai_generation', 4900, 3.8, { $ai_generation_id: 'tg', $ai_parent_id: 'title' }),
+            ev('memory', '$ai_span', 1800, 0.8, { $ai_span_id: 'memory' }),
+            ev('root', '$ai_span', 9000, 3, { $ai_span_id: 'root' }),
+            ev('root-gen', '$ai_generation', 8900, 2.8, { $ai_generation_id: 'rg', $ai_parent_id: 'root' }),
+        ])
+        const byId = Object.fromEntries(bars.map((b) => [b.id, b]))
+        expect(byId['root-gen'].lane).toBe(byId['root'].lane + 1) // child hugs its parent
+        expect(byId['title-gen'].lane).toBe(byId['title'].lane + 1)
+        expect(byId['memory'].lane).toBe(2) // pushed below title's whole subtree
+        expect(byId['root'].lane).toBe(0)
+        expect(laneCount).toBe(3)
+    })
+
     it.each([
         ['$ai_generation', 'generation'],
         ['$ai_embedding', 'embedding'],

@@ -10,7 +10,8 @@ export interface TraceTimelineBar {
     durationMs: number
     kind: TraceBarKind
     isError: boolean
-    // Flame-chart row: outer operations sit above the operations they contain.
+    // Flame-chart row: an event's children always render directly below it;
+    // concurrent siblings are pushed below each other's whole subtree.
     lane: number
 }
 
@@ -22,6 +23,9 @@ export interface TraceTimelineData {
 
 // Annotation events the trace tree hides too — they aren't steps in time.
 const HIDDEN_EVENTS = new Set(['$ai_feedback', '$ai_metric'])
+
+// Instant events still occupy a sliver of time when resolving lane collisions.
+const OVERLAP_MIN_MS = 1
 
 // Mirrors getEventType in ../../utils.ts so bar colors match the tree's tags.
 function kindOf(event: string): TraceBarKind {
@@ -43,6 +47,7 @@ function labelOf(event: LLMTraceEvent): string {
 }
 
 interface TimedEvent {
+    idx: number
     event: LLMTraceEvent
     /** The operation's start as epoch ms, see the timestamp-convention note below. */
     startAt: number
@@ -50,18 +55,6 @@ interface TimedEvent {
     /** Same node identity conventions as restoreTree, so nesting matches the tree. */
     nodeId: string
     parentId: string | null
-}
-
-function depthOf(timedEvent: TimedEvent, byNodeId: Map<string, TimedEvent>): number {
-    let depth = 0
-    const seen = new Set<string>([timedEvent.nodeId])
-    let parent = timedEvent.parentId != null ? byNodeId.get(timedEvent.parentId) : undefined
-    while (parent && !seen.has(parent.nodeId)) {
-        depth++
-        seen.add(parent.nodeId)
-        parent = parent.parentId != null ? byNodeId.get(parent.parentId) : undefined
-    }
-    return depth
 }
 
 export function buildTraceTimeline(events: LLMTraceEvent[]): TraceTimelineData {
@@ -78,6 +71,7 @@ export function buildTraceTimeline(events: LLMTraceEvent[]): TraceTimelineData {
         const latencyMs = isFinite(latencySec) && latencySec > 0 ? latencySec * 1000 : 0
         const p = event.properties || {}
         timed.push({
+            idx: timed.length,
             event,
             // PostHog AI SDKs capture an event when the operation finishes, so its
             // timestamp is the END and $ai_latency the duration — while OTel-ingested
@@ -99,7 +93,7 @@ export function buildTraceTimeline(events: LLMTraceEvent[]): TraceTimelineData {
 
     const traceStart = Math.min(...timed.map((e) => e.startAt))
 
-    const bars: (TraceTimelineBar & { depth: number })[] = timed.map((timedEvent) => ({
+    const bars: TraceTimelineBar[] = timed.map((timedEvent) => ({
         id: timedEvent.event.id,
         label: labelOf(timedEvent.event),
         startMs: timedEvent.startAt - traceStart,
@@ -107,39 +101,102 @@ export function buildTraceTimeline(events: LLMTraceEvent[]): TraceTimelineData {
         kind: kindOf(timedEvent.event.event),
         isError: !!timedEvent.event.properties?.$ai_is_error,
         lane: 0,
-        depth: depthOf(timedEvent, byNodeId),
     }))
 
     const totalMs = Math.max(...bars.map((b) => b.startMs + b.durationMs))
 
-    // Flame layout: one band of lanes per tree depth, so containers render above
-    // their contents. Within a depth, overlapping bars (concurrent siblings) spill
-    // into extra sub-lanes; non-overlapping ones share a lane.
-    const byDepth = new Map<number, (TraceTimelineBar & { depth: number })[]>()
-    for (const bar of bars) {
-        const group = byDepth.get(bar.depth)
-        if (group) {
-            group.push(bar)
+    // Restore the forest with the tree's parent-resolution rules: an event whose
+    // parent isn't among the events (e.g. the $ai_trace root the query runner
+    // strips out) starts its own top-level subtree.
+    const childrenOf = new Map<string, TimedEvent[]>()
+    const roots: TimedEvent[] = []
+    for (const timedEvent of timed) {
+        const parent = timedEvent.parentId != null ? byNodeId.get(timedEvent.parentId) : undefined
+        if (!parent || parent === timedEvent) {
+            roots.push(timedEvent)
+            continue
+        }
+        const siblings = childrenOf.get(parent.nodeId)
+        if (siblings) {
+            siblings.push(timedEvent)
         } else {
-            byDepth.set(bar.depth, [bar])
+            childrenOf.set(parent.nodeId, [timedEvent])
         }
     }
-    let laneCount = 0
-    for (const depth of [...byDepth.keys()].sort((a, b) => a - b)) {
-        const group = byDepth.get(depth)!
-        group.sort((a, b) => a.startMs - b.startMs || b.durationMs - a.durationMs)
+
+    const startOf = (e: TimedEvent): number => e.startAt
+    const endOf = (e: TimedEvent): number => e.startAt + Math.max(e.latencyMs, OVERLAP_MIN_MS)
+
+    // Each sibling subtree is a rectangle: its time interval × its height in lanes.
+    // Siblings pack greedily; one that overlaps another in time drops below that
+    // sibling's whole rectangle, so a bar's children are always directly beneath it.
+    const offs: number[] = []
+    const visited = new Set<number>()
+
+    function packBand(siblings: TimedEvent[]): number {
+        const ordered = [...siblings].sort(
+            (a, b) => startOf(a) - startOf(b) || endOf(b) - startOf(b) - (endOf(a) - startOf(a))
+        )
+        const placed: { start: number; end: number; off: number; h: number }[] = []
+        let bandHeight = 0
+        for (const sibling of ordered) {
+            if (visited.has(sibling.idx)) {
+                continue
+            }
+            visited.add(sibling.idx)
+            const kids = childrenOf.get(sibling.nodeId)
+            const h = 1 + (kids ? packBand(kids) : 0)
+            const start = startOf(sibling)
+            const end = endOf(sibling)
+            const overlapping = placed.filter((p) => p.end > start && p.start < end)
+            let off = 0
+            for (const candidate of [0, ...overlapping.map((p) => p.off + p.h)].sort((a, b) => a - b)) {
+                if (!overlapping.some((p) => candidate < p.off + p.h && p.off < candidate + h)) {
+                    off = candidate
+                    break
+                }
+            }
+            offs[sibling.idx] = off
+            placed.push({ start, end, off, h })
+            bandHeight = Math.max(bandHeight, off + h)
+        }
+        return bandHeight
+    }
+
+    let laneCount = packBand(roots)
+
+    const assignLanes = (timedEvent: TimedEvent, baseLane: number): void => {
+        const lane = baseLane + (offs[timedEvent.idx] ?? 0)
+        bars[timedEvent.idx].lane = lane
+        // Only the canonical event for a node id owns its children, so duplicated
+        // span ids don't assign the same subtree twice.
+        if (byNodeId.get(timedEvent.nodeId) !== timedEvent) {
+            return
+        }
+        for (const kid of childrenOf.get(timedEvent.nodeId) ?? []) {
+            assignLanes(kid, lane + 1)
+        }
+    }
+    for (const root of roots) {
+        assignLanes(root, 0)
+    }
+
+    // Events stranded by a parent-reference cycle never get reached from a root —
+    // lay them out flat at the bottom instead of dropping them.
+    const stranded = timed.filter((e) => !visited.has(e.idx))
+    if (stranded.length) {
         const laneEnds: number[] = []
-        for (const bar of group) {
-            let subLane = laneEnds.findIndex((end) => end <= bar.startMs)
+        for (const timedEvent of [...stranded].sort((a, b) => startOf(a) - startOf(b))) {
+            let subLane = laneEnds.findIndex((end) => end <= startOf(timedEvent))
             if (subLane === -1) {
                 subLane = laneEnds.length
             }
-            laneEnds[subLane] = bar.startMs + bar.durationMs
-            bar.lane = laneCount + subLane
+            laneEnds[subLane] = endOf(timedEvent)
+            bars[timedEvent.idx].lane = laneCount + subLane
         }
         laneCount += laneEnds.length
     }
 
     bars.sort((a, b) => a.lane - b.lane || a.startMs - b.startMs)
-    return { bars: bars.map(({ depth: _depth, ...bar }) => bar), totalMs, laneCount }
+    return { bars, totalMs, laneCount }
 }
