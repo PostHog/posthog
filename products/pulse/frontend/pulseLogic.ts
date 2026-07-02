@@ -7,6 +7,9 @@ import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
 import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
+import { urls } from 'scenes/urls'
+
+import { InsightShortId } from '~/types'
 
 import {
     pulseBriefsGenerateCreate,
@@ -47,6 +50,34 @@ function parseCitation(citation: string): BriefCitation {
         return { type: '', ref: citation }
     }
     return { type: citation.slice(0, separatorIndex), ref: citation.slice(separatorIndex + 1) }
+}
+
+/** Tag labels for the citation types that link out; unknown types render as plain tags. */
+export const CITATION_TYPE_LABELS: Record<string, string> = {
+    insight: 'Insight',
+    dashboard: 'Dashboard',
+    flag: 'Feature flag',
+    experiment: 'Experiment',
+}
+
+/** URL for a citation's target scene, or null for unknown types (rendered unlinked). */
+export function citationUrl({ type, ref }: BriefCitation): string | null {
+    if (!ref) {
+        return null
+    }
+    switch (type) {
+        case 'insight':
+            return urls.insightView(ref as InsightShortId)
+        case 'dashboard':
+            return urls.dashboard(ref)
+        case 'flag':
+            // The backend cites flags by numeric id (the flag scene's param); the key lives in the label.
+            return urls.featureFlag(ref)
+        case 'experiment':
+            return urls.experiment(ref)
+        default:
+            return null
+    }
 }
 
 function parseSection(section: ProductBriefApiSectionsItem): BriefSection {

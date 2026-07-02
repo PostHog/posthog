@@ -9,7 +9,7 @@ import { useMocks } from '~/mocks/jest'
 import { initKeaTests } from '~/test/init'
 
 import type { BriefConfigApi, ProductBriefApi } from './generated/api.schemas'
-import { BRIEF_ALREADY_GENERATING_MESSAGE, MAX_CONSECUTIVE_POLL_FAILURES, pulseLogic } from './pulseLogic'
+import { BRIEF_ALREADY_GENERATING_MESSAGE, MAX_CONSECUTIVE_POLL_FAILURES, citationUrl, pulseLogic } from './pulseLogic'
 
 const generatingBrief = {
     id: 'brief-1',
@@ -274,5 +274,16 @@ describe('pulseLogic', () => {
     ])('parses malformed brief sections: %s', (_name, section, expected) => {
         logic.actions.loadBriefDetailSuccess({ ...readyBrief, sections: [section] } as unknown as ProductBriefApi)
         expect(logic.values.briefDetailSections[0]).toEqual(expected)
+    })
+
+    it.each<[string, { type: string; ref: string }, string | null]>([
+        ['insight', { type: 'insight', ref: 'abc123' }, '/insights/abc123'],
+        ['dashboard', { type: 'dashboard', ref: '5' }, '/dashboard/5'],
+        ['flag', { type: 'flag', ref: '123' }, '/feature_flags/123'],
+        ['experiment', { type: 'experiment', ref: '45' }, '/experiments/45'],
+        ['unknown type falls back to unlinked', { type: 'signal_report', ref: 'x1' }, null],
+        ['empty ref never links', { type: 'flag', ref: '' }, null],
+    ])('maps %s citations to a scene URL', (_name, citation, expected) => {
+        expect(citationUrl(citation)).toEqual(expected)
     })
 })

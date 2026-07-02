@@ -19,12 +19,18 @@ import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
-import { InsightShortId } from '~/types'
 
 import { BriefConfigModal } from './BriefConfigModal'
 import type { ProductBriefListApi } from './generated/api.schemas'
 import { ProductBriefStatusEnumApi } from './generated/api.schemas'
-import { BRIEF_ALREADY_GENERATING_MESSAGE, BriefCitation, BriefSection, pulseLogic } from './pulseLogic'
+import {
+    BRIEF_ALREADY_GENERATING_MESSAGE,
+    BriefCitation,
+    BriefSection,
+    CITATION_TYPE_LABELS,
+    citationUrl,
+    pulseLogic,
+} from './pulseLogic'
 
 export const scene: SceneExport = {
     component: PulseScene,
@@ -273,18 +279,14 @@ function BriefSectionCard({ section }: { section: BriefSection }): JSX.Element {
 
 function CitationTag({ citation }: { citation: BriefCitation }): JSX.Element {
     const { type, ref } = citation
+    const url = citationUrl(citation)
 
-    if (type === 'insight' && ref) {
+    if (url) {
         return (
-            <Link to={urls.insightView(ref as InsightShortId)}>
-                <LemonTag>Insight {ref}</LemonTag>
-            </Link>
-        )
-    }
-    if (type === 'dashboard' && ref) {
-        return (
-            <Link to={urls.dashboard(ref)}>
-                <LemonTag>Dashboard {ref}</LemonTag>
+            <Link to={url}>
+                <LemonTag>
+                    {CITATION_TYPE_LABELS[type]} {ref}
+                </LemonTag>
             </Link>
         )
     }
