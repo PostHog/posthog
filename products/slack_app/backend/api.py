@@ -3087,9 +3087,11 @@ def _permission_options_by_id(context: dict[str, Any]) -> dict[str, dict[str, st
         option_id = option.get("optionId")
         if not isinstance(option_id, str) or not option_id:
             continue
+        kind = option.get("kind")
+        label = option.get("label")
         by_id[option_id] = {
-            "kind": option.get("kind") if isinstance(option.get("kind"), str) else "",
-            "label": option.get("label") if isinstance(option.get("label"), str) else option_id,
+            "kind": kind if isinstance(kind, str) else "",
+            "label": label if isinstance(label, str) else option_id,
         }
     return by_id
 

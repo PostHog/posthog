@@ -57,7 +57,7 @@ def _resolve_slack_autonomy_policy(
 ) -> SlackAutonomyPolicy:
     from products.slack_app.backend.models import SlackAutonomyTier, SlackSettings
 
-    tier = SlackAutonomyTier.ASK_BEFORE_WRITE
+    tier: str = SlackAutonomyTier.ASK_BEFORE_WRITE
     settings = list(
         SlackSettings.objects.filter(slack_workspace_id=slack_workspace_id)
         .filter(models.Q(slack_user_id=slack_user_id) | models.Q(slack_user_id__isnull=True))

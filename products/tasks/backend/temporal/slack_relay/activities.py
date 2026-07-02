@@ -83,7 +83,7 @@ def _markdown_to_slack_mrkdwn(text: str) -> str:
 def _append_unconfirmed_attachment_notice(
     text: str,
     *,
-    artifacts: list[dict[str, Any]] | None,
+    artifacts: list[Any] | None,
     origin_product: str | None,
 ) -> str:
     if origin_product != "slack" or artifacts:
@@ -103,7 +103,7 @@ def _append_unconfirmed_attachment_notice(
 def _append_artifact_links(
     text: str,
     *,
-    artifacts: list[dict[str, Any]] | None,
+    artifacts: list[Any] | None,
     origin_product: str | None,
 ) -> str:
     if origin_product != "slack" or not artifacts:

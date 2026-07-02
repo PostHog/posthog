@@ -12,6 +12,7 @@ import httpx_sse
 from parameterized import parameterized
 from temporalio.exceptions import ApplicationError
 
+from products.tasks.backend.models import TaskRun
 from products.tasks.backend.temporal.process_task import workflow as process_task_workflow_module
 from products.tasks.backend.temporal.process_task.activities.get_task_processing_context import TaskProcessingContext
 from products.tasks.backend.temporal.process_task.activities.relay_sandbox_events import (
@@ -474,7 +475,7 @@ class TestRelaySandboxEventsErrorHandling:
             redis_stream=cast(TaskRunRedisStream, redis_stream),
             run_id="run-id",
             task_id="task-id",
-            task_run=cast(object, task_run),
+            task_run=cast(TaskRun, task_run),
         )
 
         redis_stream.write_event.assert_any_await(permission_event)
