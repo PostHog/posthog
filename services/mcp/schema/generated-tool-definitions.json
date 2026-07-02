@@ -2601,7 +2601,7 @@
         "title": "Create error tracking bypass rule",
         "required_scopes": ["error_tracking:write"],
         "annotations": {
-            "destructiveHint": false,
+            "destructiveHint": true,
             "idempotentHint": false,
             "openWorldHint": true,
             "readOnlyHint": false
@@ -2629,7 +2629,7 @@
         "title": "Update error tracking bypass rule",
         "required_scopes": ["error_tracking:write"],
         "annotations": {
-            "destructiveHint": false,
+            "destructiveHint": true,
             "idempotentHint": true,
             "openWorldHint": true,
             "readOnlyHint": false
