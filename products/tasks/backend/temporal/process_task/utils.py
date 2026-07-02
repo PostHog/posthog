@@ -270,6 +270,13 @@ class RunState(BaseModel, extra="allow"):
             return None
         return normalize_directory_resume_snapshot_mount_path(self.snapshot_mount_path)
 
+    def resume_snapshot_is_usable(self) -> bool:
+        """A directory snapshot whose stored mount path was invalidated (e.g. legacy "/tmp"
+        captures) can't be restored anywhere — callers must provision fresh instead."""
+        return not (
+            self.resume_snapshot_kind() == SNAPSHOT_KIND_DIRECTORY and self.resume_snapshot_mount_path() is None
+        )
+
 
 def parse_run_state(state: dict[str, Any] | None) -> RunState:
     return RunState.model_validate(state or {})
@@ -279,6 +286,11 @@ def parse_run_state(state: dict[str, Any] | None) -> RunState:
 class SnapshotMetadata:
     kind: SnapshotKind
     mount_path: str | None
+
+    @property
+    def is_usable(self) -> bool:
+        """See ``RunState.resume_snapshot_is_usable`` — same invalidation rule."""
+        return not (self.kind == SNAPSHOT_KIND_DIRECTORY and self.mount_path is None)
 
 
 def get_sandbox_snapshot_metadata(snapshot: SandboxSnapshot) -> SnapshotMetadata:

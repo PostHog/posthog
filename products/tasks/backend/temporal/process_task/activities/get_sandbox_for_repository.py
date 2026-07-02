@@ -8,11 +8,7 @@ from temporalio import activity
 
 from posthog.temporal.common.utils import asyncify
 
-from products.tasks.backend.constants import (
-    SNAPSHOT_KIND_DIRECTORY,
-    SNAPSHOT_KIND_FILESYSTEM,
-    filter_user_sandbox_env_vars,
-)
+from products.tasks.backend.constants import SNAPSHOT_KIND_FILESYSTEM, filter_user_sandbox_env_vars
 from products.tasks.backend.exceptions import GitHubAuthenticationError, OAuthTokenError, TaskNotFoundError
 from products.tasks.backend.logic.services.connection_token import (
     SANDBOX_JWT_STATE_KID_KEY,
@@ -128,9 +124,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
                 snapshot_lookup_timer.set_used_snapshot(used_snapshot)
             if snapshot is not None:
                 snapshot_metadata = get_sandbox_snapshot_metadata(snapshot)
-                if snapshot_metadata.kind == SNAPSHOT_KIND_DIRECTORY and snapshot_metadata.mount_path is None:
-                    # Directory snapshot with a disallowed mount path (e.g. legacy "/tmp"): its
-                    # content layout matches that path, so it can't be remapped. Provision fresh.
+                if not snapshot_metadata.is_usable:
                     snapshot = None
                     used_snapshot = False
                 else:
@@ -231,11 +225,7 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
         # Check for resume snapshot (takes priority over integration-level snapshots)
         resume_snapshot_ext_id = run_state.snapshot_external_id
         if resume_snapshot_ext_id:
-            resume_snapshot_kind = run_state.resume_snapshot_kind()
-            resume_snapshot_mount_path = run_state.resume_snapshot_mount_path()
-            if resume_snapshot_kind == SNAPSHOT_KIND_DIRECTORY and resume_snapshot_mount_path is None:
-                # Same invalidation as the repository-snapshot branch above, for directory
-                # snapshots referenced from run state (e.g. legacy "/tmp" captures).
+            if not run_state.resume_snapshot_is_usable():
                 emit_agent_log(
                     ctx.run_id,
                     "debug",
@@ -245,8 +235,8 @@ def get_sandbox_for_repository(input: GetSandboxForRepositoryInput) -> GetSandbo
             else:
                 used_snapshot = True
                 snapshot_source = "resume"
-                snapshot_kind = resume_snapshot_kind
-                snapshot_mount_path = resume_snapshot_mount_path
+                snapshot_kind = run_state.resume_snapshot_kind()
+                snapshot_mount_path = run_state.resume_snapshot_mount_path()
 
         provider = getattr(settings, "SANDBOX_PROVIDER", None)
         image_source_label = _get_image_source_label(
