@@ -4052,10 +4052,13 @@ class TestExternalDataSource(APIBaseTest):
             )
 
         assert response.status_code == 400
-        assert response.json()["message"] == str(error)
         if expect_capture:
+            # Unexpected errors return the safe generic fallback, never the raw exception string.
+            assert response.json()["message"] == "Could not fetch schemas from source."
             mock_capture_exception.assert_called_once_with(error, {"source_type": "BigQuery", "team_id": self.team.pk})
         else:
+            # Expected per-source errors surface the classifier's friendly copy.
+            assert response.json()["message"] == str(error)
             mock_capture_exception.assert_not_called()
 
     def test_database_schema_stripe_surfaces_per_endpoint_permission_errors(self):

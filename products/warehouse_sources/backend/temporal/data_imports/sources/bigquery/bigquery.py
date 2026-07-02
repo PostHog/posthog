@@ -395,11 +395,15 @@ def delete_all_temp_destination_tables(
                     bq.delete_table(table.reference)
                     if logger:
                         logger.debug(f"Deleted bigquery table {table.table_id}")
-        except (Forbidden, NotFound) as e:
+        except (Forbidden, NotFound, RefreshError) as e:
             # Best-effort cleanup. If the service account has lost permission to list/delete
-            # tables, or the dataset no longer exists, there's nothing to recover here — log
-            # quietly rather than capturing an expected, non-actionable condition that would
-            # otherwise fire on every sync for an affected source.
+            # tables, the dataset no longer exists, or a token refresh fails for any reason
+            # (rejected credentials from a rotated/revoked key — `RefreshError: invalid_grant` — or
+            # a transient refresh error), there's nothing to recover here. Rejected credentials, the
+            # common case, are already surfaced with an actionable message on the main sync path via
+            # `get_non_retryable_errors`; a transient refresh failure just leaves temp tables to be
+            # cleaned up on the next run. Log quietly rather than capturing an expected,
+            # non-actionable condition that would otherwise fire on every sync for an affected source.
             if logger:
                 logger.warning(f"Skipping temp table cleanup for dataset {dataset_id}: {e}")
         except Exception as e:

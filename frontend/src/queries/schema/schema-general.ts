@@ -6898,6 +6898,7 @@ export const externalDataSources = [
     'InforNexus',
     'Insightful',
     'Insightly',
+    'Instantly',
     'Instatus',
     'Intruder',
     'Invoiced',
@@ -7200,6 +7201,11 @@ export const externalDataSources = [
     'AppLovin',
     'Baserow',
     'Plunk',
+    'Dub',
+    'AirOps',
+    'Podium',
+    'Loops',
+    'Redis',
 ] as const
 
 export type ExternalDataSourceType = (typeof externalDataSources)[number]

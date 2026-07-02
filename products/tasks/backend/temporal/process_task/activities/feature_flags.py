@@ -25,10 +25,18 @@ def is_slack_app_agent_design_enabled_for_task_activity(
 ) -> bool:
     """Flag check + persist to TaskRun.state so out-of-workflow callers (e.g.
     forward_pending_message) can read the decision without re-evaluating."""
+    from posthog.models.integration import Integration
+
     from products.slack_app.backend.feature_flags import is_slack_app_agent_design_enabled
     from products.tasks.backend.models import TaskRun
 
-    enabled = is_slack_app_agent_design_enabled(input.integration_id)
+    try:
+        integration = Integration.objects.select_related("team", "team__organization").get(id=input.integration_id)
+    except Integration.DoesNotExist:
+        logger.warning("slack_app_agent_design_integration_missing", integration_id=input.integration_id)
+        enabled = False
+    else:
+        enabled = is_slack_app_agent_design_enabled(integration)
 
     def _persist(state: dict[str, Any]) -> None:
         state[AGENT_DESIGN_STATE_KEY] = enabled

@@ -245,7 +245,9 @@ def redispatch_orphaned_queued_task_runs() -> None:
     RECONCILE_AFTER = datetime.timedelta(minutes=5)
 
     # Janitor sweep is intentionally cross-team — it runs without a team context.
-    candidate_ids = tasks_facade.get_stale_queued_task_run_ids(RECONCILE_AFTER, BATCH_SIZE)
+    # cloud_only: local (desktop) runs idle in QUEUED by design while the desktop agent drives
+    # them; cloud-dispatching one hijacks the live session and eventually marks it failed.
+    candidate_ids = tasks_facade.get_stale_queued_task_run_ids(RECONCILE_AFTER, BATCH_SIZE, cloud_only=True)
     outcomes: dict[str, int] = {}
     for run_id in candidate_ids:
         try:
@@ -264,6 +266,7 @@ def redispatch_orphaned_queued_task_runs() -> None:
         recovered=outcomes.get("recovered", 0),
         already_running=outcomes.get("already_running", 0),
         left_queue=outcomes.get("left_queue", 0),
+        skipped_local=outcomes.get("skipped_local", 0),
         errors=outcomes.get("error", 0),
         batch_size=BATCH_SIZE,
         saturated=saturated,

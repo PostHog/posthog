@@ -27,12 +27,12 @@ scratch** for a use case the fleet doesn't cover.
 
 Scouts come in **two output channels**, picked per scout via its frontmatter `allowed_tools`:
 
-- **Signal-emitting** (the default, most of the fleet) — fires weak **findings** via
-  `emit-signal` that the pipeline groups, dedupes, and may promote into a report.
+- **Signal-emitting** (the default for a scout with no `allowed_tools` opt-in) — fires weak
+  **findings** via `emit-signal` that the pipeline groups, dedupes, and may promote into a report.
 - **Report-authoring** — lists `emit_report` / `edit_report` in `allowed_tools` and writes a
   full inbox **report** 1:1 directly, skipping the pipeline, for a scout whose natural output is
-  one well-formed report. The canonical generalist (`signals-scout-general`) is the first scout
-  on this channel. See the report-channel reference below.
+  one well-formed report. Nearly the whole canonical fleet runs on this channel (every scout
+  except `signals-scout-skills-store`). See the report-channel reference below.
 
 The channel changes the scout's **Decide** section and which references it bundles, but not
 the rest of its anatomy — orient, discriminator, explore, memory, disqualifiers are the same.
@@ -101,8 +101,10 @@ exact skills-store calls, the build/lint commands, and how seeding works.
 First pick the **shape**. [`references/scout-patterns.md`](references/scout-patterns.md) is a
 cookbook of the reference architectures scouts fall into — anomaly watcher, watchlist
 explore/exploit, cross-product correlation, recommendation/gap, warehouse-backed source,
-custom single-event, open-text theme, external-tool/code — each mapped to a canonical scout
-you can copy as scaffolding. It also makes the key point that **a scout can watch any source
+custom single-event, open-text theme, external-tool/code, state∩code intersection, daily
+digest/roll-up, triage over a pre-detected stream, first-person dogfooding/probe — each
+mapped to a canonical scout you can copy as scaffolding. It also makes the key point that
+**a scout can watch any source
 PostHog ingests into the data warehouse, not just analytics events** (a Slack channel sync, a
 billing system, a CRM, a support inbox), plus external systems reachable from the sandbox.
 Find the closest pattern, then write the body.
