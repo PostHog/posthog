@@ -43,18 +43,16 @@ def validate_credentials(api_key: str) -> bool:
     """Confirm the API key is valid with a single catalog probe.
 
     An invalid key returns 400 (`API_KEY_INVALID`) and a missing key 403; only a genuine key
-    returns 200.
+    returns 200. Connection-level failures (DNS, timeout, reset) raise `requests.RequestException`
+    so the caller can tell "unreachable" apart from "invalid key" instead of blaming the credential.
     """
     config = GOOGLE_WEBFONTS_ENDPOINTS["webfonts"]
     params = {"sort": config.sort} if config.sort else {}
-    try:
-        response = _get_session(api_key).get(
-            _build_url(config.path, params),
-            timeout=10,
-        )
-        return response.status_code == 200
-    except Exception:
-        return False
+    response = _get_session(api_key).get(
+        _build_url(config.path, params),
+        timeout=10,
+    )
+    return response.status_code == 200
 
 
 def get_rows(

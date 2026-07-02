@@ -1,6 +1,8 @@
 import pytest
 from unittest import mock
 
+import requests
+
 from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInputConfigType
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import (
@@ -103,6 +105,17 @@ class TestGoogleWebfontsSource:
         assert is_valid is expected_valid
         assert error_message == expected_message
         mock_validate.assert_called_once_with("AIza-key")
+
+    @mock.patch(f"{_MODULE}.validate_google_webfonts_credentials")
+    def test_validate_credentials_reports_connection_failure_distinctly(self, mock_validate):
+        # A transient network failure must not be reported as an invalid key, or the user
+        # wastes time recreating a working credential.
+        mock_validate.side_effect = requests.ConnectionError("boom")
+
+        is_valid, error_message = self.source.validate_credentials(self.config, self.team_id)
+
+        assert is_valid is False
+        assert error_message == "Could not reach the Google Fonts API. Check your network connection and try again."
 
     @mock.patch(f"{_MODULE}.google_webfonts_source")
     def test_source_for_pipeline_plumbs_arguments(self, mock_source):

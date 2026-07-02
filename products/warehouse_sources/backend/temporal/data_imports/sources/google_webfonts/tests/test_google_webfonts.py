@@ -4,6 +4,8 @@ from urllib.parse import parse_qs, urlparse
 import pytest
 from unittest import mock
 
+import requests
+
 from products.warehouse_sources.backend.temporal.data_imports.sources.google_webfonts.google_webfonts import (
     MAX_RETRY_ATTEMPTS,
     GoogleWebfontsRetryableError,
@@ -68,9 +70,12 @@ class TestValidateCredentials:
         assert "AIza-secret" not in url
 
     @mock.patch(f"{_MODULE}.make_tracked_session")
-    def test_validate_credentials_swallows_exceptions(self, mock_session):
-        mock_session.return_value.get.side_effect = Exception("boom")
-        assert validate_credentials("AIza-key") is False
+    def test_validate_credentials_propagates_connection_errors(self, mock_session):
+        # Connection-level failures must surface so the caller can distinguish "unreachable"
+        # from "invalid key" rather than blaming the credential.
+        mock_session.return_value.get.side_effect = requests.ConnectionError("boom")
+        with pytest.raises(requests.ConnectionError):
+            validate_credentials("AIza-key")
 
 
 class TestGetRows:

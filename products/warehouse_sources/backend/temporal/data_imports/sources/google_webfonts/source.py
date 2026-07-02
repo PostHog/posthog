@@ -1,5 +1,7 @@
 from typing import Optional, cast
 
+import requests
+
 from posthog.schema import (
     DataWarehouseSourceCategory,
     ExternalDataSourceType as SchemaExternalDataSourceType,
@@ -111,8 +113,11 @@ Create an API key in the [Google Cloud Console](https://console.cloud.google.com
     def validate_credentials(
         self, config: GoogleWebfontsSourceConfig, team_id: int, schema_name: Optional[str] = None
     ) -> tuple[bool, str | None]:
-        if validate_google_webfonts_credentials(config.api_key):
-            return True, None
+        try:
+            if validate_google_webfonts_credentials(config.api_key):
+                return True, None
+        except requests.RequestException:
+            return False, "Could not reach the Google Fonts API. Check your network connection and try again."
 
         return False, "Invalid Google API key"
 
