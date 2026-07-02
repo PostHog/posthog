@@ -29,6 +29,15 @@ export function AiFirstHomepage(): JSX.Element {
     const isSearch = mode === 'search'
     const isContent = animationPhase === 'content'
 
+    // The centering spacers grow to fill the page in idle mode, so clicks in the large
+    // empty area around the input would otherwise dead-click. Forward focus to whichever
+    // input is currently rendered (only one mode's input exists in the DOM at a time).
+    // preventDefault on mousedown avoids blurring then re-focusing the input.
+    const focusInput = (e: React.MouseEvent): void => {
+        e.preventDefault()
+        document.querySelector<HTMLElement>('#homepage-input, #question-input, #app-autocomplete-search')?.focus()
+    }
+
     return (
         <BindLogic logic={maxLogic} props={{ panelId: HOMEPAGE_TAB_ID }}>
             <Search.Root
@@ -66,8 +75,9 @@ export function AiFirstHomepage(): JSX.Element {
                 <div className="flex flex-col grow overflow-hidden h-full">
                     {/* Top spacer — grows in idle (centering), collapses for AI and search */}
                     <div
+                        onMouseDown={focusInput}
                         className={cn(
-                            'basis-0 transition-[flex-grow] duration-300 ease-out motion-reduce:duration-0',
+                            'basis-0 transition-[flex-grow] duration-300 ease-out motion-reduce:duration-0 cursor-text',
                             isIdle || (isAi && !isContent) ? 'grow' : 'grow-0'
                         )}
                     />
@@ -115,8 +125,9 @@ export function AiFirstHomepage(): JSX.Element {
 
                     {/* Bottom spacer — grows in idle (centering), collapses for search and AI */}
                     <div
+                        onMouseDown={focusInput}
                         className={cn(
-                            'basis-0 transition-[flex-grow] duration-300 ease-out motion-reduce:duration-0',
+                            'basis-0 transition-[flex-grow] duration-300 ease-out motion-reduce:duration-0 cursor-text',
                             isIdle || (isSearch && !isContent) ? 'grow' : 'grow-0'
                         )}
                     />
