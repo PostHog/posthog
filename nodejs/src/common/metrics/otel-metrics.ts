@@ -21,6 +21,9 @@ import { registerShutdownHandler } from '~/lifecycle'
 let provider: MeterProvider | null = null
 
 export const initMetrics = (): void => {
+    if (provider) {
+        return
+    }
     if (!defaultConfig.OTEL_METRICS_EXPORT_URL || !defaultConfig.OTEL_METRICS_EXPORT_TOKEN) {
         return
     }
@@ -44,14 +47,11 @@ export const initMetrics = (): void => {
         ],
     })
     metricsApi.setGlobalMeterProvider(provider)
-}
 
-registerShutdownHandler(async () => {
-    if (!provider) {
-        return
-    }
-    await provider.shutdown()
-})
+    registerShutdownHandler(async () => {
+        await provider?.shutdown()
+    })
+}
 
 let piiReplacementsCounter: Counter | null = null
 
