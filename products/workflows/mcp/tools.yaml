@@ -111,11 +111,10 @@ tools:
             evaluate your condition. (2) Never hand-author bytecode anywhere; send properties/hash and the server
             compiles it. (3) A function_email node needs a sender: its inputs.email.value.from must reference an email
             integration by id ({from: {integrationId: <int>}}), not a bare address — list the project's 'email'
-            integrations to get a valid id. A 'batch' trigger broadcasts
-            to an audience (config.filters.properties: person-property conditions and/or cohort references), one run per
-            matching person, and does NOT fire on enable: dispatch with workflows-run-batch or attach a schedule with
-            workflows-schedule-create. Behavioral targeting ('did event X at least N times over the last M days') is
-            unsupported; reject it and explain why.
+            integrations to get a valid id. A 'batch' trigger broadcasts to an audience (config.filters.properties:
+            person-property conditions and/or cohort references), one run per matching person, and does NOT fire on
+            enable: dispatch with workflows-run-batch or attach a schedule with workflows-schedule-create. Behavioral
+            targeting ('did event X at least N times over the last M days') is unsupported; reject it and explain why.
         ui_app: workflow
     workflows-get:
         operation: hog_flows_retrieve
