@@ -5618,7 +5618,7 @@
                     "type": "string"
                 },
                 "hasMore": {
-                    "description": "Wether more breakdown values are available.",
+                    "description": "Whether more breakdown values are available.",
                     "type": "boolean"
                 },
                 "hogql": {
@@ -11472,7 +11472,7 @@
                     "type": "string"
                 },
                 "hasMore": {
-                    "description": "Wether more breakdown values are available.",
+                    "description": "Whether more breakdown values are available.",
                     "type": "boolean"
                 },
                 "hogql": {
@@ -12611,7 +12611,7 @@
                     "type": "string"
                 },
                 "hasMore": {
-                    "description": "Wether more breakdown values are available.",
+                    "description": "Whether more breakdown values are available.",
                     "type": "boolean"
                 },
                 "hogql": {
@@ -37208,7 +37208,7 @@
                             "type": "string"
                         },
                         "hasMore": {
-                            "description": "Wether more breakdown values are available.",
+                            "description": "Whether more breakdown values are available.",
                             "type": "boolean"
                         },
                         "hogql": {
@@ -46246,7 +46246,7 @@
                 "resultCustomizationBy": {
                     "$ref": "#/definitions/ResultCustomizationBy",
                     "default": "value",
-                    "description": "Wether result datasets are associated by their values or by their order."
+                    "description": "Whether result datasets are associated by their values or by their order."
                 },
                 "resultCustomizations": {
                     "anyOf": [
@@ -46553,7 +46553,7 @@
                     "type": "string"
                 },
                 "hasMore": {
-                    "description": "Wether more breakdown values are available.",
+                    "description": "Whether more breakdown values are available.",
                     "type": "boolean"
                 },
                 "hogql": {

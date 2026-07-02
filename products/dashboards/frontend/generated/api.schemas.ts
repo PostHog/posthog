@@ -1490,7 +1490,7 @@ export interface TrendsQueryResponseApi {
     boxplot_data?: BoxPlotDatumApi[] | null
     /** Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise. */
     error?: string | null
-    /** Wether more breakdown values are available. */
+    /** Whether more breakdown values are available. */
     hasMore?: boolean | null
     /** Generated HogQL query. */
     hogql?: string | null
@@ -2282,7 +2282,7 @@ export interface TrendsFilterApi {
     metricSummary?: MetricSummaryApi | null
     minDecimalPlaces?: number | null
     movingAverageIntervals?: number | null
-    /** Wether result datasets are associated by their values or by their order. */
+    /** Whether result datasets are associated by their values or by their order. */
     resultCustomizationBy?: ResultCustomizationByApi | null
     /** Customizations for the appearance of result datasets. */
     resultCustomizations?: TrendsFilterApiResultCustomizations

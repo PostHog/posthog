@@ -1515,7 +1515,7 @@ export type TrendsFilter = {
     showMultipleYAxes?: TrendsFilterLegacy['show_multiple_y_axes']
     hiddenLegendIndexes?: integer[]
     /**
-     * Wether result datasets are associated by their values or by their order.
+     * Whether result datasets are associated by their values or by their order.
      * @default value
      **/
     resultCustomizationBy?: ResultCustomizationBy
@@ -1615,7 +1615,7 @@ export interface BoxPlotDatum {
 
 export interface TrendsQueryResponse extends AnalyticsQueryResponseBase {
     results: Record<string, any>[]
-    /** Wether more breakdown values are available. */
+    /** Whether more breakdown values are available. */
     hasMore?: boolean
     /** @deprecated Box plot data is now returned in results. This field is no longer populated. */
     boxplot_data?: BoxPlotDatum[]
@@ -1665,7 +1665,7 @@ export interface TrendsQuery extends InsightsQueryBase<TrendsQueryResponse> {
 
 export interface CalendarHeatmapResponse extends AnalyticsQueryResponseBase {
     results: EventsHeatMapStructuredResult
-    /** Wether more breakdown values are available. */
+    /** Whether more breakdown values are available. */
     hasMore?: boolean
 }
 

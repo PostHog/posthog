@@ -8017,7 +8017,7 @@ class TrendsFilter(BaseModel):
     movingAverageIntervals: float | None = None
     resultCustomizationBy: ResultCustomizationBy | None = Field(
         default=ResultCustomizationBy.VALUE,
-        description=("Wether result datasets are associated by their values or by their order."),
+        description=("Whether result datasets are associated by their values or by their order."),
     )
     resultCustomizations: dict[str, ResultCustomizationByValue] | dict[str, ResultCustomizationByPosition] | None = (
         Field(
@@ -8059,7 +8059,7 @@ class TrendsQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
-    hasMore: bool | None = Field(default=None, description="Wether more breakdown values are available.")
+    hasMore: bool | None = Field(default=None, description="Whether more breakdown values are available.")
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -10291,7 +10291,7 @@ class CachedCalendarHeatmapQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
-    hasMore: bool | None = Field(default=None, description="Wether more breakdown values are available.")
+    hasMore: bool | None = Field(default=None, description="Whether more breakdown values are available.")
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
@@ -13070,7 +13070,7 @@ class CachedTrendsQueryResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
-    hasMore: bool | None = Field(default=None, description="Wether more breakdown values are available.")
+    hasMore: bool | None = Field(default=None, description="Whether more breakdown values are available.")
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     is_cached: bool
     last_refresh: AwareDatetime
@@ -13615,7 +13615,7 @@ class CalendarHeatmapResponse(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
-    hasMore: bool | None = Field(default=None, description="Wether more breakdown values are available.")
+    hasMore: bool | None = Field(default=None, description="Whether more breakdown values are available.")
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
@@ -20069,7 +20069,7 @@ class QueryResponseAlternative67(BaseModel):
             "Query error. Returned only if 'explain' or `modifiers.debug` is true. Throws an error otherwise."
         ),
     )
-    hasMore: bool | None = Field(default=None, description="Wether more breakdown values are available.")
+    hasMore: bool | None = Field(default=None, description="Whether more breakdown values are available.")
     hogql: str | None = Field(default=None, description="Generated HogQL query.")
     modifiers: HogQLQueryModifiers | None = Field(default=None, description="Modifiers used when performing the query")
     query_status: QueryStatus | None = Field(
