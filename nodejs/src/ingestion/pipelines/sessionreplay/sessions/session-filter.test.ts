@@ -1,4 +1,5 @@
 import { Limiter } from '~/common/utils/token-bucket'
+import { SessionSet } from '~/ingestion/pipelines/sessionreplay/shared/session-map'
 import { RedisPool } from '~/types'
 
 import { SessionBatchMetrics } from './metrics'
@@ -17,18 +18,28 @@ jest.mock('./metrics', () => ({
 
 jest.mock('~/common/utils/token-bucket')
 
+const sessionSet = (...pairs: [number, string][]): SessionSet => {
+    const set = new SessionSet()
+    pairs.forEach(([teamId, sessionId]) => set.add(teamId, sessionId))
+    return set
+}
+
 describe('SessionFilter', () => {
     let sessionFilter: SessionFilter
-    let mockRedis: { set: jest.Mock; exists: jest.Mock }
+    let mockRedis: { set: jest.Mock; mget: jest.Mock }
     let mockRedisPool: jest.Mocked<RedisPool>
     let mockConsume: jest.Mock
+
+    // Single-session convenience over the batched isBlocked, so the behavior assertions stay focused.
+    const blocked = (filter: SessionFilter, teamId: number, sessionId: string): Promise<boolean> =>
+        filter.isBlocked(sessionSet([teamId, sessionId])).then((m) => m.get(teamId, sessionId) ?? false)
 
     beforeEach(() => {
         jest.clearAllMocks()
 
         mockRedis = {
             set: jest.fn().mockResolvedValue('OK'),
-            exists: jest.fn().mockResolvedValue(0),
+            mget: jest.fn().mockResolvedValue([null]),
         }
 
         mockRedisPool = {
@@ -93,57 +104,62 @@ describe('SessionFilter', () => {
             expect(SessionBatchMetrics.incrementSessionFilterRedisErrors).toHaveBeenCalled()
 
             // Session should still be blocked locally (via cache set before Redis call)
-            const isBlocked = await sessionFilter.isBlocked(1, 'session-123')
-            expect(isBlocked).toBe(true)
+            expect(await blocked(sessionFilter, 1, 'session-123')).toBe(true)
             expect(SessionBatchMetrics.incrementSessionFilterCacheHit).toHaveBeenCalled()
         })
     })
 
     describe('isBlocked', () => {
+        it('resolves a batch in a single MGET, keyed by (teamId, sessionId)', async () => {
+            mockRedis.mget = jest.fn().mockResolvedValue([null, '1'])
+
+            const result = await sessionFilter.isBlocked(sessionSet([1, 'open'], [1, 'blocked']))
+
+            expect(result.get(1, 'open')).toBe(false)
+            expect(result.get(1, 'blocked')).toBe(true)
+            expect(mockRedis.mget).toHaveBeenCalledTimes(1)
+            expect(mockRedis.mget).toHaveBeenCalledWith([
+                '@posthog/replay/session-blocked:1:open',
+                '@posthog/replay/session-blocked:1:blocked',
+            ])
+        })
+
         it('should return false for non-blocked session', async () => {
-            mockRedis.exists.mockResolvedValue(0)
+            mockRedis.mget.mockResolvedValue([null])
 
-            const result = await sessionFilter.isBlocked(1, 'session-123')
-
-            expect(result).toBe(false)
-            expect(mockRedis.exists).toHaveBeenCalledWith('@posthog/replay/session-blocked:1:session-123')
+            expect(await blocked(sessionFilter, 1, 'session-123')).toBe(false)
+            expect(mockRedis.mget).toHaveBeenCalledWith(['@posthog/replay/session-blocked:1:session-123'])
         })
 
         it('should return true for blocked session in Redis', async () => {
-            mockRedis.exists.mockResolvedValue(1)
+            mockRedis.mget.mockResolvedValue(['1'])
 
-            const result = await sessionFilter.isBlocked(1, 'session-123')
-
-            expect(result).toBe(true)
+            expect(await blocked(sessionFilter, 1, 'session-123')).toBe(true)
         })
 
         it('should return true from cache without Redis call on subsequent checks for blocked sessions', async () => {
-            mockRedis.exists.mockResolvedValue(1)
+            mockRedis.mget.mockResolvedValue(['1'])
 
             // First call - hits Redis
-            await sessionFilter.isBlocked(1, 'session-123')
-            expect(mockRedis.exists).toHaveBeenCalledTimes(1)
+            await blocked(sessionFilter, 1, 'session-123')
+            expect(mockRedis.mget).toHaveBeenCalledTimes(1)
 
             // Second call - should hit cache
-            const result = await sessionFilter.isBlocked(1, 'session-123')
-
-            expect(result).toBe(true)
-            expect(mockRedis.exists).toHaveBeenCalledTimes(1) // Not called again
+            expect(await blocked(sessionFilter, 1, 'session-123')).toBe(true)
+            expect(mockRedis.mget).toHaveBeenCalledTimes(1) // Not called again
             expect(SessionBatchMetrics.incrementSessionFilterCacheHit).toHaveBeenCalled()
         })
 
         it('should return false from cache without Redis call on subsequent checks for non-blocked sessions', async () => {
-            mockRedis.exists.mockResolvedValue(0)
+            mockRedis.mget.mockResolvedValue([null])
 
             // First call - hits Redis
-            await sessionFilter.isBlocked(1, 'session-123')
-            expect(mockRedis.exists).toHaveBeenCalledTimes(1)
+            await blocked(sessionFilter, 1, 'session-123')
+            expect(mockRedis.mget).toHaveBeenCalledTimes(1)
 
             // Second call - should hit cache
-            const result = await sessionFilter.isBlocked(1, 'session-123')
-
-            expect(result).toBe(false)
-            expect(mockRedis.exists).toHaveBeenCalledTimes(1) // Not called again
+            expect(await blocked(sessionFilter, 1, 'session-123')).toBe(false)
+            expect(mockRedis.mget).toHaveBeenCalledTimes(1) // Not called again
             expect(SessionBatchMetrics.incrementSessionFilterCacheHit).toHaveBeenCalled()
         })
 
@@ -152,37 +168,33 @@ describe('SessionFilter', () => {
             await sessionFilter.handleNewSession(1, 'session-123')
 
             // Now check if blocked - should hit local cache
-            const result = await sessionFilter.isBlocked(1, 'session-123')
-
-            expect(result).toBe(true)
-            expect(mockRedis.exists).not.toHaveBeenCalled() // Used cache instead
+            expect(await blocked(sessionFilter, 1, 'session-123')).toBe(true)
+            expect(mockRedis.mget).not.toHaveBeenCalled() // Used cache instead
             expect(SessionBatchMetrics.incrementSessionFilterCacheHit).toHaveBeenCalled()
         })
 
         it('should increment cache miss metric when checking Redis', async () => {
-            mockRedis.exists.mockResolvedValue(0)
+            mockRedis.mget.mockResolvedValue([null])
 
-            await sessionFilter.isBlocked(1, 'new-session')
+            await blocked(sessionFilter, 1, 'new-session')
 
             expect(SessionBatchMetrics.incrementSessionFilterCacheMiss).toHaveBeenCalled()
         })
 
         it('should acquire and release Redis connection', async () => {
-            mockRedis.exists.mockResolvedValue(0)
+            mockRedis.mget.mockResolvedValue([null])
 
-            await sessionFilter.isBlocked(1, 'session-123')
+            await blocked(sessionFilter, 1, 'session-123')
 
             expect(mockRedisPool.acquire).toHaveBeenCalled()
             expect(mockRedisPool.release).toHaveBeenCalledWith(mockRedis)
         })
 
         it('should fail open and return false on Redis error', async () => {
-            mockRedis.exists.mockRejectedValue(new Error('Redis error'))
+            mockRedis.mget.mockRejectedValue(new Error('Redis error'))
 
             // Should not throw - fails open and returns false
-            const result = await sessionFilter.isBlocked(1, 'session-123')
-
-            expect(result).toBe(false)
+            expect(await blocked(sessionFilter, 1, 'session-123')).toBe(false)
             expect(mockRedisPool.release).toHaveBeenCalledWith(mockRedis)
             expect(SessionBatchMetrics.incrementSessionFilterRedisErrors).toHaveBeenCalled()
         })
@@ -190,9 +202,7 @@ describe('SessionFilter', () => {
         it('should fail open and return false on Redis acquire error', async () => {
             mockRedisPool.acquire.mockRejectedValue(new Error('Pool exhausted'))
 
-            const result = await sessionFilter.isBlocked(1, 'session-123')
-
-            expect(result).toBe(false)
+            expect(await blocked(sessionFilter, 1, 'session-123')).toBe(false)
             expect(SessionBatchMetrics.incrementSessionFilterRedisErrors).toHaveBeenCalled()
             // Release should not be called since acquire failed
             expect(mockRedisPool.release).not.toHaveBeenCalled()
@@ -200,14 +210,12 @@ describe('SessionFilter', () => {
 
         it('should not cache result on Redis error so subsequent calls retry', async () => {
             // First call fails
-            mockRedis.exists.mockRejectedValueOnce(new Error('Redis error'))
-            const result1 = await sessionFilter.isBlocked(1, 'session-123')
-            expect(result1).toBe(false)
+            mockRedis.mget.mockRejectedValueOnce(new Error('Redis error'))
+            expect(await blocked(sessionFilter, 1, 'session-123')).toBe(false)
 
             // Second call should retry Redis (not use cache)
-            mockRedis.exists.mockResolvedValueOnce(1)
-            const result2 = await sessionFilter.isBlocked(1, 'session-123')
-            expect(result2).toBe(true)
+            mockRedis.mget.mockResolvedValueOnce(['1'])
+            expect(await blocked(sessionFilter, 1, 'session-123')).toBe(true)
 
             // Should have called Redis twice (no caching on error)
             expect(mockRedisPool.acquire).toHaveBeenCalledTimes(2)
@@ -273,18 +281,18 @@ describe('SessionFilter', () => {
                 localCacheTtlMs: cacheTtlMs,
             })
 
-            mockRedis.exists.mockResolvedValue(1)
+            mockRedis.mget.mockResolvedValue(['1'])
 
             // First check - hits Redis
-            await shortTtlFilter.isBlocked(1, 'session-123')
-            expect(mockRedis.exists).toHaveBeenCalledTimes(1)
+            await blocked(shortTtlFilter, 1, 'session-123')
+            expect(mockRedis.mget).toHaveBeenCalledTimes(1)
 
             // Advance mocked time past cache TTL
             currentTime = startTime + cacheTtlMs + 1000
 
             // Second check - cache expired, should hit Redis again
-            await shortTtlFilter.isBlocked(1, 'session-123')
-            expect(mockRedis.exists).toHaveBeenCalledTimes(2)
+            await blocked(shortTtlFilter, 1, 'session-123')
+            expect(mockRedis.mget).toHaveBeenCalledTimes(2)
 
             jest.restoreAllMocks()
         })
@@ -343,9 +351,8 @@ describe('SessionFilter', () => {
             expect(mockRedis.set).not.toHaveBeenCalled()
 
             // isBlocked should return false immediately without Redis
-            const isBlocked = await disabledFilter.isBlocked(1, 'session-123')
-            expect(isBlocked).toBe(false)
-            expect(mockRedis.exists).not.toHaveBeenCalled()
+            expect(await blocked(disabledFilter, 1, 'session-123')).toBe(false)
+            expect(mockRedis.mget).not.toHaveBeenCalled()
         })
 
         it('should fail open on Redis acquire error during blocking', async () => {
@@ -357,8 +364,7 @@ describe('SessionFilter', () => {
 
             expect(SessionBatchMetrics.incrementSessionFilterRedisErrors).toHaveBeenCalled()
             // Session should still be blocked locally
-            const isBlocked = await sessionFilter.isBlocked(1, 'session-123')
-            expect(isBlocked).toBe(true)
+            expect(await blocked(sessionFilter, 1, 'session-123')).toBe(true)
         })
 
         it('should consume from limiter on each call even for same session', async () => {
@@ -395,19 +401,19 @@ describe('SessionFilter', () => {
                 localCacheMaxSize: 2,
             })
 
-            mockRedis.exists.mockResolvedValue(0)
+            mockRedis.mget.mockResolvedValue([null])
 
             // Fill cache with 2 entries
-            await smallCacheFilter.isBlocked(1, 'session-1')
-            await smallCacheFilter.isBlocked(1, 'session-2')
+            await blocked(smallCacheFilter, 1, 'session-1')
+            await blocked(smallCacheFilter, 1, 'session-2')
 
             // Third entry should evict the first
-            await smallCacheFilter.isBlocked(1, 'session-3')
+            await blocked(smallCacheFilter, 1, 'session-3')
 
             jest.clearAllMocks()
 
             // First session should require Redis call again (was evicted)
-            await smallCacheFilter.isBlocked(1, 'session-1')
+            await blocked(smallCacheFilter, 1, 'session-1')
             expect(mockRedisPool.acquire).toHaveBeenCalled()
         })
     })

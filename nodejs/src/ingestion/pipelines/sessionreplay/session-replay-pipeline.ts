@@ -12,8 +12,11 @@ import { createBatch } from '~/ingestion/framework/helpers'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { SessionBatchManager } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-manager'
+import { SessionFilter } from '~/ingestion/pipelines/sessionreplay/sessions/session-filter'
+import { SessionTracker } from '~/ingestion/pipelines/sessionreplay/sessions/session-tracker'
 import { RetentionService } from '~/ingestion/pipelines/sessionreplay/shared/retention/retention-service'
 import { TeamService } from '~/ingestion/pipelines/sessionreplay/shared/teams/team-service'
+import { KeyStore } from '~/ingestion/pipelines/sessionreplay/shared/types'
 import { TeamForReplay } from '~/ingestion/pipelines/sessionreplay/teams/types'
 import { ValueMatcher } from '~/types'
 
@@ -21,6 +24,7 @@ import { createLibVersionMonitorStep } from './lib-version-monitor-step'
 import { createParseMessageStep } from './parse-message-step'
 import { createRecordSessionEventStep } from './record-session-event-step'
 import { createResolveRetentionStep } from './session-batch-resolve-retention-step'
+import { createResolveSessionKeyStep } from './session-batch-resolve-session-key-step'
 import { createTeamFilterStep } from './team-filter-step'
 import { createValidateSessionReplayHeadersStep } from './validate-headers-step'
 
@@ -41,6 +45,12 @@ export interface SessionReplayPipelineConfig {
     teamService: TeamService
     /** Resolves per-session retention before recording, so keys and storage route correctly */
     retentionService: RetentionService
+    /** Detects newly-seen sessions during the pre-record session-key resolution. */
+    sessionTracker: SessionTracker
+    /** Blocks and rate-limits new sessions during the pre-record session-key resolution. */
+    sessionFilter: SessionFilter
+    /** Resolves per-session encryption keys before recording. */
+    keyStore: KeyStore
     /** TopHog registry for tracking metrics. */
     topHog: TopHogRegistry
     /** Session batch manager for recording sessions. */
@@ -75,6 +85,9 @@ export function createSessionReplayPipeline(
         promiseScheduler,
         teamService,
         retentionService,
+        sessionTracker,
+        sessionFilter,
+        keyStore,
         topHog,
         sessionBatchManager,
         isDebugLoggingEnabled,
@@ -110,6 +123,12 @@ export function createSessionReplayPipeline(
                 // retention are dropped before any parse or write.
                 .gather()
                 .pipeBatchWithRetry(createResolveRetentionStep(retentionService, sessionBatchManager), {
+                    tries: 3,
+                    sleepMs: 100,
+                })
+                // Track the session, rate-limit/block new sessions, and resolve its encryption key —
+                // off the S3 write path. Blocked and deleted sessions are dropped here.
+                .pipeBatchWithRetry(createResolveSessionKeyStep(sessionTracker, sessionFilter, keyStore), {
                     tries: 3,
                     sleepMs: 100,
                 })

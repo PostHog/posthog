@@ -120,6 +120,8 @@ export class SessionRecordingIngester {
         | SessionFeaturesOutput
     >
     private readonly topHog: TopHog
+    private readonly sessionTracker: SessionTracker
+    private readonly sessionFilter: SessionFilter
     private readonly keyStore: KeyStore
     private readonly encryptor: RecordingEncryptor
     private readonly createPipeline: SessionReplayPipelineFactory
@@ -198,11 +200,11 @@ export class SessionRecordingIngester {
                   )
                 : new BlackholeSessionBatchFileStorage())
 
-        const sessionTracker = new SessionTracker(
+        this.sessionTracker = new SessionTracker(
             this.redisPool,
             this.config.SESSION_RECORDING_SESSION_TRACKER_CACHE_TTL_MS
         )
-        const sessionFilter = new SessionFilter({
+        this.sessionFilter = new SessionFilter({
             redisPool: this.redisPool,
             bucketCapacity: this.config.SESSION_RECORDING_NEW_SESSION_BUCKET_CAPACITY,
             bucketReplenishRate: this.config.SESSION_RECORDING_NEW_SESSION_BUCKET_REPLENISH_RATE,
@@ -232,9 +234,6 @@ export class SessionRecordingIngester {
             metadataStore,
             consoleLogStore,
             featureStore,
-            sessionTracker,
-            sessionFilter,
-            keyStore: this.keyStore,
             encryptor: this.encryptor,
         })
     }
@@ -318,6 +317,9 @@ export class SessionRecordingIngester {
             promiseScheduler: this.promiseScheduler,
             teamService: this.teamService,
             retentionService: this.retentionService,
+            sessionTracker: this.sessionTracker,
+            sessionFilter: this.sessionFilter,
+            keyStore: this.keyStore,
             topHog: this.topHog,
             sessionBatchManager: this.sessionBatchManager,
             isDebugLoggingEnabled: this.isDebugLoggingEnabled,

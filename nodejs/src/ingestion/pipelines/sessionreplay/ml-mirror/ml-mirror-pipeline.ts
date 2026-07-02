@@ -18,6 +18,7 @@ import { ScrubContext } from '~/ingestion/pipelines/sessionreplay/anonymize/conf
 import { createParseMessageStep } from '~/ingestion/pipelines/sessionreplay/parse-message-step'
 import { createRecordSessionEventStep } from '~/ingestion/pipelines/sessionreplay/record-session-event-step'
 import { createResolveRetentionStep } from '~/ingestion/pipelines/sessionreplay/session-batch-resolve-retention-step'
+import { createResolveSessionKeyStep } from '~/ingestion/pipelines/sessionreplay/session-batch-resolve-session-key-step'
 import { createTeamFilterStep } from '~/ingestion/pipelines/sessionreplay/team-filter-step'
 import { createValidateSessionReplayHeadersStep } from '~/ingestion/pipelines/sessionreplay/validate-headers-step'
 
@@ -42,6 +43,9 @@ export function createMlMirrorReplayPipeline(
         promiseScheduler,
         teamService,
         retentionService,
+        sessionTracker,
+        sessionFilter,
+        keyStore,
         topHog,
         sessionBatchManager,
         isDebugLoggingEnabled,
@@ -72,6 +76,12 @@ export function createMlMirrorReplayPipeline(
                 // header; drop unresolvable sessions.
                 .gather()
                 .pipeBatchWithRetry(createResolveRetentionStep(retentionService, sessionBatchManager), {
+                    tries: 3,
+                    sleepMs: 100,
+                })
+                // Track the session, rate-limit/block new sessions, and resolve its encryption key —
+                // off the S3 write path. Blocked and deleted sessions are dropped here.
+                .pipeBatchWithRetry(createResolveSessionKeyStep(sessionTracker, sessionFilter, keyStore), {
                     tries: 3,
                     sleepMs: 100,
                 })
