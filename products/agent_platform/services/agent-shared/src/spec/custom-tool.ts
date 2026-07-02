@@ -2,18 +2,22 @@
  * Author-facing contract for custom tools — user-written code an agent can
  * call, sandboxed in a Node process the platform spawns per session.
  *
- * **Compute-only by infrastructure.** The sandbox runs with no network reach
- * (`--network=none` in Docker, `blockNetwork:true` in Modal) and `ctx` is
- * deliberately minimal: a secret-nonce ref + a structured logger. There is
- * no `fetch`, no `http`, no `posthogApiBaseUrl`, no memory/table store
- * access today. A tool computes over its `args`, optionally consults secret
- * nonces (currently opaque — see note below), logs what it did, and returns
- * structured data the runner threads back to the model.
+ * **The sandbox is the security boundary.** The sandbox runs with no network
+ * reach (`--network=none` in Docker, `blockNetwork:true` in Modal) and `ctx`
+ * is deliberately minimal: a secret-nonce ref + a structured logger. There
+ * is no `posthogApiBaseUrl` and no memory/table store access today. In v1 a
+ * tool computes over its `args`, optionally consults secret nonces
+ * (currently opaque — see note below), logs what it did, and returns
+ * structured data the runner threads back to the model. What a tool can
+ * reach is decided by the sandbox at runtime — the compile pipeline checks
+ * shape, not reach.
  *
- * If an agent needs to call an external API, use `@posthog/http-request`
- * (a native tool) with a secret pinned to `allowed_hosts` in the spec —
- * not raw network from a custom tool. The platform enforces this by
- * infrastructure; this file is the author-side contract.
+ * If an agent needs to call an external API today, use
+ * `@posthog/http-request` (a native tool) with a secret pinned to
+ * `allowed_hosts` in the spec. The direction of travel is a bridge —
+ * `ctx.native(...)` / `ctx.mcp(...)` accessors that let a tool invoke
+ * native tools and MCP connections from inside the sandbox — not yet
+ * wired; see `docs/custom-tools.md`.
  *
  * **Secret nonces.** `ctx.secrets.ref(name)` returns an opaque per-session
  * nonce string declared in `spec.secrets[]`. The plaintext value never

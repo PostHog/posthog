@@ -1,10 +1,9 @@
 /**
- * Custom-tool upload pipeline: parse → AST shape check → banned-construct
- * check → capability walk → esbuild → emit `compiled.js`. Runs inside the
- * `PUT /tools/:id` handler so failures surface at upload time, not at
- * session-start.
+ * Custom-tool upload pipeline: parse → AST shape check → capability walk →
+ * esbuild → emit `compiled.js`. Runs inside the `PUT /tools/:id` handler so
+ * failures surface at upload time, not at session-start.
  *
- * Three AST passes:
+ * Two AST passes:
  *
  *   1. **Shape check** — pure source-text analysis via the TypeScript
  *      compiler API. Walks the syntax tree without executing user code.
@@ -13,19 +12,19 @@
  *      No `vm.runInContext`, no Modal sandbox — nothing runs, nothing to
  *      sandbox.
  *
- *   2. **Banned-construct check** — defense-in-depth rejection of modules
- *      and constructs with no legitimate use in a compute-only tool. The
- *      sandbox itself blocks network and process spawning, but a
- *      compile-time error gives the author a friendly message at write
- *      time instead of a cryptic runtime failure. Mirrors the
- *      egress-via-native-tools doctrine in `docs/custom-tools.md`.
- *
- *   3. **Capability extraction** — collects metadata the authoring UI
+ *   2. **Capability extraction** — collects metadata the authoring UI
  *      surfaces on each tool (secret names referenced via
  *      `ctx.secrets.ref(...)`). Best-effort; only static string-literal
  *      args are picked up.
  *
- * If shape + banned checks pass, **esbuild transform** runs (TS → CJS,
+ * There is deliberately NO source-level allow/deny list of modules or
+ * constructs. The sandbox is the security boundary (Docker
+ * `--network=none`, Modal `blockNetwork:true`, `--cap-drop=ALL`), tools are
+ * human-authored, and a compile-time ban only limits what authors can build
+ * without adding protection. What a tool can *reach* is an infrastructure
+ * question, not a lint question — see `docs/custom-tools.md`.
+ *
+ * If the shape check passes, **esbuild transform** runs (TS → CJS,
  * `node20`, the same output the runner has loaded since day one).
  *
  * Failures bubble up as structured `ToolCompileError` objects. Each carries
@@ -45,8 +44,6 @@ export type ToolCompileErrorKind =
     | 'ast_missing_default_action'
     | 'ast_default_action_not_callable'
     | 'ast_dynamic_export'
-    | 'banned_module_import'
-    | 'banned_eval'
     | 'transform_failed'
 
 export interface ToolCompileError {
@@ -83,55 +80,6 @@ export interface CompileTypedToolResult {
 }
 
 /**
- * Node stdlib modules a compute-only tool has no legitimate use for. The
- * sandbox already blocks network reach and process spawning at the OS
- * level; this list lets us reject at author time with a friendly message
- * pointing at the right alternative. Cover both `node:foo` and bare `foo`
- * spellings (Node accepts both for stdlib).
- *
- * Modules deliberately NOT banned: `fs`, `path`, `crypto`, `util`, `events`,
- * `stream`, `url`, `querystring`, `buffer`, `perf_hooks`, `zlib`, `os`,
- * `assert`, `console`, `string_decoder` — useful for pure compute and have
- * no egress side effects.
- */
-const BANNED_NODE_MODULES = new Set([
-    'http',
-    'https',
-    'http2',
-    'net',
-    'dgram',
-    'dns',
-    'dns/promises',
-    'tls',
-    'child_process',
-    'cluster',
-    'worker_threads',
-    'vm',
-    // Escape-hatch / arbitrary-code modules. None has a legit use in a
-    // compute-only tool, and the first two are particularly dangerous:
-    // `inspector` exposes the V8 inspector (full eval + opens a debugger
-    // port — egress channel), `module` lets you reconstruct `require` via
-    // `module._load`. The sandbox still contains them at runtime; the ban
-    // keeps the friendly compile-time error story honest.
-    'inspector',
-    'inspector/promises',
-    'module',
-    'repl',
-    'wasi',
-])
-
-const NODE_PREFIX = 'node:'
-
-function isBannedModuleSpecifier(spec: string): boolean {
-    const stripped = spec.startsWith(NODE_PREFIX) ? spec.slice(NODE_PREFIX.length) : spec
-    return BANNED_NODE_MODULES.has(stripped)
-}
-
-function bannedModuleMessage(spec: string): string {
-    return `\`${spec}\` cannot be imported from a custom tool — the sandbox blocks network and process spawning. For external HTTP, use the \`@posthog/http-request\` native tool with a host-pinned secret (see docs/custom-tools.md).`
-}
-
-/**
  * Validate + compile one tool's source. Pure (no I/O, no globals); the
  * caller writes the result to the bundle store when ok.
  */
@@ -144,13 +92,9 @@ export async function compileTypedTool(args: { tool_id: string; source: string }
         ts.ScriptKind.TS
     )
 
-    // Run shape + banned-construct checks together so authors see every
-    // diagnostic in one round-trip instead of fixing in waves. Shape errors
-    // come first in the merged list (they're the more foundational signal,
-    // and the existing single-error tests assert errors[0].kind).
-    const allErrors = [...checkExportShape(sf), ...checkBannedConstructs(sf)]
-    if (allErrors.length > 0) {
-        return { ok: false, errors: allErrors }
+    const shapeErrors = checkExportShape(sf)
+    if (shapeErrors.length > 0) {
+        return { ok: false, errors: shapeErrors }
     }
 
     const capabilities = extractCapabilities(sf)
@@ -360,112 +304,6 @@ function findProperty(obj: ts.ObjectLiteralExpression, name: string): ts.Propert
 
 function isCallable(node: ts.Expression): boolean {
     return ts.isArrowFunction(node) || ts.isFunctionExpression(node)
-}
-
-// ─── Banned-construct check ─────────────────────────────────────────
-//
-// Defense in depth. The sandbox enforces no-network + no-process-spawn at
-// the OS layer (Docker `--network=none`, Modal `blockNetwork:true`,
-// `--cap-drop=ALL`), so an `import 'http'` in a custom tool would just
-// fail at runtime with a cryptic error. Reject at author time instead so
-// the author sees a friendly message pointing at the right alternative
-// (native tools with declared `allowed_hosts`).
-//
-// Recursive descent over the SourceFile so we catch banned constructs in
-// nested scopes too — e.g. a `require('http')` inside a helper function
-// shouldn't slip past a top-level-only check.
-
-function checkBannedConstructs(sf: ts.SourceFile): ToolCompileError[] {
-    const errors: ToolCompileError[] = []
-
-    function visit(node: ts.Node): void {
-        // `import 'http'` / `import x from 'http'` / `import { y } from 'http'`
-        if (ts.isImportDeclaration(node)) {
-            const spec = node.moduleSpecifier
-            if (ts.isStringLiteral(spec) && isBannedModuleSpecifier(spec.text)) {
-                const pos = sf.getLineAndCharacterOfPosition(spec.getStart(sf))
-                errors.push({
-                    kind: 'banned_module_import',
-                    message: bannedModuleMessage(spec.text),
-                    line: pos.line + 1,
-                    column: pos.character + 1,
-                })
-            }
-        }
-
-        // `import('http')` — dynamic ESM import. esbuild leaves it as a runtime
-        // call, but with no network it'd just fail; reject at author time.
-        if (ts.isCallExpression(node) && node.expression.kind === ts.SyntaxKind.ImportKeyword) {
-            const [arg] = node.arguments
-            if (arg && ts.isStringLiteral(arg) && isBannedModuleSpecifier(arg.text)) {
-                const pos = sf.getLineAndCharacterOfPosition(arg.getStart(sf))
-                errors.push({
-                    kind: 'banned_module_import',
-                    message: bannedModuleMessage(arg.text),
-                    line: pos.line + 1,
-                    column: pos.character + 1,
-                })
-            }
-        }
-
-        // `require('http')` — esbuild emits CJS, so `require` calls survive into
-        // the runtime. We can't tell whether `require` here is the global Node
-        // function or a user variable named the same; rejecting the literal-arg
-        // form regardless is the conservative call.
-        if (
-            ts.isCallExpression(node) &&
-            ts.isIdentifier(node.expression) &&
-            node.expression.text === 'require' &&
-            node.arguments.length >= 1
-        ) {
-            const [arg] = node.arguments
-            if (ts.isStringLiteral(arg) && isBannedModuleSpecifier(arg.text)) {
-                const pos = sf.getLineAndCharacterOfPosition(arg.getStart(sf))
-                errors.push({
-                    kind: 'banned_module_import',
-                    message: bannedModuleMessage(arg.text),
-                    line: pos.line + 1,
-                    column: pos.character + 1,
-                })
-            }
-        }
-
-        // `eval(...)` — classic exfil-via-dynamic-construction pattern. With
-        // banned imports above this is the obvious bypass; reject it too.
-        if (ts.isCallExpression(node) && ts.isIdentifier(node.expression) && node.expression.text === 'eval') {
-            const pos = sf.getLineAndCharacterOfPosition(node.expression.getStart(sf))
-            errors.push({
-                kind: 'banned_eval',
-                message:
-                    '`eval(...)` is not allowed in a custom tool — dynamic code execution defeats the static-shape contract and the banned-import check.',
-                line: pos.line + 1,
-                column: pos.character + 1,
-            })
-        }
-
-        // `new Function(...)` / `Function(...)` — semantically equivalent to
-        // eval. Both forms `new Function('x')()` and `Function('x')()` work
-        // in JS; check both call shapes.
-        if (
-            (ts.isNewExpression(node) || ts.isCallExpression(node)) &&
-            ts.isIdentifier(node.expression) &&
-            node.expression.text === 'Function'
-        ) {
-            const pos = sf.getLineAndCharacterOfPosition(node.expression.getStart(sf))
-            const form = ts.isNewExpression(node) ? '`new Function(...)`' : '`Function(...)`'
-            errors.push({
-                kind: 'banned_eval',
-                message: `${form} is not allowed in a custom tool — dynamic code construction defeats the static-shape contract.`,
-                line: pos.line + 1,
-                column: pos.character + 1,
-            })
-        }
-
-        ts.forEachChild(node, visit)
-    }
-
-    visit(sf)
-    return errors
 }
 
 // ─── Capability extraction ──────────────────────────────────────────

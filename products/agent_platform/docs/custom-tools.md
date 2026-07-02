@@ -21,19 +21,31 @@ flowchart LR
     action --> result["JSON.stringified result<br/>→ tool_result → model"]
 ```
 
-**Compute-only by infrastructure.** The sandbox runs a Node process
-with no outbound network reach (`--network=none` in Docker,
-`blockNetwork:true` on Modal). A custom tool computes over its `args`,
-optionally consults secret nonces, logs what it did, and returns
-structured data the runner threads back to the model. There is no
-`fetch`, no `http`, no memory/table store access today.
+**The sandbox is the security boundary.** The sandbox runs a Node
+process with no outbound network reach (`--network=none` in Docker,
+`blockNetwork:true` on Modal) and dropped capabilities. In v1 a custom
+tool computes over its `args`, optionally consults secret nonces, logs
+what it did, and returns structured data the runner threads back to
+the model. `fetch` exists but has nothing to reach; there is no
+memory/table store access today.
 
-This isn't a limitation we plan to soften casually — it's the
-foundation that makes custom tools safe to run on attacker-influenced
-input. Egress lives in native tools that go through smokescreen with
-declared `allowed_hosts`. The lethal trifecta (untrusted input + sensitive
-data + external comms) is impossible from a custom tool because the
-third leg doesn't exist.
+Two things follow from where the boundary sits:
+
+- **Custom tools are trusted code.** They are human-authored,
+  reviewed, and versioned in the revision — the model only ever
+  invokes them with arguments. The compile pipeline checks _shape_ (so
+  authors get friendly errors at PUT time), not _reach_: there is
+  deliberately no source-level allow/deny list of modules or
+  constructs. What a tool can reach is an infrastructure decision made
+  by the sandbox at runtime, not a lint pass over the source.
+- **Egress composes rather than leaking into the model.** When an
+  agent needs to call out today, wire a native tool with a host-pinned
+  secret (see "Egress, identity, approval" below). The direction of
+  travel is a _bridge_ — `ctx.native(...)` / `ctx.mcp(...)` accessors
+  that let a custom tool invoke native tools and MCP connections from
+  inside the sandbox, so an author can wrap allowlists, audit, and
+  business rules around a capability without handing the model the raw
+  tool. Not yet wired; see "Coming next."
 
 ## The contract
 
@@ -134,9 +146,9 @@ for the full schema.
 
 ## Egress, identity, approval
 
-Custom tools don't make external calls. When an agent legitimately
-needs to call out — your CRM, a webhook, a GitHub API — wire a native
-tool with a host-pinned secret:
+In v1 custom tools don't make external calls — the sandbox has no
+network. When an agent legitimately needs to call out — your CRM, a
+webhook, a GitHub API — wire a native tool with a host-pinned secret:
 
 ```jsonc
 {
@@ -151,6 +163,19 @@ plus secret substitution in
 A prompt-injected `${CRM_TOKEN}` against `attacker.com` refuses
 substitution rather than leaking the credential.
 
+**The bridge (direction, not yet wired).** Custom tools will reach
+native tools and MCP connections through prefixed `ctx` accessors —
+`ctx.native('@posthog/http-request', args)`,
+`ctx.mcp('incident-io', 'create-incident', args)` — instead of raw
+network. That keeps the composition property: the tool gets the
+capability, the model doesn't. Bridge calls are code-facing, so they
+won't inherit the model-facing `requires_approval` gates from the
+spec; authors opt into gating specific sub-calls via a planned
+`ctx.requestApproval(...)` primitive that reuses the existing approval
+queue (same rows, same Slack/console/decision-API surfaces). The
+runtime wiring — a call channel out of the one-shot sandbox dispatch —
+lands in a follow-up.
+
 **`requires_identity: "posthog"`** on a custom tool fires the identity
 gate _before_ the sandbox runs. If the asker hasn't linked PostHog,
 the model receives an `auth_required` result with an authorize link
@@ -161,11 +186,10 @@ rather than a credential injection point. See the seam comment at
 
 **`requires_approval: true`** routes every call through the approval
 queue (`agent_tool_approval_request`). The model receives a synthetic
-queued envelope and parks the session until a team admin decides via
-the approvals API
-(`POST /api/projects/:team/agent_applications/:app/approvals/:id/decide/`,
-human-interactive auth only). Approved decisions can include
-`edited_args`. See
+queued envelope and the session keeps going; when an approver decides
+(via Slack, the decision API, or the console, depending on
+`approval_policy.type`), the result is injected back into the session.
+Approved decisions can include `edited_args`. See
 [`approval.ts`](../services/agent-runner/src/loop/approval.ts).
 
 ## When to use a custom tool
@@ -184,9 +208,10 @@ Use a custom tool when:
 
 Use `@posthog/http-request` or a dedicated native tool when:
 
-- You need to call an external API. Custom tools have no network.
+- You need to call an external API. In v1 the sandbox has no network;
+  until the bridge lands, egress goes through native tools.
 - You need to send data anywhere outside the sandbox. Custom tools
-  can't — they return data to the runner.
+  can't today — they return data to the runner.
 
 Use an external MCP server when:
 
@@ -204,6 +229,11 @@ The janitor exposes per-tool authoring endpoints:
 - `PUT /revisions/:id/tools/:id` — body `{description, args_schema, source}`.
   AST check + esbuild compile run synchronously; 422 with structured
   diagnostics on failure; the bundle is untouched on failure.
+- `POST /revisions/:id/tools/:id/dry_run` — body `{args, mock_secrets?}`.
+  Executes the persisted `compiled.js` once in a single-shot sandbox
+  with a stubbed `ctx`; returns `{ok, result?, error?, duration_ms}`.
+  `mock_secrets` placeholders come back verbatim from
+  `ctx.secrets.ref(name)` so the tool body runs deterministically.
 - `DELETE /revisions/:id/tools/:id`.
 - `POST /revisions/:id/validate` — pre-flight for entrypoint, tool ids,
   custom-tool files, skill paths.
@@ -213,11 +243,11 @@ Django proxies the per-tool endpoints in `AgentRevisionViewSet`
 includes `agent-applications-revisions-tools-update/destroy` generated
 from those.
 
-**Coming next** (work in flight): a `dry_run` endpoint that executes
-the compiled tool in a real sandbox with a stubbed `ctx`, an in-app
-Tools tab on the revision editor, capability summaries on each tool
-card, default-on approval for tools that combine identity-gated access
-with mutable state.
+**Coming next** (work in flight): the native/MCP bridge
+(`ctx.native` / `ctx.mcp`) with opt-in gating via
+`ctx.requestApproval`; an in-app Tools tab on the revision editor;
+capability summaries on each tool card; default-on approval for tools
+that combine identity-gated access with mutable state.
 
 **Deferred** (explicitly not in v1): nonce → value substitution at
 egress (custom tools can prepare authenticated requests for the runner

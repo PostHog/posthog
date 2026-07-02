@@ -9,7 +9,8 @@ Concise, diagram-led docs for the v2 agent platform. Read in this order:
 3. **[identity-and-tools.md](identity-and-tools.md)** — edge identity → agent
    user → linked identities → tools, credentials, approvals, and MCP.
 4. **[custom-tools.md](custom-tools.md)** — authoring user-written sandboxed
-   tools: the compute-only contract, the minimal `ctx`, the egress story.
+   tools: the contract, the minimal `ctx`, the sandbox boundary and
+   egress story.
 5. **[local-dev.md](local-dev.md)** — bringing the stack up locally, driving it,
    and the e2e harness.
 
