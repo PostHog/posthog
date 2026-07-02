@@ -1,9 +1,11 @@
-import { actions, afterMount, kea, listeners, path, reducers, selectors } from 'kea'
+import { actions, afterMount, connect, kea, listeners, path, reducers, selectors } from 'kea'
 import { forms } from 'kea-forms'
 import { loaders } from 'kea-loaders'
 
 import { ApiError } from 'lib/api-error'
+import { FEATURE_FLAGS } from 'lib/constants'
 import { lemonToast } from 'lib/lemon-ui/LemonToast'
+import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { getCurrentTeamId } from 'lib/utils/getAppContext'
 
 import {
@@ -24,13 +26,27 @@ import type {
 import { ProductBriefStatusEnumApi } from './generated/api.schemas'
 import type { pulseLogicType } from './pulseLogicType'
 
+/** A `"type:ref"` evidence citation split into its parts, e.g. `insight:abc123`. */
+export interface BriefCitation {
+    type: string
+    ref: string
+}
+
 /** Narrowed shape of one generated brief section — the API ships sections as untyped dicts. */
 export interface BriefSection {
     kind: string
     title: string
     markdown: string
-    citations: string[]
+    citations: BriefCitation[]
     confidence: number
+}
+
+function parseCitation(citation: string): BriefCitation {
+    const separatorIndex = citation.indexOf(':')
+    if (separatorIndex <= 0) {
+        return { type: '', ref: citation }
+    }
+    return { type: citation.slice(0, separatorIndex), ref: citation.slice(separatorIndex + 1) }
 }
 
 function parseSection(section: ProductBriefApiSectionsItem): BriefSection {
@@ -39,7 +55,9 @@ function parseSection(section: ProductBriefApiSectionsItem): BriefSection {
         title: typeof section.title === 'string' ? section.title : '',
         markdown: typeof section.markdown === 'string' ? section.markdown : '',
         citations: Array.isArray(section.citations)
-            ? section.citations.filter((citation): citation is string => typeof citation === 'string')
+            ? section.citations
+                  .filter((citation): citation is string => typeof citation === 'string')
+                  .map(parseCitation)
             : [],
         confidence: typeof section.confidence === 'number' ? section.confidence : 0,
     }
@@ -47,17 +65,17 @@ function parseSection(section: ProductBriefApiSectionsItem): BriefSection {
 
 export const BRIEF_POLL_INTERVAL_MS = 3000
 
-/** Key used for briefs generated without a config (the zero-config default brief). */
-export const DEFAULT_CONFIG_KEY = 'default'
+export const BRIEF_ALREADY_GENERATING_MESSAGE = 'A brief is already being generated'
+
+/** DRF error code the generate endpoint returns when the organization has not approved AI data processing. */
+const AI_CONSENT_ERROR_CODE = 'ai_consent_required'
+
+function currentProjectId(): string {
+    return String(getCurrentTeamId())
+}
 
 function isAiConsentError(error: unknown): boolean {
-    // The generate endpoint 400s with this DRF validation message when the organization
-    // has not approved AI data processing — there is no dedicated error code for it.
-    return (
-        error instanceof ApiError &&
-        error.status === 400 &&
-        (error.detail ?? JSON.stringify(error.data ?? '')).includes('AI data processing')
-    )
+    return error instanceof ApiError && error.code === AI_CONSENT_ERROR_CODE
 }
 
 function isGeneratingBrief(brief: ProductBriefListApi): boolean {
@@ -74,6 +92,7 @@ const EMPTY_CONFIG_FORM: BriefConfigForm = { name: '', focus_prompt: '', dashboa
 
 export const pulseLogic = kea<pulseLogicType>([
     path(['products', 'pulse', 'frontend', 'pulseLogic']),
+    connect(() => ({ values: [featureFlagLogic, ['featureFlags']] })),
     actions({
         selectConfig: (configId: string | null) => ({ configId }),
         selectBrief: (briefId: string | null) => ({ briefId }),
@@ -96,15 +115,14 @@ export const pulseLogic = kea<pulseLogicType>([
                 name: name.trim() ? undefined : 'Please enter a name',
             }),
             submit: async (formValues: BriefConfigForm) => {
-                const teamId = String(getCurrentTeamId())
                 const editing = values.editingConfig
                 // Only the dashboards anchor is editable here — spread the existing anchors so
                 // insight anchors set through the API survive a save from this form.
                 const anchors = { ...editing?.anchors, dashboards: formValues.dashboards }
                 const payload = { name: formValues.name.trim(), focus_prompt: formValues.focus_prompt, anchors }
                 const saved = editing
-                    ? await pulseBriefConfigsPartialUpdate(teamId, editing.id, payload)
-                    : await pulseBriefConfigsCreate(teamId, payload)
+                    ? await pulseBriefConfigsPartialUpdate(currentProjectId(), editing.id, payload)
+                    : await pulseBriefConfigsCreate(currentProjectId(), payload)
                 actions.configSaved(saved, !editing)
             },
         },
@@ -114,7 +132,7 @@ export const pulseLogic = kea<pulseLogicType>([
             [] as BriefConfigApi[],
             {
                 loadBriefConfigs: async (): Promise<BriefConfigApi[]> => {
-                    const response = await pulseBriefConfigsList(String(getCurrentTeamId()))
+                    const response = await pulseBriefConfigsList(currentProjectId())
                     return response.results
                 },
             },
@@ -123,7 +141,7 @@ export const pulseLogic = kea<pulseLogicType>([
             [] as ProductBriefListApi[],
             {
                 loadBriefs: async (): Promise<ProductBriefListApi[]> => {
-                    const response = await pulseBriefsList(String(getCurrentTeamId()))
+                    const response = await pulseBriefsList(currentProjectId())
                     return response.results
                 },
             },
@@ -133,7 +151,7 @@ export const pulseLogic = kea<pulseLogicType>([
             {
                 generateBrief: async ({ configId }: { configId: string | null }): Promise<ProductBriefApi | null> => {
                     try {
-                        return await pulseBriefsGenerateCreate(String(getCurrentTeamId()), { config_id: configId })
+                        return await pulseBriefsGenerateCreate(currentProjectId(), { config_id: configId })
                     } catch (error) {
                         if (isAiConsentError(error)) {
                             // Handled with an in-scene banner — swallow so the global error toast stays quiet.
@@ -149,7 +167,7 @@ export const pulseLogic = kea<pulseLogicType>([
             null as ProductBriefApi | null,
             {
                 loadBriefDetail: async ({ briefId }: { briefId: string }): Promise<ProductBriefApi> => {
-                    return await pulseBriefsRetrieve(String(getCurrentTeamId()), briefId)
+                    return await pulseBriefsRetrieve(currentProjectId(), briefId)
                 },
             },
         ],
@@ -204,13 +222,27 @@ export const pulseLogic = kea<pulseLogicType>([
         briefs: {
             generateBriefSuccess: (state, { generatedBrief }) => (generatedBrief ? [generatedBrief, ...state] : state),
             briefsRefreshed: (state, { briefs }) => {
+                // Only swap in briefs whose status actually changed, so identities stay
+                // stable across no-op poll ticks and derived selectors don't churn.
                 const byId = new Map(briefs.map((brief) => [brief.id, brief]))
-                return state.map((brief) => byId.get(brief.id) ?? brief)
+                let changed = false
+                const next = state.map((brief) => {
+                    const updated = byId.get(brief.id)
+                    if (updated && updated.status !== brief.status) {
+                        changed = true
+                        return updated
+                    }
+                    return brief
+                })
+                return changed ? next : state
             },
         },
         briefDetail: {
             generateBriefSuccess: (state, { generatedBrief }) => generatedBrief ?? state,
-            briefsRefreshed: (state, { briefs }) => briefs.find((brief) => brief.id === state?.id) ?? state,
+            briefsRefreshed: (state, { briefs }) => {
+                const updated = briefs.find((brief) => brief.id === state?.id)
+                return updated && updated.status !== state?.status ? updated : state
+            },
         },
     }),
     selectors({
@@ -218,20 +250,6 @@ export const pulseLogic = kea<pulseLogicType>([
             (s) => [s.briefs, s.selectedConfigId],
             (briefs, selectedConfigId): ProductBriefListApi[] =>
                 briefs.filter((brief) => brief.config === selectedConfigId),
-        ],
-        latestBriefByConfig: [
-            (s) => [s.briefs],
-            (briefs): Record<string, ProductBriefListApi> => {
-                // Briefs come back newest first, so the first one seen per config is the latest.
-                const latest: Record<string, ProductBriefListApi> = {}
-                for (const brief of briefs) {
-                    const key = brief.config ?? DEFAULT_CONFIG_KEY
-                    if (!(key in latest)) {
-                        latest[key] = brief
-                    }
-                }
-                return latest
-            },
         ],
         isGenerating: [
             (s) => [s.briefs, s.generatedBriefLoading],
@@ -271,7 +289,7 @@ export const pulseLogic = kea<pulseLogicType>([
         },
         generateBriefFailure: ({ errorObject }) => {
             if (errorObject instanceof ApiError && errorObject.status === 409) {
-                lemonToast.info('A brief is already being generated')
+                lemonToast.info(BRIEF_ALREADY_GENERATING_MESSAGE)
             }
         },
         startPolling: () => {
@@ -284,20 +302,24 @@ export const pulseLogic = kea<pulseLogicType>([
             cache.disposables.dispose('briefPoll')
         },
         pollGeneratingBriefs: async (_, breakpoint) => {
+            // The single stop decision: a tick with nothing left to poll ends the interval.
             const generating = values.briefs.filter(isGeneratingBrief)
             if (generating.length === 0) {
                 actions.stopPolling()
                 return
             }
-            const updated = await Promise.all(
-                generating.map((brief) => pulseBriefsRetrieve(String(getCurrentTeamId()), brief.id))
-            )
-            breakpoint()
-            actions.briefsRefreshed(updated)
-        },
-        briefsRefreshed: () => {
-            if (!values.briefs.some(isGeneratingBrief)) {
-                actions.stopPolling()
+            if (cache.pollInFlight) {
+                return // A slow previous tick is still fetching — skip instead of stacking requests.
+            }
+            cache.pollInFlight = true
+            try {
+                const updated = await Promise.all(
+                    generating.map((brief) => pulseBriefsRetrieve(currentProjectId(), brief.id))
+                )
+                breakpoint()
+                actions.briefsRefreshed(updated)
+            } finally {
+                cache.pollInFlight = false
             }
         },
         openConfigModal: ({ config }) => {
@@ -321,7 +343,7 @@ export const pulseLogic = kea<pulseLogicType>([
         },
         deleteConfig: async ({ configId }) => {
             try {
-                await pulseBriefConfigsDestroy(String(getCurrentTeamId()), configId)
+                await pulseBriefConfigsDestroy(currentProjectId(), configId)
             } catch {
                 actions.configDeleteFailed()
                 lemonToast.error('Deleting the brief config failed')
@@ -334,7 +356,11 @@ export const pulseLogic = kea<pulseLogicType>([
             lemonToast.success('Brief config deleted')
         },
     })),
-    afterMount(({ actions }) => {
+    afterMount(({ actions, values }) => {
+        // The scene renders NotFound without the flag — don't fire the pulse API calls either.
+        if (!values.featureFlags[FEATURE_FLAGS.PULSE]) {
+            return
+        }
         actions.loadBriefConfigs()
         actions.loadBriefs()
     }),
