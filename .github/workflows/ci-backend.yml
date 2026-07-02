@@ -2832,7 +2832,18 @@ jobs:
     # Must depend on handle-snapshots to prevent auto-merge before commits complete
     django_tests:
         needs:
-            [django, check-migrations, check-openapi-types, turbo-discover, turbo-tests, handle-snapshots, repo-checks]
+            [
+                changes,
+                get_clickhouse_versions,
+                build_django_matrix,
+                django,
+                check-migrations,
+                check-openapi-types,
+                turbo-discover,
+                turbo-tests,
+                handle-snapshots,
+                repo-checks,
+            ]
         name: Django Tests Pass
         runs-on: ubuntu-latest
         timeout-minutes: 5
@@ -2846,6 +2857,9 @@ jobs:
                     echo "| --- | --- |"
                     echo "| repo-checks | ${{ needs.repo-checks.result }} |"
                     echo "| check-openapi-types | ${{ needs.check-openapi-types.result }} |"
+                    echo "| changes | ${{ needs.changes.result }} |"
+                    echo "| get_clickhouse_versions | ${{ needs.get_clickhouse_versions.result }} |"
+                    echo "| build_django_matrix | ${{ needs.build_django_matrix.result }} |"
                     echo "| django | ${{ needs.django.result }} |"
                     echo "| check-migrations | ${{ needs.check-migrations.result }} |"
                     echo "| turbo-discover | ${{ needs.turbo-discover.result }} |"
@@ -2905,6 +2919,13 @@ jobs:
 
                   check_required_result "Repo checks" "${{ needs.repo-checks.result }}"
                   check_required_result "OpenAPI type checks" "${{ needs.check-openapi-types.result }}"
+                  # Upstream jobs whose failure would otherwise only cascade into django
+                  # being *skipped*, which this gate reads as success — a green gate with
+                  # zero backend tests run. Naming them makes the failure hit the gate
+                  # directly; their legitimate skips (frontend-only PRs) still pass.
+                  check_required_result "Change detection" "${{ needs.changes.result }}"
+                  check_required_result "ClickHouse versions" "${{ needs.get_clickhouse_versions.result }}"
+                  check_required_result "Django matrix build" "${{ needs.build_django_matrix.result }}"
                   check_required_result "Django test matrix" "${{ needs.django.result }}"
                   check_required_result "Migration checks" "${{ needs.check-migrations.result }}"
                   check_required_result "Turbo discover" "${{ needs.turbo-discover.result }}"

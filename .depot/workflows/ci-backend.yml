@@ -1788,7 +1788,18 @@ jobs:
                   fi
     # Job just to collate the status of the matrix jobs for requiring passing status
     django_tests:
-        needs: [sample, django, check-migrations, turbo-discover, turbo-tests, repo-checks]
+        needs:
+            [
+                sample,
+                changes,
+                get_clickhouse_versions,
+                build_django_matrix,
+                django,
+                check-migrations,
+                turbo-discover,
+                turbo-tests,
+                repo-checks,
+            ]
         name: '[optional, does not block merge] Django Tests Pass'
         runs-on: depot-ubuntu-latest # was: ubuntu-latest. Mapped standard GitHub runner to Depot equivalent.
         timeout-minutes: 5
@@ -1802,6 +1813,9 @@ jobs:
                     echo "### Backend CI dependency results"
                     echo "| Dependency | Result |"
                     echo "| --- | --- |"
+                    echo "| changes | ${{ needs.changes.result }} |"
+                    echo "| get_clickhouse_versions | ${{ needs.get_clickhouse_versions.result }} |"
+                    echo "| build_django_matrix | ${{ needs.build_django_matrix.result }} |"
                     echo "| django | ${{ needs.django.result }} |"
                     echo "| check-migrations | ${{ needs.check-migrations.result }} |"
                     echo "| repo-checks | ${{ needs.repo-checks.result }} |"
@@ -1828,6 +1842,13 @@ jobs:
                     exit 1
                   }
 
+                  # Upstream jobs whose failure would otherwise only cascade into django
+                  # being *skipped*, which this gate reads as success — a green gate with
+                  # zero backend tests run. Naming them makes the failure hit the gate
+                  # directly; their legitimate skips (frontend-only PRs) still pass.
+                  check_required_result "Change detection" "${{ needs.changes.result }}"
+                  check_required_result "ClickHouse versions" "${{ needs.get_clickhouse_versions.result }}"
+                  check_required_result "Django matrix build" "${{ needs.build_django_matrix.result }}"
                   check_required_result "Django test matrix" "${{ needs.django.result }}"
                   check_required_result "Migration checks" "${{ needs.check-migrations.result }}"
                   check_required_result "Repo checks" "${{ needs.repo-checks.result }}"
