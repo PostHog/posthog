@@ -1,4 +1,4 @@
-import { RedisOverflowRepository, redisKey } from '~/ingestion/utils/overflow-redirect/overflow-redis-repository'
+import { RedisOverflowRepository, redisKey } from '~/ingestion/common/overflow-redirect/overflow-redis-repository'
 import { IngestionTestInfra, createIngestionTestInfra } from '~/tests/helpers/ingestion-e2e'
 
 describe('RedisOverflowRepository (integration)', () => {

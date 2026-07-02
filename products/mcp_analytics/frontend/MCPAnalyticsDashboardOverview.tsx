@@ -1,15 +1,10 @@
 import { useActions, useValues } from 'kea'
-import { useMemo } from 'react'
 
-import { type ChartTheme } from '@posthog/quill-charts'
-
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartTheme } from 'lib/charts/hooks'
 import { PropertyFilters } from 'lib/components/PropertyFilters/PropertyFilters'
 import { TaxonomicFilterGroupType } from 'lib/components/TaxonomicFilter/types'
 import { TestAccountFilterSwitch } from 'lib/components/TestAccountFiltersSwitch'
 import { teamLogic } from 'scenes/teamLogic'
-
-import { themeLogic } from '~/layout/navigation-3000/themeLogic'
 
 import { McpDateFilter } from './components/McpDateFilter'
 import { ActivityChart } from './dashboard/ActivityChart'
@@ -42,12 +37,9 @@ export function MCPAnalyticsDashboardOverview(): JSX.Element {
         propertyFilters,
     } = useValues(mcpDashboardOverviewLogic)
     const { setDateFilter, setFilterTestAccounts, setPropertyFilters } = useActions(mcpDashboardOverviewLogic)
-    const { isDarkModeOn } = useValues(themeLogic)
     const { timezone } = useValues(teamLogic)
 
-    // buildTheme() reads CSS vars from the DOM; isDarkModeOn is the dep that forces a recompute when
-    // the theme flips (it isn't passed as an argument).
-    const theme = useMemo<ChartTheme>(() => buildTheme(), [isDarkModeOn])
+    const theme = useChartTheme()
 
     return (
         <div className="flex flex-col gap-4">
