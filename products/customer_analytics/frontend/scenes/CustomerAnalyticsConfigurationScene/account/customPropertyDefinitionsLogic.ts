@@ -6,7 +6,6 @@ import posthog from 'posthog-js'
 import api from 'lib/api'
 import { lemonToast } from 'lib/lemon-ui/LemonToast/LemonToast'
 import { projectLogic } from 'scenes/projectLogic'
-import { urls } from 'scenes/urls'
 
 import type { DataWarehouseSavedQuery } from '~/types'
 
@@ -22,13 +21,12 @@ import {
 import type {
     CustomPropertyDefinitionApi,
     CustomPropertyDisplayTypeEnumApi,
-    CustomPropertyReferenceApi,
 } from 'products/customer_analytics/frontend/generated/api.schemas'
 
 import type { customPropertyDefinitionsLogicType } from './customPropertyDefinitionsLogicType'
 import { isNumericDisplayType } from './customPropertyTypes'
 
-export type CustomPropertySourceMode = 'manual' | 'data_warehouse' | 'workflow'
+export type CustomPropertySourceMode = 'manual' | 'data_warehouse'
 
 export interface CustomPropertyFormValues {
     name: string
@@ -80,8 +78,6 @@ const handleNameConflict = (error: unknown, setManualErrors: (errors: { name: st
     return true
 }
 
-class MissingNameError extends Error {}
-
 export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogicType>([
     path([
         'products',
@@ -120,7 +116,7 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
             },
         ],
     }),
-    loaders(({ actions, values }) => ({
+    loaders(({ values }) => ({
         definitions: [
             [] as CustomPropertyDefinitionApi[],
             {
@@ -140,27 +136,6 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 loadSavedQueries: async (): Promise<DataWarehouseSavedQuery[]> => {
                     const response = await api.dataWarehouseSavedQueries.list()
                     return response.results
-                },
-            },
-        ],
-        newWorkflowUrl: [
-            null as string | null,
-            {
-                createWorkflowForProperty: async (): Promise<string> => {
-                    const formValues = values.customPropertyForm
-                    if (!formValues.name?.trim()) {
-                        throw new MissingNameError()
-                    }
-                    // The property must exist first — the workflow action references it by id.
-                    if (!values.editingDefinition) {
-                        const definition = await customPropertyDefinitionsCreate(
-                            String(values.currentProjectId),
-                            serializeDefinition(formValues)
-                        )
-                        actions.setEditingDefinition(definition)
-                        actions.loadDefinitions()
-                    }
-                    return urls.workflowNew()
                 },
             },
         ],
@@ -229,19 +204,6 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 return (view?.columns ?? []).map((column) => column.name)
             },
         ],
-        editingReferences: [
-            (s) => [s.definitions, s.editingDefinition],
-            (
-                definitions: CustomPropertyDefinitionApi[],
-                editingDefinition: CustomPropertyDefinitionApi | null
-            ): readonly CustomPropertyReferenceApi[] => {
-                if (!editingDefinition) {
-                    return []
-                }
-                const fresh = definitions.find((definition) => definition.id === editingDefinition.id)
-                return fresh?.references ?? editingDefinition.references ?? []
-            },
-        ],
     }),
     listeners(({ actions }) => ({
         openCreateModal: () => {
@@ -255,11 +217,7 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
                 description: definition.description ?? '',
                 displayType: definition.display_type,
                 isBigNumber: definition.is_big_number ?? false,
-                sourceMode: definition.source
-                    ? 'data_warehouse'
-                    : definition.references?.length
-                      ? 'workflow'
-                      : 'manual',
+                sourceMode: definition.source ? 'data_warehouse' : 'manual',
                 savedQuery: definition.source?.saved_query ?? null,
                 sourceColumn: definition.source?.source_column ?? null,
                 keyColumn: definition.source?.key_column ?? null,
@@ -294,24 +252,6 @@ export const customPropertyDefinitionsLogic = kea<customPropertyDefinitionsLogic
         loadDefinitionsFailure: ({ error }) => {
             posthog.captureException(error, { scope: 'customPropertyDefinitionsLogic.load' })
             lemonToast.error('Failed to load custom properties')
-        },
-        createWorkflowForPropertySuccess: ({ newWorkflowUrl }) => {
-            if (newWorkflowUrl && window.open(newWorkflowUrl, '_blank')) {
-                lemonToast.success('Workflow editor opened in a new tab — save the workflow there, then refresh')
-            } else {
-                lemonToast.error('Could not open a new tab — check your popup blocker')
-            }
-        },
-        createWorkflowForPropertyFailure: ({ errorObject }) => {
-            if (errorObject instanceof MissingNameError) {
-                actions.setCustomPropertyFormManualErrors({ name: 'Name is required' })
-                return
-            }
-            posthog.captureException(errorObject, { scope: 'customPropertyDefinitionsLogic.createWorkflow' })
-            if (handleNameConflict(errorObject, actions.setCustomPropertyFormManualErrors)) {
-                return
-            }
-            lemonToast.error('Failed to create workflow')
         },
         loadSavedQueriesFailure: ({ error }) => {
             posthog.captureException(error, { scope: 'customPropertyDefinitionsLogic.loadSavedQueries' })

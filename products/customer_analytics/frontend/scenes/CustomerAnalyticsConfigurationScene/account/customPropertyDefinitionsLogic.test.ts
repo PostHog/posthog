@@ -90,7 +90,6 @@ describe('customPropertyDefinitionsLogic', () => {
         } as any
         initKeaTests()
         userLogic.mount()
-        jest.spyOn(window, 'open').mockReturnValue(null)
     })
 
     it('loads definitions on mount', async () => {
@@ -124,24 +123,12 @@ describe('customPropertyDefinitionsLogic', () => {
         })
     })
 
-    it.each([
-        [
-            'workflow references',
-            { references: [{ id: 'flow-1', name: 'Flow', status: 'draft', type: 'workflow' }] },
-            'workflow',
-        ],
-        ['no source or references', {}, 'manual'],
-    ] as [string, Partial<CustomPropertyDefinitionApi>, string][])(
-        'derives the source mode when editing a definition with %s',
-        async (_, overrides, expectedMode) => {
-            useMocks(defaultMocks())
-            mountLogic()
-            await expectLogic(logic, () =>
-                logic.actions.openEditModal(buildDefinition(overrides))
-            ).toFinishAllListeners()
-            expect(logic.values.customPropertyForm.sourceMode).toBe(expectedMode)
-        }
-    )
+    it('derives the manual source mode when editing a definition without a source', async () => {
+        useMocks(defaultMocks())
+        mountLogic()
+        await expectLogic(logic, () => logic.actions.openEditModal(buildDefinition())).toFinishAllListeners()
+        expect(logic.values.customPropertyForm.sourceMode).toBe('manual')
+    })
 
     it('creates a definition, reloads, and closes the modal', async () => {
         useMocks(defaultMocks())
@@ -300,31 +287,5 @@ describe('customPropertyDefinitionsLogic', () => {
             'submitCustomPropertyFormSuccess',
         ])
         expect(sourceDeleted).toBe(true)
-    })
-
-    it('fails the workflow CTA with a field error when the name is missing', async () => {
-        useMocks(defaultMocks())
-        mountLogic()
-        logic.actions.openCreateModal()
-
-        await expectLogic(logic, () => logic.actions.createWorkflowForProperty()).toDispatchActions([
-            'createWorkflowForPropertyFailure',
-            'setCustomPropertyFormManualErrors',
-        ])
-        expect(window.open).not.toHaveBeenCalled()
-    })
-
-    it('creates the property and opens the new-workflow editor', async () => {
-        useMocks(defaultMocks())
-        mountLogic()
-        logic.actions.openCreateModal()
-        logic.actions.setCustomPropertyFormValues({ name: 'Health score', sourceMode: 'workflow' })
-
-        await expectLogic(logic, () => logic.actions.createWorkflowForProperty()).toDispatchActions([
-            // The definition must be created first — the workflow action references it by id.
-            'setEditingDefinition',
-            'createWorkflowForPropertySuccess',
-        ])
-        expect(window.open).toHaveBeenCalledWith('/workflows/new/workflow', '_blank')
     })
 })
