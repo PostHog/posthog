@@ -182,7 +182,7 @@ class TestFetchPageRetries:
         resp = MagicMock()
         resp.status_code = 401
         resp.ok = False
-        resp.raise_for_status.side_effect = requests.HTTPError("401")
+        resp.raise_for_status.side_effect = requests.HTTPError("401", response=_response_with_status(401))
         session = MagicMock()
         session.get.return_value = resp
 

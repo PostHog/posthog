@@ -1,7 +1,12 @@
 import pytest
 from unittest.mock import MagicMock, patch
 
-from posthog.schema import DataWarehouseSourceCategory, ReleaseStatus, SourceFieldInputConfigType
+from posthog.schema import (
+    DataWarehouseSourceCategory,
+    ReleaseStatus,
+    SourceFieldInputConfig,
+    SourceFieldInputConfigType,
+)
 
 from products.warehouse_sources.backend.temporal.data_imports.sources.eventzilla import source as source_module
 from products.warehouse_sources.backend.temporal.data_imports.sources.eventzilla.eventzilla import (
@@ -30,6 +35,7 @@ class TestEventzillaSourceClass:
         fields = self.source.get_source_config.fields
         assert [f.name for f in fields] == ["api_key"]
         api_key = fields[0]
+        assert isinstance(api_key, SourceFieldInputConfig)
         assert api_key.type == SourceFieldInputConfigType.PASSWORD
         assert api_key.required is True
         assert api_key.secret is True

@@ -131,7 +131,9 @@ def _iter_pages(
 def _iter_event_ids(session: requests.Session, headers: dict[str, str], logger: FilteringBoundLogger) -> list[str]:
     event_ids: list[str] = []
     for items, _ in _iter_pages(session, "/events", "events", headers, logger):
-        event_ids.extend(str(item["id"]) for item in items if item.get("id") is not None)
+        # `id` is the event primary key; a response missing it is malformed, so fail loudly
+        # (KeyError) rather than silently dropping the event and its entire fan-out subtree.
+        event_ids.extend(str(item["id"]) for item in items)
     return event_ids
 
 
