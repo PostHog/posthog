@@ -68,9 +68,12 @@ class ExecutionTimeRecorder:
         else:
             attributes["status"] = "COMPLETED"
             attributes["exception"] = ""
-        meter = get_metric_meter(attributes)
-        hist = meter.create_histogram_timedelta(name=self.histogram_name, description=self.description, unit="ms")
+        # The whole metric path is best-effort: meter acquisition can raise
+        # too (e.g. outside an activity/workflow context), and a metric-layer
+        # failure must never fail the wrapped block or mask its exception.
         try:
+            meter = get_metric_meter(attributes)
+            hist = meter.create_histogram_timedelta(name=self.histogram_name, description=self.description, unit="ms")
             hist.record(value=delta)
         except Exception:
             LOGGER.exception("Failed to record execution time to histogram '%s'", self.histogram_name)
