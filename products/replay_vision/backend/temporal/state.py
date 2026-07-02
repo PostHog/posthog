@@ -1,6 +1,8 @@
 """Redis-backed payload passing between Replay Vision workflow activities."""
 
 import gzip
+import asyncio
+from collections.abc import Awaitable
 from enum import Enum
 from typing import TypeVar
 
@@ -18,6 +20,7 @@ from products.replay_vision.backend.temporal.types import ScannerLlmInputs
 logger = structlog.get_logger(__name__)
 
 TModel = TypeVar("TModel", bound=BaseModel)
+_T = TypeVar("_T")
 
 # Workflow runs should complete within an hour; 24h is generous headroom for retries.
 REPLAY_VISION_STATE_REDIS_TTL_SECONDS = 60 * 60 * 24
@@ -40,6 +43,19 @@ def get_redis_state_client(label: StateActivitiesEnum, state_id: str) -> tuple[a
     return redis_client, generate_state_key(label=label, state_id=state_id)
 
 
+async def _uninterruptible(coro: Awaitable[_T]) -> _T:
+    """Run a Redis command so a cancellation of the awaiting task can't leave a dirty pooled connection.
+
+    All Replay Vision activities share one worker event loop and reuse a single ``aioredis`` client backed by one
+    connection pool (see ``posthog.redis.get_async_client``). If a command is cancelled mid-flight — an
+    ``asyncio.gather`` sibling raising, or a Temporal activity timeout — the connection can go back to the pool with
+    an unfinished request/response still on the socket. The next borrower then reads leftover bytes and the RESP
+    stream desyncs, surfacing server-side as ``unknown command '$3'``. Shielding lets the command finish and release
+    its connection cleanly before the cancellation propagates, so the pool is never poisoned.
+    """
+    return await asyncio.shield(coro)
+
+
 def _compress(data: str) -> bytes:
     return gzip.compress(data.encode("utf-8"))
 
@@ -56,11 +72,11 @@ async def store_data_in_redis(
     data: str,
     ttl: int = REPLAY_VISION_STATE_REDIS_TTL_SECONDS,
 ) -> None:
-    await redis_client.setex(redis_key, ttl, _compress(data))
+    await _uninterruptible(redis_client.setex(redis_key, ttl, _compress(data)))
 
 
 async def get_data_str_from_redis(redis_client: aioredis.Redis, redis_key: str) -> str | None:
-    raw = await redis_client.get(redis_key)
+    raw = await _uninterruptible(redis_client.get(redis_key))
     if not raw:
         return None
     try:
