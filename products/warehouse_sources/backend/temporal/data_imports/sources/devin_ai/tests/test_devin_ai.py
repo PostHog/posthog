@@ -70,6 +70,20 @@ class TestEndpointPath:
     def test_org_id_is_interpolated_into_path(self, endpoint: str, expected: str) -> None:
         assert _endpoint_path(endpoint, "org-abc") == expected
 
+    @parameterized.expand(
+        [
+            ("path_traversal", "org-abc/../billing"),
+            ("query_injection", "org-abc?first=1"),
+            ("slash", "org/abc"),
+            ("empty", ""),
+            ("whitespace_only", "   "),
+        ]
+    )
+    def test_malicious_org_id_is_rejected(self, _name: str, org_id: str) -> None:
+        # A malformed org_id must not be able to inject `/` or `?` to route the stored key elsewhere.
+        with pytest.raises(ValueError):
+            _endpoint_path("sessions", org_id)
+
 
 class TestGetRows:
     def test_yields_items_as_dicts(self, monkeypatch: Any) -> None:

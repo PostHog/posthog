@@ -38,6 +38,11 @@ class TestSourceConfig:
         # Static endpoint catalog with no I/O — required so the public docs render the table list.
         assert DevinAISource.lists_tables_without_credentials is True
 
+    def test_connection_host_fields_force_secret_reentry_on_org_change(self) -> None:
+        # Changing org_id retargets the stored API key at a different Devin org, so it must count as a
+        # host field — editing it forces the user to re-enter the key.
+        assert DevinAISource().connection_host_fields == ["org_id"]
+
 
 class TestGetSchemas:
     def test_returns_all_endpoints_full_refresh_only(self) -> None:

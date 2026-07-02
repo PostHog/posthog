@@ -1,3 +1,4 @@
+import re
 import dataclasses
 from collections.abc import Iterator
 from typing import Any
@@ -33,8 +34,20 @@ def _get_headers(api_key: str) -> dict[str, str]:
     }
 
 
+# Devin org IDs look like `org-<slug>`. Constrain to the characters an ID can legitimately contain so a
+# malformed value can't inject `/` or `?` and route the stored API key at a different Devin API path.
+_ORG_ID_RE = re.compile(r"[a-zA-Z0-9._-]+")
+
+
+def _validate_org_id(org_id: str) -> str:
+    org = org_id.strip()
+    if not _ORG_ID_RE.fullmatch(org):
+        raise ValueError(f"Invalid Devin organization ID: {org_id}")
+    return org
+
+
 def _endpoint_path(endpoint: str, org_id: str) -> str:
-    return DEVIN_AI_ENDPOINTS[endpoint].path.format(org_id=org_id)
+    return DEVIN_AI_ENDPOINTS[endpoint].path.format(org_id=_validate_org_id(org_id))
 
 
 @retry(

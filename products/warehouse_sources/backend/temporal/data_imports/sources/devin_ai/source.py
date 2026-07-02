@@ -43,6 +43,12 @@ class DevinAISource(ResumableSource[DevinAISourceConfig, DevinAIResumeConfig]):
         return ExternalDataSourceType.DEVINAI
 
     @property
+    def connection_host_fields(self) -> list[str]:
+        # The stored API key is sent against whatever `org_id` is configured, so changing it retargets
+        # the saved credential at a different Devin organization — force secret re-entry on a change.
+        return ["org_id"]
+
+    @property
     def get_source_config(self) -> SourceConfig:
         return SourceConfig(
             name=SchemaExternalDataSourceType.DEVIN_AI,
