@@ -197,6 +197,7 @@ the row lists both.
 | mssql                   | DB protocol                 | pyodbc / pymssql                                                | ➖                          |
 | mux                     | HTTP                        | requests                                                        | ✅                          |
 | mysql                   | DB protocol                 | pymysql                                                         | ➖                          |
+| new_york_times          | HTTP                        | requests                                                        | ✅                          |
 | okta                    | HTTP                        | requests                                                        | ✅                          |
 | notion                  | HTTP                        | requests                                                        | ✅                          |
 | omnisend                | HTTP                        | requests                                                        | ✅                          |
@@ -524,7 +525,6 @@ doesn't conflict with concurrent PRs.
 - neon
 - netsuite
 - new_relic
-- new_york_times
 - news_api
 - newsdata
 - nexiopay
