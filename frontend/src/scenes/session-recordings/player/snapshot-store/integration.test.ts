@@ -4,7 +4,6 @@ import { LoadBatch, SnapshotStore } from '@posthog/replay-shared'
 
 import { RecordingSegment, RecordingSnapshot, SessionRecordingSnapshotSource } from '~/types'
 
-import { convertSegmentKinds } from '../utils/segment-kind-conversion'
 import { createSegments, mapSnapshotsToWindowId } from '../utils/segmenter'
 import { SeekTarget, planNextBatch } from './planNextBatch'
 
@@ -337,7 +336,7 @@ describe('SnapshotStore + planNextBatch integration', () => {
         expect(store.allLoaded).toBe(true)
     })
 
-    describe('SnapshotStore + segment conversion', () => {
+    describe('SnapshotStore + segment kind derivation', () => {
         function makeActiveSnapshot(timestamp: number, windowId: number = 1): RecordingSnapshot {
             return {
                 timestamp,
@@ -352,7 +351,18 @@ describe('SnapshotStore + planNextBatch integration', () => {
             const snapshotsByWindowId = mapSnapshotsToWindowId(snapshots)
             const start = { valueOf: () => tsForMinute(0) } as any
             const end = { valueOf: () => tsForMinute(sourceCount) } as any
-            return createSegments(snapshots, start, end, undefined, snapshotsByWindowId)
+            const isRangeLoaded = (startTs: number, endTs: number): boolean | null => {
+                if (store.sourceCount === 0) {
+                    return null
+                }
+                const startIdx = store.getSourceIndexForTimestamp(startTs)
+                const endIdx = store.getSourceIndexForTimestamp(endTs)
+                if (startIdx === null || endIdx === null) {
+                    return null
+                }
+                return store.getUnloadedIndicesInRange(startIdx, endIdx).length === 0
+            }
+            return createSegments(snapshots, start, end, undefined, snapshotsByWindowId, isRangeLoaded)
         }
 
         it('forward seek leaves unloaded region — gaps convert to buffer', () => {
@@ -369,8 +379,7 @@ describe('SnapshotStore + planNextBatch integration', () => {
                 batchSize: 10,
             })
 
-            const rawSegments = buildSegments(store, 50)
-            const converted = convertSegmentKinds(rawSegments, store, false)
+            const converted = buildSegments(store, 50)
 
             // Segments covering the unloaded region (minutes 0-27) should be buffer, not gap
             const earlySegments = converted.filter((s) => s.startTimestamp < tsForMinute(27))
@@ -393,8 +402,7 @@ describe('SnapshotStore + planNextBatch integration', () => {
                 store.markLoaded(i, [i === 0 ? makeFullSnapshot(tsForMinute(i)) : makeActiveSnapshot(tsForMinute(i))])
             }
 
-            const rawSegments = buildSegments(store, 10)
-            const converted = convertSegmentKinds(rawSegments, store, false)
+            const converted = buildSegments(store, 10)
 
             // No buffer segments should remain — everything is loaded
             expect(converted.some((s) => s.kind === 'buffer')).toBe(false)
@@ -409,12 +417,12 @@ describe('SnapshotStore + planNextBatch integration', () => {
                 store.markLoaded(i, [i === 0 ? makeFullSnapshot(tsForMinute(i)) : makeActiveSnapshot(tsForMinute(i))])
             }
 
-            const beforeGrowth = convertSegmentKinds(buildSegments(store, 10), store, false)
+            const beforeGrowth = buildSegments(store, 10)
             expect(beforeGrowth.some((s) => s.kind === 'buffer')).toBe(false)
 
             // Live growth: 5 new sources arrive
             store.setSources(makeSources(15))
-            const afterGrowth = convertSegmentKinds(buildSegments(store, 15), store, true)
+            const afterGrowth = buildSegments(store, 15)
 
             // The new region (minutes 10-14) should have buffer segments
             const newRegionSegments = afterGrowth.filter((s) => s.endTimestamp > tsForMinute(10))

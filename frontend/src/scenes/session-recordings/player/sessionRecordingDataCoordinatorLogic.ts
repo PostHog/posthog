@@ -32,7 +32,6 @@ import type { sessionRecordingDataCoordinatorLogicType } from './sessionRecordin
 import { sessionRecordingMetaLogic } from './sessionRecordingMetaLogic'
 import { posthogTelemetry } from './snapshot-processing/process-all-snapshots'
 import { snapshotDataLogic } from './snapshotDataLogic'
-import { convertSegmentKinds } from './utils/segment-kind-conversion'
 import { createSegments, mapSnapshotsToWindowId } from './utils/segmenter'
 
 export interface SessionRecordingDataCoordinatorLogicProps {
@@ -318,7 +317,6 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 s.end,
                 s.trackedWindow,
                 s.snapshotsByWindowId,
-                s.isLoadingSnapshots,
                 s.snapshotStore,
                 s.storeVersion,
             ],
@@ -328,11 +326,20 @@ export const sessionRecordingDataCoordinatorLogic = kea<sessionRecordingDataCoor
                 end: Dayjs | null,
                 trackedWindow: number | null,
                 snapshotsByWindowId: Record<number, eventWithTime[]>,
-                isLoadingSnapshots: boolean,
                 snapshotStore: SnapshotStore
             ): RecordingSegment[] => {
-                const segments = createSegments(snapshots || [], start, end, trackedWindow, snapshotsByWindowId)
-                return convertSegmentKinds(segments, snapshotStore, isLoadingSnapshots)
+                const isRangeLoaded = (startTs: number, endTs: number): boolean | null => {
+                    if (snapshotStore.sourceCount === 0) {
+                        return null
+                    }
+                    const startIdx = snapshotStore.getSourceIndexForTimestamp(startTs)
+                    const endIdx = snapshotStore.getSourceIndexForTimestamp(endTs)
+                    if (startIdx === null || endIdx === null) {
+                        return null
+                    }
+                    return snapshotStore.getUnloadedIndicesInRange(startIdx, endIdx).length === 0
+                }
+                return createSegments(snapshots || [], start, end, trackedWindow, snapshotsByWindowId, isRangeLoaded)
             },
         ],
 
