@@ -37,6 +37,8 @@ from products.customer_analytics.backend.presentation.views.serializers import (
     CustomerJourneySerializer,
     CustomerProfileConfigSerializer,
     CustomPropertyDefinitionSerializer,
+    CustomPropertySourceSerializer,
+    CustomPropertySourceUpdateSerializer,
     CustomPropertyValueSerializer,
     CustomPropertyValueWriteSerializer,
 )
@@ -281,6 +283,70 @@ def _custom_property_definition_write_fields(validated, raw_data: dict) -> dict:
     if "is_big_number" in raw_data:
         fields["is_big_number"] = validated.is_big_number
     return fields
+
+
+class CustomPropertySourceViewSet(
+    TeamAndOrgViewSetMixin,
+    AccessControlViewSetMixin,
+    _FacadePaginationMixin,
+    viewsets.ModelViewSet,
+):
+    scope_object = "account"
+    serializer_class = CustomPropertySourceSerializer
+    queryset = None  # data is reached through the facade; declared for router/schema only
+
+    def list(self, request: Request, *args, **kwargs) -> Response:
+        return self._paginate_via_facade(
+            request,
+            lambda offset, limit: api.list_custom_property_sources(self.team_id, offset=offset, limit=limit),
+            CustomPropertySourceSerializer,
+        )
+
+    def retrieve(self, request: Request, *args, **kwargs) -> Response:
+        source = api.get_custom_property_source(self.team_id, self.kwargs["pk"])
+        if source is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(CustomPropertySourceSerializer(instance=source).data)
+
+    def create(self, request: Request, *args, **kwargs) -> Response:
+        serializer = CustomPropertySourceSerializer(data=request.data)
+        serializer.is_valid(raise_exception=True)
+        data = serializer.validated_data
+        try:
+            source = api.create_custom_property_source(
+                team_id=self.team_id,
+                definition_id=data.definition,
+                saved_query_id=data.saved_query,
+                source_column=data.source_column,
+                key_column=data.key_column,
+                is_enabled=data.is_enabled,
+                user=cast(User, request.user),
+            )
+        except api.CustomPropertySourceValidationError as e:
+            raise ValidationError(str(e))
+        return Response(CustomPropertySourceSerializer(instance=source).data, status=status.HTTP_201_CREATED)
+
+    @extend_schema(request=CustomPropertySourceUpdateSerializer)
+    def update(self, request: Request, *args, **kwargs) -> Response:
+        write = CustomPropertySourceUpdateSerializer(data=request.data, partial=kwargs.pop("partial", False))
+        write.is_valid(raise_exception=True)
+        source = api.update_custom_property_source(
+            team_id=self.team_id, source_id=self.kwargs["pk"], fields=write.validated_data
+        )
+        if source is None:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(CustomPropertySourceSerializer(instance=source).data)
+
+    @extend_schema(request=CustomPropertySourceUpdateSerializer)
+    def partial_update(self, request: Request, *args, **kwargs) -> Response:
+        kwargs["partial"] = True
+        return self.update(request, *args, **kwargs)
+
+    def destroy(self, request: Request, *args, **kwargs) -> Response:
+        deleted = api.delete_custom_property_source(team_id=self.team_id, source_id=self.kwargs["pk"])
+        if not deleted:
+            return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
+        return Response(status=status.HTTP_204_NO_CONTENT)
 
 
 class CustomerJourneyViewSet(
@@ -791,6 +857,8 @@ class CustomPropertyValueViewSet(TeamAndOrgViewSetMixin, AccessControlViewSetMix
             return Response({"detail": "Not found."}, status=status.HTTP_404_NOT_FOUND)
         except api.CustomPropertyDefinitionNotFound:
             raise ValidationError({"definition": "Custom property definition not found."})
+        except api.CustomPropertyValueSourceManaged as exc:
+            raise ValidationError({"definition": str(exc)})
         except api.InvalidCustomPropertyValue as exc:
             raise ValidationError({"value": str(exc)})
         except api.CustomPropertyValueConflict as exc:

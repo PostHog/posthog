@@ -56,7 +56,7 @@ def seed_warehouse_schema(context: CustomPromptSandboxContext) -> dict[str, Any]
     from posthog.models.scoping import team_scope
     from posthog.models.team import Team
 
-    from products.data_modeling.backend.models.datawarehouse_saved_query import DataWarehouseSavedQuery
+    from products.data_modeling.backend.facade.models import DataWarehouseSavedQuery
     from products.data_tools.backend.models.join import DataWarehouseJoin
     from products.warehouse_sources.backend.models.column_annotation import WarehouseColumnAnnotation
     from products.warehouse_sources.backend.models.table import DataWarehouseTable

@@ -29,6 +29,7 @@ dev      ops        roles/shared roles/ops/shared roles/ops/dev
 prod-us  ops        roles/shared roles/ops/shared roles/ops/prod roles/ops/prod-us
 prod-eu  ops        roles/shared roles/ops/shared roles/ops/prod roles/ops/prod-eu
 
+local    logs       roles/logs/local
 dev      logs       roles/shared roles/logs/shared roles/logs/dev
 prod-us  logs       roles/shared roles/logs/shared roles/logs/prod-us
 prod-eu  logs       roles/shared roles/logs/shared roles/logs/prod-eu

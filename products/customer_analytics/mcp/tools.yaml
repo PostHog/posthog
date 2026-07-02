@@ -309,6 +309,24 @@ tools:
     custom-property-definitions-update:
         operation: custom_property_definitions_update
         enabled: false
+    custom-property-sources-create:
+        operation: custom_property_sources_create
+        enabled: false
+    custom-property-sources-destroy:
+        operation: custom_property_sources_destroy
+        enabled: false
+    custom-property-sources-list:
+        operation: custom_property_sources_list
+        enabled: false
+    custom-property-sources-partial-update:
+        operation: custom_property_sources_partial_update
+        enabled: false
+    custom-property-sources-retrieve:
+        operation: custom_property_sources_retrieve
+        enabled: false
+    custom-property-sources-update:
+        operation: custom_property_sources_update
+        enabled: false
     customer-journeys-create:
         operation: customer_journeys_create
         enabled: false

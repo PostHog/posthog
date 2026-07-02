@@ -163,7 +163,7 @@ def _build_exception_properties(spec: dict[str, Any], issue_id: str, session_id:
     """Construct the ``$exception`` event payload for one occurrence.
 
     Mirrors the shape Hedgebox's demo seed writes (see
-    ``posthog/demo/products/hedgebox/matrix.py:_set_up_error_tracking_demo_data``)
+    ``products/demo/backend/logic/products/hedgebox/matrix.py:_set_up_error_tracking_demo_data``)
     so the query runner's frame-extraction (``innermost_frame_attribute``)
     and the events tool's ``$exception_list`` rendering both work. Stack
     frames are inlined as ``resolved=True``; we deliberately skip the

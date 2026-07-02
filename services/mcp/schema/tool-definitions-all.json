@@ -4357,7 +4357,7 @@
         }
     },
     "inbox-source-configs-create": {
-        "description": "Create a signal source config for the current project, switching an inbox signal source on. A source ties a `source_product` to a `source_type` and an `enabled` flag. Valid `source_product` values: session_replay, llm_analytics, github, linear, zendesk, conversations, error_tracking, pganalyze, signals_scout, logs. Valid `source_type` values: session_analysis_cluster, evaluation, issue, ticket, issue_created, issue_reopened, issue_spiking, cross_source_issue, alert_state_change. The Signals scout source is ON BY DEFAULT — scout findings reach the inbox with no config row needed. The only reason to create a `source_product=signals_scout`, `source_type=cross_source_issue` row is to OPT OUT: create it with `enabled=false` (the per-scout `emit` flag is set separately via `signals-scout-config-update`). There is at most one config per (source_product, source_type) per project; if one already exists, update it instead. Enabling the session_analysis_cluster source requires the organization to have approved AI data processing.",
+        "description": "Create a signal source config for the current project, switching an inbox signal source on. A source ties a `source_product` to a `source_type` and an `enabled` flag. Valid `source_product` values: session_replay, llm_analytics, github, linear, zendesk, conversations, error_tracking, pganalyze, signals_scout, logs. Valid `source_type` values: session_analysis_cluster, evaluation, evaluation_report, issue, ticket, issue_created, issue_reopened, issue_spiking, cross_source_issue, alert_state_change. To surface AI observability evaluation report findings in the inbox, create `source_product=llm_analytics`, `source_type=evaluation_report`. The Signals scout source is ON BY DEFAULT — scout findings reach the inbox with no config row needed. The only reason to create a `source_product=signals_scout`, `source_type=cross_source_issue` row is to OPT OUT: create it with `enabled=false` (the per-scout `emit` flag is set separately via `signals-scout-config-update`). There is at most one config per (source_product, source_type) per project; if one already exists, update it instead. Enabling the session_analysis_cluster source requires the organization to have approved AI data processing.",
         "category": "Signals",
         "feature": "signals",
         "summary": "Create signal source config",
@@ -6903,6 +6903,36 @@
         },
         "system_prompt_hint": "List persons behind a trends data point"
     },
+    "query-web-overview": {
+        "description": "Run a web analytics overview query — high-level KPIs over a period: visitors, pageviews, sessions, average session duration, and bounce rate. Returns a small list of metric tuples with optional period-over-period comparison. Mirrors the in-product **Web analytics** scene.\n\n# When to use this vs `query-trends`\n\nPick this tool only when the answer needs **session-level math**. Session aggregation is more expensive than per-event queries — only pay for it when needed.\n\nUse `query-web-overview` when the question references just the aggregate values across the period instead of time series for those session-level values: bounce rate, session duration, sessions as a count, or entry/initial values (entry page, initial channel, initial UTM).\n\nUse `query-trends` instead for per-event counts — pageviews, sign-ups, button clicks. Faster.\n\n# Inputs\n\n- `dateRange` — defaults to last 7 days when omitted. Keep ranges short — there is no enforced upper bound and large windows on the slow path can be expensive.\n- `compareFilter: { compare: true }` — return prior-period values for change %. **Roughly doubles query cost** because it runs the same aggregation over the previous period — leave it off unless the user explicitly asks for a comparison.\n- `properties` — event/person/session/cohort filters. Same operator semantics as `query-trends` — see that prompt. Defaults to `[]`.\n- `filterTestAccounts` — exclude internal/test users.\n- `doPathCleaning` — apply team's path-cleaning rules.\n- `conversionGoal` — pass an `actionId` (must belong to the current project) or a `customEventName`. Only set when the user asks about a conversion.\n\nUse `read-data-schema` to validate property names/values when needed.\n\n# Example\n\n```json\n{\n  \"kind\": \"WebOverviewQuery\",\n  \"dateRange\": { \"date_from\": \"-7d\" }\n}\n```\n\n# Out of scope\n\n`conversionGoal` is supported as an input on this tool. Goal-funnel breakdowns (`WebGoalsQuery`), web vitals, and external clicks aren't exposed as separate query modes — fall back to `execute-sql` for those.",
+        "category": "Query wrappers",
+        "feature": "insights",
+        "summary": "Run a web analytics overview query",
+        "title": "Run a web analytics overview query",
+        "required_scopes": ["query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "system_prompt_hint": "Web analytics KPIs — visitors, sessions, bounce rate, session duration"
+    },
+    "query-web-stats": {
+        "description": "Run a web analytics breakdown table query — top pages, UTMs, devices, browsers, countries, etc. — with visitors and pageviews per row, plus optional bounce rate / average time on page. Mirrors the in-product **Web analytics** scene's table tiles.\n\n# When to use this vs `query-trends` / `query-paths`\n\nPick this tool only when the answer needs **session-level math**. Session aggregation is more expensive than per-event queries — only pay for it when needed.\n\nUse `query-web-stats` when the breakdown or metric is session-derived:\n\n- `includeBounceRate=true` or `includeAvgTimeOnPage=true` (per-session metrics)\n- Initial / first-touch breakdowns: `InitialPage`, `InitialChannelType`, `InitialReferringDomain`, `InitialUTMSource`/`Medium`/`Campaign`/`Term`/`Content`\n- `ExitPage` (last event in a session)\n\nUse `query-trends` (with a breakdown) for per-event counts by an event property — no session boundaries needed. Faster.\n\nUse `query-paths` for navigation between arbitrary events when you don't need bounce rate or session-level metrics.\n\n# `breakdownBy` cheat-sheet\n\n- **Path-style** (pair with `includeBounceRate`/`includeAvgTimeOnPage`): `Page`, `InitialPage`, `ExitPage`, `PreviousPage`\n- **Marketing**: `InitialChannelType`, `InitialReferringDomain`, `InitialReferringURL`, `InitialUTMSource`, `InitialUTMMedium`, `InitialUTMCampaign`, `InitialUTMTerm`, `InitialUTMContent`, `InitialUTMSourceMediumCampaign`\n- **Audience / device**: `Browser`, `OS`, `Viewport`, `DeviceType`, `Country`, `Region`, `City`, `Timezone`, `Language`\n- **Other**: `ScreenName`, `ExitClick`, `FrustrationMetrics` (these don't combine with `includeBounceRate` / `includeAvgTimeOnPage`)\n\n# Inputs\n\nSame filter set as `query-web-overview` (`dateRange`, `compareFilter`, `properties`, `filterTestAccounts`, `doPathCleaning`, `conversionGoal`). Plus `breakdownBy` (required), `includeBounceRate`, `includeAvgTimeOnPage`, `includeHost`, `limit`, `offset`. Default `dateRange` is last 7 days.\n\nPerformance hints:\n\n- Leave `compareFilter` off unless the user asks for period-over-period — enabling it roughly doubles query cost.\n- `limit` is capped at 200 by the wrapper. Prefer 10–25 unless the user explicitly asks for more.\n\nUse `read-data-schema` to validate property names/values when needed.\n\n# Example\n\nTop 20 pages by bounce rate, last 7 days:\n\n```json\n{\n  \"kind\": \"WebStatsTableQuery\",\n  \"breakdownBy\": \"Page\",\n  \"includeBounceRate\": true,\n  \"limit\": 20,\n  \"dateRange\": { \"date_from\": \"-7d\" }\n}\n```\n\n# Out of scope\n\n`conversionGoal` is supported as an input on this tool. Goal-funnel breakdowns (`WebGoalsQuery`), web vitals, and external clicks aren't exposed as separate query modes — fall back to `execute-sql` for those.",
+        "category": "Query wrappers",
+        "feature": "insights",
+        "summary": "Run a web analytics breakdown table query",
+        "title": "Run a web analytics breakdown table query",
+        "required_scopes": ["query:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        },
+        "system_prompt_hint": "Web analytics breakdowns — top pages, UTMs, devices, countries, with bounce rate"
+    },
     "read-data-schema": {
         "description": "Use this tool to explore the user's data schema. The user implements PostHog SDKs to collect events, properties, and property values. They are used by users to create insights with visualizations, SQL queries, watch session recordings, filter data, target particular users or groups by traits or behavior, etc. Each event, action, and entity has its own data schema. You must verify that specific combinations exist before using it anywhere else. Events or properties starting from \"$\" are system properties automatically captured by SDKs. Do not rely on your training data or PostHog defaults for events or properties. Always use this tool to confirm what actually exists in the user's project before referencing any event, property, or property value.",
         "category": "Data schema",
@@ -7038,6 +7068,34 @@
         "summary": "List organization roles.",
         "title": "List organization roles.",
         "required_scopes": ["organization:read"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": true
+        }
+    },
+    "saved-query-column-annotations-create": {
+        "description": "Add or replace a semantic description for a data-modelling view (saved query) or one of its columns. Use this ONLY for views — rows where table_type = 'view' in system.information_schema.tables. For imported/physical warehouse tables (table_type = 'data_warehouse') use warehouse-column-annotations-create instead. Core PostHog tables (events, persons, groups, sessions; table_type = 'posthog') cannot be described. Provide the saved_query id, the column_name (empty string for a view-level description), and the description. The annotation is recorded as user-edited, which prevents automatic enrichment from overwriting it. Calling this again for the same column replaces the existing description.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "Add a view column description",
+        "title": "Add a view column description",
+        "required_scopes": ["warehouse_view:write"],
+        "annotations": {
+            "destructiveHint": false,
+            "idempotentHint": true,
+            "openWorldHint": true,
+            "readOnlyHint": false
+        }
+    },
+    "saved-query-column-annotations-list": {
+        "description": "List semantic descriptions of data-modelling views (saved queries) and their columns. Use this for views (table_type = 'view' in system.information_schema.tables); for physical warehouse tables use warehouse-column-annotations-list. Pass ?saved_query_id=<uuid> to scope to one view. Each entry has the column_name (empty string = view-level description), the description, and its source (ai_generated or user_edited). Use this to see what a view's columns mean before writing SQL against it.",
+        "category": "Data warehouse",
+        "feature": "data_warehouse",
+        "summary": "List view column descriptions",
+        "title": "List view column descriptions",
+        "required_scopes": ["warehouse_view:read"],
         "annotations": {
             "destructiveHint": false,
             "idempotentHint": true,

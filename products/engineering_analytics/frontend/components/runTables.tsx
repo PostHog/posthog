@@ -1,7 +1,5 @@
-// Shared building blocks for the CI run/job tables, used by both the PR detail page (a PR's workflow
-// runs, expandable to jobs) and the single workflow-run page (that run's jobs). Keeping them here means
-// the two surfaces read identically — a job row looks the same whether it's expanded under a run or
-// shown on the run's own page.
+// Shared building blocks for the CI run/job tables (PR detail page and single workflow-run page) so the
+// two surfaces read identically — a job row looks the same expanded under a run or on its own page.
 
 import { ReactNode } from 'react'
 
@@ -55,9 +53,8 @@ export function StatusDot({ conclusion }: { conclusion: string | null }): JSX.El
 }
 
 /**
- * A Gantt bar anchored to the real start time on a shared axis, sized by duration and colored by
- * verdict (failures tint red, everything else stays calm). A still-running bar extends to "now"; a
- * min width keeps short items visible next to long ones. The duration prints to the right.
+ * Gantt bar anchored to start time on a shared axis, sized by duration, red when failed. Running bars
+ * extend to now; a min width keeps short items visible. The duration prints to the right.
  */
 export function GanttBar({
     startedAt,
@@ -107,9 +104,8 @@ export function formatCost(usd: number | null): string {
     if (usd == null) {
         return '—'
     }
-    // A short self-hosted job costs a fraction of a cent at the reference rate, so rounding to 2 dp would
-    // print "$0.00" and make a real cost read as free — and a run's jobs then look like they don't sum to
-    // the run total. Show sub-cent positives as "<$0.01"; only a measured zero is "$0.00".
+    // Sub-cent costs would round to "$0.00" and read as free (and jobs wouldn't sum to the run total),
+    // so show positives under a cent as "<$0.01"; only a measured zero is "$0.00".
     if (usd > 0 && usd < 0.01) {
         return '<$0.01'
     }
@@ -120,13 +116,10 @@ export function formatMinutes(minutes: number | null): string {
     return minutes == null ? '—' : `${Math.round(minutes).toLocaleString()} min`
 }
 
-// THE canonical CI grid. The workflow (L1) table defines these column slots; the run (L2) and job (L3)
-// tables reuse the exact same widths so every column lines up vertically as you drill in — cost under
-// Cost, verdict under Success rate, duration under p50/p95, started under Last failure, timeline under
-// Health. Each level fills the slots it has an analog for and leaves the rest blank. Single source of
-// truth shared by WorkflowHealthTable, RunsTable and RunJobsTable; change a width once, all levels move.
-// Widths fit the widest header in each slot (fixed layout clips overflow): "SUCCESS RATE" + sort caret,
-// "DURATION" under p50, etc.
+// Canonical CI grid: the L1 (workflow), L2 (run), and L3 (job) tables reuse these exact widths so every
+// column lines up vertically as you drill in. Each level fills the slots it has an analog for, blanks the
+// rest. Single source of truth shared by WorkflowHealthTable, RunsTable, RunJobsTable; change a width
+// once, all levels move. Widths fit the widest header in each slot (fixed layout clips overflow).
 export const CI_GRID = {
     status: 116, // L1 Passing/Failing tag · L3 runner tier
     runs: 80, // L1 run count · blank below
@@ -138,8 +131,8 @@ export const CI_GRID = {
     lastFailure: 124, // L1 last-failure time · L2/L3 started
 } as const
 
-// Muted grey for GitHub-hosted (free), blue for billable self-hosted — kept off the green/red verdict
-// palette so a runner badge never reads as a pass/fail status.
+// Grey for GitHub-hosted (free), blue for self-hosted — off the green/red verdict palette so a runner
+// badge never reads as a pass/fail status.
 const RUNNER_BADGE: Record<string, { label: string; type: LemonTagType }> = {
     github_hosted: { label: 'GitHub', type: 'muted' },
     self_hosted: { label: 'Self-hosted', type: 'primary' },
@@ -159,8 +152,8 @@ export function RunnerBadge({ provider, label }: { provider: string; label: stri
     )
 }
 
-/** GitHub-hosted runners are free (open source); self-hosted shows the modeled estimate — same
- *  "min · $" badge as the run/workflow rows so cost reads identically at every depth. */
+/** GitHub-hosted runners are free; self-hosted shows the modeled estimate in the same "min · $" badge as
+ *  the run/workflow rows. */
 function jobCostCell(job: WorkflowJobApi): JSX.Element {
     if (job.runner_provider === 'github_hosted') {
         return <span className="text-xs text-secondary">Free</span>
@@ -173,8 +166,8 @@ function formatSeconds(seconds: number | null): string {
     return seconds == null ? '—' : humanFriendlyDuration(seconds)
 }
 
-/** Runner in the tight aligned grid: just the tier tag, colored by provider, full name on hover —
- *  the verbose "Self-hosted 16-core" badge won't fit the canonical Status slot. */
+/** Runner in the aligned grid: just the tier tag (full name on hover) — the verbose badge won't fit the
+ *  Status slot. */
 function compactRunnerCell(job: WorkflowJobApi): JSX.Element {
     const badge = RUNNER_BADGE[job.runner_provider] ?? RUNNER_BADGE.unknown
     if (job.runner_provider === 'unknown' && !job.runner_label) {
@@ -190,10 +183,9 @@ function compactRunnerCell(job: WorkflowJobApi): JSX.Element {
 }
 
 /**
- * A workflow run's jobs: runner tier, Gantt timeline on the jobs' own axis, and est. cost. Used both
- * as the expanded-row content under a run in the PR view (`embedded`) and as the main content of the
- * single workflow-run page. ``jobs === undefined`` is the not-loaded state; ``[]`` means the job-level
- * source isn't synced for this team.
+ * A workflow run's jobs: runner tier, Gantt timeline on the jobs' own axis, est. cost. Used as the
+ * expanded-row content under a run (`embedded`) and as the single workflow-run page. `undefined`/`null`
+ * jobs = not loaded; `[]` = the job-level source isn't synced for this team.
  */
 export function RunJobsTable({
     jobs,
@@ -336,9 +328,8 @@ export function RunJobsTable({
             nouns={['job', 'jobs']}
         />
     )
-    // No indent: the job table has no expand-toggle column of its own, so its name column absorbs that
-    // width and the rows read flush-left under the parent run instead of behind an empty indent (which
-    // reads as a stray gap in front of the jobs).
+    // No indent: the job table has no expand toggle, so rows read flush-left under the parent run instead
+    // of behind a stray gap.
     return table
 }
 
@@ -374,9 +365,8 @@ export interface RunsTableProps<T extends RunRowBase> {
 }
 
 /**
- * A list of workflow runs, each expandable to its jobs (RunJobsTable) — the same row → jobs drill-down
- * on the PR detail page and the single-workflow page. The trailing columns (verdict, duration, started,
- * optional cost) and the expand-to-jobs behavior are shared; only the leading columns differ per caller.
+ * A list of workflow runs, each expandable to its jobs (RunJobsTable). Shared trailing columns (verdict,
+ * duration, started, optional cost) and expand-to-jobs behavior; only the leading columns differ per caller.
  */
 export function RunsTable<T extends RunRowBase>({
     runs,
@@ -500,8 +490,8 @@ export function RunsTable<T extends RunRowBase>({
                     : {}
             }
             expandable={{
-                // Built-in compact toggle (chevron) + whole-row click. No onRowExpand/onRowCollapse so the
-                // toggle click just bubbles to onRow — one toggle, not two.
+                // Compact chevron toggle + whole-row click; no onRowExpand/onRowCollapse so the toggle
+                // bubbles to onRow — one toggle, not two.
                 noIndent: true,
                 rowExpandable: (run) => run.runId != null,
                 isRowExpanded: (run) => expandedKeys.includes(rowKey(run)),
