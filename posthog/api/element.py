@@ -54,7 +54,10 @@ class ElementSerializer(serializers.ModelSerializer):
 
 class ElementStatsSerializer(serializers.Serializer):
     count = serializers.IntegerField(help_text="Number of events matching this element chain")
-    hash = serializers.CharField(allow_null=True, help_text="Always null; retained for backwards compatibility")
+    hash = serializers.CharField(
+        allow_null=True,
+        help_text="Stable identity of the raw element chain (hash computed before any attribute filtering), for deduplicating rows across pages",
+    )
     type = serializers.CharField(help_text="Event type: $autocapture, $rageclick, or $dead_click")
     elements = ElementSerializer(many=True, help_text="Parsed elements of the chain, clicked element first")
 
@@ -190,7 +193,7 @@ class ElementViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
                 serialized_elements = [
                     {
                         "count": int(row[1]),
-                        "hash": None,
+                        "hash": f"{row[3]:x}",
                         "type": row[2],
                         "elements": chain_to_element_dicts(row[0], attributes_filter),
                     }

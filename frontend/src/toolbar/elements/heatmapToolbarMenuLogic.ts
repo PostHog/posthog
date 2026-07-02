@@ -669,9 +669,10 @@ export function dedupeByChainIdentity(events: ElementsEventType[]): ElementsEven
     const seen = new Set<string>()
     const deduped: ElementsEventType[] = []
     for (const event of events) {
-        // /api/element/stats returns hash as null for every row, so the chain content is the
-        // only usable row identity
-        const identity = `${event.type}:${JSON.stringify(event.elements)}`
+        // the server hashes the raw chain before attribute filtering, so distinct chains that
+        // serialize identically after trimming stay distinct; serialized content is only the
+        // fallback for older servers that still return hash as null
+        const identity = `${event.type}:${event.hash ?? JSON.stringify(event.elements)}`
         if (seen.has(identity)) {
             continue
         }
