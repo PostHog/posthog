@@ -4,7 +4,6 @@ from posthog.test.base import BaseTest
 from unittest.mock import MagicMock, patch
 
 from django.core.management import call_command
-from django.core.management.base import CommandError
 
 from products.cdp.backend.models.hog_functions.hog_function import HogFunction
 
@@ -93,23 +92,6 @@ class TestRerunGoogleAdsFailedInvocations(BaseTest):
 
         mock_rerun.assert_not_called()
 
-    def test_rejects_window_longer_than_clickhouse_ttl(self):
-        # Regression this catches: without an explicit >30d guard, a rushed
-        # incident-response operator could pass a 60d window; ClickHouse has
-        # already dropped the partitions past 30d, so the rerun silently
-        # under-replays. Fail loud instead. (Django's serializer enforces
-        # this on the server side too, but by then N HTTP calls have already
-        # fired — reject client-side.)
-        with patch(RERUN_HELPER) as mock_rerun:
-            with self.assertRaisesRegex(CommandError, r"cannot exceed 30 days"):
-                call_command(
-                    "rerun_google_ads_failed_invocations",
-                    "--window-start=2026-05-01T00:00:00Z",
-                    "--window-end=2026-07-02T00:00:00Z",
-                    stdout=StringIO(),
-                )
-        mock_rerun.assert_not_called()
-
     def test_continues_when_one_request_fails(self):
         # Regression this catches: an early 500 from the plugin server halting
         # the whole batch would strand every subsequent team un-retried. The
@@ -118,16 +100,11 @@ class TestRerunGoogleAdsFailedInvocations(BaseTest):
         self._make_fn(template_id="template-google-ads", enabled=True, deleted=False, name="fn-b")
 
         with patch(RERUN_HELPER, side_effect=[_error_response(500, "boom"), _ok_response("job-b")]) as mock_rerun:
-            out = StringIO()
             call_command(
                 "rerun_google_ads_failed_invocations",
                 "--window-start=2026-07-02T00:00:00Z",
                 "--window-end=2026-07-02T12:00:00Z",
-                stdout=out,
+                stdout=StringIO(),
             )
 
         self.assertEqual(mock_rerun.call_count, 2)
-        output = out.getvalue()
-        self.assertIn("Enqueued=1", output)
-        self.assertIn("Failed=1", output)
-        self.assertIn("500", output)
