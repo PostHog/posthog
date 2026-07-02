@@ -293,6 +293,48 @@ describe('domElementIndex', () => {
                 ],
             },
             {
+                name: 'uses position to pick between siblings sharing a data attribute',
+                html: `
+                    <div>
+                        <button data-attr="cta"></button>
+                        <button data-attr="cta" id="target"></button>
+                    </div>
+                `,
+                event: [
+                    {
+                        tag_name: 'button',
+                        attributes: { 'attr__data-attr': 'cta' },
+                        nth_child: 2,
+                        nth_of_type: 2,
+                    },
+                ],
+                dataAttributes: ['data-attr'],
+            },
+            {
+                name: 'ignores drifted sibling position when the clicked element is identified by id',
+                html: `
+                    <div class="injected-banner"></div>
+                    <button id="target" class="btn"></button>
+                `,
+                event: [{ tag_name: 'button', attr_id: 'target', nth_child: 1, nth_of_type: 1 }],
+            },
+            {
+                name: 'ignores drifted sibling position when the clicked element is identified by a data attribute',
+                html: `
+                    <div class="injected-banner"></div>
+                    <button data-attr="cta" id="target"></button>
+                `,
+                event: [
+                    {
+                        tag_name: 'button',
+                        attributes: { 'attr__data-attr': 'cta' },
+                        nth_child: 1,
+                        nth_of_type: 1,
+                    },
+                ],
+                dataAttributes: ['data-attr'],
+            },
+            {
                 name: 'ignores drifted sibling position when the ancestor is identified by id',
                 html: `
                     <div class="injected-banner"></div>
