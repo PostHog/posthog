@@ -250,12 +250,11 @@ class Pipeline:
                 return None
 
         bot_list = ", ".join(f"@{b}" for b in bots)
-        has_or_have = "have" if len(bots) > 1 else "has"
         self.final_verdict = "WAIT"
         self.reviewer_output = {
             "verdict": "WAIT",
             "reasoning": (
-                f"{bot_list} still {has_or_have} a review in flight (👀) after "
+                f"{bot_list} still {'have' if len(bots) > 1 else 'has'} a review in flight (👀) after "
                 f"{BOT_REVIEW_WAIT_BUDGET_SECONDS // 60} minutes — not approving over an "
                 "unfinished review. The `stamphog` label has been kept; the review re-runs "
                 "on the next push, or remove and re-apply the label once the reviewer finishes."
