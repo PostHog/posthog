@@ -40,11 +40,13 @@ MODEL = "claude-sonnet-5"
 # controls, bidi overrides, zero-width chars, and the Unicode tags block
 # (invisible ASCII). Visible unicode must survive: reviewer bots express
 # verdicts as 👍/👀 in review bodies, and stripping emoji garbles those
-# into text that reads like tampering on the next run. ZWJ (U+200D) is
-# kept — removing it breaks composite emoji sequences.
+# into text that reads like tampering on the next run. ZWJ is stripped
+# with the other zero-width chars (it interleaves invisibly into words);
+# composite emoji degrade to their visible components, which stays readable.
 _INVISIBLE_CHARS_RE = re.compile(
     "[\x00-\x08\x0b-\x1f\x7f-\x9f"  # C0/C1 controls and DEL (keep \t \n)
-    "\u200b\u200c\u200e\u200f"  # zero-width space/non-joiner, LRM/RLM
+    "\u061c"  # Arabic letter mark (bidi)
+    "\u200b-\u200f"  # zero-width space/joiners, LRM/RLM
     "\u2028\u2029"  # line/paragraph separators
     "\u202a-\u202e\u2066-\u2069"  # bidi embedding/override/isolate controls
     "\u2060\ufeff"  # word joiner, BOM
