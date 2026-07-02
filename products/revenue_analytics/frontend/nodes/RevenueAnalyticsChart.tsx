@@ -11,7 +11,7 @@ import type {
     YAxisConfig,
 } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartTheme } from 'lib/charts/hooks'
 import { teamLogic } from 'scenes/teamLogic'
 
 import { themeLogic } from '~/layout/navigation-3000/themeLogic'
@@ -73,7 +73,7 @@ export function RevenueAnalyticsChart({
     const { dateFilter } = useValues(revenueAnalyticsLogic)
     const { isDarkModeOn } = useValues(themeLogic)
 
-    const theme = useMemo(() => buildTheme(), [isDarkModeOn])
+    const theme = useChartTheme()
 
     // isDarkModeOn is a dep (not an arg): getColor can resolve theme-dependent CSS colors into
     // concrete values, so the series must rebuild on a light/dark toggle.

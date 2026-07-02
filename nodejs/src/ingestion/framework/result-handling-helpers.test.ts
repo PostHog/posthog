@@ -6,7 +6,11 @@ import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { emitIngestionWarning } from '~/ingestion/common/ingestion-warnings'
-import { logDroppedMessage, produceMessageToDLQ, redirectMessageToOutput } from '~/ingestion/common/pipeline-helpers'
+import {
+    logDroppedMessage,
+    produceMessageToDLQ,
+    redirectMessageToOutput,
+} from '~/ingestion/framework/result-handling-helpers'
 import { createMockIngestionOutputs } from '~/tests/helpers/mock-ingestion-outputs'
 
 // Mock all dependencies

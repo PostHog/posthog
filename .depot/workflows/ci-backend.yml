@@ -177,6 +177,7 @@ jobs:
             backend_files: ${{ steps.filter.outputs.backend_files }}
             migrations: ${{ steps.filter.outputs.migrations || 'true' }}
             migrations_files: ${{ steps.filter.outputs.migrations_files }}
+            migrations_any: ${{ steps.filter.outputs.migrations_any || 'true' }}
             tasks_temporal: ${{ steps.filter.outputs.tasks_temporal || 'true' }}
             openapi_types: ${{ steps.filter.outputs.openapi_types || 'true' }}
             legacy: ${{ steps.filter.outputs.legacy || 'true' }}
@@ -333,6 +334,11 @@ jobs:
                         # depot strips canonical's separate persons-migration job
                         - 'rust/persons_migrations/*.sql'
                         - 'rust/bin/migrate-persons'
+                      # Any migration file in any app (broader than `migrations` above,
+                      # which omits ee/ and posthog sub-package dirs). Gates the
+                      # deleted-migration check in repo-checks.
+                      migrations_any:
+                        - '**/migrations/*.py'
                       tasks_temporal:
                         - 'products/tasks/backend/temporal/**/*'
                       product_yamls:
@@ -860,6 +866,9 @@ jobs:
         needs: [changes]
         if: needs.changes.outputs.backend == 'true' && github.event_name != 'push'
         timeout-minutes: 10
+        permissions:
+            contents: read
+            pull-requests: read # list PR files for the deleted-migration check
         name: Repo checks (depot-ubuntu-latest)
         runs-on: depot-ubuntu-latest
         steps:
@@ -888,6 +897,15 @@ jobs:
               run: tach check --dependencies --interfaces
             - name: Check product facade enforcement (import-linter)
               run: lint-imports
+            # Block deleting historical migration files (see safe-django-migrations.md).
+            # GITHUB_ACTIONS=false suppresses the command's PR annotations on the shadow.
+            - name: Check deleted migrations
+              if: github.event_name == 'pull_request' && needs.changes.outputs.migrations_any == 'true'
+              env:
+                  GITHUB_ACTIONS: 'false'
+                  REPO: ${{ github.repository }}
+                  PR_NUMBER: ${{ github.event.pull_request.number }}
+              run: .github/scripts/list-removed-renamed-paths.sh | ./bin/hogli lint:migration-deletions
 
     validate-product-yamls:
         needs: [changes]

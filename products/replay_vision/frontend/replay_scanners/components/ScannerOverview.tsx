@@ -1,10 +1,9 @@
 import { useValues } from 'kea'
-import { useMemo } from 'react'
 
 import { LemonTag, Spinner } from '@posthog/lemon-ui'
 import { BarChart } from '@posthog/quill-charts'
 
-import { buildTheme } from 'lib/charts/utils/theme'
+import { useChartTheme } from 'lib/charts/hooks'
 import { LemonProgress } from 'lib/lemon-ui/LemonProgress'
 
 import { replayScannerLogic } from '../replayScannerLogic'
@@ -170,7 +169,7 @@ function ScorerOverview({ scannerId }: { scannerId: string }): JSX.Element {
     const { scorerSummary, scorerHistogram, hasActiveObservationFilters, observationStatsApiLoading } = useValues(
         replayScannerLogic({ id: scannerId })
     )
-    const theme = useMemo(() => buildTheme(), [])
+    const theme = useChartTheme()
     if (!scorerSummary || !scorerHistogram) {
         return (
             <OverviewPanel title="Score distribution">

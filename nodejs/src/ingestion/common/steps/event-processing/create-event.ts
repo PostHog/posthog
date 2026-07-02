@@ -4,7 +4,7 @@ import { MAX_GROUP_TYPES_PER_TEAM } from '~/common/groups/group-type-manager'
 import { elementsToString, extractElements } from '~/common/utils/elements-chain'
 import { logger } from '~/common/utils/logger'
 import { captureException } from '~/common/utils/posthog'
-import { uuidFromDistinctId } from '~/ingestion/common/person-uuid'
+import { uuidFromDistinctId } from '~/ingestion/common/persons/person-uuid'
 import { Properties } from '~/plugin-scaffold'
 import { Element, Person, PersonMode, PreIngestionEvent, ProcessedEvent } from '~/types'
 

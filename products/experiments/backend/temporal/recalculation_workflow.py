@@ -12,6 +12,7 @@ from posthog.temporal.common.base import PostHogWorkflow
 with temporalio.workflow.unsafe.imports_passed_through():
     from products.experiments.backend.temporal.models import (
         MAX_METRIC_ATTEMPTS,
+        METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS,
         ExperimentMetricsRecalculationWorkflowInputs,
         ExperimentMetricToRecalculate,
         RecalculationProgressUpdate,
@@ -175,7 +176,9 @@ class ExperimentMetricsRecalculationWorkflow(PostHogWorkflow):
                         ],
                         # No heartbeat: the activity's only long-running step is one blocking ClickHouse query
                         # with no progress hooks, so start_to_close_timeout is the real per-attempt ceiling.
-                        start_to_close_timeout=timedelta(minutes=5),
+                        # The query's ClickHouse max_execution_time is capped below this (see models.py) so
+                        # slow queries fail typed inside the activity instead of being killed from outside.
+                        start_to_close_timeout=timedelta(seconds=METRIC_CALC_ACTIVITY_TIMEOUT_SECONDS),
                         # One attempt per invocation; the workflow owns requeue + backoff (see block comment).
                         retry_policy=RetryPolicy(maximum_attempts=1),
                     )
