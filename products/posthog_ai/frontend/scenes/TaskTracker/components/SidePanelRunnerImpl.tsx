@@ -1,12 +1,13 @@
 import { BindLogic, useActions, useValues } from 'kea'
 
-import { IconPlus } from '@posthog/icons'
+import { IconArrowLeft, IconPlus } from '@posthog/icons'
 import { LemonButton } from '@posthog/lemon-ui'
 
 import { RunSurface } from 'products/posthog_ai/frontend/api/runSurface'
 
 import { taskTrackerSceneLogic } from '../taskTrackerSceneLogic'
 import { TaskComposer } from './TaskComposer'
+import { TaskHistoryList, TaskHistoryPreview } from './TaskHistory'
 import { TaskRunChat } from './TaskRunChat'
 
 export interface SidePanelRunnerImplProps {
@@ -30,13 +31,35 @@ export function SidePanelRunnerImpl({ panelId }: SidePanelRunnerImplProps): JSX.
 }
 
 function SidePanelRunnerContent(): JSX.Element {
-    const { activeCreation } = useValues(taskTrackerSceneLogic)
-    const { clearActiveCreation } = useActions(taskTrackerSceneLogic)
+    const { activeCreation, historyExpanded } = useValues(taskTrackerSceneLogic)
+    const { clearActiveCreation, toggleHistory, updateActiveCreationRun } = useActions(taskTrackerSceneLogic)
 
-    if (!activeCreation) {
+    if (!activeCreation && historyExpanded) {
         return (
             <div className="flex flex-col h-full min-h-0">
-                <TaskComposer />
+                <div className="flex items-center shrink-0 border-b border-primary px-2 py-1">
+                    <LemonButton size="small" icon={<IconArrowLeft />} onClick={() => toggleHistory()}>
+                        Back
+                    </LemonButton>
+                </div>
+                <div className="flex-1 min-h-0 overflow-y-auto px-4 py-2">
+                    <TaskHistoryList />
+                </div>
+            </div>
+        )
+    }
+
+    if (!activeCreation) {
+        // Mirrors the legacy Max welcome layout: a centered composer with the recent-tasks
+        // history pinned as a sibling at the bottom of the panel, not inside the composer column.
+        return (
+            <div className="relative flex flex-col gap-4 pb-7 h-full min-h-0 overflow-y-auto">
+                {/* No `items-center` (unlike the legacy welcome block): `TaskComposer` must stretch to full
+                width — it centers its own content, same as under the `/tasks` scene's wrapper. */}
+                <div className="grow min-h-0 flex flex-col">
+                    <TaskComposer />
+                </div>
+                <TaskHistoryPreview />
             </div>
         )
     }
@@ -57,6 +80,7 @@ function SidePanelRunnerContent(): JSX.Element {
                         taskId={activeCreation.taskId}
                         runId={activeCreation.runId}
                         streamKey={activeCreation.streamKey}
+                        onRunStarted={updateActiveCreationRun}
                     />
                 </div>
             ) : (

@@ -17,7 +17,7 @@ import { runStreamLogic } from '../../api/logics'
 import type { SuggestionGroup, SuggestionItem } from '../../api/primitives'
 import { DEFAULT_HEADLINES, pickHeadline } from '../../api/primitives'
 import { tasksLogic } from '../../logics/tasksLogic'
-import type { RepositoryConfig } from '../../types/taskTypes'
+import type { RepositoryConfig, Task } from '../../types/taskTypes'
 import { OriginProduct, TaskUpsertProps } from '../../types/taskTypes'
 import { DEFAULT_COMPOSER_EFFORT, DEFAULT_COMPOSER_MODEL, resolveEffortForModel } from '../../utils/composerModels'
 import type { taskTrackerSceneLogicType } from './taskTrackerSceneLogicType'
@@ -93,6 +93,12 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
         setPersistedRepositoryConfig: (config: PersistedRepositoryConfig) => ({ config }),
         setActiveCreation: (creation: ActiveCreation) => ({ creation }),
         clearActiveCreation: true,
+        openExistingTask: (task: Task) => ({ task }),
+        // Re-points the panel at a fresh run started from the composer on a reopened terminal task
+        // (the run surface's own re-pointing targets the detail scene, which the panel doesn't render).
+        updateActiveCreationRun: (runId: string) => ({ runId }),
+        toggleHistory: true,
+        setHistoryExpanded: (expanded: boolean) => ({ expanded }),
     }),
 
     reducers({
@@ -142,6 +148,17 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
             {
                 setActiveCreation: (_, { creation }) => creation,
                 clearActiveCreation: () => null,
+            },
+        ],
+        // Whether the panel is showing the full task history list instead of the composer/run. Reset
+        // whenever a run takes over the panel, so returning to the composer never reopens stale history.
+        historyExpanded: [
+            false,
+            {
+                toggleHistory: (state) => !state,
+                setHistoryExpanded: (_, { expanded }) => expanded,
+                clearActiveCreation: () => false,
+                openExistingTask: () => false,
             },
         ],
     }),
@@ -281,6 +298,21 @@ export const taskTrackerSceneLogic = kea<taskTrackerSceneLogicType>([
                 lemonToast.error('Failed to create task')
                 actions.submitNewTaskFailure(error instanceof Error ? error.message : 'Unknown error')
             }
+        },
+        openExistingTask: ({ task }) => {
+            if (task.latest_run) {
+                // No optimistic stream seeding — the run surface bootstraps the thread from the API.
+                actions.setActiveCreation({ streamKey: task.latest_run.id, taskId: task.id, runId: task.latest_run.id })
+                return
+            }
+            // Never-ran task (rare for this panel's posthog_ai origin) — fall back to the full detail page.
+            router.actions.push(`/tasks/${task.id}`)
+        },
+        updateActiveCreationRun: ({ runId }) => {
+            if (!values.activeCreation?.taskId) {
+                return
+            }
+            actions.setActiveCreation({ streamKey: runId, taskId: values.activeCreation.taskId, runId })
         },
     })),
 
