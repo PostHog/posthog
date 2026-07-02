@@ -154,7 +154,7 @@ async def maybe_flag_for_repartition(
             return
 
         if not await asyncio.to_thread(is_auto_repartition_enabled, schema):
-            await logger.ainfo(
+            await logger.adebug(
                 "repartition: over budget but skipped, controller disabled by feature flag",
                 schema_id=str(schema.id),
                 max_partition_bytes=max_bytes,
@@ -163,7 +163,7 @@ async def maybe_flag_for_repartition(
             return
 
         if schema.repartition_pending is not None:
-            await logger.ainfo(
+            await logger.adebug(
                 "repartition: over budget but already queued for the next run",
                 schema_id=str(schema.id),
                 max_partition_bytes=max_bytes,
@@ -174,7 +174,7 @@ async def maybe_flag_for_repartition(
 
         cooldown_remaining = _cooldown_seconds_remaining(schema)
         if cooldown_remaining > 0:
-            await logger.ainfo(
+            await logger.adebug(
                 "repartition: over budget but skipped, in post-repartition cooldown",
                 schema_id=str(schema.id),
                 max_partition_bytes=max_bytes,
@@ -192,7 +192,7 @@ async def maybe_flag_for_repartition(
             props = base_event_props(schema, source, str(job.id))
             props.update({"max_partition_bytes_before": max_bytes, "reason": reason})
             await asyncio.to_thread(capture_repartition_event, "warehouse_repartition_skipped", props)
-            await logger.awarning(
+            await logger.adebug(
                 "repartition: over budget but skipped, no finer partitioning target available",
                 schema_id=str(schema.id),
                 reason=reason,
@@ -220,7 +220,7 @@ async def maybe_flag_for_repartition(
             }
         )
         await asyncio.to_thread(capture_repartition_event, "warehouse_repartition_flagged", props)
-        await logger.ainfo(
+        await logger.adebug(
             "repartition: flagged for next run",
             schema_id=str(schema.id),
             max_partition_bytes=max_bytes,
