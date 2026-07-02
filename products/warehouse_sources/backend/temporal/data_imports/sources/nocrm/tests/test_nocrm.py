@@ -225,11 +225,6 @@ class TestGetRows:
         # The first (and only) request must start at the saved offset, not 0.
         assert f"offset={PAGE_SIZE}" in fetched[0]
 
-    def test_wrapped_object_body_is_unwrapped(self, monkeypatch: Any) -> None:
-        # Defensive path: if noCRM ever wraps the array in {"data": [...]}, we still read it.
-        rows, _ = _collect(_FakeResumableManager(), monkeypatch, [([{"id": 7}], None)])
-        assert rows == [{"id": 7}]
-
 
 class TestTokenRedaction:
     def test_get_rows_redacts_key_and_disables_redirects(self, monkeypatch: Any) -> None:
@@ -305,6 +300,13 @@ class TestFetchPage:
         session.get.return_value = _response_with(200, body=b'[{"id":1}]')
         _items, total = _fetch_page_unwrapped(session, "https://acme.nocrm.io/api/v2/leads", {}, MagicMock())
         assert total is None
+
+    def test_wrapped_object_body_is_unwrapped(self) -> None:
+        # Defensive path: if noCRM ever wraps the array in {"data": [...]}, we still read the rows.
+        session = MagicMock()
+        session.get.return_value = _response_with(200, body=b'{"data":[{"id":7}]}')
+        items, _total = _fetch_page_unwrapped(session, "https://acme.nocrm.io/api/v2/leads", {}, MagicMock())
+        assert items == [{"id": 7}]
 
 
 class TestSourceResponse:
