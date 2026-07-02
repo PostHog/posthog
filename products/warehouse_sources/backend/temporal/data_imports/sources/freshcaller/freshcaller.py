@@ -1,6 +1,6 @@
 import dataclasses
 from collections.abc import Iterator
-from datetime import UTC, date, datetime
+from datetime import UTC, date, datetime, time
 from typing import Any, Optional
 from urllib.parse import urlencode
 
@@ -82,7 +82,7 @@ def _format_datetime(value: Any) -> str:
         utc = value.replace(tzinfo=UTC) if value.tzinfo is None else value.astimezone(UTC)
         return utc.strftime("%Y-%m-%dT%H:%M:%SZ")
     if isinstance(value, date):
-        return datetime.combine(value, datetime.min.time(), tzinfo=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
+        return datetime.combine(value, time(), tzinfo=UTC).strftime("%Y-%m-%dT%H:%M:%SZ")
     return str(value)
 
 
