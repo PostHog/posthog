@@ -14,6 +14,7 @@ from collections.abc import Iterable, Mapping
 from dataclasses import dataclass
 from datetime import datetime
 from typing import TYPE_CHECKING
+from urllib.parse import quote
 from uuid import UUID
 
 from django.conf import settings
@@ -425,14 +426,10 @@ def _resolve_baselines_at_ref(repo: Repo, github: GitHubIntegration, run_type: s
 
 def _get_merge_base_sha(github: GitHubIntegration, repo_full_name: str, base: str, head: str) -> str | None:
     """Get the merge-base SHA between two refs via the GitHub Compare API."""
-    from urllib.parse import quote
-
     try:
         response = github.api_request(
             "GET",
             f"/repos/{repo_full_name}/compare/{quote(base, safe='')}...{quote(head, safe='')}",
-            timeout=10,
-            source="visual_review",
         )
     except GitHubIntegrationError:
         logger.warning("visual_review.merge_base_fetch_failed", repo=repo_full_name, base=base, head=head)
@@ -462,7 +459,7 @@ def _get_merge_base_sha(github: GitHubIntegration, repo_full_name: str, base: st
 def _get_default_branch(github: GitHubIntegration, repo_full_name: str) -> str:
     """Get the repo's default branch name via the GitHub API. Falls back to 'master'."""
     try:
-        response = github.api_request("GET", f"/repos/{repo_full_name}", timeout=10, source="visual_review")
+        response = github.api_request("GET", f"/repos/{repo_full_name}")
     except GitHubIntegrationError:
         logger.warning("visual_review.default_branch_fetch_failed", repo=repo_full_name)
         return "master"
@@ -1281,12 +1278,7 @@ def _rerun_github_job(run: Run, check_run_id: str) -> tuple[bool, str | None]:
     # `${{ job.check_run_id }}` doubles as the Actions job ID, so the jobs API
     # gives us head_sha and the owning workflow run (run_id) in one call.
     try:
-        job_response = _github_api_request(
-            "GET",
-            repo,
-            f"actions/jobs/{check_run_id}",
-            timeout=10,
-        )
+        job_response = _github_api_request("GET", repo, f"actions/jobs/{check_run_id}")
     except Exception:
         return False, "Failed to verify CI job ownership"
 
@@ -1319,12 +1311,7 @@ def _rerun_github_job(run: Run, check_run_id: str) -> tuple[bool, str | None]:
         return False, "CI job does not belong to this run's workflow"
 
     try:
-        response = _github_api_request(
-            "POST",
-            repo,
-            f"actions/jobs/{check_run_id}/rerun",
-            timeout=10,
-        )
+        response = _github_api_request("POST", repo, f"actions/jobs/{check_run_id}/rerun")
     except Exception:
         return False, "Failed to trigger job rerun"
 
@@ -1348,7 +1335,7 @@ def get_github_integration_for_repo(repo: Repo):
     if not integration:
         raise GitHubIntegrationNotFoundError(f"No GitHub integration found for team {repo.team_id}")
 
-    return GitHubIntegration(integration)
+    return GitHubIntegration(integration, source="visual_review")
 
 
 def _resolve_repo_by_id(github, repo_external_id: int) -> str | None:
@@ -1359,7 +1346,7 @@ def _resolve_repo_by_id(github, repo_external_id: int) -> str | None:
     latest full_name even if the repo was renamed or transferred.
     Returns None if the repo is inaccessible.
     """
-    response = github.api_request("GET", f"/repositories/{repo_external_id}", timeout=10, source="visual_review")
+    response = github.api_request("GET", f"/repositories/{repo_external_id}")
     if response.status_code == 200:
         return response.json().get("full_name")
     return None
@@ -1380,16 +1367,12 @@ def _github_api_request(
     the current full_name via /repositories/{id}. If it changed, updates
     the stored repo_full_name and retries once.
     """
-    from urllib.parse import quote
-
     # Prevent path traversal — each segment must be safe
     safe_path = "/".join(quote(segment, safe="") for segment in path.split("/"))
 
     github = get_github_integration_for_repo(repo)
 
-    response = github.api_request(
-        method, f"/repos/{repo.repo_full_name}/{safe_path}", json_body=json, timeout=timeout, source="visual_review"
-    )
+    response = github.api_request(method, f"/repos/{repo.repo_full_name}/{safe_path}", json_body=json, timeout=timeout)
 
     if response.status_code == 404 and repo.repo_external_id:
         new_full_name = _resolve_repo_by_id(github, repo.repo_external_id)
@@ -1404,7 +1387,7 @@ def _github_api_request(
             repo.save(update_fields=["repo_full_name"])
 
             response = github.api_request(
-                method, f"/repos/{new_full_name}/{safe_path}", json_body=json, timeout=timeout, source="visual_review"
+                method, f"/repos/{new_full_name}/{safe_path}", json_body=json, timeout=timeout
             )
 
     return response
@@ -1416,9 +1399,7 @@ def _get_pr_info(github, repo_full_name: str, pr_number: int) -> dict:
 
     Returns dict with head_ref (branch) and head_sha.
     """
-    response = github.api_request(
-        "GET", f"/repos/{repo_full_name}/pulls/{pr_number}", timeout=10, source="visual_review"
-    )
+    response = github.api_request("GET", f"/repos/{repo_full_name}/pulls/{pr_number}")
 
     if response.status_code != 200:
         raise GitHubCommitError(f"Failed to fetch PR info: {response.status_code} {response.text}")
@@ -1444,13 +1425,7 @@ def _fetch_baseline_file(
 
     import yaml
 
-    response = github.api_request(
-        "GET",
-        f"/repos/{repo_full_name}/contents/{file_path}",
-        params={"ref": branch},
-        timeout=10,
-        source="visual_review",
-    )
+    response = github.api_request("GET", f"/repos/{repo_full_name}/contents/{file_path}", params={"ref": branch})
 
     if response.status_code == 404:
         return {}, None
@@ -1572,8 +1547,6 @@ def _post_commit_status(
                 "context": context,
                 "target_url": target_url,
             },
-            timeout=10,
-            source="visual_review",
         )
 
         if response.status_code != 201:
@@ -1733,7 +1706,6 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
                 repo=repo,
                 path=f"issues/comments/{existing_comment_id}",
                 json={"body": comment_body},
-                timeout=10,
             )
             if response.status_code == 200:
                 run.metadata["github_comment_id"] = existing_comment_id
@@ -1752,7 +1724,6 @@ def _post_review_prompt_comment(run: Run, repo: Repo) -> None:
             repo=repo,
             path=f"issues/{run.pr_number}/comments",
             json={"body": comment_body},
-            timeout=10,
         )
         if response.status_code == 201:
             comment_id = response.json().get("id")

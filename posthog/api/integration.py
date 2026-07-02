@@ -14,12 +14,7 @@ import requests
 import structlog
 from django_filters.rest_framework import DjangoFilterBackend
 from drf_spectacular.utils import extend_schema, extend_schema_serializer
-from rest_framework import (
-    mixins,
-    serializers,
-    status as drf_status,
-    viewsets,
-)
+from rest_framework import mixins, serializers, status, viewsets
 from rest_framework.exceptions import PermissionDenied, ValidationError
 from rest_framework.permissions import IsAuthenticated
 from rest_framework.request import Request
@@ -853,6 +848,19 @@ class IntegrationViewSet(
     filter_backends = [DjangoFilterBackend]
     filterset_fields = ["kind"]
 
+    def handle_exception(self, exc: Exception) -> Response:
+        # GitHub rate limits surface from any GitHub-backed action (teams, repos, branches, refresh);
+        # map them to 429 + Retry-After once here instead of per action.
+        if isinstance(exc, GitHubRateLimitError):
+            response = Response(
+                {"detail": "GitHub API rate limit exceeded. Please retry later.", "code": "rate_limited"},
+                status=status.HTTP_429_TOO_MANY_REQUESTS,
+            )
+            if exc.retry_after:
+                response["Retry-After"] = str(exc.retry_after)
+            return response
+        return super().handle_exception(exc)
+
     def dangerously_get_permissions(self):
         if self.action == "refresh_github_repos":
             return [
@@ -1538,14 +1546,6 @@ class IntegrationViewSet(
         github = GitHubIntegration(self.get_object())
         try:
             teams, has_more = github.list_teams(search=search, limit=limit, offset=offset)
-        except GitHubRateLimitError as err:
-            response = Response(
-                {"detail": "GitHub API rate limit exceeded. Please retry later.", "code": "rate_limited"},
-                status=drf_status.HTTP_429_TOO_MANY_REQUESTS,
-            )
-            if err.retry_after:
-                response["Retry-After"] = str(err.retry_after)
-            return response
         except GitHubIntegrationError as err:
             capture_exception(err)
             raise ValidationError(

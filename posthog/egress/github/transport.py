@@ -82,8 +82,8 @@ def raise_if_github_rate_limited(response: requests.Response) -> None:
     retry_after = _int_header("retry-after")
     if retry_after is None and reset_at is not None:
         retry_after = max(1, reset_at - int(time.time()))
-    if retry_after is None and reset_at is None:
-        # Body-only signal with no timing headers — GitHub's documented guidance is to wait ≥1 minute.
+    if retry_after is None:
+        # No timing headers at all (body-only signal) — GitHub's documented guidance is to wait ≥1 minute.
         retry_after = 60
 
     raise GitHubRateLimitError(

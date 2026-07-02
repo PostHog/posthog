@@ -2559,7 +2559,9 @@ class GitHubIntegration(GitHubIntegrationBase):
         )
 
     @classmethod
-    def first_for_team_repository(cls, team_id: int, repository: str) -> "GitHubIntegration | None":
+    def first_for_team_repository(
+        cls, team_id: int, repository: str, *, source: str | None = None
+    ) -> "GitHubIntegration | None":
         """First GitHub integration for the team whose installation can access ``repository`` (``owner/name``).
 
         ``repository`` reaches us from team-writable content (e.g. artefact payloads), and the access
@@ -2570,15 +2572,17 @@ class GitHubIntegration(GitHubIntegrationBase):
         if not _is_safe_github_repo_path(repository):
             return None
         for integration in Integration.objects.filter(team_id=team_id, kind="github").order_by("id"):
-            github = cls(integration)
+            github = cls(integration, source=source)
             if github.installation_can_access_repository(repository):
                 return github
         return None
 
-    def __init__(self, integration: Integration) -> None:
+    def __init__(self, integration: Integration, *, source: str | None = None) -> None:
         if integration.kind != "github":
             raise Exception("GitHubIntegration init called with Integration with wrong 'kind'")
         self.integration = integration
+        if source is not None:
+            self.source = source
 
     def _on_token_refresh_failed(self, response: requests.Response) -> None:
         logger.warning(f"Failed to refresh token for {self}", response=response.text)

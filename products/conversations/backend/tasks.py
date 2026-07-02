@@ -1765,7 +1765,7 @@ def post_reply_to_github(
         logger.warning("github_reply_missing_issue_info", ticket_id=ticket_id)
         return
 
-    github = GitHubIntegration.first_for_team_repository(team_id, ticket.github_repo)
+    github = GitHubIntegration.first_for_team_repository(team_id, ticket.github_repo, source="conversations")
     if not github:
         logger.warning("github_reply_no_integration", team_id=team_id, repo=ticket.github_repo)
         return
@@ -1784,7 +1784,6 @@ def post_reply_to_github(
             f"/repos/{ticket.github_repo}/issues/{ticket.github_issue_number}/comments",
             json_body={"body": reply_text},
             timeout=15,
-            source="conversations",
         )
         if resp.status_code not in (200, 201):
             logger.warning(
@@ -1841,7 +1840,7 @@ def create_github_issue(
         logger.warning("github_create_issue_integration_not_found", integration_id=integration_id)
         return None
 
-    github = GitHubIntegration(integration)
+    github = GitHubIntegration(integration, source="conversations")
 
     json_body: dict[str, Any] = {"title": title, "body": body}
     if labels:
@@ -1853,7 +1852,6 @@ def create_github_issue(
             f"/repos/{repo}/issues",
             json_body=json_body,
             timeout=15,
-            source="conversations",
         )
         resp.raise_for_status()
     except GitHubRateLimitError as e:

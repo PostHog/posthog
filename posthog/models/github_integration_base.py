@@ -67,6 +67,10 @@ class GitHubIntegrationBase:
     """Installation-token operations shared between team and user GitHub integrations."""
 
     integration: Any  # Integration | UserIntegration -- subclasses narrow the type
+    # Per-subsystem attribution on the shared egress metrics. Product callers construct their client
+    # with their own source (e.g. GitHubIntegration(integration, source="visual_review")) so every
+    # request made through this instance — api_request, verbs, GraphQL — is attributed to them.
+    source: str = _OBSERVABILITY_SOURCE
 
     @property
     def github_installation_id(self) -> str | None:
@@ -225,12 +229,14 @@ class GitHubIntegrationBase:
         when GitHub returns 404 (no access).  Raises on network errors or
         unexpected status codes so callers can surface an appropriate error.
         """
+        # installation_id stays None: this call is authenticated with the *user's* OAuth token, so
+        # GitHub meters it against the user's budget, not the installation's — gating or writing
+        # gauges under the installation would consume/clobber a budget the call never draws from.
         response = github_request(
             "GET",
             f"https://api.github.com/user/installations/{installation_id}/repositories",
             source=_OBSERVABILITY_SOURCE,
             headers={"Authorization": f"Bearer {user_access_token}"},
-            installation_id=installation_id,
             endpoint="/user/installations/{installation_id}/repositories",
             params={"per_page": 1},
             timeout=10,
@@ -249,7 +255,7 @@ class GitHubIntegrationBase:
     def _record_github_api_response(self, response: requests.Response, method: str, endpoint: str) -> None:
         record_github_api_response(
             response,
-            source=_OBSERVABILITY_SOURCE,
+            source=self.source,
             installation_id=self.github_installation_id,
             method=method,
             endpoint=endpoint,
@@ -257,7 +263,7 @@ class GitHubIntegrationBase:
 
     def _record_github_api_exception(self, method: str, endpoint: str) -> None:
         record_github_api_exception(
-            source=_OBSERVABILITY_SOURCE,
+            source=self.source,
             installation_id=self.github_installation_id,
             method=method,
             endpoint=endpoint,
@@ -280,7 +286,7 @@ class GitHubIntegrationBase:
         return github_request(
             "GET",
             url,
-            source=_OBSERVABILITY_SOURCE,
+            source=self.source,
             headers=headers,
             installation_id=self.github_installation_id,
             endpoint=endpoint,
@@ -299,7 +305,7 @@ class GitHubIntegrationBase:
         return github_request(
             "POST",
             url,
-            source=_OBSERVABILITY_SOURCE,
+            source=self.source,
             headers=headers,
             installation_id=self.github_installation_id,
             endpoint=endpoint,
@@ -317,7 +323,7 @@ class GitHubIntegrationBase:
         return github_request(
             "PUT",
             url,
-            source=_OBSERVABILITY_SOURCE,
+            source=self.source,
             headers=headers,
             installation_id=self.github_installation_id,
             endpoint=endpoint,
@@ -749,60 +755,31 @@ class GitHubIntegrationBase:
     def _gh_graphql(self, query: str, variables: dict[str, Any], *, endpoint: str, timeout: int = 10) -> dict:
         """Authenticated POST to the GitHub GraphQL API. Returns the ``data`` object.
 
-        Mirrors ``api_request``'s auth lifecycle: proactive token refresh, one
-        retry on 401 (refresh) or transient network error, and rate limits
-        bubbled up as ``GitHubRateLimitError``. Kept separate from ``api_request``
-        because a POST body retry on network errors is a GraphQL-read-only
-        liberty this endpoint can take.
+        GraphQL queries are read-only, so a POST retry on transient failures is safe —
+        hence ``retry_transient=True`` on the shared :meth:`api_request` lifecycle.
         """
-        url = "https://api.github.com/graphql"
-        try:
-            if self.access_token_expired():
-                self.refresh_access_token()
-        except Exception:
-            logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
-
-        def post() -> requests.Response:
-            return self._github_api_post(
-                url,
-                endpoint=endpoint,
-                headers={
-                    "Accept": "application/vnd.github+json",
-                    "Authorization": f"Bearer {self.get_access_token()}",
-                    "X-GitHub-Api-Version": GITHUB_API_VERSION,
-                },
-                json_body={"query": query, "variables": variables},
+        response = self.api_request(
+            "POST",
+            "/graphql",
+            endpoint=endpoint,
+            json_body={"query": query, "variables": variables},
+            timeout=timeout,
+            retry_transient=True,
+        )
+        if response.status_code != 200:
+            raise GitHubIntegrationError(
+                f"GitHubIntegration: _gh_graphql {response.status_code} on {endpoint}: {response.text[:300]}",
+                status_code=response.status_code,
             )
-
-        for attempt in range(2):
-            try:
-                response = post()
-            except requests.RequestException as exc:
-                if attempt == 0:
-                    logger.info("GitHubIntegration: _gh_graphql retrying network error", exc_info=True)
-                    continue
-                raise GitHubIntegrationError(f"GitHubIntegration: _gh_graphql network error on {endpoint}") from exc
-
-            if response.status_code == 401 and attempt == 0:
-                self.refresh_access_token()
-                continue
-            raise_if_github_rate_limited(response)
-            if response.status_code != 200:
-                raise GitHubIntegrationError(
-                    f"GitHubIntegration: _gh_graphql {response.status_code} on {endpoint}: {response.text[:300]}",
-                    status_code=response.status_code,
-                )
-            body = response.json()
-            data = body.get("data")
-            errors = body.get("errors")
-            if errors:
-                # GitHub can return useful partial data with field-level permission errors.
-                logger.warning("GitHubIntegration: GraphQL partial errors", endpoint=endpoint, errors=errors)
-                if not data:
-                    raise GitHubIntegrationError(f"GitHubIntegration: GraphQL errors on {endpoint}: {errors}")
-            return data or {}
-
-        raise GitHubIntegrationError(f"GitHubIntegration: _gh_graphql exhausted retries on {endpoint}")
+        body = response.json()
+        data = body.get("data")
+        errors = body.get("errors")
+        if errors:
+            # GitHub can return useful partial data with field-level permission errors.
+            logger.warning("GitHubIntegration: GraphQL partial errors", endpoint=endpoint, errors=errors)
+            if not data:
+                raise GitHubIntegrationError(f"GitHubIntegration: GraphQL errors on {endpoint}: {errors}")
+        return data or {}
 
     @staticmethod
     def _map_pr_state(gql_state: str | None, is_draft: bool) -> str:
@@ -1473,25 +1450,26 @@ class GitHubIntegrationBase:
         params: dict[str, str | int] | None = None,
         json_body: Mapping[str, object] | None = None,
         timeout: int = 10,
-        source: str = _OBSERVABILITY_SOURCE,
+        retry_transient: bool | None = None,
     ) -> requests.Response:
         """Authenticated request against ``https://api.github.com`` returning the raw response.
 
-        Owns the shared token lifecycle — proactive refresh, one refresh-retry on 401, and (for GET
-        only, where a repeat is safe) one retry on a transient network error or 5xx. Raises
-        :class:`GitHubRateLimitError` when GitHub rate-limits the call; every other response is
-        returned as-is for the caller's status-driven handling. ``_gh_api_get`` layers JSON parsing
-        and non-2xx raising on top for callers that want dict-or-raise semantics.
+        Owns the shared token lifecycle — proactive refresh, one refresh-retry on 401, and one retry
+        on a transient network error or 5xx where a repeat is safe (``retry_transient`` defaults to
+        GET only; read-only POSTs like GraphQL opt in). Raises :class:`GitHubRateLimitError` when
+        GitHub rate-limits the call; every other response is returned as-is for the caller's
+        status-driven handling. ``_gh_api_get`` layers JSON parsing and non-2xx raising on top for
+        callers that want dict-or-raise semantics.
 
         ``endpoint`` is the normalized label for egress telemetry; leave it ``None`` to let the
-        recorder template the raw URL. Product callers should pass their own ``source`` (e.g.
-        ``"visual_review"``) so per-subsystem attribution on the shared metrics survives.
+        recorder template the raw URL. Attribution uses ``self.source``.
         """
         if not path.startswith("/"):
             raise ValueError(f"api_request path must start with '/', got {path!r}")
         url = f"https://api.github.com{path}"
         transient_status_codes = {502, 503, 504}
-        retry_transient = method.upper() == "GET"
+        if retry_transient is None:
+            retry_transient = method.upper() == "GET"
         # Proactively refresh expiring tokens (failure here is non-fatal — the loop retries on 401).
         try:
             if self.access_token_expired():
@@ -1500,16 +1478,15 @@ class GitHubIntegrationBase:
             logger.warning("GitHubIntegration: token refresh pre-check failed", exc_info=True)
 
         for attempt in range(2):
+            # Outside the try: a failing token refresh must fail fast, not be retried as a
+            # transient network error.
+            token = self.get_access_token()
             try:
                 response = github_request(
                     method,
                     url,
-                    source=source,
-                    headers={
-                        "Accept": "application/vnd.github+json",
-                        "Authorization": f"Bearer {self.get_access_token()}",
-                        "X-GitHub-Api-Version": GITHUB_API_VERSION,
-                    },
+                    source=self.source,
+                    headers={"Authorization": f"Bearer {token}"},
                     installation_id=self.github_installation_id,
                     endpoint=endpoint,
                     params=params,
