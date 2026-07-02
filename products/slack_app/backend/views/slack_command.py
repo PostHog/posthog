@@ -68,7 +68,7 @@ def slack_app_command_handler(request: HttpRequest) -> HttpResponse:
     # Present only when invoked inside a thread; forwarding it keeps the reply in-thread.
     thread_ts = payload.get("thread_ts", "")
     raw_text = (payload.get("text") or "").strip()
-    command_name = payload.get("command") or SLASH_COMMAND_NAME
+    command_name = payload.get("command", SLASH_COMMAND_NAME)
     # Unique per invocation — used to derive a distinct workflow id since slash
     # payloads carry no message ``ts`` or event id to key on.
     trigger_id = payload.get("trigger_id", "")
