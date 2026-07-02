@@ -266,6 +266,11 @@ const TARGET_AREA_TO_NAME_PRODUCTS = [
         label: 'Logs',
     },
     {
+        value: 'posthog-ai',
+        'data-attr': `support-form-target-area-posthog-ai`,
+        label: 'PostHog AI',
+    },
+    {
         value: 'posthog-mcp',
         'data-attr': `support-form-target-area-posthog-mcp`,
         label: 'PostHog MCP',
