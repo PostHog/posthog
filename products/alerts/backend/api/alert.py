@@ -1164,6 +1164,8 @@ class AlertViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
             )
         except ValueError as e:
             raise ValidationError(str(e))
+        except RuntimeError:
+            raise ValidationError("Simulation failed: unable to compute results for this insight.")
 
         response_serializer = ForecastSimulateResponseSerializer(result)
         return Response(response_serializer.data)
