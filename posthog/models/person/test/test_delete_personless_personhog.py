@@ -45,4 +45,4 @@ class TestDeletePersonlessDistinctIdsForTeamsRPC(BaseTest):
             team_ids_called = {c.request.team_id for c in calls}
             assert self.team.pk in team_ids_called
             assert other_team.pk in team_ids_called
-            assert all(c.request.batch_size == 10000 for c in calls)
+            assert all(c.request.batch_size == 2000 for c in calls)

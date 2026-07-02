@@ -1,7 +1,8 @@
-import shlex
+import threading
 from dataclasses import dataclass
 
 from django.conf import settings
+from django.db import connection
 
 from temporalio import activity
 
@@ -13,11 +14,10 @@ from posthog.temporal.common.utils import asyncify
 from posthog.temporal.oauth import PosthogMcpScopes
 
 from products.tasks.backend.exceptions import OAuthTokenError, SandboxExecutionError
-from products.tasks.backend.logic.services.agentsh import ENV_FILE, ENV_WRAPPER_SCRIPT, build_exec_prefix
 from products.tasks.backend.logic.services.connection_token import create_sandbox_event_ingest_token
 from products.tasks.backend.logic.services.sandbox import REPO_READY_FILE, Sandbox, SandboxBase
 from products.tasks.backend.models import Task, TaskRun
-from products.tasks.backend.temporal.metrics import record_agent_server_boot_ms
+from products.tasks.backend.temporal.metrics import StepTimer, record_agent_server_session_init_ms
 from products.tasks.backend.temporal.oauth import create_oauth_access_token
 from products.tasks.backend.temporal.observability import emit_agent_log, log_activity_execution
 from products.tasks.backend.temporal.process_task.utils import (
@@ -55,45 +55,6 @@ def _emit_agent_server_log_tail(ctx: TaskProcessingContext, sandbox: SandboxBase
     log_tail = result.stdout.strip()
     if log_tail:
         emit_agent_log(ctx.run_id, "debug", f"agent-server log tail:\n{log_tail}")
-
-
-def _run_connectivity_diagnostics(ctx: TaskProcessingContext, sandbox: SandboxBase) -> None:
-    """Emit diagnostic info about env vars and network connectivity.
-
-    When allowed_domains is set, runs the checks inside the agentsh exec
-    context to verify the env wrapper restores variables and the DNS proxy
-    resolves correctly.  Without domains, runs directly.
-    """
-    try:
-        checks = (
-            "echo ENV_CHECK:"
-            " LLM_GATEWAY_URL=${LLM_GATEWAY_URL:-UNSET}"
-            " POSTHOG_API_URL=${POSTHOG_API_URL:-UNSET}"
-            " ANTHROPIC_BASE_URL=${ANTHROPIC_BASE_URL:-UNSET};"
-            ' node -e "'
-            "const dns=require('dns');"
-            "dns.resolve('gateway.us.posthog.com',(e,a)=>console.log('DNS_RESOLVE:',e?e.code:JSON.stringify(a)));"
-            "dns.lookup('gateway.us.posthog.com',(e,a)=>console.log('DNS_LOOKUP:',e?e.code:a))"
-            '" 2>&1;'
-            " curl -sS --max-time 5 -o /dev/null"
-            " -w 'CURL_GATEWAY: http_code=%{http_code}'"
-            " https://gateway.us.posthog.com/health 2>&1 || echo 'CURL_GATEWAY: failed'"
-        )
-
-        if ctx.allowed_domains is not None and not (ctx.use_modal_network_allowlist and not ctx.use_modal_vm_sandbox):
-            cmd = (
-                f"cd /scripts && env -0 > {ENV_FILE} && "
-                f"{build_exec_prefix()} {ENV_WRAPPER_SCRIPT} bash -c {shlex.quote(checks)}"
-            )
-        else:
-            cmd = f"bash -c {shlex.quote(checks)}"
-
-        result = sandbox.execute(cmd, timeout_seconds=15)
-        output = (result.stdout + "\n" + result.stderr).strip()
-        if output:
-            emit_agent_log(ctx.run_id, "debug", f"Connectivity diagnostics:\n{output}")
-    except Exception as e:
-        logger.warning("Connectivity diagnostics failed (non-fatal)", error=str(e), run_id=ctx.run_id)
 
 
 def _resolve_protected_base_branch(ctx: TaskProcessingContext) -> str | None:
@@ -162,6 +123,7 @@ class _LaunchParams:
     protected_base_branch: str | None
     event_ingest_token: str | None
     event_ingest_url: str | None
+    event_ingest_keep_stream_open: bool
 
 
 def _agentsh_domains_for(ctx: TaskProcessingContext) -> list[str] | None:
@@ -260,6 +222,7 @@ def _prepare_launch(ctx: TaskProcessingContext, scopes: PosthogMcpScopes) -> _La
         protected_base_branch=protected_base_branch,
         event_ingest_token=event_ingest_token,
         event_ingest_url=event_ingest_url,
+        event_ingest_keep_stream_open=ctx.agent_proxy_keep_stream_open,
     )
 
 
@@ -288,6 +251,7 @@ def _invoke_start_agent_server(
             allowed_domains=params.agentsh_domains,
             event_ingest_token=params.event_ingest_token,
             event_ingest_url=params.event_ingest_url,
+            event_ingest_keep_stream_open=params.event_ingest_keep_stream_open,
             repo_ready_file=repo_ready_file,
             wait_for_health=wait_for_health,
         )
@@ -296,9 +260,6 @@ def _invoke_start_agent_server(
         # 30m window skip the redundant refresh.
         if params.mcp_configs:
             mark_mcp_token_issued(ctx.run_id)
-
-        if params.agentsh_domains is not None:
-            _emit_agentsh_log_tail(ctx, sandbox)
     except Exception as e:
         if params.agentsh_domains is not None:
             _emit_agentsh_log_tail(ctx, sandbox)
@@ -315,16 +276,24 @@ def _invoke_start_agent_server(
         )
 
 
-def _emit_post_ready_diagnostics(
+def _spawn_post_ready_diagnostics(
     ctx: TaskProcessingContext, sandbox: SandboxBase, agentsh_domains: list[str] | None
 ) -> None:
-    if agentsh_domains is not None:
-        emit_agent_log(ctx.run_id, "debug", "agentsh policy initialized successfully")
-        _emit_agentsh_log_tail(ctx, sandbox)
-    _emit_agent_server_log_tail(ctx, sandbox)
-    # Connectivity diagnostics — run inside the agentsh exec context when
-    # domains are restricted so we can verify the env wrapper + DNS proxy work.
-    _run_connectivity_diagnostics(ctx, sandbox)
+    def _run() -> None:
+        try:
+            if agentsh_domains is not None:
+                emit_agent_log(ctx.run_id, "debug", "agentsh policy initialized successfully")
+                _emit_agentsh_log_tail(ctx, sandbox)
+            _emit_agent_server_log_tail(ctx, sandbox)
+        except Exception:
+            logger.warning("post_ready_diagnostics_failed", run_id=ctx.run_id, exc_info=True)
+        finally:
+            try:
+                connection.close()
+            except Exception:
+                pass
+
+    threading.Thread(target=_run, name=f"post-ready-diag-{ctx.run_id}", daemon=True).start()
 
 
 @activity.defn
@@ -347,15 +316,17 @@ def start_agent_server(input: StartAgentServerInput) -> StartAgentServerOutput:
         sandbox = Sandbox.get_by_id(input.sandbox_id)
         params = _prepare_launch(ctx, input.posthog_mcp_scopes)
 
-        _invoke_start_agent_server(sandbox, ctx, params, repo_ready_file=None, wait_for_health=True)
-        _emit_post_ready_diagnostics(ctx, sandbox, params.agentsh_domains)
+        with StepTimer("agent_server_ready"):
+            _invoke_start_agent_server(sandbox, ctx, params, repo_ready_file=None, wait_for_health=True)
 
         emit_agent_log(ctx.run_id, "debug", f"Agent server started at {input.sandbox_url}")
         activity.logger.info(f"Agent server started at {input.sandbox_url} for task {ctx.task_id}")
 
-        boot_ms = sandbox.read_agent_server_boot_ms()
-        if boot_ms is not None:
-            record_agent_server_boot_ms(boot_ms)
+        session_init_ms = sandbox.read_agent_server_session_init_ms()
+        if session_init_ms is not None:
+            record_agent_server_session_init_ms(session_init_ms)
+
+        _spawn_post_ready_diagnostics(ctx, sandbox, params.agentsh_domains)
 
         return StartAgentServerOutput(sandbox_url=input.sandbox_url, connect_token=input.sandbox_connect_token)
 
@@ -404,20 +375,21 @@ def await_agent_server_ready(input: StartAgentServerInput) -> StartAgentServerOu
         agentsh_domains = _agentsh_domains_for(ctx)
 
         try:
-            sandbox.wait_for_agent_server_ready(agentsh_domains)
+            with StepTimer("agent_server_ready"):
+                sandbox.wait_for_agent_server_ready(agentsh_domains)
         except Exception:
             if agentsh_domains is not None:
                 _emit_agentsh_log_tail(ctx, sandbox)
             _emit_agent_server_log_tail(ctx, sandbox)
             raise
 
-        _emit_post_ready_diagnostics(ctx, sandbox, agentsh_domains)
-
         emit_agent_log(ctx.run_id, "debug", f"Agent server ready at {input.sandbox_url}")
         activity.logger.info(f"Agent server ready at {input.sandbox_url} for task {ctx.task_id}")
 
-        boot_ms = sandbox.read_agent_server_boot_ms()
-        if boot_ms is not None:
-            record_agent_server_boot_ms(boot_ms)
+        session_init_ms = sandbox.read_agent_server_session_init_ms()
+        if session_init_ms is not None:
+            record_agent_server_session_init_ms(session_init_ms)
+
+        _spawn_post_ready_diagnostics(ctx, sandbox, agentsh_domains)
 
         return StartAgentServerOutput(sandbox_url=input.sandbox_url, connect_token=input.sandbox_connect_token)

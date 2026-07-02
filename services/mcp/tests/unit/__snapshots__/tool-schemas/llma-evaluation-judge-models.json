@@ -7,7 +7,16 @@
         },
         "provider": {
             "description": "LLM provider to list models for. Must be one of the supported providers.",
-            "enum": ["anthropic", "azure_openai", "fireworks", "gemini", "openai", "openrouter", "together_ai"],
+            "enum": [
+                "anthropic",
+                "azure_openai",
+                "fireworks",
+                "gemini",
+                "minimax",
+                "openai",
+                "openrouter",
+                "together_ai"
+            ],
             "type": "string"
         }
     },

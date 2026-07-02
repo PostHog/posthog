@@ -27,7 +27,7 @@ will throw away.
 1. discover     — what's available, what already exists
 2. design       — write the spec
 3. create       — application + empty draft
-4. configure    — wire secrets / integrations (punch-out)
+4. configure    — wire secrets (punch-out)
 5. write        — agent.md, skills, custom tools
 6. validate     — structural check
 7. freeze + test — sandboxed runs, self-eval
@@ -62,8 +62,9 @@ with `posthog__agent-native-tools-list`.
 Sketch the spec in your head / out loud with the user, BEFORE
 calling any create endpoint. Cover:
 
-- **`model`** — start with `anthropic/claude-sonnet-4-6` unless
-  the user has a preference. It's the platform default.
+- **`models`** — leave it at the default (`auto` / `medium`) unless the
+  user has a preference; don't hardcode a model id. Load
+  `skills/choosing-the-model` to match the policy to the job.
 - **`triggers`** — one is fine; many is fine; pick what the user
   asked for. Each trigger has its own config.
 - **`tools[]`** — minimum needed for the job. Don't pre-emptively
@@ -74,8 +75,6 @@ calling any create endpoint. Cover:
 - **`skills[]`** — usually 0-3 for v0. Plan one per "domain of
   knowledge"; don't pre-create skills for ideas the agent might
   reach for.
-- **`integrations[]`** — list any team-wide OAuth integrations
-  (e.g. `"slack"`).
 - **`secrets[]`** — list any per-application keys the agent's tools
   read (e.g. `"STRIPE_API_KEY"`). Trigger-required keys are handled
   separately — see the note after this list.
@@ -156,7 +155,7 @@ If you need to amend the spec on a draft:
 posthog__agent-applications-revisions-partial-update revision_id=<rid> spec=<json>
 ```
 
-## Phase 4 — configure secrets / integrations
+## Phase 4 — configure secrets
 
 For each item in `spec.secrets[]`, you cannot accept the value
 directly. Load the `secrets-and-integrations` playbook and follow the
@@ -169,11 +168,6 @@ endpoint refuses if any are missing; catch them here so the user
 isn't surprised at the end. See the `secrets-and-integrations` playbook
 → "Trigger-required secrets" for the registry + punch-out flow.
 
-For each item in `spec.integrations[]`, check whether the team
-already has that integration installed. If not, tell the user to
-install it from the PostHog integrations UI — you can't do this
-for them.
-
 When the new agent must call PostHog or a third-party API as the
 user, load the `authenticating-as-the-user` playbook to wire its identity
 provider + scopes.
@@ -183,15 +177,15 @@ provider + scopes.
 The authoring surface is **typed resources, not file paths**. You
 never write a path; you upsert a typed object via one of these calls:
 
-| Resource       | Tool                                                    | Body shape                                             |
-| -------------- | ------------------------------------------------------- | ------------------------------------------------------ |
-| System prompt  | `posthog__agent-applications-revisions-agent-md-update` | `{ content }`                                          |
-| Spec           | `posthog__agent-applications-revisions-partial-update`  | `{ spec }` (author-facing slice — no skills/tools)     |
-| Author a skill | `posthog__llm-skills-create`                            | `{ name, description, body, files? }` (in the store)   |
-| Find skills    | `posthog__llm-skills-search`                            | `{ search? }`                                          |
-| Pin skills     | `posthog__agent-applications-revisions-skill-refs-set`  | `{ skill_refs: [{ from_template, alias, version? }] }` |
-| One tool       | `posthog__agent-applications-revisions-tools-update`    | `{ description, args_schema, source }`                 |
-| Delete tool    | `posthog__agent-applications-revisions-tools-destroy`   | (no body)                                              |
+| Resource       | Tool                                                      | Body shape                                             |
+| -------------- | --------------------------------------------------------- | ------------------------------------------------------ |
+| System prompt  | `posthog__agent-applications-revisions-agent-md-update`   | `{ content }`                                          |
+| Spec           | `posthog__agent-applications-revisions-partial-update`    | `{ spec }` (author-facing slice — no skills/tools)     |
+| Author a skill | `posthog__llm-skills-create`                              | `{ name, description, body, files? }` (in the store)   |
+| Find skills    | `posthog__llm-skills-search`                              | `{ search? }`                                          |
+| Pin skills     | `posthog__agent-applications-revisions-skill-refs-update` | `{ skill_refs: [{ from_template, alias, version? }] }` |
+| One tool       | `posthog__agent-applications-revisions-tools-update`      | `{ description, args_schema, source }`                 |
+| Delete tool    | `posthog__agent-applications-revisions-tools-destroy`     | (no body)                                              |
 
 **`spec.skills[]` and `spec.tools[]` are server-derived at freeze.**
 You can't write them via `partial-update`. The janitor scans the typed
@@ -283,10 +277,10 @@ by tweaking the export style; the contract is `{actions: {default:
 fn}}` and nothing else.
 
 Use the **single-resource** typed PUTs (`tools-update`,
-`agent-md-update`) and `skill-refs-set` for individual edits. There is
+`agent-md-update`) and `skill-refs-update` for individual edits. There is
 no bulk bundle-replace verb — edit the one resource that changed rather
 than rewriting the whole bundle. Skills are authored in the store
-(`llm-skills-create`) and pinned with `skill-refs-set`, never inline.
+(`llm-skills-create`) and pinned with `skill-refs-update`, never inline.
 
 ## Phase 6 — validate
 

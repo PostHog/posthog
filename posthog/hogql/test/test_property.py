@@ -1215,6 +1215,98 @@ class TestProperty(BaseTest):
             "The 'event_metadata' property filter does not work in 'person' scope",
         )
 
+    @parameterized.expand(
+        [
+            # (name, scope, key, operator, value, expected_expr, expected_error)
+            (
+                "event_scope",
+                "event",
+                "created_at",
+                "is_date_after",
+                "2024-01-01",
+                "toDateTime(toString(person.created_at)) > toDateTime('2024-01-01')",
+                None,
+            ),
+            (
+                "person_scope",
+                "person",
+                "created_at",
+                "is_date_before",
+                "2024-01-01",
+                "toDateTime(toString(created_at)) < toDateTime('2024-01-01')",
+                None,
+            ),
+            (
+                "unsupported_field",
+                "event",
+                "is_identified",
+                "exact",
+                True,
+                None,
+                "Unsupported person_metadata field",
+            ),
+        ]
+    )
+    def test_property_to_expr_person_metadata(self, _name, scope, key, operator, value, expected_expr, expected_error):
+        prop = {"type": "person_metadata", "key": key, "value": value, "operator": operator}
+        if expected_error is not None:
+            with self.assertRaises(Exception) as e:
+                self._property_to_expr(prop, scope=scope)
+            self.assertIn(expected_error, str(e.exception))
+        else:
+            self.assertEqual(self._property_to_expr(prop, scope=scope), self._parse_expr(expected_expr))
+
+    def test_person_metadata_fields_match_taxonomy(self):
+        """
+        Guards Python ↔ taxonomy drift only: asserts PERSON_METADATA_FIELDS matches the
+        "person_metadata" group in core-filter-definitions-by-group.json.
+
+        NOTE: person_metadata fields are also declared in propertyDefinitionsModel.ts
+        (personMetadataPropertyDefinitions), which this test does NOT check. The Rust
+        PERSON_METADATA_FIELDS is guarded separately by test_person_metadata_fields_match_rust.
+        """
+        import json
+        from pathlib import Path
+
+        from posthog.hogql.property import PERSON_METADATA_FIELDS
+
+        repo_root = Path(__file__).resolve().parents[3]
+        taxonomy_path = repo_root / "frontend/src/taxonomy/core-filter-definitions-by-group.json"
+        taxonomy = json.loads(taxonomy_path.read_text())
+        taxonomy_keys = set(taxonomy.get("person_metadata", {}).keys())
+        self.assertEqual(
+            PERSON_METADATA_FIELDS,
+            taxonomy_keys,
+            "PERSON_METADATA_FIELDS in posthog/hogql/property.py must match the "
+            "person_metadata group in core-filter-definitions-by-group.json. "
+            "Update both, plus propertyDefinitionsModel.ts and the Rust injection.",
+        )
+
+    def test_person_metadata_fields_match_rust(self):
+        """
+        Guards Python ↔ Rust drift: asserts PERSON_METADATA_FIELDS matches the Rust slice in
+        property_matching.rs. Without this, adding a field on the Python side (so it validates
+        and saves) without updating Rust leaves the matcher's `_ => continue` arm skipping the
+        field, so /flags/ evaluation silently matches nobody for it with no error.
+        """
+        import re
+        from pathlib import Path
+
+        from posthog.hogql.property import PERSON_METADATA_FIELDS
+
+        repo_root = Path(__file__).resolve().parents[3]
+        rust_src = (repo_root / "rust/feature-flags/src/properties/property_matching.rs").read_text()
+        match = re.search(r"PERSON_METADATA_FIELDS:\s*&\[&str\]\s*=\s*&\[(.*?)\]", rust_src, re.S)
+        assert match is not None, "could not find PERSON_METADATA_FIELDS in property_matching.rs"
+        rust_fields = set(re.findall(r'"([^"]+)"', match.group(1)))
+        self.assertEqual(
+            PERSON_METADATA_FIELDS,
+            rust_fields,
+            "PERSON_METADATA_FIELDS in posthog/hogql/property.py must match the Rust slice in "
+            "rust/feature-flags/src/properties/property_matching.rs. Update both, and add a match "
+            "arm in flag_matching_utils::apply_person_cohort_to_state for any new field.",
+        )
+
     def test_virtual_person_properties_on_person_scope(self):
         assert self._property_to_expr(
             {"type": "person", "key": "$virt_initial_channel_type", "value": "Organic Search"}, scope="person"

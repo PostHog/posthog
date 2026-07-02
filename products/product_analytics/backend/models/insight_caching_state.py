@@ -71,7 +71,10 @@ def sync_insight(sender, instance: Insight, **kwargs):
 
 @mutable_receiver(post_save, sender=DashboardTile)
 def sync_dashboard_tile(sender, instance: DashboardTile, **kwargs):
-    _queue_sync_insight_caching_state(instance.dashboard.team_id, dashboard_tile_id=instance.pk)
+    # Use the denormalized team_id (always populated in DashboardTile.save() before this
+    # signal fires) rather than instance.dashboard.team_id, which triggers a DB fetch of the
+    # dashboard row on every tile save.
+    _queue_sync_insight_caching_state(instance.team_id, dashboard_tile_id=instance.pk)
 
 
 @mutable_receiver(post_save, sender=Dashboard)

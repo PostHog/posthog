@@ -59,9 +59,7 @@ Examples:
 **Required:** Before creating any PR, read `.github/pull_request_template.md` and use its exact section structure.
 Do not invent a different format.
 Always fill the `## 🤖 Agent context` section when creating PRs.
-Keep descriptions high-level, focusing on rationale and architecture for the human reviewer.
 NEVER share sensitive information in a PR description. Users may share sensitive data in an agent session, but those should never surface to a PR description, or comments.
-Pass the description straight to the `body` argument of the PR-creation tool (the GitHub MCP `create_pull_request` `body` param, or `gh pr create --body-file -` via stdin). Do NOT write the body to a temporary file first — it adds a step, can race with parallel tool calls, and the `body` argument already preserves markdown and newlines verbatim (the no-hard-wrap rule still applies).
 
 ### Rules
 
@@ -71,7 +69,6 @@ Pass the description straight to the `body` argument of the PR-creation tool (th
 
 ### Pushing to remote
 
-Don't open GitHub issues or pull requests without human instruction.
 Once a branch already has an open PR, push incremental changes and fixes to it without waiting for human guidance — keeping the PR current is part of the work.
 Pushes still trigger CI, which burns runner credits, so batch related commits and push once the increment is ready rather than after every change.
 
@@ -79,7 +76,7 @@ Pushes still trigger CI, which burns runner credits, so batch related commits an
 
 This repository is public and all commit messages, pull request titles, and pull request descriptions must be safe for public readers.
 
-- Never mention internal-only systems, private incidents, customer data, private Slack threads, unreleased roadmap details, or security-sensitive implementation details.
+- Never mention internal-only systems, private incidents, customer data, Slack thread contents, unreleased roadmap details, or security-sensitive implementation details. Slack thread links and channel references are fine to include — they sit behind PostHog auth and are useful as origin context — but do not quote or paraphrase what was said in the thread.
 - Use product-facing and code-facing context that a public OSS contributor could understand from this repository alone.
 - If context is sensitive, summarize it at a high level without naming internal tools, accounts, or people.
 - Avoid citing private operational scale or incident metrics (for example, exact affected team counts, internal row-volume anecdotes, or customer-specific performance numbers) unless that data is already public and linkable.
@@ -87,8 +84,10 @@ This repository is public and all commit messages, pull request titles, and pull
 Examples:
 
 - ✅ `fix(insights): handle missing series color in trend export`
+- ✅ A PR description that links to the originating Slack thread for context
 - ❌ `fix: patch issue found in acme-co prod workspace after sales escalation` — references internal customer
 - ❌ `fix: will run fine on our 12 million rows there now` — leaks private operational scale
+- ❌ A PR description that quotes verbatim what a coworker said in a Slack thread
 
 ## CI / GitHub Actions
 

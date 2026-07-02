@@ -121,10 +121,77 @@ pub const STORE_ERRORS_TOTAL: &str = "store_errors_total";
 /// Malformed inputs the `cf_person_index` merge operator skipped, labelled by `kind` (counter).
 pub const STORE_MERGE_MALFORMED_TOTAL: &str = "store_merge_malformed_total";
 
+/// Latency of a RocksDB read, labelled by `op` (histogram, seconds). `op=get` is sampled 1-in-N
+/// (`StoreConfig::read_sample_ratio`) — use [`STORE_READS_TOTAL`] for exact volume. `op=multi_get`
+/// records once per batch.
+pub const STORE_READ_DURATION_SECONDS: &str = "store_read_duration_seconds";
+/// Logical RocksDB reads issued, labelled by `op` (counter). A `multi_get` counts once per key.
+pub const STORE_READS_TOTAL: &str = "store_reads_total";
+
+/// Block-cache hits across all block types (counter, cumulative since store open).
+pub const STORE_BLOCK_CACHE_HITS_TOTAL: &str = "store_block_cache_hits_total";
+/// Block-cache misses across all block types (counter, cumulative since store open).
+pub const STORE_BLOCK_CACHE_MISSES_TOTAL: &str = "store_block_cache_misses_total";
+/// Data-block cache hits (counter, cumulative since store open).
+pub const STORE_BLOCK_CACHE_DATA_HITS_TOTAL: &str = "store_block_cache_data_hits_total";
+/// Data-block cache misses (counter, cumulative since store open).
+pub const STORE_BLOCK_CACHE_DATA_MISSES_TOTAL: &str = "store_block_cache_data_misses_total";
+/// Index-block cache hits (counter, cumulative since store open).
+pub const STORE_BLOCK_CACHE_INDEX_HITS_TOTAL: &str = "store_block_cache_index_hits_total";
+/// Index-block cache misses (counter, cumulative since store open).
+pub const STORE_BLOCK_CACHE_INDEX_MISSES_TOTAL: &str = "store_block_cache_index_misses_total";
+/// Filter-block (bloom) cache hits (counter, cumulative since store open).
+pub const STORE_BLOCK_CACHE_FILTER_HITS_TOTAL: &str = "store_block_cache_filter_hits_total";
+/// Filter-block (bloom) cache misses (counter, cumulative since store open).
+pub const STORE_BLOCK_CACHE_FILTER_MISSES_TOTAL: &str = "store_block_cache_filter_misses_total";
+/// Point lookups the bloom filter let skip a data-block read (counter, cumulative since store open).
+pub const STORE_BLOOM_FILTER_USEFUL_TOTAL: &str = "store_bloom_filter_useful_total";
+
+/// Bytes the shared block cache currently holds (gauge).
+pub const STORE_BLOCK_CACHE_USAGE_BYTES: &str = "store_block_cache_usage_bytes";
+/// On-disk SST bytes, labelled by `cf` (gauge).
+pub const STORE_SST_BYTES: &str = "store_sst_bytes";
+/// Estimated live (non-tombstone) data bytes, labelled by `cf` (gauge).
+pub const STORE_LIVE_DATA_BYTES: &str = "store_live_data_bytes";
+/// Estimated key count, labelled by `cf` (gauge).
+pub const STORE_ESTIMATE_NUM_KEYS: &str = "store_estimate_num_keys";
+
+/// Fraction of wall-clock worker-time spent executing tasks (gauge, 0.0–1.0).
+pub const TOKIO_RUNTIME_BUSY_RATIO: &str = "tokio_runtime_busy_ratio";
+/// Tasks spawned but not yet completed on the runtime (gauge).
+pub const TOKIO_RUNTIME_ALIVE_TASKS: &str = "tokio_runtime_alive_tasks";
+/// Tasks pending in the runtime's global injection queue (gauge).
+pub const TOKIO_RUNTIME_GLOBAL_QUEUE_DEPTH: &str = "tokio_runtime_global_queue_depth";
+/// Configured Tokio worker threads (gauge).
+pub const TOKIO_RUNTIME_NUM_WORKERS: &str = "tokio_runtime_num_workers";
+/// Per-worker busy time over the sample interval, labelled by `worker` (gauge, seconds).
+pub const TOKIO_WORKER_BUSY_DURATION_DELTA: &str = "tokio_worker_busy_duration_delta_secs";
+/// Per-worker park-count delta over the sample interval, labelled by `worker` (gauge).
+pub const TOKIO_WORKER_PARK_DELTA: &str = "tokio_worker_park_delta";
+/// Per-worker poll-count delta over the sample interval, labelled by `worker` (gauge).
+pub const TOKIO_WORKER_POLL_DELTA: &str = "tokio_worker_poll_delta";
+/// Per-worker steal-count delta over the sample interval, labelled by `worker` (gauge).
+pub const TOKIO_WORKER_STEAL_DELTA: &str = "tokio_worker_steal_delta";
+/// Per-worker local-queue overflow-to-global delta over the sample interval, labelled by `worker`
+/// (gauge).
+pub const TOKIO_WORKER_OVERFLOW_DELTA: &str = "tokio_worker_overflow_delta";
+/// Per-worker local run-queue depth, labelled by `worker` (gauge).
+pub const TOKIO_WORKER_LOCAL_QUEUE_DEPTH: &str = "tokio_worker_local_queue_depth";
+/// Per-worker mean poll duration, labelled by `worker` (gauge, microseconds).
+pub const TOKIO_WORKER_MEAN_POLL_TIME_US: &str = "tokio_worker_mean_poll_time_us";
+/// Threads in the blocking pool (gauge).
+pub const TOKIO_BLOCKING_THREADS: &str = "tokio_blocking_threads";
+/// Idle threads in the blocking pool (gauge).
+pub const TOKIO_IDLE_BLOCKING_THREADS: &str = "tokio_idle_blocking_threads";
+/// Tasks waiting for a blocking thread (gauge).
+pub const TOKIO_BLOCKING_QUEUE_DEPTH: &str = "tokio_blocking_queue_depth";
+
 /// Cohort bytecode invoked a symbol with no registered native (counter). The function name is
 /// logged, not labelled, to keep cardinality bounded.
 pub const STAGE1_HOGVM_UNKNOWN_FUNCTION: &str = "stage1_hogvm_unknown_function_total";
-/// Any other VM/program failure during cohort evaluation, coerced to `false` (counter).
+/// Any other VM/program failure during cohort evaluation, coerced to `false`, labelled by `reason`
+/// (a bounded semantic bucket: `type_coercion`|`stack`|`program`|`runtime`|… — see
+/// `vm_error_reason`) (counter).
 pub const STAGE1_HOGVM_ERROR: &str = "stage1_hogvm_error_total";
 /// `properties`/`person_properties` JSON parse failure, labelled by `field` (counter).
 pub const STAGE1_GLOBALS_PARSE_ERROR: &str = "stage1_globals_parse_error_total";
@@ -157,6 +224,11 @@ pub const STAGE1_EVENTS_PROCESSED: &str = "stage1_events_processed_total";
 pub const STAGE1_EVENTS_SKIPPED: &str = "stage1_events_skipped_total";
 /// HogVM evaluations, labelled by `kind` — one per unique conditionHash per event (counter).
 pub const STAGE1_CONDITIONS_EVALUATED: &str = "stage1_conditions_evaluated_total";
+/// Condition evaluations skipped because the result was already known, labelled by `reason`
+/// (`person_memo_hit`|`event_name_gate`) (counter).
+pub const STAGE1_CONDITIONS_SKIPPED: &str = "stage1_conditions_skipped_total";
+/// Person-property memo lookups, labelled by `result` (`hit`|`miss`) (counter).
+pub const STAGE1_PERSON_MEMO: &str = "stage1_person_memo_total";
 /// Leaf membership flips emitted, labelled by `kind` (counter).
 pub const STAGE1_TRANSITIONS: &str = "stage1_transitions_total";
 /// `cf_stage1` records written, labelled by `variant` (counter).
@@ -248,8 +320,8 @@ pub const OUTPUT_TRANSITIONS_UNMAPPED: &str = "output_transitions_unmapped_total
 /// Produce failures to `cohort_membership_changed_shadow` (counter).
 pub const OUTPUT_PRODUCE_ERRORS: &str = "output_produce_errors_total";
 
-/// Sweep cycles that fired, labelled by `loop` (`eviction`|`redrive`|`merge_gc`|`checkpoint`)
-/// (counter).
+/// Sweep cycles that fired, labelled by `loop`
+/// (`eviction`|`redrive`|`merge_gc`|`checkpoint`|`store_stats`) (counter).
 pub const SWEEP_CYCLES_TOTAL: &str = "sweep_cycles_total";
 /// Wall-clock duration of one sweep cycle, labelled by `loop` (histogram, seconds).
 pub const SWEEP_CYCLE_DURATION_SECONDS: &str = "sweep_cycle_duration_seconds";
@@ -407,6 +479,80 @@ mod tests {
             DURABLE_RESTORE_PENDING_TRANSFERS_RECOVERED_PARTITIONS_TOTAL,
             "durable_restore_pending_transfers_recovered_partitions_total",
         );
+    }
+
+    #[test]
+    fn store_and_tokio_observability_metric_names_are_stable() {
+        // These names are a dashboard contract; a rename must be deliberate, not accidental. Every
+        // new store/tokio constant is pinned so a rename cannot silently break a panel.
+        assert_eq!(STORE_READ_DURATION_SECONDS, "store_read_duration_seconds");
+        assert_eq!(STORE_READS_TOTAL, "store_reads_total");
+        assert_eq!(STORE_BLOCK_CACHE_HITS_TOTAL, "store_block_cache_hits_total");
+        assert_eq!(
+            STORE_BLOCK_CACHE_MISSES_TOTAL,
+            "store_block_cache_misses_total"
+        );
+        assert_eq!(
+            STORE_BLOCK_CACHE_DATA_HITS_TOTAL,
+            "store_block_cache_data_hits_total",
+        );
+        assert_eq!(
+            STORE_BLOCK_CACHE_DATA_MISSES_TOTAL,
+            "store_block_cache_data_misses_total",
+        );
+        assert_eq!(
+            STORE_BLOCK_CACHE_INDEX_HITS_TOTAL,
+            "store_block_cache_index_hits_total",
+        );
+        assert_eq!(
+            STORE_BLOCK_CACHE_INDEX_MISSES_TOTAL,
+            "store_block_cache_index_misses_total",
+        );
+        assert_eq!(
+            STORE_BLOCK_CACHE_FILTER_HITS_TOTAL,
+            "store_block_cache_filter_hits_total",
+        );
+        assert_eq!(
+            STORE_BLOCK_CACHE_FILTER_MISSES_TOTAL,
+            "store_block_cache_filter_misses_total",
+        );
+        assert_eq!(
+            STORE_BLOOM_FILTER_USEFUL_TOTAL,
+            "store_bloom_filter_useful_total",
+        );
+        assert_eq!(
+            STORE_BLOCK_CACHE_USAGE_BYTES,
+            "store_block_cache_usage_bytes"
+        );
+        assert_eq!(STORE_SST_BYTES, "store_sst_bytes");
+        assert_eq!(STORE_LIVE_DATA_BYTES, "store_live_data_bytes");
+        assert_eq!(STORE_ESTIMATE_NUM_KEYS, "store_estimate_num_keys");
+        assert_eq!(TOKIO_RUNTIME_BUSY_RATIO, "tokio_runtime_busy_ratio");
+        assert_eq!(TOKIO_RUNTIME_ALIVE_TASKS, "tokio_runtime_alive_tasks");
+        assert_eq!(
+            TOKIO_RUNTIME_GLOBAL_QUEUE_DEPTH,
+            "tokio_runtime_global_queue_depth",
+        );
+        assert_eq!(TOKIO_RUNTIME_NUM_WORKERS, "tokio_runtime_num_workers");
+        assert_eq!(
+            TOKIO_WORKER_BUSY_DURATION_DELTA,
+            "tokio_worker_busy_duration_delta_secs",
+        );
+        assert_eq!(TOKIO_WORKER_PARK_DELTA, "tokio_worker_park_delta");
+        assert_eq!(TOKIO_WORKER_POLL_DELTA, "tokio_worker_poll_delta");
+        assert_eq!(TOKIO_WORKER_STEAL_DELTA, "tokio_worker_steal_delta");
+        assert_eq!(TOKIO_WORKER_OVERFLOW_DELTA, "tokio_worker_overflow_delta");
+        assert_eq!(
+            TOKIO_WORKER_LOCAL_QUEUE_DEPTH,
+            "tokio_worker_local_queue_depth",
+        );
+        assert_eq!(
+            TOKIO_WORKER_MEAN_POLL_TIME_US,
+            "tokio_worker_mean_poll_time_us",
+        );
+        assert_eq!(TOKIO_BLOCKING_THREADS, "tokio_blocking_threads");
+        assert_eq!(TOKIO_IDLE_BLOCKING_THREADS, "tokio_idle_blocking_threads");
+        assert_eq!(TOKIO_BLOCKING_QUEUE_DEPTH, "tokio_blocking_queue_depth");
     }
 
     #[test]

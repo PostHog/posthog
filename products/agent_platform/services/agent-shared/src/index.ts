@@ -12,6 +12,7 @@
  */
 
 export * from './spec/spec'
+export * from './spec/spec-json-schema'
 export * from './spec/slack-manifest'
 export * from './spec/summarize-conversation'
 export * from './spec/tool'
@@ -62,6 +63,7 @@ export * from './runtime/metrics'
 export * from './runtime/process-handlers'
 export * from './runtime/encryption'
 export * from './runtime/team-api-key-resolver'
+export * from './runtime/mcp-connection-store'
 export * from './runtime/gateway-catalog'
 export * from './runtime/gateway-client'
 export * from './runtime/failure-notifier'

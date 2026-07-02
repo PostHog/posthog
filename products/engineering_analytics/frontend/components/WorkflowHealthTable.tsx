@@ -3,7 +3,8 @@
 // (`WorkflowHealthRow`) and sparkline series are the same in both; only the bucket axis and the
 // optional row expansion differ — passed in by the caller.
 
-import { combineUrl } from 'kea-router'
+import { useValues } from 'kea'
+import { combineUrl, router } from 'kea-router'
 import { ReactNode } from 'react'
 
 import { IconTrending } from '@posthog/icons'
@@ -140,6 +141,15 @@ export function WorkflowHealthTable({
     emptyState,
     dataAttr = 'engineering-analytics-workflow-table',
 }: WorkflowHealthTableProps): JSX.Element {
+    const { searchParams } = useValues(router)
+    // Carry the active CI-analytics window and branch scope into the drill-down so opening a workflow from a
+    // non-default window/branch keeps it instead of snapping back to defaults (the tab links preserve them
+    // the same way). Without the branch (`q`), the detail page would widen to all branches and show more runs.
+    const windowParams: Record<string, string> = {
+        ...(searchParams.date_from ? { date_from: searchParams.date_from } : {}),
+        ...(searchParams.date_to ? { date_to: searchParams.date_to } : {}),
+        ...(searchParams.q ? { q: searchParams.q } : {}),
+    }
     const columns: LemonTableColumns<WorkflowHealthRow> = [
         {
             title: 'Workflow',
@@ -152,7 +162,7 @@ export function WorkflowHealthTable({
                         to={
                             combineUrl(
                                 urls.engineeringAnalyticsWorkflowRuns(row.repoOwner, row.repoName, row.workflowName),
-                                sourceId ? { source: sourceId } : {}
+                                { ...windowParams, ...(sourceId ? { source: sourceId } : {}) }
                             ).url
                         }
                         className="font-medium"
@@ -195,6 +205,8 @@ export function WorkflowHealthTable({
             ? [
                   {
                       title: 'Cost',
+                      tooltip:
+                          "CI minutes spent (each job's time summed — parallel jobs add up) plus the estimated $ at the reference rate. This is compute spent, not wall-clock run time. Excludes still-running jobs, so it can rise as they settle.",
                       key: 'cost',
                       width: CI_GRID.cost,
                       align: 'right',
@@ -233,6 +245,7 @@ export function WorkflowHealthTable({
         },
         {
             title: 'p50',
+            tooltip: 'Median run duration (wall-clock) over completed runs in the window.',
             key: 'p50Seconds',
             width: CI_GRID.p50,
             align: 'right',
@@ -243,6 +256,7 @@ export function WorkflowHealthTable({
         },
         {
             title: 'p95',
+            tooltip: '95th-percentile run duration (wall-clock) over completed runs in the window.',
             key: 'p95Seconds',
             width: CI_GRID.p95,
             align: 'right',
@@ -271,7 +285,13 @@ export function WorkflowHealthTable({
         <LemonTable
             // Fixed layout honors the CI_GRID widths exactly (auto layout lets empty spacer cells collapse),
             // so the run/job tables nested inside line their columns up to the pixel. Cascades to them too.
-            className="[&_table]:table-fixed"
+            // Fixed layout collapses the expand-toggle <col> (LemonTable sizes it width:1%, an auto-layout
+            // shrink-to-content trick), clipping the chevron — re-widen just that col to the width auto-layout
+            // would give it: the toggle cell is the row's first child, so 1rem + 0.5rem padding around a
+            // 1.5rem icon button = 3rem (w-12). A narrower col leaves the chevron clipped by the padding.
+            // Match on '1%' alone (not 'width: 1%'): a Tailwind arbitrary variant can't contain the space,
+            // and within this table the toggle is the only col with a % width, so there's no false match.
+            className="[&_table]:table-fixed [&_col[style*='1%']]:!w-12"
             data-attr={dataAttr}
             size="small"
             columns={columns}
