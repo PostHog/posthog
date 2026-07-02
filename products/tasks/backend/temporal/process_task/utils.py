@@ -130,6 +130,11 @@ CLAUDE_REASONING_EFFORTS_BY_MODEL: dict[str, tuple[ReasoningEffort, ...]] = {
         ReasoningEffort.MEDIUM,
         ReasoningEffort.HIGH,
     ),
+    "claude-sonnet-5": (
+        ReasoningEffort.LOW,
+        ReasoningEffort.MEDIUM,
+        ReasoningEffort.HIGH,
+    ),
 }
 
 CODEX_REASONING_EFFORTS: tuple[ReasoningEffort, ...] = (

@@ -514,6 +514,7 @@ class TaskViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Run task",
         description="Create a new task run and kick off the workflow.",
+        include_serializer_context=True,
     )
     @action(detail=True, methods=["post"], url_path="run", required_scopes=["task:write"])
     def run(self, request, pk=None, **kwargs):
@@ -826,6 +827,7 @@ class TaskRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
         },
         summary="Create task run",
         description="Create a new run for a specific task without starting execution.",
+        include_serializer_context=True,
     )
     def create(self, request, *args, **kwargs):
         task_id = self._task_id()
