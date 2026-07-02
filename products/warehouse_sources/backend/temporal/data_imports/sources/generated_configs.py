@@ -219,7 +219,8 @@ class AlpacaBrokerAPISourceConfig(config.Config):
 
 @config.config
 class AlphaVantageSourceConfig(config.Config):
-    pass
+    api_key: str
+    symbols: str
 
 
 @config.config
