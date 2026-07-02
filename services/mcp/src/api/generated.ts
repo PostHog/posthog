@@ -8873,6 +8873,24 @@ export namespace Schemas {
      */
     export type DetectorConfig = EnsembleDetectorConfig | ZScoreDetectorConfig | MADDetectorConfig | IQRDetectorConfig | ThresholdDetectorConfig | ECODDetectorConfig | COPODDetectorConfig | IsolationForestDetectorConfig | KNNDetectorConfig | HBOSDetectorConfig | LOFDetectorConfig | OCSVMDetectorConfig | PCADetectorConfig;
 
+    export type ForecastConditionType = typeof ForecastConditionType[keyof typeof ForecastConditionType];
+
+
+    export const ForecastConditionType = {
+      FutureBreach: 'future_breach',
+      BandDeviation: 'band_deviation',
+    } as const;
+
+    export interface ForecastConfig {
+      condition: ForecastConditionType;
+      engine?: 'prophet';
+      /** How many future intervals to forecast when checking for a threshold breach (future_breach only). Default 7, max 30. */
+      horizon?: number | null;
+      /** Width of the forecast uncertainty band as a fraction, e.g. 0.8 or 0.95 (default 0.95). */
+      interval_width?: number | null;
+      type?: 'ForecastConfig';
+    }
+
     /**
      * * `every_15_minutes` - every_15_minutes
      * * `hourly` - hourly
@@ -8949,6 +8967,8 @@ export namespace Schemas {
       /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step), metric ('conversion_from_start' or 'conversion_from_previous'), and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease (compared against the prior period). */
       config?: AlertConfigUnion | null;
       detector_config?: DetectorConfig | null;
+      /** Forecast alert configuration (third alert mode). Mutually exclusive with detector_config. */
+      forecast_config?: ForecastConfig | null;
       /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
        *
        * * `every_15_minutes` - every_15_minutes
@@ -23995,6 +24015,89 @@ export namespace Schemas {
     }
 
     /**
+     * * `good` - good
+     * * `noisy` - noisy
+     * * `poor` - poor
+     * * `unknown` - unknown
+     */
+    export type VerdictEnum = typeof VerdictEnum[keyof typeof VerdictEnum];
+
+
+    export const VerdictEnum = {
+      Good: 'good',
+      Noisy: 'noisy',
+      Poor: 'poor',
+      Unknown: 'unknown',
+    } as const;
+
+    export interface ForecastFitQuality {
+      /**
+         * In-sample mean absolute percentage error of the forecast fit.
+         * @nullable
+         */
+      mape: number | null;
+      /**
+         * Share of training points that fall inside the forecast's prediction interval.
+         * @nullable
+         */
+      coverage: number | null;
+      /** Distilled fit-quality verdict for the preview: good, noisy, poor, or unknown (not enough data to assess).
+       *
+       * * `good` - good
+       * * `noisy` - noisy
+       * * `poor` - poor
+       * * `unknown` - unknown */
+      verdict: VerdictEnum;
+    }
+
+    export interface ForecastSimulateRequest {
+      /** Insight ID to simulate the forecast on. */
+      insight: number;
+      /** Forecast configuration to simulate. */
+      forecast_config: ForecastConfig;
+      /** Zero-based index of the series to analyze (trends insights only). */
+      series_index?: number;
+      /**
+         * Relative date string for how far back to simulate (e.g. '-24h', '-30d', '-4w'). If not provided, uses the forecast's minimum required samples. Trends insights only.
+         * @nullable
+         */
+      date_from?: string | null;
+    }
+
+    /**
+     * Per-component forecast decomposition (e.g. trend, weekly, yearly), one list per forecast point. Present only when the forecast engine outputs a decomposition.
+     * @nullable
+     */
+    export type ForecastSimulateResponseForecastComponents = {[key: string]: number[]} | null;
+
+    export interface ForecastSimulateResponse {
+      /** Historical data values for each point. */
+      data: number[];
+      /** Date labels for each historical point. */
+      dates: string[];
+      /**
+         * Interval of the trends query (hour, day, week, month).
+         * @nullable
+         */
+      interval: string | null;
+      /** Date labels for each forecast point. */
+      forecast_dates: string[];
+      /** Predicted value for each forecast point. */
+      forecast_yhat: number[];
+      /** Lower bound of the forecast uncertainty band for each point. */
+      forecast_lower: number[];
+      /** Upper bound of the forecast uncertainty band for each point. */
+      forecast_upper: number[];
+      /**
+         * Per-component forecast decomposition (e.g. trend, weekly, yearly), one list per forecast point. Present only when the forecast engine outputs a decomposition.
+         * @nullable
+         */
+      forecast_components?: ForecastSimulateResponseForecastComponents;
+      /** In-sample fit diagnostics for the forecast. */
+      fit_quality: ForecastFitQuality;
+    }
+
+    /**
      * Request body for `forget`.
      */
     export interface ForgetRequest {
@@ -35935,6 +36038,8 @@ export namespace Schemas {
       /** Per-insight-kind alert configuration, discriminated by `type`. TrendsAlertConfig: series_index (which series to monitor) and check_ongoing_interval (whether to check the current incomplete interval). HogQLAlertConfig (SQL insights): column (which result column to evaluate, defaults to the single numeric column), evaluation ('last_row' checks the latest value of an oldest->newest query, 'first_row' checks the first value of a newest->oldest query, 'any_row' fires if any row breaches), and label_column (names the evaluated row(s) in breach messages, in every evaluation mode). FunnelsAlertConfig (funnel insights): funnel_step (the step to monitor, null for the overall last step), metric ('conversion_from_start' or 'conversion_from_previous'), and check_ongoing_interval (historical-trend funnels: also evaluate the current in-progress period). Steps funnels support only absolute_value conditions; historical-trend funnels also support relative_increase/relative_decrease (compared against the prior period). */
       config?: AlertConfigUnion | null;
       detector_config?: DetectorConfig | null;
+      /** Forecast alert configuration (third alert mode). Mutually exclusive with detector_config. */
+      forecast_config?: ForecastConfig | null;
       /** How often the alert is checked: every 15 minutes (Boost+), hourly, daily, weekly, or monthly.
        *
        * * `every_15_minutes` - every_15_minutes

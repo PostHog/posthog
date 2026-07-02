@@ -47,6 +47,9 @@ const alertCreate = (): ToolBase<typeof AlertCreateSchema, Schemas.Alert> => ({
         if (params.detector_config !== undefined) {
             body['detector_config'] = params.detector_config
         }
+        if (params.forecast_config !== undefined) {
+            body['forecast_config'] = params.forecast_config
+        }
         if (params.calculation_interval !== undefined) {
             body['calculation_interval'] = params.calculation_interval
         }
@@ -176,6 +179,9 @@ const alertUpdate = (): ToolBase<typeof AlertUpdateSchema, Schemas.Alert> => ({
         }
         if (params.detector_config !== undefined) {
             body['detector_config'] = params.detector_config
+        }
+        if (params.forecast_config !== undefined) {
+            body['forecast_config'] = params.forecast_config
         }
         if (params.calculation_interval !== undefined) {
             body['calculation_interval'] = params.calculation_interval

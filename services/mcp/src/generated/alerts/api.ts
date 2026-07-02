@@ -68,6 +68,8 @@ export const alertsCreateBodyDetectorConfigOneOnezeroTypeDefault = `hbos`
 export const alertsCreateBodyDetectorConfigOneOneoneTypeDefault = `lof`
 export const alertsCreateBodyDetectorConfigOneOnetwoTypeDefault = `ocsvm`
 export const alertsCreateBodyDetectorConfigOneOnethreeTypeDefault = `pca`
+export const alertsCreateBodyForecastConfigOneEngineDefault = `prophet`
+export const alertsCreateBodyForecastConfigOneTypeDefault = `ForecastConfig`
 
 export const AlertsCreateBody = /* @__PURE__ */ zod.object({
     insight: zod
@@ -1219,6 +1221,27 @@ export const AlertsCreateBody = /* @__PURE__ */ zod.object({
             zod.null(),
         ])
         .optional(),
+    forecast_config: zod
+        .union([
+            zod.object({
+                condition: zod.enum(['future_breach', 'band_deviation']),
+                engine: zod.literal('prophet').default(alertsCreateBodyForecastConfigOneEngineDefault),
+                horizon: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe(
+                        'How many future intervals to forecast when checking for a threshold breach (future_breach only). Default 7, max 30.'
+                    ),
+                interval_width: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe('Width of the forecast uncertainty band as a fraction, e.g. 0.8 or 0.95 (default 0.95).'),
+                type: zod.literal('ForecastConfig').default(alertsCreateBodyForecastConfigOneTypeDefault),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Forecast alert configuration (third alert mode). Mutually exclusive with detector_config.'),
     calculation_interval: zod
         .enum(['every_15_minutes', 'hourly', 'daily', 'weekly', 'monthly'])
         .describe(
@@ -1356,6 +1379,8 @@ export const alertsPartialUpdateBodyDetectorConfigOneOnezeroTypeDefault = `hbos`
 export const alertsPartialUpdateBodyDetectorConfigOneOneoneTypeDefault = `lof`
 export const alertsPartialUpdateBodyDetectorConfigOneOnetwoTypeDefault = `ocsvm`
 export const alertsPartialUpdateBodyDetectorConfigOneOnethreeTypeDefault = `pca`
+export const alertsPartialUpdateBodyForecastConfigOneEngineDefault = `prophet`
+export const alertsPartialUpdateBodyForecastConfigOneTypeDefault = `ForecastConfig`
 
 export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
     insight: zod
@@ -2530,6 +2555,27 @@ export const AlertsPartialUpdateBody = /* @__PURE__ */ zod.object({
             zod.null(),
         ])
         .optional(),
+    forecast_config: zod
+        .union([
+            zod.object({
+                condition: zod.enum(['future_breach', 'band_deviation']),
+                engine: zod.literal('prophet').default(alertsPartialUpdateBodyForecastConfigOneEngineDefault),
+                horizon: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe(
+                        'How many future intervals to forecast when checking for a threshold breach (future_breach only). Default 7, max 30.'
+                    ),
+                interval_width: zod
+                    .union([zod.number(), zod.null()])
+                    .optional()
+                    .describe('Width of the forecast uncertainty band as a fraction, e.g. 0.8 or 0.95 (default 0.95).'),
+                type: zod.literal('ForecastConfig').default(alertsPartialUpdateBodyForecastConfigOneTypeDefault),
+            }),
+            zod.null(),
+        ])
+        .optional()
+        .describe('Forecast alert configuration (third alert mode). Mutually exclusive with detector_config.'),
     calculation_interval: zod
         .enum(['every_15_minutes', 'hourly', 'daily', 'weekly', 'monthly'])
         .describe(

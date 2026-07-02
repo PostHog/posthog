@@ -65,6 +65,7 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
             "state": "Not firing",
             "config": {"type": "TrendsAlertConfig", "series_index": 0},
             "detector_config": None,
+            "forecast_config": None,
             "threshold": {
                 "configuration": {"type": InsightThresholdType.ABSOLUTE, "bounds": {"upper": 100}},
                 "created_at": mock.ANY,
@@ -92,6 +93,72 @@ class TestAlert(APIBaseTest, QueryMatchingTest):
 
         alerts = self.client.get(f"/api/projects/{self.team.id}/alerts")
         assert len(alerts.json()["results"]) == 0
+
+    def test_create_forecast_alert(self) -> None:
+        # Forecasting needs a time series (not a single BoldNumber value), unlike self.insight.
+        time_series_insight_data: dict[str, Any] = {
+            "query": {
+                "kind": "TrendsQuery",
+                "series": [{"kind": "EventsNode", "event": "$pageview"}],
+                "trendsFilter": {"display": "ActionsLineGraph"},
+            },
+        }
+        time_series_insight = self.client.post(
+            f"/api/projects/{self.team.id}/insights", data=time_series_insight_data
+        ).json()
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            data={
+                "name": "forecast alert",
+                "insight": time_series_insight["id"],
+                "subscribed_users": [self.user.id],
+                "calculation_interval": "daily",
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "condition": {"type": "absolute_value"},
+                "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 100}}},
+                "forecast_config": {
+                    "type": "ForecastConfig",
+                    "engine": "prophet",
+                    "condition": "future_breach",
+                    "horizon": 7,
+                },
+            },
+        )
+        assert response.status_code == status.HTTP_201_CREATED, response.json()
+        assert response.json()["forecast_config"]["condition"] == "future_breach"
+
+    def test_create_forecast_alert_rejects_invalid_config(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            data={
+                "name": "bad forecast alert",
+                "insight": self.insight["id"],
+                "subscribed_users": [self.user.id],
+                "calculation_interval": "daily",
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "condition": {"type": "absolute_value"},
+                "threshold": {"configuration": {"type": "absolute", "bounds": {"upper": 100}}},
+                "forecast_config": {"type": "ForecastConfig", "engine": "not_prophet", "condition": "future_breach"},
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    def test_create_alert_with_both_detector_and_forecast_rejected(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts",
+            data={
+                "name": "conflicted alert",
+                "insight": self.insight["id"],
+                "subscribed_users": [self.user.id],
+                "calculation_interval": "daily",
+                "config": {"type": "TrendsAlertConfig", "series_index": 0},
+                "condition": {"type": "absolute_value"},
+                "detector_config": {"type": "zscore"},
+                "forecast_config": {"type": "ForecastConfig", "engine": "prophet", "condition": "band_deviation"},
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
 
     def test_alert_rejects_insight_without_viewer_access(self) -> None:
         # Alert write access must not let a user reference an insight they can't view — otherwise
@@ -1407,6 +1474,80 @@ class TestAlertSimulate(APIBaseTest):
         )
         assert response.status_code == status.HTTP_200_OK, response.content
         assert AlertCheck.objects.count() == checks_before
+
+
+class TestAlertSimulateForecast(APIBaseTest):
+    def setUp(self):
+        super().setUp()
+        self.insight_data: dict[str, Any] = {
+            "query": {
+                "kind": "TrendsQuery",
+                "series": [
+                    {
+                        "kind": "EventsNode",
+                        "event": "$pageview",
+                    }
+                ],
+                "trendsFilter": {"display": "ActionsLineGraph"},
+                "interval": "day",
+            },
+        }
+        self.insight = self.client.post(f"/api/projects/{self.team.id}/insights", data=self.insight_data).json()
+
+    @mock.patch("products.alerts.backend.api.alert.simulate_forecast_on_insight")
+    def test_simulate_forecast_returns_valid_response(self, mock_simulate) -> None:
+        mock_simulate.return_value = {
+            "data": [10.0, 12.0, 11.0],
+            "dates": ["2024-01-01", "2024-01-02", "2024-01-03"],
+            "interval": "day",
+            "forecast_dates": ["2024-01-04"],
+            "forecast_yhat": [13.0],
+            "forecast_lower": [10.0],
+            "forecast_upper": [16.0],
+            "forecast_components": {"trend": [12.0]},
+            "fit_quality": {"mape": 0.05, "coverage": 0.94, "verdict": "good"},
+        }
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate_forecast",
+            {
+                "insight": self.insight["id"],
+                "forecast_config": {
+                    "type": "ForecastConfig",
+                    "engine": "prophet",
+                    "condition": "future_breach",
+                    "horizon": 7,
+                },
+            },
+        )
+        assert response.status_code == status.HTTP_200_OK, response.content
+        data = response.json()
+        assert data["fit_quality"] == {"mape": 0.05, "coverage": 0.94, "verdict": "good"}
+        assert data["forecast_yhat"] == [13.0]
+        mock_simulate.assert_called_once()
+
+    def test_simulate_forecast_missing_config_returns_400(self) -> None:
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate_forecast",
+            {
+                "insight": self.insight["id"],
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+
+    @mock.patch("products.alerts.backend.api.alert.simulate_forecast_on_insight")
+    def test_simulate_forecast_wraps_value_error_as_400(self, mock_simulate) -> None:
+        mock_simulate.side_effect = ValueError("Not enough history to forecast.")
+
+        response = self.client.post(
+            f"/api/projects/{self.team.id}/alerts/simulate_forecast",
+            {
+                "insight": self.insight["id"],
+                "forecast_config": {"type": "ForecastConfig", "engine": "prophet", "condition": "future_breach"},
+            },
+        )
+        assert response.status_code == status.HTTP_400_BAD_REQUEST
+        assert "Not enough history to forecast." in str(response.json())
 
 
 class TestAlertEventProperties(APIBaseTest):
