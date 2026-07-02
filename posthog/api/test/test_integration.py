@@ -4402,6 +4402,39 @@ class TestIntegrationMembershipPermissions(APIBaseTest):
         assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
         assert Integration.objects.filter(id=integration.id).exists()
 
+    def test_member_cannot_overwrite_existing_integration(self):
+        # POST is an upsert (update_or_create keyed on team/kind/integration_id), so re-submitting the
+        # same resource edits an existing integration. Members may add a new one, but overwriting an
+        # existing one is an edit and requires admin — the write must roll back, leaving config intact.
+        email = "svc@proj.iam.gserviceaccount.com"
+        existing = Integration.objects.create(
+            team=self.team,
+            kind="google-cloud-service-account",
+            integration_id=f"{email}-{self.team.pk}-key-file",
+            config={"project_id": "original-project", "service_account_email": email},
+            sensitive_config={"private_key": "orig", "private_key_id": "orig", "token_uri": "orig"},
+        )
+
+        response = self.client.post(
+            f"/api/environments/{self.team.pk}/integrations",
+            {
+                "kind": "google-cloud-service-account",
+                "config": {
+                    "service_account_email": email,
+                    "project_id": "hijacked-project",
+                    "private_key": "new",
+                    "private_key_id": "new",
+                    "token_uri": "new",
+                },
+            },
+            format="json",
+        )
+
+        assert response.status_code == status.HTTP_403_FORBIDDEN, response.content
+        existing.refresh_from_db()
+        assert existing.config["project_id"] == "original-project"
+        assert Integration.objects.filter(team=self.team, kind="google-cloud-service-account").count() == 1
+
 
 class TestGoogleSearchConsoleSitesEndpoint:
     _SESSION_PATH = (

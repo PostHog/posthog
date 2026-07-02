@@ -6,6 +6,7 @@ from urllib.parse import urlencode
 
 from django.conf import settings
 from django.core.cache import cache
+from django.db import transaction
 from django.http import HttpResponse
 from django.shortcuts import redirect
 from django.utils import timezone
@@ -391,6 +392,28 @@ class IntegrationSerializer(serializers.ModelSerializer, UserAccessControlSerial
         return value
 
     def create(self, validated_data: Any) -> Any:
+        team_id = self.context["team_id"]
+        kind = validated_data["kind"]
+
+        # `create` is a POST with upsert semantics: each kind's helper does an `update_or_create`
+        # keyed on (team, kind, integration_id), so re-submitting the same resource overwrites the
+        # existing integration instead of adding a new one. Adding is allowed for any project
+        # member, but overwriting an existing integration is an edit and requires admin. If a
+        # non-admin's request resolves to an integration that already existed, roll the write back
+        # and reject.
+        with transaction.atomic():
+            existing_integration_ids = set(
+                Integration.objects.filter(team_id=team_id, kind=kind).values_list("integration_id", flat=True)
+            )
+            instance = self._build_integration(validated_data)
+            is_overwrite = instance.integration_id in existing_integration_ids
+            if is_overwrite and not github_callback_state.has_team_management_access(
+                self.context["request"].user, self.context["get_team"]()
+            ):
+                raise PermissionDenied("Editing an existing integration requires project admin access.")
+            return instance
+
+    def _build_integration(self, validated_data: Any) -> Any:
         request = self.context["request"]
         team_id = self.context["team_id"]
 
