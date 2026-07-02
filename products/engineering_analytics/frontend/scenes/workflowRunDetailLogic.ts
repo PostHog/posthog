@@ -6,8 +6,13 @@ import { urls } from 'scenes/urls'
 
 import { Breadcrumb } from '~/types'
 
-import { engineeringAnalyticsWorkflowJobs, engineeringAnalyticsWorkflowRun } from '../generated/api'
-import type { WorkflowJobApi, WorkflowRunDetailApi } from '../generated/api.schemas'
+import {
+    engineeringAnalyticsRunFailureLogs,
+    engineeringAnalyticsWorkflowJobs,
+    engineeringAnalyticsWorkflowRun,
+} from '../generated/api'
+import type { RunFailureLogsApi, WorkflowJobApi, WorkflowRunDetailApi } from '../generated/api.schemas'
+import { isDecisiveFailure } from '../lib/lifecycle'
 import { RunCostSummary, summarizeRunCost } from '../lib/runHealth'
 import type { workflowRunDetailLogicType } from './workflowRunDetailLogicType'
 
@@ -53,6 +58,23 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
                     }),
             },
         ],
+        // The run's thinned failure logs — only fetched for a decisively failed run. 'unavailable' marks
+        // a fetch that failed (e.g. the Logs product isn't reachable) so the section degrades, not errors.
+        failureLogs: [
+            null as RunFailureLogsApi | 'unavailable' | null,
+            {
+                loadFailureLogs: async (): Promise<RunFailureLogsApi | 'unavailable'> => {
+                    try {
+                        return await engineeringAnalyticsRunFailureLogs(projectId(), {
+                            run_id: props.runId,
+                            source_id: props.sourceId ?? undefined,
+                        })
+                    } catch {
+                        return 'unavailable'
+                    }
+                },
+            },
+        ],
     })),
 
     reducers({
@@ -95,9 +117,15 @@ export const workflowRunDetailLogic = kea<workflowRunDetailLogicType>([
         ],
     }),
 
-    listeners(({ actions }) => ({
+    listeners(({ actions, values }) => ({
         // Load jobs only once the run is in, so they can be scoped to the run's real attempt.
-        loadRunSuccess: () => actions.loadJobs(),
+        loadRunSuccess: () => {
+            actions.loadJobs()
+            // Failure logs only exist for failed runs — skip the query otherwise.
+            if (isDecisiveFailure(values.run?.conclusion ?? null)) {
+                actions.loadFailureLogs()
+            }
+        },
     })),
 
     afterMount(({ actions, props }) => {

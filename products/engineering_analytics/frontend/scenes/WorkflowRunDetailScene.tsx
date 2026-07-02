@@ -14,9 +14,13 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
-import { RunJobsTable, formatCost, formatMinutes } from '../components/runTables'
+import { FailureLogGroups } from '../components/FailureLogs'
+import { GroupedJobsTable } from '../components/GroupedJobsTable'
+import { formatCost, formatMinutes } from '../components/runTables'
+import { RepoScopeChip, ScopeBar } from '../components/ScopeBar'
 import { StatTile } from '../components/StatTile'
 import { githubCommitUrl, githubRunUrl } from '../lib/github'
+import { isDecisiveFailure } from '../lib/lifecycle'
 import { verdictTag } from '../lib/runStatus'
 import { WorkflowRunDetailLogicProps, workflowRunDetailLogic } from './workflowRunDetailLogic'
 
@@ -41,8 +45,18 @@ function DetailRow({ label, children }: { label: string; children: React.ReactNo
 }
 
 export function WorkflowRunDetailScene(): JSX.Element {
-    const { run, runLoading, loadFailed, sourceId, jobs, jobsLoading, runCost, isValidRunId } =
-        useValues(workflowRunDetailLogic)
+    const {
+        run,
+        runLoading,
+        loadFailed,
+        sourceId,
+        jobs,
+        jobsLoading,
+        runCost,
+        isValidRunId,
+        failureLogs,
+        failureLogsLoading,
+    } = useValues(workflowRunDetailLogic)
     const { loadRun } = useActions(workflowRunDetailLogic)
 
     if (!isValidRunId) {
@@ -102,6 +116,29 @@ export function WorkflowRunDetailScene(): JSX.Element {
 
             {run ? (
                 <>
+                    <ScopeBar
+                        repoSlot={
+                            <RepoScopeChip
+                                label={`${run.repo.owner}/${run.repo.name}`}
+                                to={combineUrl(urls.engineeringAnalytics(), sourceId ? { source: sourceId } : {}).url}
+                            />
+                        }
+                        crumbs={[
+                            {
+                                label: run.workflow_name,
+                                to: combineUrl(
+                                    urls.engineeringAnalyticsWorkflowRuns(
+                                        run.repo.owner,
+                                        run.repo.name,
+                                        run.workflow_name
+                                    ),
+                                    sourceId ? { source: sourceId } : {}
+                                ).url,
+                            },
+                            { label: `run #${run.id}` },
+                        ]}
+                        showDate={false}
+                    />
                     <div className="flex flex-wrap items-center gap-x-3 gap-y-1 text-sm">
                         {verdict && <LemonTag type={verdict.type}>{verdict.label}</LemonTag>}
                         {run.run_attempt > 1 && <LemonTag type="muted">attempt {run.run_attempt}</LemonTag>}
@@ -136,6 +173,11 @@ export function WorkflowRunDetailScene(): JSX.Element {
                         <DetailRow label="Duration">
                             <span className="tabular-nums">
                                 {run.duration_seconds == null ? '—' : humanFriendlyDuration(run.duration_seconds)}
+                                {jobs && jobs.length > 0 && (
+                                    <span className="ml-2 text-xs text-tertiary">
+                                        wall-clock — the critical path of {pluralize(jobs.length, 'job')}
+                                    </span>
+                                )}
                             </span>
                         </DetailRow>
                         <DetailRow label="Started">
@@ -185,8 +227,24 @@ export function WorkflowRunDetailScene(): JSX.Element {
 
                     <div className="flex flex-col gap-2">
                         <h3 className="mb-0">Jobs</h3>
-                        <RunJobsTable jobs={jobs} loading={jobsLoading} />
+                        <GroupedJobsTable jobs={jobs} loading={jobsLoading} />
                     </div>
+
+                    {isDecisiveFailure(run.conclusion) && (
+                        <div className="flex flex-col gap-2">
+                            <h3 className="mb-0">Failures</h3>
+                            <FailureLogGroups
+                                jobs={failureLogs === 'unavailable' ? [] : failureLogs?.jobs}
+                                logsAvailable={failureLogs !== 'unavailable' && (failureLogs?.logs_available ?? false)}
+                                loading={failureLogsLoading}
+                                emptyState={
+                                    failureLogs === 'unavailable'
+                                        ? 'Failure logs are unavailable for this run.'
+                                        : undefined
+                                }
+                            />
+                        </div>
+                    )}
                 </>
             ) : (
                 <LemonSkeleton className="h-64 w-full" />

@@ -55,7 +55,8 @@ export const manifest: ProductManifest = {
     // builders are the single place to branch verbs for a future provider (e.g. GitLab).
     routes: {
         '/engineering-analytics': ['EngineeringAnalytics', 'engineeringAnalytics'],
-        '/engineering-analytics/workflows': ['EngineeringAnalytics', 'engineeringAnalyticsWorkflows'],
+        '/engineering-analytics/pulls': ['EngineeringAnalytics', 'engineeringAnalyticsPullRequestList'],
+        '/engineering-analytics/authors': ['EngineeringAnalytics', 'engineeringAnalyticsAuthors'],
         '/engineering-analytics/test-health': ['EngineeringAnalytics', 'engineeringAnalyticsTestHealth'],
         '/engineering-analytics/:repoOwner/:repoName/pull/:number': [
             'EngineeringAnalyticsPullRequest',
@@ -71,10 +72,14 @@ export const manifest: ProductManifest = {
         ],
         '/engineering-analytics/author/:handle': ['EngineeringAnalyticsAuthor', 'engineeringAnalyticsAuthor'],
     },
-    redirects: {},
+    redirects: {
+        // Workflows stopped being a tab — they're a section of the repo hub landing now.
+        '/engineering-analytics/workflows': '/engineering-analytics',
+    },
     urls: {
         engineeringAnalytics: (): string => '/engineering-analytics',
-        engineeringAnalyticsWorkflows: (): string => '/engineering-analytics/workflows',
+        engineeringAnalyticsPullRequestList: (): string => '/engineering-analytics/pulls',
+        engineeringAnalyticsAuthors: (): string => '/engineering-analytics/authors',
         engineeringAnalyticsTestHealth: (): string => '/engineering-analytics/test-health',
         engineeringAnalyticsPullRequest: (repoOwner: string, repoName: string, number: number | string): string =>
             `/engineering-analytics/${encodeURIComponent(repoOwner)}/${encodeURIComponent(repoName)}/pull/${number}`,

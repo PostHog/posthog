@@ -5,8 +5,6 @@ import { IconExternal } from '@posthog/icons'
 import { LemonButton, LemonTable, LemonTableColumns, LemonTag, Link } from '@posthog/lemon-ui'
 
 import { getSeriesColor } from 'lib/colors'
-import { DateFilter } from 'lib/components/DateFilter/DateFilter'
-import { dateMapping } from 'lib/utils/dateFilters'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -14,14 +12,16 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { BillableBadge } from '../components/BillableBadge'
-import { BranchFilter } from '../components/BranchFilter'
 import { DistributionBar } from '../components/DistributionBar'
+import { GroupedJobsTable } from '../components/GroupedJobsTable'
+import { JobAggregatesTable } from '../components/JobAggregatesTable'
 import { RunActivityChart } from '../components/RunActivityChart'
 import { RunnerBadge, RunsTable, formatCost } from '../components/runTables'
+import { RepoScopeChip, ScopeBar } from '../components/ScopeBar'
+import { Section, SectionNav } from '../components/Section'
 import { WorkflowHealthHeader } from '../components/WorkflowHealthHeader'
 import type { WorkflowRunnerCostApi } from '../generated/api.schemas'
 import { githubWorkflowUrl } from '../lib/github'
-import { SHARED_DEFAULT_DATE_FROM, engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
 import { WorkflowRunRow, WorkflowRunsLogicProps, workflowRunsLogic } from './workflowRunsLogic'
 
 /** Where a workflow's CI spend goes, split by runner tier — a small table (not bespoke chips) so it reads
@@ -76,20 +76,6 @@ function RunnerCostTable({ costs }: { costs: WorkflowRunnerCostApi[] }): JSX.Ele
     )
 }
 
-// The window floors finished runs (the endpoint requires a date_from), so "all time" is out; relative
-// windows + Custom only. Covers a CI-health "right now" (24h) through a monthly-ish spend window.
-const WORKFLOW_DATE_OPTIONS = dateMapping.filter(({ key }) =>
-    [
-        'Custom',
-        'Last 24 hours',
-        'Last 7 days',
-        'Last 14 days',
-        'Last 30 days',
-        'Last 90 days',
-        'Last 180 days',
-    ].includes(key)
-)
-
 export const scene: SceneExport<WorkflowRunsLogicProps> = {
     component: WorkflowRunsScene,
     logic: workflowRunsLogic,
@@ -119,10 +105,10 @@ export function WorkflowRunsScene(): JSX.Element {
         runsTruncated,
         activityRuns,
         activityTruncated,
+        jobAggregates,
+        jobAggregatesLoading,
     } = useValues(workflowRunsLogic)
     const { loadRuns, setRunExpanded } = useActions(workflowRunsLogic)
-    const { dateFrom, dateTo } = useValues(engineeringAnalyticsFiltersLogic)
-    const { setDateRange } = useActions(engineeringAnalyticsFiltersLogic)
 
     const githubUrl = githubWorkflowUrl(repoOwner, repoName, workflowName)
 
@@ -210,25 +196,56 @@ export function WorkflowRunsScene(): JSX.Element {
                     </LemonButton>
                 }
             />
-            {/* One window + branch scope the cost breakdown and the runs list below — the same scope as the
-                Workflows tab, so numbers match after drilling in (a missing branch filter here read as more
-                runs than the tab showed). */}
-            <div className="flex flex-wrap items-center gap-2">
-                <span className="text-xs font-semibold tracking-wide text-secondary uppercase">Window</span>
-                <DateFilter
-                    dateFrom={dateFrom}
-                    dateTo={dateTo}
-                    onChange={(from, to) => setDateRange(from ?? SHARED_DEFAULT_DATE_FROM, to ?? null)}
-                    dateOptions={WORKFLOW_DATE_OPTIONS}
-                    size="small"
-                />
-                <BranchFilter />
-            </div>
+            {/* One shared window + branch scope every section below — the same scope as the repo hub, so
+                numbers match after drilling in (a missing branch filter here read as more runs than the
+                hub showed). */}
+            <ScopeBar
+                repoSlot={
+                    <RepoScopeChip
+                        label={`${repoOwner}/${repoName}`}
+                        to={combineUrl(urls.engineeringAnalytics(), sourceId ? { source: sourceId } : {}).url}
+                    />
+                }
+                crumbs={[{ label: workflowName }]}
+                showBranch
+            />
             <WorkflowHealthHeader summary={healthSummary} cost={costSummary} truncated={runsTruncated} />
-            <RunActivityChart runs={activityRuns} truncated={activityTruncated} />
-            {runnerCosts.length > 0 && <RunnerCostTable costs={runnerCosts} />}
-            <div className="flex flex-col gap-2">
-                <h3 className="mb-0">Runs</h3>
+            <SectionNav
+                items={[
+                    { id: 'health', label: 'Health' },
+                    { id: 'jobs', label: 'Jobs' },
+                    { id: 'cost', label: 'Cost' },
+                    { id: 'runs', label: 'Runs' },
+                ]}
+            />
+            <Section
+                id="health"
+                title="Health"
+                note="every run in the window — duration, verdict, and in-flight load in one plot"
+            >
+                <RunActivityChart runs={activityRuns} truncated={activityTruncated} />
+            </Section>
+            <Section
+                id="jobs"
+                title="Jobs"
+                note="matrix shards roll up into one row; a job always needs its run as context, so expand a run below instead of looking for a job page"
+            >
+                <JobAggregatesTable
+                    aggregates={jobAggregates}
+                    loading={jobAggregatesLoading}
+                    totalCostUsd={costSummary?.estimatedCostUsd ?? null}
+                />
+            </Section>
+            <Section id="cost" title="Cost" note="where this workflow's spend goes">
+                {runnerCosts.length > 0 ? (
+                    <RunnerCostTable costs={runnerCosts} />
+                ) : (
+                    <span className="text-xs text-secondary">
+                        No cost data — the job-level source isn't synced, or nothing ran in the window.
+                    </span>
+                )}
+            </Section>
+            <Section id="runs" title="Runs" note="latest first — expand a run for its jobs, grouped by matrix">
                 <RunsTable
                     runs={runRows}
                     rowKey={(run) => `${run.id}-${run.runAttempt}`}
@@ -238,12 +255,13 @@ export function WorkflowRunsScene(): JSX.Element {
                     runJobsLoading={runJobsLoading}
                     expandedKeys={expandedRunKeys}
                     setExpanded={setRunExpanded}
+                    renderJobs={(jobs, loading) => <GroupedJobsTable jobs={jobs} loading={loading} embedded />}
                     // Newest run first on the workflow page.
                     defaultSorting={{ columnKey: 'started', order: -1 }}
                     dataAttr="engineering-analytics-workflow-runs-table"
                     emptyState="No runs for this workflow in the connected source."
                 />
-            </div>
+            </Section>
         </SceneContent>
     )
 }

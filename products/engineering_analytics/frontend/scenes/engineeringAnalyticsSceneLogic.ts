@@ -4,17 +4,20 @@ import { sceneLogic } from '~/scenes/sceneLogic'
 
 import type { engineeringAnalyticsSceneLogicType } from './engineeringAnalyticsSceneLogicType'
 
-export type EngineeringAnalyticsTab = 'pull-requests' | 'workflows' | 'test-health'
+/** The root scene's views: the repo hub landing, the two lens list pages, and test health. */
+export type EngineeringAnalyticsView = 'hub' | 'pull-requests' | 'authors' | 'test-health'
 
-export const TAB_DESCRIPTIONS: Record<EngineeringAnalyticsTab, string> = {
+export const VIEW_DESCRIPTIONS: Record<EngineeringAnalyticsView, string> = {
+    hub: 'CI health and cost for the connected repo — failures, pull requests, workflows, and spend in one place.',
     'pull-requests': 'Pull requests and their CI status across connected repos.',
-    workflows: 'Run volume, success rate, and duration per workflow over the selected window.',
+    authors: 'Authors across the loaded pull requests — find your own work.',
     'test-health': 'Flaky tests under quarantine: what is masked, who owns it, and when it expires.',
 }
 
-const SCENE_KEY_TO_TAB: Record<string, EngineeringAnalyticsTab> = {
-    engineeringAnalytics: 'pull-requests',
-    engineeringAnalyticsWorkflows: 'workflows',
+const SCENE_KEY_TO_VIEW: Record<string, EngineeringAnalyticsView> = {
+    engineeringAnalytics: 'hub',
+    engineeringAnalyticsPullRequestList: 'pull-requests',
+    engineeringAnalyticsAuthors: 'authors',
     engineeringAnalyticsTestHealth: 'test-health',
 }
 
@@ -24,9 +27,9 @@ export const engineeringAnalyticsSceneLogic = kea<engineeringAnalyticsSceneLogic
         values: [sceneLogic, ['sceneKey']],
     })),
     selectors({
-        activeTab: [
+        activeView: [
             (s) => [s.sceneKey],
-            (sceneKey: string): EngineeringAnalyticsTab => SCENE_KEY_TO_TAB[sceneKey] ?? 'pull-requests',
+            (sceneKey: string): EngineeringAnalyticsView => SCENE_KEY_TO_VIEW[sceneKey] ?? 'hub',
         ],
     }),
 ])

@@ -7,12 +7,19 @@ import { urls } from 'scenes/urls'
 import { Breadcrumb } from '~/types'
 
 import {
+    engineeringAnalyticsCiFailureLogs,
     engineeringAnalyticsPrCost,
     engineeringAnalyticsPrLifecycle,
     engineeringAnalyticsPrRuns,
     engineeringAnalyticsWorkflowJobs,
 } from '../generated/api'
-import type { PRCostSummaryApi, PRLifecycleApi, WorkflowJobApi, WorkflowRunDetailApi } from '../generated/api.schemas'
+import type {
+    CIFailureLogsApi,
+    PRCostSummaryApi,
+    PRLifecycleApi,
+    WorkflowJobApi,
+    WorkflowRunDetailApi,
+} from '../generated/api.schemas'
 import { jobCacheKey } from '../lib/jobs'
 import {
     LifecycleSummary,
@@ -154,6 +161,24 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
                     }),
             },
         ],
+        // The PR's thinned failure logs across all its pushes — only fetched once a decisive failure is
+        // known. 'unavailable' marks a fetch that failed so the section degrades instead of erroring.
+        failureLogs: [
+            null as CIFailureLogsApi | 'unavailable' | null,
+            {
+                loadFailureLogs: async (): Promise<CIFailureLogsApi | 'unavailable'> => {
+                    try {
+                        return await engineeringAnalyticsCiFailureLogs(projectId(), {
+                            pr_number: props.number,
+                            repo: `${props.repoOwner}/${props.repoName}`,
+                            source_id: props.sourceId ?? undefined,
+                        })
+                    } catch {
+                        return 'unavailable'
+                    }
+                },
+            },
+        ],
         runJobs: [
             {} as Record<string, WorkflowJobApi[]>,
             {
@@ -212,6 +237,12 @@ export const pullRequestDetailLogic = kea<pullRequestDetailLogicType>([
             // Fetch a run+attempt's jobs once, on first expand.
             if (expanded && runId != null && !(jobCacheKey(runId, runAttempt) in values.runJobs)) {
                 actions.loadJobs({ runId, runAttempt })
+            }
+        },
+        // Failure logs only exist once something failed — skip the Logs query otherwise.
+        loadPrRunsSuccess: () => {
+            if (values.prRuns.some((run) => isDecisiveFailure(run.conclusion))) {
+                actions.loadFailureLogs()
             }
         },
     })),

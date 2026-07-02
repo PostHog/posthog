@@ -8,12 +8,14 @@ import { Breadcrumb } from '~/types'
 
 import type { ActivityRun } from '../components/RunActivityChart'
 import {
+    engineeringAnalyticsJobAggregates,
     engineeringAnalyticsWorkflowJobs,
     engineeringAnalyticsWorkflowRunActivity,
     engineeringAnalyticsWorkflowRunnerCosts,
     engineeringAnalyticsWorkflowRuns,
 } from '../generated/api'
 import type {
+    WorkflowJobAggregateApi,
     WorkflowJobApi,
     WorkflowRunActivityApi,
     WorkflowRunDetailApi,
@@ -115,6 +117,20 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                     await engineeringAnalyticsWorkflowRunnerCosts(projectId(), {
                         workflow_name: props.workflowName,
                         repo: `${props.repoOwner}/${props.repoName}`,
+                        date_from: values.dateFrom ?? undefined,
+                        date_to: values.dateTo ?? undefined,
+                        branch: values.appliedBranch || undefined,
+                        source_id: props.sourceId ?? undefined,
+                    }),
+            },
+        ],
+        // Per-job rollups over the window — the Jobs section. [] when the job-level source isn't synced.
+        jobAggregates: [
+            [] as WorkflowJobAggregateApi[],
+            {
+                loadJobAggregates: async (): Promise<WorkflowJobAggregateApi[]> =>
+                    await engineeringAnalyticsJobAggregates(projectId(), {
+                        workflow_name: props.workflowName,
                         date_from: values.dateFrom ?? undefined,
                         date_to: values.dateTo ?? undefined,
                         branch: values.appliedBranch || undefined,
@@ -246,12 +262,6 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                     iconType: 'health',
                 },
                 {
-                    key: 'EngineeringAnalyticsWorkflowsTab',
-                    name: 'Workflows',
-                    path: urls.engineeringAnalyticsWorkflows(),
-                    iconType: 'health',
-                },
-                {
                     key: ['EngineeringAnalyticsWorkflowRuns', `${repoOwner}/${repoName}/${workflowName}`],
                     name: `${repoOwner}/${repoName} · ${workflowName}`,
                     iconType: 'health',
@@ -267,16 +277,18 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
                 actions.loadJobs({ runId, runAttempt })
             }
         },
-        // The shared window scopes all three reads — reload them together when it changes.
+        // The shared window scopes all four reads — reload them together when it changes.
         [engineeringAnalyticsFiltersLogic.actionTypes.setDateRange]: () => {
             actions.loadRuns()
             actions.loadRunActivity()
             actions.loadRunnerCosts()
+            actions.loadJobAggregates()
         },
         [engineeringAnalyticsFiltersLogic.actionTypes.setAppliedBranch]: () => {
             actions.loadRuns()
             actions.loadRunActivity()
             actions.loadRunnerCosts()
+            actions.loadJobAggregates()
         },
     })),
 
@@ -284,5 +296,6 @@ export const workflowRunsLogic = kea<workflowRunsLogicType>([
         actions.loadRuns()
         actions.loadRunActivity()
         actions.loadRunnerCosts()
+        actions.loadJobAggregates()
     }),
 ])

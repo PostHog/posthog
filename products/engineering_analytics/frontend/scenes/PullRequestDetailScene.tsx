@@ -17,8 +17,10 @@ import { urls } from 'scenes/urls'
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
+import { FailureLogGroups } from '../components/FailureLogs'
 import { PullRequestStateTag } from '../components/PullRequestStateTag'
 import { RunJobsTable, RunsTable, formatCost } from '../components/runTables'
+import { RepoScopeChip, ScopeBar } from '../components/ScopeBar'
 import { StatTile } from '../components/StatTile'
 import { WorkflowHealthTable } from '../components/WorkflowHealthTable'
 import type { PRCostSummaryApi, PullRequestApi } from '../generated/api.schemas'
@@ -543,6 +545,8 @@ export function PullRequestDetailScene(): JSX.Element {
         runJobsLoading,
         expandedRunKeys,
         runCostByKey,
+        failureLogs,
+        failureLogsLoading,
     } = useValues(pullRequestDetailLogic)
     const { loadLifecycle, loadPrRuns, loadJobs, setRunExpanded, setWorkflowFilter } =
         useActions(pullRequestDetailLogic)
@@ -590,6 +594,20 @@ export function PullRequestDetailScene(): JSX.Element {
                         </LemonButton>
                     ) : undefined
                 }
+            />
+
+            <ScopeBar
+                repoSlot={
+                    <RepoScopeChip
+                        label={`${repoOwner}/${repoName}`}
+                        to={combineUrl(urls.engineeringAnalytics(), sourceId ? { source: sourceId } : {}).url}
+                    />
+                }
+                lensFilter={{
+                    label: `pr: #${pullRequest?.number ?? ''}`,
+                    to: combineUrl(urls.engineeringAnalytics(), sourceId ? { source: sourceId } : {}).url,
+                }}
+                showDate={false}
             />
 
             {pullRequest ? (
@@ -723,6 +741,27 @@ export function PullRequestDetailScene(): JSX.Element {
                     />
                 )}
             </div>
+
+            {failed > 0 && (
+                <div className="flex flex-col gap-2">
+                    <div className="flex items-baseline gap-2">
+                        <h3 className="mb-0">Failures</h3>
+                        <span className="text-xs text-tertiary">
+                            thinned failure logs across all of this PR's pushes, grouped by job
+                        </span>
+                    </div>
+                    <FailureLogGroups
+                        jobs={failureLogs === 'unavailable' ? [] : failureLogs?.jobs}
+                        logsAvailable={failureLogs !== 'unavailable' && (failureLogs?.logs_available ?? false)}
+                        loading={failureLogsLoading}
+                        emptyState={
+                            failureLogs === 'unavailable'
+                                ? 'Failure logs are unavailable for this pull request.'
+                                : undefined
+                        }
+                    />
+                </div>
+            )}
 
             <div className="text-xs text-tertiary">
                 CI runs attributed to this pull request across all its commits — review and comment activity isn't

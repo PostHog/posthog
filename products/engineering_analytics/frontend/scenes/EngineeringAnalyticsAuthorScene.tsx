@@ -1,15 +1,18 @@
 import { useActions, useValues } from 'kea'
+import { combineUrl } from 'kea-router'
 
 import { DateFilter } from 'lib/components/DateFilter/DateFilter'
 import { dateMapping } from 'lib/utils/dateFilters'
 import { pluralize } from 'lib/utils/strings'
 import { SceneExport } from 'scenes/sceneTypes'
+import { urls } from 'scenes/urls'
 
 import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { PullRequestTable } from '../components/PullRequestTable'
 import { formatCost, formatMinutes } from '../components/runTables'
+import { RepoScopeChip, ScopeBar } from '../components/ScopeBar'
 import { StatTile } from '../components/StatTile'
 import { AuthorLogicProps, authorLogic } from './authorLogic'
 import { SHARED_DEFAULT_DATE_FROM, engineeringAnalyticsFiltersLogic } from './engineeringAnalyticsFiltersLogic'
@@ -37,9 +40,21 @@ export function EngineeringAnalyticsAuthorScene(): JSX.Element {
     const { dateFrom, dateTo } = useValues(engineeringAnalyticsFiltersLogic)
     const { setDateRange } = useActions(engineeringAnalyticsFiltersLogic)
 
+    const hubUrl = combineUrl(urls.engineeringAnalytics(), sourceId ? { source: sourceId } : {}).url
+
     return (
         <SceneContent>
             <SceneTitleSection name={handle} resourceType={{ type: 'health' }} />
+            <ScopeBar
+                repoSlot={
+                    <RepoScopeChip
+                        label={prs[0] ? `${prs[0].repoOwner}/${prs[0].repoName}` : 'Repository'}
+                        to={hubUrl}
+                    />
+                }
+                lensFilter={{ label: `author: ${handle}`, to: hubUrl }}
+                showDate={false}
+            />
             <div className="flex flex-col gap-4">
                 {/* The picker scopes the cost tiles only — the PR list below stays the author's recent PRs. */}
                 <div className="flex flex-col gap-2">
