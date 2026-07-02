@@ -13,6 +13,8 @@ export type APIScope = {
     disabledWhenProjectScoped?: boolean
     description?: string
     warnings?: Partial<Record<'read' | 'write', string | JSX.Element>>
+    /** Mirrors `PRIVILEGED_SCOPES` in posthog/scopes.py — excluded from every unprivileged preset. */
+    unprivilegedExcluded?: boolean
 }
 
 export const API_SCOPES: APIScope[] = [
@@ -75,7 +77,13 @@ export const API_SCOPES: APIScope[] = [
     { key: 'legal_document', objectName: 'Legal document', objectPlural: 'legal documents' },
     { key: 'live_debugger', objectName: 'Live debugger', objectPlural: 'live debugger' },
     { key: 'llm_analytics', objectName: 'AI observability', objectPlural: 'AI observability' },
-    { key: 'llm_gateway', objectName: 'LLM gateway', objectPlural: 'LLM gateway', disabledActions: ['write'] },
+    {
+        key: 'llm_gateway',
+        objectName: 'LLM gateway',
+        objectPlural: 'LLM gateway',
+        disabledActions: ['write'],
+        unprivilegedExcluded: true,
+    },
     { key: 'llm_prompt', objectName: 'LLM prompt', objectPlural: 'LLM prompts' },
     { key: 'llm_provider_key', objectName: 'LLM provider key', objectPlural: 'LLM provider keys' },
     { key: 'llm_skill', objectName: 'LLM skill', objectPlural: 'LLM skills' },
@@ -230,9 +238,10 @@ export const API_KEY_SCOPE_PRESETS: {
     {
         value: 'mcp_server',
         label: 'MCP Server',
-        scopes: API_SCOPES.filter(({ key }) => !key.includes('llm_gateway') && !key.includes('file_system')).map(
-            ({ key }) => `${key}:write`
-        ),
+        // file_system is excluded because the MCP server doesn't request it, not because it's privileged.
+        scopes: API_SCOPES.filter(
+            ({ key, unprivilegedExcluded }) => !unprivilegedExcluded && key !== 'file_system'
+        ).map(({ key }) => `${key}:write`),
         access_type: 'all',
     },
     {
@@ -244,9 +253,7 @@ export const API_KEY_SCOPE_PRESETS: {
     {
         value: 'read_only_access',
         label: 'Read-only access',
-        // llm_gateway:read is a privileged scope — the backend rejects it for
-        // unprivileged flows, matching the same exclusion in the mcp_server preset.
-        scopes: API_SCOPES.filter(({ key }) => key !== 'llm_gateway').map(({ key }) => `${key}:read`),
+        scopes: API_SCOPES.filter(({ unprivilegedExcluded }) => !unprivilegedExcluded).map(({ key }) => `${key}:read`),
     },
     { value: 'all_access', label: 'All access', scopes: ['*'] },
 ]

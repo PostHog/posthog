@@ -53,10 +53,10 @@ function getDefaultScopesForUseCases(useCases: CLIUseCase[]): string[] {
 const DEFAULT_SCOPES = getDefaultScopesForUseCases(DEFAULT_USE_CASES)
 
 // `read` for every scope that supports it (write-disabled scopes like file_system
-// still allow read; only skip scopes whose read action is disabled).
+// still allow read; only skip scopes whose read action is disabled or that are
+// unprivileged-excluded, like llm_gateway, which the backend rejects for this flow).
 const READ_ONLY_SCOPES = API_SCOPES.filter(
-    // llm_gateway:read is privileged — the backend rejects it for unprivileged flows.
-    ({ disabledActions, key }) => !disabledActions?.includes('read') && key !== 'llm_gateway'
+    ({ disabledActions, unprivilegedExcluded }) => !disabledActions?.includes('read') && !unprivilegedExcluded
 ).map(({ key }) => `${key}:read`)
 
 // Presets offered in the consent screen dropdown. Values match the URL `use_cases`
@@ -138,7 +138,7 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
             },
         ],
     })),
-    forms(() => ({
+    forms(({ actions }) => ({
         authorize: {
             defaults: {
                 userCode: '',
@@ -165,22 +165,25 @@ export const cliAuthorizeLogic = kea<cliAuthorizeLogicType>([
                     })
                     return response
                 } catch (error: any) {
-                    const errorCode = error?.code || error?.error
+                    const errorCode = error?.data?.error || error?.code
                     if (errorCode === 'invalid_code') {
-                        throw { userCode: 'Invalid or expired code. Please try again.' }
+                        actions.setAuthorizeManualErrors({ userCode: 'Invalid or expired code. Please try again.' })
                     } else if (errorCode === 'expired') {
-                        throw { userCode: 'This code has expired. Please request a new code in your terminal.' }
+                        actions.setAuthorizeManualErrors({
+                            userCode: 'This code has expired. Please request a new code in your terminal.',
+                        })
                     } else if (errorCode === 'access_denied') {
-                        throw { projectId: 'You do not have access to this project.' }
+                        actions.setAuthorizeManualErrors({ projectId: 'You do not have access to this project.' })
                     } else if (errorCode === 'invalid_project') {
-                        throw { projectId: 'Project not found.' }
+                        actions.setAuthorizeManualErrors({ projectId: 'Project not found.' })
                     } else if (errorCode === 'invalid_scope') {
-                        throw {
+                        actions.setAuthorizeManualErrors({
                             scopes: 'One or more selected scopes are not permitted. Try choosing a different preset.',
-                        }
+                        })
                     } else {
-                        throw { userCode: 'An error occurred. Please try again.' }
+                        actions.setAuthorizeManualErrors({ userCode: 'An error occurred. Please try again.' })
                     }
+                    throw error
                 }
             },
         },
