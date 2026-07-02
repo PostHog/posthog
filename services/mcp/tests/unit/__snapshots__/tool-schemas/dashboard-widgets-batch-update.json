@@ -787,7 +787,7 @@
                                                 "type": "null"
                                             }
                                         ],
-                                        "description": "Date range scoping both the stats and recent responses. Omit or set to null for all time (the survey's full lifetime); otherwise set date_from to a preset such as -7d."
+                                        "description": "Null or omitted means all time (the survey's full lifetime)."
                                     },
                                     "limit": {
                                         "default": 10,

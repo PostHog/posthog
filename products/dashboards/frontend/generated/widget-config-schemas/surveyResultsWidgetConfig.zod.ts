@@ -15,9 +15,7 @@ export const SurveyResultsWidgetConfig = /* @__PURE__ */ zod.object({
     dateRange: zod
         .union([WidgetDateRange, zod.null()])
         .optional()
-        .describe(
-            "Date range scoping both the stats and recent responses. Omit or set to null for all time (the survey's full lifetime); otherwise set date_from to a preset such as -7d."
-        ),
+        .describe("Null or omitted means all time (the survey's full lifetime)."),
     surveyId: zod
         .union([zod.string(), zod.null()])
         .optional()
