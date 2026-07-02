@@ -41,8 +41,10 @@ def _error_response(status_code: int) -> mock.MagicMock:
     resp = mock.MagicMock()
     resp.status_code = status_code
     resp.ok = False
-    resp.text = "error"
-    resp.raise_for_status.side_effect = requests.HTTPError(f"{status_code} Client Error", response=resp)
+    resp.reason = "Unauthorized"
+    resp.url = "https://api.gridly.com/v1/views/view/records?page=%7B%22offset%22%3A0%7D"
+    # _fetch echoes a customer view's record content on error; assert it never reaches logs.
+    resp.text = "secret customer record content"
     return resp
 
 
@@ -183,6 +185,27 @@ class TestRetries:
             list(get_rows("key", "view", "records", mock.MagicMock(), _manager()))
 
         assert mock_session.return_value.get.call_count == 1
+
+    @mock.patch("time.sleep")
+    @mock.patch(f"{_MODULE}.make_tracked_session")
+    def test_client_error_does_not_leak_response_body_or_query_string(self, mock_session, _sleep):
+        # The error body echoes customer record content and the URL carries the `page` blob; neither
+        # may reach the raised error (surfaced as latest_error) or the logs.
+        response = _error_response(401)
+        mock_session.return_value.get.return_value = response
+        logger = mock.MagicMock()
+
+        with pytest.raises(requests.HTTPError) as exc_info:
+            list(get_rows("key", "view", "records", logger, _manager()))
+
+        raised = str(exc_info.value)
+        assert response.text not in raised
+        assert "page=" not in raised
+        assert raised == "401 Client Error: Unauthorized for url: https://api.gridly.com/v1/views/view/records"
+
+        logged = " ".join(str(call) for call in logger.error.call_args_list)
+        assert response.text not in logged
+        assert "page=" not in logged
 
 
 class TestValidateCredentials:

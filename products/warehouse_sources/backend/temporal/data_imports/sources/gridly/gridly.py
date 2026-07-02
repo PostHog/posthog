@@ -2,6 +2,7 @@ import json
 import dataclasses
 from collections.abc import Iterator
 from typing import Any
+from urllib.parse import urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -76,8 +77,21 @@ def _fetch(
         raise GridlyRetryableError(f"Gridly API error (retryable): status={response.status_code}, url={url}")
 
     if not response.ok:
-        logger.error(f"Gridly API error: status={response.status_code}, body={response.text}, url={url}")
-        response.raise_for_status()
+        # Never log response.text or the raw URL: the error body can echo customer record content
+        # from the synced view, and the query string carries the paginated `page` blob. Both would
+        # leak into operational logs. Log only status plus scheme/host/path.
+        safe = urlsplit(response.url)
+        safe_url = f"{safe.scheme}://{safe.netloc}{safe.path}"
+        logger.error(f"Gridly API error: status={response.status_code}, url={safe_url}")
+        # raise_for_status() would embed the full request URL (query string included) in the
+        # exception, which is surfaced as the schema's latest_error. Rebuild the error from
+        # scheme/host/path only so no request params or response body reach stored error state. The
+        # "<status> Client Error: <reason> for url: https://api.gridly.com" prefix stays stable for
+        # get_non_retryable_errors() matching.
+        raise requests.HTTPError(
+            f"{response.status_code} Client Error: {response.reason} for url: {safe_url}",
+            response=response,
+        )
 
     return response
 
