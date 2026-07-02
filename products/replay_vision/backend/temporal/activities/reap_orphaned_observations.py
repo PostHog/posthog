@@ -72,9 +72,7 @@ def _mark_orphaned(observation_id: UUID, scanner_type: str) -> bool:
 async def reap_orphaned_observations_activity() -> int:
     """Fail pending/running rows past the orphan cutoff whose workflow is no longer open; returns the count reaped.
 
-    The age filter alone proves the *original* workflow is closed (its execution timeout has long expired),
-    but a re-trigger reuses the same deterministic workflow id and can reclaim an old PENDING row — the
-    describe check keeps the reaper's hands off rows a live run currently owns.
+    The describe check protects rows reclaimed by a live re-trigger of the same deterministic workflow id.
     """
     rows = await database_sync_to_async(_list_stale_observations, thread_sensitive=False)()
     if not rows:
@@ -90,7 +88,7 @@ async def reap_orphaned_observations_activity() -> int:
                 skipped_open += 1
                 continue
             if is_open is None:
-                skipped_temporal_error += 1  # Can't prove it's closed — skip; the next tick retries.
+                skipped_temporal_error += 1  # Can't prove it's closed — leave it for the next tick.
                 continue
         snapshot = row["scanner_snapshot"] or {}
         scanner_type = snapshot.get("scanner_type") or "unknown"

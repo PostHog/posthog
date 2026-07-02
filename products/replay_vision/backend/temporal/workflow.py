@@ -255,8 +255,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
                     )
                 except Exception:
                     wf.logger.exception("Signal emission activity failed for observation %s", observation_id)
-            # Persist the billed result before any downstream emission — a transient outage past this
-            # point must not demote a completed, paid-for analysis to FAILED.
+            # Persist the billed result first — everything past this point is fail-soft delivery.
             await wf.execute_activity(
                 mark_observation_succeeded_activity,
                 MarkObservationSucceededInputs(
@@ -373,8 +372,7 @@ class ApplyScannerWorkflow(PostHogWorkflow):
     ) -> None:
         """Dispatch scanner-type-specific side-effects after the observation is marked succeeded.
 
-        Each side-effect fails soft (logged, swallowed): the result is already persisted and billed, so a
-        transient embedding/Kafka outage must not demote the observation or abort the remaining effects.
+        Each fails soft — the result is already persisted, and one effect's outage must not abort the rest.
 
         DEPLOY NOTE (accepted in-flight breakage): this dispatch was changed — the summarizer embed activity was
         renamed and an embed step was added for every scanner type. We deliberately do NOT gate it behind

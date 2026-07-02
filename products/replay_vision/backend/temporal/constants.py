@@ -7,8 +7,7 @@ SWEEP_SCANNER_WORKFLOW_NAME = "replay-vision-sweep-scanner"
 # Shared by the sweep's children and the on-demand /observe/ trigger; the orphan cutoff below leans on it.
 APPLY_SCANNER_EXECUTION_TIMEOUT = dt.timedelta(hours=1)
 
-# An apply workflow closes at most APPLY_SCANNER_EXECUTION_TIMEOUT after its first activity created the
-# observation row, so any pending/running row older than twice that is provably orphaned.
+# Pending/running rows older than twice the apply execution timeout are provably orphaned.
 OBSERVATION_ORPHAN_CUTOFF = APPLY_SCANNER_EXECUTION_TIMEOUT * 2
 # Bounds one reaper pass; a backlog beyond this drains across subsequent reconciler ticks.
 REAP_ORPHANED_OBSERVATIONS_BATCH_SIZE = 500

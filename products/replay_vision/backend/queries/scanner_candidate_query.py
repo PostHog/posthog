@@ -82,8 +82,7 @@ class ScannerCandidateQuery:
         query: RecordingsQuery,
         last_swept_at: dt.datetime,
         sampling_rate: float,
-        # Salts the sampling hash (pass the scanner id) so each scanner draws an independent sample; must be
-        # stable across sweeps of the same scanner or sessions would flip in/out behind the watermark.
+        # Per-scanner sampling salt (pass the scanner id); must stay stable across sweeps of the same scanner.
         sampling_salt: str,
         last_seen_session_id: str | None = None,
         candidate_limit: int = DEFAULT_CANDIDATE_LIMIT,
