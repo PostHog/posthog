@@ -13,48 +13,41 @@ export STATSD_PORT=${STATSD_PORT:-8125}
 
 # Dual-mode support: USE_GRANIAN env var switches between Granian and Unit (default)
 if [ "${USE_GRANIAN:-false}" = "true" ]; then
+    # Granian config is env-only and uses granian's own documented GRANIAN_*
+    # env vars (the CLI reads them natively) — no aliases, no flag plumbing.
+    # The exports below only set PostHog defaults where they differ from
+    # granian's own; any deployment-provided GRANIAN_* var applies directly.
+
     # asgi serves posthog.asgi:application, wsgi serves posthog.wsgi:application
     export GRANIAN_INTERFACE=${GRANIAN_INTERFACE:-asgi}
-
-    echo "🚀 Starting with Granian ${GRANIAN_INTERFACE} server (opt-in via USE_GRANIAN=true)..."
-
+    export GRANIAN_HOST=${GRANIAN_HOST:-0.0.0.0}
     # Match Unit's 4 workers for equivalent sync view concurrency.
     # ASGI + sync views (thread_sensitive=True): each worker handles one sync
     # request at a time — only workers give concurrency. WSGI: per-worker
     # concurrency comes from the blocking thread pool instead; steer it via
-    # GRANIAN_BACKPRESSURE/GRANIAN_BLOCKING_THREADS (read natively by granian)
-    # rather than more workers.
+    # GRANIAN_BACKPRESSURE/GRANIAN_BLOCKING_THREADS rather than more workers.
     export GRANIAN_WORKERS=${GRANIAN_WORKERS:-4}
-    # GRANIAN_THREADS is the historical charts-facing name and wins when both
-    # are set; GRANIAN_RUNTIME_THREADS is granian's own documented env var for
-    # --runtime-threads and must not be silently ignored.
-    export GRANIAN_THREADS=${GRANIAN_THREADS:-${GRANIAN_RUNTIME_THREADS:-1}}
+    export GRANIAN_LOG_LEVEL=${GRANIAN_LOG_LEVEL:-warning}
+    export GRANIAN_LOG_ACCESS_ENABLED=${GRANIAN_LOG_ACCESS_ENABLED:-true}
+    export GRANIAN_RESPAWN_FAILED_WORKERS=${GRANIAN_RESPAWN_FAILED_WORKERS:-true}
+
+    # Granian's native Prometheus exporter (worker spawns/respawns, blocking
+    # pool utilization and queue depth, connections, GIL wait). Binds
+    # loopback-only (granian's default address); bin/granian_metrics.py merges
+    # its output into the port-8001 scrape response, so no extra scrape target
+    # is needed.
+    export GRANIAN_METRICS_ENABLED=${GRANIAN_METRICS_ENABLED:-true}
+    export GRANIAN_METRICS_PORT=${GRANIAN_METRICS_PORT:-9090}
 
     if [ "$GRANIAN_INTERFACE" = "wsgi" ]; then
         APP_TARGET="posthog.wsgi:application"
-        # uvloop drives the Python asyncio loop; WSGI has none.
-        LOOP_FLAG=""
     else
         APP_TARGET="posthog.asgi:application"
-        LOOP_FLAG="--loop uvloop"
+        # uvloop drives the Python asyncio loop; WSGI has none.
+        export GRANIAN_LOOP=${GRANIAN_LOOP:-uvloop}
     fi
 
-    # HTTP/1 keep-alive: disable to improve SO_REUSEPORT load distribution
-    KEEPALIVE_FLAG=""
-    if [ "${GRANIAN_HTTP1_KEEP_ALIVE:-true}" = "false" ]; then
-        KEEPALIVE_FLAG="--no-http1-keep-alive"
-    fi
-
-    # Configurable log-level for Granian
-    export GRANIAN_LOG_LEVEL=${GRANIAN_LOG_LEVEL:-warning}
-
-    # Granian's native Prometheus exporter (worker spawns/respawns, blocking
-    # pool utilization and queue depth, connections, GIL wait; granian reads
-    # these env vars itself). Binds loopback-only (granian's default address);
-    # bin/granian_metrics.py merges its output into the port-8001 scrape
-    # response, so no extra scrape target is needed.
-    export GRANIAN_METRICS_ENABLED=${GRANIAN_METRICS_ENABLED:-true}
-    export GRANIAN_METRICS_PORT=${GRANIAN_METRICS_PORT:-9090}
+    echo "🚀 Starting with Granian ${GRANIAN_INTERFACE} server (opt-in via USE_GRANIAN=true)..."
 
     # The container runs as root (Unit needs it for its control socket), but the
     # application must not: Unit drops its app processes to nobody via
@@ -69,18 +62,7 @@ if [ "${USE_GRANIAN:-false}" = "true" ]; then
     # Combined trap: kill metrics server and cleanup temp directory
     trap 'kill $METRICS_PID 2>/dev/null; rm -rf "$PROMETHEUS_MULTIPROC_DIR"' EXIT
 
-    exec $DROP_PRIVILEGES granian \
-        --interface $GRANIAN_INTERFACE \
-        $APP_TARGET \
-        --workers $GRANIAN_WORKERS \
-        --runtime-threads $GRANIAN_THREADS \
-        $KEEPALIVE_FLAG \
-        $LOOP_FLAG \
-        --host 0.0.0.0 \
-        --port 8000 \
-        --log-level $GRANIAN_LOG_LEVEL \
-        --access-log \
-        --respawn-failed-workers
+    exec $DROP_PRIVILEGES granian "$APP_TARGET"
 else
     echo "🔧 Starting with Nginx Unit server (default, stable)..."
 

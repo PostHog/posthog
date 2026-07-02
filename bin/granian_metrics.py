@@ -35,9 +35,9 @@ def create_granian_metrics() -> None:
     These metrics mirror the Gunicorn metrics that were previously exposed, allowing existing
     dashboards and alerts to continue working with minimal changes.
     """
-    # Read Granian configuration from environment
+    # Read Granian configuration from environment (granian's own env var names)
     workers = int(os.environ.get("GRANIAN_WORKERS", 4))
-    threads = int(os.environ.get("GRANIAN_THREADS", 2))
+    threads = int(os.environ.get("GRANIAN_RUNTIME_THREADS", 1))
 
     # Expose static configuration as gauges. With PROMETHEUS_MULTIPROC_DIR set,
     # gauge writes land in the shared mmap files that MultiProcessCollector
