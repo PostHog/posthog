@@ -133,7 +133,7 @@ class TestFetchDomain:
         assert _fetch_once(session, "secret", "bad_domain.invalid", structlog.get_logger()) is None
 
     def test_account_level_error_raises(self):
-        # A 200 body-level error that isn't about the domain (e.g. quota) is fatal for the run.
+        # A 200 body-level error that isn't a domain-level code (e.g. quota) is fatal for the run.
         session = mock.MagicMock()
         session.get.return_value = _response(
             200, {"error": {"error_code": 10002, "error_message": "Insufficient query."}}
@@ -142,11 +142,26 @@ class TestFetchDomain:
         with pytest.raises(IP2WhoisAPIError, match=r"\[10002\]"):
             _fetch_once(session, "secret", "example.com", structlog.get_logger())
 
-    def test_unexpected_non_ok_without_envelope_is_skipped(self):
+    def test_account_error_mentioning_domain_still_raises(self):
+        # Classification is by error code, not message text: an account/quota error whose message
+        # happens to contain "domain" must NOT be mistaken for a per-domain skip (which would silently
+        # empty a full-refresh table). Only codes in the allow-list skip.
+        session = mock.MagicMock()
+        session.get.return_value = _response(
+            200, {"error": {"error_code": 10004, "error_message": "Domain lookup quota exceeded."}}
+        )
+
+        with pytest.raises(IP2WhoisAPIError, match=r"\[10004\]"):
+            _fetch_once(session, "secret", "example.com", structlog.get_logger())
+
+    def test_unexpected_non_ok_without_envelope_raises(self):
+        # A non-2xx with no error envelope can't be attributed to this domain, so fail loudly rather
+        # than silently dropping the row.
         session = mock.MagicMock()
         session.get.return_value = _response(404, {})
 
-        assert _fetch_once(session, "secret", "example.com", structlog.get_logger()) is None
+        with pytest.raises(IP2WhoisAPIError):
+            _fetch_once(session, "secret", "example.com", structlog.get_logger())
 
 
 class TestValidateCredentials:
@@ -222,6 +237,17 @@ class TestGetRows:
             batches = list(get_rows("test-key", ["bad.invalid", "posthog.com"], structlog.get_logger()))
 
         assert [batch[0]["domain"] for batch in batches] == ["posthog.com"]
+
+    def test_all_domains_skipped_raises_rather_than_emptying_table(self):
+        # Full refresh replaces the table with this run's rows. If every domain is skipped we must fail
+        # loudly, not complete "successfully" with an empty table.
+        with mock.patch(f"{MODULE}.make_tracked_session") as mock_session:
+            mock_session.return_value.get.return_value = _response(
+                400, {"error": {"error_code": 10007, "error_message": "Invalid domain."}}
+            )
+
+            with pytest.raises(IP2WhoisAPIError, match="no WHOIS data"):
+                list(get_rows("test-key", ["bad1.invalid", "bad2.invalid"], structlog.get_logger()))
 
 
 class TestIP2WhoisSource:

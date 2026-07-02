@@ -28,6 +28,14 @@ MAX_DOMAINS = 1000
 # filters out obvious garbage (spaces, missing dot) so the sync doesn't burn a lookup credit on it.
 _DOMAIN_RE = re.compile(r"^(?=.{1,253}$)([a-z0-9](?:[a-z0-9-]{0,61}[a-z0-9])?\.)+[a-z]{2,63}$")
 
+# Error codes that are specific to the one domain being looked up (invalid/missing domain), so the
+# sync skips just that entry and keeps going. This is an allow-list on purpose: only 10007 is
+# curl-verified as domain-level, and the full code set for quota/disabled-key states could not be
+# verified without a paid key. Any code NOT listed here — including unknown quota/account errors —
+# fails the run loudly rather than silently swallowing every row, so a full-refresh sync can never
+# replace the table with an empty result off the back of a misclassified account error.
+_DOMAIN_LEVEL_ERROR_CODES: frozenset[int] = frozenset({10007})
+
 
 class IP2WhoisRetryableError(Exception):
     pass
@@ -114,13 +122,13 @@ def _fetch_domain(
 ) -> dict[str, Any] | None:
     """Look up one domain. Returns the WHOIS row, or ``None`` when the failure is specific to this
     domain (so the rest of the list still syncs). Raises on retryable transport errors and on
-    account-level failures (bad key, exhausted quota) that should fail the whole sync.
+    account-level failures (bad key, exhausted quota, or any unrecognized error) that should fail the
+    whole sync.
 
     IP2WHOIS returns errors as ``{"error": {"error_code": N, "error_message": "..."}}`` — a bad key
-    is HTTP 401 (code 10001) and a missing/invalid domain is HTTP 400 (code 10007). The exact code
-    set for quota/disabled-key states could not be curl-verified without a paid key, so account vs
-    domain classification keys off whether the message references the domain rather than a fixed code
-    list.
+    is HTTP 401 (code 10001) and an invalid/missing domain is HTTP 400 (code 10007). Only codes in
+    ``_DOMAIN_LEVEL_ERROR_CODES`` skip a single entry; every other error fails the run loudly, so a
+    misclassified account/quota error can never silently empty the (full-refresh) table.
     """
     response = session.get(_build_url(api_key, domain), timeout=REQUEST_TIMEOUT_SECONDS)
 
@@ -143,18 +151,17 @@ def _fetch_domain(
     if error is not None:
         code = error.get("error_code", "unknown")
         message = str(error.get("error_message", ""))
-        # Domain-level errors (invalid/unknown domain) are specific to this one entry — skip it and
-        # keep syncing the rest. Anything else (key/quota/account) is fatal for the run.
-        if "domain" in message.lower():
+        # Only confirmed domain-level codes skip this one entry; anything else (key/quota/account, or
+        # an unknown code) is fatal for the run — see _DOMAIN_LEVEL_ERROR_CODES.
+        if code in _DOMAIN_LEVEL_ERROR_CODES:
             logger.warning(f"IP2WHOIS: skipping domain {domain}: [{code}] {message}")
             return None
         raise IP2WhoisAPIError(f"IP2WHOIS API error [{code}]: {message}")
 
     if not response.ok:
-        # A non-2xx with no recognized error envelope — treat as specific to this domain rather than
-        # failing the whole sync, but log it so silent gaps are traceable.
-        logger.warning(f"IP2WHOIS: skipping domain {domain}: unexpected status {response.status_code}")
-        return None
+        # A non-2xx with no recognized error envelope can't be attributed to this specific domain, so
+        # fail the run rather than silently dropping rows.
+        raise IP2WhoisAPIError(f"IP2WHOIS API error: unexpected status {response.status_code}")
 
     # Stamp the queried (normalized) domain as the primary key so it's stable regardless of how the
     # API echoes it back (casing, IDN form). Keep any `domain` the API returned under `domain` too —
@@ -172,10 +179,24 @@ def get_rows(
     # masks the API key (a query param) from the tracked session's logged URLs and captured samples.
     session = make_tracked_session(redact_values=(api_key,))
 
+    yielded = 0
+    skipped = 0
     for domain in domains:
         row = _fetch_domain(session, api_key, domain, logger)
         if row is not None:
+            yielded += 1
             yield [row]
+        else:
+            skipped += 1
+
+    # Full-refresh replaces the table with whatever this run yields. If every configured domain was
+    # skipped we'd silently wipe the table to empty, which hides a real problem (a bad domain list, or
+    # an account error that slipped through as a domain-level skip). Fail loudly instead.
+    if yielded == 0 and skipped > 0:
+        raise IP2WhoisAPIError(
+            f"IP2WHOIS returned no WHOIS data for any of the {skipped} configured domain(s). Every domain "
+            "was rejected — check the domain list and that the account's monthly lookup quota is not exhausted."
+        )
 
 
 def ip2whois_source(
