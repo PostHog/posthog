@@ -86,6 +86,11 @@ def get_rows(
     search_query: str | None = None,
 ) -> Iterator[list[dict[str, Any]]]:
     config = PEXELS_ENDPOINTS[endpoint]
+    # `get_schemas` only offers the search tables when a query is set, but fail loudly here rather
+    # than let a missing query become a literal `?query=None` if that guard ever regresses.
+    if config.requires_query and not search_query:
+        raise ValueError(f"Endpoint '{endpoint}' requires a search query but none was provided.")
+
     headers = _get_headers(api_key)
     # One session reused across every page so urllib3 keeps the connection alive.
     session = make_tracked_session()

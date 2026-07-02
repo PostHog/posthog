@@ -118,6 +118,21 @@ class TestGetRows:
         assert "query=red+car" in captured[0]
         assert "/v1/search" in captured[0]
 
+    @parameterized.expand([("none", None), ("empty", "")])
+    def test_search_endpoint_without_query_raises(self, _name: str, query: str | None) -> None:
+        # A missing query on a search endpoint must fail loudly, not send a literal `?query=None`.
+        with patch.object(pexels, "make_tracked_session", MagicMock()):
+            with pytest.raises(ValueError, match="requires a search query"):
+                list(
+                    get_rows(
+                        api_key="k",
+                        endpoint="search_photos",
+                        logger=MagicMock(),
+                        resumable_source_manager=_FakeResumableManager(),  # type: ignore[arg-type]
+                        search_query=query,
+                    )
+                )
+
     def test_saves_current_page_after_each_yield(self) -> None:
         # State must point at the just-yielded page so a crash re-fetches (and merge-dedupes) it
         # rather than skipping it.
