@@ -15679,6 +15679,7 @@ export namespace Schemas {
      * * `InforNexus` - InforNexus
      * * `Insightful` - Insightful
      * * `Insightly` - Insightly
+     * * `Instantly` - Instantly
      * * `Instatus` - Instatus
      * * `Intruder` - Intruder
      * * `Invoiced` - Invoiced
@@ -16334,6 +16335,7 @@ export namespace Schemas {
       InforNexus: 'InforNexus',
       Insightful: 'Insightful',
       Insightly: 'Insightly',
+      Instantly: 'Instantly',
       Instatus: 'Instatus',
       Intruder: 'Intruder',
       Invoiced: 'Invoiced',
@@ -17003,6 +17005,7 @@ export namespace Schemas {
        * * `InforNexus` - InforNexus
        * * `Insightful` - Insightful
        * * `Insightly` - Insightly
+       * * `Instantly` - Instantly
        * * `Instatus` - Instatus
        * * `Intruder` - Intruder
        * * `Invoiced` - Invoiced
@@ -22831,6 +22834,7 @@ export namespace Schemas {
        * * `InforNexus` - InforNexus
        * * `Insightful` - Insightful
        * * `Insightly` - Insightly
+       * * `Instantly` - Instantly
        * * `Instatus` - Instatus
        * * `Intruder` - Intruder
        * * `Invoiced` - Invoiced
@@ -49143,6 +49147,7 @@ export namespace Schemas {
        * * `InforNexus` - InforNexus
        * * `Insightful` - Insightful
        * * `Insightly` - Insightly
+       * * `Instantly` - Instantly
        * * `Instatus` - Instatus
        * * `Intruder` - Intruder
        * * `Invoiced` - Invoiced
@@ -49838,6 +49843,7 @@ export namespace Schemas {
        * * `InforNexus` - InforNexus
        * * `Insightful` - Insightful
        * * `Insightly` - Insightly
+       * * `Instantly` - Instantly
        * * `Instatus` - Instatus
        * * `Intruder` - Intruder
        * * `Invoiced` - Invoiced
@@ -50525,6 +50531,7 @@ export namespace Schemas {
        * * `InforNexus` - InforNexus
        * * `Insightful` - Insightful
        * * `Insightly` - Insightly
+       * * `Instantly` - Instantly
        * * `Instatus` - Instatus
        * * `Intruder` - Intruder
        * * `Invoiced` - Invoiced

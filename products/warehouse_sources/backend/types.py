@@ -390,6 +390,7 @@ class ExternalDataSourceType(models.TextChoices):
     INFORNEXUS = "InforNexus", "InforNexus"
     INSIGHTFUL = "Insightful", "Insightful"
     INSIGHTLY = "Insightly", "Insightly"
+    INSTANTLY = "Instantly", "Instantly"
     INSTATUS = "Instatus", "Instatus"
     INTRUDER = "Intruder", "Intruder"
     INVOICED = "Invoiced", "Invoiced"

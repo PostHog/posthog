@@ -722,6 +722,7 @@ export const CreatedViaEnumApi = {
  * * `InforNexus` - InforNexus
  * * `Insightful` - Insightful
  * * `Insightly` - Insightly
+ * * `Instantly` - Instantly
  * * `Instatus` - Instatus
  * * `Intruder` - Intruder
  * * `Invoiced` - Invoiced
@@ -1377,6 +1378,7 @@ export const ExternalDataSourceTypeEnumApi = {
     InforNexus: 'InforNexus',
     Insightful: 'Insightful',
     Insightly: 'Insightly',
+    Instantly: 'Instantly',
     Instatus: 'Instatus',
     Intruder: 'Intruder',
     Invoiced: 'Invoiced',
@@ -2134,6 +2136,7 @@ export interface ExternalDataSourceCreateApi {
      * * `InforNexus` - InforNexus
      * * `Insightful` - Insightful
      * * `Insightly` - Insightly
+     * * `Instantly` - Instantly
      * * `Instatus` - Instatus
      * * `Intruder` - Intruder
      * * `Invoiced` - Invoiced
@@ -3000,6 +3003,7 @@ export interface DatabaseSchemaRequestApi {
      * * `InforNexus` - InforNexus
      * * `Insightful` - Insightful
      * * `Insightly` - Insightly
+     * * `Instantly` - Instantly
      * * `Instatus` - Instatus
      * * `Intruder` - Intruder
      * * `Invoiced` - Invoiced
@@ -3706,6 +3710,7 @@ export interface SourcePreviewRequestApi {
      * * `InforNexus` - InforNexus
      * * `Insightful` - Insightful
      * * `Insightly` - Insightly
+     * * `Instantly` - Instantly
      * * `Instatus` - Instatus
      * * `Intruder` - Intruder
      * * `Invoiced` - Invoiced
@@ -4400,6 +4405,7 @@ export interface SourceSetupApi {
      * * `InforNexus` - InforNexus
      * * `Insightful` - Insightful
      * * `Insightly` - Insightly
+     * * `Instantly` - Instantly
      * * `Instatus` - Instatus
      * * `Intruder` - Intruder
      * * `Invoiced` - Invoiced
@@ -5101,6 +5107,7 @@ export interface SourceCredentialCreateApi {
      * * `InforNexus` - InforNexus
      * * `Insightful` - Insightful
      * * `Insightly` - Insightly
+     * * `Instantly` - Instantly
      * * `Instatus` - Instatus
      * * `Intruder` - Intruder
      * * `Invoiced` - Invoiced
