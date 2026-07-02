@@ -144,6 +144,7 @@ export function newScanner(templateKey?: string | null): ReplayScanner {
         created_at: dayjs().toISOString(),
         updated_at: dayjs().toISOString(),
         created_by: null,
+        estimated_monthly_observations: null,
     } as const
 
     const template = findScannerTemplate(templateKey ?? undefined)

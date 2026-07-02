@@ -3,9 +3,14 @@ import { LemonTagType } from '@posthog/lemon-ui'
 import { RecordingsQuery } from '~/queries/schema/schema-general'
 
 import { ScannerModelEnumApi } from '../generated/api.schemas'
-import type { PatchedReplayScannerApi, ReplayScannerApi } from '../generated/api.schemas'
+import type {
+    PatchedReplayScannerApi,
+    ReplayScannerApi,
+    ScannerTypeEnumApi,
+    UserBasicApi,
+} from '../generated/api.schemas'
 
-export type ScannerType = 'monitor' | 'classifier' | 'scorer' | 'summarizer'
+export type ScannerType = ScannerTypeEnumApi
 
 export const SCANNER_TYPE_TAG_TYPE: Record<ScannerType, LemonTagType> = {
     monitor: 'primary',
@@ -124,9 +129,7 @@ export function scannerTypeLabel(scannerType: ScannerType | null | undefined): s
     return SCANNER_TYPE_OPTIONS.find((opt) => opt.value === scannerType)?.label ?? scannerType
 }
 
-export function createdByLabel(
-    user: { id: number; first_name?: string; last_name?: string; email?: string } | null
-): string {
+export function createdByLabel(user: ScannerCreatedBy | null): string {
     if (!user) {
         return ''
     }
@@ -185,24 +188,16 @@ export type ScannerConfig =
     | ClassifierScannerConfig
     | ScorerScannerConfig
 
-export interface BaseReplayScanner {
-    id: string
-    name: string
-    description?: string
-    enabled: boolean
-    sampling_rate: number
-    query: RecordingsQuery | null
-    provider: string
-    model: string
-    emits_signals: boolean
-    scanner_version: number
-    estimated_monthly_observations?: number | null
-    last_swept_at: string
-    created_at: string
-    updated_at: string
-    created_by: { id: number; first_name: string; last_name?: string; email?: string } | null
-    deleted?: boolean
-}
+// hedgehog_config's nullable index-signature type trips DeepPartial and ProfilePicture; the UI never reads it.
+export type ScannerCreatedBy = Omit<UserBasicApi, 'hedgehog_config'>
+
+// Derived from the generated schema so serializer changes fail typecheck instead of silently drifting.
+// Fields the write side marks optional carry serializer defaults, so responses always include them.
+export type BaseReplayScanner = Omit<ReplayScannerApi, 'scanner_type' | 'scanner_config' | 'query' | 'created_by'> &
+    Required<Pick<ReplayScannerApi, 'sampling_rate' | 'enabled' | 'emits_signals' | 'provider'>> & {
+        query: RecordingsQuery | null
+        created_by: ScannerCreatedBy | null
+    }
 
 export interface MonitorScanner extends BaseReplayScanner {
     scanner_type: 'monitor'
