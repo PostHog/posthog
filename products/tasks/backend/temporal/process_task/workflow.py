@@ -152,6 +152,11 @@ _PATCH_ID_DROP_SLACK_POST_AFTER_PROVISIONING = "tasks-drop-slack-post-after-prov
 # Two-step deprecate-then-delete cleanup lifecycle as above.
 _PATCH_ID_SLACK_AGENT_DESIGN_STATUS = "tasks-slack-agent-design-status"
 
+# Gates the refusal to execute local-environment (desktop-driven) runs. Pre-guard
+# histories of such runs proceeded into provisioning; the marker keeps their replays
+# deterministic. Same two-step cleanup lifecycle as above.
+_PATCH_ID_SKIP_LOCAL_ENVIRONMENT_RUNS = "tasks-skip-local-environment-runs"
+
 
 def _deprecate_ci_follow_up_pr_context_patch() -> None:
     workflow.deprecate_patch(_PATCH_ID_CI_FOLLOW_UP_PR_CONTEXT)
@@ -453,6 +458,21 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         try:
             self._context = await self._get_task_processing_context(input)
             self._posthog_mcp_scopes = input.posthog_mcp_scopes
+            # A local-environment run is driven by the user's desktop agent — QUEUED does not
+            # mean "awaiting a cloud workflow". Executing it here would boot a sandbox the repo
+            # was never cloned into and, once the attempts burn out, stomp the live local
+            # session's status. Refuse without touching the run. The environment check comes
+            # first so cloud runs (and unit tests exercising them outside a workflow event
+            # loop) never call ``workflow.patched``.
+            if self.context.environment == "local" and workflow.patched(_PATCH_ID_SKIP_LOCAL_ENVIRONMENT_RUNS):
+                workflow.logger.warning(
+                    "Refusing to process local-environment run in cloud workflow",
+                    extra={"run_id": run_id, "task_id": self.context.task_id},
+                )
+                return ProcessTaskOutput(
+                    success=False,
+                    error="Run environment is 'local' (desktop-driven); refusing to execute it as a cloud workflow",
+                )
             # See _PATCH_ID_SLACK_AGENT_DESIGN_STATUS. Short-circuit on
             # ``_slack_thread_context`` so non-Slack runs never call the
             # workflow-scoped ``workflow.patched`` API (unit tests that
