@@ -396,8 +396,6 @@ _task_queue_specs = [
         # Dedicated queue for MCP analytics clustering — isolates the CPU
         # burst (cluster compute) and external embedding worker calls from
         # the general-purpose queue that hosts the rest of mcp_analytics.
-        # Workflow + activity lists are populated as the stack lands; an
-        # empty queue is harmless — the worker registers and idles.
         settings.MCPA_TASK_QUEUE,
         MCP_ANALYTICS_INTENT_CLUSTERING_WORKFLOWS,
         MCP_ANALYTICS_INTENT_CLUSTERING_ACTIVITIES,
@@ -566,11 +564,25 @@ class Command(BaseCommand):
         health_max_idle_seconds = options.get("health_max_idle_seconds", None)
         disable_combined_metrics_server = options.get("disable_combined_metrics_server", False)
 
-        try:
-            workflows = list(WORKFLOWS_DICT[task_queue])
-            activities = list(ACTIVITIES_DICT[task_queue])
-        except KeyError:
-            raise ValueError(f'Task queue "{task_queue}" not found in WORKFLOWS_DICT or ACTIVITIES_DICT')
+        # WORKFLOWS_DICT/ACTIVITIES_DICT are defaultdicts, so indexing an unknown
+        # queue never raises KeyError — it silently returns an empty set, which
+        # would flow into create_worker and crash with Temporal's opaque "At least
+        # one activity, Nexus service, or workflow must be specified". Check
+        # explicitly and fail loudly, naming the queue, before we get there.
+        if task_queue not in WORKFLOWS_DICT:
+            raise ValueError(
+                f'Task queue "{task_queue}" is not registered in WORKFLOWS_DICT/ACTIVITIES_DICT. '
+                "Check the --task-queue value and _task_queue_specs in this module."
+            )
+
+        workflows = list(WORKFLOWS_DICT[task_queue])
+        activities = list(ACTIVITIES_DICT[task_queue])
+
+        if not workflows and not activities:
+            raise ValueError(
+                f'Task queue "{task_queue}" has no workflows or activities registered. '
+                "A worker cannot start with an empty registration — check its spec in _task_queue_specs."
+            )
 
         # Data-import source modules import vendor SDKs (google-ads, etc.) at module scope, and those
         # SDKs register protobuf descriptors into a process-global pool that rejects a second
