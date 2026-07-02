@@ -1,0 +1,55 @@
+---
+title: Linking Clockodo as a source
+sidebar: Docs
+showTitle: true
+availability: { free: full, selfServe: full, enterprise: full }
+sourceId: Clockodo
+---
+
+import SourceSetupIntro from '../_snippets/source-setup-intro.mdx'
+import SyncModes from '../_snippets/sync-modes.mdx'
+import SourceParameters from '../_snippets/source-parameters.mdx'
+import SourceTables from '../_snippets/source-tables.mdx'
+import TroubleshootingLink from '../_snippets/dw-troubleshooting-link.mdx'
+import AlphaRelease from '../_snippets/alpha-release.mdx'
+
+<AlphaRelease />
+
+Clockodo is a cloud-based time-tracking and project-management tool for agencies, service firms, and freelancers. This connector syncs your Clockodo time entries, customers, projects, services, users, teams, and supporting reference data into the PostHog data warehouse so you can join tracked time and billing data with your product and revenue data.
+
+## Prerequisites
+
+To connect Clockodo, you need a Clockodo account and a personal **API key**. The API key is scoped to the co-worker it belongs to, so it can only read the data that user is allowed to see — connect a user who can access the records you want to sync.
+
+## Adding a data source
+
+<SourceSetupIntro />
+
+You'll need your Clockodo email address and personal API key:
+
+1. Sign in to Clockodo and open **Personal data** (your account settings).
+2. Find the **API key** section and copy your API key.
+3. Enter your Clockodo account email and the API key into the corresponding fields in PostHog.
+
+Clockodo credentials are per co-worker, so the tables you can sync reflect that user's permissions. Requests are rate limited (Clockodo returns `429 Too Many Requests` when the limit is exceeded), so very large initial syncs may take some time to complete.
+
+## Sync modes
+
+<SyncModes />
+
+All Clockodo tables are **full refresh** only. The Clockodo API does not expose a server-side "modified since" filter on any resource (the `time_last_change` field is returned but cannot be filtered on), so there is no reliable cursor to sync incrementally against — each sync re-reads the full collection and merges on the primary key.
+
+## Configuration
+
+<SourceParameters />
+
+## Supported tables
+
+<SourceTables />
+
+## Troubleshooting
+
+- **Invalid credentials** — if the connection fails to validate, double-check your account email and API key. You can regenerate the key under **Personal data** in Clockodo. Bad credentials return a `401 Unauthorized`.
+- **A table returns no rows or a permission error** — Clockodo credentials are scoped per co-worker, so the API only returns what the connected user can see. Connect a user with access to the customers, projects, and entries you want to sync.
+
+<TroubleshootingLink />

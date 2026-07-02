@@ -1,8 +1,10 @@
 import { expectLogic } from 'kea-test-utils'
 
+import api from '~/lib/api'
+import { ApiError } from '~/lib/api-error'
 import { EventsQuery, NodeKind, TracesQuery } from '~/queries/schema/schema-general'
 import { initKeaTests } from '~/test/init'
-import { PropertyFilterType, PropertyOperator } from '~/types'
+import { LLMPromptResolveResponse, PropertyFilterType, PropertyOperator } from '~/types'
 
 import { PromptAnalyticsScope, PromptMode, llmPromptLogic } from './llmPromptLogic'
 
@@ -247,6 +249,42 @@ describe('llmPromptLogic', () => {
         logic.actions.setPrompt(mockPrompt)
 
         expect(logic.values.breadcrumbs[1].name).toBe('my-test-prompt v2')
+
+        logic.unmount()
+    })
+
+    it('preserves form edits and advances the base version on a publish conflict', async () => {
+        const { versions, has_more, ...promptFields } = mockPrompt
+        const conflictingLatest = {
+            ...promptFields,
+            id: 'prompt-version-3',
+            prompt: 'Someone else edited this prompt.',
+            version: 3,
+            latest_version: 3,
+            version_count: 3,
+        }
+
+        jest.spyOn(api.llmPrompts, 'resolveByName')
+            .mockResolvedValueOnce({ prompt: promptFields, versions, has_more } as unknown as LLMPromptResolveResponse)
+            .mockResolvedValue({ prompt: conflictingLatest, versions, has_more } as unknown as LLMPromptResolveResponse)
+        jest.spyOn(api.llmPrompts, 'update').mockRejectedValue(
+            new ApiError('conflict', 409, undefined, { detail: 'The prompt changed since you opened it.' })
+        )
+
+        const logic = llmPromptLogic({ promptName: 'my-test-prompt' })
+        logic.mount()
+        await expectLogic(logic).toDispatchActions(['loadPromptSuccess'])
+
+        logic.actions.setMode(PromptMode.Edit)
+        logic.actions.setPromptFormValues({ name: 'my-test-prompt', prompt: 'My in-progress edit.' })
+
+        logic.actions.submitPromptForm()
+        await expectLogic(logic).toDispatchActions(['submitPromptFormFailure'])
+
+        expect(logic.values.promptForm.prompt).toBe('My in-progress edit.')
+        expect(logic.values.publishConflict).toEqual({ latestVersion: 3 })
+        expect(logic.values.prompt).toMatchObject({ latest_version: 3 })
+        expect(logic.values.mode).toBe(PromptMode.Edit)
 
         logic.unmount()
     })

@@ -1,8 +1,7 @@
 import { useActions } from 'kea'
 
+import { HedgehogDirector } from '@posthog/brand/hoggies'
 import { LemonButton } from '@posthog/lemon-ui'
-
-import { FilmCameraHog } from 'lib/components/hedgehogs'
 
 import { OnboardingStepKey } from '~/types'
 
@@ -29,7 +28,7 @@ export const OnboardingSessionReplayConfiguration: OnboardingStepComponentType =
 
             <div className="flex flex-col md:flex-row items-center gap-6">
                 <div className="hidden md:block flex-shrink-0">
-                    <FilmCameraHog className="w-36 h-auto" />
+                    <HedgehogDirector className="w-36 h-auto" />
                 </div>
                 <div className="flex-1 border border-gray-200 rounded-lg bg-bg-light dark:bg-bg-depth p-4">
                     <h4 className="text-lg font-semibold mb-2">Why enable Session Replay?</h4>

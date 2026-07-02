@@ -231,9 +231,12 @@ async fn send_event(
     cse_offset: i64,
 ) {
     tracker.mark_dispatched(PARTITION_ID as i32, cse_offset + 1);
-    tx.send(vec![ShuffleMessage::Event { event, cse_offset }])
-        .await
-        .unwrap();
+    tx.send(vec![ShuffleMessage::Event {
+        event: Box::new(event),
+        cse_offset,
+    }])
+    .await
+    .unwrap();
 }
 
 async fn send_sweep(tx: &mpsc::Sender<Vec<ShuffleMessage>>, due_before_ms: i64) {
@@ -461,7 +464,7 @@ async fn event_then_sweep_in_one_batch_emits_entered_before_left() {
     tracker.mark_dispatched(PARTITION_ID as i32, 1);
     tx.send(vec![
         ShuffleMessage::Event {
-            event: event_at(alice, ts, 0),
+            event: Box::new(event_at(alice, ts, 0)),
             cse_offset: 0,
         },
         ShuffleMessage::Sweep {
@@ -628,7 +631,7 @@ async fn sweep_caps_evictions_per_pass_and_drains_the_remainder_next_tick() {
     tracker.mark_dispatched(PARTITION_ID as i32, total as i64);
     let events: Vec<ShuffleMessage> = (0..total)
         .map(|i| ShuffleMessage::Event {
-            event: event_at(person(i as u128 + 1), ts, i as i64),
+            event: Box::new(event_at(person(i as u128 + 1), ts, i as i64)),
             cse_offset: i as i64,
         })
         .collect();

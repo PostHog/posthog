@@ -1,3 +1,6 @@
+import * as fs from 'fs'
+import * as path from 'path'
+
 import { HogFunctionInvocationGlobalsWithInputs } from '../types'
 import { LiquidRenderer } from './liquid'
 
@@ -216,6 +219,34 @@ describe('LiquidRenderer', () => {
                   
                 </ul>"
             `)
+        })
+    })
+
+    describe.each(['render', 'include', 'layout'])('file inclusion via the %s tag is disabled', (tag) => {
+        it('does not disclose local files within the working directory', () => {
+            // The partial must live under the worker's cwd: LiquidJS confines file lookups there.
+            const fixtureName = `liquid-fs-fixture-${process.pid}.txt`
+            const fixturePath = path.join(process.cwd(), fixtureName)
+            const secret = 'TOP_SECRET_FILE_CONTENTS'
+            fs.writeFileSync(fixturePath, secret)
+
+            try {
+                LiquidRenderer['_liquid'] = null
+                const template = `{% ${tag} '${fixtureName}' %}`
+
+                let result: string
+                try {
+                    result = LiquidRenderer.renderWithHogFunctionGlobals(template, globals)
+                } catch {
+                    // A thrown lookup error also means the file was not disclosed
+                    result = ''
+                }
+
+                expect(result).not.toContain(secret)
+            } finally {
+                fs.unlinkSync(fixturePath)
+                LiquidRenderer['_liquid'] = null
+            }
         })
     })
 

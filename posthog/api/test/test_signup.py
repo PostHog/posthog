@@ -996,7 +996,7 @@ class TestSignupAPI(APIBaseTest):
                 domain="posthog.net",
                 verified_at=timezone.now(),
                 jit_provisioning_enabled=True,
-                scim_enabled=True,
+                _scim_enabled=True,
                 organization=new_org,
             )
             Team.objects.create(organization=new_org, name="Test Project")
@@ -1039,7 +1039,7 @@ class TestSignupAPI(APIBaseTest):
                 domain="posthog.net",
                 verified_at=timezone.now(),
                 jit_provisioning_enabled=True,
-                scim_enabled=True,
+                _scim_enabled=True,
                 organization=new_org,
             )
             Team.objects.create(organization=new_org, name="Test Project")

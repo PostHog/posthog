@@ -30,12 +30,6 @@ ENDPOINT_MATERIALIZATION_EVENT_TOTAL = Counter(
     labelnames=["action", "status"],
 )
 
-ENDPOINT_RATE_LIMITED_TOTAL = Counter(
-    "posthog_endpoint_rate_limited_total",
-    "Rate-limited endpoint requests",
-    labelnames=["scope"],
-)
-
 ENDPOINT_CONCURRENCY_REJECTED_TOTAL = Counter(
     "posthog_endpoint_concurrency_rejected_total",
     "Endpoint executions rejected because the concurrency limit was exceeded",

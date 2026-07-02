@@ -486,6 +486,24 @@ def test_from_dict_with_non_mapping_raises_clear_error(bad_input):
         SourceConfig.from_dict(bad_input)
 
 
+def test_to_config_optional_config_does_not_retain_unparseable_dict():
+    # A present-but-unparseable mapping under an `Optional[Config]` field must not leak
+    # through the `None` arm of the union as a raw dict. Doing so left a typed field
+    # holding an untyped dict and crashed downstream with `'dict' object has no
+    # attribute '<field>'`; the field must fall back to its default (None) instead.
+    @config.config
+    class AuthConfig:
+        type: str  # required, so a payload that can't fill it makes the config arm fail
+
+    @config.config
+    class SourceConfig(config.Config):
+        auth: AuthConfig | None = None
+
+    cfg = SourceConfig.from_dict({"auth": {"unrecognized_key": "value"}})
+
+    assert cfg.auth is None
+
+
 @config.config
 class _SecretFieldConfig(config.Config):
     password: str | None = None

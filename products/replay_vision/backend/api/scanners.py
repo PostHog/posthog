@@ -56,7 +56,7 @@ from products.replay_vision.backend.queries import (
     project_monthly_observations,
     refresh_scanner_estimate,
 )
-from products.replay_vision.backend.quota import compute_quota_snapshot
+from products.replay_vision.backend.quota import compute_quota_snapshot, sum_enabled_scanner_estimates
 from products.replay_vision.backend.tag_suggestions import SuggestionError, suggest_classifier_tags
 from products.replay_vision.backend.temporal.constants import (
     APPLY_SCANNER_WORKFLOW_NAME,
@@ -274,6 +274,7 @@ class ReplayScannerSerializer(serializers.ModelSerializer):
         team = self.context["get_team"]()
         user = cast(User, self.context["request"].user)
         try:
+            # last_swept_at is seeded a settle-interval back by the model default (initial_watermark) to avoid a cold start.
             scanner = ReplayScanner.objects.create(team=team, created_by=user, **validated_data)
         except IntegrityError as e:
             self._reraise_unique_name_violation(e)
@@ -439,6 +440,14 @@ class EstimateRequestSerializer(serializers.Serializer):
         max_value=1.0,
         help_text="0..1 downsample applied to matched sessions. Defaults to 1.0 (no downsampling).",
     )
+    scanner_id = serializers.UUIDField(
+        required=False,
+        allow_null=True,
+        help_text=(
+            "The scanner being edited, excluded from `other_enabled_scanners_monthly` so its stored estimate isn't "
+            "double-counted in the forecast. Omit (or null) when estimating a brand-new scanner."
+        ),
+    )
 
     def validate_query(self, value: dict[str, Any]) -> dict[str, Any]:
         try:
@@ -499,6 +508,13 @@ class EstimateResponseSerializer(serializers.Serializer):
     )
     estimated_observations_per_month = serializers.IntegerField(
         help_text="Projected monthly observations: matched sessions scaled to 30 days, times sampling_rate.",
+    )
+    other_enabled_scanners_monthly = serializers.IntegerField(
+        help_text=(
+            "Summed projected monthly observations of the org's other enabled scanners (excluding `scanner_id`), from "
+            "their cached estimates. Read from the same snapshot as this estimate so the forecast can't double-count "
+            "the edited scanner."
+        ),
     )
     sampling_rate = serializers.FloatField(
         help_text="Sampling rate applied to the projection. Echoed from the request.",
@@ -747,6 +763,11 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         body.is_valid(raise_exception=True)
         sampling_rate: float = body.validated_data["sampling_rate"]
 
+        # Reject a scanner_id outside this project before doing any work, so it can't silently undercount the others-sum.
+        scanner_id = body.validated_data.get("scanner_id")
+        if scanner_id is not None and not ReplayScanner.objects.filter(team_id=self.team_id, pk=scanner_id).exists():
+            raise serializers.ValidationError({"scanner_id": "No scanner with this id exists in this project."})
+
         # validate_query already validated this; the empty-dict default needs `kind` to parse.
         query_dict: dict[str, Any] = dict(body.validated_data.get("query") or {})
         query_dict.setdefault("kind", "RecordingsQuery")
@@ -755,12 +776,19 @@ class ReplayScannerViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         estimate = estimate_scanner_session_volume(team=self.team, query=recordings_query)
         observations_per_month = project_monthly_observations(estimate, sampling_rate)
 
+        # The OTHER enabled scanners' projected total (same source as the quota snapshot), so the editor adds this
+        # estimate on top of a consistent snapshot instead of subtracting a possibly-stale per-scanner field.
+        other_enabled_scanners_monthly = sum_enabled_scanner_estimates(
+            self.team.organization_id, exclude_scanner_id=scanner_id
+        )
+
         return Response(
             EstimateResponseSerializer(
                 {
                     "matched_sessions_in_window": estimate.matched_sessions,
                     "window_days": estimate.effective_window_days,
                     "estimated_observations_per_month": observations_per_month,
+                    "other_enabled_scanners_monthly": other_enabled_scanners_monthly,
                     "sampling_rate": sampling_rate,
                 }
             ).data

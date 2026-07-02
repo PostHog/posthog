@@ -24,6 +24,8 @@ use cohort_stream_processor::filters::{run_refresh_loop, CatalogHandle};
 use cohort_stream_processor::merge::gc::MergeGcSweeper;
 use cohort_stream_processor::merge::redrive::RedriveSweeper;
 use cohort_stream_processor::observability;
+use cohort_stream_processor::observability::store_stats::StoreStatsSweeper;
+use cohort_stream_processor::observability::tokio_monitor::TokioRuntimeMonitor;
 use cohort_stream_processor::partitions::{
     run_rebalance_worker, CohortConsumerContext, Follower, FollowerSet, OffsetTracker,
     PartitionRouter,
@@ -99,6 +101,11 @@ async fn async_main(config: Config) -> Result<()> {
             ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(30)),
         )
     });
+    // Short graceful window: it holds no state and its next tick is disposable.
+    let tokio_monitor_handle = manager.register(
+        "tokio-runtime-monitor",
+        ComponentOptions::new().with_graceful_shutdown(Duration::from_secs(2)),
+    );
 
     let readiness = manager.readiness_handler();
     let liveness = manager.liveness_handler();
@@ -205,6 +212,7 @@ async fn async_main(config: Config) -> Result<()> {
     // needs its own handle on the store and each per-topic tracker to capture the offset manifest.
     // Captured unconditionally to satisfy the borrow checker; consumed only when `checkpoint_enabled`.
     let store_for_checkpoint = store.clone();
+    let store_for_stats = store.clone();
     let events_tracker_for_checkpoint = offset_tracker.clone();
     let merge_tracker_for_checkpoint = merge_deps.merge_tracker.clone();
     let transfer_tracker_for_checkpoint = merge_deps.transfer_tracker.clone();
@@ -225,6 +233,8 @@ async fn async_main(config: Config) -> Result<()> {
     }
     // Person-memo config, likewise set before any worker spawns.
     dispatcher.set_person_memo_config(config.person_memo_config());
+    // Event-name fan-out gating, likewise set before any worker spawns.
+    dispatcher.set_event_name_gating(config.event_name_gating());
 
     let (context, rebalance_rx) = CohortConsumerContext::new(dispatcher.clone());
     let stream_consumer: StreamConsumer<CohortConsumerContext> = config
@@ -395,6 +405,22 @@ async fn async_main(config: Config) -> Result<()> {
         "merge_gc",
         consumer_handle.shutdown_token(),
     ));
+
+    // Publish store cache/size metrics via the sweep machinery, and Tokio runtime metrics via a
+    // separate monitor.
+    tokio::spawn(run_sweep_loop(
+        StoreStatsSweeper::new(store_for_stats),
+        config.stats_publish_interval(),
+        "store_stats",
+        consumer_handle.shutdown_token(),
+    ));
+    tokio::spawn(
+        TokioRuntimeMonitor::new(
+            &tokio::runtime::Handle::current(),
+            config.stats_publish_interval(),
+        )
+        .start_monitoring(tokio_monitor_handle),
+    );
 
     // Whole-DB checkpoint → PVC + incremental S3 sweep loop. Spawned only when the master gate is on,
     // so a default deploy starts no checkpoint task. The cascade tracker is included only when cascade

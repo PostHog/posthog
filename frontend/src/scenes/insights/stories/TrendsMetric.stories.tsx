@@ -7,6 +7,8 @@ import { createInsightStory } from 'scenes/insights/__mocks__/createInsightScene
 
 import { mswDecorator } from '~/mocks/browser'
 
+import __trendsMetric from '../../../mocks/fixtures/api/projects/team_id/insights/trendsMetric.json'
+
 type Story = StoryObj<{}>
 const meta: Meta = {
     title: 'Scenes-App/Insights/TrendsMetric',
@@ -38,13 +40,8 @@ const meta: Meta = {
 }
 export default meta
 /* eslint-disable @typescript-eslint/no-var-requires */
-export const TrendsMetric: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsMetric.json')
-)
+export const TrendsMetric: Story = createInsightStory(__trendsMetric as any)
 TrendsMetric.parameters = { testOptions: { waitForSelector: '.Metric canvas' } }
-export const TrendsMetricEdit: Story = createInsightStory(
-    require('../../../mocks/fixtures/api/projects/team_id/insights/trendsMetric.json'),
-    'edit'
-)
+export const TrendsMetricEdit: Story = createInsightStory(__trendsMetric as any, 'edit')
 TrendsMetricEdit.parameters = { testOptions: { waitForSelector: '.Metric canvas' } }
 /* eslint-enable @typescript-eslint/no-var-requires */

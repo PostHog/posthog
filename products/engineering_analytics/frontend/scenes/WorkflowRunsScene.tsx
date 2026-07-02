@@ -14,6 +14,7 @@ import { SceneContent } from '~/layout/scenes/components/SceneContent'
 import { SceneTitleSection } from '~/layout/scenes/components/SceneTitleSection'
 
 import { BillableBadge } from '../components/BillableBadge'
+import { BranchFilter } from '../components/BranchFilter'
 import { DistributionBar } from '../components/DistributionBar'
 import { RunActivityChart } from '../components/RunActivityChart'
 import { RunnerBadge, RunsTable, formatCost } from '../components/runTables'
@@ -47,8 +48,8 @@ function RunnerCostTable({ costs }: { costs: WorkflowRunnerCostApi[] }): JSX.Ele
             render: (_, cost) => <BillableBadge minutes={cost.billable_minutes} costUsd={cost.estimated_cost_usd} />,
         },
     ]
-    // Where the money goes — one stacked bar over the table, a segment per tier sized by its $ share.
-    // Free (GitHub-hosted) runners are $0, so they don't take a slice; the bar reads as "billable spend".
+    // One stacked bar over the table, a segment per tier sized by its $ share. Free (GitHub-hosted)
+    // runners are $0, so they don't take a slice; the bar reads as "billable spend".
     const costSegments = costs.map((cost, i) => ({
         key: `${cost.provider}:${cost.runner_label}`,
         label: cost.runner_label || cost.provider,
@@ -75,8 +76,8 @@ function RunnerCostTable({ costs }: { costs: WorkflowRunnerCostApi[] }): JSX.Ele
     )
 }
 
-// The window floors finished runs (the endpoint requires a date_from), so "all time" is out; relative
-// windows + Custom only. Covers a CI-health "right now" (24h) through a monthly-ish spend window.
+// The endpoint requires a date_from (floors finished runs), so "all time" is out — relative windows +
+// Custom only, from a 24h "right now" view through a monthly-ish spend window.
 const WORKFLOW_DATE_OPTIONS = dateMapping.filter(({ key }) =>
     [
         'Custom',
@@ -116,6 +117,8 @@ export function WorkflowRunsScene(): JSX.Element {
         healthSummary,
         costSummary,
         runsTruncated,
+        activityRuns,
+        activityTruncated,
     } = useValues(workflowRunsLogic)
     const { loadRuns, setRunExpanded } = useActions(workflowRunsLogic)
     const { dateFrom, dateTo } = useValues(engineeringAnalyticsFiltersLogic)
@@ -207,7 +210,9 @@ export function WorkflowRunsScene(): JSX.Element {
                     </LemonButton>
                 }
             />
-            {/* One window scopes both the cost breakdown and the runs list below. */}
+            {/* One window + branch scope the cost breakdown and the runs list below — the same scope as the
+                Workflows tab, so numbers match after drilling in (a missing branch filter here read as more
+                runs than the tab showed). */}
             <div className="flex flex-wrap items-center gap-2">
                 <span className="text-xs font-semibold tracking-wide text-secondary uppercase">Window</span>
                 <DateFilter
@@ -217,9 +222,10 @@ export function WorkflowRunsScene(): JSX.Element {
                     dateOptions={WORKFLOW_DATE_OPTIONS}
                     size="small"
                 />
+                <BranchFilter />
             </div>
             <WorkflowHealthHeader summary={healthSummary} cost={costSummary} truncated={runsTruncated} />
-            <RunActivityChart runs={runRows} truncated={runsTruncated} />
+            <RunActivityChart runs={activityRuns} truncated={activityTruncated} />
             {runnerCosts.length > 0 && <RunnerCostTable costs={runnerCosts} />}
             <div className="flex flex-col gap-2">
                 <h3 className="mb-0">Runs</h3>

@@ -84,6 +84,8 @@ def test_unit_suffix_renders_in_breach_message():
         ([20.0, 8.0, 5.0], 1, False, DECREASE, InsightThresholdType.ABSOLUTE, 5, 12.0, "decreased"),
         # percentage: (20 - 10) / 10 = 1.0
         ([10.0, 20.0, 30.0], 1, False, INCREASE, InsightThresholdType.PERCENTAGE, 0.5, 1.0, None),
+        # percentage decrease: (20 - 8) / 20 = 0.6, over the 0.5 upper bound → breach
+        ([20.0, 8.0, 5.0], 1, False, DECREASE, InsightThresholdType.PERCENTAGE, 0.5, 0.6, "decreased"),
         # percentage with a zero base → inf
         ([0.0, 10.0, 20.0], 1, False, INCREASE, InsightThresholdType.PERCENTAGE, 0.5, float("inf"), None),
     ],

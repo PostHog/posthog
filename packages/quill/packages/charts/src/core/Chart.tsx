@@ -76,6 +76,9 @@ export interface ChartProps<Meta = unknown> {
      *  visual top of each segment, while each tooltip row still shows that series's own value
      *  via `resolveValue`. */
     resolvePositionValue?: ResolveValueFn
+    /** Resolves the stacked bottom value per series — used to compute segment midpoints for
+     *  tooltip closest-series detection. Only bar charts provide this. */
+    resolveBottomValue?: ResolveValueFn
     /** Required for horizontal orientation — maps labels to the coordinate on the categorical
      *  axis (y in horizontal mode). Should be referentially stable; non-stable identities
      *  invalidate the interaction memo on every render. */
@@ -107,6 +110,7 @@ export function Chart<Meta = unknown>({
     children,
     resolveValue,
     resolvePositionValue,
+    resolveBottomValue,
     labelToCoord,
     valueRangeSeries,
     wrapClickData,
@@ -138,6 +142,7 @@ export function Chart<Meta = unknown>({
     const {
         enabled: showTooltip = true,
         pinnable: pinnableTooltip = false,
+        resolveClickToNearestSeries = false,
         placement: tooltipPlacement = 'follow-data',
         valueFormatter: tooltipValueFormatter,
         labelFormatter: tooltipLabelFormatter,
@@ -212,10 +217,12 @@ export function Chart<Meta = unknown>({
         wrapperRef,
         showTooltip,
         pinnable: pinnableTooltip,
+        resolveClickToNearestSeries,
         onPointClick,
         onDateRangeZoom,
         resolveValue,
         resolvePositionValue,
+        resolveBottomValue,
         interactionAxis,
         labelToCoord,
         wrapClickData,

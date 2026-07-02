@@ -84,6 +84,19 @@ impl Program {
     pub fn version(&self) -> u64 {
         self.version
     }
+
+    /// The full bytecode array, header included — used to populate the reference VM's
+    /// `bytecodes.root.bytecode` in a snapshot.
+    pub fn tokens(&self) -> &[JsonValue] {
+        &self.bytecode
+    }
+
+    /// Number of header tokens (`_H` + version) before the first opcode. The reference VM's
+    /// per-frame `ip` is an index into the full array (header included), whereas our `ip` is
+    /// body-relative, so root-chunk ips differ by exactly this offset.
+    pub fn header_len(&self) -> usize {
+        self.program_start_offset
+    }
 }
 
 impl Module {

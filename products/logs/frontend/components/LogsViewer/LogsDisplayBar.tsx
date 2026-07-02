@@ -7,7 +7,6 @@ import { useFeatureFlag } from 'lib/hooks/useFeatureFlag'
 import { humanFriendlyNumber } from 'lib/utils/numbers'
 
 import { logsPatternsLogic } from 'products/logs/frontend/components/LogsPatterns/logsPatternsLogic'
-import { LogsOrderBy } from 'products/logs/frontend/types'
 
 import { logsViewerConfigLogic } from './config/logsViewerConfigLogic'
 import { LogsViewerToolbar } from './LogsViewerToolbar'
@@ -17,8 +16,6 @@ export interface LogsDisplayBarProps {
     // Whether to render the facet-rail collapse toggle in the frame (facet-rail layout only).
     showFacetRailToggle?: boolean
     totalLogsCount?: number
-    orderBy: LogsOrderBy
-    onChangeOrderBy: (orderBy: LogsOrderBy) => void
 }
 
 /**
@@ -35,8 +32,6 @@ export const LogsDisplayBar = ({
     id,
     showFacetRailToggle = false,
     totalLogsCount,
-    orderBy,
-    onChangeOrderBy,
 }: LogsDisplayBarProps): JSX.Element => {
     const { facetRailCollapsed, viewMode } = useValues(logsViewerConfigLogic)
     const { setFacetRailCollapsed, setViewMode } = useActions(logsViewerConfigLogic)
@@ -77,13 +72,7 @@ export const LogsDisplayBar = ({
                     )
                 )}
             </div>
-            {!inPatternsMode && (
-                <LogsViewerToolbar
-                    totalLogsCount={totalLogsCount}
-                    orderBy={orderBy}
-                    onChangeOrderBy={onChangeOrderBy}
-                />
-            )}
+            {!inPatternsMode && <LogsViewerToolbar totalLogsCount={totalLogsCount} />}
         </div>
     )
 }

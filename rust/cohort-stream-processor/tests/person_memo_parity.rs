@@ -15,8 +15,8 @@ use cohort_stream_processor::producer::{CaptureSink, MembershipStatus};
 use cohort_stream_processor::stage1::{LeafTransition, TransitionKind};
 use cohort_stream_processor::store::{CohortStore, StoreConfig};
 use cohort_stream_processor::workers::{
-    process_event_with_memo, EventOutcome, MergeWorkerDeps, PersonMemo, PersonMemoConfig,
-    Stage1Worker,
+    process_event_with_memo, EventNameGating, EventOutcome, MergeWorkerDeps, PersonMemo,
+    PersonMemoConfig, Stage1Worker,
 };
 use serde_json::{json, Value};
 use tempfile::TempDir;
@@ -194,6 +194,7 @@ impl Parity {
             generation,
             event,
             &mut self.on_memo,
+            EventNameGating::Disabled,
         )
         .unwrap();
         let off = process_event_with_memo(
@@ -203,6 +204,7 @@ impl Parity {
             generation,
             event,
             &mut self.off_memo,
+            EventNameGating::Disabled,
         )
         .unwrap();
 
@@ -344,6 +346,7 @@ async fn run_worker_sequence(
         MergeWorkerDeps::capture(),
         false,
         memo,
+        EventNameGating::Disabled,
     );
 
     let sequence = [
@@ -354,7 +357,7 @@ async fn run_worker_sequence(
     for (props, offset, ts) in sequence {
         tracker.mark_dispatched(PARTITION as i32, offset + 1);
         tx.send(vec![ShuffleMessage::Event {
-            event: event(person, props, offset, ts),
+            event: Box::new(event(person, props, offset, ts)),
             cse_offset: offset,
         }])
         .await

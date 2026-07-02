@@ -5,21 +5,25 @@
 //! long-lived worker that owns the `Receiver` from [`router::PartitionRouter::add_partition`] and
 //! runs the Stage 1 loop lives in [`crate::workers`].
 
+pub mod backpressure;
 pub mod follower;
 pub mod offset_tracker;
 pub mod partitioner;
+pub mod pause;
 pub mod rebalance;
 pub mod router;
 pub mod shuffle_message;
 
+pub use backpressure::Backpressure;
 pub use follower::{Follower, FollowerSet, PartitionMirror};
 pub use offset_tracker::{MarkOutcome, OffsetTracker};
 pub use partitioner::{
     merge_partition_key, murmur2, partition_for, partition_of, COHORT_PARTITION_COUNT,
 };
+pub use pause::{ConsumerPauser, PartitionPauser};
 pub use rebalance::{
     run_rebalance_worker, CohortConsumerContext, ConsumerCommand, ConsumerCommandReceiver,
     ConsumerCommandSender, RebalanceEvent, RebalanceEventReceiver,
 };
-pub use router::{PartitionRouter, RouteError};
+pub use router::{PartitionRouter, RouteError, SendOutcome};
 pub use shuffle_message::ShuffleMessage;

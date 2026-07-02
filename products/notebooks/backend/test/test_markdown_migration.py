@@ -93,6 +93,50 @@ class TestNotebookMarkdownConversion(BaseTest):
         assert "juheapi" not in markdown
         assert "hideFilters" in markdown
 
+    def test_converts_v1_widget_nodes_with_filters_closed_by_default(self) -> None:
+        content = {
+            "type": "doc",
+            "content": [
+                {
+                    "type": "ph-query",
+                    "attrs": {
+                        "query": {"kind": "SavedInsightNode", "shortId": "ZcWG6625"},
+                        "title": "Activation",
+                    },
+                },
+                {
+                    "type": "ph-recording",
+                    "attrs": {
+                        "id": "018b4205-f670-7fa8-928a-040abaaf596d",
+                        "title": "Session replay",
+                    },
+                },
+                {
+                    "type": "ph-insight",
+                    "attrs": {
+                        "id": "legacyInsight",
+                    },
+                },
+                {
+                    "type": "ph-query",
+                    "attrs": {
+                        "query": {"kind": "SavedInsightNode", "shortId": "open"},
+                        "edit": True,
+                    },
+                },
+            ],
+        }
+
+        markdown = convert_notebook_content_to_markdown(content)
+
+        assert (
+            '<Query hideFilters query={{"kind":"SavedInsightNode","shortId":"ZcWG6625"}} title="Activation" />'
+            in markdown
+        )
+        assert '<Recording hideFilters id="018b4205-f670-7fa8-928a-040abaaf596d" title="Session replay" />' in markdown
+        assert '<Query hideFilters query={{"kind":"SavedInsightNode","shortId":"legacyInsight"}} />' in markdown
+        assert '<Query query={{"kind":"SavedInsightNode","shortId":"open"}} />' in markdown
+
     def test_converts_legacy_markdown_ast_alias_nodes_without_losing_structure(self) -> None:
         content = {
             "type": "doc",
@@ -328,7 +372,9 @@ class TestNotebookMarkdownMigration(BaseTest):
         assert changes_by_field["version"]["after"] == 8
         assert "last_modified_at" not in changes_by_field
         assert "last_modified_by" not in changes_by_field
-        assert log.created_at == original_modified_at
+        assert log.user_id == original_modifier.id
+        assert log.user_id != self.user.id
+        assert log.created_at == original_modified_at + timedelta(seconds=1)
         mock_publish.assert_called_once_with(self.team.id, notebook.short_id, 8, diff=None)
 
     def test_apply_scopes_mention_label_lookup_to_notebook_organization(self) -> None:

@@ -25,11 +25,13 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.b
     _get_query,
     _get_rows_to_sync,
     _has_duplicate_primary_keys,
+    _is_transient_job_not_found,
     _resolve_dataset_id,
     _resolve_dataset_project_id,
     _resolve_project_id,
     _resolve_query_project,
     _resolve_region,
+    _run_destination_query_with_job_retry,
     delete_all_temp_destination_tables,
     validate_bigquery_credentials,
 )
@@ -382,6 +384,37 @@ def test_bigquery_get_rows_to_sync_runs_count_query_when_filtered():
     assert [p.name for p in job_config.query_parameters] == ["row_filter_0_0", "row_filter_0_1"]
 
 
+@mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.time.sleep")
+def test_bigquery_get_rows_to_sync_retries_transient_job_not_found(mock_sleep):
+    # The COUNT query hits BigQuery's job-metadata race; it must be retried and yield the real
+    # count, not swallowed into the catch-all that returns 0 and captures error-tracking noise.
+    table = mock.MagicMock(project="proj", dataset_id="ds", table_id="t")
+    table.schema = [SimpleNamespace(name="age", field_type="INTEGER")]
+    client = mock.MagicMock()
+    job = mock.MagicMock()
+    job.result.side_effect = [NotFound("404 Not found: Job proj:US.job_abc123"), iter([[123]])]
+    client.query.return_value = job
+
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.capture_exception"
+    ) as mock_capture:
+        result = _get_rows_to_sync(
+            table=table,
+            client=client,
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+            logger=mock.MagicMock(),
+            row_filters=[
+                ValidatedRowFilter(column="age", operator="IN", value=[21, 30], category=ColumnTypeCategory.INTEGER)
+            ],
+        )
+
+    assert result == 123
+    assert client.query.call_count == 2
+    mock_sleep.assert_called_once()
+    mock_capture.assert_not_called()
+
+
 def test_bigquery_get_query_in_filter_expands_to_one_param_per_value():
     bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
     bq_table.schema = [SimpleNamespace(name="age", field_type="INTEGER")]
@@ -586,11 +619,12 @@ def _run_delete_all_temp_destination_tables(side_effect, logger):
     [
         Forbidden("Access Denied: Permission bigquery.tables.list denied on dataset"),
         NotFound("Dataset not found (or it may not exist)"),
+        RefreshError(("invalid_grant: Invalid JWT Signature.", {"error": "invalid_grant"})),
     ],
 )
 def test_delete_all_temp_destination_tables_swallows_expected_errors_quietly(exception):
-    """Lost permissions or a deleted dataset during best-effort cleanup must NOT be
-    captured to error tracking — it's expected and fires on every sync otherwise."""
+    """Lost permissions, a deleted dataset, or rejected credentials during best-effort cleanup
+    must NOT be captured to error tracking — it's expected and fires on every sync otherwise."""
     logger = mock.MagicMock()
 
     mock_capture = _run_delete_all_temp_destination_tables(exception, logger)
@@ -828,6 +862,24 @@ def test_non_retryable_errors_match_permission_denied(observed_error):
     assert any(key in observed_error for key in non_retryable_errors)
 
 
+def test_temp_table_write_denial_surfaces_write_permission_guidance():
+    # A tables.update denial on a PostHog temp table also contains "Access Denied:", so both keys
+    # match. external_data_job surfaces the first matching key's message, so the write-specific key
+    # must sit above "Access Denied:" — otherwise the customer is told to grant read access to fix a
+    # write failure.
+    observed_error = str(
+        Forbidden(
+            "Access Denied: Table prj:ds.__posthog_import_abc_123: Permission bigquery.tables.update "
+            "denied on table prj:ds.__posthog_import_abc_123 (or it may not exist)."
+        )
+    )
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    first_key, friendly = next((key, msg) for key, msg in non_retryable_errors.items() if key in observed_error)
+    assert first_key == "bigquery.tables.update"
+    assert friendly is not None
+    assert "write access" in friendly
+
+
 @pytest.mark.parametrize(
     "observed_error",
     [
@@ -1021,6 +1073,88 @@ def test_bigquery_get_primary_keys_for_table_passes_job_retry():
 
 
 @pytest.mark.parametrize(
+    "message",
+    [
+        "404 GET https://bigquery.googleapis.com/.../jobs/abc?projection=full: Not found: Job prj:US.abc",
+        "Not found: Job prj:EU.job_xyz",
+        "Job not found: job_xyz",
+    ],
+)
+def test_is_transient_job_not_found_matches_job_race(message):
+    assert _is_transient_job_not_found(NotFound(message)) is True
+
+
+@pytest.mark.parametrize(
+    "message",
+    [
+        # A missing dataset/table (or a dataset absent from the queried region) is genuinely
+        # non-retryable and must not be mistaken for the job race, even though the raw dataset 404
+        # can carry a trailing "Job ID:".
+        "404 Not found: Dataset prj:ds was not found in location US Job ID: b3abc342-16a7",
+        "404 Not found: Table prj:ds.tbl",
+    ],
+)
+def test_is_transient_job_not_found_ignores_other_not_found(message):
+    assert _is_transient_job_not_found(NotFound(message)) is False
+
+
+@mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.time.sleep")
+def test_run_destination_query_retries_transient_job_not_found(mock_sleep):
+    """The copy-into-temp-table query is where the production sync crashed on BigQuery's job-metadata
+    race; a transient job-not-found must be retried with a fresh job instead of aborting the import."""
+    client = mock.MagicMock()
+    ok_job = mock.MagicMock()
+    client.query.side_effect = [NotFound("404 Not found: Job prj:US.abc"), ok_job]
+
+    _run_destination_query_with_job_retry(
+        client, "SELECT 1", destination_table=mock.MagicMock(), query_parameters=[], project="prj"
+    )
+
+    assert client.query.call_count == 2
+    ok_job.result.assert_called_once()
+    mock_sleep.assert_called_once()
+    # WRITE_TRUNCATE keeps the re-run idempotent against a temp table a lost first attempt populated.
+    assert client.query.call_args.kwargs["job_config"].write_disposition == "WRITE_TRUNCATE"
+
+
+@mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.time.sleep")
+def test_run_destination_query_does_not_retry_genuine_not_found(mock_sleep):
+    """A genuine `NotFound` (missing dataset/table) is not the job race, so it surfaces immediately
+    rather than looping until the attempt cap."""
+    client = mock.MagicMock()
+    client.query.side_effect = NotFound("404 Not found: Table prj:ds.tbl")
+
+    with pytest.raises(NotFound):
+        _run_destination_query_with_job_retry(
+            client, "SELECT 1", destination_table=mock.MagicMock(), query_parameters=[], project="prj"
+        )
+
+    assert client.query.call_count == 1
+    mock_sleep.assert_not_called()
+
+
+@mock.patch(
+    "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery._JOB_NOT_FOUND_MAX_ATTEMPTS",
+    4,
+)
+@mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.time.sleep")
+def test_run_destination_query_gives_up_after_max_attempts(mock_sleep):
+    """The race almost always clears within moments, but a persistent job-not-found must still stop
+    at the attempt cap and surface the error instead of retrying forever."""
+    client = mock.MagicMock()
+    client.query.side_effect = [NotFound("404 Not found: Job prj:US.abc") for _ in range(4)]
+
+    with pytest.raises(NotFound):
+        _run_destination_query_with_job_retry(
+            client, "SELECT 1", destination_table=mock.MagicMock(), query_parameters=[], project="prj"
+        )
+
+    assert client.query.call_count == 4
+    # No back-off after the final, failed attempt.
+    assert mock_sleep.call_count == 3
+
+
+@pytest.mark.parametrize(
     "location",
     ["US", "EU", "asia-northeast1"],
 )
@@ -1178,3 +1312,23 @@ def test_bigquery_cdc_staleness_key_does_not_match_unrelated_errors(other_error)
     non_retryable_errors = BigQuerySource().get_non_retryable_errors()
     assert "un-applied upsert data that is not fresh enough" not in other_error
     assert not any(key in other_error for key in non_retryable_errors)
+
+
+def test_bigquery_resources_exceeded_is_non_retryable():
+    """A `resourcesExceeded` query failure exceeds a worker's memory deterministically (heavy sorts /
+    analytic OVER() clauses over a large table or view), so retrying the identical temp-table copy in
+    `_run_destination_query_with_job_retry` always fails — it must be recognised as non-retryable
+    rather than retried on every attempt."""
+    error_msg = str(
+        BadRequest(
+            "GET https://bigquery.googleapis.com/bigquery/v2/projects/<redacted>/queries/<redacted>"
+            "?maxResults=0&location=us-central1&prettyPrint=false: Resources exceeded during query "
+            "execution: The query could not be executed in the allotted memory. Peak usage: 122% of limit."
+        )
+    )
+
+    non_retryable_errors = BigQuerySource().get_non_retryable_errors()
+    matching = [key for key in non_retryable_errors if key in error_msg]
+
+    assert matching, "resourcesExceeded query failure should be recognised as non-retryable"
+    assert all(non_retryable_errors[key] is not None for key in matching)

@@ -7,7 +7,7 @@
  * authoring surface. It keeps only its own runtime natives (`@posthog/memory-*`
  * plus `@posthog/web-search`) and the PostHog Code client/UI tools. Destructive authoring ops
  * (`promote` / `archive` / `destroy`) are approval-gated on the MCP `tools[]`
- * allow-list (`requires_approval` + `approval_policy`), so the platform — not
+ * via `level: 'approve'` + `approval_policy`, so the platform — not
  * just the prompt — holds them. This case pins that wiring net; drift here
  * means the bundle is broken regardless of platform readiness.
  *
@@ -110,6 +110,7 @@ describe('example: agent-builder bundle', () => {
             .map((t) => t.id)
             .sort()
         expect(ids).toEqual([
+            'connect_mcp',
             'focus_file',
             'focus_revision',
             'focus_session',
@@ -143,13 +144,9 @@ describe('example: agent-builder bundle', () => {
         const { spec } = await loadBundle()
         const parsed = AgentSpecSchema.parse(spec)
         const entries = parsed.mcps[0].tools ?? []
-        // Object-form entries on the allow-list carry the approval policy — that's
-        // how the platform (not just the prompt) holds a destructive authoring op.
-        const gated = new Map(
-            entries
-                .filter((e): e is Exclude<typeof e, string> => typeof e !== 'string' && e.requires_approval === true)
-                .map((e) => [e.name, e])
-        )
+        // `level: 'approve'` entries carry the approval policy — that's how the
+        // platform (not just the prompt) holds a destructive authoring op.
+        const gated = new Map(entries.filter((e) => e.level === 'approve').map((e) => [e.name, e]))
         for (const name of [
             'agent-applications-revisions-promote-create',
             'agent-applications-revisions-archive-create',

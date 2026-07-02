@@ -148,6 +148,7 @@ export interface BuildTaxonomicGroupsContext {
         propertyAllowList?: Partial<Record<TaxonomicFilterGroupType, (string | number | null)[]>>
     }
     eventMetadataPropertyDefinitions: PropertyDefinition[]
+    personMetadataPropertyDefinitions: PropertyDefinition[]
     maxContextOptions: MaxContextTaxonomicFilterOption[]
     hideBehavioralCohorts: boolean
     endpointFilters: Record<string, any> | undefined
@@ -172,6 +173,7 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
         suggestedFiltersLabel,
         propertyFilters,
         eventMetadataPropertyDefinitions,
+        personMetadataPropertyDefinitions,
         maxContextOptions,
         hideBehavioralCohorts,
         endpointFilters,
@@ -658,6 +660,19 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             ...propertyTaxonomicGroupProps(CORE_FILTER_DEFINITIONS_BY_GROUP.person_properties),
         },
         {
+            name: 'Person metadata',
+            searchPlaceholder: 'person metadata',
+            type: TaxonomicFilterGroupType.PersonMetadata,
+            options: personMetadataPropertyDefinitions,
+            getIcon: getPropertyDefinitionIcon,
+            getName: (option: PropertyDefinition) => {
+                const coreDefinition = getCoreFilterDefinition(option.id, TaxonomicFilterGroupType.PersonMetadata)
+                return coreDefinition ? coreDefinition.label : option.name
+            },
+            getValue: (option: PropertyDefinition) => option.id,
+            getPopoverHeader: () => 'Person metadata',
+        },
+        {
             name: 'Cohorts',
             searchPlaceholder: 'cohorts',
             type: TaxonomicFilterGroupType.Cohorts,
@@ -821,15 +836,18 @@ export function buildTaxonomicGroups(ctx: BuildTaxonomicGroupsContext): Taxonomi
             endpoint: combineUrl(`api/projects/${projectId}/feature_flags/`).url,
             getName: (featureFlag: FeatureFlagType) => {
                 const name = featureFlag.key || featureFlag.name
-                const isInactive = !featureFlag.active
+                const isInactive = featureFlag.active === false
                 return isInactive ? `${name} (disabled)` : name
             },
             getValue: (featureFlag: FeatureFlagType) => featureFlag.id || '',
             getPopoverHeader: () => `Feature Flags`,
             getIcon: (featureFlag: FeatureFlagType) => (
-                <IconFlag className={clsx('size-4', !featureFlag.active && 'text-muted-alt opacity-50')} />
+                <IconFlag className={clsx('size-4', featureFlag.active === false && 'text-muted-alt opacity-50')} />
             ),
-            getIsDisabled: (featureFlag: FeatureFlagType) => !featureFlag.active,
+            // Recently-used entries are stored stripped of `active`, so treat only an explicit
+            // `false` as disabled — otherwise recent flags are wrongly disabled and unselectable.
+            // Keep in sync with the Feature Flags group in taxonomicFilterLogic.tsx.
+            getIsDisabled: (featureFlag: FeatureFlagType) => featureFlag.active === false,
             localItemsSearch: (items: TaxonomicDefinitionTypes[], query: string): TaxonomicDefinitionTypes[] => {
                 // Note: This function doesn't have direct access to the current value
                 // The actual filtering logic needs to be implemented in the infinite list logic

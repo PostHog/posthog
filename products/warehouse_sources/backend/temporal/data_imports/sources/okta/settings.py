@@ -22,7 +22,7 @@ class OktaEndpointConfig:
     # on most resources and `published` on the System Log.
     default_incremental_field: Optional[str] = None
     # How the incremental filter is sent to Okta:
-    #   "filter"  -> ?filter=lastUpdated gt "<ts>"   (Users, Groups, Apps)
+    #   "filter"  -> ?filter=lastUpdated gt "<ts>"   (Users, Groups)
     #   "since"   -> ?since=<ts>                       (System Log)
     incremental_param: Optional[Literal["filter", "since"]] = None
     # Stable, immutable field to partition by. Never use lastUpdated (it mutates).
@@ -59,9 +59,9 @@ OKTA_ENDPOINTS: dict[str, OktaEndpointConfig] = {
     "applications": OktaEndpointConfig(
         name="applications",
         path="/apps",
-        incremental_fields=[_datetime_incremental_field("lastUpdated")],
-        default_incremental_field="lastUpdated",
-        incremental_param="filter",
+        # The Apps API `filter` only supports status, user.id, group.id and
+        # credentials.signing.kid — not lastUpdated — so there is no server-side time
+        # filter and this is full-refresh only.
         partition_key="created",
         page_size=200,
     ),

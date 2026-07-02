@@ -29,6 +29,7 @@ from products.engineering_analytics.backend.facade.contracts import (
 )
 from products.engineering_analytics.backend.presentation.serializers import (
     CICardSummarySerializer,
+    CIFailureLogsSerializer,
     GitHubSourceSerializer,
     PRCostSummarySerializer,
     PRLifecycleSerializer,
@@ -38,6 +39,7 @@ from products.engineering_analytics.backend.presentation.serializers import (
     QuarantineRequestSerializer,
     WorkflowHealthItemSerializer,
     WorkflowJobSerializer,
+    WorkflowRunActivitySerializer,
     WorkflowRunDetailSerializer,
     WorkflowRunnerCostSerializer,
 )
@@ -75,7 +77,7 @@ _BRANCH = OpenApiParameter(
     type=OpenApiTypes.STR,
     location=OpenApiParameter.QUERY,
     required=False,
-    description="Optional exact git branch (head_branch) to scope workflow health to, e.g. 'main'. "
+    description="Optional exact git branch (head_branch) to scope results to, e.g. 'main'. "
     "Omit or leave blank to aggregate across all branches.",
 )
 
@@ -128,9 +130,11 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         "pr_lifecycle",
         "quarantine",
         "pr_runs",
+        "ci_failure_logs",
         "pr_cost",
         "workflow_run",
         "workflow_runs",
+        "workflow_run_activity",
         "workflow_runner_costs",
         "workflow_jobs",
     ]
@@ -353,6 +357,57 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         return Response(WorkflowRunDetailSerializer(instance=runs, many=True).data)
 
     @extend_schema(
+        operation_id="engineering_analytics_ci_failure_logs",
+        parameters=[
+            OpenApiParameter(
+                name="pr_number",
+                type=OpenApiTypes.INT,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Pull request number whose CI failure logs to fetch.",
+            ),
+            OpenApiParameter(
+                name="repo",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="'owner/name' repository the pull request belongs to.",
+            ),
+            _SOURCE_ID,
+        ],
+        responses={
+            200: CIFailureLogsSerializer,
+            400: OpenApiResponse(description="Missing pr_number/repo, or invalid repo or source_id."),
+        },
+        description=(
+            "The thinned CI failure logs for a pull request, grouped by failed job. Resolves the PR to "
+            "its workflow runs via the pull_requests association (all of the PR's pushes, not just the "
+            "latest commit), then reads the Logs product joined on run_id. Returns failed jobs only (the "
+            "worker fetches logs for failures); logs_available is false when CI hasn't failed, the logs "
+            "aged out of the short Logs retention, or a fork PR has no run association. Each line carries "
+            "its original 1-based line number in the full pre-thinning log; lines are the failure region "
+            "(errors plus surrounding context, with omission markers), capped per job and overall."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def ci_failure_logs(self, request: Request, **kwargs) -> Response:
+        repo = request.query_params.get("repo")
+        try:
+            pr_number = _require_int_param(request, "pr_number")
+            if not repo:
+                raise ValueError("repo is required")
+            result = api.get_ci_failure_logs(
+                team=self.team,
+                pr_number=pr_number,
+                repo=repo,
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid repo or source_id")
+        return Response(CIFailureLogsSerializer(instance=result).data)
+
+    @extend_schema(
         operation_id="engineering_analytics_pr_cost",
         parameters=[
             OpenApiParameter(
@@ -456,6 +511,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             ),
             _DATE_FROM,
             _DATE_TO,
+            _BRANCH,
             _SOURCE_ID,
         ],
         responses={
@@ -464,8 +520,9 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         },
         description=(
             "Runs of a single workflow within a repo over a window (date_from default -30d), newest first. "
-            "Each row is run-level — per-job and per-step detail are not tracked yet. Use this as the GitHub "
-            "'workflow' page between the workflow list and a single run."
+            "Optionally scope to a single git branch via `branch`. Each row is run-level — per-job and "
+            "per-step detail are not tracked yet. Use this as the GitHub 'workflow' page between the "
+            "workflow list and a single run."
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)
@@ -482,12 +539,68 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 workflow_name=workflow_name,
                 date_from=request.query_params.get("date_from") or None,
                 date_to=request.query_params.get("date_to") or None,
+                branch=request.query_params.get("branch") or None,
                 source_id=request.query_params.get("source_id") or None,
                 user_access_control=self.user_access_control,
             )
         except ValueError as exc:
             return _bad_request(exc, fallback="Invalid date, repo, or source_id")
         return Response(WorkflowRunDetailSerializer(instance=runs, many=True).data)
+
+    @extend_schema(
+        operation_id="engineering_analytics_workflow_run_activity",
+        parameters=[
+            OpenApiParameter(
+                name="workflow_name",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="Workflow name to load run activity for.",
+            ),
+            OpenApiParameter(
+                name="repo",
+                type=OpenApiTypes.STR,
+                location=OpenApiParameter.QUERY,
+                required=True,
+                description="'owner/name' repository the workflow belongs to.",
+            ),
+            _DATE_FROM,
+            _DATE_TO,
+            _BRANCH,
+            _SOURCE_ID,
+        ],
+        responses={
+            200: WorkflowRunActivitySerializer,
+            400: OpenApiResponse(description="Missing workflow_name/repo, or invalid date or source_id."),
+        },
+        description=(
+            "Compact per-run points for a single workflow over a window (date_from default -30d), newest first, for "
+            "the run-activity chart: each run's start time, duration, conclusion, branch, and attributed PR. "
+            "Optionally scope to a single git branch via `branch`, matching workflow_runs. Leaner and higher-capped "
+            "than workflow_runs so the chart spans the full window even on busy workflows; `truncated` is true when "
+            "the cap is hit, so the chart covers only the most recent runs."
+        ),
+    )
+    @action(detail=False, methods=["get"], pagination_class=None)
+    def workflow_run_activity(self, request: Request, **kwargs) -> Response:
+        workflow_name = request.query_params.get("workflow_name")
+        repo = request.query_params.get("repo")
+        if not workflow_name or not repo:
+            return Response({"detail": "workflow_name and repo are required"}, status=status.HTTP_400_BAD_REQUEST)
+        try:
+            result = api.get_workflow_run_activity(
+                team=self.team,
+                repo=repo,
+                workflow_name=workflow_name,
+                date_from=request.query_params.get("date_from") or None,
+                date_to=request.query_params.get("date_to") or None,
+                branch=request.query_params.get("branch") or None,
+                source_id=request.query_params.get("source_id") or None,
+                user_access_control=self.user_access_control,
+            )
+        except ValueError as exc:
+            return _bad_request(exc, fallback="Invalid date, repo, or source_id")
+        return Response(WorkflowRunActivitySerializer(instance=result).data)
 
     @extend_schema(
         operation_id="engineering_analytics_workflow_runner_costs",
@@ -508,6 +621,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
             ),
             _DATE_FROM,
             _DATE_TO,
+            _BRANCH,
             _SOURCE_ID,
         ],
         responses={
@@ -516,7 +630,8 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
         },
         description=(
             "A workflow's estimated CI cost broken down by runner tier over a window (date_from default "
-            "-30d), highest spend first. Returns an empty list when the job-level source isn't synced."
+            "-30d), highest spend first. Optionally scope to a single git branch via `branch`. Returns an "
+            "empty list when the job-level source isn't synced."
         ),
     )
     @action(detail=False, methods=["get"], pagination_class=None)
@@ -532,6 +647,7 @@ class EngineeringAnalyticsViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSe
                 workflow_name=workflow_name,
                 date_from=request.query_params.get("date_from") or None,
                 date_to=request.query_params.get("date_to") or None,
+                branch=request.query_params.get("branch") or None,
                 source_id=request.query_params.get("source_id") or None,
                 user_access_control=self.user_access_control,
             )

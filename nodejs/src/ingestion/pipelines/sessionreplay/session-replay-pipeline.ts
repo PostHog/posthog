@@ -5,10 +5,10 @@ import { IngestionOutputs } from '~/common/outputs/ingestion-outputs'
 import { EventIngestionRestrictionManager } from '~/common/utils/event-ingestion-restrictions'
 import { PromiseScheduler } from '~/common/utils/promise-scheduler'
 import { createApplyEventRestrictionsStep, createParseHeadersStep } from '~/ingestion/common/steps/event-preprocessing'
-import { BatchPipelineUnwrapper } from '~/ingestion/framework/batch-pipeline-unwrapper'
+import { BatchPipeline } from '~/ingestion/framework/batch-pipeline.interface'
 import { newBatchPipelineBuilder } from '~/ingestion/framework/builders'
 import { TopHogRegistry, createTopHogWrapper, sum, timer } from '~/ingestion/framework/extensions/tophog'
-import { createBatch, createUnwrapper } from '~/ingestion/framework/helpers'
+import { createBatch } from '~/ingestion/framework/helpers'
 import { PipelineConfig } from '~/ingestion/framework/result-handling-pipeline'
 import { ParsedMessageData } from '~/ingestion/pipelines/sessionreplay/kafka/types'
 import { SessionBatchManager } from '~/ingestion/pipelines/sessionreplay/sessions/session-batch-manager'
@@ -56,9 +56,10 @@ export interface SessionReplayPipelineConfig {
  */
 export function createSessionReplayPipeline(
     config: SessionReplayPipelineConfig
-): BatchPipelineUnwrapper<
+): BatchPipeline<
     SessionReplayPipelineInput,
     SessionReplayPipelineOutput,
+    { message: Message },
     { message: Message },
     OverflowOutput
 > {
@@ -156,37 +157,52 @@ export function createSessionReplayPipeline(
         .gather()
         .build()
 
-    return createUnwrapper(pipeline)
+    return pipeline
 }
 
 /**
- * Runs a batch of messages through the session replay pipeline.
+ * Runs a batch of messages through the session replay pipeline and returns the highest Kafka offset
+ * reached per partition.
  *
- * Returns parsed messages for the existing team filtering/processing flow to continue.
- * In future commits, the pipeline will handle all processing internally.
+ * Every message ends the pipeline with a terminal result — OK (recorded), DROP, DLQ, or REDIRECT —
+ * and each result still carries its source message in the context. Draining them here and taking the
+ * max offset per partition is the single place Kafka progress is tracked: the recorder no longer
+ * tracks offsets while recording, and a message dropped before it reaches the recorder (restrictions,
+ * team filter, parse failure) still has its offset accounted for. The caller feeds the returned
+ * offsets to the offset manager, which commits them on the next flush.
+ *
+ * Relies on the pipeline draining the whole fed batch before it returns null, so every fed message
+ * yields exactly one terminal result here.
  */
 export async function runSessionReplayPipeline(
-    pipeline: BatchPipelineUnwrapper<
+    pipeline: BatchPipeline<
         SessionReplayPipelineInput,
         SessionReplayPipelineOutput,
+        { message: Message },
         { message: Message },
         OverflowOutput
     >,
     messages: Message[]
-): Promise<SessionReplayPipelineOutput[]> {
+): Promise<Map<number, number>> {
+    const maxOffsetByPartition = new Map<number, number>()
     if (messages.length === 0) {
-        return []
+        return maxOffsetByPartition
     }
 
     const batch = createBatch(messages.map((message) => ({ message })))
     pipeline.feed(batch)
 
-    const allResults: SessionReplayPipelineOutput[] = []
     let results = await pipeline.next()
     while (results !== null) {
-        allResults.push(...results)
+        for (const { context } of results) {
+            const { partition, offset } = context.message
+            const current = maxOffsetByPartition.get(partition)
+            if (current === undefined || offset > current) {
+                maxOffsetByPartition.set(partition, offset)
+            }
+        }
         results = await pipeline.next()
     }
 
-    return allResults
+    return maxOffsetByPartition
 }

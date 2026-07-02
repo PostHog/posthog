@@ -15,12 +15,14 @@ from posthog.utils import relative_date_parse
 
 from products.engineering_analytics.backend.facade.contracts import (
     CICardSummary,
+    CIFailureLogs,
     GitHubSource,
     PRCostSummary,
     PRLifecycle,
     PullRequestList,
     WorkflowHealthItem,
     WorkflowJob,
+    WorkflowRunActivity,
     WorkflowRunDetail,
     WorkflowRunnerCost,
 )
@@ -30,6 +32,7 @@ from products.engineering_analytics.backend.logic.quarantine import (
 )
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries.ci_cards import query_ci_cards
+from products.engineering_analytics.backend.logic.queries.ci_failure_logs import query_ci_failure_logs
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_pr_cost, query_workflow_runner_costs
 from products.engineering_analytics.backend.logic.queries.pr_lifecycle import query_pr_lifecycle
 from products.engineering_analytics.backend.logic.queries.pr_runs import query_pr_runs
@@ -37,6 +40,7 @@ from products.engineering_analytics.backend.logic.queries.pull_request_list impo
 from products.engineering_analytics.backend.logic.queries.workflow_health import query_workflow_health
 from products.engineering_analytics.backend.logic.queries.workflow_jobs import query_workflow_jobs
 from products.engineering_analytics.backend.logic.queries.workflow_run import query_workflow_run
+from products.engineering_analytics.backend.logic.queries.workflow_run_activity import query_workflow_run_activity
 from products.engineering_analytics.backend.logic.queries.workflow_run_list import query_workflow_run_list
 from products.engineering_analytics.backend.logic.sources import list_github_sources
 
@@ -73,6 +77,13 @@ def build_pr_runs(*, curated: CuratedGitHubSource, pr_number: int, repo: str | N
     return query_pr_runs(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
 
 
+def build_ci_failure_logs(*, curated: CuratedGitHubSource, pr_number: int, repo: str | None) -> CIFailureLogs:
+    owner, name = _split_repo(repo)
+    if not (owner and name):
+        raise ValueError("repo must be in 'owner/name' format")
+    return query_ci_failure_logs(curated=curated, pr_number=pr_number, repo_owner=owner, repo_name=name)
+
+
 def build_pr_cost(*, curated: CuratedGitHubSource, pr_number: int, repo: str | None) -> PRCostSummary:
     owner, name = _split_repo(repo)
     if not (owner and name):
@@ -97,6 +108,7 @@ def build_workflow_run_list(
     workflow_name: str,
     date_from: str | None = None,
     date_to: str | None = None,
+    branch: str | None = None,
 ) -> list[WorkflowRunDetail]:
     owner, name = _split_repo(repo)
     if not (owner and name):
@@ -110,6 +122,32 @@ def build_workflow_run_list(
         workflow_name=workflow_name,
         date_from=parsed_from,
         date_to=parsed_to,
+        branch=branch,
+    )
+
+
+def build_workflow_run_activity(
+    *,
+    curated: CuratedGitHubSource,
+    repo: str | None,
+    workflow_name: str,
+    date_from: str | None = None,
+    date_to: str | None = None,
+    branch: str | None = None,
+) -> WorkflowRunActivity:
+    owner, name = _split_repo(repo)
+    if not (owner and name):
+        raise ValueError("repo must be in 'owner/name' format")
+    parsed_from = _parse_date(curated.team, date_from or _DEFAULT_WINDOW)
+    parsed_to = _parse_date(curated.team, date_to) if date_to else None
+    return query_workflow_run_activity(
+        curated=curated,
+        repo_owner=owner,
+        repo_name=name,
+        workflow_name=workflow_name,
+        date_from=parsed_from,
+        date_to=parsed_to,
+        branch=branch,
     )
 
 
@@ -120,6 +158,7 @@ def build_workflow_runner_costs(
     workflow_name: str,
     date_from: str | None = None,
     date_to: str | None = None,
+    branch: str | None = None,
 ) -> list[WorkflowRunnerCost]:
     owner, name = _split_repo(repo)
     if not (owner and name):
@@ -133,6 +172,7 @@ def build_workflow_runner_costs(
         workflow_name=workflow_name,
         date_from=parsed_from,
         date_to=parsed_to,
+        branch=branch,
     )
 
 

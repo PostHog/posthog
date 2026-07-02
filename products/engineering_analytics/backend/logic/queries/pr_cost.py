@@ -206,7 +206,8 @@ def query_workflow_window_costs(
 
 
 # Per-runner-tier cost for one workflow (single-workflow page "where the spend goes" breakdown), scoped
-# to the page's run window so the figure always answers "spend over [window]", never an unbounded all-time.
+# to the page's run window (and optional branch) so the figure always answers "spend over [window]",
+# never an unbounded all-time.
 _RUNNER_COST_SELECT = """
     SELECT
         j.labels,
@@ -216,7 +217,7 @@ _RUNNER_COST_SELECT = """
     FROM __JOBS_SOURCE__ AS j
     INNER JOIN __RUNS_SOURCE__ AS r ON j.run_id = r.id AND j.run_attempt = r.run_attempt
     WHERE r.repo_owner = {repo_owner} AND r.repo_name = {repo_name} AND r.workflow_name = {workflow_name}
-        AND r.run_started_at >= {date_from} __DATE_TO__
+        AND r.run_started_at >= {date_from} __DATE_TO__ __BRANCH__
     GROUP BY j.labels
     LIMIT 1000000
 """
@@ -230,10 +231,11 @@ def query_workflow_runner_costs(
     workflow_name: str,
     date_from: datetime,
     date_to: datetime | None,
+    branch: str | None = None,
 ) -> list[WorkflowRunnerCost]:
-    """A workflow's CI cost broken down by runner tier over [date_from, date_to], highest spend first.
-    Empty when the jobs source isn't synced. Raw runner-label combos are folded into their display tier
-    (via runner_descriptor)."""
+    """A workflow's CI cost broken down by runner tier over [date_from, date_to] (optional branch),
+    highest spend first. Empty when the jobs source isn't synced. Raw runner-label combos are folded
+    into their display tier (via runner_descriptor)."""
     jobs_source = curated.jobs_source()
     if jobs_source is None:
         return []
@@ -247,10 +249,17 @@ def query_workflow_runner_costs(
     if date_to is not None:
         date_to_clause = "AND r.run_started_at <= {date_to}"
         placeholders["date_to"] = ast.Constant(value=date_to)
+    # An empty/whitespace branch is "no filter", not a literal match on '' — mirrors workflow_health.
+    branch = branch.strip() if branch else None
+    branch_clause = ""
+    if branch:
+        branch_clause = "AND r.head_branch = {branch}"
+        placeholders["branch"] = ast.Constant(value=branch)
     sql = (
         _RUNNER_COST_SELECT.replace("__JOBS_SOURCE__", jobs_source)
         .replace("__RUNS_SOURCE__", curated.run_source())
         .replace("__DATE_TO__", date_to_clause)
+        .replace("__BRANCH__", branch_clause)
     )
     response = curated.run(
         sql,

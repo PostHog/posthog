@@ -8,6 +8,7 @@ import { LemonSwitch } from 'lib/lemon-ui/LemonSwitch'
 import { FeatureFlagFilters } from '~/types'
 
 import { defaultReleaseConditionsLogic } from './defaultReleaseConditionsLogic'
+import { distributeAggregationGroupTypeIndex } from './defaultReleaseConditionsUtils'
 import { FeatureFlagReleaseConditionsCollapsible } from './FeatureFlagReleaseConditionsCollapsible'
 
 export function DefaultReleaseConditions(): JSX.Element {
@@ -43,7 +44,12 @@ export function DefaultReleaseConditions(): JSX.Element {
                         id="default-release-conditions"
                         filters={filtersForEditor}
                         onChange={(updatedFilters: FeatureFlagFilters) => {
-                            setLocalGroups(updatedFilters.groups)
+                            setLocalGroups(
+                                distributeAggregationGroupTypeIndex(
+                                    updatedFilters.groups,
+                                    updatedFilters.aggregation_group_type_index ?? null
+                                )
+                            )
                         }}
                         isDisabled={!!restrictedReason}
                         hideEarlyExit

@@ -12,6 +12,8 @@ from posthog.models import Team
 from posthog.temporal.common.utils import asyncify, close_db_connections
 
 from products.tasks.backend.constants import (
+    AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
+    MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG,
     MODAL_NETWORK_ALLOWLIST_FEATURE_FLAG,
     MODAL_VM_SANDBOX_FEATURE_FLAG,
     OVERLAP_CLONE_BOOT_FEATURE_FLAG,
@@ -66,9 +68,11 @@ class TaskProcessingContext:
     allowed_domains: list[str] | None = None
     json_schema: dict | None = None
     ci_prompt: str | None = None
-    # Captured at workflow start so a flag flip mid-run can't introduce
-    # nondeterminism (the workflow consults this in its finally block).
+    # Captured at workflow start so snapshot creation is deterministic across
+    # activity retries. This means "create any Modal resume snapshot"; filesystem
+    # snapshots are guarded by the legacy setting, directory snapshots by feature flag.
     use_modal_resume_snapshots: bool = True
+    use_modal_directory_resume_snapshots: bool = False
     # Captured at workflow start so the sandbox event transport branch is
     # deterministic for the full run.
     sandbox_event_ingest_enabled: bool = False
@@ -78,6 +82,8 @@ class TaskProcessingContext:
     # (request == limit). Captured at workflow start so it's stable across activity retries.
     burstable_sandbox_resources_enabled: bool = True
     overlap_clone_boot_enabled: bool = False
+    # Captured at workflow start so the agent-proxy stream lifetime stays deterministic across retries.
+    agent_proxy_keep_stream_open: bool = False
 
     @property
     def mode(self) -> str:
@@ -120,6 +126,12 @@ class TaskProcessingContext:
     def run_source(self) -> str | None:
         value = (self.state or {}).get("run_source")
         return value if isinstance(value, str) else None
+
+    @property
+    def wizard_config(self) -> dict | None:
+        """Config for the pre-agent setup-wizard step (set at task creation); None for normal runs."""
+        value = (self.state or {}).get("wizard_config")
+        return value if isinstance(value, dict) else None
 
     def inactivity_timeout(self) -> timedelta:
         """How long the run may sit idle before the workflow times it out.
@@ -192,6 +204,40 @@ class TaskProcessingContext:
             "model": self.model,
             "reasoning_effort": self.reasoning_effort,
         }
+
+
+def _is_agent_proxy_keep_stream_open_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+    state: dict | None = None,
+) -> bool:
+    state_override = (state or {}).get("agent_proxy_keep_stream_open")
+    if isinstance(state_override, bool):
+        return state_override
+
+    try:
+        enabled = bool(
+            posthoganalytics.feature_enabled(
+                AGENT_PROXY_KEEP_STREAM_OPEN_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("agent_proxy_keep_stream_open_flag_check_failed", run_id=run_id, error=str(e))
+        return False
+
+    log_with_activity_context(
+        "agent_proxy_keep_stream_open_flag_checked",
+        run_id=run_id,
+        agent_proxy_keep_stream_open=enabled,
+    )
+    return enabled
 
 
 def _is_sandbox_event_ingest_enabled(
@@ -409,6 +455,35 @@ def _is_modal_network_allowlist_enabled(
     return enabled
 
 
+def _is_modal_directory_resume_snapshots_enabled(
+    *,
+    distinct_id: str,
+    organization_id: str,
+    run_id: str,
+) -> bool:
+    try:
+        enabled = bool(
+            posthoganalytics.feature_enabled(
+                MODAL_DIRECTORY_RESUME_SNAPSHOTS_FEATURE_FLAG,
+                distinct_id=distinct_id,
+                groups={"organization": organization_id},
+                group_properties={"organization": {"id": organization_id}},
+                only_evaluate_locally=False,
+                send_feature_flag_events=False,
+            )
+        )
+    except Exception as e:
+        log_with_activity_context("modal_directory_resume_snapshots_flag_check_failed", run_id=run_id, error=str(e))
+        return False
+
+    log_with_activity_context(
+        "modal_directory_resume_snapshots_flag_checked",
+        run_id=run_id,
+        use_modal_directory_resume_snapshots=enabled,
+    )
+    return enabled
+
+
 @activity.defn
 @asyncify
 @close_db_connections
@@ -561,6 +636,27 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         "debug",
         f"overlap_clone_boot_enabled: {overlap_clone_boot_enabled} for this task run",
     )
+    use_modal_directory_resume_snapshots = _is_modal_directory_resume_snapshots_enabled(
+        distinct_id=distinct_id,
+        organization_id=organization_id,
+        run_id=run_id,
+    )
+    emit_agent_log(
+        run_id,
+        "debug",
+        f"use_modal_directory_resume_snapshots: {use_modal_directory_resume_snapshots} for this task run",
+    )
+    agent_proxy_keep_stream_open = _is_agent_proxy_keep_stream_open_enabled(
+        distinct_id=distinct_id,
+        organization_id=organization_id,
+        run_id=run_id,
+        state=state,
+    )
+    emit_agent_log(
+        run_id,
+        "debug",
+        f"agent_proxy_keep_stream_open: {agent_proxy_keep_stream_open} for this task run",
+    )
     user_github_integration_id = str(task.github_user_integration_id) if task.github_user_integration_id else None
     if user_github_integration_id is None and get_pr_authorship_mode(task, state).value == "user":
         user_github_integration = resolve_user_github_integration_for_task(task, allow_refresh=False)
@@ -588,10 +684,12 @@ def get_task_processing_context(input: GetTaskProcessingContextInput) -> TaskPro
         allowed_domains=allowed_domains,
         json_schema=task.json_schema,
         ci_prompt=task.ci_prompt,
-        use_modal_resume_snapshots=settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS,
+        use_modal_resume_snapshots=settings.TASKS_USE_MODAL_RESUME_SNAPSHOTS or use_modal_directory_resume_snapshots,
+        use_modal_directory_resume_snapshots=use_modal_directory_resume_snapshots,
         sandbox_event_ingest_enabled=sandbox_event_ingest_enabled,
         use_modal_vm_sandbox=use_modal_vm_sandbox,
         use_modal_network_allowlist=use_modal_network_allowlist,
         burstable_sandbox_resources_enabled=burstable_sandbox_resources_enabled,
         overlap_clone_boot_enabled=overlap_clone_boot_enabled,
+        agent_proxy_keep_stream_open=agent_proxy_keep_stream_open,
     )

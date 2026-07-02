@@ -51,7 +51,7 @@ Steps:
    this is required (added a couple of releases back). If your local setup
    stopped working recently, this is most likely what's missing.
 7. Generate a private key
-8. Install the app on your test repositories by going to `http://localhost:8010/project/1/settings/project-integrations` and installing the GitHub Integration
+8. Install the app on your test repositories by going to `http://localhost:8010/project/1/integrations/github` and installing the GitHub Integration
 9. Add to your `.env`:
 
 ```bash

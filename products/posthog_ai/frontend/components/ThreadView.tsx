@@ -1,5 +1,7 @@
 import { useValues } from 'kea'
-import { memo, useCallback, useMemo } from 'react'
+import { memo, useCallback, useEffect, useMemo, useRef, useState } from 'react'
+
+import { inStorybookTestRunner } from 'lib/utils/dom'
 
 import { runStreamLogic } from '../logics/runStreamLogic'
 import { ReasoningAnswer } from '../messages/ReasoningAnswer'
@@ -7,6 +9,7 @@ import type { ThreadItem } from '../types/streamTypes'
 import { getRandomThinkingMessage } from '../utils/thinkingMessages'
 import { ContextUsageBar } from './ContextUsageBar'
 import { PullRequestCard } from './PullRequestCard'
+import { RunAlertActivity } from './RunAlertActivity'
 import { RunContext } from './RunContext'
 import { ThreadRow } from './ThreadRow'
 import { VirtualizedThread } from './VirtualizedThread'
@@ -60,6 +63,7 @@ export function ThreadView({
         turnComplete,
         currentRunStatus,
         contextUsage,
+        runConnectionState,
     } = useValues(runStreamLogic)
     const turnCancelled = currentRunStatus === 'cancelled'
     const hasActiveProgressItem = threadItems.some(
@@ -77,12 +81,18 @@ export function ThreadView({
                     <ThreadHeader branch={branch} baseBranch={baseBranch} repo={repo} />
                 </VirtualizedThread.Row>
             ) : undefined,
-        [branch, baseBranch, repo]
+        [branch, baseBranch, repo, rowClassName]
     )
 
+    // The connection banner (reconnecting / connection-failed) owns the footer line when present, so it
+    // takes precedence over the thinking indicator (a mid-run reconnect otherwise reads as normal thinking).
+    const showConnectionStatus = !!runConnectionState
     // `provisioning` (conversations/open POST + cold boot before run_started) also shows the indicator,
     // gated by !hasActiveProgressItem so real `_posthog/progress` boot steps take precedence.
-    const showThinking = (streamPhase === 'thinking' || streamPhase === 'provisioning') && !hasActiveProgressItem
+    const showThinking =
+        (streamPhase === 'thinking' || streamPhase === 'provisioning') &&
+        !hasActiveProgressItem &&
+        !showConnectionStatus
     const thinkingPhase = streamPhase === 'provisioning' ? 'provisioning' : 'thinking'
     // Post-turn only: a reconnect refetch can fold in a pr_url mid-run, so gate on !isThinking.
     const pullRequestUrl = !isThinking ? runArtifacts.prUrl : undefined
@@ -91,7 +101,7 @@ export function ThreadView({
     const showContextUsageFooter = showContextUsage && !isThinking && !!contextUsage
     const footer = useMemo(
         () =>
-            showThinking || pullRequestUrl || showContextUsageFooter ? (
+            showThinking || pullRequestUrl || showContextUsageFooter || showConnectionStatus ? (
                 <VirtualizedThread.Row className={rowClassName}>
                     <ThreadFooter
                         showThinking={showThinking}
@@ -99,11 +109,29 @@ export function ThreadView({
                         pullRequestUrl={pullRequestUrl}
                         prBranch={branch}
                         showContextUsage={showContextUsageFooter}
+                        showConnectionStatus={showConnectionStatus}
                     />
                 </VirtualizedThread.Row>
             ) : undefined,
-        [showThinking, thinkingPhase, pullRequestUrl, branch, showContextUsageFooter]
+        [
+            showThinking,
+            thinkingPhase,
+            pullRequestUrl,
+            branch,
+            showContextUsageFooter,
+            showConnectionStatus,
+            rowClassName,
+        ]
     )
+
+    // Rule 11 here: https://x.com/shadcn/status/2070394918720221522 - open scrolled to the top of the last user message.
+    // `VirtualizedThread` reads this only on first content, so capture it once the thread first has items and never
+    // recompute as it streams. `-1` (no user message) falls through to open-at-bottom.
+    const initialTopItemIndexRef = useRef<number | null>(null)
+    if (initialTopItemIndexRef.current === null && threadItems.length > 0) {
+        initialTopItemIndexRef.current = threadItems.findLastIndex((item: ThreadItem) => item.type === 'human_message')
+    }
+    const initialTopItemIndex = initialTopItemIndexRef.current
 
     const renderItem = useCallback(
         (item: ThreadItem, index: number): JSX.Element => (
@@ -128,6 +156,7 @@ export function ThreadView({
             header={header}
             footer={footer}
             stickToBottom
+            initialTopItemIndex={initialTopItemIndex}
             virtualized={virtualized}
             className={className}
             listClassName={listClassName}
@@ -162,18 +191,23 @@ const ThreadFooter = memo(function ThreadFooter({
     pullRequestUrl,
     prBranch,
     showContextUsage,
+    showConnectionStatus,
 }: {
     showThinking: boolean
     thinkingPhase: 'thinking' | 'provisioning'
     pullRequestUrl?: string
     prBranch?: string
     showContextUsage?: boolean
+    showConnectionStatus?: boolean
 }): JSX.Element {
-    const { currentProgress } = useValues(runStreamLogic)
+    // `runConnectionState` is self-subscribed here (like `currentProgress`) so the frequently-updating
+    // reconnect attempt counter stays isolated to this leaf and never destabilizes `ThreadView`'s footer.
+    const { currentProgress, runConnectionState } = useValues(runStreamLogic)
     // `gap-1.5` matches the thread's inter-row gap (`VirtualizedThread`'s `gap` default) so stacked footer
     // items keep the same vertical rhythm as the thread.
     return (
         <div className="flex flex-col gap-1.5">
+            {showConnectionStatus && runConnectionState && <RunAlertActivity {...runConnectionState} />}
             {showThinking && <ThinkingIndicator progress={currentProgress} phase={thinkingPhase} />}
             {pullRequestUrl && <PullRequestCard prUrl={pullRequestUrl} branch={prBranch} />}
             {showContextUsage && <ContextUsageBar />}
@@ -193,10 +227,29 @@ function ThinkingIndicator({
     progress: string | null
     phase: 'thinking' | 'provisioning'
 }): JSX.Element {
-    // One roll per mount — re-rolling on every progress transition would visibly swap the verb.
-    const fallbackMessage = useMemo(() => getRandomThinkingMessage(), [])
-    const message = progress?.trim() ? progress : phase === 'provisioning' ? 'Spinning up sandbox…' : fallbackMessage
-    // Match the LangGraph loader: a bubble-free reasoning line (muted brain icon + muted text),
-    // static (no shimmer), via the shared Activity primitive — not a MessageTemplate bubble.
-    return <ReasoningAnswer content={message} id="sandbox-thinking" completed={false} showCompletionIcon={false} />
+    const [fallbackMessage, setFallbackMessage] = useState(() => getRandomThinkingMessage())
+
+    // Re-roll the gerund every 5s while genuinely thinking; static "Spinning up sandbox…" during provisioning
+    // doesn't need it, and rotating in Storybook would make snapshots non-deterministic.
+    useEffect(() => {
+        if (phase !== 'thinking' || inStorybookTestRunner()) {
+            return
+        }
+        const interval = setInterval(() => setFallbackMessage(getRandomThinkingMessage()), 5000)
+        return () => clearInterval(interval)
+    }, [phase])
+
+    const message = progress?.trim() ? progress : phase === 'provisioning' ? 'Setting up sandbox' : fallbackMessage
+    // Match the LangGraph loader: a bubble-free reasoning line (muted brain icon + muted text), via the
+    // shared Activity primitive — not a MessageTemplate bubble. Shimmers only while genuinely thinking;
+    // provisioning stays static since it's infra boot, not model reasoning.
+    return (
+        <ReasoningAnswer
+            content={message}
+            id="sandbox-thinking"
+            completed={false}
+            showCompletionIcon={false}
+            animate={phase === 'thinking' || phase === 'provisioning'}
+        />
+    )
 }

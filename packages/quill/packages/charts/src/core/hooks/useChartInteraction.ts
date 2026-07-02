@@ -1,5 +1,6 @@
 import React, { useCallback, useMemo } from 'react'
 
+import { findClosestSeriesKey } from '../../overlays/tooltipUtils'
 import {
     buildLabelPositions,
     buildPointClickData,
@@ -31,6 +32,8 @@ interface UseChartInteractionOptions<Meta> {
     wrapperRef: React.RefObject<HTMLDivElement>
     showTooltip: boolean
     pinnable: boolean
+    /** See `TooltipConfig.resolveClickToNearestSeries`. */
+    resolveClickToNearestSeries?: boolean
     onPointClick?: (data: PointClickData<Meta>) => void
     onDateRangeZoom?: (data: DateRangeZoomData) => void
     resolveValue?: ResolveValueFn
@@ -38,12 +41,45 @@ interface UseChartInteractionOptions<Meta> {
      *  charts pass the stacked-top resolver so the anchor lands at the visual top of each
      *  segment while each tooltip row still shows its own value via `resolveValue`. */
     resolvePositionValue?: ResolveValueFn
+    /** Resolves the stacked bottom value per series — passed to buildTooltipContext so yPixel
+     *  is set to the segment midpoint, making closest-series detection match the visual boundary. */
+    resolveBottomValue?: ResolveValueFn
     interactionAxis?: 'x' | 'y'
     labelToCoord?: (label: string) => number | undefined
     /** Chart-type seam: rewrite the click payload (e.g. resolve the stacked segment under the
      *  cursor) before it reaches `onPointClick`, using the committed `scales` from this render.
      *  Chart-type adapters provide this; consumers do not. */
     wrapClickData?: (data: PointClickData<Meta>, scales: ChartScales) => PointClickData<Meta>
+}
+
+/** Resolves a click on a pinnable multi-series chart to whichever series is nearest the cursor,
+ *  reusing the already-computed tooltip row values/positions rather than re-deriving them —
+ *  `tooltipCtx.seriesData` reflects each series' own tooltip-visibility and value formatting,
+ *  which a fresh lookup via `buildPointClickData` would not. Returns `null` when no series is
+ *  closest (e.g. an empty tooltip). */
+function resolveNearestSeriesClickData<Meta>(
+    dataIndex: number,
+    series: ResolvedSeries<Meta>[],
+    labels: string[],
+    tooltipCtx: TooltipContext<Meta>,
+    interactionAxis: 'x' | 'y',
+    cursor: { x: number; y: number }
+): PointClickData<Meta> | null {
+    const cursorValueCoord = interactionAxis === 'y' ? cursor.x : cursor.y
+    const closestKey = findClosestSeriesKey(tooltipCtx.seriesData, cursorValueCoord)
+    const closest = closestKey ? tooltipCtx.seriesData.find((d) => d.series.key === closestKey) : undefined
+    if (!closest) {
+        return null
+    }
+    return {
+        seriesIndex: series.findIndex((s) => s.key === closest.series.key),
+        dataIndex,
+        series: closest.series,
+        value: closest.value,
+        label: labels[dataIndex],
+        crossSeriesData: tooltipCtx.seriesData.map((d) => ({ series: d.series, value: d.value })),
+        cursor,
+    }
 }
 
 interface UseChartInteractionResult<Meta> {
@@ -68,10 +104,12 @@ export function useChartInteraction<Meta = unknown>({
     wrapperRef,
     showTooltip,
     pinnable,
+    resolveClickToNearestSeries = false,
     onPointClick,
     onDateRangeZoom,
     resolveValue = defaultResolveValue,
     resolvePositionValue,
+    resolveBottomValue,
     interactionAxis = 'x',
     labelToCoord,
     wrapClickData,
@@ -80,11 +118,12 @@ export function useChartInteraction<Meta = unknown>({
     // value (i.e. non-stacked charts, where the two are identical).
     const effectivePositionResolve = resolvePositionValue ?? resolveValue
 
-    // resolveValue / effectivePositionResolve are read live in the pinned-rebuild path so an
-    // unmemoized closure on either doesn't trigger a rebuild every render — see the contract
-    // on `ChartProps.resolveValue`.
+    // resolveValue / effectivePositionResolve / resolveBottomValue are read live in the
+    // pinned-rebuild path so an unmemoized closure on any of them doesn't trigger a rebuild
+    // every render — see the contract on `ChartProps.resolveValue`.
     const resolveValueRef = useLatest(resolveValue)
     const effectivePositionResolveRef = useLatest(effectivePositionResolve)
+    const resolveBottomValueRef = useLatest(resolveBottomValue)
 
     const rebuildPinnedCtx = useCallback(
         (prev: TooltipContext<Meta>): TooltipContext<Meta> | null => {
@@ -107,11 +146,12 @@ export function useChartInteraction<Meta = unknown>({
                 interactionAxis,
                 prev.hoverPosition,
                 effectivePositionResolveRef.current,
+                resolveBottomValueRef.current,
                 scales.extent?.(labels[prev.dataIndex]),
                 prev.hoverPosition ? scales.bandSlotAtCursor?.(labels[prev.dataIndex], prev.hoverPosition) : undefined
             )
         },
-        // resolveValueRef / effectivePositionResolveRef are stable
+        // resolveValueRef / effectivePositionResolveRef / resolveBottomValueRef are stable refs
         [
             scales,
             dimensions,
@@ -122,6 +162,7 @@ export function useChartInteraction<Meta = unknown>({
             interactionAxis,
             resolveValueRef,
             effectivePositionResolveRef,
+            resolveBottomValueRef,
         ]
     )
 
@@ -203,6 +244,7 @@ export function useChartInteraction<Meta = unknown>({
                         interactionAxis,
                         { x: mouseX, y: mouseY },
                         effectivePositionResolve,
+                        resolveBottomValue,
                         scales.extent?.(labels[index]),
                         scales.bandSlotAtCursor?.(labels[index], { x: mouseX, y: mouseY })
                     )
@@ -226,6 +268,7 @@ export function useChartInteraction<Meta = unknown>({
             interactionAxis,
             setHover,
             setTooltipCtx,
+            resolveBottomValue,
         ]
     )
 
@@ -256,6 +299,22 @@ export function useChartInteraction<Meta = unknown>({
         // consumer's own row handler. With a single series there's nothing to pin, so
         // onPointClick fires immediately instead.
         if (pinnable && tooltipCtx && tooltipCtx.seriesData.length > 1) {
+            // Opt-in: a click nearer one series than the others is unambiguous, so resolve it
+            // and fire onPointClick directly instead of making the user pin then pick a row.
+            if (resolveClickToNearestSeries && onPointClick && hoverPositionRef.current) {
+                const clickData = resolveNearestSeriesClickData(
+                    currentIndex,
+                    series,
+                    labels,
+                    tooltipCtx,
+                    interactionAxis,
+                    hoverPositionRef.current
+                )
+                if (clickData) {
+                    onPointClick(wrapClickData && scales ? wrapClickData(clickData, scales) : clickData)
+                    return
+                }
+            }
             pin()
             return
         }
@@ -272,6 +331,8 @@ export function useChartInteraction<Meta = unknown>({
         labels,
         resolveValue,
         pinnable,
+        resolveClickToNearestSeries,
+        interactionAxis,
         tooltipCtx,
         isPinned,
         clearTooltip,

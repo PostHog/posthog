@@ -14,11 +14,13 @@ use futures::future::join_all;
 use metrics::{counter, gauge};
 use thiserror::Error;
 use tokio::sync::mpsc;
+use tokio::sync::mpsc::error::TrySendError;
 use tracing::warn;
 
 use super::shuffle_message::ShuffleMessage;
 use crate::observability::metrics::{
-    PARTITIONS_ACTIVE, PARTITION_CHANNEL_DEPTH, PARTITION_ROUTE_DROPPED_TOTAL,
+    PARTITIONS_ACTIVE, PARTITION_CHANNEL_DEPTH, PARTITION_CHANNEL_FULL_TOTAL,
+    PARTITION_ROUTE_DROPPED_TOTAL,
 };
 
 const REASON_NO_WORKER: &str = "no_worker";
@@ -35,6 +37,24 @@ pub enum RouteError {
     /// The channel exists but its receiver was dropped, so the worker has stopped.
     #[error("worker channel for partition {partition} is closed ({dropped} message(s) dropped)")]
     ChannelClosed { partition: i32, dropped: usize },
+}
+
+/// Per-partition result of [`try_route_batch`](PartitionRouter::try_route_batch). `Full` is
+/// backpressure — the events are returned to be held and retried — not a drop.
+#[derive(Debug)]
+pub enum SendOutcome {
+    /// Delivered. `max_offset` is the highest event offset (raises the dispatch ceiling), or `None` if
+    /// the batch carries no events; `count` is the number delivered.
+    Sent {
+        max_offset: Option<i64>,
+        count: usize,
+    },
+    /// Channel full: carries the un-sent sub-batch to hold, pause, and redispatch. No drop recorded.
+    Full(Vec<ShuffleMessage>),
+    /// No worker registered (never assigned, or revoked): dropped and recorded; Kafka replays.
+    NoWorker,
+    /// Worker channel closed (worker exited): dropped and recorded; Kafka replays.
+    ChannelClosed,
 }
 
 /// Routes per-partition sub-batches to long-lived per-partition worker channels.
@@ -163,6 +183,51 @@ impl PartitionRouter {
         }
     }
 
+    /// Non-blocking sibling of [`route_batch`](Self::route_batch): group by partition and `try_send`
+    /// each sub-batch, returning the per-partition [`SendOutcome`] instead of awaiting a drain.
+    pub fn try_route_batch(
+        &self,
+        messages: Vec<(i32, ShuffleMessage)>,
+    ) -> HashMap<i32, SendOutcome> {
+        if messages.is_empty() {
+            return HashMap::new();
+        }
+        let mut by_partition: HashMap<i32, Vec<ShuffleMessage>> = HashMap::new();
+        for (partition, message) in messages {
+            by_partition.entry(partition).or_default().push(message);
+        }
+        by_partition
+            .into_iter()
+            .map(|(partition, batch)| (partition, self.try_send_to_partition(partition, batch)))
+            .collect()
+    }
+
+    fn try_send_to_partition(&self, partition: i32, batch: Vec<ShuffleMessage>) -> SendOutcome {
+        let Some(sender) = self.sender_for(partition) else {
+            self.record_drop(partition, batch.len(), REASON_NO_WORKER);
+            return SendOutcome::NoWorker;
+        };
+        let count = batch.len();
+        // `None` for an event-less batch — carried through, not defaulted to 0, so a future non-Event
+        // caller can't fabricate a ceiling (`route_and_fold` only marks when `Some`).
+        let max_offset = batch.iter().filter_map(ShuffleMessage::event_offset).max();
+        match sender.try_send(batch) {
+            Ok(()) => {
+                self.emit_channel_depth(partition, &sender);
+                SendOutcome::Sent { max_offset, count }
+            }
+            Err(TrySendError::Full(returned)) => {
+                counter!(PARTITION_CHANNEL_FULL_TOTAL, "partition" => partition.to_string())
+                    .increment(returned.len() as u64);
+                SendOutcome::Full(returned)
+            }
+            Err(TrySendError::Closed(returned)) => {
+                self.record_drop(partition, returned.len(), REASON_CHANNEL_CLOSED);
+                SendOutcome::ChannelClosed
+            }
+        }
+    }
+
     pub fn partition_count(&self) -> usize {
         self.senders.len()
     }
@@ -209,7 +274,7 @@ mod tests {
 
     fn event(tag: i64) -> ShuffleMessage {
         ShuffleMessage::Event {
-            event: CohortStreamEvent {
+            event: Box::new(CohortStreamEvent {
                 team_id: 1,
                 person_id: "01928aaa-bbbb-cccc-dddd-eeeeeeeeeeee".to_string(),
                 distinct_id: "d".to_string(),
@@ -223,7 +288,7 @@ mod tests {
                 source_partition: 0,
                 redirected_from: None,
                 redirect_hops: 0,
-            },
+            }),
             cse_offset: 0,
         }
     }
@@ -415,6 +480,100 @@ mod tests {
 
         assert!(router.route_batch(vec![(5, event(7))]).await.is_empty());
         assert_eq!(tags(&rx_new.recv().await.unwrap()), vec![7]);
+    }
+
+    /// An event whose `cse_offset` matches its `source_offset` tag, so [`tags`] and `max_offset`
+    /// assertions line up.
+    fn event_off(cse_offset: i64) -> ShuffleMessage {
+        match event(cse_offset) {
+            ShuffleMessage::Event { event, .. } => ShuffleMessage::Event { event, cse_offset },
+            other => other,
+        }
+    }
+
+    #[tokio::test]
+    async fn try_route_batch_delivers_and_reports_the_max_offset_and_count() {
+        let router = PartitionRouter::new(16);
+        let mut rx5 = router.add_partition(5).unwrap();
+        let mut rx6 = router.add_partition(6).unwrap();
+
+        let mut outcomes = router.try_route_batch(vec![
+            (5, event_off(1)),
+            (6, event_off(2)),
+            (5, event_off(3)),
+        ]);
+
+        match outcomes.remove(&5) {
+            Some(SendOutcome::Sent { max_offset, count }) => {
+                assert_eq!((max_offset, count), (Some(3), 2));
+            }
+            other => panic!("expected Sent for 5, got {other:?}"),
+        }
+        match outcomes.remove(&6) {
+            Some(SendOutcome::Sent { max_offset, count }) => {
+                assert_eq!((max_offset, count), (Some(2), 1));
+            }
+            other => panic!("expected Sent for 6, got {other:?}"),
+        }
+        assert_eq!(tags(&rx5.try_recv().unwrap()), vec![1, 3]);
+        assert_eq!(tags(&rx6.try_recv().unwrap()), vec![2]);
+    }
+
+    #[tokio::test]
+    async fn try_route_batch_returns_the_batch_on_full_without_recording_a_drop() {
+        let router = PartitionRouter::new(1);
+        let mut rx = router.add_partition(1).unwrap();
+
+        // Saturate the slot, then the next try hands the batch back untouched.
+        assert!(matches!(
+            router.try_route_batch(vec![(1, event_off(100))]).remove(&1),
+            Some(SendOutcome::Sent { .. }),
+        ));
+
+        match router.try_route_batch(vec![(1, event_off(7))]).remove(&1) {
+            Some(SendOutcome::Full(returned)) => assert_eq!(tags(&returned), vec![7]),
+            other => panic!("expected Full, got {other:?}"),
+        }
+        assert_eq!(tags(&rx.try_recv().unwrap()), vec![100]);
+        assert!(rx.try_recv().is_err());
+    }
+
+    #[tokio::test]
+    async fn try_route_batch_reports_no_worker_and_channel_closed() {
+        let router = PartitionRouter::new(16);
+        assert!(matches!(
+            router.try_route_batch(vec![(9, event_off(1))]).remove(&9),
+            Some(SendOutcome::NoWorker),
+        ));
+
+        let rx = router.add_partition(3).unwrap();
+        drop(rx);
+        assert!(matches!(
+            router.try_route_batch(vec![(3, event_off(1))]).remove(&3),
+            Some(SendOutcome::ChannelClosed),
+        ));
+    }
+
+    #[tokio::test]
+    async fn try_route_batch_isolates_a_full_partition_from_a_free_one() {
+        let router = PartitionRouter::new(1);
+        let mut rx2 = router.add_partition(2).unwrap();
+        let _rx1 = router.add_partition(1).unwrap();
+        router.try_route_batch(vec![(1, event_off(100))]);
+
+        let mut outcomes = router.try_route_batch(vec![(1, event_off(1)), (2, event_off(2))]);
+        assert!(matches!(outcomes.remove(&1), Some(SendOutcome::Full(_))));
+        assert!(matches!(
+            outcomes.remove(&2),
+            Some(SendOutcome::Sent { .. })
+        ));
+        assert_eq!(tags(&rx2.try_recv().unwrap()), vec![2]);
+    }
+
+    #[tokio::test]
+    async fn try_route_batch_is_empty_for_an_empty_batch() {
+        let router = PartitionRouter::new(16);
+        assert!(router.try_route_batch(vec![]).is_empty());
     }
 
     #[tokio::test]

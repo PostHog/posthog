@@ -23,6 +23,7 @@ from products.replay_vision.backend.feature_flag import (
     ReplayVisionActionsEnabledPermission,
     ReplayVisionEnabledPermission,
 )
+from products.replay_vision.backend.models.replay_observation import ReplayObservation
 from products.replay_vision.backend.models.replay_scanner import ReplayScanner
 from products.replay_vision.backend.models.vision_action import (
     ActionMode,
@@ -369,8 +370,59 @@ class VisionActionViewSet(TeamAndOrgViewSetMixin, viewsets.ModelViewSet):
         super().perform_destroy(instance)
 
 
-class VisionActionRunSerializer(serializers.ModelSerializer):
-    """Read-only history of one VisionAction execution, backing the per-action run list + summary view."""
+# Human-readable copy for the engine's controlled skip/abort reasons (see temporal.vision_actions —
+# _validate skip reasons and SynthesisStatus). Unmapped values fall through to the raw string.
+# Copy stays neutral (no "Skipped —"/"Failed —" prefix): the run's status drives the banner heading,
+# so the abort reasons read correctly under the "failed" banner they actually carry.
+_RUN_REASON_LABELS = {
+    "skipped_empty": "No new observations in this window to summarize.",
+    "skipped_over_budget": "The team is over its AI-credit budget.",
+    "no_delivery": "No delivery destination is configured for this action.",
+    # Alias: runs recorded before #66892 stored the old "no_delivery_flow" enum; map it to the same copy.
+    "no_delivery_flow": "No delivery destination is configured for this action.",
+    "disabled": "The action was disabled when this run was due.",
+    "not_found": "The action no longer exists.",
+    "aborted_no_consent": "AI data processing isn't enabled for this organization.",
+    "aborted_no_user": "The action's creator no longer has access.",
+}
+
+
+class RunObservationSerializer(serializers.Serializer):
+    """One recording an action run included in its summary — the 'recordings included' list on the run detail view."""
+
+    id = serializers.UUIDField(
+        read_only=True,
+        help_text="Observation id; links to the observation detail view.",
+    )
+    session_id = serializers.CharField(
+        read_only=True,
+        help_text="Session recording id this observation was made on.",
+    )
+    recording_subject_email = serializers.CharField(
+        read_only=True,
+        allow_null=True,
+        help_text="Email of the person in the recorded session, captured at scan time; null if unidentified.",
+    )
+    title = serializers.SerializerMethodField(
+        help_text="Short title from the observation's summary; null if the observation had none.",
+    )
+    created_at = serializers.DateTimeField(
+        read_only=True,
+        help_text="When the observation was produced.",
+    )
+
+    @extend_schema_field(serializers.CharField(allow_null=True))
+    def get_title(self, obs: ReplayObservation) -> str | None:
+        result = obs.scanner_result if isinstance(obs.scanner_result, dict) else {}
+        output = result.get("model_output")
+        if not isinstance(output, dict):
+            return None
+        title = output.get("title")
+        return title if isinstance(title, str) and title.strip() else None
+
+
+class VisionActionRunListSerializer(serializers.ModelSerializer):
+    """Lightweight run row for the per-action run list (no report body — that's fetched on retrieve)."""
 
     status = serializers.ChoiceField(
         choices=VisionActionRunStatus.choices,
@@ -386,11 +438,6 @@ class VisionActionRunSerializer(serializers.ModelSerializer):
         read_only=True,
         help_text="Number of observations that fed this run's summary.",
     )
-    synthesized_markdown = serializers.CharField(
-        read_only=True,
-        allow_blank=True,
-        help_text="The synthesized group-summary report in Markdown. Empty until a run completes successfully.",
-    )
     error_reason = serializers.SerializerMethodField(
         help_text="Short human-readable reason a run skipped or failed; null on success.",
     )
@@ -402,7 +449,6 @@ class VisionActionRunSerializer(serializers.ModelSerializer):
             "status",
             "scheduled_at",
             "observation_count",
-            "synthesized_markdown",
             "error_reason",
             "created_at",
             "updated_at",
@@ -413,15 +459,45 @@ class VisionActionRunSerializer(serializers.ModelSerializer):
     @extend_schema_field(serializers.CharField(allow_null=True))
     def get_error_reason(self, run: VisionActionRun) -> str | None:
         error = run.error if isinstance(run.error, dict) else {}
-        # Surface only the engine's controlled skip/abort reasons. Failed runs also stamp error["message"]
-        # with raw exception text (str(e)[:500]) — don't echo that to API consumers; show a generic reason.
+        # Surface only the engine's controlled skip/abort reasons, mapped to human copy. Failed runs also
+        # stamp error["message"] with raw exception text (str(e)[:500]) — don't echo that to API consumers.
         for key in ("skip_reason", "aborted"):
             value = error.get(key)
             if isinstance(value, str) and value.strip():
-                return value
+                return _RUN_REASON_LABELS.get(value, value)
         if run.status == VisionActionRunStatus.FAILED:
-            return "Run failed"
+            return "This run failed while generating the summary."
         return None
+
+
+class VisionActionRunSerializer(VisionActionRunListSerializer):
+    """Full run detail: the list fields plus the synthesized report and the recordings it summarized."""
+
+    synthesized_markdown = serializers.CharField(
+        read_only=True,
+        allow_blank=True,
+        help_text="The synthesized group-summary report in Markdown. Empty until a run completes successfully.",
+    )
+    observations = serializers.SerializerMethodField(
+        help_text=(
+            "Recordings this run included in its summary, in summary order. Empty for runs recorded before this "
+            "was tracked, and for skipped/failed runs."
+        ),
+    )
+
+    class Meta(VisionActionRunListSerializer.Meta):
+        fields = [*VisionActionRunListSerializer.Meta.fields, "synthesized_markdown", "observations"]
+
+    @extend_schema_field(RunObservationSerializer(many=True))
+    def get_observations(self, run: VisionActionRun) -> list[dict[str, Any]]:
+        ids = run.observation_ids if isinstance(run.observation_ids, list) else []
+        if not ids:
+            return []
+        # Scope to the run's own team (the run itself was fetched team-scoped) so a stray cross-team id
+        # in the stored list can never resolve — ReplayObservation isn't fail-closed.
+        by_id = {str(o.id): o for o in ReplayObservation.objects.filter(team_id=run.team_id, id__in=ids)}
+        ordered = [by_id[i] for i in ids if i in by_id]
+        return cast(list[dict[str, Any]], RunObservationSerializer(ordered, many=True, context=self.context).data)
 
 
 class VisionActionRunViewSet(
@@ -439,6 +515,10 @@ class VisionActionRunViewSet(
     serializer_class = VisionActionRunSerializer
     # `objects` is fail-closed; `safely_get_queryset` re-scopes to the request team.
     queryset = VisionActionRun.objects.unscoped()
+
+    def get_serializer_class(self) -> type[BaseSerializer]:
+        # The list omits the report body + observations to stay light; retrieve returns the full detail.
+        return VisionActionRunListSerializer if self.action == "list" else VisionActionRunSerializer
 
     def _action_for_url(self) -> VisionAction:
         try:
