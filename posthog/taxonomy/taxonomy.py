@@ -2701,7 +2701,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$mcp_error_type": {
             "label": "MCP error type",
-            "description": "Failure category for an errored MCP tool call, for breaking failures down by reason. PostHog's server emits a semantic bucket (missing_context, validation, permission, timeout, rate_limited, api_4xx, api_5xx, internal); external servers using the SDK fall back to the thrown error's type. Only set when $mcp_is_error is true.",
+            "description": "Failure category for an errored MCP tool call, for breaking failures down by reason. PostHog's server emits a semantic bucket (missing_context, validation, not_found, permission, timeout, rate_limited, api_4xx, api_5xx, internal); external servers using the SDK fall back to the thrown error's type. Only set when $mcp_is_error is true.",
             "examples": ["rate_limited", "validation", "timeout", "api_4xx"],
         },
         "$mcp_error_status": {
@@ -2712,7 +2712,7 @@ CORE_FILTER_DEFINITIONS_BY_GROUP: dict[str, dict[str, CoreFilterDefinition]] = {
         },
         "$mcp_error_message": {
             "label": "MCP error message",
-            "description": "Error message for a failed MCP tool call, truncated. Present when the server passes the thrown error to the SDK; PostHog's own server omits it to avoid capturing query content. Only set when $mcp_is_error is true.",
+            "description": "Sanitized failure message for an errored MCP tool call, truncated to 200 chars. PostHog's server emits a server-generated summary (the API error detail plus status, or the exception message) and deliberately omits it for validation failures, which would echo request content; external servers may pass the thrown error to the SDK. Only set when $mcp_is_error is true.",
         },
         "$mcp_server_name": {
             "label": "MCP server name",

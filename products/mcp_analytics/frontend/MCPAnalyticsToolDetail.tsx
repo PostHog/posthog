@@ -664,10 +664,10 @@ export function MCPAnalyticsToolDetail({ toolName }: { toolName: string }): JSX.
             <div className="flex flex-col gap-3 px-4 pb-4">
                 <ResultTable
                     title="Failures"
-                    description="Top exception messages paired with this tool. Sourced from $exception events."
+                    description="Top error messages for this tool. Sourced from errored $mcp_tool_call events; validation failures are omitted."
                     rows={failureRows}
                     loading={failureRowsLoading}
-                    emptyMessage="No exceptions recorded for this tool in the last 7 days."
+                    emptyMessage="No failures with a message recorded for this tool in the last 7 days."
                     columns={[
                         {
                             header: 'Message',

@@ -197,23 +197,18 @@ class MCPToolFailuresQueryRunner(AnalyticsQueryRunner[MCPToolFailuresQueryRespon
         return mcp_query_date_range(self.team, self.query.dateRange)
 
     def _where(self) -> ast.Expr:
-        # $exception events don't carry the new-SDK markers ($mcp_source / $mcp_exec_tool_call_name),
-        # so this matches the raw $mcp_tool_name rather than the effective tool name.
-        return ast.And(
-            exprs=[
-                parse_expr("event = {event}", placeholders={"event": ast.Constant(value="$exception")}),
-                parse_expr(
-                    "timestamp >= {date_from}", placeholders={"date_from": self.query_date_range.date_from_as_hogql()}
-                ),
-                parse_expr(
-                    "timestamp <= {date_to}", placeholders={"date_to": self.query_date_range.date_to_as_hogql()}
-                ),
-                parse_expr(
-                    "toString(properties.$mcp_tool_name) = {tool}",
-                    placeholders={"tool": ast.Constant(value=self.query.toolName)},
-                ),
-                parse_expr("notEmpty(toString(properties.$exception_message))"),
-            ]
+        # Read the canonical $mcp_tool_call event (not $exception): tool failures stamp a
+        # sanitized $mcp_error_message onto it, and $exception fan-out is disabled server-side
+        # for 4xx to keep error tracking quiet — so an all-402 tool like activity-log-list had
+        # no $exception rows at all. Reading the tool-call event also lets us scope by the
+        # effective tool (resolving single-exec wrapper calls), matching the sibling tables.
+        return _tool_call_where(
+            self.query.toolName,
+            self.query_date_range,
+            extra=[
+                parse_expr("toBool(properties.$mcp_is_error)"),
+                parse_expr("notEmpty(toString(properties.$mcp_error_message))"),
+            ],
         )
 
     def to_query(self) -> ast.SelectQuery | ast.SelectSetQuery:
@@ -226,7 +221,7 @@ class MCPToolFailuresQueryRunner(AnalyticsQueryRunner[MCPToolFailuresQueryRespon
                 {_HARNESS_LABELS_AGG} AS harnesses
             FROM (
                 SELECT
-                    substring(toString(properties.$exception_message), 1, 200) AS message,
+                    substring(toString(properties.$mcp_error_message), 1, 200) AS message,
                     timestamp,
                     {token} AS h
                 FROM events

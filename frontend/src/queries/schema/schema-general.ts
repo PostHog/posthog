@@ -2619,7 +2619,7 @@ export interface MCPToolFailuresQueryResponse extends AnalyticsQueryResponseBase
 /** Top exception messages paired with a single MCP tool, with server-resolved harness labels. */
 export interface MCPToolFailuresQuery extends DataNode<MCPToolFailuresQueryResponse> {
     kind: NodeKind.MCPToolFailuresQuery
-    /** The raw $mcp_tool_name to scope $exception events to. */
+    /** The effective tool name to scope errored $mcp_tool_call events to (resolves single-exec wrapper calls). */
     toolName: string
     dateRange?: DateRange
 }

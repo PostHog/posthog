@@ -138,18 +138,15 @@ SESSION_INTENTS: list[str] = [
     "Pull the latest exception issue tied to the deploy so on-call can triage the regression.",
 ]
 
-# Paired with a fraction of failing tool calls so the tool detail "Failures" table
-# (which reads $exception events) has something to show.
-EXCEPTION_MESSAGES: list[str] = [
+# Stamped as $mcp_error_message on failing tool calls so the tool detail "Failures"
+# table (which reads $mcp_error_message off errored $mcp_tool_call events) has variety.
+FAILURE_MESSAGES: list[str] = [
+    "HTTP 402: Audit logs requires a paid PostHog plan. Please upgrade to access this feature.",
     "TimeoutError: upstream query exceeded 30s deadline",
-    "ValidationError: missing required parameter 'project_id'",
     "PermissionError: API key lacks scope for this resource",
-    "ConnectionError: ClickHouse connection reset by peer",
-    "KeyError: '$mcp_tool_name' not present in event payload",
+    "HTTP 500: ClickHouse connection reset by peer",
+    "HTTP 404: not found",
 ]
-
-# Fraction of failing tool calls that also emit a paired $exception event.
-EXCEPTION_PAIR_PROBABILITY = 0.6
 
 
 class Command(BaseCommand):
@@ -321,7 +318,7 @@ class Command(BaseCommand):
                         "$mcp_tool_description": TOOL_DESCRIPTIONS.get(tool_name, ""),
                         "$mcp_intent": session_intent,
                         "$mcp_intent_source": rng.choices(["context_parameter", "inferred"], weights=[7, 3], k=1)[0],
-                        "$mcp_error_message": "Upstream returned 500" if is_error else "",
+                        "$mcp_error_message": rng.choice(FAILURE_MESSAGES) if is_error else "",
                         "$mcp_client_name": client_name,
                         "$mcp_client_version": "1.0.0",
                         "$mcp_protocol_version": "2025-03-26",
@@ -331,26 +328,6 @@ class Command(BaseCommand):
                     },
                 )
                 total_events += 1
-
-                # Pair some failures with an $exception event so the tool detail
-                # "Failures" table (which reads $exception events) has data.
-                if is_error and rng.random() < EXCEPTION_PAIR_PROBABILITY:
-                    create_event(
-                        event_uuid=uuid.uuid4(),
-                        event="$exception",
-                        team=team,
-                        distinct_id=distinct_id,
-                        timestamp=timestamp,
-                        person_id=uuid.UUID(person_uuid),
-                        person_properties=person_props,
-                        properties={
-                            "$session_id": session_id,
-                            "$mcp_tool_name": tool_name,
-                            "$mcp_client_name": client_name,
-                            "$exception_message": rng.choice(EXCEPTION_MESSAGES),
-                        },
-                    )
-                    total_events += 1
 
             # The session listing derives sessions on the fly from the events above,
             # but intent clustering reads MCPSession.intent (keyed by $session_id), so

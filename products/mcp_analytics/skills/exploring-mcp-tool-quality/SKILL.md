@@ -88,13 +88,11 @@ under "Tool-quality matrix".
 
 For one tool's top error messages (grouped by harness), call
 `posthog:query-mcp-tool-failures` with the `toolName` — it's the typed equivalent of the
-query below. Pass the **raw** `$mcp_tool_name` (the registered tool name), not
-the effective inner tool: failures match `$exception` events, which don't carry
-the new-SDK effective-tool markers. Drop to SQL only to correlate to richer
-exception detail (`$exception` events carry `$exception_message`, joined by
-`$session_id` and timestamp) — that session join is approximate: it surfaces
-every exception in the session, not only this tool's, so treat it as a lead, not
-exact attribution:
+query below. Pass the **effective** tool name (the inner tool is resolved for single-exec
+wrapper calls): failures read the sanitized `$mcp_error_message` off errored
+`$mcp_tool_call` events. Validation failures deliberately omit a message (they would echo
+request content), so they don't appear — use the `$mcp_error_type` breakdown to see those.
+Drop to SQL only when you want to slice the same `$mcp_error_message` by another dimension:
 
 ```sql
 posthog:execute-sql

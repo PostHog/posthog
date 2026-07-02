@@ -15,6 +15,7 @@ import {
     ToolInputValidationError,
     findPostHogPermissionError,
     findRecoverableApiError,
+    parseApiErrorDetail,
 } from '@/lib/errors'
 import { estimateTokens } from '@/lib/estimate-tokens'
 import { getPostHogClient } from '@/lib/posthog'
@@ -110,6 +111,12 @@ export class ToolExecutor {
             // render-ui is only advertised when the flag is on; reject calls otherwise.
             if (!state.renderUiEnabled) {
                 toolCallsTotal.inc({ tool: toolName, status: 'error' })
+                this.trackEarlyReturnError(
+                    toolName,
+                    { errorType: 'not_found', message: `Tool ${toolName} not found` },
+                    state,
+                    intentMeta
+                )
                 return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
             }
             return this.callRenderUiTool(callParams, state, intentMeta)
@@ -117,12 +124,24 @@ export class ToolExecutor {
 
         if (!state.allTools.some((t) => t.name === toolName)) {
             toolCallsTotal.inc({ tool: toolName, status: 'error' })
+            this.trackEarlyReturnError(
+                toolName,
+                { errorType: 'not_found', message: `Tool ${toolName} not found` },
+                state,
+                intentMeta
+            )
             return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
         }
 
         const preBuilt = this.catalog.getToolByName(toolName)
         if (!preBuilt) {
             toolCallsTotal.inc({ tool: toolName, status: 'error' })
+            this.trackEarlyReturnError(
+                toolName,
+                { errorType: 'not_found', message: `Tool ${toolName} not found` },
+                state,
+                intentMeta
+            )
             return { content: [{ type: 'text', text: `Tool ${toolName} not found` }], isError: true }
         }
 
@@ -159,6 +178,24 @@ export class ToolExecutor {
         }
     }
 
+    // Emit a classified `$mcp_tool_call` for a failure that returns early — before
+    // (or without) running a handler: schema-rejected input, an unknown tool name,
+    // render-ui gated off. These paths used to return `{ isError: true }` while only
+    // bumping the Prometheus counter, so the failure never reached the MCP analytics
+    // dashboard and showed up as neither a success nor a classified error. Mirror the
+    // catch-block path: bump the error counter and stamp the reason onto the canonical
+    // event. Duration is 0 — no handler ran. Guarded like the catch path via
+    // `trackToolCall`'s own try/catch, so analytics can't break the response.
+    private trackEarlyReturnError(
+        toolName: string,
+        classification: ToolErrorClassification,
+        state: ResolvedState,
+        intentMeta?: ToolCallIntentMeta
+    ): void {
+        toolErrorsTotal.inc({ tool: toolName, error_type: classification.errorType })
+        void trackToolCall(toolName, 0, true, state, errorAnalyticsProperties(classification), intentMeta)
+    }
+
     private async callTool(
         tool: ResolvedTool,
         params: Record<string, unknown> | undefined,
@@ -169,6 +206,7 @@ export class ToolExecutor {
         const validation = tool.schema.safeParse(toolArgs, { reportInput: true })
         if (!validation.success) {
             toolCallsTotal.inc({ tool: tool.name, status: 'validation_error' })
+            this.trackEarlyReturnError(tool.name, { errorType: 'validation' }, state, intentMeta)
             return {
                 content: [{ type: 'text', text: formatInputValidationError(tool.name, validation.error) }],
                 isError: true,
@@ -257,6 +295,7 @@ export class ToolExecutor {
         const validation = resolved.schema.safeParse(toolArgs, { reportInput: true })
         if (!validation.success) {
             toolCallsTotal.inc({ tool: 'exec', status: 'validation_error' })
+            this.trackEarlyReturnError('exec', { errorType: 'validation' }, state, intentMeta)
             return {
                 content: [{ type: 'text', text: formatInputValidationError(resolved.name, validation.error) }],
                 isError: true,
@@ -386,6 +425,12 @@ export class ToolExecutor {
     ): Promise<unknown> {
         const renderUiTool = createRenderUiTool(state.allTools, state.context)
         if (!renderUiTool) {
+            this.trackEarlyReturnError(
+                'render-ui',
+                { errorType: 'not_found', message: 'render-ui is not available — no tool has a UI app' },
+                state,
+                intentMeta
+            )
             return {
                 content: [{ type: 'text', text: 'render-ui is not available — no tool has a UI app' }],
                 isError: true,
@@ -396,6 +441,7 @@ export class ToolExecutor {
         const validation = renderUiTool.schema.safeParse(toolArgs)
         if (!validation.success) {
             toolCallsTotal.inc({ tool: 'render-ui', status: 'validation_error' })
+            this.trackEarlyReturnError('render-ui', { errorType: 'validation' }, state, intentMeta)
             return { content: [{ type: 'text', text: `Invalid input: ${validation.error.message}` }], isError: true }
         }
 
@@ -429,6 +475,7 @@ export class ToolExecutor {
 type ToolErrorType =
     | 'missing_context'
     | 'validation'
+    | 'not_found'
     | 'permission'
     | 'timeout'
     | 'rate_limited'
@@ -440,6 +487,20 @@ interface ToolErrorClassification {
     errorType: ToolErrorType
     /** Upstream HTTP status, when the failure came from a PostHog API error. */
     status?: number
+    /**
+     * Sanitized, grouping-stable failure message for `$mcp_error_message`. Left
+     * undefined for `validation` failures — those echo the agent's rejected input,
+     * which for query tools can be the raw HogQL/SQL, so we never capture it.
+     */
+    message?: string
+}
+
+/** `$mcp_error_message` is truncated to keep low-cardinality, dashboard-friendly values. */
+const MAX_ERROR_MESSAGE_LENGTH = 200
+
+function truncateErrorMessage(message: string): string {
+    const trimmed = message.trim()
+    return trimmed.length > MAX_ERROR_MESSAGE_LENGTH ? `${trimmed.slice(0, MAX_ERROR_MESSAGE_LENGTH)}…` : trimmed
 }
 
 /**
@@ -456,44 +517,69 @@ function classifyToolError(error: unknown, toolName: string): ToolErrorClassific
 }
 
 function resolveToolErrorClassification(error: unknown): ToolErrorClassification {
-    if (error instanceof MissingProjectContextError || error instanceof MissingOrganizationContextError) {
-        return { errorType: 'missing_context' }
+    if (error instanceof MissingProjectContextError) {
+        return { errorType: 'missing_context', message: 'No PostHog project selected for this session' }
+    }
+    if (error instanceof MissingOrganizationContextError) {
+        return { errorType: 'missing_context', message: 'No PostHog organization selected for this session' }
     }
     if (error instanceof ToolInputValidationError) {
         return { errorType: 'validation' }
     }
-    if (findPostHogPermissionError(error)) {
-        return { errorType: 'permission' }
+    const permissionError = findPostHogPermissionError(error)
+    if (permissionError) {
+        return { errorType: 'permission', message: truncateErrorMessage(permissionError.message) }
     }
     if (error instanceof Error && error.name === 'TimeoutError') {
-        return { errorType: 'timeout' }
+        return { errorType: 'timeout', message: 'Tool call timed out' }
     }
 
     const apiError = findRecoverableApiError(error)
+    // PostHog validation errors echo the rejected value — omit the message like the
+    // input-validation branch above, keeping only the type.
     if (apiError instanceof PostHogValidationError) {
         return { errorType: 'validation' }
     }
     if (apiError instanceof PostHogApiError && apiError.status === 429) {
-        return { errorType: 'rate_limited', status: apiError.status }
+        return { errorType: 'rate_limited', status: apiError.status, message: formatApiErrorMessage(apiError) }
     }
     if (apiError instanceof PostHogApiError && apiError.status >= 500) {
-        return { errorType: 'api_5xx', status: apiError.status }
+        return { errorType: 'api_5xx', status: apiError.status, message: formatApiErrorMessage(apiError) }
     }
     if (apiError instanceof PostHogApiError) {
-        return { errorType: 'api_4xx', status: apiError.status }
+        return { errorType: 'api_4xx', status: apiError.status, message: formatApiErrorMessage(apiError) }
     }
-    return { errorType: 'internal' }
+    return {
+        errorType: 'internal',
+        message: error instanceof Error ? truncateErrorMessage(error.message) : undefined,
+    }
+}
+
+/**
+ * A grouping-stable message for an API failure: `HTTP <status>: <server detail>`.
+ * The detail comes from the API's own error body (e.g. the plan-gating text on a
+ * 402), which is server-generated and identical across calls — so failures cluster
+ * cleanly. Falls back to the status text when the body isn't the expected shape, so
+ * we never fan an arbitrary response body (which could carry request content) into
+ * analytics. See `parseApiErrorDetail` for why raw bodies are not used.
+ */
+function formatApiErrorMessage(error: PostHogApiError): string {
+    const detail = parseApiErrorDetail(error.body)
+    return truncateErrorMessage(`HTTP ${error.status}: ${detail ?? error.statusText}`)
 }
 
 /**
  * Properties stamped onto an errored `$mcp_tool_call` so the dashboard can slice
  * failures by reason. `$mcp_error_type` aligns with the SDK's native field; the
  * SDK derives a generic type from the thrown error when none is supplied, and an
- * explicit value here overrides it.
+ * explicit value here overrides it. `$mcp_error_message` is a sanitized summary so
+ * `query-mcp-tool-failures` has a message to group on without re-enabling the noisy
+ * `$exception` fan-out.
  */
 function errorAnalyticsProperties(classification: ToolErrorClassification): Record<string, unknown> {
     return {
         $mcp_error_type: classification.errorType,
         ...(classification.status !== undefined ? { $mcp_error_status: classification.status } : {}),
+        ...(classification.message ? { $mcp_error_message: classification.message } : {}),
     }
 }
