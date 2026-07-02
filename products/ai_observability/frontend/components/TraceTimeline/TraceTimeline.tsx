@@ -1,7 +1,7 @@
 import { useMemo, useState } from 'react'
 
-import { IconChevronDown } from '@posthog/icons'
-import { LemonButton, Tooltip } from '@posthog/lemon-ui'
+import { IconChevronDown, IconExpand45 } from '@posthog/icons'
+import { LemonButton, LemonModal, Tooltip } from '@posthog/lemon-ui'
 
 import { ScrollableShadows } from 'lib/components/ScrollableShadows/ScrollableShadows'
 import { cn } from 'lib/utils/css-classes'
@@ -39,6 +39,7 @@ export function TraceTimeline({
     onSelectEvent: (id: string) => void
 }): JSX.Element | null {
     const [collapsed, setCollapsed] = useState(false)
+    const [isFullScreen, setIsFullScreen] = useState(false)
     const { bars, totalMs, laneCount } = useMemo(() => buildTraceTimeline(events), [events])
     // One └ hook per parent per row, anchored at that row's first child — a row
     // of siblings shares a single connector instead of one hook per bar.
@@ -72,6 +73,106 @@ export function TraceTimeline({
     const hasErrors = bars.some((b) => b.isError)
     const pct = (ms: number): number => (ms / totalMs) * 100
     const chartHeight = laneCount * LANE_H - LANE_GAP
+
+    // Rendered inline (capped height) and inside the full-screen modal (viewport height).
+    const renderCanvas = (maxHeight: number | string): JSX.Element => (
+        <div className="px-3 pb-2">
+            <div className="relative h-4 mb-1.5 text-[10px] leading-4 text-muted">
+                {ticks.map((tick) => (
+                    <span
+                        key={tick}
+                        className={cn('absolute whitespace-nowrap', tick > 0 && '-translate-x-1/2')}
+                        // eslint-disable-next-line react/forbid-dom-props
+                        style={{ left: `${pct(tick)}%` }}
+                    >
+                        {formatDuration(tick)}
+                    </span>
+                ))}
+            </div>
+            {/* The negative margin + matching padding move the clip edge out by
+                        2px without shifting the canvas, so the outer state rings on bars
+                        at the chart's edges don't get clipped. The scroll shadows signal
+                        when more lanes hide beyond the height cap. */}
+            <ScrollableShadows
+                direction="vertical"
+                className="-m-0.5"
+                innerClassName="p-0.5"
+                // eslint-disable-next-line react/forbid-dom-props
+                style={{ maxHeight }}
+            >
+                {/* eslint-disable-next-line react/forbid-dom-props */}
+                <div className="relative" style={{ height: chartHeight }}>
+                    {ticks.slice(1).map((tick) => (
+                        <div
+                            key={tick}
+                            aria-hidden
+                            className="absolute top-0 bottom-0 border-l border-primary opacity-60"
+                            // eslint-disable-next-line react/forbid-dom-props
+                            style={{ left: `${pct(tick)}%` }}
+                        />
+                    ))}
+                    {elbows.map(({ child, parent }) => {
+                        const elbowTop = parent.lane * LANE_H + BAR_H + 1
+                        return (
+                            // └-shaped elbow from the parent's underside into the
+                            // row's first child, directory-tree style.
+                            <div
+                                key={`elbow-${child.id}`}
+                                aria-hidden
+                                className="absolute w-1 rounded-bl-sm border-l border-b border-border-bold"
+                                // eslint-disable-next-line react/forbid-dom-props
+                                style={{
+                                    left: `calc(${pct(child.startMs)}% - 4px)`,
+                                    top: elbowTop,
+                                    height: child.lane * LANE_H + BAR_H / 2 - elbowTop,
+                                }}
+                            />
+                        )
+                    })}
+                    {bars.map((bar) => {
+                        const isInstant = bar.durationMs <= 0
+                        const selected = selectedEventId === bar.id
+                        const dur = isInstant ? undefined : formatDuration(bar.durationMs)
+                        const tooltip = [bar.label, dur, bar.isError ? 'error' : undefined].filter(Boolean).join(' · ')
+                        return (
+                            <Tooltip key={bar.id} title={tooltip}>
+                                <button
+                                    type="button"
+                                    onClick={() => onSelectEvent(bar.id)}
+                                    aria-label={tooltip}
+                                    className={cn(
+                                        'absolute flex items-center overflow-hidden rounded-[3px] border cursor-pointer',
+                                        KIND_BAR[bar.kind].fill,
+                                        bar.isError ? 'border-danger' : KIND_BAR[bar.kind].border,
+                                        selected && [
+                                            'ring-2 z-10',
+                                            bar.isError ? 'ring-danger' : KIND_BAR[bar.kind].ring,
+                                        ]
+                                    )}
+                                    // eslint-disable-next-line react/forbid-dom-props
+                                    style={{
+                                        left: `${pct(bar.startMs)}%`,
+                                        width: isInstant ? 3 : `max(${pct(bar.durationMs)}%, 3px)`,
+                                        top: bar.lane * LANE_H,
+                                        height: BAR_H,
+                                    }}
+                                    data-attr="trace-timeline-bar"
+                                >
+                                    {/* Truncates to the bar; the padding swallows it entirely on
+                                                slivers. The tooltip always carries the full text. */}
+                                    {!isInstant && (
+                                        <span className="px-1 text-[10px] leading-none font-medium truncate">
+                                            {bar.label} <span className="opacity-70">{dur}</span>
+                                        </span>
+                                    )}
+                                </button>
+                            </Tooltip>
+                        )
+                    })}
+                </div>
+            </ScrollableShadows>
+        </div>
+    )
 
     return (
         <div className="border rounded bg-surface-primary shrink-0" data-attr="trace-timeline">
@@ -108,107 +209,23 @@ export function TraceTimeline({
                         )}
                     </div>
                 )}
+                <LemonButton
+                    size="xsmall"
+                    icon={<IconExpand45 />}
+                    onClick={() => setIsFullScreen(true)}
+                    tooltip="Expand timeline"
+                    aria-label="Expand timeline full screen"
+                />
             </div>
-            {!collapsed && (
-                <div className="px-3 pb-2">
-                    <div className="relative h-4 mb-1.5 text-[10px] leading-4 text-muted">
-                        {ticks.map((tick) => (
-                            <span
-                                key={tick}
-                                className={cn('absolute whitespace-nowrap', tick > 0 && '-translate-x-1/2')}
-                                // eslint-disable-next-line react/forbid-dom-props
-                                style={{ left: `${pct(tick)}%` }}
-                            >
-                                {formatDuration(tick)}
-                            </span>
-                        ))}
-                    </div>
-                    {/* The negative margin + matching padding move the clip edge out by
-                        2px without shifting the canvas, so the outer state rings on bars
-                        at the chart's edges don't get clipped. The scroll shadows signal
-                        when more lanes hide beyond the height cap. */}
-                    <ScrollableShadows
-                        direction="vertical"
-                        className="-m-0.5"
-                        innerClassName="p-0.5"
-                        // eslint-disable-next-line react/forbid-dom-props
-                        style={{ maxHeight: MAX_VISIBLE_LANES * LANE_H - LANE_GAP + 4 }}
-                    >
-                        {/* eslint-disable-next-line react/forbid-dom-props */}
-                        <div className="relative" style={{ height: chartHeight }}>
-                            {ticks.slice(1).map((tick) => (
-                                <div
-                                    key={tick}
-                                    aria-hidden
-                                    className="absolute top-0 bottom-0 border-l border-primary opacity-60"
-                                    // eslint-disable-next-line react/forbid-dom-props
-                                    style={{ left: `${pct(tick)}%` }}
-                                />
-                            ))}
-                            {elbows.map(({ child, parent }) => {
-                                const elbowTop = parent.lane * LANE_H + BAR_H + 1
-                                return (
-                                    // └-shaped elbow from the parent's underside into the
-                                    // row's first child, directory-tree style.
-                                    <div
-                                        key={`elbow-${child.id}`}
-                                        aria-hidden
-                                        className="absolute w-1 rounded-bl-sm border-l border-b border-border-bold"
-                                        // eslint-disable-next-line react/forbid-dom-props
-                                        style={{
-                                            left: `calc(${pct(child.startMs)}% - 4px)`,
-                                            top: elbowTop,
-                                            height: child.lane * LANE_H + BAR_H / 2 - elbowTop,
-                                        }}
-                                    />
-                                )
-                            })}
-                            {bars.map((bar) => {
-                                const isInstant = bar.durationMs <= 0
-                                const selected = selectedEventId === bar.id
-                                const dur = isInstant ? undefined : formatDuration(bar.durationMs)
-                                const tooltip = [bar.label, dur, bar.isError ? 'error' : undefined]
-                                    .filter(Boolean)
-                                    .join(' · ')
-                                return (
-                                    <Tooltip key={bar.id} title={tooltip}>
-                                        <button
-                                            type="button"
-                                            onClick={() => onSelectEvent(bar.id)}
-                                            aria-label={tooltip}
-                                            className={cn(
-                                                'absolute flex items-center overflow-hidden rounded-[3px] border cursor-pointer',
-                                                KIND_BAR[bar.kind].fill,
-                                                bar.isError ? 'border-danger' : KIND_BAR[bar.kind].border,
-                                                selected && [
-                                                    'ring-2 z-10',
-                                                    bar.isError ? 'ring-danger' : KIND_BAR[bar.kind].ring,
-                                                ]
-                                            )}
-                                            // eslint-disable-next-line react/forbid-dom-props
-                                            style={{
-                                                left: `${pct(bar.startMs)}%`,
-                                                width: isInstant ? 3 : `max(${pct(bar.durationMs)}%, 3px)`,
-                                                top: bar.lane * LANE_H,
-                                                height: BAR_H,
-                                            }}
-                                            data-attr="trace-timeline-bar"
-                                        >
-                                            {/* Truncates to the bar; the padding swallows it entirely on
-                                                slivers. The tooltip always carries the full text. */}
-                                            {!isInstant && (
-                                                <span className="px-1 text-[10px] leading-none font-medium truncate">
-                                                    {bar.label} <span className="opacity-70">{dur}</span>
-                                                </span>
-                                            )}
-                                        </button>
-                                    </Tooltip>
-                                )
-                            })}
-                        </div>
-                    </ScrollableShadows>
-                </div>
-            )}
+            {!collapsed && renderCanvas(MAX_VISIBLE_LANES * LANE_H - LANE_GAP + 4)}
+            <LemonModal
+                isOpen={isFullScreen}
+                onClose={() => setIsFullScreen(false)}
+                fullScreen
+                title={`Timeline (${formatDuration(totalMs)})`}
+            >
+                {renderCanvas('calc(100vh - 11rem)')}
+            </LemonModal>
         </div>
     )
 }
