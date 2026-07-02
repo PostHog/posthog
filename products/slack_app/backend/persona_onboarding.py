@@ -491,6 +491,9 @@ def build_channel_prompt_blocks(can_create_channel: bool) -> list[dict]:
     ]
     if can_create_channel:
         elements.append(_button("Create #posthog-inbox", CHANNEL_CREATE_ACTION_ID))
+    # Skip is a bail-out at every step: without it a CSM who can't (or won't) pick a channel
+    # is wedged, since the DM intercept hijacks every message while onboarding_state is set.
+    elements.append(_button("Skip for now", SKIP_ACTION_ID))
     return [
         _section(
             "One more thing: this works best if you add me to a channel where I can post findings. "
@@ -508,23 +511,31 @@ def build_invite_needed_blocks(channel_id: str, channel_name: str) -> list[dict]
             f"I can't post in #{channel_name} yet — I'm not a member. Type `/invite @PostHog` in that "
             "channel, then tap Verify."
         ),
-        {"type": "actions", "elements": [_button("Verify", CHANNEL_VERIFY_ACTION_ID, channel_id, style="primary")]},
+        {
+            "type": "actions",
+            "elements": [
+                _button("Verify", CHANNEL_VERIFY_ACTION_ID, channel_id, style="primary"),
+                _button("Skip for now", SKIP_ACTION_ID),
+            ],
+        },
     ]
 
 
 def build_locked_in_blocks(
-    team_id: int, channel_name: str, readiness: dict, channel_conflict: str | None
+    team_name: str, channel_name: str, readiness: dict, channel_conflict: str | None, team_id: int
 ) -> list[dict]:
+    # Name the project: a Slack workspace can map to several PostHog projects and the fleet lands
+    # in the one that resolved for this user, so say which so a multi-project CSM isn't guessing.
     if channel_conflict:
         first = (
-            f"Your scouts are already running for this project and posting to #{channel_conflict} — "
+            f"Your scouts are already running for *{team_name}* and posting to #{channel_conflict} — "
             "I've left that as-is. You're onboarded! 🎉"
         )
     else:
         first = (
-            "🎉 You're locked in. I've already sent your scouts on their first patrol — I'll message "
-            f"you when a scout finds something, and findings land in #{channel_name} with the account "
-            "owner tagged when I can find them."
+            f"🎉 You're locked in for *{team_name}*. I've already sent your scouts on their first "
+            f"patrol — I'll message you when a scout finds something, and findings land in "
+            f"#{channel_name} with the account owner tagged when I can find them."
         )
     blocks = [_section(first)]
     gap_titles = [spec.title for spec in PERSONA_SCOUT_CATALOG[PERSONA_CSM] if not readiness.get(spec.readiness_key)]
@@ -729,6 +740,12 @@ def maybe_intercept_assistant_surface(
         if entry_point == "first_dm":
             _post_nudge(ctx)
         else:
+            # A re-opened assistant container is a fresh thread — retarget the stored pointer so the
+            # repost lands where the user is looking, not in the (now hidden) original thread.
+            if channel_id and (channel_id != ctx.state.get("dm_channel_id") or thread_ts != ctx.state.get("thread_ts")):
+                ctx.state["dm_channel_id"] = channel_id
+                ctx.state["thread_ts"] = thread_ts
+                _save_state(ctx.row, ctx.state)
             _repost_current_step(ctx)
         return True
     start_onboarding_dm(
@@ -1022,15 +1039,20 @@ def _provision_and_complete(ctx: _FlowContext, channel_id: str, channel_name: st
 
     readiness = ctx.state.get("readiness") or {}
     channel_conflict = next((result.channel_conflict for result in results if result.channel_conflict), None)
-    _post(
-        ctx,
-        build_locked_in_blocks(ctx.integration.team_id, channel_name, readiness, channel_conflict),
-        "You're locked in — your scouts are on their first patrol.",
-    )
+    # Mark onboarded BEFORE the celebratory post: provisioning + first runs already happened, so a
+    # transient post failure must not leave the user un-onboarded with live scouts (which would
+    # re-fire all three first runs and re-post the channel hello on the next retry).
     ctx.row.persona = PERSONA_CSM
     ctx.row.onboarded_at = timezone.now()
     ctx.row.onboarding_state = None
     ctx.row.save(update_fields=["persona", "onboarded_at", "onboarding_state", "updated_at"])
+    _post(
+        ctx,
+        build_locked_in_blocks(
+            ctx.integration.team.name, channel_name, readiness, channel_conflict, ctx.integration.team_id
+        ),
+        "You're locked in — your scouts are on their first patrol.",
+    )
     capture_slack_event(
         ctx.integration,
         EVENT_COMPLETED,

@@ -76,7 +76,8 @@ def _first_sentence(summary: str, limit: int = 140) -> str:
         return ""
     sentence = text.split(". ")[0].rstrip(".")
     if len(sentence) > limit:
-        sentence = sentence[: limit - 1].rstrip() + "…"
+        # Truncated → the ellipsis is the terminal punctuation; don't also append a period.
+        return sentence[: limit - 1].rstrip() + "…"
     return sentence + "."
 
 

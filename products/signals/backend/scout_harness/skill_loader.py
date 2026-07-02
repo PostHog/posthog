@@ -45,7 +45,7 @@ class LoadedSkill:
     # `signal_scout_report:write` — the scope the report tools require. A scout that doesn't list them
     # gets no report scope, so the MCP server strips those tools from its toolset (exposure is
     # scope-level at the OAuth/MCP boundary). The `emit-report` / `edit-report` viewset actions also
-    # re-check this list server-side (`views.SignalScoutRunViewSet._assert_report_tool_opted_in`) as a
+    # re-check this list server-side (`views.SignalScoutRunViewSet._assert_tool_opted_in`) as a
     # fail-closed gate on the write. Downstream consumers (e.g. Claude Code) may also read it.
     allowed_tools: list[str]
     files: list[LoadedSkillFile]

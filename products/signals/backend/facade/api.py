@@ -535,28 +535,36 @@ def provision_persona_scouts(
                 )
                 created = True
 
-        # Outside the atomic block: Temporal dispatch is a side effect that must not sit
-        # inside the transaction, and a dispatch failure must not roll back the config.
-        first_run_started = False
-        if fire_first_runs and channel_conflict is None:
-            first_run_started = _fire_first_scout_run(team.id, skill_name)
-
         results.append(
             ScoutProvisionResult(
                 skill_name=skill_name,
                 config_id=str(config.id),
                 created=created,
                 channel_conflict=channel_conflict,
-                first_run_started=first_run_started,
+                first_run_started=False,
             )
         )
+
+    # Fire first runs after the config loop, sharing ONE Temporal connection across all of them —
+    # this runs on the synchronous Slack interactivity path, so a fresh connect per skill (each a
+    # TLS handshake) risks blowing Slack's ~3s ack budget. Temporal dispatch is a deliberate
+    # side effect kept outside every config's transaction: a dispatch failure never rolls back a
+    # config, and the coordinator picks the scout up at its next tick.
+    if fire_first_runs:
+        fired = _fire_first_scout_runs(
+            team.id, [result.skill_name for result in results if result.channel_conflict is None]
+        )
+        results = [dataclasses.replace(result, first_run_started=result.skill_name in fired) for result in results]
     return results
 
 
-def _fire_first_scout_run(team_id: int, skill_name: str) -> bool:
-    """Best-effort immediate dispatch through the existing manual-run path — every guard it
-    carries (quota, withheld skills, single-flight) stays intact. Failure never breaks
-    provisioning; the coordinator picks the scout up at its next tick."""
+def _fire_first_scout_runs(team_id: int, skill_names: list[str]) -> set[str]:
+    """Best-effort immediate dispatch of each skill through the existing manual-run path — every
+    guard it carries (quota, withheld skills, single-flight) stays intact. Returns the set of
+    skills whose dispatch succeeded; a failure never breaks provisioning. One shared Temporal
+    client for the whole batch to keep the synchronous caller off repeated connects."""
+    if not skill_names:
+        return set()
     from posthog.temporal.common.client import (
         sync_connect,  # noqa: PLC0415 — keeps the temporal graph off the facade import path
     )
@@ -566,11 +574,20 @@ def _fire_first_scout_run(team_id: int, skill_name: str) -> bool:
     )
 
     try:
-        start_manual_signals_scout_run(sync_connect(), team_id=team_id, skill_name=skill_name)
-        return True
+        client = sync_connect()
     except Exception:
-        logger.warning("persona_scout_first_run_dispatch_failed", team_id=team_id, skill_name=skill_name, exc_info=True)
-        return False
+        logger.warning("persona_scout_first_run_connect_failed", team_id=team_id, exc_info=True)
+        return set()
+    fired: set[str] = set()
+    for skill_name in skill_names:
+        try:
+            start_manual_signals_scout_run(client, team_id=team_id, skill_name=skill_name)
+            fired.add(skill_name)
+        except Exception:
+            logger.warning(
+                "persona_scout_first_run_dispatch_failed", team_id=team_id, skill_name=skill_name, exc_info=True
+            )
+    return fired
 
 
 @dataclasses.dataclass(frozen=True)

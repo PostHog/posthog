@@ -59,6 +59,21 @@ class TestFirstPatrolDigestComposition:
         assert "Renewal & billing watch: checked in clean" in digest["text"]
         assert "Nothing to worry about right now" in digest["text"]
 
+    def test_long_finding_headline_has_no_doubled_punctuation(self):
+        long_summary = "The account " + "very " * 60 + "quietly slid this week."
+        digest = _collect(
+            [
+                ScoutRunDigest(
+                    skill_name="signals-scout-csm-account-pulse",
+                    summary=long_summary,
+                    notifications_sent=1,
+                    reports_filed=1,
+                )
+            ]
+        )
+        assert "…." not in digest["text"]
+        assert "…" in digest["text"]
+
     def test_multiple_finders_counted_beyond_the_headline(self):
         digest = _collect(
             [

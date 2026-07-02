@@ -25,6 +25,7 @@ from dataclasses import dataclass
 from datetime import timedelta
 
 from django.conf import settings
+from django.db import transaction
 from django.utils import timezone
 
 import structlog
@@ -1077,8 +1078,15 @@ class SignalScoutRunViewSet(TeamAndOrgViewSetMixin, viewsets.GenericViewSet):
             "report_id": str(report_id) if report_id is not None else None,
             "sent_at": timezone.now().isoformat(),
         }
-        run.notifications = [*sent_notifications, entry]
-        run.save(update_fields=["notifications"])
+        # Re-read the row under lock before appending: concurrent `notify` tool calls within one
+        # run otherwise read the same `notifications` snapshot and the last save clobbers the
+        # other's entry (and the cap check above). The lock serializes the append so no audit
+        # entry is lost — the same pattern `scout_report/persistence._record_report_emit` uses.
+        # (The message is already posted, so we never hold the lock across the Slack call.)
+        with transaction.atomic():
+            locked = SignalScoutRun.objects.select_for_update().get(pk=run.pk)
+            locked.notifications = [*(locked.notifications or []), entry]
+            locked.save(update_fields=["notifications"])
 
         return Response(
             ScoutNotifyResponseSerializer(

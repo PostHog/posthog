@@ -209,6 +209,28 @@ class TestInterceptAssistantSurface(_FlowTestBase):
         assert persona_onboarding.NUDGE_PERSONA_TEXT in self._posted_text(client)
         assert self._row().onboarding_state["kickoff_ts"] == original_kickoff_ts
 
+    @patch(FLAG, return_value=True)
+    @patch(WEBCLIENT)
+    def test_reopened_pane_retargets_the_thread_pointer(self, mock_webclient, _flag):
+        # Kickoff in the original thread, then re-open the assistant container (fresh thread):
+        # the repost must land in the new thread, not the stale one.
+        client = self._client(mock_webclient)
+        assert self._intercept(entry_point="thread_started") is True
+        persona_onboarding.maybe_intercept_assistant_surface(
+            self.integration,
+            posthog_user_id=self.user.id,
+            workspace_id=WORKSPACE,
+            slack_user_id=SLACK_USER,
+            channel_id="D_NEW",
+            thread_ts="new-thread-ts",
+            accessible_integration_ids=[self.integration.id],
+            entry_point="thread_started",
+        )
+        state = self._row().onboarding_state
+        assert state["dm_channel_id"] == "D_NEW"
+        assert state["thread_ts"] == "new-thread-ts"
+        assert client.chat_postMessage.call_args.kwargs["channel"] == "D_NEW"
+
 
 class TestPersonaSelection(_FlowTestBase):
     def _select(self, value: str) -> None:
@@ -339,6 +361,47 @@ class TestChannelStep(_FlowTestBase):
         assert row.onboarded_at is not None
         assert row.onboarding_state is None
         assert "locked in" in self._posted_text(client)
+
+    @patch(PROVISION)
+    @patch(WEBCLIENT)
+    def test_skip_at_channel_step_onboards_without_provisioning(self, mock_webclient, mock_provision):
+        # A CSM who can't/won't pick a channel must be able to bail — otherwise the DM intercept
+        # wedges them out of the assistant entirely.
+        client = self._client(mock_webclient)
+        row = self._seed_channel_state()
+        action = {"action_id": persona_onboarding.SKIP_ACTION_ID}
+        persona_onboarding.handle_block_action(self._payload(action), action)
+        mock_provision.assert_not_called()
+        row.refresh_from_db()
+        assert row.onboarded_at is not None
+        assert row.onboarding_state is None
+        assert "skipping setup" in self._posted_text(client).lower()
+
+    @patch(PROVISION)
+    @patch(WEBCLIENT)
+    def test_channel_prompt_and_invite_offer_a_skip(self, mock_webclient, mock_provision):
+        assert any(
+            element.get("action_id") == persona_onboarding.SKIP_ACTION_ID
+            for block in persona_onboarding.build_channel_prompt_blocks(True)
+            for element in block.get("elements", [])
+        )
+        assert any(
+            element.get("action_id") == persona_onboarding.SKIP_ACTION_ID
+            for block in persona_onboarding.build_invite_needed_blocks("C1", "alerts")
+            for element in block.get("elements", [])
+        )
+
+    @patch(PROVISION)
+    @patch(WEBCLIENT)
+    def test_provisioning_failure_leaves_user_unonboarded_and_retryable(self, mock_webclient, mock_provision):
+        client = self._client(mock_webclient)
+        mock_provision.side_effect = RuntimeError("temporal down")
+        row = self._seed_channel_state()
+        self._select_channel()
+        row.refresh_from_db()
+        assert row.onboarded_at is None
+        assert row.onboarding_state["step"] == persona_onboarding.STEP_AWAITING_CHANNEL
+        assert "something went wrong" in self._posted_text(client).lower()
 
     @patch(PROVISION)
     @patch(WEBCLIENT)

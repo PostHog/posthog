@@ -60,6 +60,15 @@ class TestScoutNotifyAPI(APIBaseTest):
         return client
 
     @patch(WEBCLIENT_PATH)
+    def test_successive_notifications_accumulate_in_the_audit(self, webclient_cls) -> None:
+        self._client_mock(webclient_cls)
+        run = self._run_with_delivery()
+        self.client.post(self._url(str(run.id)), self._payload(account_name="Acme"), format="json")
+        self.client.post(self._url(str(run.id)), self._payload(account_name="Initech"), format="json")
+        run.refresh_from_db()
+        assert [entry["account_name"] for entry in run.notifications] == ["Acme", "Initech"]
+
+    @patch(WEBCLIENT_PATH)
     def test_notify_posts_only_to_configured_channel(self, webclient_cls) -> None:
         client = self._client_mock(webclient_cls)
         run = self._run_with_delivery()

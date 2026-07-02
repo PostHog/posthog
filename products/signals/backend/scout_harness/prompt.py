@@ -536,7 +536,7 @@ def _report_tail_sections(*, can_emit: bool, can_edit: bool) -> list[str]:
     """Report-channel tail, tailored to the report tools the scout actually opted into.
 
     A scout can list `emit_report`, `edit_report`, or both in `allowed_tools`. The report endpoints
-    fail closed on the *exact* tool (`views._assert_report_tool_opted_in`), so the prompt must never
+    fail closed on the *exact* tool (`views._assert_tool_opted_in`), so the prompt must never
     steer a scout toward a tool it lacks — an edit-only scout pointed at `emit_report` just earns a
     PermissionDenied. We therefore pick the run-step / authoring guidance to match, and include the
     standalone author-time sections (the suggested-reviewers deep-dive, writing a report) only when the

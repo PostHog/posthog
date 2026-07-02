@@ -16,7 +16,11 @@ CSM_SKILLS = [
     "signals-scout-csm-support-watch",
     "signals-scout-csm-revenue-watch",
 ]
-FIRE_PATH = "products.signals.backend.facade.api._fire_first_scout_run"
+FIRE_PATH = "products.signals.backend.facade.api._fire_first_scout_runs"
+
+
+def _fire_all(team_id, skill_names):
+    return set(skill_names)
 
 
 class TestProvisionPersonaScouts(BaseTest):
@@ -32,7 +36,7 @@ class TestProvisionPersonaScouts(BaseTest):
         kwargs.update(overrides)
         return provision_persona_scouts(**kwargs)
 
-    @patch(FIRE_PATH, return_value=True)
+    @patch(FIRE_PATH, side_effect=_fire_all)
     def test_fresh_team_gets_seeded_enabled_fleet_with_delivery_and_first_runs(self, fire_mock) -> None:
         results = self._provision()
         assert [r.skill_name for r in results] == CSM_SKILLS
@@ -45,9 +49,11 @@ class TestProvisionPersonaScouts(BaseTest):
             assert config.run_interval_minutes == 1440
             assert config.delivery_config["slack"]["channel_id"] == "C_ALERTS"
             assert config.delivery_config["slack"]["integration_id"] == 42
-        assert fire_mock.call_count == len(CSM_SKILLS)
+        # One shared-connection batch dispatch for the whole fleet, not one connect per skill.
+        assert fire_mock.call_count == 1
+        assert sorted(fire_mock.call_args.args[1]) == sorted(CSM_SKILLS)
 
-    @patch(FIRE_PATH, return_value=True)
+    @patch(FIRE_PATH, side_effect=_fire_all)
     def test_existing_config_with_other_channel_is_not_overwritten(self, fire_mock) -> None:
         skill = CSM_SKILLS[0]
         SignalScoutConfig.objects.create(
@@ -63,9 +69,10 @@ class TestProvisionPersonaScouts(BaseTest):
         config = SignalScoutConfig.objects.for_team(self.team.id).get(skill_name=skill)
         assert config.delivery_config["slack"]["channel_id"] == "C_OLD"
         assert config.enabled is True
-        fire_mock.assert_not_called()
+        # A conflicting scout is excluded from the first-run batch.
+        assert fire_mock.call_args.args[1] == []
 
-    @patch(FIRE_PATH, return_value=True)
+    @patch(FIRE_PATH, side_effect=_fire_all)
     def test_existing_config_without_delivery_is_adopted(self, fire_mock) -> None:
         skill = CSM_SKILLS[0]
         SignalScoutConfig.objects.create(team=self.team, skill_name=skill, enabled=False)
@@ -80,14 +87,14 @@ class TestProvisionPersonaScouts(BaseTest):
         with pytest.raises(ValueError, match="Unknown canonical scout skill"):
             self._provision(skill_names=["signals-scout-does-not-exist"])
 
-    @patch(FIRE_PATH, return_value=False)
+    @patch(FIRE_PATH, return_value=set())
     def test_first_run_dispatch_failure_does_not_fail_provisioning(self, fire_mock) -> None:
         results = self._provision(skill_names=[CSM_SKILLS[0]])
         assert results[0].created is True
         assert results[0].first_run_started is False
         assert SignalScoutConfig.objects.for_team(self.team.id).filter(skill_name=CSM_SKILLS[0]).exists()
 
-    @patch(FIRE_PATH, return_value=True)
+    @patch(FIRE_PATH, side_effect=_fire_all)
     def test_tombstoned_skill_is_skipped_not_resurrected(self, fire_mock) -> None:
         skill = CSM_SKILLS[0]
         self._provision(skill_names=[skill])
