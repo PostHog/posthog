@@ -1,4 +1,5 @@
 import json
+from contextlib import contextmanager
 from copy import deepcopy
 from datetime import timedelta
 from decimal import Decimal
@@ -19,17 +20,18 @@ from rest_framework.test import APIRequestFactory
 from posthog.schema import EventsNode, ExperimentMetric
 
 from posthog.constants import AvailableFeature
+from posthog.errors import ClickHouseQueryTimeOut
 from posthog.event_usage import EventSource
 from posthog.models import OrganizationMembership, Team, User
 from posthog.models.team.extensions import get_or_create_team_extension
 
 from products.actions.backend.models.action import Action
-from products.approvals.backend.exceptions import ApprovalRequired
+from products.approvals.backend.models import ApprovalPolicy, ChangeRequest
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.experiment_service import ExperimentService
 from products.experiments.backend.models.experiment import (
-    EXPOSURE_CLOSED_GROUP_MARKER,
+    EXPOSURE_FROZEN_GROUP_MARKER,
     Experiment,
     ExperimentHoldout,
     ExperimentMetricResult,
@@ -3012,15 +3014,37 @@ class TestExperimentService(APIBaseTest):
             service.resume_experiment(experiment)
 
     # ------------------------------------------------------------------
-    # Close exposure
+    # Freeze exposure
     # ------------------------------------------------------------------
 
-    def _mark_group_as_exposure_closed(self, flag: FeatureFlag) -> None:
+    def _stamp_exposure_frozen_marker(self, flag: FeatureFlag) -> None:
         filters = deepcopy(flag.filters)
         for group in filters.get("groups", []):
-            group["description"] = EXPOSURE_CLOSED_GROUP_MARKER
+            group["description"] = EXPOSURE_FROZEN_GROUP_MARKER
         flag.filters = filters
         flag.save()
+
+    def _update_flag_filters(self, flag: FeatureFlag, filters: dict) -> None:
+        serializer = FeatureFlagSerializer(
+            flag,
+            data={"filters": filters},
+            partial=True,
+            context={"request": self._make_request(), "team_id": self.team.id, "project_id": self.team.project_id},
+        )
+        serializer.is_valid(raise_exception=True)
+        serializer.save()
+        flag.refresh_from_db()
+
+    @contextmanager
+    def _stub_freeze_population(self, exposed_uuids: list[str] | None = None):
+        uuids = exposed_uuids if exposed_uuids is not None else ["00000000-0000-0000-0000-000000000001"]
+        with (
+            patch.object(ExperimentService, "_fetch_exposed_person_uuids", return_value=uuids),
+            patch(
+                "products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_uuid", return_value=0
+            ) as mock_insert,
+        ):
+            yield mock_insert
 
     @parameterized.expand(
         [
@@ -3030,71 +3054,67 @@ class TestExperimentService(APIBaseTest):
             ("stopped_with_marker", "stopped", True, False),
         ]
     )
-    def test_is_exposure_closed_property(self, _name: str, state: str, marker: bool, expected: bool) -> None:
+    def test_is_exposure_frozen_property(self, _name: str, state: str, marker: bool, expected: bool) -> None:
         if state == "draft":
-            experiment = self._create_launchable_experiment(name="Exp Closed Draft", feature_flag_key=f"ec-{_name}")
+            experiment = self._create_launchable_experiment(name="Exp Frozen Draft", feature_flag_key=f"ef-{_name}")
         elif state == "stopped":
-            experiment = self._create_ended_experiment(name="Exp Closed Stopped", feature_flag_key=f"ec-{_name}")
+            experiment = self._create_ended_experiment(name="Exp Frozen Stopped", feature_flag_key=f"ef-{_name}")
         else:
-            experiment = self._create_running_experiment(name="Exp Closed Running", feature_flag_key=f"ec-{_name}")
+            experiment = self._create_running_experiment(name="Exp Frozen Running", feature_flag_key=f"ef-{_name}")
 
         if marker:
-            self._mark_group_as_exposure_closed(experiment.feature_flag)
+            self._stamp_exposure_frozen_marker(experiment.feature_flag)
 
         experiment.refresh_from_db()
-        assert experiment.is_exposure_closed is expected
+        assert experiment.is_exposure_frozen is expected
 
-    def test_close_exposure_success(self):
-        experiment = self._create_running_experiment(name="Close Exposure", feature_flag_key="close-exposure-flag")
+    def test_freeze_exposure_success(self):
+        experiment = self._create_running_experiment(name="Freeze Exposure", feature_flag_key="freeze-exposure-flag")
         original_variants = deepcopy(experiment.feature_flag.filters["multivariate"])
 
-        closed = self._service().close_exposure(experiment, request=self._make_request())
+        with self._stub_freeze_population() as mock_insert:
+            frozen = self._service().freeze_exposure(experiment, request=self._make_request())
 
-        closed.feature_flag.refresh_from_db()
+        frozen.feature_flag.refresh_from_db()
 
-        # A static snapshot cohort was created.
-        cohort = Cohort.objects.get(team=self.team, name='Exposure snapshot for experiment "Close Exposure"')
+        # A static snapshot cohort was created and populated synchronously from the exposed set.
+        cohort = Cohort.objects.get(team=self.team, name='Exposure snapshot for experiment "Freeze Exposure"')
         assert cohort.is_static is True
+        mock_insert.assert_called_once()
 
         # The cohort condition + marker were AND'd into every release group.
-        groups = closed.feature_flag.filters["groups"]
+        groups = frozen.feature_flag.filters["groups"]
         assert len(groups) >= 1
         for group in groups:
             assert {"key": "id", "type": "cohort", "value": cohort.id, "operator": "in"} in group["properties"]
-            assert EXPOSURE_CLOSED_GROUP_MARKER in group["description"]
+            assert EXPOSURE_FROZEN_GROUP_MARKER in group["description"]
 
         # Variants left byte-for-byte unchanged so enrolled users keep their variant.
-        assert closed.feature_flag.filters["multivariate"] == original_variants
+        assert frozen.feature_flag.filters["multivariate"] == original_variants
 
         # Metrics keep flowing — not ended.
-        assert closed.end_date is None
-        assert closed.is_running is True
-        assert closed.is_exposure_closed is True
+        assert frozen.end_date is None
+        assert frozen.is_running is True
+        assert frozen.is_exposure_frozen is True
 
-    def test_close_exposure_multi_group_flag(self):
-        experiment = self._create_running_experiment(name="Close Multi", feature_flag_key="close-multi-flag")
+    def test_freeze_exposure_multi_group_flag(self):
+        experiment = self._create_running_experiment(name="Freeze Multi", feature_flag_key="freeze-multi-flag")
         flag = experiment.feature_flag
+
+        # A catch-all group plus an internal test-user group (heterogeneous, like real experiment flags).
         catch_all = {"properties": [], "rollout_percentage": 100}
         internal_group = {
             "properties": [{"key": "email", "value": "@posthog.com", "operator": "icontains", "type": "person"}],
             "rollout_percentage": 100,
         }
-        updated_filters = {**flag.filters, "groups": [catch_all, internal_group]}
-        serializer = FeatureFlagSerializer(
-            flag,
-            data={"filters": updated_filters},
-            partial=True,
-            context={"request": self._make_request(), "team_id": self.team.id, "project_id": self.team.project_id},
-        )
-        serializer.is_valid(raise_exception=True)
-        serializer.save()
-        flag.refresh_from_db()
+        self._update_flag_filters(flag, {**flag.filters, "groups": [catch_all, internal_group]})
 
-        closed = self._service().close_exposure(experiment, request=self._make_request())
-        closed.feature_flag.refresh_from_db()
-        cohort = Cohort.objects.get(team=self.team, name='Exposure snapshot for experiment "Close Multi"')
+        with self._stub_freeze_population():
+            frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+        frozen.feature_flag.refresh_from_db()
+        cohort = Cohort.objects.get(team=self.team, name='Exposure snapshot for experiment "Freeze Multi"')
 
-        groups = closed.feature_flag.filters["groups"]
+        groups = frozen.feature_flag.filters["groups"]
         assert len(groups) == 2
         cohort_condition = {"key": "id", "type": "cohort", "value": cohort.id, "operator": "in"}
 
@@ -3112,22 +3132,23 @@ class TestExperimentService(APIBaseTest):
         [
             ("draft",),
             ("stopped",),
-            ("already_closed",),
+            ("already_frozen",),
             ("group_aggregated",),
             ("missing_flag",),
+            ("deleted_flag",),
         ]
     )
-    def test_close_exposure_guards_raise(self, state: str):
+    def test_freeze_exposure_guards_raise(self, state: str):
         service = self._service()
         if state == "draft":
-            experiment = self._create_launchable_experiment(name="CE Draft", feature_flag_key=f"ce-{state}-flag")
+            experiment = self._create_launchable_experiment(name="FE Draft", feature_flag_key=f"fe-{state}-flag")
         elif state == "stopped":
-            experiment = self._create_ended_experiment(name="CE Stopped", feature_flag_key=f"ce-{state}-flag")
+            experiment = self._create_ended_experiment(name="FE Stopped", feature_flag_key=f"fe-{state}-flag")
         else:
-            experiment = self._create_running_experiment(name="CE Running", feature_flag_key=f"ce-{state}-flag")
+            experiment = self._create_running_experiment(name="FE Running", feature_flag_key=f"fe-{state}-flag")
 
-        if state == "already_closed":
-            self._mark_group_as_exposure_closed(experiment.feature_flag)
+        if state == "already_frozen":
+            self._stamp_exposure_frozen_marker(experiment.feature_flag)
             experiment.refresh_from_db()
         elif state == "group_aggregated":
             flag = experiment.feature_flag
@@ -3136,53 +3157,121 @@ class TestExperimentService(APIBaseTest):
             experiment.refresh_from_db()
         elif state == "missing_flag":
             experiment.feature_flag = None
+        elif state == "deleted_flag":
+            flag = experiment.feature_flag
+            flag.deleted = True
+            flag.save()
+            experiment.refresh_from_db()
 
         with self.assertRaises(ValidationError):
-            service.close_exposure(experiment, request=self._make_request())
+            service.freeze_exposure(experiment, request=self._make_request())
 
-    def test_close_exposure_approval_gate_is_non_destructive(self):
-        experiment = self._create_running_experiment(name="CE Approval", feature_flag_key="ce-approval-flag")
+    def test_freeze_exposure_rejects_when_query_times_out(self):
+        experiment = self._create_running_experiment(name="Freeze Timeout", feature_flag_key="freeze-timeout-flag")
         original_filters = deepcopy(experiment.feature_flag.filters)
 
-        with patch("products.experiments.backend.experiment_service.FeatureFlagSerializer") as mock_serializer_cls:
-            instance = mock_serializer_cls.return_value
-            instance.is_valid.return_value = True
-            instance.save.side_effect = ApprovalRequired(
-                change_request=MagicMock(), message="Approval required", required_approvers={}
-            )
+        with patch(
+            "products.experiments.backend.experiment_service.execute_hogql_query",
+            side_effect=ClickHouseQueryTimeOut(),
+        ):
+            with self.assertRaises(ValidationError) as ctx:
+                self._service().freeze_exposure(experiment, request=self._make_request())
+        assert "too much exposure data" in str(ctx.exception)
 
-            with self.assertRaises(ApprovalRequired):
-                self._service().close_exposure(experiment, request=self._make_request())
-
-        experiment.refresh_from_db()
+        # Nothing was created or changed when the exposed-set scan times out.
+        assert not Cohort.objects.filter(team=self.team, is_static=True).exists()
         experiment.feature_flag.refresh_from_db()
-        # Flag untouched and the orphan snapshot cohort was rolled back.
         assert experiment.feature_flag.filters == original_filters
-        assert experiment.is_exposure_closed is False
-        assert experiment.end_date is None
-        assert not Cohort.objects.filter(team=self.team, name='Exposure snapshot for experiment "CE Approval"').exists()
+        assert experiment.is_exposure_frozen is False
+
+    @patch("products.experiments.backend.experiment_service.FREEZE_EXPOSURE_MAX_EXPOSED_USERS", 2)
+    def test_freeze_exposure_rejects_when_too_many_exposed_users(self):
+        experiment = self._create_running_experiment(name="Freeze Toobig", feature_flag_key="freeze-toobig-flag")
+        original_filters = deepcopy(experiment.feature_flag.filters)
+
+        # Cap patched to 2; the scan returns 3 distinct persons → rejected before any cohort is created.
+        with patch(
+            "products.experiments.backend.experiment_service.execute_hogql_query",
+            return_value=MagicMock(results=[["a"], ["b"], ["c"]]),
+        ):
+            with self.assertRaises(ValidationError) as ctx:
+                self._service().freeze_exposure(experiment, request=self._make_request())
+        assert "too many exposed users" in str(ctx.exception)
+
+        assert not Cohort.objects.filter(team=self.team, is_static=True).exists()
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.filters == original_filters
+        assert experiment.is_exposure_frozen is False
+
+    def test_freeze_exposure_deletes_orphan_cohort_on_flag_save_failure(self):
+        experiment = self._create_running_experiment(name="Freeze Failure", feature_flag_key="freeze-failure-flag")
+        original_filters = deepcopy(experiment.feature_flag.filters)
+        static_cohorts_before = Cohort.objects.filter(team=self.team, is_static=True).count()
+
+        # Any failure persisting the narrowed flag must not leave the snapshot cohort behind.
+        with self._stub_freeze_population():
+            with patch.object(FeatureFlagSerializer, "save", side_effect=ValidationError("boom")):
+                with self.assertRaises(ValidationError):
+                    self._service().freeze_exposure(experiment, request=self._make_request())
+
+        # The orphaned snapshot cohort was cleaned up; the flag and experiment are untouched.
+        assert Cohort.objects.filter(team=self.team, is_static=True).count() == static_cohorts_before
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.filters == original_filters
+        assert experiment.is_exposure_frozen is False
+
+    def test_freeze_exposure_not_blocked_by_flag_approval_policy(self):
+        experiment = self._create_running_experiment(name="Freeze Policy", feature_flag_key="freeze-policy-flag")
+
+        # Flag approval policies are intentionally scoped to active/rollout_percentage changes.
+        # Freezing exposure only edits group properties, so a flag-update approval policy must NOT
+        # gate it — the freeze applies directly and no change request is raised.
+        self.organization.available_product_features = [
+            {"key": AvailableFeature.APPROVALS, "name": AvailableFeature.APPROVALS}
+        ]
+        self.organization.save()
+        ApprovalPolicy.objects.create(
+            organization=self.organization,
+            team=self.team,
+            action_key="feature_flag.update",
+            approver_config={"quorum": 1, "users": [self.user.id]},
+            created_by=self.user,
+        )
+
+        with self._stub_freeze_population():
+            frozen = self._service().freeze_exposure(experiment, request=self._make_request())
+
+        assert ChangeRequest.objects.filter(team=self.team).count() == 0
+        frozen.feature_flag.refresh_from_db()
+        assert frozen.is_exposure_frozen is True
 
     @patch("products.experiments.backend.experiment_service.report_user_action")
-    def test_close_exposure_reports_analytics(self, mock_report: MagicMock):
-        experiment = self._create_running_experiment(name="CE Analytics", feature_flag_key="ce-analytics-flag")
+    def test_freeze_exposure_reports_analytics(self, mock_report: MagicMock):
+        experiment = self._create_running_experiment(name="Freeze Analytics", feature_flag_key="freeze-analytics-flag")
 
-        self._service().close_exposure(experiment, request=self._make_request())
+        with self._stub_freeze_population():
+            self._service().freeze_exposure(experiment, request=self._make_request())
 
-        assert any(call.args[1] == "experiment exposure closed" for call in mock_report.call_args_list)
+        assert any(call.args[1] == "experiment exposure frozen" for call in mock_report.call_args_list)
 
-    def test_close_exposure_retains_cohort_and_second_close_raises(self):
-        experiment = self._create_running_experiment(name="CE Retain", feature_flag_key="ce-retain-flag")
+    def test_freeze_exposure_retains_cohort_and_second_freeze_raises(self):
+        experiment = self._create_running_experiment(name="Freeze Retain", feature_flag_key="freeze-retain-flag")
 
-        self._service().close_exposure(experiment, request=self._make_request())
-        experiment.refresh_from_db()
+        with self._stub_freeze_population():
+            self._service().freeze_exposure(experiment, request=self._make_request())
+            experiment.refresh_from_db()
 
-        cohort = Cohort.objects.get(team=self.team, name='Exposure snapshot for experiment "CE Retain"')
+            cohort = Cohort.objects.get(team=self.team, name='Exposure snapshot for experiment "Freeze Retain"')
+            filters_after_first = deepcopy(experiment.feature_flag.filters)
 
-        with self.assertRaises(ValidationError):
-            self._service().close_exposure(experiment, request=self._make_request())
+            with self.assertRaises(ValidationError) as ctx:
+                self._service().freeze_exposure(experiment, request=self._make_request())
+            assert "already frozen" in str(ctx.exception)
 
-        # The snapshot cohort is retained (non-destructive).
+        # The snapshot cohort and frozen flag state are left intact (non-destructive).
         assert Cohort.objects.filter(pk=cohort.pk).exists()
+        experiment.feature_flag.refresh_from_db()
+        assert experiment.feature_flag.filters == filters_after_first
 
     # ------------------------------------------------------------------
     # Reset

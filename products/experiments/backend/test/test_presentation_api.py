@@ -28,6 +28,7 @@ from products.actions.backend.models.action import Action
 from products.cohorts.backend.models.cohort import Cohort
 from products.event_definitions.backend.models.event_definition import EventDefinition
 from products.experiments.backend.models.experiment import (
+    EXPOSURE_FROZEN_GROUP_MARKER,
     Experiment,
     ExperimentHoldout,
     ExperimentSavedMetric,
@@ -147,6 +148,7 @@ class TestExperimentCRUD(APILicensedTest):
         [
             ("draft", "draft"),
             ("running", "running"),
+            ("exposure_frozen", "exposure_frozen"),
             ("stopped", "stopped"),
             ("complete", "stopped"),
         ]
@@ -179,6 +181,26 @@ class TestExperimentCRUD(APILicensedTest):
                 "parameters": None,
             },
         )
+        # A running experiment with the freeze marker on its flag groups: must show up only under
+        # exposure_frozen — and its presence proves the running filter excludes frozen experiments.
+        self.client.post(
+            f"/api/projects/{self.team.id}/experiments/",
+            {
+                "name": "Frozen experiment",
+                "feature_flag_key": "frozen-filter-flag",
+                "start_date": "2021-12-01T10:23",
+                "parameters": None,
+            },
+        )
+        frozen_flag = FeatureFlag.objects.get(team=self.team, key="frozen-filter-flag")
+        frozen_flag.filters = {
+            **frozen_flag.filters,
+            "groups": [
+                {**group, "description": EXPOSURE_FROZEN_GROUP_MARKER}
+                for group in frozen_flag.filters.get("groups", [])
+            ],
+        }
+        frozen_flag.save()
 
         response = self.client.get(f"/api/projects/{self.team.id}/experiments/?status={status_filter}")
 
@@ -4911,44 +4933,60 @@ class TestExperimentCRUD(APILicensedTest):
         )
         self.assertEqual(pause_response.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_close_exposure_endpoint(self):
-        data = self._create_running_experiment(name="Close Endpoint", flag_key="close-endpoint-flag")
+    @patch("products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_uuid", return_value=0)
+    @patch(
+        "products.experiments.backend.experiment_service.ExperimentService._fetch_exposed_person_uuids",
+        return_value=["00000000-0000-0000-0000-000000000001"],
+    )
+    def test_freeze_exposure_endpoint(self, mock_fetch: MagicMock, mock_insert: MagicMock) -> None:
+        data = self._create_running_experiment(name="Freeze Endpoint", flag_key="freeze-endpoint-flag")
         experiment_id = data["id"]
 
-        close_response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/{experiment_id}/close_exposure/",
+        freeze_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/freeze_exposure/",
         )
-        self.assertEqual(close_response.status_code, status.HTTP_200_OK)
-        body = close_response.json()
-        # Closed exposure is still running under the hood — precedence puts exposure_closed first.
-        self.assertEqual(body["status"], "exposure_closed")
+        self.assertEqual(freeze_response.status_code, status.HTTP_200_OK)
+        body = freeze_response.json()
+        # Frozen exposure is still running under the hood — precedence puts exposure_frozen first.
+        self.assertEqual(body["status"], "exposure_frozen")
+        # Unlike pause, the flag stays active; unlike end, end_date stays null so metrics keep flowing.
         self.assertIsNone(body["end_date"])
         self.assertTrue(body["feature_flag"]["active"])
 
-    def test_close_exposure_already_closed_returns_400(self):
-        data = self._create_running_experiment(name="Double Close", flag_key="double-close-flag")
+        # A frozen-but-still-running experiment also serializes as exposure_frozen on GET.
+        get_response = self.client.get(f"/api/projects/{self.team.id}/experiments/{experiment_id}/")
+        self.assertEqual(get_response.status_code, status.HTTP_200_OK)
+        self.assertEqual(get_response.json()["status"], "exposure_frozen")
+
+    @patch("products.cohorts.backend.models.cohort.Cohort.insert_users_list_by_uuid", return_value=0)
+    @patch(
+        "products.experiments.backend.experiment_service.ExperimentService._fetch_exposed_person_uuids",
+        return_value=["00000000-0000-0000-0000-000000000001"],
+    )
+    def test_freeze_exposure_already_frozen_returns_400(self, mock_fetch: MagicMock, mock_insert: MagicMock) -> None:
+        data = self._create_running_experiment(name="Double Freeze", flag_key="double-freeze-flag")
         experiment_id = data["id"]
 
-        self.client.post(f"/api/projects/{self.team.id}/experiments/{experiment_id}/close_exposure/")
+        self.client.post(f"/api/projects/{self.team.id}/experiments/{experiment_id}/freeze_exposure/")
 
-        second_close = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/{experiment_id}/close_exposure/",
+        second_freeze = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/freeze_exposure/",
         )
-        self.assertEqual(second_close.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(second_freeze.status_code, status.HTTP_400_BAD_REQUEST)
 
-    def test_close_exposure_draft_returns_400(self):
+    def test_freeze_exposure_draft_returns_400(self):
         response = self.client.post(
             f"/api/projects/{self.team.id}/experiments/",
-            {"name": "Close Draft", "feature_flag_key": "close-draft-flag"},
+            {"name": "Freeze Draft", "feature_flag_key": "freeze-draft-flag"},
             format="json",
         )
         self.assertEqual(response.status_code, status.HTTP_201_CREATED)
         experiment_id = response.json()["id"]
 
-        close_response = self.client.post(
-            f"/api/projects/{self.team.id}/experiments/{experiment_id}/close_exposure/",
+        freeze_response = self.client.post(
+            f"/api/projects/{self.team.id}/experiments/{experiment_id}/freeze_exposure/",
         )
-        self.assertEqual(close_response.status_code, status.HTTP_400_BAD_REQUEST)
+        self.assertEqual(freeze_response.status_code, status.HTTP_400_BAD_REQUEST)
 
     def test_end_experiment_endpoint(self):
         data = self._create_running_experiment(name="End Endpoint", flag_key="end-endpoint-flag")

@@ -10,8 +10,8 @@ from uuid import uuid4
 from zoneinfo import ZoneInfo
 
 from django.db import transaction
-from django.db.models import Case, CharField, Count, F, Prefetch, Q, QuerySet, Value, When
-from django.db.models.functions import Coalesce, Now, NullIf
+from django.db.models import Case, CharField, Count, F, Prefetch, Q, QuerySet, TextField, Value, When
+from django.db.models.functions import Cast, Coalesce, Now, NullIf
 from django.utils import timezone
 
 import pydantic
@@ -26,7 +26,13 @@ from posthog.schema import (
     ExperimentMetric,
 )
 
+from posthog.hogql import ast
+from posthog.hogql.constants import HogQLGlobalSettings
+from posthog.hogql.query import execute_hogql_query
+
 from posthog.api.cohort import CohortSerializer
+from posthog.clickhouse.query_tagging import Feature, Product, tags_context
+from posthog.errors import ClickHouseQueryTimeOut
 from posthog.event_usage import EventSource, report_user_action
 from posthog.models.activity_logging.utils import get_changed_fields_local
 from posthog.models.filters.filter import Filter
@@ -45,7 +51,7 @@ from products.experiments.backend.hogql_queries.experiment_metric_fingerprint im
 from products.experiments.backend.hogql_queries.funnel_validation import FunnelDWValidator
 from products.experiments.backend.metric_utils import filter_metric_group_ids_by_event
 from products.experiments.backend.models.experiment import (
-    EXPOSURE_CLOSED_GROUP_MARKER,
+    EXPOSURE_FROZEN_GROUP_MARKER,
     LEGACY_METRIC_KINDS,
     Experiment,
     ExperimentHoldout,
@@ -89,19 +95,29 @@ DEFAULT_VARIANTS = [
     {"key": "test", "name": "Test Variant", "rollout_percentage": 50},
 ]
 
+# Synchronous freeze-exposure bounds. The snapshot is built inline in the request, so we cap both the
+# time spent scanning $feature_flag_called events (ClickHouse) and the number of exposed users we
+# materialize — the Postgres cohort sync is size-linear and is NOT covered by the query timeout.
+# Long-running / very-high-traffic experiments that exceed either bound are rejected rather than frozen
+# synchronously (they would need a future async populate path).
+FREEZE_EXPOSURE_QUERY_TIMEOUT_SECONDS = 20
+FREEZE_EXPOSURE_MAX_EXPOSED_USERS = 500_000
+
 
 class ExperimentQueryStatus(str, Enum):
     """
     Filter values for the experiment list endpoint.
 
-    PAUSED is derived (not stored): an experiment is paused when its stored status is RUNNING and
-    its linked feature flag is inactive. RUNNING and PAUSED are mutually exclusive at the API
-    layer — RUNNING returns only experiments whose flag is active.
+    PAUSED and EXPOSURE_FROZEN are derived (not stored): an experiment is paused when its stored
+    status is RUNNING and its linked feature flag is inactive; it is exposure-frozen when its flag
+    release groups carry the freeze marker. RUNNING, PAUSED, and EXPOSURE_FROZEN are mutually
+    exclusive at the API layer, mirroring the precedence of Experiment.status_label.
     """
 
     DRAFT = "draft"
     RUNNING = "running"
     PAUSED = "paused"
+    EXPOSURE_FROZEN = "exposure_frozen"
     STOPPED = "stopped"
     ALL = "all"
 
@@ -1639,35 +1655,42 @@ class ExperimentService:
         )
 
     # ------------------------------------------------------------------
-    # Close exposure
+    # Freeze exposure
     # ------------------------------------------------------------------
 
-    def close_exposure(self, experiment: Experiment, *, request: Any) -> Experiment:
-        """Close enrollment on a running experiment while keeping metrics flowing.
+    # Not wrapped in @transaction.atomic: building the snapshot cohort writes to ClickHouse and Postgres
+    # (non-transactional side effects), so rather than rely on rollback we clean up the cohort by hand if
+    # the flag save fails.
+    def freeze_exposure(self, experiment: Experiment, *, request: Any) -> Experiment:
+        """Freeze exposure on a running experiment while metrics keep flowing.
 
         Moves the experiment into a "measuring" state: it snapshots the
-        already-exposed users into a static cohort and narrows the feature flag so
-        only those users keep matching — new users can no longer enter. ``end_date``
-        is left null so long-term metrics (revenue/LTV/renewals/retention) keep
-        accumulating. Enrolled users keep their variant by deterministic hash since
-        ``multivariate.variants`` is left untouched.
+        already-exposed users into a static cohort and narrows every flag release
+        group to that cohort, so new users can no longer enter the experiment while
+        already-enrolled users keep their deterministically-assigned variant
+        (``multivariate.variants`` is left untouched). Unlike ``end_experiment``,
+        ``end_date`` stays null so long-term metrics (revenue/LTV/renewals/retention)
+        keep accumulating — the whole point of freezing exposure.
 
-        Mirrors ``ship_variant``: the flag update goes through ``FeatureFlagSerializer``
-        so the approval workflow (``@approval_gate``) is honoured. If change-request
-        approval is required the serializer raises ``ApprovalRequired``, the flag is
-        left unmodified, the snapshot cohort is rolled back, and a 409 is returned to
-        the caller. ``request`` is required for the serializer's approval-policy
-        evaluation.
+        The snapshot is built synchronously, *before* the flag is narrowed, so the
+        flag never points at an unpopulated cohort (which would briefly match no
+        one). To keep the request bounded, the exposed-set scan is capped at
+        FREEZE_EXPOSURE_QUERY_TIMEOUT_SECONDS and FREEZE_EXPOSURE_MAX_EXPOSED_USERS;
+        experiments exceeding either bound — long-running, very-high-traffic ones —
+        are rejected rather than frozen in-request.
 
         Group-aggregated experiments are rejected: their flags target groups, not
         persons, so a person cohort cannot freeze the exposed set.
+
+        ``request`` is required because FeatureFlagSerializer needs a real request
+        with authentication and session context to persist the flag change.
         """
         if experiment.is_draft:
             raise ValidationError("Experiment has not been launched yet.")
         if experiment.is_stopped:
             raise ValidationError("Experiment has already ended.")
-        if experiment.is_exposure_closed:
-            raise ValidationError("Experiment exposure is already closed.")
+        if experiment.is_exposure_frozen:
+            raise ValidationError("Experiment exposure is already frozen.")
 
         # Guard on the id, not the relation: feature_flag is a non-nullable FK, so accessing
         # experiment.feature_flag when it's unset raises RelatedObjectDoesNotExist rather than
@@ -1675,13 +1698,40 @@ class ExperimentService:
         if experiment.feature_flag_id is None:
             raise ValidationError("Experiment does not have a feature flag linked.")
         flag = experiment.feature_flag
+        if flag.deleted:
+            raise ValidationError("Experiment's feature flag has been deleted.")
         if flag.aggregation_group_type_index is not None:
-            raise ValidationError("Group-aggregated experiments cannot have their exposure closed.")
+            raise ValidationError("Group-aggregated experiments cannot have their exposure frozen.")
 
-        cohort = self._create_exposure_snapshot_cohort(experiment, flag)
+        # 1. Snapshot the actually-exposed set (bounded by time + count; raises if too large to freeze in-request).
+        exposed_person_uuids = self._fetch_exposed_person_uuids(experiment)
 
-        new_filters = self._transform_filters_for_closed_exposure(flag.filters, cohort.id)
+        # 2. Materialize it into a static cohort synchronously, so the flag never points at an unpopulated cohort.
+        exposure_snapshot = self._create_exposure_snapshot_cohort(experiment, exposed_person_uuids)
 
+        # 3. Narrow every release group to that cohort and stamp the marker.
+        #
+        # Design note (local evaluation): the narrowed flag now references a static cohort, whose
+        # per-person membership can't be shipped to SDKs that evaluate flags locally — static cohorts
+        # are excluded from the local-eval flag definitions (products/feature_flags/backend/local_evaluation.py).
+        # Such SDKs can't resolve the cohort, so they treat the flag as inconclusive and fall back to
+        # /decide, where the freeze is applied correctly; under only_evaluate_locally=True they instead
+        # return the flag's default for everyone. This is the standard behavior of any static-cohort flag,
+        # not specific to freezing — it just means a frozen experiment is evaluated server-side via /decide
+        # rather than locally.
+        new_filters = self._transform_filters_for_frozen_exposure(flag.filters, exposure_snapshot.id)
+
+        # 4. Persist the narrowed filters via FeatureFlagSerializer.
+        #
+        # Design note (approvals): FeatureFlagSerializer.update is decorated with @approval_gate,
+        # but flag approval policies are intentionally field-level and scoped to `active`
+        # (enable/disable) and `rollout_percentage` changes only — see GATEABLE_FIELDS in
+        # products/approvals/backend/actions/feature_flags.py and posthog.com/docs/settings/approvals.
+        # Freezing exposure only AND-s a cohort condition into each group's `properties` and stamps
+        # `description`; it changes neither `active` nor `rollout_percentage`, so the gate never
+        # matches and no change request is raised. We therefore don't special-case ApprovalRequired
+        # here. If approvals ever grow to gate property/cohort changes, revisit this: the snapshot
+        # cohort would then need to outlive a pending change request rather than be cleaned up below.
         flag_serializer = FeatureFlagSerializer(
             flag,
             data={"filters": new_filters},
@@ -1696,58 +1746,93 @@ class ExperimentService:
             flag_serializer.is_valid(raise_exception=True)
             flag_serializer.save()
         except Exception:
-            # Keep the action non-destructive: if the flag change is rejected (e.g. an
-            # approval gate raises ApprovalRequired), drop the orphaned snapshot cohort so
-            # the experiment and flag are left exactly as they were.
-            cohort.delete()
+            # The snapshot cohort is referenced only by the flag change we just attempted, so if
+            # that fails, drop it — a failed freeze should leave nothing behind.
+            exposure_snapshot.delete()
             raise
 
         # Refresh so the experiment's nested flag reflects the narrowed filters when serialized.
         flag.refresh_from_db()
         experiment.feature_flag = flag
 
-        self._report_experiment_exposure_closed(experiment, request=request)
+        # end_date intentionally left null — metrics keep flowing.
+
+        self._report_experiment_exposure_frozen(experiment, request=request)
 
         return experiment
 
-    def _create_exposure_snapshot_cohort(self, experiment: Experiment, flag: FeatureFlag) -> Cohort:
-        """Snapshot the actually-exposed users into a static cohort.
+    def _fetch_exposed_person_uuids(self, experiment: Experiment) -> list[str]:
+        """Return the UUIDs of persons already exposed to the experiment, bounded by time and count.
 
-        Static is required — behavioral cohorts are rejected by feature-flag validation.
-        The query selects persons who fired ``$feature_flag_called`` for this flag since
-        the experiment started, freezing the exposed set rather than the eligible audience.
+        Runs a synchronous ``$feature_flag_called`` scan capped at FREEZE_EXPOSURE_QUERY_TIMEOUT_SECONDS,
+        returning at most FREEZE_EXPOSURE_MAX_EXPOSED_USERS + 1 rows so an over-cap set can be detected
+        and rejected. This is the *actually-exposed* set (persons who fired the exposure event), not the
+        eligible audience.
         """
-        context = {**self._build_serializer_context(), "team": self.team}
-        cohort_serializer = CohortSerializer(
-            data={
-                "is_static": True,
-                "name": f'Exposure snapshot for experiment "{experiment.name}"',
-                "query": {
-                    "kind": "HogQLQuery",
-                    "query": (
-                        "SELECT DISTINCT person_id FROM events "
-                        "WHERE event = '$feature_flag_called' "
-                        "AND properties.$feature_flag = {flag_key} "
-                        "AND timestamp >= toDateTime({start_date})"
-                    ),
-                    "values": {
-                        "flag_key": flag.key,
-                        "start_date": experiment.start_date.isoformat() if experiment.start_date else None,
-                    },
-                },
-            },
-            context=context,
+        # start_date is guaranteed non-null here — the caller already asserted the experiment is running.
+        start_date = experiment.start_date
+        assert start_date is not None
+        flag_key = experiment.get_feature_flag_key()
+
+        query = (
+            "SELECT DISTINCT person_id FROM events "
+            "WHERE event = '$feature_flag_called' "
+            "AND properties.$feature_flag = {flag_key} "
+            "AND timestamp >= {start_date} "
+            f"LIMIT {FREEZE_EXPOSURE_MAX_EXPOSED_USERS + 1}"
         )
-        cohort_serializer.is_valid(raise_exception=True)
-        return cohort_serializer.save()
+        try:
+            with tags_context(
+                product=Product.EXPERIMENTS,
+                feature=Feature.COHORT,
+                team_id=self.team.pk,
+                org_id=self.team.organization_id,
+            ):
+                response = execute_hogql_query(
+                    query,
+                    team=self.team,
+                    placeholders={
+                        "flag_key": ast.Constant(value=flag_key),
+                        "start_date": ast.Constant(value=start_date),
+                    },
+                    settings=HogQLGlobalSettings(max_execution_time=FREEZE_EXPOSURE_QUERY_TIMEOUT_SECONDS),
+                )
+        except ClickHouseQueryTimeOut:
+            raise ValidationError(
+                "This experiment has too much exposure data to freeze instantly. "
+                "Freezing very large or long-running experiments isn't supported yet."
+            )
+
+        if len(response.results) > FREEZE_EXPOSURE_MAX_EXPOSED_USERS:
+            raise ValidationError(
+                f"This experiment has too many exposed users (over {FREEZE_EXPOSURE_MAX_EXPOSED_USERS:,}) "
+                "to freeze instantly. Freezing very large experiments isn't supported yet."
+            )
+
+        return [str(row[0]) for row in response.results]
+
+    def _create_exposure_snapshot_cohort(self, experiment: Experiment, person_uuids: list[str]) -> Cohort:
+        """Create a static cohort frozen to the given already-exposed persons (synchronous, no Celery).
+
+        Static is required — behavioral cohorts are rejected by feature-flag validation, and a static
+        snapshot is exactly what freezes enrollment.
+        """
+        cohort = Cohort.objects.create(
+            team=self.team,
+            name=f'Exposure snapshot for experiment "{experiment.name}"'[:400],
+            is_static=True,
+            created_by=self.user,
+        )
+        cohort.insert_users_list_by_uuid(person_uuids, team_id=self.team.id)
+        return cohort
 
     @staticmethod
-    def _transform_filters_for_closed_exposure(current_filters: dict, cohort_id: int) -> dict:
-        """AND a static-cohort condition into every release group and stamp the close marker.
+    def _transform_filters_for_frozen_exposure(current_filters: dict, cohort_id: int) -> dict:
+        """AND a static-cohort condition into every release group and stamp the freeze marker.
 
         AND (not a new group): groups are OR'd, so a separate group would *widen* access.
         AND (not replace): the original per-group ``properties``/``rollout_percentage`` are
-        preserved so a future reopen or manual revert strips back to exactly the original.
+        preserved so a future unfreeze or manual revert strips back to exactly the original.
         Everything else (``multivariate``, ``payloads``, aggregation index) is left byte-for-byte.
         """
         cohort_condition = {"key": "id", "type": "cohort", "value": cohort_id, "operator": "in"}
@@ -1758,8 +1843,8 @@ class ExperimentService:
             existing_description = group.get("description") or ""
             description = (
                 existing_description
-                if EXPOSURE_CLOSED_GROUP_MARKER in existing_description
-                else f"{existing_description} {EXPOSURE_CLOSED_GROUP_MARKER}".strip()
+                if EXPOSURE_FROZEN_GROUP_MARKER in existing_description
+                else f"{existing_description} {EXPOSURE_FROZEN_GROUP_MARKER}".strip()
             )
             new_groups.append(
                 {
@@ -1771,7 +1856,7 @@ class ExperimentService:
         new_filters["groups"] = new_groups
         return new_filters
 
-    def _report_experiment_exposure_closed(
+    def _report_experiment_exposure_frozen(
         self,
         experiment: Experiment,
         *,
@@ -1782,7 +1867,7 @@ class ExperimentService:
 
         report_user_action(
             self.user,
-            "experiment exposure closed",
+            "experiment exposure frozen",
             experiment.get_analytics_metadata(),
             team=experiment.team,
             request=request,
@@ -2852,26 +2937,29 @@ class ExperimentService:
                     status_enum = None
 
                 if status_enum and status_enum != ExperimentQueryStatus.ALL:
+                    # Exposure-frozen is derived from the marker freeze_exposure stamps on each flag
+                    # release group; cast the flag filters JSON to text so the same substring check
+                    # the model property uses (is_exposure_frozen) can run in the database.
+                    queryset = queryset.annotate(flag_filters_text=Cast("feature_flag__filters", TextField()))
+                    launched_unfinished = Q(status=Experiment.Status.RUNNING) | Q(
+                        status__isnull=True, start_date__isnull=False, end_date__isnull=True
+                    )
+                    exposure_frozen = Q(flag_filters_text__contains=EXPOSURE_FROZEN_GROUP_MARKER)
+
                     if status_enum == ExperimentQueryStatus.DRAFT:
                         queryset = queryset.filter(
                             Q(status=Experiment.Status.DRAFT) | Q(status__isnull=True, start_date__isnull=True)
                         )
                     elif status_enum == ExperimentQueryStatus.RUNNING:
                         queryset = queryset.filter(
-                            Q(feature_flag__active=True)
-                            & (
-                                Q(status=Experiment.Status.RUNNING)
-                                | Q(status__isnull=True, start_date__isnull=False, end_date__isnull=True)
-                            )
+                            Q(feature_flag__active=True) & launched_unfinished & ~exposure_frozen
                         )
                     elif status_enum == ExperimentQueryStatus.PAUSED:
                         queryset = queryset.filter(
-                            Q(feature_flag__active=False)
-                            & (
-                                Q(status=Experiment.Status.RUNNING)
-                                | Q(status__isnull=True, start_date__isnull=False, end_date__isnull=True)
-                            )
+                            Q(feature_flag__active=False) & launched_unfinished & ~exposure_frozen
                         )
+                    elif status_enum == ExperimentQueryStatus.EXPOSURE_FROZEN:
+                        queryset = queryset.filter(launched_unfinished & exposure_frozen)
                     elif status_enum == ExperimentQueryStatus.STOPPED:
                         queryset = queryset.filter(
                             Q(status=Experiment.Status.STOPPED) | Q(status__isnull=True, end_date__isnull=False)
@@ -3509,5 +3597,3 @@ class _ServiceRequest:
         self.META: dict = {}
         self.headers: dict = {}
         self.session: dict = {}
-        # CohortSerializer checks request.FILES for CSV uploads when creating static cohorts.
-        self.FILES: dict = {}

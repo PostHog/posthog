@@ -7,6 +7,7 @@ import {
     IconCopy,
     IconEye,
     IconFlask,
+    IconLock,
     IconPause,
     IconPlay,
     IconPlusSmall,
@@ -35,7 +36,13 @@ import { AccessControlLevel, AccessControlResourceType } from '~/types'
 
 import { CopyExperimentToProjectModal } from '../CopyExperimentToProjectModal'
 import { DuplicateExperimentModal } from '../DuplicateExperimentModal'
-import { canArchiveExperiment, confirmArchiveExperiment, confirmDeleteExperiment } from '../experimentActions'
+import {
+    canArchiveExperiment,
+    canFreezeExposure,
+    confirmArchiveExperiment,
+    confirmDeleteExperiment,
+    confirmFreezeExposure,
+} from '../experimentActions'
 import { experimentLogic } from '../experimentLogic'
 import { isExperimentPaused } from '../experimentsLogic'
 import { modalsLogic } from '../modalsLogic'
@@ -53,6 +60,7 @@ export function PageHeaderCustom(): JSX.Element {
         isCreatingExperimentDashboard,
         experimentLoading,
         launchExperimentLoading,
+        freezeExposureLoading,
     } = useValues(experimentLogic)
     const {
         launchExperiment,
@@ -62,6 +70,7 @@ export function PageHeaderCustom(): JSX.Element {
         createExperimentDashboard,
         updateExperiment,
         setHogfettiTrigger,
+        freezeExposure,
     } = useActions(experimentLogic)
     const { currentProjectId } = useValues(projectLogic)
     const { currentOrganization } = useValues(organizationLogic)
@@ -248,14 +257,28 @@ export function PageHeaderCustom(): JSX.Element {
                                             <IconPlay /> Resume experiment
                                         </ButtonPrimitive>
                                     ) : (
-                                        <ButtonPrimitive
-                                            variant="danger"
-                                            menuItem
-                                            data-attr="pause-experiment"
-                                            onClick={() => openPauseExperimentModal()}
-                                        >
-                                            <IconPause /> Pause experiment
-                                        </ButtonPrimitive>
+                                        <>
+                                            {canFreezeExposure(experiment) && (
+                                                <ButtonPrimitive
+                                                    menuItem
+                                                    data-attr="freeze-exposure"
+                                                    onClick={() => confirmFreezeExposure(freezeExposure)}
+                                                    disabledReasons={{
+                                                        'Freezing exposure...': freezeExposureLoading,
+                                                    }}
+                                                >
+                                                    <IconLock /> Freeze exposure
+                                                </ButtonPrimitive>
+                                            )}
+                                            <ButtonPrimitive
+                                                variant="danger"
+                                                menuItem
+                                                data-attr="pause-experiment"
+                                                onClick={() => openPauseExperimentModal()}
+                                            >
+                                                <IconPause /> Pause experiment
+                                            </ButtonPrimitive>
+                                        </>
                                     ))}
 
                                 <ResetButton />

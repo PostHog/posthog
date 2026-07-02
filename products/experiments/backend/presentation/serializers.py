@@ -206,7 +206,7 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
         help_text=(
             "Experiment lifecycle state: 'draft' (not yet launched), 'running' (launched with active feature "
             "flag), 'paused' (running with feature flag deactivated — virtual state derived from "
-            "feature_flag.active, not stored), 'exposure_closed' (running with enrollment frozen to the "
+            "feature_flag.active, not stored), 'exposure_frozen' (running with enrollment frozen to the "
             "already-exposed cohort while metrics keep flowing — virtual state derived from the flag's "
             "release groups, not stored), 'stopped' (ended)."
         ),
@@ -219,7 +219,7 @@ class ExperimentBaseSerializer(UserAccessControlSerializerMixin, serializers.Mod
         ),
     )
 
-    @extend_schema_field({"type": "string", "enum": ["draft", "running", "paused", "exposure_closed", "stopped"]})
+    @extend_schema_field({"type": "string", "enum": ["draft", "running", "paused", "exposure_frozen", "stopped"]})
     def get_status(self, instance: Experiment) -> str:
         return instance.status_label
 

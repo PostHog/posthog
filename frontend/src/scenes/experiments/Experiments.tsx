@@ -144,6 +144,7 @@ const ExperimentsTableFilters = ({
                                 { label: 'Draft', value: ExperimentStatus.Draft },
                                 { label: 'Running', value: ExperimentStatus.Running },
                                 { label: 'Paused', value: ExperimentStatus.Paused },
+                                { label: 'Measuring', value: ExperimentStatus.ExposureFrozen },
                                 { label: 'Complete', value: ExperimentStatus.Stopped },
                             ] as { label: string; value: string }[]
                         }
@@ -332,7 +333,7 @@ const ExperimentsTable = ({
                     [ExperimentStatus.Draft]: 1,
                     [ExperimentStatus.Running]: 2,
                     [ExperimentStatus.Paused]: 3,
-                    [ExperimentStatus.ExposureClosed]: 4,
+                    [ExperimentStatus.ExposureFrozen]: 4,
                     [ExperimentStatus.Stopped]: 5,
                 }
                 return score[statusA] > score[statusB] ? 1 : -1

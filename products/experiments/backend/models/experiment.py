@@ -17,8 +17,9 @@ if TYPE_CHECKING:
 
 
 # Marker stamped on each feature-flag release group's `description` when an experiment's exposure is
-# closed. Closed-exposure state is derived from this marker, not stored on the experiment.
-EXPOSURE_CLOSED_GROUP_MARKER = "Added automatically when the experiment exposure was closed."
+# frozen. Frozen-exposure state is derived from this marker, not stored on the experiment — the same
+# spirit as is_paused being derived from feature_flag.active rather than persisted.
+EXPOSURE_FROZEN_GROUP_MARKER = "Added automatically when the experiment exposure was frozen to stop new enrollment."
 
 
 class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.Model):
@@ -149,14 +150,14 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
         return self.is_running and self.feature_flag_id is not None and not self.feature_flag.active
 
     @property
-    def is_exposure_closed(self) -> bool:
-        # Closed exposure is not stored on the experiment — it is the running state with the linked flag's
+    def is_exposure_frozen(self) -> bool:
+        # Frozen exposure is not stored on the experiment — it is the running state with the linked flag's
         # release groups narrowed to a static snapshot of the already-exposed cohort. We detect it from the
         # marker stamped on each group's description when the cohort condition was AND'd in.
         if not self.is_running or self.feature_flag_id is None:
             return False
         groups = (self.feature_flag.filters or {}).get("groups", [])
-        return any(EXPOSURE_CLOSED_GROUP_MARKER in (group.get("description") or "") for group in groups)
+        return any(EXPOSURE_FROZEN_GROUP_MARKER in (group.get("description") or "") for group in groups)
 
     @property
     def computed_status(self) -> "Experiment.Status":
@@ -168,10 +169,10 @@ class Experiment(FileSystemSyncMixin, ModelActivityMixin, RootTeamMixin, models.
 
     @property
     def status_label(self) -> str:
-        """Public status string (draft/running/paused/exposure_closed/stopped) — single source for the API
+        """Public status string (draft/running/paused/exposure_frozen/stopped) — single source for the API
         serializer and dashboard widgets."""
-        if self.is_exposure_closed:
-            return "exposure_closed"
+        if self.is_exposure_frozen:
+            return "exposure_frozen"
         if self.is_paused:
             return "paused"
         return self.status or self.computed_status.value

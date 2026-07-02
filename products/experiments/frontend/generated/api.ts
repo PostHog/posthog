@@ -426,38 +426,6 @@ export const experimentsArchiveCreate = async (
     })
 }
 
-export const getExperimentsCloseExposureCreateUrl = (projectId: string, id: number) => {
-    return `/api/projects/${projectId}/experiments/${id}/close_exposure/`
-}
-
-/**
- * Close enrollment on a running experiment while keeping metrics flowing.
- *
- * Snapshots the already-exposed users into a static cohort and narrows the
- * linked feature flag so only those users keep matching — new users can no
- * longer enter the experiment. ``end_date`` is left null so long-term metrics
- * (revenue/LTV/renewals/retention) keep accumulating. Enrolled users keep
- * their assigned variant.
- *
- * If an approval policy requires review before changes on the flag take effect,
- * the API returns 409 with a change_request_id and the experiment/flag are left
- * unchanged.
- *
- * Returns 400 if the experiment is not running, exposure is already closed, or
- * the experiment is group-aggregated (group flags cannot be frozen with a person
- * cohort).
- */
-export const experimentsCloseExposureCreate = async (
-    projectId: string,
-    id: number,
-    options?: RequestInit
-): Promise<ExperimentApi> => {
-    return apiMutator<ExperimentApi>(getExperimentsCloseExposureCreateUrl(projectId, id), {
-        ...options,
-        method: 'POST',
-    })
-}
-
 export const getExperimentsCopyToProjectCreateUrl = (projectId: string, id: number) => {
     return `/api/projects/${projectId}/experiments/${id}/copy_to_project/`
 }
@@ -568,6 +536,34 @@ export const experimentsEndCreate = async (
         method: 'POST',
         headers: { 'Content-Type': 'application/json', ...options?.headers },
         body: JSON.stringify(endExperimentApi),
+    })
+}
+
+export const getExperimentsFreezeExposureCreateUrl = (projectId: string, id: number) => {
+    return `/api/projects/${projectId}/experiments/${id}/freeze_exposure/`
+}
+
+/**
+ * Freeze exposure on a running experiment while metrics keep flowing.
+ *
+ * Snapshots the already-exposed users into a static cohort and narrows the
+ * linked feature flag so only those users keep matching — new users can no
+ * longer enter the experiment. ``end_date`` is left null so long-term metrics
+ * (revenue/LTV/renewals/retention) keep accumulating. Enrolled users keep
+ * their assigned variant. The serialized status becomes 'exposure_frozen'.
+ *
+ * Returns 400 if the experiment is not running, exposure is already frozen,
+ * the experiment is group-aggregated (group flags cannot be frozen with a
+ * person cohort), or the exposed set is too large to snapshot synchronously.
+ */
+export const experimentsFreezeExposureCreate = async (
+    projectId: string,
+    id: number,
+    options?: RequestInit
+): Promise<ExperimentApi> => {
+    return apiMutator<ExperimentApi>(getExperimentsFreezeExposureCreateUrl(projectId, id), {
+        ...options,
+        method: 'POST',
     })
 }
 

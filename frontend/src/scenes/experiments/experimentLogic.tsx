@@ -714,8 +714,8 @@ export const experimentLogic = kea<experimentLogicType>([
         }) => ({ selectedVariantKey, releaseToEveryone }),
         pauseExperiment: true,
         resumeExperiment: true,
-        closeExposure: true,
-        setCloseExposureLoading: (loading: boolean) => ({ loading }),
+        freezeExposure: true,
+        setFreezeExposureLoading: (loading: boolean) => ({ loading }),
         archiveExperiment: (disableFeatureFlag: boolean = false) => ({ disableFeatureFlag }),
         unarchiveExperiment: true,
         resetRunningExperiment: true,
@@ -1276,10 +1276,10 @@ export const experimentLogic = kea<experimentLogicType>([
                 setEndExperimentLoading: (_, { loading }) => loading,
             },
         ],
-        closeExposureLoading: [
+        freezeExposureLoading: [
             false,
             {
-                setCloseExposureLoading: (_, { loading }) => loading,
+                setFreezeExposureLoading: (_, { loading }) => loading,
             },
         ],
         hogfettiTrigger: [
@@ -1569,19 +1569,22 @@ export const experimentLogic = kea<experimentLogicType>([
                 lemonToast.error(error.detail || 'Failed to resume experiment')
             }
         },
-        closeExposure: async () => {
-            actions.setCloseExposureLoading(true)
+        freezeExposure: async () => {
+            if (values.freezeExposureLoading) {
+                return
+            }
+            actions.setFreezeExposureLoading(true)
             try {
                 const response: Experiment = await api.create(
-                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/close_exposure`
+                    `/api/projects/${values.currentProjectId}/experiments/${values.experimentId}/freeze_exposure`
                 )
                 actions.setExperiment(response)
                 refreshTreeItem('experiment', String(values.experimentId))
-                lemonToast.success('Exposure closed — enrollment is frozen and metrics keep collecting')
+                lemonToast.success('Exposure frozen — enrolled users keep their variant and metrics keep updating')
             } catch (error: any) {
-                lemonToast.error(error.detail || 'Failed to close exposure')
+                lemonToast.error(error.detail || 'Failed to freeze exposure')
             } finally {
-                actions.setCloseExposureLoading(false)
+                actions.setFreezeExposureLoading(false)
             }
         },
         archiveExperiment: async ({ disableFeatureFlag }) => {

@@ -95,6 +95,10 @@ export function isExperimentPaused(experiment: ExperimentStatusInput): boolean {
     return getExperimentStatus(experiment) === ExperimentStatus.Paused
 }
 
+export function isExperimentExposureFrozen(experiment: ExperimentStatusInput): boolean {
+    return getExperimentStatus(experiment) === ExperimentStatus.ExposureFrozen
+}
+
 export function isLaunched(experiment: ExperimentStatusInput): boolean {
     return getExperimentStatus(experiment) !== ExperimentStatus.Draft
 }
@@ -135,7 +139,7 @@ export function getExperimentStatusLabel(status: ExperimentStatus): string {
             return 'Running'
         case ExperimentStatus.Paused:
             return 'Paused'
-        case ExperimentStatus.ExposureClosed:
+        case ExperimentStatus.ExposureFrozen:
             return 'Measuring'
         case ExperimentStatus.Stopped:
             return 'Complete'
@@ -150,7 +154,7 @@ export function getExperimentStatusColor(status: ExperimentStatus): LemonTagType
             return 'success'
         case ExperimentStatus.Paused:
             return 'warning'
-        case ExperimentStatus.ExposureClosed:
+        case ExperimentStatus.ExposureFrozen:
             return 'highlight'
         case ExperimentStatus.Stopped:
             return 'completion'

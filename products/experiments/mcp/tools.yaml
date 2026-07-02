@@ -1004,9 +1004,6 @@ tools:
                 - saved_metrics
                 - conclusion
                 - conclusion_comment
-    experiments-close-exposure-create:
-        operation: experiments_close_exposure_create
-        enabled: false
     experiments-create-exposure-cohort:
         operation: experiments_create_exposure_cohort_for_experiment_create
         enabled: false
@@ -1015,6 +1012,9 @@ tools:
         enabled: false
     experiments-eligible-feature-flags:
         operation: experiments_eligible_feature_flags_retrieve
+        enabled: false
+    experiments-freeze-exposure-create:
+        operation: experiments_freeze_exposure_create
         enabled: false
     experiments-metrics-recalculation-create:
         operation: experiments_metrics_recalculation_create
