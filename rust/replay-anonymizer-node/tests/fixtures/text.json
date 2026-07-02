@@ -58,5 +58,17 @@
     "allow": { "text": ["foo", "bar"], "url": [] },
     "input": "foo@bar",
     "expected": "foo@bar"
+  },
+  {
+    "name": "multiple emails in one string are each redacted",
+    "allow": { "text": ["email", "or", "please"], "url": [] },
+    "input": "email a@b.com or c@d.org please",
+    "expected": "email ******* or ******* please"
+  },
+  {
+    "name": "email with a multi-label domain redacts through the whole domain",
+    "allow": { "text": ["mail", "end"], "url": [] },
+    "input": "mail x@a.b.co.uk end",
+    "expected": "mail *********** end"
   }
 ]

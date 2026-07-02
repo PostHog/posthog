@@ -203,3 +203,28 @@ fn scrub_text_field(allow: &AllowLists, obj: &mut Object, key: &str) -> bool {
         None => false,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn message_scrubs_every_window() {
+        let allow = AllowLists::new(["hello", "here"], Vec::<String>::new());
+        let mut json = br#"{"w1":[{"type":3,"data":{"source":5,"id":1,"text":"hello secret","isChecked":false}}],"w2":[{"type":3,"data":{"source":5,"id":2,"text":"world here","isChecked":false}}]}"#.to_vec();
+        let out = anonymize_message(&allow, &mut json)
+            .unwrap()
+            .expect("something changed");
+        let v: serde_json::Value = serde_json::from_str(&out).unwrap();
+        assert_eq!(v["w1"][0]["data"]["text"], "hello ******");
+        assert_eq!(v["w2"][0]["data"]["text"], "***** here");
+    }
+
+    #[test]
+    fn unchanged_message_returns_none() {
+        let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+        // A Load event (type 1) is pass-through; the caller keeps its original parse.
+        let mut json = br#"{"w1":[{"type":1,"data":{}}]}"#.to_vec();
+        assert!(anonymize_message(&allow, &mut json).unwrap().is_none());
+    }
+}

@@ -53,19 +53,7 @@ impl<'a> Ctx<'a> {
 #[cfg(test)]
 mod tests {
     use super::*;
-    use base64::Engine;
-
-    fn png_data_uri(w: u32, h: u32, color: [u8; 4]) -> String {
-        let img =
-            image::DynamicImage::ImageRgba8(image::RgbaImage::from_pixel(w, h, image::Rgba(color)));
-        let mut buf = Vec::new();
-        img.write_to(&mut std::io::Cursor::new(&mut buf), image::ImageFormat::Png)
-            .unwrap();
-        format!(
-            "data:image/png;base64,{}",
-            base64::engine::general_purpose::STANDARD.encode(&buf)
-        )
-    }
+    use crate::testkit::png_data_uri;
 
     #[test]
     fn blur_memo_is_stable_and_keyed_per_image() {

@@ -40,5 +40,40 @@
     "input": "https://example.com/u/42",
     "scrubAuthority": true,
     "expected": "https://example.com/[redacted]/$$"
+  },
+  {
+    "name": "query param with an allow-listed key and empty value survives",
+    "allow": { "text": [], "url": ["ok"] },
+    "input": "https://example.com/?ok=&x=1",
+    "scrubAuthority": false,
+    "expected": "https://example.com/?ok="
+  },
+  {
+    "name": "bare (valueless) query flag survives only when allow-listed",
+    "allow": { "text": [], "url": ["ok"] },
+    "input": "https://example.com/?ok&drop",
+    "scrubAuthority": false,
+    "expected": "https://example.com/?ok"
+  },
+  {
+    "name": "numeric fragment is dropped",
+    "allow": { "text": [], "url": [] },
+    "input": "https://example.com/#42",
+    "scrubAuthority": false,
+    "expected": "https://example.com/"
+  },
+  {
+    "name": "relative-path safe segments (. and ..) are preserved",
+    "allow": { "text": [], "url": [] },
+    "input": "/a/../b",
+    "scrubAuthority": false,
+    "expected": "/[redacted]/../[redacted]"
+  },
+  {
+    "name": "multiple surviving query params keep their order",
+    "allow": { "text": [], "url": ["a", "b", "x", "y"] },
+    "input": "https://example.com/?a=x&b=y",
+    "scrubAuthority": false,
+    "expected": "https://example.com/?a=x&b=y"
   }
 ]

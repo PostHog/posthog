@@ -275,3 +275,53 @@ fn is_url_attr(name: &str) -> bool {
             | "longdesc"
     )
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::allow_lists::AllowLists;
+    use crate::context::Ctx;
+    use crate::testkit::png_data_uri;
+    use simd_json::prelude::Writable;
+
+    fn scrub_snapshot(data_json: &str) -> serde_json::Value {
+        let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+        let ctx = Ctx::new(&allow);
+        let mut bytes = data_json.as_bytes().to_vec();
+        let mut data = simd_json::to_owned_value(&mut bytes).unwrap();
+        scrub_full_snapshot(&ctx, &mut data);
+        serde_json::from_str(&data.encode()).unwrap()
+    }
+
+    #[test]
+    fn inline_rr_dataurl_image_is_neutralized() {
+        let uri = png_data_uri(8, 8, [10, 10, 200, 255]);
+        let data = format!(
+            r#"{{"node":{{"type":0,"childNodes":[{{"type":2,"tagName":"div","attributes":{{"rr_dataURL":"{uri}"}},"childNodes":[]}}]}},"initialOffset":{{"top":0,"left":0}}}}"#
+        );
+        let out = scrub_snapshot(&data);
+        let v = out["node"]["childNodes"][0]["attributes"]["rr_dataURL"]
+            .as_str()
+            .unwrap();
+        assert!(v.starts_with("data:image/"), "still an image: {v}");
+        assert_ne!(v, uri, "raw inline image must not pass through");
+    }
+
+    #[test]
+    fn css_data_image_background_is_neutralized() {
+        let uri = png_data_uri(8, 8, [200, 200, 10, 255]);
+        let style = serde_json::to_string(&format!("background:url({uri})")).unwrap();
+        let data = format!(
+            r#"{{"node":{{"type":0,"childNodes":[{{"type":2,"tagName":"div","attributes":{{"style":{style}}},"childNodes":[]}}]}},"initialOffset":{{"top":0,"left":0}}}}"#
+        );
+        let out = scrub_snapshot(&data);
+        let scrubbed = out["node"]["childNodes"][0]["attributes"]["style"]
+            .as_str()
+            .unwrap();
+        assert!(!scrubbed.contains(&uri), "the original image must be gone");
+        assert!(
+            scrubbed.contains("url(data:image/png"),
+            "replaced with a data image: {scrubbed}"
+        );
+    }
+}

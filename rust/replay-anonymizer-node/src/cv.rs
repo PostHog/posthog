@@ -203,4 +203,114 @@ mod tests {
         assert!(!data.contains_key("attributes"));
         assert!(!data.contains_key("adds"));
     }
+
+    fn parse(json: &[u8]) -> OwnedValue {
+        simd_json::to_owned_value(&mut json.to_vec()).unwrap()
+    }
+
+    fn event_with_data(data: Object) -> Object {
+        let mut event = Object::default();
+        event.insert("data".to_string(), OwnedValue::Object(Box::new(data)));
+        event
+    }
+
+    #[test]
+    fn compressed_full_snapshot_round_trips_and_scrubs() {
+        let allow = AllowLists::new(["keep"], Vec::<String>::new());
+        let ctx = Ctx::new(&allow);
+        let payload = parse(
+            br#"{"node":{"type":0,"childNodes":[{"type":3,"textContent":"keep secret"}]},"initialOffset":{"top":0,"left":0}}"#,
+        );
+        let mut event = Object::default();
+        event.insert(
+            "data".to_string(),
+            OwnedValue::String(compress_to_string(&payload).unwrap()),
+        );
+
+        assert!(scrub_compressed_full_snapshot(&ctx, &mut event).unwrap());
+
+        let out_gz = as_str(event.get("data").unwrap()).unwrap();
+        let decoded = decompress_string(out_gz).unwrap();
+        let node = as_object(as_object(&decoded).unwrap().get("node").unwrap()).unwrap();
+        let child = &as_array(node.get("childNodes").unwrap()).unwrap()[0];
+        let text = as_str(as_object(child).unwrap().get("textContent").unwrap()).unwrap();
+        assert_eq!(text, "keep ******");
+    }
+
+    #[test]
+    fn compressed_mutation_handles_a_plain_array_subfield() {
+        let allow = AllowLists::new(["keep"], Vec::<String>::new());
+        let ctx = Ctx::new(&allow);
+        let mut data = Object::default();
+        data.insert("source".to_string(), OwnedValue::Static(StaticNode::U64(0)));
+        // Sub-field arrives as a plain array (not gzipped) — scrub in place, keep it an array.
+        data.insert(
+            "texts".to_string(),
+            parse(br#"[{"id":5,"value":"keep secret"}]"#),
+        );
+        let mut event = event_with_data(data);
+
+        assert!(scrub_compressed_mutation(&ctx, &mut event).unwrap());
+
+        let data = as_object(event.get("data").unwrap()).unwrap();
+        let texts = data.get("texts").unwrap();
+        assert!(matches!(texts, OwnedValue::Array(_)), "stays a plain array");
+        let value = as_str(
+            as_object(&as_array(texts).unwrap()[0])
+                .unwrap()
+                .get("value")
+                .unwrap(),
+        )
+        .unwrap();
+        assert_eq!(value, "keep ******");
+    }
+
+    #[test]
+    fn compressed_mutation_restores_null_and_empty_subfields() {
+        let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+        let ctx = Ctx::new(&allow);
+        let mut data = Object::default();
+        data.insert("source".to_string(), OwnedValue::Static(StaticNode::U64(0)));
+        data.insert("texts".to_string(), OwnedValue::Static(StaticNode::Null));
+        data.insert("attributes".to_string(), OwnedValue::String(String::new()));
+        let mut event = event_with_data(data);
+
+        scrub_compressed_mutation(&ctx, &mut event).unwrap();
+
+        let data = as_object(event.get("data").unwrap()).unwrap();
+        assert!(matches!(
+            data.get("texts"),
+            Some(OwnedValue::Static(StaticNode::Null))
+        ));
+        assert_eq!(as_str(data.get("attributes").unwrap()).unwrap(), "");
+    }
+
+    #[test]
+    fn compressed_mutation_fails_closed_on_non_array_subfield() {
+        let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+        let ctx = Ctx::new(&allow);
+        let mut data = Object::default();
+        data.insert("source".to_string(), OwnedValue::Static(StaticNode::U64(0)));
+        data.insert(
+            "texts".to_string(),
+            OwnedValue::String(compress_to_string(&parse(br#"{"a":1}"#)).unwrap()),
+        );
+        let mut event = event_with_data(data);
+        assert!(scrub_compressed_mutation(&ctx, &mut event).is_err());
+    }
+
+    #[test]
+    fn compressed_mutation_fails_closed_on_non_latin1_stream() {
+        let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+        let ctx = Ctx::new(&allow);
+        let mut data = Object::default();
+        data.insert("source".to_string(), OwnedValue::Static(StaticNode::U64(0)));
+        // A codepoint > 0xFF can't be a latin-1 gzip byte — must fail closed, not silently pass.
+        data.insert(
+            "texts".to_string(),
+            OwnedValue::String("\u{100}bad".to_string()),
+        );
+        let mut event = event_with_data(data);
+        assert!(scrub_compressed_mutation(&ctx, &mut event).is_err());
+    }
 }

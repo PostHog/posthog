@@ -374,3 +374,90 @@ fn blank_array_buffers(node: &mut OwnedValue) -> bool {
         _ => false,
     }
 }
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+    use crate::allow_lists::AllowLists;
+    use crate::context::Ctx;
+    use crate::testkit::{png_base64, png_data_uri, rgba_base64};
+    use base64::Engine;
+    use simd_json::prelude::Writable;
+
+    // Scrub a CanvasMutation `data` JSON string and return the result as a serde_json Value.
+    fn scrub(data_json: &str) -> serde_json::Value {
+        let allow = AllowLists::new(Vec::<String>::new(), Vec::<String>::new());
+        let ctx = Ctx::new(&allow);
+        let mut bytes = data_json.as_bytes().to_vec();
+        let mut data = simd_json::to_owned_value(&mut bytes).unwrap();
+        scrub_canvas_mutation(&ctx, &mut data);
+        serde_json::from_str(&data.encode()).unwrap()
+    }
+
+    fn decode(b64: &str) -> Vec<u8> {
+        b64_engine().decode(b64).unwrap()
+    }
+    fn b64_engine() -> base64::engine::general_purpose::GeneralPurpose {
+        base64::engine::general_purpose::STANDARD
+    }
+
+    #[test]
+    fn image_element_data_uri_src_is_neutralized() {
+        let uri = png_data_uri(8, 8, [200, 10, 10, 255]);
+        let out = scrub(&format!(
+            r#"{{"source":9,"id":1,"type":0,"commands":[{{"property":"drawImage","args":[{{"rr_type":"HTMLImageElement","src":"{uri}"}}]}}]}}"#
+        ));
+        let src = out["commands"][0]["args"][0]["src"].as_str().unwrap();
+        assert!(src.starts_with("data:image/"), "still an image: {src}");
+        assert_ne!(src, uri, "raw image must not pass through");
+    }
+
+    #[test]
+    fn blob_image_bytes_are_neutralized() {
+        let b64 = png_base64(8, 8, [10, 200, 10, 255]);
+        let out = scrub(&format!(
+            r#"{{"source":9,"id":1,"type":0,"commands":[{{"property":"drawImage","args":[{{"rr_type":"Blob","type":"image/png","data":[{{"rr_type":"ArrayBuffer","base64":"{b64}"}}]}}]}}]}}"#
+        ));
+        let new_b64 = out["commands"][0]["args"][0]["data"][0]["base64"]
+            .as_str()
+            .unwrap();
+        assert_ne!(new_b64, b64, "raw blob bytes must not pass through");
+    }
+
+    #[test]
+    fn image_data_raw_pixels_are_pixelated_preserving_length() {
+        let (w, h) = (8u32, 8u32);
+        let rgba = rgba_base64(w, h);
+        let out = scrub(&format!(
+            r#"{{"source":9,"id":1,"type":0,"commands":[{{"property":"putImageData","args":[{{"rr_type":"ImageData","args":[{{"rr_type":"ArrayBuffer","base64":"{rgba}"}},{w},{h}]}}]}}]}}"#
+        ));
+        let new_b64 = out["commands"][0]["args"][0]["args"][0]["base64"]
+            .as_str()
+            .unwrap();
+        assert_ne!(new_b64, rgba, "raw pixels must not pass through");
+        assert_eq!(
+            decode(new_b64).len(),
+            (w * h * 4) as usize,
+            "byte length preserved"
+        );
+    }
+
+    #[test]
+    fn malformed_image_data_blanks_the_array_buffer() {
+        // 4x4 buffer (64 bytes) but claims 8x8 (256 expected) → the raw-pixel path bails and the
+        // fail-safe zeroes every nested ArrayBuffer rather than shipping the pixels.
+        let rgba = rgba_base64(4, 4);
+        let out = scrub(&format!(
+            r#"{{"source":9,"id":1,"type":0,"commands":[{{"property":"putImageData","args":[{{"rr_type":"ImageData","args":[{{"rr_type":"ArrayBuffer","base64":"{rgba}"}},8,8]}}]}}]}}"#
+        ));
+        let new_b64 = out["commands"][0]["args"][0]["args"][0]["base64"]
+            .as_str()
+            .unwrap();
+        let bytes = decode(new_b64);
+        assert_eq!(bytes.len(), decode(&rgba).len(), "byte length preserved");
+        assert!(
+            bytes.iter().all(|&b| b == 0),
+            "unhandled shape must be blanked"
+        );
+    }
+}
