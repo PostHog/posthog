@@ -26,17 +26,17 @@ function getThreadItemKey(item: ThreadItem): string {
  * magnitude matters: a collapsed tool card is ~2 lines, a markdown message is a paragraph or more.
  */
 const THREAD_ITEM_HEIGHT_ESTIMATES: Partial<Record<ThreadItem['type'], number>> = {
-    human_message: 76,
-    assistant_message: 140,
-    assistant_thought: 28,
-    tool_invocation: 44,
+    human_message: 160,
+    assistant_message: 46,
+    assistant_thought: 26,
+    tool_invocation: 42,
     turn_separator: 24,
-    error: 48,
-    status: 32,
-    compact_boundary: 32,
-    task_notification: 40,
-    progress: 44,
-    debug: 32,
+    error: 42,
+    status: 42,
+    compact_boundary: 42,
+    task_notification: 26,
+    progress: 42,
+    debug: 30,
 }
 
 function estimateThreadItemHeight(item: ThreadItem): number {
