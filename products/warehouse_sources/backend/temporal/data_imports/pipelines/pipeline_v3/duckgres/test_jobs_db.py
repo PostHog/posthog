@@ -827,6 +827,24 @@ class TestDuckgresGroupLease:
         assert [str(b.id) for b in batches] == [other]
 
     @pytest.mark.asyncio
+    async def test_other_owners_leased_group_cannot_flood_the_candidate_limit(self, conn):
+        # Another pod's live-leased backfill can expose momentarily eligible
+        # chunks; they must be filtered BEFORE the candidate LIMIT or a small
+        # poll window fills with unclaimable rows and returns no work while
+        # other schemas wait.
+        for i in range(3):
+            await _insert_chunk(conn, batch_index=i)
+        claimed = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-b")
+        assert len(claimed) == 3  # owner-b holds the group's lease; chunks stay statusless
+
+        live = await _insert_batch(conn, schema_id="schema-2")
+        await BatchQueue.update_status(conn, batch_id=live, job_state="succeeded", attempt=1)
+
+        batches = await DuckgresBatchQueue.get_delta_succeeded_and_lock(conn, owner_token="owner-a", limit=3)
+
+        assert [str(b.id) for b in batches] == [live]
+
+    @pytest.mark.asyncio
     async def test_expired_lease_is_reclaimable_by_another_owner(self, conn):
         batch_id = await _insert_batch(conn)
         await BatchQueue.update_status(conn, batch_id=batch_id, job_state="succeeded", attempt=1)

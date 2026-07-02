@@ -251,6 +251,17 @@ class DuckgresBatchQueue:
                                 SELECT * FROM unnest(%(exclude_team_ids)s::bigint[], %(exclude_schema_ids)s::varchar[])
                             )
                         )
+                        -- Groups live-leased by ANOTHER pod are unclaimable; filter
+                        -- them BEFORE the candidate LIMIT or one large leased
+                        -- backfill's momentarily-eligible chunks can fill the whole
+                        -- window and return no work while other schemas wait.
+                        AND NOT EXISTS (
+                            SELECT 1 FROM {DUCKGRES_LEASE_TABLE} bl
+                            WHERE bl.team_id = b.team_id
+                                AND bl.schema_id = b.schema_id
+                                AND bl.expires_at > now()
+                                AND bl.owner_token <> %(owner)s
+                        )
                         AND NOT {BLOCKED_LIVE_BATCH_CONDITION}
                         AND ds.job_state = 'succeeded'
                         AND (
@@ -361,17 +372,12 @@ class DuckgresBatchQueue:
                     -- work first): leasing a group this pod cannot start would
                     -- block other pods from it — every subsequent poll renews
                     -- the same owner's lease — for as long as this pod stays
-                    -- saturated. NULL = no cap (tests/dev). Groups live-leased
-                    -- by another owner are filtered BEFORE the cap so the
-                    -- budget is spent on groups this pod can actually claim;
-                    -- the claim CTE below stays the authoritative arbiter.
+                    -- saturated. NULL = no cap (tests/dev). Other-owner live
+                    -- leases are already filtered out of candidates above, so
+                    -- the budget is spent on claimable groups; the claim CTE
+                    -- below stays the authoritative arbiter.
                     SELECT c.team_id, c.schema_id
                     FROM candidates c
-                    LEFT JOIN {DUCKGRES_LEASE_TABLE} cl
-                        ON cl.team_id = c.team_id AND cl.schema_id = c.schema_id
-                    WHERE cl.team_id IS NULL
-                        OR cl.expires_at < now()
-                        OR cl.owner_token = %(owner)s
                     GROUP BY c.team_id, c.schema_id
                     ORDER BY min(c.created_at) ASC, c.team_id ASC, c.schema_id ASC
                     LIMIT COALESCE(%(max_groups)s, 2147483647)
