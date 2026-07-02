@@ -53,7 +53,7 @@ class TestParsePermissionRequest(SimpleTestCase):
                 {"kind": "allow_once", "name": "Yes", "optionId": "allow"},
                 {"kind": "reject_once", "name": "No", "optionId": "reject"},
             ],
-            "toolCall": {"rawInput": {"toolName": "Bash", "command": "ls"}},
+            "toolCall": {"_meta": {"claudeCode": {"toolName": "Bash"}}, "rawInput": {"command": "ls"}},
         }
         notification = {
             "type": "notification",
@@ -67,7 +67,7 @@ class TestParsePermissionRequest(SimpleTestCase):
             parsed = parse_permission_request(event)
             assert parsed is not None
             assert parsed["request_id"] == "perm-1"
-            assert parsed["tool_call"]["rawInput"]["toolName"] == "Bash"
+            assert parsed["tool_name"] == "Bash"
             assert [option["optionId"] for option in parsed["options"]] == ["allow", "reject"]
 
     def test_rejects_non_permission_events(self) -> None:
@@ -100,18 +100,24 @@ class TestTryAutoRespondPermissionRequest(APIBaseTest):
         self.task_run.save(update_fields=["state"])
 
     def _permission_request(self, *, tool_name: str = "Bash", command: str | None = None) -> dict:
-        return {
-            "request_id": "perm-1",
-            "tool_call": {
-                "title": "Run tool",
-                "rawInput": {"toolName": tool_name, **({"command": command} if command is not None else {})},
-            },
-            "options": [
-                {"optionId": "allow", "kind": "allow_once", "name": "Yes"},
-                {"optionId": "always", "kind": "allow_always", "name": "Always"},
-                {"optionId": "reject", "kind": "reject_once", "name": "No"},
-            ],
-        }
+        parsed = parse_permission_request(
+            {
+                "type": "permission_request",
+                "requestId": "perm-1",
+                "toolCall": {
+                    "title": "Run tool",
+                    "_meta": {"claudeCode": {"toolName": tool_name}},
+                    "rawInput": {"command": command} if command is not None else {},
+                },
+                "options": [
+                    {"optionId": "allow", "kind": "allow_once", "name": "Yes"},
+                    {"optionId": "always", "kind": "allow_always", "name": "Always"},
+                    {"optionId": "reject", "kind": "reject_once", "name": "No"},
+                ],
+            }
+        )
+        assert parsed is not None
+        return parsed
 
     def _auto_respond(self, permission_request: dict, *, send_success: bool = True) -> tuple[bool, MagicMock]:
         with (

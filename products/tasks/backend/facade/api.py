@@ -185,6 +185,7 @@ __all__ = [
     "relay_task_run_message",
     "reset_code_workflow_bindings",
     "resolve_slack_thread_context",
+    "respond_to_permission_request",
     "resume_task_run_in_cloud",
     "run_task",
     "run_task_automation_now",
@@ -4702,3 +4703,33 @@ def forward_thread_message(
         message.forwarded_run = run
         message.save(update_fields=["forwarded_to_agent_at", "forwarded_by", "forwarded_run"])
     return "ok", _thread_message_to_dto(message)
+
+
+def respond_to_permission_request(
+    run_id: str | UUID,
+    task_id: str | UUID,
+    team_id: int,
+    *,
+    request_id: str,
+    option_id: str,
+) -> contracts.PermissionResponseResult:
+    """Deliver a human permission decision (from an origin surface like a Slack approval
+    card) to a run's sandbox agent, authenticated as the task creator."""
+    from products.tasks.backend.logic.services.permission_broker import (  # noqa: PLC0415 — keep sandbox deps off the api import path
+        send_permission_response,
+    )
+
+    run = (
+        TaskRun.objects.select_related("task", "task__created_by")
+        .filter(id=run_id, task_id=task_id, team_id=team_id)
+        .first()
+    )
+    if run is None:
+        return contracts.PermissionResponseResult(outcome="not_found")
+    if run.is_terminal:
+        return contracts.PermissionResponseResult(outcome="terminal", run_status=run.status)
+
+    result = send_permission_response(run, request_id=request_id, option_id=option_id)
+    if not result.success:
+        return contracts.PermissionResponseResult(outcome="failed", status_code=result.status_code, error=result.error)
+    return contracts.PermissionResponseResult(outcome="sent")

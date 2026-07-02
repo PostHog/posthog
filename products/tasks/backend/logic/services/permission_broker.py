@@ -20,7 +20,7 @@ from django.core.cache import cache
 
 import structlog
 
-from products.tasks.backend.logic.services.agent_command import send_agent_command
+from products.tasks.backend.logic.services.agent_command import CommandResult, send_agent_command
 from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
 
 if TYPE_CHECKING:
@@ -156,7 +156,13 @@ def _tool_call_raw_input(tool_call: dict[str, Any]) -> dict[str, Any]:
 
 
 def _tool_call_name(tool_call: dict[str, Any]) -> str | None:
-    tool_name = _tool_call_raw_input(tool_call).get("toolName")
+    # The wire puts the bare tool name ("Bash", "Read") on _meta.claudeCode.toolName;
+    # the top-level field is the fallback. rawInput carries only the tool's input args.
+    meta = tool_call.get("_meta")
+    claude_code = meta.get("claudeCode") if isinstance(meta, dict) else None
+    tool_name = claude_code.get("toolName") if isinstance(claude_code, dict) else None
+    if not isinstance(tool_name, str) or not tool_name:
+        tool_name = tool_call.get("toolName")
     return tool_name if isinstance(tool_name, str) and tool_name else None
 
 
@@ -295,8 +301,9 @@ def _normalize_permission_options(options: Any) -> list[dict[str, str]]:
 def parse_permission_request(event_data: dict[str, Any]) -> dict[str, Any] | None:
     """Normalize a sandbox permission_request event (bare or ACP-notification shaped).
 
-    Returns ``{"request_id": str, "tool_call": dict, "options": [{optionId, kind, name}]}``
-    or ``None`` when the event isn't a well-formed permission request.
+    Returns ``{"request_id": str, "tool_call": dict, "tool_name": str | None,
+    "options": [{optionId, kind, name}]}`` or ``None`` when the event isn't a
+    well-formed permission request.
     """
     payload = _permission_request_payload(event_data)
     if payload is None:
@@ -311,6 +318,7 @@ def parse_permission_request(event_data: dict[str, Any]) -> dict[str, Any] | Non
     return {
         "request_id": request_id,
         "tool_call": tool_call,
+        "tool_name": _tool_call_name(tool_call),
         "options": options,
     }
 
@@ -332,8 +340,8 @@ def _broker_permission_mode(task_run: "TaskRun") -> str | None:
 
 def _should_auto_allow(task_run: "TaskRun", permission_request: dict[str, Any]) -> bool:
     tool_call = permission_request["tool_call"]
-    tool_name = _tool_call_name(tool_call)
-    if tool_name is None:
+    tool_name = permission_request.get("tool_name")
+    if not isinstance(tool_name, str) or not tool_name:
         return False
     posthog_tool_name = _posthog_mcp_tool_name(tool_name)
     if posthog_tool_name == "exec":
@@ -355,6 +363,22 @@ def _default_allow_option_id(options: list[dict[str, str]]) -> str | None:
     if default_option is not None:
         return default_option["optionId"]
     return allow_options[0]["optionId"] if allow_options else None
+
+
+def send_permission_response(task_run: "TaskRun", *, request_id: str, option_id: str) -> CommandResult:
+    """Deliver a permission decision to the run's sandbox, authenticated as the task creator."""
+    auth_token = None
+    created_by = getattr(getattr(task_run, "task", None), "created_by", None)
+    if created_by and getattr(created_by, "id", None):
+        distinct_id = created_by.distinct_id or f"user_{created_by.id}"
+        auth_token = create_sandbox_connection_token(task_run, user_id=created_by.id, distinct_id=distinct_id)
+
+    return send_agent_command(
+        task_run,
+        method="permission_response",
+        params={"requestId": request_id, "optionId": option_id},
+        auth_token=auth_token,
+    )
 
 
 def try_auto_respond_permission_request(task_run: "TaskRun", permission_request: dict[str, Any]) -> bool:
@@ -379,18 +403,7 @@ def try_auto_respond_permission_request(task_run: "TaskRun", permission_request:
         logger.info("permission_broker_no_allow_option", run_id=run_id, request_id=request_id)
         return False
 
-    auth_token = None
-    created_by = getattr(getattr(task_run, "task", None), "created_by", None)
-    if created_by and getattr(created_by, "id", None):
-        distinct_id = created_by.distinct_id or f"user_{created_by.id}"
-        auth_token = create_sandbox_connection_token(task_run, user_id=created_by.id, distinct_id=distinct_id)
-
-    result = send_agent_command(
-        task_run,
-        method="permission_response",
-        params={"requestId": request_id, "optionId": option_id},
-        auth_token=auth_token,
-    )
+    result = send_permission_response(task_run, request_id=request_id, option_id=option_id)
     if not result.success:
         logger.warning(
             "permission_broker_auto_allow_failed",

@@ -430,7 +430,7 @@ class TestRelaySandboxEventsErrorHandling:
                 "params": {
                     "requestId": "perm-1",
                     "options": [{"kind": "allow_once", "optionId": "allow"}],
-                    "toolCall": {"rawInput": {"toolName": "Bash"}},
+                    "toolCall": {"_meta": {"claudeCode": {"toolName": "Bash"}}, "rawInput": {"command": "ls"}},
                 },
             },
         }
@@ -483,7 +483,8 @@ class TestRelaySandboxEventsErrorHandling:
             task_run,
             {
                 "request_id": "perm-1",
-                "tool_call": {"rawInput": {"toolName": "Bash"}},
+                "tool_call": {"_meta": {"claudeCode": {"toolName": "Bash"}}, "rawInput": {"command": "ls"}},
+                "tool_name": "Bash",
                 "options": [{"optionId": "allow", "kind": "allow_once", "name": ""}],
             },
         )

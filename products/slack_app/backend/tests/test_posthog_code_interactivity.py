@@ -430,8 +430,8 @@ class TestRepoPickerOptions(TestCase):
         }
 
     @patch("products.slack_app.backend.api.requests.post")
-    @patch("products.tasks.backend.logic.services.agent_command.send_agent_command")
-    @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token")
+    @patch("products.tasks.backend.logic.services.permission_broker.send_agent_command")
+    @patch("products.tasks.backend.logic.services.permission_broker.create_sandbox_connection_token")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_permission_approve_sends_default_option(
         self,
@@ -462,8 +462,8 @@ class TestRepoPickerOptions(TestCase):
         assert cache.get(_picker_context_cache_key(token)) is None
 
     @patch("products.slack_app.backend.api.requests.post")
-    @patch("products.tasks.backend.logic.services.agent_command.send_agent_command")
-    @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token")
+    @patch("products.tasks.backend.logic.services.permission_broker.send_agent_command")
+    @patch("products.tasks.backend.logic.services.permission_broker.create_sandbox_connection_token")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_permission_deny_sends_reject_option(
         self,
@@ -485,8 +485,8 @@ class TestRepoPickerOptions(TestCase):
         assert "Denied" in mock_requests_post.call_args.kwargs["json"]["text"]
 
     @patch("products.slack_app.backend.api.requests.post")
-    @patch("products.tasks.backend.logic.services.agent_command.send_agent_command")
-    @patch("products.tasks.backend.logic.services.connection_token.create_sandbox_connection_token")
+    @patch("products.tasks.backend.logic.services.permission_broker.send_agent_command")
+    @patch("products.tasks.backend.logic.services.permission_broker.create_sandbox_connection_token")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_permission_wrong_user_gets_ephemeral_feedback(
         self,
@@ -509,7 +509,7 @@ class TestRepoPickerOptions(TestCase):
         mock_requests_post.assert_called_once()
         assert mock_requests_post.call_args.kwargs["json"]["response_type"] == "ephemeral"
 
-    @patch("products.tasks.backend.logic.services.agent_command.send_agent_command")
+    @patch("products.tasks.backend.logic.services.permission_broker.send_agent_command")
     @patch("products.slack_app.backend.api.requests.post")
     @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
     def test_permission_config_select_persists_user_setting(
@@ -519,6 +519,20 @@ class TestRepoPickerOptions(TestCase):
         mock_send_agent_command,
     ):
         mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+        # Pre-existing routing pick to a different project — saving a permission mode from an
+        # approval card bound to posthog_code_integration must not repoint it.
+        routing_team = Team.objects.create(organization=self.organization, name="Other Project")
+        routing_integration = Integration.objects.create(
+            team=routing_team,
+            kind="slack",
+            integration_id="T12345",
+            sensitive_config={"access_token": "xoxb-other"},
+        )
+        SlackSettings.objects.create(
+            slack_workspace_id="T12345",
+            slack_user_id="U123",
+            default_integration=routing_integration,
+        )
         task_run = self._create_permission_run()
         token = self._cache_permission_context(task_run)
 
@@ -529,12 +543,25 @@ class TestRepoPickerOptions(TestCase):
         assert response.status_code == 200
         mock_send_agent_command.assert_not_called()
         settings = SlackSettings.objects.get(slack_workspace_id="T12345", slack_user_id="U123")
-        assert settings.default_integration_id == self.posthog_code_integration.id
-        assert settings.permission_mode == SlackPermissionMode.FULL_AUTO
+        assert settings.default_integration_id == routing_integration.id
+        # Scoped to the card's integration only — never a workspace-wide grant.
+        assert settings.permission_modes == {str(self.posthog_code_integration.id): SlackPermissionMode.FULL_AUTO}
         mock_requests_post.assert_called_once()
         assert mock_requests_post.call_args.kwargs["json"]["response_type"] == "ephemeral"
         assert "Full auto" in mock_requests_post.call_args.kwargs["json"]["text"]
         assert cache.get(_picker_context_cache_key(token)) is not None
+
+    @patch("products.slack_app.backend.api.requests.post")
+    @patch("products.slack_app.backend.api.SlackIntegration.slack_config")
+    def test_permission_click_after_context_expiry_gets_ephemeral_feedback(self, mock_config, mock_requests_post):
+        mock_config.return_value = {"SLACK_APP_SIGNING_SECRET": self.signing_secret}
+
+        response = self._post_interactivity(self._permission_payload(SLACK_PERMISSION_ACTION_APPROVE, "expired-token"))
+
+        assert response.status_code == 200
+        mock_requests_post.assert_called_once()
+        assert mock_requests_post.call_args.kwargs["json"]["response_type"] == "ephemeral"
+        assert "expired" in mock_requests_post.call_args.kwargs["json"]["text"].lower()
 
     @patch("posthog.models.integration.WebClient")
     @patch("products.slack_app.backend.api.asyncio.run")

@@ -64,12 +64,13 @@ class TestSlackAgentPermissionPrompt(TestCase):
             "request_id": "perm-1",
             "tool_call": {
                 "title": "Check available PDF generation tools",
+                "_meta": {"claudeCode": {"toolName": "Bash"}},
                 "rawInput": {
-                    "toolName": "Bash",
                     "description": "Check available PDF generation tools",
                     "command": 'python3 -c "import reportlab"',
                 },
             },
+            "tool_name": "Bash",
             "options": [
                 {"optionId": "allow", "kind": "allow_once", "name": "Yes"},
                 {"optionId": "always", "kind": "allow_always", "name": "Yes, and don't ask again for this command"},
@@ -144,8 +145,11 @@ class TestSlackAgentPermissionPrompt(TestCase):
 
         mock_slack_cls.return_value.client.chat_postMessage.assert_called_once()
 
+    @patch("products.tasks.backend.facade.api.respond_to_permission_request")
     @patch("products.slack_app.backend.services.agent_permissions.SlackIntegration")
-    def test_failed_post_does_not_dedupe_permission_request(self, mock_slack_cls: MagicMock) -> None:
+    def test_failed_post_denies_request_and_does_not_dedupe(
+        self, mock_slack_cls: MagicMock, mock_respond: MagicMock
+    ) -> None:
         mock_slack_cls.return_value.client.chat_postMessage.side_effect = SlackApiError(
             "invalid blocks",
             response={"ok": False, "error": "invalid_blocks"},
@@ -154,6 +158,14 @@ class TestSlackAgentPermissionPrompt(TestCase):
         post_slack_permission_request_for_task_run(self.task_run, self._permission_request())
 
         assert cache.get(_permission_prompt_dedupe_key(str(self.task_run.id), "perm-1")) is None
+        # The prompt never reached the user, so the request is denied to fail the agent fast.
+        mock_respond.assert_called_once_with(
+            self.task_run.id,
+            self.task_run.task_id,
+            self.task_run.team_id,
+            request_id="perm-1",
+            option_id="reject",
+        )
 
     @patch("products.slack_app.backend.services.agent_permissions.SlackIntegration")
     def test_card_body_respects_slack_limit(self, mock_slack_cls: MagicMock) -> None:

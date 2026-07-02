@@ -53,21 +53,28 @@ def _slack_permission_state_updates(policy: SlackPermissionPolicy) -> dict[str, 
 
 def _resolve_slack_permission_policy(
     *,
+    integration_id: int,
     slack_workspace_id: str,
     slack_user_id: str,
     is_ext_shared_channel: bool,
 ) -> SlackPermissionPolicy:
     from products.slack_app.backend.models import SlackPermissionMode, SlackSettings
 
+    # Modes are stored per integration (project): the workspace can route to multiple
+    # projects, and a "full_auto" grant made in one must not apply to runs in another.
+    # A user row wins over the workspace-wide (slack_user_id IS NULL) row.
     mode: str = SlackPermissionMode.ASK_BEFORE_WRITE
     settings = list(
         SlackSettings.objects.filter(slack_workspace_id=slack_workspace_id)
         .filter(models.Q(slack_user_id=slack_user_id) | models.Q(slack_user_id__isnull=True))
-        .only("slack_user_id", "permission_mode")
+        .only("slack_user_id", "permission_modes")
     )
     settings.sort(key=lambda setting: setting.slack_user_id is None)
-    if settings:
-        mode = settings[0].permission_mode or SlackPermissionMode.ASK_BEFORE_WRITE
+    for setting in settings:
+        candidate = setting.permission_mode_for_integration(integration_id)
+        if candidate:
+            mode = candidate
+            break
 
     initial_permission_mode: _InitialPermissionMode
     if mode == SlackPermissionMode.READ_ONLY:
@@ -485,6 +492,7 @@ def create_posthog_code_task_for_repo_activity(
     # PR tooling enabled so an explicit follow-up can clone a repo and publish.
     allow_pr_creation = True
     permission_policy = _resolve_slack_permission_policy(
+        integration_id=integration.id,
         slack_workspace_id=inputs.slack_team_id,
         slack_user_id=slack_user_id,
         is_ext_shared_channel=inputs.is_ext_shared_channel,
@@ -879,6 +887,7 @@ def _resume_task_with_new_run(
         return True
 
     permission_policy = _resolve_slack_permission_policy(
+        integration_id=integration.id,
         slack_workspace_id=inputs.slack_team_id,
         slack_user_id=slack_user_id,
         is_ext_shared_channel=inputs.is_ext_shared_channel,

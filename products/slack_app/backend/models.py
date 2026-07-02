@@ -117,14 +117,14 @@ class SlackSettings(UUIDModel):
     )
     slack_workspace_id = models.CharField(max_length=64)
     slack_user_id = models.CharField(max_length=64, null=True, blank=True)
-    permission_mode = models.CharField(
-        max_length=32,
-        choices=SlackPermissionMode.choices,
-        default=SlackPermissionMode.ASK_BEFORE_WRITE,
-        db_default=SlackPermissionMode.ASK_BEFORE_WRITE,
-        null=True,
+    # Maps integration id (as a string) → SlackPermissionMode value. Keyed per integration
+    # because one Slack workspace can route to multiple PostHog projects, and a grant like
+    # "full_auto" (bypassPermissions in the sandbox) made while working in one project must
+    # not leak to runs created against another.
+    permission_modes = models.JSONField(
         blank=True,
-        help_text="Controls how Slack-started agent runs handle tool calls that can write.",
+        null=True,
+        help_text="Per-integration permission mode for Slack-started agent runs, keyed by integration id.",
     )
     # Keys mirror the task-run request serializer.
     ai_preferences = models.JSONField(blank=True, null=True)
@@ -151,6 +151,11 @@ class SlackSettings(UUIDModel):
         who = self.slack_user_id or "(workspace default)"
         target = self.default_integration_id if self.default_integration_id else "(inherit)"
         return f"{self.slack_workspace_id} / {who} → integration {target}"
+
+    def permission_mode_for_integration(self, integration_id: int | str) -> str | None:
+        modes = self.permission_modes if isinstance(self.permission_modes, dict) else {}
+        mode = modes.get(str(integration_id))
+        return mode if isinstance(mode, str) and mode else None
 
     @property
     def runtime_adapter(self) -> str | None:

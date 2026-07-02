@@ -14,11 +14,11 @@ class SlackSettingsAdmin(admin.ModelAdmin):
         "id",
         "slack_workspace_id",
         "slack_user_id",
-        "permission_mode",
+        "permission_modes",
         "default_integration",
         "updated_at",
     )
-    list_filter = ("slack_workspace_id", "permission_mode", "created_at")
+    list_filter = ("slack_workspace_id", "created_at")
     search_fields = (
         "slack_workspace_id",
         "slack_user_id",

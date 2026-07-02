@@ -1,1 +1,1 @@
-0011_slacksettings_permission_mode
+0011_slacksettings_permission_modes

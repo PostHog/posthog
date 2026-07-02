@@ -3210,6 +3210,15 @@ def _default_permission_option_id(context: dict[str, Any], options_by_id: dict[s
     return next(iter(options_by_id))
 
 
+def _is_permission_interaction(payload: dict) -> bool:
+    permission_action_ids = {
+        SLACK_PERMISSION_ACTION_APPROVE,
+        SLACK_PERMISSION_ACTION_DENY,
+        SLACK_PERMISSION_ACTION_SELECT,
+    }
+    return any(action.get("action_id") in permission_action_ids for action in payload.get("actions", []))
+
+
 def _post_permission_ephemeral_feedback(payload: dict, text: str) -> None:
     response_url = payload.get("response_url", "")
     if not response_url:
@@ -3324,14 +3333,19 @@ def _handle_permission_config_select(payload: dict) -> HttpResponse:
     if not isinstance(slack_workspace_id, str) or not slack_workspace_id:
         return HttpResponse(status=200)
 
-    SlackSettings.objects.update_or_create(
+    # `default_integration` is deliberately not written: the card interaction is about the
+    # permission mode, and writing routing here would silently repoint the user's mentions at
+    # this task's project (see `_write_row` in services/slack_app_home.py for the same rule).
+    # The mode is stored per integration so a grant made in this project never applies to
+    # runs the workspace routes to other projects.
+    settings_row, _created = SlackSettings.objects.get_or_create(
         slack_workspace_id=slack_workspace_id,
         slack_user_id=clicker_slack_user_id,
-        defaults={
-            "default_integration": integration,
-            "permission_mode": selected_mode,
-        },
     )
+    permission_modes = dict(settings_row.permission_modes or {})
+    permission_modes[str(integration.id)] = selected_mode
+    settings_row.permission_modes = permission_modes
+    settings_row.save(update_fields=["permission_modes", "updated_at"])
 
     selected_label = SlackPermissionMode(selected_mode).label
     _post_permission_ephemeral_feedback(payload, f"Permission mode saved: `{selected_label}`.")
@@ -3382,37 +3396,22 @@ def _handle_permission_submit(payload: dict) -> HttpResponse:
     if not isinstance(option_id, str) or option_id not in options_by_id:
         return HttpResponse(status=200)
 
-    from products.tasks.backend.logic.services.agent_command import send_agent_command
-    from products.tasks.backend.logic.services.connection_token import create_sandbox_connection_token
-    from products.tasks.backend.models import TaskRun
+    from products.tasks.backend.facade import api as tasks_facade
 
-    try:
-        task_run = TaskRun.objects.select_related("task", "task__created_by").get(
-            id=run_id,
-            task_id=task_id,
-            team_id=integration.team_id,
-        )
-    except TaskRun.DoesNotExist:
+    result = tasks_facade.respond_to_permission_request(
+        run_id,
+        task_id,
+        integration.team_id,
+        request_id=request_id,
+        option_id=option_id,
+    )
+    if result.outcome == "not_found":
         return HttpResponse(status=200)
-
-    if task_run.is_terminal:
-        _replace_permission_prompt(payload, f"This run is already `{task_run.status}`. There is nothing to approve.")
+    if result.outcome == "terminal":
+        _replace_permission_prompt(payload, f"This run is already `{result.run_status}`. There is nothing to approve.")
         cache.delete(_picker_context_cache_key(context_token))
         return HttpResponse(status=200)
-
-    auth_token = None
-    created_by = task_run.task.created_by
-    if created_by and created_by.id:
-        distinct_id = created_by.distinct_id or f"user_{created_by.id}"
-        auth_token = create_sandbox_connection_token(task_run, user_id=created_by.id, distinct_id=distinct_id)
-
-    result = send_agent_command(
-        task_run,
-        method="permission_response",
-        params={"requestId": request_id, "optionId": option_id},
-        auth_token=auth_token,
-    )
-    if not result.success:
+    if result.outcome == "failed":
         logger.warning(
             "slack_app_permission_response_failed",
             run_id=run_id,
@@ -3723,6 +3722,13 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         )
         if payload_type == "block_suggestion":
             return JsonResponse({"options": []})
+        if payload_type == "block_actions" and _is_permission_interaction(payload):
+            # An unresolvable permission click means the cached context expired (or was
+            # evicted) in every region — tell the clicker instead of silently doing nothing.
+            _post_permission_ephemeral_feedback(
+                payload,
+                "This approval prompt has expired. Mention me again in the thread, or respond from the Task UI.",
+            )
         return HttpResponse(status=200)
 
     logger.info(
