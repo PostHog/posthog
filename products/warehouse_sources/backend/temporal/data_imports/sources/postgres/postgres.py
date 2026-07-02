@@ -232,15 +232,14 @@ _CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
 # Supavisor also surfaces a backend socket that closed mid-session — after the client authenticated
 # — as "Internal error (authenticated): :closed", where ":closed" is the Erlang gen_tcp reason for a
 # peer-closed socket (its DbHandler lost the backend connection to an idle cull, restart, or
-# failover). There's no error code here, so match the "internal error (authenticated)" wrapper: it's
-# emitted only by the pooler's own proxy loop once the client is past auth, so a fresh reconnect
-# re-establishes a new session — the same transient class. Scoping to the "(authenticated)" state
-# excludes auth-time rejections, and backend SQL errors pass through with their real SQLSTATE, not
-# this wrapper.
+# failover). There's no error code here, so match the full phrase including the ":closed" reason: a
+# fresh reconnect re-establishes a new session — the same transient class. Matching only the
+# "(authenticated)" wrapper would be too broad: a non-:closed "Internal error (authenticated): ..."
+# could be a permanent pooler/protocol failure that should surface immediately, not be retried.
 _POOLER_CONNECTION_DROPPED_ERROR_SUBSTRINGS = (
     "edbhandlerexited",
     "echeckoutretries",
-    "internal error (authenticated)",
+    "internal error (authenticated): :closed",
 )
 
 # Connect-time capacity errors: the source refuses a *new* connection because it has hit a

@@ -1117,7 +1117,7 @@ class TestIsConnectionDroppedError:
             # Supavisor loses the backend socket mid-session (idle cull, restart, failover) and, once
             # the client is past auth, surfaces it as an XX000 InternalError_ "Internal error
             # (authenticated): :closed" — ":closed" being the Erlang gen_tcp peer-closed reason. No
-            # error code, so it's matched on the "internal error (authenticated)" wrapper; same
+            # error code, so it's matched on the full phrase including the ":closed" reason; same
             # transient class as the pooler drops above and recovers on reconnect.
             psycopg.errors.InternalError_("Internal error (authenticated): :closed"),
             # Supavisor reports a transient timeout reaching the upstream backend as a
@@ -1160,6 +1160,10 @@ class TestIsConnectionDroppedError:
             # non-recoverable — the InternalError_ match is scoped to the known pooler codes
             # ("(EDBHANDLEREXITED)" / "(ECHECKOUTRETRIES)"), not every XX000.
             psycopg.errors.InternalError_("XX000: internal error: something went wrong"),
+            # The Supavisor authenticated-state match is scoped to the ":closed" socket-drop reason.
+            # Any other "Internal error (authenticated): ..." reason could be a permanent pooler or
+            # protocol failure that must surface immediately, so it must NOT be treated as a drop.
+            psycopg.errors.InternalError_("Internal error (authenticated): :protocol_error"),
             # libpq's bare English "Connection refused" is a permanent wrong-host/port
             # misconfiguration (non-retryable in source.py) and must NOT be confused with Supavisor's
             # transient Erlang-tuple "{:error, :econnrefused}" — broadening the match to a plain
