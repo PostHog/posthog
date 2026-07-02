@@ -482,7 +482,7 @@ WORKSPACE_CLAIMS_TIMEOUT_SECONDS = (1, 1)
 WORKSPACE_CLAIMS_CACHE_TTL_SECONDS = 60
 
 
-def _cross_region_routing_enabled() -> bool:
+def cross_region_routing_enabled() -> bool:
     # Cross-region routing only makes sense between PostHog Cloud US and EU — they share the
     # Slack app's signing secret and split workspace ownership between them. The hosted dev
     # environment (CLOUD_DEPLOYMENT="DEV"), local dev, E2E, and self-hosted deployments all run
@@ -508,15 +508,15 @@ def _eu_region_domain() -> str:
     return "eu.posthog.com"
 
 
-def _is_us_host(host: str) -> bool:
+def is_us_host(host: str) -> bool:
     return host == _us_region_domain()
 
 
-def _other_region_domain(incoming_host: str) -> str:
-    return _eu_region_domain() if _is_us_host(incoming_host) else _us_region_domain()
+def other_region_domain(incoming_host: str) -> str:
+    return _eu_region_domain() if is_us_host(incoming_host) else _us_region_domain()
 
 
-def _was_proxied(request: HttpRequest) -> bool:
+def was_proxied(request: HttpRequest) -> bool:
     # Match the literal value the sender sets (`"1"`) rather than coercing the header value to
     # bool — semgrep flags the latter as nan-injection and we control the sender anyway.
     return request.headers.get(REGION_PROXY_HEADER) == "1"
@@ -588,7 +588,7 @@ def does_other_region_claim_workspace(*, slack_team_id: str, kinds: list[str], i
         )
         return cached
 
-    target_domain = _other_region_domain(incoming_host)
+    target_domain = other_region_domain(incoming_host)
     scheme = "http" if settings.DEBUG else "https"
     target_url = f"{scheme}://{target_domain}/slack/workspace/claims/"
 
@@ -689,7 +689,7 @@ def _strip_bot_mentions(text: str) -> str:
     return re.sub(r"<@[A-Z0-9]+>", "", text).strip()
 
 
-def _parse_rules_command(text: str) -> RulesCommand | None:
+def parse_rules_command(text: str) -> RulesCommand | None:
     cleaned = _strip_bot_mentions(text).strip()
     if not cleaned:
         return None
@@ -1584,7 +1584,7 @@ def _route_assistant_event(
         channel=channel_id,
         thread_ts=thread_ts,
     )
-    region_route = _resolve_region_or_terminal_route(
+    region_route = resolve_region_or_terminal_route(
         request,
         slack_team_id,
         candidates_present=bool(result.candidates),
@@ -1645,17 +1645,17 @@ def route_posthog_code_event_to_relevant_region(
 ) -> str:
     event_type = event.get("type")
     incoming_host = request.get_host()
-    proxied = _was_proxied(request)
-    other_domain = _other_region_domain(incoming_host)
+    proxied = was_proxied(request)
+    other_domain = other_region_domain(incoming_host)
     # In local dev we run a single instance, so cross-region routing is meaningless: the only
     # consumer is this process. Disable both the probe and the proxy hop and always handle
     # locally.
-    can_defer_to_other_region = _cross_region_routing_enabled() and not _is_us_host(incoming_host) and not proxied
+    can_defer_to_other_region = cross_region_routing_enabled() and not is_us_host(incoming_host) and not proxied
 
     logger.info(
         "slack_app_route_enter",
         incoming_host=incoming_host,
-        is_us=_is_us_host(incoming_host),
+        is_us=is_us_host(incoming_host),
         proxied=proxied,
         other_domain=other_domain,
         can_defer=can_defer_to_other_region,
@@ -1738,7 +1738,7 @@ def route_posthog_code_event_to_relevant_region(
             channel=channel_str,
             thread_ts=thread_ts_str,
         )
-        region_route = _resolve_region_or_terminal_route(
+        region_route = resolve_region_or_terminal_route(
             request,
             slack_team_id,
             candidates_present=bool(workspace_result.candidates),
@@ -1811,7 +1811,7 @@ def route_posthog_code_event_to_relevant_region(
 
         # Rules command is meaningful only when the user actually typed
         # ``@PostHog`` — an untagged thread reply can never be a rules command.
-        if untagged_followup_mapping is None and _parse_rules_command(event.get("text", "")) is not None:
+        if untagged_followup_mapping is None and parse_rules_command(event.get("text", "")) is not None:
             return _start_command_workflow(event, candidates, slack_team_id, event_id, user_id=posthog_user.id)
 
         # A tagged-thread ``message`` is bound to its mapping's integration —
@@ -1930,7 +1930,7 @@ def _route_to_other_region_or_drop(
     Single-region deployments (local dev, hosted dev, E2E, self-hosted) have no other region
     to forward to, so we just record the miss and stop.
     """
-    if proxied or not _cross_region_routing_enabled():
+    if proxied or not cross_region_routing_enabled():
         logger.warning(
             "slack_app_no_integration_found",
             slack_team_id=slack_team_id,
@@ -1940,7 +1940,7 @@ def _route_to_other_region_or_drop(
     return _proxy_event_and_return_route(request, other_domain)
 
 
-def _resolve_region_or_terminal_route(
+def resolve_region_or_terminal_route(
     request: HttpRequest,
     slack_team_id: str,
     *,
@@ -1970,8 +1970,11 @@ def _start_command_workflow(
     slack_team_id: str,
     event_id: str | None,
     *,
-    user_id: int,
+    user_id: int | None,
+    command_prefix: str = "@PostHog",
 ) -> str:
+    # ``user_id=None`` defers user resolution into the workflow — the slash entry
+    # point uses it to keep its ack under Slack's 3s budget.
     _start_posthog_code_workflow(
         PostHogCodeSlackMentionCommandWorkflow,
         PostHogCodeSlackMentionCommandWorkflowInputs(
@@ -1979,6 +1982,7 @@ def _start_command_workflow(
             integration_ids=[i.id for i in integrations],
             slack_team_id=slack_team_id,
             user_id=user_id,
+            command_prefix=command_prefix,
         ),
         id_prefix="posthog-code-mention-command",
         slack_team_id=slack_team_id,
@@ -3272,7 +3276,7 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
             integration_id=slack_team_id,
         ).exists()
 
-    proxied = _was_proxied(request)
+    proxied = was_proxied(request)
     incoming_host = request.get_host()
     logger.info(
         "slack_app_interactivity_resolution",
@@ -3288,12 +3292,12 @@ def posthog_code_interactivity_handler(request: HttpRequest) -> HttpResponse:
         proxied=proxied,
     )
 
-    if not local and not proxied and _cross_region_routing_enabled():
+    if not local and not proxied and cross_region_routing_enabled():
         # The payload's integration_id pinpoints exactly one row, so a lookup would tell us
         # nothing new — just forward to the other region. The loop header keeps us at one hop.
         # Skipped in single-region deployments (local dev, hosted dev, E2E, self-hosted) where
         # there is no other region to talk to.
-        target = _other_region_domain(incoming_host)
+        target = other_region_domain(incoming_host)
         upstream = _proxy_event_to_region(request, target)
         if upstream is not None:
             logger.info(

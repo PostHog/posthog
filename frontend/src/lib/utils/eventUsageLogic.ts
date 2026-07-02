@@ -745,40 +745,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
             queryId,
             context,
         }),
-        reportExperimentMetricError: (
-            experimentId: ExperimentIdType,
-            metric: ExperimentMetric | ExperimentTrendsQuery | ExperimentFunnelsQuery,
-            teamId: number | null | undefined,
-            queryId: string | null,
-            context: {
-                duration_ms: number
-                metric_index: number
-                is_primary: boolean
-                is_retry: boolean
-                refresh_id: string
-                metric_kind: string
-                error_type:
-                    | 'timeout'
-                    | 'out_of_memory'
-                    | 'server_error'
-                    | 'network_error'
-                    | 'not_found'
-                    | 'authentication'
-                    | 'authorization'
-                    | 'validation_error'
-                    | 'unknown'
-                error_code: string | null
-                error_message: string | null
-                error_detail: string | null
-                status_code: number | null
-            }
-        ) => ({
-            experimentId,
-            metric,
-            teamId,
-            queryId,
-            context,
-        }),
         reportExperimentResultsRefreshCompleted: (
             experimentId: ExperimentIdType,
             teamId: number | null | undefined,
@@ -1903,15 +1869,6 @@ export const eventUsageLogic = kea<eventUsageLogicType>([
                 query_id: queryId,
                 ...getEventPropertiesForMetric(metric),
                 metric,
-                ...context,
-            })
-        },
-        reportExperimentMetricError: ({ experimentId, metric, teamId, queryId, context }) => {
-            posthog.capture('experiment metric error', {
-                experiment_id: experimentId,
-                team_id: teamId,
-                query_id: queryId,
-                ...getEventPropertiesForMetric(metric),
                 ...context,
             })
         },

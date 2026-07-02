@@ -50,7 +50,11 @@ from .activities.provision_sandbox import (
 from .activities.read_sandbox_logs import ReadSandboxLogsInput, read_sandbox_logs
 from .activities.relay_sandbox_events import RelaySandboxEventsInput, relay_sandbox_events
 from .activities.run_wizard import RunWizardInput, run_wizard
-from .activities.send_followup_to_sandbox import SendFollowupToSandboxInput, send_followup_to_sandbox
+from .activities.send_followup_to_sandbox import (
+    SEND_FOLLOWUP_MAX_ATTEMPTS,
+    SendFollowupToSandboxInput,
+    send_followup_to_sandbox,
+)
 from .activities.start_agent_server import (
     MarkRepoReadyInput,
     StartAgentServerInput,
@@ -151,6 +155,11 @@ _PATCH_ID_DROP_SLACK_POST_AFTER_PROVISIONING = "tasks-drop-slack-post-after-prov
 # Gates the new agent-design flag-eval execute_activity site.
 # Two-step deprecate-then-delete cleanup lifecycle as above.
 _PATCH_ID_SLACK_AGENT_DESIGN_STATUS = "tasks-slack-agent-design-status"
+
+# Gates the refusal to execute local-environment (desktop-driven) runs. Pre-guard
+# histories of such runs proceeded into provisioning; the marker keeps their replays
+# deterministic. Same two-step cleanup lifecycle as above.
+_PATCH_ID_SKIP_LOCAL_ENVIRONMENT_RUNS = "tasks-skip-local-environment-runs"
 
 
 def _deprecate_ci_follow_up_pr_context_patch() -> None:
@@ -428,6 +437,21 @@ class ProcessTaskWorkflow(PostHogWorkflow):
         try:
             self._context = await self._get_task_processing_context(input)
             self._posthog_mcp_scopes = input.posthog_mcp_scopes
+            # A local-environment run is driven by the user's desktop agent — QUEUED does not
+            # mean "awaiting a cloud workflow". Executing it here would boot a sandbox the repo
+            # was never cloned into and, once the attempts burn out, stomp the live local
+            # session's status. Refuse without touching the run. The environment check comes
+            # first so cloud runs (and unit tests exercising them outside a workflow event
+            # loop) never call ``workflow.patched``.
+            if self.context.environment == "local" and workflow.patched(_PATCH_ID_SKIP_LOCAL_ENVIRONMENT_RUNS):
+                workflow.logger.warning(
+                    "Refusing to process local-environment run in cloud workflow",
+                    extra={"run_id": run_id, "task_id": self.context.task_id},
+                )
+                return ProcessTaskOutput(
+                    success=False,
+                    error="Run environment is 'local' (desktop-driven); refusing to execute it as a cloud workflow",
+                )
             # See _PATCH_ID_SLACK_AGENT_DESIGN_STATUS. Short-circuit on
             # ``_slack_thread_context`` so non-Slack runs never call the
             # workflow-scoped ``workflow.patched`` API (unit tests that
@@ -1047,8 +1071,23 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                 relay_sandbox_events,
                 relay_input,
                 start_to_close_timeout=RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
+                schedule_to_close_timeout=RELAY_SANDBOX_EVENTS_START_TO_CLOSE_TIMEOUT,
                 heartbeat_timeout=timedelta(minutes=2),
-                retry_policy=RetryPolicy(maximum_attempts=1),
+                # A worker restart (deploy, eviction) kills the in-flight attempt while
+                # the sandbox agent keeps working — without retries the event stream is
+                # orphaned for good and the run looks dead to the user. Retrying is safe:
+                # the agent server buffers events while no relay is attached and replays
+                # them on reconnect. Terminal conditions (sandbox gone, reconnect budget
+                # exhausted) return cleanly, and application-level failures that write an
+                # error sentinel to the stream raise non-retryable ApplicationError, so
+                # retries only cover attempt-level deaths where no sentinel was written;
+                # schedule_to_close bounds the total.
+                retry_policy=RetryPolicy(
+                    initial_interval=timedelta(seconds=5),
+                    maximum_interval=timedelta(minutes=1),
+                    maximum_attempts=0,
+                    non_retryable_error_types=["ValueError"],
+                ),
                 cancellation_type=workflow.ActivityCancellationType.TRY_CANCEL,
             )
         except asyncio.CancelledError:
@@ -1084,7 +1123,7 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     use_directory_snapshot=self.context.use_modal_directory_resume_snapshots,
                 ),
                 start_to_close_timeout=timedelta(minutes=5),
-                retry_policy=RetryPolicy(maximum_attempts=1),
+                retry_policy=RetryPolicy(maximum_attempts=3),
             )
             if result.external_id:
                 workflow.logger.info(f"Resume snapshot created: {result.external_id} for sandbox {sandbox_id}")
@@ -1168,18 +1207,16 @@ class ProcessTaskWorkflow(PostHogWorkflow):
             return
         relay_workflow_id = f"slack-agent-design-relay-{self.context.run_id}-{workflow.uuid4()}"
         self._current_slack_relay_workflow_id = relay_workflow_id
-        asyncio.ensure_future(
-            workflow.execute_child_workflow(
-                SlackAgentDesignRelayWorkflow.run,
-                SlackAgentDesignRelayInput(slack_thread_context=slack_ctx),
-                id=relay_workflow_id,
-                task_queue=workflow.info().task_queue,
-                # Cancel on parent close so the relay's finally block runs
-                # stop_slack_agent_design_stream — otherwise the plan-block
-                # stream is orphaned until Slack's own GC.
-                parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
-                execution_timeout=timedelta(hours=1),
-            )
+        await workflow.start_child_workflow(
+            SlackAgentDesignRelayWorkflow.run,
+            SlackAgentDesignRelayInput(slack_thread_context=slack_ctx),
+            id=relay_workflow_id,
+            task_queue=workflow.info().task_queue,
+            # Cancel on parent close so the relay's finally block runs
+            # stop_slack_agent_design_stream — otherwise the plan-block
+            # stream is orphaned until Slack's own GC.
+            parent_close_policy=ParentClosePolicy.REQUEST_CANCEL,
+            execution_timeout=timedelta(hours=1),
         )
 
     @temporalio.workflow.signal
@@ -1271,9 +1308,19 @@ class ProcessTaskWorkflow(PostHogWorkflow):
                     message=message,
                     posthog_mcp_scopes=self._posthog_mcp_scopes,
                     artifact_ids=artifact_ids,
+                    message_id=str(workflow.uuid4()),
                 ),
                 start_to_close_timeout=timedelta(minutes=35),
-                retry_policy=RetryPolicy(maximum_attempts=1),
+                # The activity heartbeats while blocked on the sync delivery
+                # call, so a worker restart is detected here instead of at
+                # start_to_close. Retries are safe: message_id lets the
+                # agent-server drop a redelivery it already accepted, and
+                # sentinel-writing failures raise non-retryable.
+                heartbeat_timeout=timedelta(minutes=1),
+                retry_policy=RetryPolicy(
+                    initial_interval=timedelta(seconds=5),
+                    maximum_attempts=SEND_FOLLOWUP_MAX_ATTEMPTS,
+                ),
             )
         except Exception as e:
             error_properties = self._activity_error_properties(e)

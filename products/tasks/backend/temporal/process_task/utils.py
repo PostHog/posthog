@@ -16,8 +16,8 @@ from posthog.temporal.oauth import TOKEN_EXPIRATION_SECONDS, PosthogMcpScopes, h
 
 from products.mcp_store.backend.facade.api import get_active_installations
 from products.tasks.backend.constants import (
+    ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS,
     DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
-    DEFAULT_SANDBOX_WORKING_DIR,
     SNAPSHOT_KIND_DIRECTORY,
     SNAPSHOT_KIND_FILESYSTEM,
     InitialPermissionMode,
@@ -32,13 +32,6 @@ if TYPE_CHECKING:
     from products.tasks.backend.models import SandboxSnapshot, Task
 
 logger = logging.getLogger(__name__)
-
-_ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS = frozenset(
-    {
-        DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH,
-        DEFAULT_SANDBOX_WORKING_DIR,
-    }
-)
 
 
 class PrAuthorshipMode(StrEnum):
@@ -224,17 +217,24 @@ def get_reasoning_effort_error(
     )
 
 
-def normalize_directory_resume_snapshot_mount_path(snapshot_mount_path: object) -> str:
+def normalize_directory_resume_snapshot_mount_path(snapshot_mount_path: object) -> str | None:
+    """Resolve where a directory resume snapshot may be mounted; ``None`` means "don't use it".
+
+    A snapshot's content layout matches the path it was captured from, so a stored path outside
+    the allowlist (notably the legacy "/tmp" default, whose mount replaced the live system temp
+    dir and killed the sandbox) cannot be remapped to a safe path — the snapshot is unusable and
+    the resume must fall back to a fresh sandbox.
+    """
     if not snapshot_mount_path:
         return DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH
-    if isinstance(snapshot_mount_path, str) and snapshot_mount_path in _ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS:
+    if isinstance(snapshot_mount_path, str) and snapshot_mount_path in ALLOWED_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATHS:
         return snapshot_mount_path
 
     logger.warning(
-        "Ignoring unsupported directory resume snapshot mount path",
+        "Directory resume snapshot has an unsupported mount path; invalidating the snapshot",
         extra={"snapshot_mount_path": snapshot_mount_path},
     )
-    return DEFAULT_DIRECTORY_RESUME_SNAPSHOT_MOUNT_PATH
+    return None
 
 
 class RunState(BaseModel, extra="allow"):
@@ -275,6 +275,13 @@ class RunState(BaseModel, extra="allow"):
             return None
         return normalize_directory_resume_snapshot_mount_path(self.snapshot_mount_path)
 
+    def resume_snapshot_is_usable(self) -> bool:
+        """A directory snapshot whose stored mount path was invalidated (e.g. legacy "/tmp"
+        captures) can't be restored anywhere — callers must provision fresh instead."""
+        return not (
+            self.resume_snapshot_kind() == SNAPSHOT_KIND_DIRECTORY and self.resume_snapshot_mount_path() is None
+        )
+
 
 def parse_run_state(state: dict[str, Any] | None) -> RunState:
     return RunState.model_validate(state or {})
@@ -284,6 +291,11 @@ def parse_run_state(state: dict[str, Any] | None) -> RunState:
 class SnapshotMetadata:
     kind: SnapshotKind
     mount_path: str | None
+
+    @property
+    def is_usable(self) -> bool:
+        """See ``RunState.resume_snapshot_is_usable`` — same invalidation rule."""
+        return not (self.kind == SNAPSHOT_KIND_DIRECTORY and self.mount_path is None)
 
 
 def get_sandbox_snapshot_metadata(snapshot: SandboxSnapshot) -> SnapshotMetadata:

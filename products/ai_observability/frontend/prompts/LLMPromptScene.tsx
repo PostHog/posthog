@@ -7,9 +7,7 @@ import { LemonButton, LemonTabs } from '@posthog/lemon-ui'
 
 import { AccessControlAction } from 'lib/components/AccessControlAction'
 import { NotFound } from 'lib/components/NotFound'
-import { FEATURE_FLAGS } from 'lib/constants'
 import { LemonSkeleton } from 'lib/lemon-ui/LemonSkeleton'
-import { featureFlagLogic } from 'lib/logic/featureFlagLogic'
 import { SceneExport } from 'scenes/sceneTypes'
 import { urls } from 'scenes/urls'
 
@@ -57,15 +55,9 @@ export function LLMPromptScene(): JSX.Element {
         canLoadMoreVersions,
     } = useValues(llmPromptLogic)
     const { searchParams } = useValues(router)
-    const { featureFlags } = useValues(featureFlagLogic)
-    const promptExperimentsEnabled = !!featureFlags[FEATURE_FLAGS.EXPERIMENTS_LLM_PROMPTS]
     const currentSearchParams = searchParams ?? {}
     const activeViewTab =
-        searchParams?.tab === 'usage'
-            ? 'usage'
-            : searchParams?.tab === 'experiments' && promptExperimentsEnabled
-              ? 'experiments'
-              : 'overview'
+        searchParams?.tab === 'usage' ? 'usage' : searchParams?.tab === 'experiments' ? 'experiments' : 'overview'
 
     const { submitPromptForm, deletePrompt, setMode, setPromptFormValues, loadMoreVersions } =
         useActions(llmPromptLogic)
@@ -196,15 +188,11 @@ export function LLMPromptScene(): JSX.Element {
                                     label: 'Usage',
                                     content: <PromptUsage prompt={prompt} />,
                                 },
-                                ...(promptExperimentsEnabled
-                                    ? [
-                                          {
-                                              key: 'experiments',
-                                              label: 'Experiments',
-                                              content: <PromptExperiments prompt={prompt} />,
-                                          },
-                                      ]
-                                    : []),
+                                {
+                                    key: 'experiments',
+                                    label: 'Experiments',
+                                    content: <PromptExperiments prompt={prompt} />,
+                                },
                             ]}
                         />
                     ) : (
