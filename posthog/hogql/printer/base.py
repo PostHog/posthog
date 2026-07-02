@@ -711,51 +711,43 @@ class BasePrinter(Visitor[str]):
             # The resolver binds each USING field to the left table, so the resolved field prints as
             # `left_alias.col`. SQL requires USING columns to be bare identifiers resolvable from *both*
             # relations — the qualified form makes ClickHouse raise Code 47 UNKNOWN_IDENTIFIER.
+            fields = self._unwrap_using_fields(constraint.expr)
             if on_clause_guard is None:
                 # No predicate to fold in: keep USING, just strip the resolver's qualification.
                 #   FROM events AS e JOIN persons AS p USING (person_id)  ->  ... USING (person_id)
-                return f"USING ({self._print_using_columns(constraint.expr)})"
+                names = ", ".join(self._print_identifier(str(field.chain[-1])) for field in fields)
+                return f"USING ({names})"
             # A LEFT-JOIN guard (team_id / access control) must live in the join condition to preserve
             # NULL rows, but USING can't carry a boolean predicate — so lower the whole thing to ON:
             #   ... LEFT JOIN persons AS p USING (person_id)
             #   -> ... LEFT JOIN persons AS p ON e.person_id = p.person_id AND p.team_id = 2
-            on_expr = ast.And(exprs=[on_clause_guard, self._using_constraint_as_on(constraint.expr, node_type)])
-            return f"ON {self.visit(on_expr)}"
+            if not isinstance(
+                node_type, ast.BaseTableType | ast.SelectSetQueryType | ast.SelectQueryType | ast.SelectQueryAliasType
+            ):
+                raise QueryError("JOIN USING requires a table or subquery on the right-hand side")
+            comparisons: list[ast.Expr] = []
+            for field in fields:
+                name = str(field.chain[-1])
+                right = ast.Field(chain=[name], type=ast.FieldType(name=name, table_type=node_type))
+                comparisons.append(ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=field, right=right))
+            return f"ON {self.visit(ast.And(exprs=[on_clause_guard, *comparisons]))}"
 
         if on_clause_guard is not None:
             combined_constraint = ast.And(exprs=[on_clause_guard, constraint.expr])
             return f"{constraint.constraint_type} {self.visit(combined_constraint)}"
         return f"{constraint.constraint_type} {self.visit(constraint)}"
 
-    def _print_using_columns(self, expr: ast.Expr) -> str:
+    def _unwrap_using_fields(self, expr: ast.Expr) -> list[ast.Field]:
         columns = expr.exprs if isinstance(expr, ast.Tuple) else [expr]
-        names: list[str] = []
+        fields: list[ast.Field] = []
         for col in columns:
-            # The resolver wraps each USING field in an Alias bound to the left table; unwrap for the name.
+            # The resolver wraps each resolved USING field in a hidden Alias; unwrap it so nothing
+            # downstream ever prints `col AS alias` inside a USING or ON clause.
             field = col.expr if isinstance(col, ast.Alias) else col
             if not isinstance(field, ast.Field) or not field.chain:
                 raise QueryError("JOIN USING expects column names")
-            names.append(self._print_identifier(str(field.chain[-1])))
-        return ", ".join(names)
-
-    def _using_constraint_as_on(self, expr: ast.Expr, right_type: ast.Type | None) -> ast.Expr:
-        if not isinstance(
-            right_type, ast.BaseTableType | ast.SelectSetQueryType | ast.SelectQueryType | ast.SelectQueryAliasType
-        ):
-            raise QueryError("JOIN USING requires a table or subquery on the right-hand side")
-        columns = expr.exprs if isinstance(expr, ast.Tuple) else [expr]
-        comparisons: list[ast.Expr] = []
-        for col in columns:
-            # The resolver wraps each USING field in an Alias bound to the left table; unwrap for the name.
-            field = col.expr if isinstance(col, ast.Alias) else col
-            if not isinstance(field, ast.Field) or not field.chain:
-                raise QueryError("JOIN USING expects column names")
-            name = str(field.chain[-1])
-            right = ast.Field(chain=[name], type=ast.FieldType(name=name, table_type=right_type))
-            # Use the unwrapped `field`, not `col`: a user-supplied alias (`USING (x AS y)`) would
-            # otherwise render as `x AS y` inside the ON clause, which ClickHouse rejects.
-            comparisons.append(ast.CompareOperation(op=ast.CompareOperationOp.Eq, left=field, right=right))
-        return comparisons[0] if len(comparisons) == 1 else ast.And(exprs=comparisons)
+            fields.append(field)
+        return fields
 
     def visit_join_constraint(self, node: ast.JoinConstraint):
         return self.visit(node.expr)
