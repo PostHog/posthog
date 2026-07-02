@@ -83,7 +83,11 @@ export function AccountNotesTabContent(): JSX.Element {
                 columns={columns}
                 loading={accountNotesResponseLoading}
                 pagination={pagination}
-                emptyState="No account notes yet. Create notes from an account's Notes tab."
+                emptyState={
+                    search
+                        ? 'No notes matching your search'
+                        : "No account notes yet. Create notes from an account's Notes tab."
+                }
                 nouns={['note', 'notes']}
             />
         </div>
