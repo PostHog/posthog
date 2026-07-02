@@ -1,6 +1,18 @@
-import { withForwardedSearchParams } from './sceneLogic'
+import { isOnboardingNotRequiredForPath, withForwardedSearchParams } from './sceneLogic'
 
 describe('sceneLogic', () => {
+    describe('isOnboardingNotRequiredForPath', () => {
+        // Regression guard: a mid-onboarding user clicking the email-change confirmation link must not
+        // be bounced to /onboarding before verifyEmailLogic can run, or the email is never updated.
+        it.each<[string, boolean]>([
+            ['/verify_email/some-uuid/some-token', true],
+            ['/project/492200/verify_email/some-uuid/some-token', true],
+            ['/project/492200/dashboard/1', false],
+        ])('isOnboardingNotRequiredForPath(%s) === %s', (path, expected) => {
+            expect(isOnboardingNotRequiredForPath(path)).toBe(expected)
+        })
+    })
+
     describe('withForwardedSearchParams', () => {
         it('returns original URL when no params to forward', () => {
             const redirectUrl = '/dashboard'

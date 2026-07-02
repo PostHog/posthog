@@ -109,6 +109,9 @@ function narrowSeriesByCursor<Meta>(
         visibleKey = visible.series.key
         visibleDataIndex = visible.dataIndex
     }
+    // Surface the hovered identity so consumer tooltips can single out the segment/bar the
+    // cursor is actually over — stacked keeps every segment in seriesData, so index 0 is not it.
+    const hoveredSeriesKey = visibleKey ?? (hits.size === 1 ? hits.values().next().value : undefined)
     const filtered = ctx.seriesData.filter((entry) => hits.has(entry.series.key))
     // For sparse-stacked overlap ctx.dataIndex is a zero cell for the visible series. Rewrite
     // the entry's value (and ctx.dataIndex) to the segment's own index so row clicks route
@@ -123,7 +126,7 @@ function narrowSeriesByCursor<Meta>(
             const value = typeof raw === 'number' && Number.isFinite(raw) ? raw : entry.value
             return { ...entry, value }
         })
-        return { ...ctx, seriesData: revalued, dataIndex: di }
+        return { ...ctx, seriesData: revalued, dataIndex: di, hoveredSeriesKey }
     }
-    return { ...ctx, seriesData: filtered }
+    return { ...ctx, seriesData: filtered, hoveredSeriesKey }
 }

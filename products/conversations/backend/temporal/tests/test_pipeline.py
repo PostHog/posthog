@@ -1006,81 +1006,6 @@ class TestValidateActivity:
 @patch(f"{CLASSIFY_MODULE}._classify", new_callable=AsyncMock)
 @patch(f"{SAFETY_FILTER_MODULE}._safety_filter", new_callable=AsyncMock)
 @patch(f"{BUILD_CONTEXT_MODULE}._build_context_sync")
-async def test_always_on_context_plumbed_to_draft(
-    mock_build,
-    mock_safety,
-    mock_classify,
-    mock_refine,
-    mock_retrieve,
-    mock_draft,
-    mock_validate,
-    mock_review,
-    mock_persist,
-    mock_record_triage,
-    workflow_input,
-    sample_chunk_ids,
-):
-    from temporalio.testing import WorkflowEnvironment
-    from temporalio.worker import Worker
-
-    mock_build.return_value = BuildContextOutput(
-        ticket_context="ticket text",
-        ticket_title="Help",
-        always_on_context="Be friendly and professional.",
-    )
-    mock_safety.return_value = SafetyFilterOutput(safe=True)
-    mock_classify.return_value = ClassifyOutput(ticket_type="how_to", needs_diagnostics=False, seed_queries=[])
-    mock_refine.return_value = RefineQueriesOutput(queries=["test query"])
-    mock_retrieve.return_value = RetrieveOutput(chunk_ids=sample_chunk_ids)
-    mock_draft.return_value = DraftOutput(
-        reply="Hi!",
-        citations=["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"],
-        confidence=0.95,
-    )
-    mock_validate.return_value = ValidateOutput(grounded=True, coverage=0.95, confidence=0.95, missing=[])
-    mock_review.return_value = ReviewReplyOutput(safe=True)
-
-    async with await WorkflowEnvironment.start_time_skipping() as env:
-        async with Worker(
-            env.client,
-            task_queue="test-queue",
-            workflows=[SupportReplyWorkflow],
-            activities=[
-                support_build_context_activity,
-                support_safety_filter_activity,
-                support_classify_activity,
-                support_refine_queries_activity,
-                support_retrieve_activity,
-                support_draft_activity,
-                support_validate_activity,
-                support_review_reply_activity,
-                support_persist_reply_activity,
-                support_record_triage_activity,
-            ],
-        ):
-            await env.client.execute_workflow(
-                SupportReplyWorkflow.run,
-                workflow_input,
-                id="test-always-on",
-                task_queue="test-queue",
-            )
-
-    # always_on_context is the 6th positional arg to _draft_async
-    assert mock_draft.call_args[0][5] == "Be friendly and professional."
-
-
-@pytest.mark.django_db
-@pytest.mark.asyncio
-@patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync")
-@patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync")
-@patch(f"{REVIEW_REPLY_MODULE}._review_reply", new_callable=AsyncMock)
-@patch(f"{VALIDATE_MODULE}._validate", new_callable=AsyncMock)
-@patch(f"{DRAFT_MODULE}._draft_async", new_callable=AsyncMock)
-@patch(f"{RETRIEVE_MODULE}._retrieve_sync")
-@patch(f"{REFINE_QUERIES_MODULE}._refine_queries", new_callable=AsyncMock)
-@patch(f"{CLASSIFY_MODULE}._classify", new_callable=AsyncMock)
-@patch(f"{SAFETY_FILTER_MODULE}._safety_filter", new_callable=AsyncMock)
-@patch(f"{BUILD_CONTEXT_MODULE}._build_context_sync")
 async def test_workflow_short_circuits_unactionable(
     mock_build,
     mock_safety,
@@ -1135,6 +1060,7 @@ async def test_workflow_short_circuits_unactionable(
 
 @pytest.mark.django_db
 @pytest.mark.asyncio
+@pytest.mark.parametrize("diagnostics_allowed,expected_needs_diagnostics", [(True, True), (False, False)])
 @patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync")
 @patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync")
 @patch(f"{REVIEW_REPLY_MODULE}._review_reply", new_callable=AsyncMock)
@@ -1145,7 +1071,7 @@ async def test_workflow_short_circuits_unactionable(
 @patch(f"{CLASSIFY_MODULE}._classify", new_callable=AsyncMock)
 @patch(f"{SAFETY_FILTER_MODULE}._safety_filter", new_callable=AsyncMock)
 @patch(f"{BUILD_CONTEXT_MODULE}._build_context_sync")
-async def test_classify_runs_once_and_threads_ticket_type(
+async def test_classify_threading_and_diagnostics_gating(
     mock_build,
     mock_safety,
     mock_classify,
@@ -1158,12 +1084,17 @@ async def test_classify_runs_once_and_threads_ticket_type(
     mock_record_triage,
     workflow_input,
     sample_chunk_ids,
+    diagnostics_allowed,
+    expected_needs_diagnostics,
 ):
     from temporalio.testing import WorkflowEnvironment
     from temporalio.worker import Worker
 
     mock_build.return_value = BuildContextOutput(
-        ticket_context="my exports keep failing", ticket_title="Broken", diagnostics_allowed=True
+        ticket_context="my exports keep failing",
+        ticket_title="Broken",
+        always_on_context="Be friendly and professional.",
+        diagnostics_allowed=diagnostics_allowed,
     )
     mock_safety.return_value = SafetyFilterOutput(safe=True)
     mock_classify.return_value = ClassifyOutput(
@@ -1208,90 +1139,16 @@ async def test_classify_runs_once_and_threads_ticket_type(
     # Classify is one-shot up front; the loop still ran MAX_ATTEMPTS times.
     assert mock_classify.call_count == 1
     assert mock_validate.call_count == MAX_ATTEMPTS
+    # always_on_context threads into draft (arg 5).
+    assert mock_draft.call_args[0][5] == "Be friendly and professional."
     # ticket_type threads into refine (arg 3), draft (arg 6), validate (arg 6).
     assert mock_refine.call_args[0][3] == "diagnostic"
     assert mock_draft.call_args[0][6] == "diagnostic"
     assert mock_validate.call_args[0][6] == "diagnostic"
     # seed_queries threads into refine (arg 4).
     assert mock_refine.call_args[0][4] == ["export failures"]
-    # needs_diagnostics threads into draft (arg 7) — classifier said True AND the team opted in.
-    assert mock_draft.call_args[0][7] is True
-
-
-@pytest.mark.django_db
-@pytest.mark.asyncio
-@patch(f"{RECORD_TRIAGE_MODULE}._record_triage_sync")
-@patch(f"{PERSIST_REPLY_MODULE}._persist_reply_sync")
-@patch(f"{REVIEW_REPLY_MODULE}._review_reply", new_callable=AsyncMock)
-@patch(f"{VALIDATE_MODULE}._validate", new_callable=AsyncMock)
-@patch(f"{DRAFT_MODULE}._draft_async", new_callable=AsyncMock)
-@patch(f"{RETRIEVE_MODULE}._retrieve_sync")
-@patch(f"{REFINE_QUERIES_MODULE}._refine_queries", new_callable=AsyncMock)
-@patch(f"{CLASSIFY_MODULE}._classify", new_callable=AsyncMock)
-@patch(f"{SAFETY_FILTER_MODULE}._safety_filter", new_callable=AsyncMock)
-@patch(f"{BUILD_CONTEXT_MODULE}._build_context_sync")
-async def test_diagnostics_gated_off_when_team_not_opted_in(
-    mock_build,
-    mock_safety,
-    mock_classify,
-    mock_refine,
-    mock_retrieve,
-    mock_draft,
-    mock_validate,
-    mock_review,
-    mock_persist,
-    mock_record_triage,
-    workflow_input,
-    sample_chunk_ids,
-):
-    from temporalio.testing import WorkflowEnvironment
-    from temporalio.worker import Worker
-
-    # Classifier flags diagnostics, but the team did NOT opt in → draft must not get the wider scopes.
-    mock_build.return_value = BuildContextOutput(
-        ticket_context="my exports keep failing", ticket_title="Broken", diagnostics_allowed=False
-    )
-    mock_safety.return_value = SafetyFilterOutput(safe=True)
-    mock_classify.return_value = ClassifyOutput(
-        ticket_type="diagnostic", needs_diagnostics=True, seed_queries=["export failures"]
-    )
-    mock_refine.return_value = RefineQueriesOutput(queries=["export failures"])
-    mock_retrieve.return_value = RetrieveOutput(chunk_ids=sample_chunk_ids)
-    mock_draft.return_value = DraftOutput(
-        reply="Partial.",
-        citations=["aaaaaaaa-bbbb-cccc-dddd-eeeeeeeeeeee"],
-        confidence=0.3,
-    )
-    mock_validate.return_value = ValidateOutput(grounded=False, coverage=0.2, confidence=0.2, missing=["why"])
-    mock_review.return_value = ReviewReplyOutput(safe=True)
-
-    async with await WorkflowEnvironment.start_time_skipping() as env:
-        async with Worker(
-            env.client,
-            task_queue="test-queue",
-            workflows=[SupportReplyWorkflow],
-            activities=[
-                support_build_context_activity,
-                support_safety_filter_activity,
-                support_classify_activity,
-                support_refine_queries_activity,
-                support_retrieve_activity,
-                support_draft_activity,
-                support_validate_activity,
-                support_review_reply_activity,
-                support_persist_reply_activity,
-                support_record_triage_activity,
-            ],
-        ):
-            await env.client.execute_workflow(
-                SupportReplyWorkflow.run,
-                workflow_input,
-                id="test-diagnostics-gated-off",
-                task_queue="test-queue",
-            )
-
-    # needs_diagnostics into draft (arg 7) is False: classifier True AND team opt-in False.
-    assert mock_draft.call_args[0][7] is False
+    # needs_diagnostics threads into draft (arg 7) — requires the classifier to flag it AND the team to opt in.
+    assert mock_draft.call_args[0][7] is expected_needs_diagnostics
 
 
 class TestClassifyActivity:

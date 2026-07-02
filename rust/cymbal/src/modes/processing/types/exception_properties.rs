@@ -135,12 +135,9 @@ impl TryFrom<AnyEvent> for ExceptionProperties {
             return Err(EventError::WrongEventType(event.event.clone(), event.uuid));
         }
 
-        let mut properties: Value = match serde_json::from_value(event.properties) {
-            Ok(r) => r,
-            Err(e) => {
-                return Err(EventError::InvalidProperties(event.uuid, e.to_string()));
-            }
-        };
+        // `event.properties` is already a `serde_json::Value`; running it back through
+        // `from_value` only deep-rebuilds the tree. Take ownership directly instead.
+        let mut properties = event.properties;
 
         if let Some(v) = properties
             .as_object_mut()

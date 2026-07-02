@@ -1,7 +1,5 @@
-// Per-workflow CI health table, shared by the Workflows tab (time-bucketed health over a window) and
-// the PR detail page (per-push buckets, rows expandable to that workflow's runs). The row shape
-// (`WorkflowHealthRow`) and sparkline series are the same in both; only the bucket axis and the
-// optional row expansion differ — passed in by the caller.
+// Per-workflow CI health table, shared by the Workflows tab (time-bucketed) and the PR detail page
+// (per-push buckets, rows expandable to runs). Only the bucket axis and row expansion differ per caller.
 
 import { useValues } from 'kea'
 import { combineUrl, router } from 'kea-router'
@@ -30,9 +28,8 @@ import { BillableBadge } from './BillableBadge'
 import { FailureSparkline } from './FailureSparkline'
 import { CI_GRID } from './runTables'
 
-// Reserved bar slots for push-bucketed sparklines (PR view): a small floor keeps a single push from
-// stretching fat, while staying low enough that 2–3 pushes read as clearly separate, visible bars on
-// the right (30 squeezed them into invisible slivers). Time-bucketed sparklines (Workflows tab) fill.
+// Floor on bar slots for push-bucketed sparklines (PR view) so a single push stays narrow, but low
+// enough that 2-3 pushes read as separate bars. Time-bucketed sparklines (Workflows tab) fill.
 const PUSH_MIN_SLOTS = 10
 
 function formatSeconds(seconds: number | null): string {
@@ -87,14 +84,13 @@ function StatusTag({ failed, conclusion }: { failed: boolean | null; conclusion:
     if (conclusion === 'success' || conclusion == null) {
         return <LemonTag type="success">Passing</LemonTag>
     }
-    // Latest completed run was neither a decisive failure nor a clean success (cancelled / skipped /
-    // action_required) — show the raw outcome muted, not a misleading green "Passing".
+    // Latest run neither a decisive failure nor a clean success — show the raw outcome muted, not a
+    // misleading green "Passing".
     return <LemonTag type="muted">{capitalizeFirstLetter(conclusion.replace('_', ' '))}</LemonTag>
 }
 
 function TrendArrow({ direction }: { direction: WorkflowTrendDirection }): JSX.Element {
-    // The column reads "Health", so the arrow tracks health, not failures: rising failures = health
-    // declining = red arrow down; falling failures = health improving = green arrow up.
+    // Arrow tracks health, not failures: rising failures = declining health = red down arrow, and vice versa.
     if (direction === 'up') {
         return (
             <Tooltip title="Health declining — failures rising">
@@ -142,11 +138,13 @@ export function WorkflowHealthTable({
     dataAttr = 'engineering-analytics-workflow-table',
 }: WorkflowHealthTableProps): JSX.Element {
     const { searchParams } = useValues(router)
-    // Carry the active CI-analytics window into the drill-down so opening a workflow from a non-default
-    // window keeps it instead of snapping back to the default (the tab links already preserve it this way).
+    // Carry the active CI-analytics window and branch scope into the drill-down so opening a workflow from a
+    // non-default window/branch keeps it instead of snapping back to defaults (the tab links preserve them
+    // the same way). Without the branch (`q`), the detail page would widen to all branches and show more runs.
     const windowParams: Record<string, string> = {
         ...(searchParams.date_from ? { date_from: searchParams.date_from } : {}),
         ...(searchParams.date_to ? { date_to: searchParams.date_to } : {}),
+        ...(searchParams.q ? { q: searchParams.q } : {}),
     }
     const columns: LemonTableColumns<WorkflowHealthRow> = [
         {

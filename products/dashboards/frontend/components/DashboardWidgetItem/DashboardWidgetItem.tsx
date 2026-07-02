@@ -1,6 +1,6 @@
 import clsx from 'clsx'
 import { useValues } from 'kea'
-import React, { useState } from 'react'
+import React, { Suspense, useState } from 'react'
 import { createPortal } from 'react-dom'
 
 import { CardMetaRefreshButton } from 'lib/components/Cards/CardMetaRefreshButton'
@@ -38,7 +38,7 @@ import {
     type DashboardWidgetDefinition,
 } from '../../widgets/registry'
 import { WidgetCard } from '../WidgetCard/WidgetCard'
-import { WidgetCardBody, WidgetCardSharedPlaceholderBody } from '../WidgetCard/WidgetCardBody'
+import { WidgetCardBody, WidgetCardSharedPlaceholderBody, WidgetLoadingState } from '../WidgetCard/WidgetCardBody'
 import { WidgetCardHeader, widgetCardShouldHideMoreButton } from '../WidgetCard/WidgetCardHeader'
 import { WidgetRuntimeAvailabilityGuard } from '../WidgetRuntimeAvailabilityGuard/WidgetRuntimeAvailabilityGuard'
 
@@ -121,7 +121,9 @@ function DashboardWidgetItemBody({
             widgetId={widget.id}
             dashboardId={dashboardId}
         >
-            <WidgetComponent {...componentProps} />
+            <Suspense fallback={<WidgetLoadingState />}>
+                <WidgetComponent {...componentProps} />
+            </Suspense>
         </WidgetRuntimeAvailabilityGuard>
     )
 }
@@ -297,15 +299,17 @@ function DashboardWidgetItemContent({
                 onDragHandleMouseDown={onDragHandleMouseDown}
             />
             {!showSharedPlaceholder && hasProductAccess && showTileFilters && TileFilters ? (
-                <TileFilters
-                    tileId={tile.id}
-                    config={widget.config}
-                    onUpdateConfig={componentProps.onUpdateConfig}
-                    canMutateErrorTrackingIssues={componentProps.canMutateErrorTrackingIssues}
-                    disabledReason={
-                        canUpdateWidgetTileConfig ? undefined : DASHBOARD_WIDGET_TILE_FILTERS_READONLY_REASON
-                    }
-                />
+                <Suspense fallback={null}>
+                    <TileFilters
+                        tileId={tile.id}
+                        config={widget.config}
+                        onUpdateConfig={componentProps.onUpdateConfig}
+                        canMutateErrorTrackingIssues={componentProps.canMutateErrorTrackingIssues}
+                        disabledReason={
+                            canUpdateWidgetTileConfig ? undefined : DASHBOARD_WIDGET_TILE_FILTERS_READONLY_REASON
+                        }
+                    />
+                </Suspense>
             ) : null}
             {showSharedPlaceholder ? (
                 <WidgetCardSharedPlaceholderBody
@@ -338,17 +342,19 @@ function DashboardWidgetItemContent({
             {EditModal &&
                 editOpen &&
                 createPortal(
-                    <EditModal
-                        isOpen={editOpen}
-                        onClose={() => setEditOpen(false)}
-                        config={widget.config}
-                        name={title}
-                        defaultTitle={defaultTitle}
-                        description={description}
-                        onSave={async (config, metadata) => {
-                            await onUpdateWidgetTile?.({ config, ...metadata })
-                        }}
-                    />,
+                    <Suspense fallback={null}>
+                        <EditModal
+                            isOpen={editOpen}
+                            onClose={() => setEditOpen(false)}
+                            config={widget.config}
+                            name={title}
+                            defaultTitle={defaultTitle}
+                            description={description}
+                            onSave={async (config, metadata) => {
+                                await onUpdateWidgetTile?.({ config, ...metadata })
+                            }}
+                        />
+                    </Suspense>,
                     document.body
                 )}
         </>
