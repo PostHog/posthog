@@ -682,7 +682,7 @@ describe('sessionRecordingPlayerLogic', () => {
             expect(logic.values.currentSegment).toMatchObject({ kind: 'window', windowId: 1 })
         })
 
-        it('revives a dead loading chain from checkBufferingCompleted while still buffering', async () => {
+        it('revives a dead loading chain from syncPlayerState while still buffering', async () => {
             const dataLogic = snapshotDataLogic({ sessionRecordingId: '2' })
             seedRecording(null, [inc(START + 61000), inc(START + 62000)])
             logic.actions.setPause()
@@ -695,7 +695,7 @@ describe('sessionRecordingPlayerLogic', () => {
 
             // the periodic buffering re-check must restart loading, not just re-derive the verdict
             await expectLogic(dataLogic, () => {
-                logic.actions.checkBufferingCompleted()
+                logic.actions.syncPlayerState()
             }).toDispatchActions([
                 (action) =>
                     action.type === dataLogic.actionTypes.loadSnapshotsForSource &&
@@ -755,9 +755,9 @@ describe('sessionRecordingPlayerLogic', () => {
         })
 
         it('flips a stuck still-ingesting recording to the terminal error once grace lapses', () => {
-            // The afterMount BUFFERING_REEVALUATION_INTERVAL_MS interval re-runs checkBufferingCompleted;
+            // The afterMount BUFFERING_REEVALUATION_INTERVAL_MS interval re-runs syncPlayerState;
             // this asserts that payload directly (no timer): a recording buffering on waitingForIngestion
-            // transitions to the terminal error the next time checkBufferingCompleted runs after the grace
+            // transitions to the terminal error the next time syncPlayerState runs after the grace
             // period has elapsed — without any new snapshot data arriving.
             const graceSpy = jest
                 .spyOn(sessionRecordingDataCoordinatorLogicModule, 'isWithinIngestionGracePeriod')
@@ -772,7 +772,7 @@ describe('sessionRecordingPlayerLogic', () => {
                 // grace lapses, no new data arrives — the periodic nudge re-reads the now-definitive
                 // verdict and surfaces the terminal error
                 graceSpy.mockReturnValue(false)
-                logic.actions.checkBufferingCompleted()
+                logic.actions.syncPlayerState()
 
                 expect(logic.values.playerError).toBe('noPlayableFullSnapshot')
             } finally {
