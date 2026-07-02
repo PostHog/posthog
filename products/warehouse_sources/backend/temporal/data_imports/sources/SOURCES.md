@@ -171,6 +171,7 @@ the row lists both.
 | iterable                | HTTP                        | requests                                                        | ✅                          |
 | jira                    | HTTP                        | requests                                                        | ✅                          |
 | jotform                 | HTTP                        | requests                                                        | ✅                          |
+| justcall                | HTTP                        | requests                                                        | ✅                          |
 | klaviyo                 | HTTP                        | requests                                                        | ✅                          |
 | lago                    | HTTP                        | requests                                                        | ✅                          |
 | launchdarkly            | HTTP                        | requests                                                        | ✅                          |
@@ -471,7 +472,6 @@ doesn't conflict with concurrent PRs.
 - jobber
 - jobnimbus
 - judgeme_reviews
-- justcall
 - justsift
 - k6_cloud
 - kafka
