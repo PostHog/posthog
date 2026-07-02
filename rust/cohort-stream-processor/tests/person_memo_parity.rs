@@ -357,7 +357,7 @@ async fn run_worker_sequence(
     for (props, offset, ts) in sequence {
         tracker.mark_dispatched(PARTITION as i32, offset + 1);
         tx.send(vec![ShuffleMessage::Event {
-            event: event(person, props, offset, ts),
+            event: Box::new(event(person, props, offset, ts)),
             cse_offset: offset,
         }])
         .await

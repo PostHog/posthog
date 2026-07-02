@@ -19,7 +19,10 @@ from posthog.temporal.common.logger import get_logger
 from products.data_warehouse.backend.facade.api import update_external_job_status
 from products.warehouse_sources.backend.models.external_data_job import ExternalDataJob
 from products.warehouse_sources.backend.models.external_data_source import ExternalDataSource
-from products.warehouse_sources.backend.temporal.data_imports.metrics import TERMINAL_JOB_STATUSES
+from products.warehouse_sources.backend.temporal.data_imports.metrics import (
+    LOCK_TAKEOVER_LATEST_ERROR,
+    TERMINAL_JOB_STATUSES,
+)
 from products.warehouse_sources.backend.temporal.data_imports.pipelines.pipeline_v3.postgres_queue.jobs_db import (
     BatchQueue,
 )
@@ -255,7 +258,7 @@ def _take_over_stale_running_job(
             team_id=inputs.team_id,
             status=ExternalDataJob.Status.FAILED,
             logger=takeover_logger,
-            latest_error="Lock takeover: workflow terminated but job was stuck in RUNNING",
+            latest_error=LOCK_TAKEOVER_LATEST_ERROR,
         )
     except Exception as e:
         logger.warning(

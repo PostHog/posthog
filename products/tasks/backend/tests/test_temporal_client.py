@@ -193,7 +193,11 @@ class TestRedispatchOrphanedTaskRun(TestCase):
         )
 
     def _orphaned_run(
-        self, pending_dispatch: dict | None = None, run_source: str | None = None, prewarmed: bool = False
+        self,
+        pending_dispatch: dict | None = None,
+        run_source: str | None = None,
+        prewarmed: bool = False,
+        environment: str = TaskRun.Environment.CLOUD,
     ) -> TaskRun:
         state: dict = {}
         if pending_dispatch is not None:
@@ -202,7 +206,9 @@ class TestRedispatchOrphanedTaskRun(TestCase):
             state["run_source"] = run_source
         if prewarmed:
             state["prewarmed"] = True
-        return TaskRun.objects.create(task=self.task, team=self.team, status=TaskRun.Status.QUEUED, state=state)
+        return TaskRun.objects.create(
+            task=self.task, team=self.team, status=TaskRun.Status.QUEUED, state=state, environment=environment
+        )
 
     def _run_reconcile(self, run: TaskRun, start_workflow: Mock) -> str:
         client = Mock()
@@ -281,6 +287,19 @@ class TestRedispatchOrphanedTaskRun(TestCase):
 
         self.assertEqual(outcome, "left_queue")
         start_workflow.assert_not_called()
+
+    def test_skips_local_environment_run(self) -> None:
+        # A local run sits in QUEUED while the user's desktop agent drives it; cloud-dispatching
+        # it would hijack the live session (no repo in the sandbox) and later mark the run failed.
+        run = self._orphaned_run(environment=TaskRun.Environment.LOCAL)
+        start_workflow = AsyncMock()
+
+        outcome = self._run_reconcile(run, start_workflow)
+
+        self.assertEqual(outcome, "skipped_local")
+        start_workflow.assert_not_called()
+        run.refresh_from_db()
+        self.assertEqual(run.status, TaskRun.Status.QUEUED)
 
     def test_skips_prewarmed_run(self) -> None:
         # Prewarmed runs are owned by the prewarmed reaper (it kills them); re-dispatching one would
