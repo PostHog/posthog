@@ -1,7 +1,7 @@
 import dataclasses
 from collections.abc import Iterator
 from typing import Any, Optional
-from urllib.parse import urlencode
+from urllib.parse import urlencode, urlsplit
 
 import requests
 from structlog.types import FilteringBoundLogger
@@ -16,8 +16,22 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.northpass_
 )
 
 NORTHPASS_BASE_URL = "https://api.northpass.com/v2"
+# Northpass serves every account from this single shared host (no per-account subdomains).
+NORTHPASS_HOST = "api.northpass.com"
 # Northpass doesn't publish its max page size; 100 is a conventional cap that keeps payloads small.
 PAGE_SIZE = 100
+
+
+def _is_northpass_url(url: str) -> bool:
+    """Pin a URL to Northpass's HTTPS host.
+
+    Pagination follows `links.next` from the response body, which is attacker-controlled if the
+    upstream is compromised or spoofed. Since that URL is fetched with the API key attached, a
+    hostile `next` pointing off-host would leak the credential. Northpass only ever serves from a
+    single fixed host, so anything else is rejected before we fetch it.
+    """
+    parts = urlsplit(url)
+    return parts.scheme == "https" and parts.netloc == NORTHPASS_HOST
 
 
 class NorthpassRetryableError(Exception):
@@ -102,6 +116,11 @@ def _iter_pages(
     """Yield `(items, next_url)` for each JSON:API page, following `links.next`."""
     url = start_url
     while True:
+        # Refuse to send the credentialed request anywhere but Northpass's host — the first URL is
+        # built by us, but every subsequent one comes from the (untrusted) response body.
+        if not _is_northpass_url(url):
+            logger.warning(f"Northpass: refusing to fetch off-host pagination URL: {url}")
+            return
         data = _fetch_page(session, url, headers, logger)
         items = data.get("data", [])
         next_url = data.get("links", {}).get("next")
@@ -197,8 +216,10 @@ def get_rows(
     config = NORTHPASS_ENDPOINTS[endpoint]
     headers = _headers(api_key)
     # One session reused across every page (and, for fan-out, every parent) so urllib3 keeps the
-    # connection alive instead of re-handshaking per request.
-    session = make_tracked_session()
+    # connection alive instead of re-handshaking per request. `redact_values` scrubs the API key
+    # from logged URLs and captured HTTP samples; `allow_redirects=False` stops a 30x from
+    # forwarding the credentialed X-Api-Key header off-host.
+    session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
 
     if config.fan_out_parent is not None:
         yield from _get_fan_out_rows(session, config, headers, logger, resumable_source_manager)
@@ -238,7 +259,8 @@ def validate_credentials(api_key: str) -> tuple[bool, int | None]:
     """
     url = _build_url("/courses", {"limit": 1})
     try:
-        response = make_tracked_session().get(url, headers=_headers(api_key), timeout=10)
+        session = make_tracked_session(redact_values=(api_key,), allow_redirects=False)
+        response = session.get(url, headers=_headers(api_key), timeout=10)
     except Exception:
         return False, None
     return response.status_code == 200, response.status_code

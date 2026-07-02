@@ -11,6 +11,7 @@ from products.warehouse_sources.backend.temporal.data_imports.sources.northpass_
     NorthpassResumeConfig,
     _build_url,
     _flatten_item,
+    _is_northpass_url,
     get_rows,
     northpass_source,
 )
@@ -149,6 +150,35 @@ class TestTopLevelPagination:
         assert [r["id"] for r in rows] == ["2"]
         # The first page is skipped entirely — resume starts at the saved URL.
         assert fetched == ["https://api.northpass.com/v2/courses?page=2&limit=100"]
+
+    def test_refuses_to_follow_offhost_next_link(self, monkeypatch: Any):
+        # A hostile upstream points `links.next` off-host; the credentialed request must not be sent.
+        pages = {
+            "https://api.northpass.com/v2/courses?limit=100": {
+                "data": [{"id": "1"}],
+                "links": {"next": "https://evil.example.com/steal?limit=100"},
+            },
+        }
+        fetched = _patch_fetch(monkeypatch, pages)
+        rows = _collect(_FakeResumableManager(), "courses")
+
+        assert [r["id"] for r in rows] == ["1"]
+        # Pagination stops at the Northpass host; the off-host URL is never fetched.
+        assert fetched == ["https://api.northpass.com/v2/courses?limit=100"]
+
+
+class TestIsNorthpassUrl:
+    @parameterized.expand(
+        [
+            ("valid_https_host", "https://api.northpass.com/v2/courses?page=2", True),
+            ("attacker_host", "https://evil.example.com/v2/courses", False),
+            ("internal_metadata", "http://169.254.169.254/latest/meta-data/", False),
+            ("http_scheme_rejected", "http://api.northpass.com/v2/courses", False),
+            ("subdomain_spoof_rejected", "https://api.northpass.com.evil.com/v2/courses", False),
+        ]
+    )
+    def test_is_northpass_url(self, _name, url, expected):
+        assert _is_northpass_url(url) is expected
 
 
 class TestFanOut:
