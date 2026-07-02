@@ -228,6 +228,18 @@ class TestGetRows:
         with pytest.raises(Exception, match="401 Client Error"):
             list(get_rows("na1", "key", "Contacts", mock.MagicMock(), self._manager()))
 
+    @mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.insightly.insightly.make_tracked_session"
+    )
+    def test_raises_on_non_list_response(self, mock_session: mock.MagicMock) -> None:
+        # A 2xx with an unexpected (non-array) body must fail loudly, not sync zero rows silently.
+        page = mock.MagicMock(status_code=200, ok=True)
+        page.json.return_value = {"error": "something went wrong"}
+        mock_session.return_value.get.return_value = page
+
+        with pytest.raises(ValueError, match="unexpected"):
+            list(get_rows("na1", "key", "Contacts", mock.MagicMock(), self._manager()))
+
 
 class TestInsightlySourceResponse:
     @pytest.mark.parametrize(

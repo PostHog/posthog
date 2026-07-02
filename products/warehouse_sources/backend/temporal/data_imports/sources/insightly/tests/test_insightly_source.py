@@ -6,22 +6,16 @@ from posthog.schema import ReleaseStatus, SourceFieldInputConfig, SourceFieldInp
 from products.warehouse_sources.backend.temporal.data_imports.sources.common.resumable import ResumableSourceManager
 from products.warehouse_sources.backend.temporal.data_imports.sources.generated_configs import InsightlySourceConfig
 from products.warehouse_sources.backend.temporal.data_imports.sources.insightly.insightly import InsightlyResumeConfig
-from products.warehouse_sources.backend.temporal.data_imports.sources.insightly.settings import ENDPOINTS
+from products.warehouse_sources.backend.temporal.data_imports.sources.insightly.settings import (
+    ENDPOINTS,
+    INSIGHTLY_ENDPOINTS,
+)
 from products.warehouse_sources.backend.temporal.data_imports.sources.insightly.source import InsightlySource
 from products.warehouse_sources.backend.types import ExternalDataSourceType
 
-INCREMENTAL_ENDPOINTS = {
-    "Contacts",
-    "Organisations",
-    "Opportunities",
-    "Leads",
-    "Projects",
-    "Tasks",
-    "Events",
-    "Notes",
-    "Emails",
-}
-FULL_REFRESH_ENDPOINTS = {"Users", "Pipelines"}
+# Derived from settings so a new endpoint is automatically covered by the parametrized tests below.
+INCREMENTAL_ENDPOINTS = {name for name, cfg in INSIGHTLY_ENDPOINTS.items() if cfg.supports_incremental}
+FULL_REFRESH_ENDPOINTS = {name for name, cfg in INSIGHTLY_ENDPOINTS.items() if not cfg.supports_incremental}
 
 
 class TestInsightlySource:

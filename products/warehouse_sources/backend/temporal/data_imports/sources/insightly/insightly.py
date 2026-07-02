@@ -159,8 +159,12 @@ def get_rows(
             pod, config.path, _build_params(config, skip, should_use_incremental_field, db_incremental_field_last_value)
         )
         data = fetch_page(url)
-        # Insightly list endpoints return a bare JSON array.
-        items = data if isinstance(data, list) else []
+        # Insightly list endpoints return a bare JSON array. Anything else (a 2xx error envelope,
+        # an HTML gateway page) would otherwise make `items` empty and silently end the sync with
+        # no rows and no error — so fail loudly instead of masking it as an empty table.
+        if not isinstance(data, list):
+            raise ValueError(f"Insightly API returned an unexpected {type(data).__name__} response for {url}")
+        items = data
 
         if items:
             yield items
