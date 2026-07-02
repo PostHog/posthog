@@ -73,6 +73,12 @@ const BillingGaugeItem = ({
     // Fraction of this bar (which spans 0..item.value) that sits at or below the limit.
     const paidFraction = isOverLimit ? (billingLimit as number) / item.value : 1
 
+    // Scoped to this product because we price only its tiers, not any addons folded into the total.
+    const paidLabel =
+        paidAmountUsd !== null
+            ? `What you'll pay for ${product?.name ?? 'this'}: ${humanFriendlyCurrency(paidAmountUsd)}`
+            : 'Usage you pay for'
+
     return (
         <div
             className={clsx(
@@ -88,13 +94,7 @@ const BillingGaugeItem = ({
         >
             {isOverLimit ? (
                 <>
-                    <Tooltip
-                        title={
-                            paidAmountUsd !== null
-                                ? `What you'll pay: ${humanFriendlyCurrency(paidAmountUsd)}`
-                                : 'Usage you pay for'
-                        }
-                    >
+                    <Tooltip title={paidLabel}>
                         <div
                             className="BillingGaugeItem__section BillingGaugeItem__section--paid absolute top-0 bottom-0 left-0"
                             // eslint-disable-next-line react/forbid-dom-props
@@ -112,8 +112,8 @@ const BillingGaugeItem = ({
             ) : (
                 hasLimit &&
                 paidAmountUsd !== null && (
-                    <Tooltip title={`What you'll pay: ${humanFriendlyCurrency(paidAmountUsd)}`}>
-                        <div className="absolute inset-0" />
+                    <Tooltip title={paidLabel}>
+                        <div className="BillingGaugeItem__section absolute inset-0" />
                     </Tooltip>
                 )
             )}
