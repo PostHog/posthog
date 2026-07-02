@@ -21,7 +21,7 @@ from products.warehouse_sources.backend.types import ExternalDataSourceType
 
 
 def _config(api_token: str = "tok") -> PapersignSourceConfig:
-    return PapersignSourceConfig(api_token=api_token)  # type: ignore[arg-type]
+    return PapersignSourceConfig(api_token=api_token)
 
 
 class TestPapersignSourceConfig:
