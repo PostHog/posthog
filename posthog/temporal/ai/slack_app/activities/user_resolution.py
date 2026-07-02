@@ -40,9 +40,10 @@ def resolve_posthog_code_slack_command_user_activity(
 
     event = inputs.event
     channel = event.get("channel")
-    thread_ts = event.get("thread_ts") or event.get("ts")
+    # Empty anchor posts feedback at the channel root — correct for a slash command outside a thread.
+    thread_ts = event.get("thread_ts") or event.get("ts") or ""
     slack_user_id = event.get("user")
-    if not channel or not thread_ts or not slack_user_id or not inputs.integration_ids:
+    if not channel or not slack_user_id or not inputs.integration_ids:
         return None
 
     candidates = list(
@@ -68,7 +69,7 @@ def resolve_posthog_code_slack_command_user_activity(
             thread_ts=thread_ts,
             text=(
                 "I couldn't find your PostHog account in any organization connected to this Slack "
-                "workspace. Ask an admin to invite you, then mention me again."
+                "workspace. Ask an admin to invite you, then try again."
             ),
         )
         return None

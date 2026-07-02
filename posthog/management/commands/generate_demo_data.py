@@ -14,11 +14,6 @@ from django.core.management.base import BaseCommand, CommandError
 from django.db.utils import OperationalError
 
 from posthog.api.person import PERSON_DEFAULT_DISPLAY_NAME_PROPERTIES
-from posthog.demo.dashboard_template_seeds import seed_dev_dashboard_templates
-from posthog.demo.matrix import Matrix, MatrixManager
-from posthog.demo.matrix.persons_db_sync import get_group_type_mapping_count
-from posthog.demo.products.hedgebox import HedgeboxMatrix
-from posthog.demo.products.spikegpt import SpikeGPTMatrix
 from posthog.health import get_pending_postgres_migrations
 from posthog.management.commands.sync_feature_flags_from_api import sync_feature_flags_from_api
 from posthog.models import User
@@ -27,6 +22,15 @@ from posthog.models.team.setup_tasks import SetupTaskId
 from posthog.models.team.team import Team
 from posthog.products import Products
 from posthog.taxonomy.taxonomy import PERSON_PROPERTIES_ADAPTED_FROM_EVENT
+
+from products.demo.backend.facade.api import (
+    HedgeboxMatrix,
+    Matrix,
+    MatrixManager,
+    SpikeGPTMatrix,
+    get_group_type_mapping_count,
+    seed_dev_dashboard_templates,
+)
 
 from ee.clickhouse.materialized_columns.analyze import materialize_properties_task
 

@@ -87,7 +87,8 @@ describe('useChartInteraction — tooltip pinning', () => {
 
     function renderInteraction(
         pinnable = true,
-        onPointClick?: (data: unknown) => void
+        onPointClick?: (data: unknown) => void,
+        resolveClickToNearestSeries = false
     ): RenderHookResult<ReturnType<typeof useChartInteraction>, unknown> {
         return renderHook(() =>
             useChartInteraction({
@@ -99,6 +100,7 @@ describe('useChartInteraction — tooltip pinning', () => {
                 wrapperRef: refs.wrapperRef,
                 showTooltip: true,
                 pinnable,
+                resolveClickToNearestSeries,
                 onPointClick: onPointClick as never,
                 resolveValue: (s, i) => s.data[i],
             })
@@ -278,6 +280,29 @@ describe('useChartInteraction — tooltip pinning', () => {
         expect(onPointClick).not.toHaveBeenCalled()
         expect(result.current.tooltipCtx?.isPinned).toBe(true)
     })
+
+    // Series values at Tue (x=200): a=20 -> yPixel 180, b=15 -> yPixel 185.
+    it.each<[number, string]>([
+        [180, 'a'],
+        [185, 'b'],
+    ])(
+        'resolveClickToNearestSeries fires onPointClick for the series nearest cursorY=%i (%s) instead of pinning',
+        (cursorY, expectedKey) => {
+            const onPointClick = jest.fn()
+            const { result } = renderInteraction(true, onPointClick, true)
+
+            act(() => {
+                simulateMouseMove(result.current.handlers, refs, 200, cursorY)
+            })
+            act(() => {
+                result.current.handlers.onClick()
+            })
+
+            expect(onPointClick).toHaveBeenCalledTimes(1)
+            expect(onPointClick.mock.calls[0][0].series.key).toBe(expectedKey)
+            expect(result.current.tooltipCtx?.isPinned).toBe(false)
+        }
+    )
 
     it('rebuilds the pinned tooltip when series data changes underneath the pin', () => {
         const { rerender, result } = renderHook(

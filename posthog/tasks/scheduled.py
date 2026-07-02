@@ -81,11 +81,12 @@ from products.conversations.backend.tasks import (
 )
 from products.data_modeling.backend.facade.tasks import cleanup_expired_test_saved_queries
 from products.data_warehouse.backend.facade.tasks import send_external_data_failure_digest_catchup
-from products.endpoints.backend.tasks import deactivate_stale_materializations
+from products.endpoints.backend.facade.tasks import deactivate_stale_materializations
 from products.feature_flags.backend.tasks import (
     cleanup_stale_flag_definitions_expiry_tracking_task,
     cleanup_stale_flags_expiry_tracking_task,
     compute_feature_flag_metrics,
+    drain_flag_definitions_rebuild_requests,
     feature_flags_local_eval_canary_task,
     refresh_expiring_flag_definitions_cache_entries,
     refresh_expiring_flags_cache_entries,
@@ -343,6 +344,17 @@ def setup_periodic_tasks(sender: Celery, **kwargs: Any) -> None:
         verify_and_fix_flag_definitions_cache_task.s(),
         name="verify and fix flag definitions cache (with cohorts)",
         expires_seconds=60 * 60,
+    )
+
+    # Flag definitions self-heal - every minute. Drains the queue the Rust
+    # /flags/definitions endpoint fills on cache miss and rebuilds those caches,
+    # so a missing entry heals in ~1 min instead of waiting for the hourly verifier.
+    add_periodic_task_with_expiry(
+        sender,
+        crontab(minute="*"),
+        drain_flag_definitions_rebuild_requests.s(),
+        name="drain flag definitions rebuild requests",
+        expires_seconds=60,
     )
 
     # Feature flags local-eval canary - every 5 minutes
