@@ -26,7 +26,6 @@ import { NotebookMarkLink } from '../Marks/NotebookMarkLink'
 import { NotebookNodeBacklink } from '../Nodes/NotebookNodeBacklink'
 import { NotebookNodeCohort } from '../Nodes/NotebookNodeCohort'
 import { NotebookNodeCustomerJourney } from '../Nodes/NotebookNodeCustomerJourney/NotebookNodeCustomerJourney'
-import { NotebookNodeDataV2 } from '../Nodes/NotebookNodeDataV2'
 import { NotebookNodeDuckSQL } from '../Nodes/NotebookNodeDuckSQL'
 import { NotebookNodeEarlyAccessFeature } from '../Nodes/NotebookNodeEarlyAccessFeature'
 import { NotebookNodeEmbed } from '../Nodes/NotebookNodeEmbed'
@@ -147,7 +146,6 @@ export function Editor(): JSX.Element {
         NotebookNodePython,
         NotebookNodeDuckSQL,
         NotebookNodeHogQL,
-        NotebookNodeDataV2,
         NotebookNodeRecording,
         NotebookNodeReplayTimestamp,
         NotebookNodePlaylist,
