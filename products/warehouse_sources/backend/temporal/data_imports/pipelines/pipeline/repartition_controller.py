@@ -124,12 +124,18 @@ async def maybe_flag_for_repartition(
     job: ExternalDataJob,
     delta_table: deltalake.DeltaTable,
     logger: FilteringBoundLogger,
+    *,
+    enabled: bool | None = None,
 ) -> None:
     """Measure partition sizes and, if over budget, record a `repartition_pending` target.
 
     Always records `max_partition_bytes` for observability (even when the controller is disabled or in
     cooldown). Setting the pending target is gated by the feature flag; the rewrite itself happens on
     the next run. Never raises — detection must not break post-load.
+
+    Pass `enabled` when the caller has already evaluated the rollout flag for this schema (each
+    evaluation is a `Team.objects.get()` plus a PostHog API call) to avoid re-evaluating it here; when
+    omitted it is evaluated lazily, only once the table is confirmed over budget.
     """
     try:
         partition_bytes = await asyncio.to_thread(measure_partition_bytes, delta_table)
@@ -153,7 +159,9 @@ async def maybe_flag_for_repartition(
             )
             return
 
-        if not await asyncio.to_thread(is_auto_repartition_enabled, schema):
+        if enabled is None:
+            enabled = await asyncio.to_thread(is_auto_repartition_enabled, schema)
+        if not enabled:
             await logger.adebug(
                 "repartition: over budget but skipped, controller disabled by feature flag",
                 schema_id=str(schema.id),

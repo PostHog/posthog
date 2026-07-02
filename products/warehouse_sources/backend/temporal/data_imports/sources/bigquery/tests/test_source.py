@@ -384,6 +384,37 @@ def test_bigquery_get_rows_to_sync_runs_count_query_when_filtered():
     assert [p.name for p in job_config.query_parameters] == ["row_filter_0_0", "row_filter_0_1"]
 
 
+@mock.patch("products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.time.sleep")
+def test_bigquery_get_rows_to_sync_retries_transient_job_not_found(mock_sleep):
+    # The COUNT query hits BigQuery's job-metadata race; it must be retried and yield the real
+    # count, not swallowed into the catch-all that returns 0 and captures error-tracking noise.
+    table = mock.MagicMock(project="proj", dataset_id="ds", table_id="t")
+    table.schema = [SimpleNamespace(name="age", field_type="INTEGER")]
+    client = mock.MagicMock()
+    job = mock.MagicMock()
+    job.result.side_effect = [NotFound("404 Not found: Job proj:US.job_abc123"), iter([[123]])]
+    client.query.return_value = job
+
+    with mock.patch(
+        "products.warehouse_sources.backend.temporal.data_imports.sources.bigquery.bigquery.capture_exception"
+    ) as mock_capture:
+        result = _get_rows_to_sync(
+            table=table,
+            client=client,
+            should_use_incremental_field=False,
+            db_incremental_field_last_value=None,
+            logger=mock.MagicMock(),
+            row_filters=[
+                ValidatedRowFilter(column="age", operator="IN", value=[21, 30], category=ColumnTypeCategory.INTEGER)
+            ],
+        )
+
+    assert result == 123
+    assert client.query.call_count == 2
+    mock_sleep.assert_called_once()
+    mock_capture.assert_not_called()
+
+
 def test_bigquery_get_query_in_filter_expands_to_one_param_per_value():
     bq_table = mock.MagicMock(dataset_id="ds", table_id="t")
     bq_table.schema = [SimpleNamespace(name="age", field_type="INTEGER")]

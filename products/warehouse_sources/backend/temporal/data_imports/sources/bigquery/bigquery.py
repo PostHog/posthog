@@ -16,7 +16,7 @@ import typing
 import contextlib
 import collections
 import collections.abc
-from collections.abc import Iterator
+from collections.abc import Callable, Iterator
 from contextlib import contextmanager
 from datetime import date, datetime
 from decimal import Decimal
@@ -30,6 +30,7 @@ from google.auth.transport.requests import AuthorizedSession
 from google.cloud import bigquery, bigquery_storage
 from google.cloud.bigquery.job import QueryJobConfig
 from google.cloud.bigquery.retry import DEFAULT_JOB_RETRY, _job_should_retry
+from google.cloud.bigquery.table import RowIterator
 from google.cloud.bigquery_storage_v1.services.big_query_read.transports.grpc import BigQueryReadGrpcTransport
 from google.oauth2 import service_account
 from structlog.types import FilteringBoundLogger
@@ -615,9 +616,7 @@ def _get_rows_to_sync(
         query = f"SELECT COUNT(*) FROM ({inner_query}) as t"
 
         job_config = QueryJobConfig(query_parameters=query_parameters)
-        job = client.query(query, job_config=job_config, project=table.project)
-
-        rows = job.result(page_size=1)
+        rows = _query_result_with_job_retry(client, query, job_config=job_config, project=table.project, page_size=1)
         row = next(rows, None)
 
         if row and len(row) > 0 and row[0] is not None:
@@ -779,6 +778,8 @@ def _get_query(
 _JOB_NOT_FOUND_MAX_ATTEMPTS = 4
 _JOB_NOT_FOUND_RETRY_BACKOFF_SECONDS = 0.5
 
+_T = typing.TypeVar("_T")
+
 
 def _is_transient_job_not_found(error: NotFound) -> bool:
     """True for BigQuery's transient "Job ... not found" lookup race.
@@ -790,6 +791,31 @@ def _is_transient_job_not_found(error: NotFound) -> bool:
     """
     message = str(error)
     return "Not found: Job" in message or "Job not found" in message
+
+
+def _with_job_not_found_retry(operation: Callable[[], _T]) -> _T:
+    """Run `operation`, retrying BigQuery's transient job-metadata race.
+
+    `client.query()` inserts a job and reads it straight back (its post-insert `get_job` reload, or
+    the reload `job.result()` does while awaiting completion), and that read can momentarily 404 for
+    the job it just created. The race clears within moments, so retry a few times. A genuine
+    `NotFound` (missing dataset/table) is not the race and surfaces immediately.
+    """
+    attempt = 0
+    while True:
+        try:
+            return operation()
+        except NotFound as e:
+            attempt += 1
+            if not _is_transient_job_not_found(e) or attempt >= _JOB_NOT_FOUND_MAX_ATTEMPTS:
+                raise
+            structlog.get_logger().warning(
+                "Retrying BigQuery query after transient job-not-found (attempt %s/%s): %s",
+                attempt,
+                _JOB_NOT_FOUND_MAX_ATTEMPTS,
+                e,
+            )
+            time.sleep(_JOB_NOT_FOUND_RETRY_BACKOFF_SECONDS * attempt)
 
 
 def _run_destination_query_with_job_retry(
@@ -812,23 +838,35 @@ def _run_destination_query_with_job_retry(
         query_parameters=query_parameters,
         write_disposition=bigquery.WriteDisposition.WRITE_TRUNCATE,
     )
-    attempt = 0
-    while True:
-        try:
-            job = client.query(query, job_config=job_config, project=project)
-            _ = job.result()
-            return
-        except NotFound as e:
-            attempt += 1
-            if not _is_transient_job_not_found(e) or attempt >= _JOB_NOT_FOUND_MAX_ATTEMPTS:
-                raise
-            structlog.get_logger().warning(
-                "Retrying BigQuery copy query after transient job-not-found (attempt %s/%s): %s",
-                attempt,
-                _JOB_NOT_FOUND_MAX_ATTEMPTS,
-                e,
-            )
-            time.sleep(_JOB_NOT_FOUND_RETRY_BACKOFF_SECONDS * attempt)
+
+    def _run() -> None:
+        job = client.query(query, job_config=job_config, project=project)
+        job.result()
+
+    _with_job_not_found_retry(_run)
+
+
+def _query_result_with_job_retry(
+    client: bigquery.Client,
+    query: str,
+    *,
+    job_config: QueryJobConfig,
+    project: str,
+    page_size: int | None = None,
+) -> RowIterator:
+    """Run a read-only query and return its row iterator, retrying the transient job-metadata race.
+
+    The read-path counterpart to `_run_destination_query_with_job_retry`: the same post-insert
+    `get_job` 404 can hit any `client.query()`, so a plain COUNT can fail with `NotFound: ... Not
+    found: Job ...` the same way the copy queries do. Re-running a read-only query just inserts a
+    fresh job, so retrying is safe; row fetching on the returned iterator stays lazy.
+    """
+
+    def _run() -> RowIterator:
+        job = client.query(query, job_config=job_config, project=project)
+        return job.result(page_size=page_size)
+
+    return _with_job_not_found_retry(_run)
 
 
 class BigQueryImplementation(SQLSourceImplementation[BigQuerySourceConfig, bigquery.Client, Any]):
