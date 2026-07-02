@@ -453,7 +453,7 @@ tools:
         annotations:
             readOnly: false
             destructive: false
-            idempotent: false
+            idempotent: true
         title: Author a full report for a run
         description: >
             The report channel: author a complete `SignalReport` directly instead of emitting a weak signal, when you've
@@ -461,8 +461,11 @@ tools:
             The report passes the safety judge, then surfaces at the status your `actionability` call implies
             (`immediately_actionable` → READY, `requires_human_input` → PENDING_INPUT, `not_actionable` → suppressed);
             an unsafe report is suppressed regardless. Backing `evidence` is written as bound signals so the report
-            behaves like a pipeline report. NOT idempotent — a retry authors a second report; use `inbox-reports-list`
-            to find a prior report and `signals-scout-edit-report` to update it instead. `suggested_reviewers` is the
+            behaves like a pipeline report. Idempotent for an identical retry — if a call times out or errors after the
+            server already committed it, re-sending the same request within the run returns the original report instead
+            of a duplicate. This is a safety net, not a license to retry freely: a request with any changed field is a
+            new report, so still use `inbox-reports-list` to find a prior report and `signals-scout-edit-report` to
+            update it rather than re-authoring. `suggested_reviewers` is the
             primary way a report reaches a human (each a `github_login` and/or a PostHog `user_uuid` resolved
             server-side); for a concrete, fixable issue, passing `repository` + `priority` + `suggested_reviewers` also
             opens a draft PR automatically (autostart, custom_agent parity); omit them to just surface the report.

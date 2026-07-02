@@ -1161,6 +1161,14 @@ class SignalScoutRun(TeamScopedRootMixin, UUIDModel):
     # report (pipeline-authored included), so an edited id is generally NOT one the run authored. Nullable
     # with a `[]` db_default so the AddField stays non-blocking on the populated table.
     edited_report_ids = models.JSONField(null=True, blank=True, default=list, db_default=[])
+    # Idempotency map for the report-authoring channel: `{idempotency_key: report_id}`. `emit_report`
+    # derives the key from a content hash of the request and claims it under a row lock when it writes
+    # the report, so an identical retry — e.g. after a client-side timeout that abandoned the call while
+    # the server still committed it — returns the original report instead of authoring a duplicate.
+    # Scoped per run because a timed-out call's retry happens within the same run. Nullable with a `{}`
+    # db_default so the AddField stays non-blocking on the populated table — new and historical rows both
+    # read `{}`.
+    emitted_report_keys = models.JSONField(null=True, blank=True, default=dict, db_default={})
     created_at = models.DateTimeField(auto_now_add=True)
 
     class Meta:

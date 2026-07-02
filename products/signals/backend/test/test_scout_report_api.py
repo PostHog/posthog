@@ -98,6 +98,34 @@ class TestScoutReportAPI(APIBaseTest):
         assert SignalReport.objects.filter(id=body["report_id"], team=self.team).exists()
         embed_mock.assert_called_once()
 
+    def test_emit_report_identical_retry_is_idempotent(self) -> None:
+        # The reported bug: a client-side timeout abandons emit-report while the server still commits
+        # it, and the naive retry authors a duplicate. An identical retry within the same run must
+        # return the original report — no duplicate row, no re-emitted signals — and short-circuit
+        # before the safety judge (the slow work whose latency causes the timeout in the first place).
+        run = _make_run(self.team)
+        with _safe_judge() as judge_mock, patch(EMBED_PATH) as embed_mock:
+            first = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json")
+            second = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json")
+        assert first.status_code == status.HTTP_200_OK, first.json()
+        assert second.status_code == status.HTTP_200_OK, second.json()
+        assert second.json()["report_id"] == first.json()["report_id"]
+        assert SignalReport.objects.filter(team=self.team).count() == 1
+        judge_mock.assert_awaited_once()
+        embed_mock.assert_called_once()
+
+    def test_emit_report_reworded_retry_authors_new_report(self) -> None:
+        # Idempotency covers only a byte-identical resend — a retry that changed the summary is a
+        # genuinely different report and must not be collapsed into the first.
+        run = _make_run(self.team)
+        with _safe_judge(), patch(EMBED_PATH):
+            first = self.client.post(self._emit_url(str(run.id)), data=self._payload(), format="json")
+            second = self.client.post(
+                self._emit_url(str(run.id)), data=self._payload(summary="Reworded: p99 doubled."), format="json"
+            )
+        assert second.json()["report_id"] != first.json()["report_id"]
+        assert SignalReport.objects.filter(team=self.team).count() == 2
+
     def test_emit_report_unsafe_suppresses_but_returns_id(self) -> None:
         run = _make_run(self.team)
         with _safe_judge(choice=False, explanation="prompt injection"), patch(EMBED_PATH):

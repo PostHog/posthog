@@ -240,9 +240,11 @@ contract."""
 
 _AUTHORING_VS_EDITING_REPORT_BOTH = """# Authoring vs. editing: search the inbox first
 
-`signals-scout-emit-report` is NOT idempotent — calling it twice authors two
-reports, and there is no dedupe matcher on this channel. Duplicate reports are the
-main failure mode here, so the discipline is **search, then decide**:
+`signals-scout-emit-report` dedupes only a byte-identical retry within the same run
+(a safety net for a call that timed out after the server already wrote it) — it has
+no near-duplicate matcher, so two reports written with different wording both land.
+Duplicate reports are the main failure mode here, so the discipline is **search,
+then decide**:
 
 - **Search first, every time.** Before authoring anything, call
   `inbox-reports-list` (filter/search by the entity, error, or topic you're about
@@ -264,17 +266,20 @@ main failure mode here, so the discipline is **search, then decide**:
   as genuinely new (author a fresh report and repoint your `report:` pointer at it).
 - **Author only when it's genuinely new.** A materially new issue — or a known one with
   new evidence that changes the verdict, or a relapse whose prior report is no longer
-  live — warrants a fresh report. Neither `emit_report` nor `edit_report` is idempotent —
-  never retry a call that looked like it failed: a retried `emit_report` that actually
-  landed silently doubles the report, and a retried `edit_report(append_note=...)` appends
-  a second note. If unsure whether it landed, re-read with `inbox-reports-list` /
-  `inbox-reports-retrieve` rather than re-sending."""
+  live — warrants a fresh report. A byte-identical `emit_report` retry within the run is
+  deduped to the original, so re-sending an unchanged call after a suspected transport
+  failure is safe — but only an *identical* resend: anything you reword becomes a second
+  report, and a retried `edit_report(append_note=...)` still appends a second note. If
+  unsure whether it landed, re-read with `inbox-reports-list` / `inbox-reports-retrieve`
+  rather than rewording and re-sending."""
 
 _AUTHORING_REPORT_EMIT_ONLY = """# Authoring reports: search the inbox first
 
-`signals-scout-emit-report` is NOT idempotent — calling it twice authors two
-reports, and there is no dedupe matcher on this channel. Duplicate reports are the
-main failure mode here, so the discipline is **search, then decide**:
+`signals-scout-emit-report` dedupes only a byte-identical retry within the same run
+(a safety net for a call that timed out after the server already wrote it) — it has
+no near-duplicate matcher, so two reports written with different wording both land.
+Duplicate reports are the main failure mode here, so the discipline is **search,
+then decide**:
 
 - **Search first, every time.** Before authoring anything, call
   `inbox-reports-list` (filter/search by the entity, error, or topic you're about
@@ -291,10 +296,11 @@ main failure mode here, so the discipline is **search, then decide**:
   report won't resurface and you can't reopen it, so a genuine relapse of a closed report
   is genuinely new — author a fresh report for it.
 - **Author only when it's genuinely new.** A materially new issue — or a relapse whose
-  prior report is no longer live — warrants a fresh report. Never retry an `emit_report`
-  that looked like it failed: a retry that actually succeeded the first time silently
-  doubles the report. If unsure whether it landed, look it up with `inbox-reports-list`
-  rather than re-emitting."""
+  prior report is no longer live — warrants a fresh report. A byte-identical `emit_report`
+  retry within the run is deduped to the original, so re-sending an unchanged call after a
+  suspected transport failure is safe — but only an *identical* resend: anything you reword
+  becomes a second report. If unsure whether it landed, look it up with `inbox-reports-list`
+  rather than rewording and re-emitting."""
 
 _EDITING_REPORT_EDIT_ONLY = """# Editing existing reports
 

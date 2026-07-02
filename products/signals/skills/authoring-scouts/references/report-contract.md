@@ -2,7 +2,7 @@
 
 Most scouts have one output: `emit-signal`, a weak finding the pipeline clusters, dedupes, and may or may not promote into a `SignalReport`.
 A scout that has **already done the research and knows the exact report it wants to file** can skip the pipeline and author the report directly — the **report channel**.
-This reference is the contract for that channel: the tools, their fields, when to reach for them over `emit-signal`, and the two behaviors that make this channel different (it isn't idempotent, and the pipeline may later rewrite what you authored).
+This reference is the contract for that channel: the tools, their fields, when to reach for them over `emit-signal`, and the two behaviors that make this channel different (it dedupes only an identical retry — not near-duplicates — and the pipeline may later rewrite what you authored).
 
 This is **opt-in**.
 A scout gets these tools only if its skill's frontmatter `allowed_tools` lists them — see [Opting a scout in](#opting-a-scout-in).
@@ -135,11 +135,12 @@ Before authoring, list the team's existing reports so you reconcile against one 
 - `inbox-reports-list` — filter by title/summary free-text (`search`), `status`, `source_product`, or your own `task_id`; newest-updated first.
 - `inbox-reports-retrieve` — fetch a single report by id (use the `report_id` you stashed in the scratchpad last run).
 
-## Dedup: the channel is NOT idempotent
+## Dedup: only an identical retry is idempotent
 
-`emit_report` is **not idempotent** — a retried call authors a _second_ report.
-There is no server-side dedup key.
-The dedup story is two-sided and the scout owns it:
+`emit_report` dedupes a **byte-identical retry within the same run** — the server fingerprints the request and, if a prior attempt already authored that exact report, returns the original instead of a duplicate.
+This is a safety net for a call that timed out (or errored) after the write already committed server-side: re-sending it unchanged is safe.
+It is **not** a near-duplicate matcher — two reports written with different wording, or the same report authored again in a later run, both land.
+So the dedup story is still two-sided and the scout owns it:
 
 1. **Before authoring**, `inbox-reports-list` for a prior report on the same topic.
    Found one?
@@ -147,8 +148,7 @@ The dedup story is two-sided and the scout owns it:
 2. **After authoring**, write a `report:<domain>:<entity>` scratchpad entry recording the `report_id` so the next run finds it (via `inbox-reports-retrieve`) without a title-search guess.
    (This is the report-channel member of the scratchpad key-prefix vocabulary — see [`dedupe-and-memory.md`](dedupe-and-memory.md).)
 
-**Never retry an `emit_report` / `edit_report` call that may have succeeded** — a transport error after the write commits, retried, double-files.
-If you're unsure whether a call landed, `inbox-reports-list` to check before retrying.
+Because only an _identical_ resend is deduped, if you're unsure whether a call landed, `inbox-reports-list` to check before **rewording and** re-sending — a reworded retry is a second report, and a retried `edit_report(append_note=...)` still appends a second note.
 
 ## The pipeline may rewrite what you authored (accepted)
 

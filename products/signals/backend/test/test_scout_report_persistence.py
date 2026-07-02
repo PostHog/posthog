@@ -120,6 +120,66 @@ class TestScoutReportPersistence(BaseTest):
         run.refresh_from_db()
         assert run.emitted_report_ids == [result.report_id]
 
+    def test_repeated_idempotency_key_returns_original_and_creates_no_duplicate(self) -> None:
+        # The timeout-retry safety net: a second create with the same key must return the first report
+        # and NOT author a duplicate or re-emit its backing signals. Without the run-locked claim, a
+        # retried emit (after a client-side timeout that still committed the write) double-files.
+        run = self._make_run()
+        signals = [ScoutReportSignal(description="p99 doubled", source_id="obs-1")]
+        first = create_scout_report(
+            team_id=self.team.id,
+            title="t",
+            summary="s",
+            signals=signals,
+            attribution=ArtefactAttribution.system(),
+            run=run,
+            idempotency_key="k1",
+        )
+        assert first.already_existed is False
+        assert self.emit_mock.call_count == 1
+
+        second = create_scout_report(
+            team_id=self.team.id,
+            title="t",
+            summary="s",
+            signals=signals,
+            attribution=ArtefactAttribution.system(),
+            run=run,
+            idempotency_key="k1",
+        )
+        assert second.report_id == first.report_id
+        assert second.already_existed is True
+        assert SignalReport.objects.filter(team_id=self.team.id).count() == 1
+        # No second batch of backing signals emitted for the replayed report.
+        assert self.emit_mock.call_count == 1
+        run.refresh_from_db()
+        assert run.emitted_report_keys == {"k1": first.report_id}
+
+    def test_distinct_idempotency_keys_create_distinct_reports(self) -> None:
+        # A different key is a different report — the claim must not collapse unrelated authored reports.
+        run = self._make_run()
+        signals = [ScoutReportSignal(description="d", source_id="s")]
+        first = create_scout_report(
+            team_id=self.team.id,
+            title="t",
+            summary="s",
+            signals=signals,
+            attribution=ArtefactAttribution.system(),
+            run=run,
+            idempotency_key="k1",
+        )
+        second = create_scout_report(
+            team_id=self.team.id,
+            title="t",
+            summary="s",
+            signals=signals,
+            attribution=ArtefactAttribution.system(),
+            run=run,
+            idempotency_key="k2",
+        )
+        assert second.report_id != first.report_id
+        assert SignalReport.objects.filter(team_id=self.team.id).count() == 2
+
     @parameterized.expand(
         [
             ("empty_title", "", "summary", [ScoutReportSignal(description="d", source_id="s")]),

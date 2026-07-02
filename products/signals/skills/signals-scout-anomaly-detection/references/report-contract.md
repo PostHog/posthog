@@ -8,7 +8,8 @@ signal for the pipeline to cluster — so you author it directly and own its fra
 The harness already gives you the **general** report-channel discipline in your run prompt:
 search the inbox before authoring, prefer editing over a near-duplicate, keep a
 `report:<domain>:<entity>` scratchpad pointer, set `suggested_reviewers` to route the report,
-and never retry a non-idempotent call. This file is the **anomaly-specific** contract on top of
+and reword-then-check rather than blindly retry (only a byte-identical `emit_report` retry is
+deduped). This file is the **anomaly-specific** contract on top of
 that: the authoring bar, the title/summary prose, the evidence shape, how to set
 actionability / priority / repository / reviewers for a metric move, and the notebook write-up.
 The harness validates request shape but does **not** grade prose — that's on you.
@@ -139,9 +140,10 @@ was resolved) is a new `emit_report`, with a `summary` lineage line citing the p
 
 ## Dedup
 
-The channel isn't idempotent, and the harness prompt covers the general discipline (search the
-inbox first with `ordering=-updated_at`, edit over a near-duplicate, never retry a call that may
-have landed, and the accepted caveat that the pipeline may later rewrite a report you authored).
+The channel dedupes only a byte-identical retry (not near-duplicates), and the harness prompt covers
+the general discipline (search the inbox first with `ordering=-updated_at`, edit over a near-duplicate,
+reword-then-check rather than blindly retry, and the accepted caveat that the pipeline may later
+rewrite a report you authored).
 The anomaly specifics: dedup by the insight via your
 `report:anomaly_detection:insight:<short_id>` pointer (and `inbox-reports-list` on the insight /
 metric / dashboard), and **live-check before editing** — a suppressed or resolved report can't be

@@ -93,6 +93,10 @@ class PersistedScoutReport:
     # (and the run tally) tie the report back to its signal rows without a scan, and gives a later
     # `edit_report` the ids it needs to soft-delete a specific observation.
     signal_document_ids: list[str]
+    # True when the `idempotency_key` matched a report a prior attempt already authored, so this call
+    # returned that existing report instead of creating a new one (and emitted no signals). The caller
+    # uses this to skip the post-commit hooks (autostart, analytics) it would run for a fresh report.
+    already_existed: bool = False
 
 
 def create_scout_report(
@@ -110,6 +114,7 @@ def create_scout_report(
     suggested_reviewers: SuggestedReviewers | None = None,
     emit_signals: bool = True,
     run: SignalScoutRun | None = None,
+    idempotency_key: str | None = None,
 ) -> PersistedScoutReport:
     """Author a `SignalReport` directly plus its backing signal rows, in one report-owning transaction.
 
@@ -138,6 +143,15 @@ def create_scout_report(
     become semantic-search candidates or matching context for unrelated signals, mirroring how the
     pipeline buffer drops unsafe signals before grouping. The report row still records the authored
     `signal_count`/`total_weight`; it just stays invisible with no indexed evidence.
+
+    `idempotency_key`, when supplied alongside a `run`, makes the write idempotent: the run row is
+    locked and its `emitted_report_keys` map checked for the key before any report is created. If a
+    prior attempt already authored a report under this key, that report is returned (with
+    `already_existed=True`) and nothing new is created or emitted. Otherwise the report is created and
+    the key claimed under the same lock. This is what makes a retried `emit_report` safe — a client-side
+    timeout can abandon the call while the server still commits it, and the naive retry would otherwise
+    author a duplicate. The row lock serializes a concurrent original+retry on the same run so exactly
+    one report is created even when both attempts race past the caller's pre-write fast-path check.
     """
     _validate_create_inputs(title, summary, signals)
     # Defense-in-depth: refuse to author against a run another team owns, so the tally write below
@@ -150,6 +164,34 @@ def create_scout_report(
     total_weight = sum(s.weight for s in signals)
 
     with transaction.atomic():
+        # Idempotency claim (report channel). When the caller supplies a key, lock the run row and check
+        # whether a prior attempt already authored a report under it. The lock serializes a concurrent
+        # original+retry on the same run, so the loser sees the winner's key and returns it instead of
+        # creating a second report. `for_team` keeps the lookup on the fail-closed manager.
+        locked_run: SignalScoutRun | None = None
+        if run is not None and idempotency_key is not None:
+            locked_run = SignalScoutRun.objects.for_team(team_id).select_for_update().filter(pk=run.id).first()
+            if locked_run is not None:
+                existing_report_id = (locked_run.emitted_report_keys or {}).get(idempotency_key)
+                if existing_report_id is not None:
+                    logger.info(
+                        "signals_scout.emit_report: idempotent replay, returning existing report",
+                        extra={
+                            "team_id": team_id,
+                            "report_id": existing_report_id,
+                            "idempotency_key": idempotency_key,
+                        },
+                    )
+                    # Return the prior report without re-creating it or re-emitting its signals (the
+                    # first attempt already did both). `signal_document_ids` is empty because this call
+                    # wrote no rows; the emit caller only reads `report_id`/`already_existed` here.
+                    return PersistedScoutReport(
+                        report_id=existing_report_id,
+                        signal_count=len(signals),
+                        total_weight=total_weight,
+                        signal_document_ids=[],
+                        already_existed=True,
+                    )
         report = SignalReport.objects.create(
             team_id=team_id,
             status=status,
@@ -200,6 +242,12 @@ def create_scout_report(
                 attribution=attribution,
                 reevaluate_autostart=False,
             )
+        # Claim the idempotency key on the locked run, in the same transaction as the report insert, so
+        # the key and the report it points at commit atomically — a retry can never see a claimed key
+        # without the report also existing.
+        if locked_run is not None and idempotency_key is not None:
+            locked_run.emitted_report_keys = {**(locked_run.emitted_report_keys or {}), idempotency_key: report_id}
+            locked_run.save(update_fields=["emitted_report_keys"])
 
     # Committed: now emit the backing signals (unless suppressed-unsafe — see `emit_signals`).
     # Sequential (not on_commit) so the call is observable and so a Kafka failure surfaces to the

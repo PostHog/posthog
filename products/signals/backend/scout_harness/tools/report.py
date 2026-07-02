@@ -10,16 +10,22 @@ adapters: input validation + the shared preflight gates + attribution, then call
 Opt-in is by `allowed_tools`: a scout gets these only if its skill lists `emit_report` / `edit_report`,
 intersected with what `tools/__init__.py` re-exports.
 
-Like `emit_finding`, these are NOT idempotent — a retried `emit_report` authors a second report. The
-dedup story is the vanilla inbox tools (`inbox-reports-list` / `inbox-reports-retrieve`) plus a
-`report:<domain>:<entity>` scratchpad key the scout maintains; callers must not retry an authoring call
-that may have succeeded.
+`emit_report` is idempotent for an *identical* retry: it fingerprints the request (see
+`_report_idempotency_key`) and, scoped to the run, dedupes a re-send of the same report to the report a
+prior attempt already authored — so a client-side timeout that abandons the call while the server still
+commits it can be retried without doubling the report. This is a safety net, not a license to retry
+freely: a call with any changed field is a new, distinct report. Cross-run and near-duplicate dedup is
+still the scout's job via the vanilla inbox tools (`inbox-reports-list` / `inbox-reports-retrieve`) plus
+a `report:<domain>:<entity>` scratchpad key. `edit_report` remains non-idempotent (a retried
+`append_note` appends a second note).
 """
 
 from __future__ import annotations
 
+import json
 import uuid
 import asyncio
+import hashlib
 import logging
 from dataclasses import dataclass
 from typing import Any
@@ -198,6 +204,72 @@ def _emit_result(persisted_report_id: str, judgement: ScoutReportJudgement) -> E
         skipped_reason=None,
         safety_explanation=judgement.safety.explanation,
     )
+
+
+def _report_idempotency_key(
+    *,
+    title: str,
+    summary: str,
+    evidence: list[ReportEvidence],
+    actionability_explanation: str,
+    actionability: str,
+    already_addressed: bool,
+    repository: str | None,
+    priority: str | None,
+    priority_explanation: str | None,
+    suggested_reviewers: list[ReviewerInput] | None,
+) -> str:
+    """A deterministic fingerprint of a report-authoring request. Two calls with the same inputs hash to
+    the same key, so a retried `emit_report` — e.g. after a client-side timeout that still committed the
+    write server-side — is recognized as the same report and deduped instead of authoring a duplicate.
+    Any meaningful change (title, summary, evidence, actionability, routing) yields a new key, so a
+    genuinely different report is never collapsed into a prior one. Fingerprints the request only; the
+    run scope is applied by the caller (the key lives in that run's `emitted_report_keys` map)."""
+    payload = {
+        "title": title,
+        "summary": summary,
+        "actionability": actionability,
+        "actionability_explanation": actionability_explanation,
+        "already_addressed": already_addressed,
+        "repository": repository,
+        "priority": priority,
+        "priority_explanation": priority_explanation,
+        "evidence": [{"description": e.description, "source_id": e.source_id, "weight": e.weight} for e in evidence],
+        # Order-independent: reviewer list order isn't part of the report's identity.
+        "reviewers": sorted(f"{r.github_login or ''}:{r.user_uuid or ''}" for r in (suggested_reviewers or [])),
+    }
+    canonical = json.dumps(payload, sort_keys=True, separators=(",", ":"), default=str)
+    return hashlib.sha256(canonical.encode("utf-8")).hexdigest()
+
+
+def _existing_report_result(team_id: int, report_id: str) -> EmitReportResult:
+    """Build the `emit_report` result for a report a prior attempt already authored (an idempotent
+    replay). Reads the report's current status so `emitted` reflects whether it's live now, not a stale
+    birth status."""
+    status = SignalReport.objects.filter(team_id=team_id, id=report_id).values_list("status", flat=True).first()
+    surfaced = status in (SignalReport.Status.READY, SignalReport.Status.PENDING_INPUT)
+    return EmitReportResult(
+        report_id=report_id,
+        status=status,
+        emitted=bool(surfaced),
+        skipped_reason=None,
+        safety_explanation=None,
+    )
+
+
+def _find_replayed_report(*, team_id: int, run: SignalScoutRun, idempotency_key: str) -> EmitReportResult | None:
+    """Pre-write fast path: if this run already authored a report under `idempotency_key`, return it
+    without paying for the safety-judge LLM call. Reads `emitted_report_keys` fresh from the DB (not the
+    request-time `run` snapshot) so a claim a prior attempt committed after this request loaded the run
+    is still seen. The row lock in `create_scout_report` is the authoritative guard against a true
+    concurrent race; this is the cheap common-case short-circuit for a sequential retry."""
+    keys = (
+        SignalScoutRun.objects.for_team(team_id).filter(pk=run.id).values_list("emitted_report_keys", flat=True).first()
+    )
+    report_id = (keys or {}).get(idempotency_key)
+    if report_id is None:
+        return None
+    return _existing_report_result(team_id, report_id)
 
 
 def _attribution_for(task_id: str | None) -> ArtefactAttribution:
@@ -450,9 +522,9 @@ def _report_url(team_id: int, report_id: str | None) -> str | None:
 def _report_event_uuid(*parts: object) -> str:
     """Deterministic event uuid from the parts that identify a distinct emit/edit. A retried capture of the
     same authored report (or an identical re-applied edit) collapses to one event at ingestion instead of
-    double-firing a destination — `emit_report`/`edit_report` are non-idempotent, so the same logical action
-    can reach this path more than once. Distinct actions (a different report, a different edit) differ in
-    the parts and stay separate events."""
+    double-firing a destination — `edit_report` is non-idempotent and an `emit_report` can still reach this
+    path more than once (a concurrent retry), so the same logical action can recur here. Distinct actions
+    (a different report, a different edit) differ in the parts and stay separate events."""
     key = "|".join("" if part is None else str(part) for part in parts)
     return str(uuid.uuid5(uuid.NAMESPACE_URL, f"signals_scout_report:{key}"))
 
@@ -648,6 +720,26 @@ async def emit_report(
     # before the safety-judge LLM call rather than after. Free-form selection still runs only if surfaced.
     _normalize_repository(repository)
     signals = _build_signals(evidence)
+    # Fingerprint the request and short-circuit an identical retry to the report the first attempt
+    # already authored — before paying for the safety-judge LLM call. `create_scout_report` re-checks
+    # under a row lock for the true concurrent race.
+    idempotency_key = _report_idempotency_key(
+        title=title,
+        summary=summary,
+        evidence=evidence,
+        actionability_explanation=actionability_explanation,
+        actionability=actionability,
+        already_addressed=already_addressed,
+        repository=repository,
+        priority=priority,
+        priority_explanation=priority_explanation,
+        suggested_reviewers=suggested_reviewers,
+    )
+    replay = await database_sync_to_async(_find_replayed_report, thread_sensitive=False)(
+        team_id=team.id, run=run, idempotency_key=idempotency_key
+    )
+    if replay is not None:
+        return replay
     actionability_assessment = _build_actionability(
         explanation=actionability_explanation, choice=actionability, already_addressed=already_addressed
     )
@@ -705,7 +797,15 @@ async def emit_report(
         # otherwise become semantic-search / matching context despite never surfacing.
         emit_signals=judgement.safety.choice,
         run=run,
+        idempotency_key=idempotency_key,
     )
+    if persisted.already_existed:
+        # A concurrent retry raced past the fast-path check; the row lock in `create_scout_report`
+        # returned the prior report instead of authoring a duplicate. Skip autostart/analytics — the
+        # first attempt already ran them for this report.
+        return await database_sync_to_async(_existing_report_result, thread_sensitive=False)(
+            team.id, persisted.report_id
+        )
     if surfaced:
         await _maybe_autostart_report(team_id=team.id, report_id=persisted.report_id)
     result = _emit_result(persisted.report_id, judgement)
@@ -751,6 +851,24 @@ def emit_report_sync(
     # before the safety-judge LLM call rather than after. Free-form selection still runs only if surfaced.
     _normalize_repository(repository)
     signals = _build_signals(evidence)
+    # Fingerprint the request and short-circuit an identical retry to the report the first attempt
+    # already authored — before paying for the safety-judge LLM call. This is the cheap common-case
+    # guard; `create_scout_report` re-checks under a row lock for the true concurrent race.
+    idempotency_key = _report_idempotency_key(
+        title=title,
+        summary=summary,
+        evidence=evidence,
+        actionability_explanation=actionability_explanation,
+        actionability=actionability,
+        already_addressed=already_addressed,
+        repository=repository,
+        priority=priority,
+        priority_explanation=priority_explanation,
+        suggested_reviewers=suggested_reviewers,
+    )
+    replay = _find_replayed_report(team_id=team.id, run=run, idempotency_key=idempotency_key)
+    if replay is not None:
+        return replay
     actionability_assessment = _build_actionability(
         explanation=actionability_explanation, choice=actionability, already_addressed=already_addressed
     )
@@ -805,7 +923,13 @@ def emit_report_sync(
         # otherwise become semantic-search / matching context despite never surfacing.
         emit_signals=judgement.safety.choice,
         run=run,
+        idempotency_key=idempotency_key,
     )
+    if persisted.already_existed:
+        # A concurrent retry raced past the fast-path check; the row lock in `create_scout_report`
+        # returned the prior report instead of authoring a duplicate. Skip autostart/analytics — the
+        # first attempt already ran them for this report.
+        return _existing_report_result(team.id, persisted.report_id)
     if surfaced:
         async_to_sync(_maybe_autostart_report)(team_id=team.id, report_id=persisted.report_id)
     result = _emit_result(persisted.report_id, judgement)
