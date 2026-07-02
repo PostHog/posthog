@@ -148,7 +148,7 @@ REVIEWER_SYSTEM = textwrap.dedent(
     assumptions. You typically see T1 PRs that passed all gates.
 
     Title scrutiny flags (in the prompt when set): the PR title mentions a
-    sensitive domain (auth, billing, infra_cicd, …) but no deny-listed file
+    sensitive domain (auth, billing, infra_cicd, crypto_secrets, public_api) but no deny-listed file
     was touched. Verify against the diff: if the change behaviorally touches
     that domain (authentication/authorization flows, payment or plan logic,
     CI/deploy behavior), REFUSE and route to a human. If the keyword is
@@ -174,8 +174,9 @@ REVIEWER_SYSTEM = textwrap.dedent(
     - Author on owning team: not a concern
     - Author NOT on owning team:
       - Fine: typo fixes, log strings, test fixes, comments, mechanical refactors
-      - Fine: small behavioral fixes (T1a/T1b) with test coverage when no
-        reviewer has raised a concern
+      - Fine: small behavioral fixes (T1a/T1b) with test coverage and no
+        outstanding reviewer concerns — independent review still required
+        (the no-review carve-out below applies to owning-team authors only)
       - ESCALATE: changes to API contracts or data models, and larger (T1c+)
         behavioral changes to business logic
 
@@ -456,7 +457,7 @@ class Reviewer:
         if title_flags:
             constraint += (
                 f"\nTitle scrutiny flags: {', '.join(title_flags)} — the title mentions "
-                "these sensitive domains but no deny-listed file was touched. Verify the "
+                "these sensitive domains but no file matching these categories was touched. Verify the "
                 "diff does not behaviorally touch them; REFUSE if it does."
             )
 

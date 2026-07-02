@@ -71,10 +71,14 @@ Deny-list (hard gate)
   ▼
 Size ceiling (hard gate)
   - >500 substantive lines or >20 substantive files → too large for auto-review
-  - Docs (.md/.txt/.rst), snapshots (.snap/.ambr, __snapshots__/), images,
-    lockfiles, and generated/ artifacts don't count toward the ceiling —
-    they inflate diffs without adding review surface. They still count toward
-    tier classification and still appear in the diff the LLM reads.
+  - Docs (.md/.txt/.rst anywhere; artifact-extension files under docs/),
+    snapshots (.snap/.ambr, __snapshots__/), images,
+    `.lock`-extension files (e.g. `yarn.lock`), and generated/ artifacts
+    (regenerated-artifact extensions only: .ts/.tsx/.js/.jsx/.json/.md/.snap/.pyi/.txt)
+    don't count toward the ceiling — they inflate diffs without adding review
+    surface. Note: `pnpm-lock.yaml` and `package-lock.json` are not `.lock`-extension
+    files and do count toward the ceiling. All files still count toward tier
+    classification and still appear in the diff the LLM reads.
   │
   ▼
 Tier classification
@@ -139,19 +143,21 @@ Sub-classified by risk to calibrate scrutiny:
 
 Deny-listed categories where even a small diff can have high blast radius:
 
-| Category           | Patterns                                                                                              |
-| ------------------ | ----------------------------------------------------------------------------------------------------- |
-| **auth**           | auth, authentication, authorize, login, signup, oauth, saml, sso, permission, oidc, credential, …     |
-| **crypto_secrets** | crypto, encrypt, decrypt, secret, key, cert, signing, .env, vault                                     |
-| **migrations**     | migrations/, migrate, backfill, schema_change                                                         |
-| **infra_cicd**     | terraform, k8s, helm, dockerfile, .github/workflows, iam, cloudflare, etc.                            |
-| **billing**        | billing, payment, stripe, invoice, pricing                                                            |
-| **public_api**     | openapi, api_schema, swagger, public_api                                                              |
-| **deps_toolchain** | lockfiles (pnpm-lock, uv.lock, Cargo.lock, go.sum, …), requirements.txt, Makefile, Dockerfile, .nvmrc |
+| Category           | Patterns                                                                                                                                      |
+| ------------------ | --------------------------------------------------------------------------------------------------------------------------------------------- |
+| **auth**           | auth, authentication, authenticate, authenticated, authorize, authorization, authorized, login, signup, oauth, saml, sso, oidc, credential, … |
+| **crypto_secrets** | crypto, encrypt, decrypt, secret, key, cert, signing, .env, vault                                                                             |
+| **migrations**     | migrations/, migrate, backfill, schema_change                                                                                                 |
+| **infra_cicd**     | terraform, k8s, helm, dockerfile, .github/workflows, .github/pr-deploy, bin/deploy, deploy.sh, iam, cloudflare, etc.                          |
+| **billing**        | billing, payment, stripe, invoice, pricing                                                                                                    |
+| **public_api**     | openapi, api_schema, swagger, public_api                                                                                                      |
+| **deps_toolchain** | lockfiles (pnpm-lock, uv.lock, Cargo.lock, go.sum, …), requirements.txt, Makefile, Dockerfile, .nvmrc                                         |
 
 Notably absent, on purpose (calibrated against ~440 deny-listed PRs over 120 days):
-`subscription` (means scheduled insight deliveries here, not payments) and
-`routing`/`deploy` (every match was app-level routing or docs, never infra).
+`subscription` (means scheduled insight deliveries here, not payments),
+`routing` (every match was app-level DRF routing, never infra), and the bare word `deploy`
+(matches deploy-timing docs and unrelated code); narrow literals `bin/deploy`, `deploy.sh`,
+and `.github/pr-deploy` cover real deployment artifacts instead.
 Dependency _manifests_ (package.json, pyproject.toml, tsconfig, Cargo.toml,
 go.mod) don't hard-deny either: without a lockfile change they can't pull in
 third-party code. They're kept out of the T0 fast path, and the reviewer

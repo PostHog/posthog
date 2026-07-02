@@ -69,8 +69,20 @@ from gates import (
             id="drf-routers-not-infra",
         ),
         pytest.param(
+            ["docs/internal/checking-deploy-timing.md"],
+            id="deploy-timing-docs-not-infra",
+        ),
+        pytest.param(
             ["products/conversations/backend/api/tests/test_slack_message_routing.py"],
             id="message-routing-test-not-infra",
+        ),
+        pytest.param(
+            ["products/web_analytics/backend/temporal/health_checks/authorized_urls.py"],
+            id="authorized-urls-domain-config-not-auth",
+        ),
+        pytest.param(
+            ["dustbin/deploy.py"],
+            id="bin-deploy-needs-path-anchor",
         ),
         pytest.param(
             ["products/warehouse_sources/backend/temporal/data_imports/sources/stripe/source.py"],
@@ -161,6 +173,26 @@ def test_no_false_positive(files: list[str]) -> None:
             id="github-workflow",
         ),
         pytest.param(
+            ["bin/deploy-hobby"],
+            "infra_cicd",
+            id="deploy-hobby-script",
+        ),
+        pytest.param(
+            ["livestream/deploy.sh"],
+            "infra_cicd",
+            id="deploy-sh-script",
+        ),
+        pytest.param(
+            [".github/pr-deploy/values.yaml.tmpl"],
+            "infra_cicd",
+            id="pr-deploy-directory",
+        ),
+        pytest.param(
+            ["posthog/models/two_factor_auth.py"],
+            "auth",
+            id="two-factor-auth-file",
+        ),
+        pytest.param(
             ["posthog/billing/stripe_webhook.py"],
             "billing",
             id="billing-file",
@@ -202,14 +234,16 @@ def test_true_positive(files: list[str], expected_category: str) -> None:
         pytest.param("fix: stripe invoice pagination", ["billing"], id="billing-keywords"),
         pytest.param("feat(subscriptions): raise hourly org cap", [], id="insight-subscription-not-billing"),
         pytest.param("chore: migrate helm chart to terraform", ["infra_cicd"], id="infra-keywords"),
+        pytest.param("fix: authorized urls health check", ["auth"], id="title-only-past-participle"),
         pytest.param("fix(insights): trend legend overlap", [], id="neutral-title"),
+        pytest.param("fix: authentication flow", ["auth"], id="authentication-long-form"),
+        pytest.param("feat: stripe oauth billing sync", ["auth", "billing"], id="two-category-title"),
     ],
 )
 def test_title_scrutiny_flags(subject: str, expected_flags: list[str]) -> None:
     # Titles flag for LLM scrutiny but never deny — a title-only keyword
     # must not put the PR in T2-never (56-83% of those merged unchanged).
     assert detect_title_scrutiny_flags(subject) == expected_flags
-    assert detect_deny_categories(["posthog/api/foo.py"]) == []
 
 
 # ── Deny-list bypass via ignored_files ───────────────────────────
@@ -292,6 +326,7 @@ def test_dwh_source_mixed_still_denies() -> None:
     [
         pytest.param("docs/internal/monorepo-layout.md", True, id="markdown"),
         pytest.param(".agents/skills/foo/SKILL.md", True, id="skill-markdown"),
+        pytest.param("docs/example-snippet.ts", True, id="docs-dir-artifact-extension"),
         pytest.param("posthog/api/test/__snapshots__/test_api.ambr", True, id="ambr-snapshot"),
         pytest.param("frontend/__snapshots__/scene.storyshot", True, id="snapshots-dir"),
         pytest.param("frontend/src/generated/core/api.schemas.ts", True, id="generated-dir"),
@@ -306,6 +341,9 @@ def test_dwh_source_mixed_still_denies() -> None:
         pytest.param("docker-compose.dev.yml", False, id="yaml-config"),
         pytest.param("package.json", False, id="json-config"),
         pytest.param("regenerated_totals.py", False, id="generated-substring-not-dir"),
+        pytest.param("frontend/src/generated/core/evil.py", False, id="generated-dir-executable-py"),
+        pytest.param("frontend/src/generated/core/build.sh", False, id="generated-dir-executable-sh"),
+        pytest.param("docs/generate_sidebar.py", False, id="docs-dir-executable-py"),
     ],
 )
 def test_is_size_exempt(path: str, exempt: bool) -> None:

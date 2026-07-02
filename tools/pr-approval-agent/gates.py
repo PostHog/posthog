@@ -23,10 +23,12 @@ from pathlib import Path
 # which reads the actual diff and can refuse when the change really does
 # touch the flagged domain.
 #
-# Two pattern lists per category:
+# Three pattern lists per category:
 #   "paths"  — matched against file paths (hard deny)
 #   "any"    — matched against file paths (hard deny) and the PR title
 #              (scrutiny flag only)
+#   "titles" — matched against the PR title only (scrutiny flag, never a
+#              deny) — for words whose path-side hits are false positives
 
 _DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = {
     "auth": {
@@ -42,24 +44,33 @@ _DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = {
             "password",
             "2fa",
             "mfa",
+            "authentication",
+            "authenticate",
+            "authorize",
+            "authorization",
+        ],
+        # Past participles hard-deny the wrong things as path patterns
+        # (web analytics' authorized_urls.py health check is domain config,
+        # not the auth system) but are natural title words.
+        "titles": [
+            "authenticated",
+            "authorized",
+            r"two[_-]?factor",
         ],
         # "session" and "token" match too broadly in titles and non-auth
         # file paths (e.g. SessionAnalysisWarning, tokenize, tokenizer).
         # "permission" matches permission-checking helpers everywhere.
         # Restrict these to path-only with tighter patterns.
-        # "authentication"/"authorize"/"authorization" are here because the
-        # word-boundary regex doesn't break inside them, so a bare "auth"
-        # pattern misses posthog/api/authentication.py and the whole
-        # frontend/src/scenes/authentication/ tree.
+        # camelCase compounds (e.g. AuthenticatedShell.tsx) don't break on
+        # word boundaries when lowercased, so the "any" words above only
+        # reliably match snake/kebab paths and natural-language titles.
         "paths": [
             "session_auth",
             "session_token",
             "auth/session",
             "auth/token",
             "permission",
-            "authentication",
-            "authorize",
-            "authorization",
+            r"two[_-]?factor",
         ],
     },
     "crypto_secrets": {
@@ -97,18 +108,23 @@ _DENY_PATTERN_DEFS: dict[str, dict[str, list[str]]] = {
             "kubernetes",
             "helm",
         ],
-        # "routing" and "deploy" are gone on purpose: every historical match
-        # was app-level (posthog/api/routing.py DRF routers, Slack/Teams
+        # "routing" and bare "deploy" are gone on purpose: every historical
+        # match was app-level (posthog/api/routing.py DRF routers, Slack/Teams
         # message-routing tests, deploy-timing docs), never infrastructure.
+        # Narrow deploy literals below (bin/deploy, deploy.sh, .github/pr-deploy)
+        # cover real deployment artifacts without re-introducing the false positives.
         "paths": [
             r"k8s",
             "dockerfile",
             "docker-compose",
             r"\.github/workflows",
+            r"\.github/pr-deploy",
             "iam",
             "cloudflare",
             "cdn",
             "waf",
+            r"(?:^|/)bin/deploy",
+            r"deploy\.sh",
         ],
     },
     "billing": {
@@ -188,6 +204,7 @@ def _compile_patterns(
     """Compile pattern definitions into regexes.
 
     "paths" patterns use path-friendly boundaries (break on _ and -).
+    "titles" patterns use natural-language word boundaries.
     "any" patterns are compiled twice: once for paths, once for titles,
     and stored as a list of (path_rx, title_rx) tuples.
     """
@@ -197,6 +214,8 @@ def _compile_patterns(
         for scope, patterns in groups.items():
             if scope == "paths":
                 compiled[category][scope] = [_compile_pattern(p, for_paths=True) for p in patterns]
+            elif scope == "titles":
+                compiled[category][scope] = [_compile_pattern(p, for_paths=False) for p in patterns]
             else:
                 # "any" — store (path_regex, title_regex) pairs
                 compiled[category][scope] = [
@@ -417,18 +436,18 @@ DENY_EXEMPT_PATH_PREFIXES: dict[str, tuple[str, ...]] = {
 
 
 def _is_exempt_path(category: str, path: str) -> bool:
-    return path.startswith(DENY_EXEMPT_PATH_PREFIXES.get(category, ()))
+    return path.lower().startswith(DENY_EXEMPT_PATH_PREFIXES.get(category, ()))
 
 
 def detect_deny_categories(files: list[str], ignored_files: set[str] | None = None) -> list[str]:
     """Categories hard-denied by the changed file paths. Titles never deny."""
     hits: set[str] = set()
     ignored_files_lower = {f.lower() for f in ignored_files or set()}
-    paths_lower = [f.lower() for f in files if f.lower() not in ignored_files_lower]
+    paths_lower = [fl for f in files if (fl := f.lower()) not in ignored_files_lower]
 
     for category, scopes in DENY_PATTERNS.items():
         category_paths = [p for p in paths_lower if not _is_exempt_path(category, p)]
-        path_regexes = list(scopes.get("paths", [])) + [path_rx for path_rx, _title_rx in scopes.get("any", [])]
+        path_regexes = scopes.get("paths", []) + [path_rx for path_rx, _title_rx in scopes.get("any", [])]
         if any(rx.search(p) for rx in path_regexes for p in category_paths):
             hits.add(category)
     return sorted(hits)
@@ -446,6 +465,7 @@ def detect_title_scrutiny_flags(subject: str) -> list[str]:
         category
         for category, scopes in DENY_PATTERNS.items()
         if any(title_rx.search(subject_lower) for _path_rx, title_rx in scopes.get("any", []))
+        or any(rx.search(subject_lower) for rx in scopes.get("titles", []))
     )
 
 
@@ -611,7 +631,9 @@ SIZE_EXEMPT_EXTENSIONS = {
 }
 
 _SIZE_EXEMPT_PATH_RE = re.compile(
-    r"(?:^|/)(?:docs|__snapshots__|generated)/"
+    r"(?:^|/)__snapshots__/"
+    r"|(?:^|/)docs/.*\.(ts|tsx|js|jsx|json|md|snap|pyi|txt)$"
+    r"|(?:^|/)generated/.*\.(ts|tsx|js|jsx|json|md|snap|pyi|txt)$"
     r"|\.gen\.(ts|tsx|js|jsx)$"
     r"|\.generated\.(ts|tsx|js|jsx)$"
     r"|^frontend/src/queries/schema/",
