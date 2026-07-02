@@ -8,6 +8,7 @@ import {
     drawArea,
     drawGrid,
     drawLine,
+    drawLineSeriesLayer,
     drawSelectionRect,
 } from './canvas-renderer'
 import type { ChartDrawArgs, ChartTheme } from './types'
@@ -24,6 +25,10 @@ function mockCanvasContext(): jest.Mocked<CanvasRenderingContext2D> {
         arc: jest.fn(),
         fillRect: jest.fn(),
         strokeRect: jest.fn(),
+        rect: jest.fn(),
+        save: jest.fn(),
+        clip: jest.fn(),
+        restore: jest.fn(),
         setLineDash: jest.fn(),
         createPattern: jest.fn(() => ({}) as CanvasPattern),
         strokeStyle: '',
@@ -150,12 +155,9 @@ describe('hog-charts canvas-renderer', () => {
             drawLine(drawCtx, series)
             const pointYs = [10, 90, 10].map((v) => drawCtx.yScale(v))
             const [minY, maxY] = [Math.min(...pointYs), Math.max(...pointYs)]
-            for (const [, cp1y, , cp2y, , endY] of ctx.bezierCurveTo.mock.calls) {
-                for (const y of [cp1y, cp2y, endY]) {
-                    expect(y).toBeGreaterThanOrEqual(minY)
-                    expect(y).toBeLessThanOrEqual(maxY)
-                }
-            }
+            const cpYs = ctx.bezierCurveTo.mock.calls.flatMap(([, cp1y, , cp2y, , endY]) => [cp1y, cp2y, endY])
+            expect(Math.min(...cpYs)).toBeGreaterThanOrEqual(minY)
+            expect(Math.max(...cpYs)).toBeLessThanOrEqual(maxY)
         })
 
         it('splits the smooth curve into separate subpaths at gaps', () => {
@@ -182,9 +184,7 @@ describe('hog-charts canvas-renderer', () => {
                     ...ctx.bezierCurveTo.mock.calls.flatMap(([, cp1y, , cp2y, , endY]) => [cp1y, cp2y, endY]),
                 ]
                 expect(drawnYs.length).toBeGreaterThan(0)
-                for (const y of drawnYs) {
-                    expect(y).toBeLessThanOrEqual(yFloor)
-                }
+                expect(Math.max(...drawnYs)).toBeLessThanOrEqual(yFloor)
             }
         )
 
@@ -972,5 +972,27 @@ describe('hog-charts canvas-renderer', () => {
             )
             expect(ctx.fillRect).not.toHaveBeenCalled()
         })
+    })
+
+    describe('drawLineSeriesLayer — clipLeftEdge', () => {
+        const labels = ['a', 'b', 'c']
+        const series = [makeSeries({ key: 's1', data: [10, 50, 90] })]
+        const xScale = scalePoint<string>().domain(labels).range([48, 784]).padding(0)
+        const yScale = scaleLinear().domain([0, 100]).range([368, 16])
+        const resolveYScale = (): ReturnType<typeof scaleLinear> => yScale
+
+        it.each([
+            { clipLeftEdge: true, expectedLeft: Math.round(dimensions.plotLeft), expectedWidth: dimensions.width - Math.round(dimensions.plotLeft) },
+            { clipLeftEdge: false, expectedLeft: 0, expectedWidth: dimensions.width },
+        ])(
+            'passes left=$expectedLeft width=$expectedWidth to ctx.rect when clipLeftEdge=$clipLeftEdge',
+            ({ clipLeftEdge, expectedLeft, expectedWidth }) => {
+                const ctx = mockCanvasContext()
+                drawLineSeriesLayer({ ctx, dimensions, labels, series, xScale, resolveYScale, clipLeftEdge })
+                const rectCall = ctx.rect.mock.calls[0]
+                expect(rectCall[0]).toBe(expectedLeft)
+                expect(rectCall[2]).toBe(expectedWidth)
+            }
+        )
     })
 })
