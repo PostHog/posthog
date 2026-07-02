@@ -17,15 +17,18 @@ from django.core.exceptions import ImproperlyConfigured
 from django.test import override_settings
 from django.utils import timezone
 
+import requests
 from parameterized import parameterized
 from prometheus_client import REGISTRY
 
 from posthog.email import (
+    CUSTOMER_IO_SEND_TIMEOUT_IN_SECONDS,
     CUSTOMER_IO_TEMPLATE_ID_MAP,
     EmailMessage,
     _send_email,
     _send_via_http,
     _send_via_smtp,
+    _TransientEmailDeliveryError,
     sanitize_email_properties,
 )
 from posthog.models import Organization, Person, Team, User
@@ -246,16 +249,18 @@ class TestEmail(BaseTest):
         before = REGISTRY.get_sample_value("posthog_email_send_total", failed_labels) or 0.0
 
         with override_instance_config("EMAIL_HOST", "localhost"), self.settings(CUSTOMER_IO_API_KEY="test-key"):
-            _send_via_http(
-                to=[
-                    {"raw_email": "a@posthog.com"},
-                    {"raw_email": "b@posthog.com"},
-                    {"raw_email": "c@posthog.com"},
-                ],
-                campaign_key="http_failcount",
-                template_name="2fa_enabled",
-                properties={},
-            )
+            # A 5xx is transient, so it re-raises into autoretry after counting the undelivered recipients.
+            with self.assertRaises(_TransientEmailDeliveryError):
+                _send_via_http(
+                    to=[
+                        {"raw_email": "a@posthog.com"},
+                        {"raw_email": "b@posthog.com"},
+                        {"raw_email": "c@posthog.com"},
+                    ],
+                    campaign_key="http_failcount",
+                    template_name="2fa_enabled",
+                    properties={},
+                )
 
         after = REGISTRY.get_sample_value("posthog_email_send_total", failed_labels) or 0.0
         self.assertEqual(after - before, 2.0)  # b failed + c never attempted; a succeeded
@@ -287,6 +292,7 @@ class TestEmail(BaseTest):
                     "transactional_message_id": CUSTOMER_IO_TEMPLATE_ID_MAP["2fa_enabled"],
                     "message_data": {"utm_tags": "utm_source=posthog&utm_medium=email&utm_campaign=2fa_enabled"},
                 },
+                timeout=CUSTOMER_IO_SEND_TIMEOUT_IN_SECONDS,
             )
 
             mock_capture.assert_called_once_with(
@@ -333,6 +339,7 @@ class TestEmail(BaseTest):
                         "utm_tags": "utm_source=posthog&utm_medium=email&utm_campaign=2fa_enabled",
                     },
                 },
+                timeout=CUSTOMER_IO_SEND_TIMEOUT_IN_SECONDS,
             )
 
     @patch("posthog.email.requests.post")
@@ -354,6 +361,51 @@ class TestEmail(BaseTest):
             # Verify the message wasn't marked as sent
             record = MessagingRecord.objects.filter(campaign_key="test_campaign").first()
             self.assertIsNone(record)
+
+    @parameterized.expand(
+        [
+            # Network-level failures: requests wraps a dropped/reset TLS handshake (the SSLEOFError we
+            # saw) in ConnectionError/SSLError and a read timeout in Timeout — all transient → re-raise.
+            ("transient_connection_reset", requests.exceptions.ConnectionError("reset"), None, True),
+            ("transient_ssl_eof", requests.exceptions.SSLError("EOF occurred in violation of protocol"), None, True),
+            ("transient_read_timeout", requests.exceptions.Timeout("read timed out"), None, True),
+            # Status codes: 5xx (overloaded) and 429 (rate limited) are transient → re-raise; 4xx permanent.
+            ("transient_500", None, 500, True),
+            ("transient_429", None, 429, True),
+            ("permanent_400", None, 400, False),
+            ("permanent_403", None, 403, False),
+        ]
+    )
+    def test_send_via_http_retry_classification(self, name, exc, status_code, should_reraise) -> None:
+        # The bug: a transient Customer.io blip (TLS drop / 5xx) was swallowed, so the task's
+        # autoretry never fired and the email was silently dropped. Transient failures must now
+        # re-raise so autoretry (max_retries) kicks in; permanent 4xx stay swallowed. Both count
+        # one failed metric.
+        failed_labels = {"outcome": "failed", "transport": "http"}
+        before = REGISTRY.get_sample_value("posthog_email_send_total", failed_labels) or 0.0
+
+        with patch("posthog.email.requests.post") as mock_post:
+            if exc is not None:
+                mock_post.side_effect = exc
+            else:
+                mock_post.return_value = MagicMock(status_code=status_code, text="boom")
+
+            kwargs: dict[str, Any] = {
+                "to": [{"raw_email": f"{name}@posthog.com"}],
+                "campaign_key": f"http_retry_{name}",
+                "template_name": "2fa_enabled",
+                "properties": {},
+            }
+            with override_instance_config("EMAIL_HOST", "localhost"), self.settings(CUSTOMER_IO_API_KEY="test-key"):
+                if should_reraise:
+                    expected = type(exc) if exc is not None else _TransientEmailDeliveryError
+                    with self.assertRaises(expected):
+                        _send_via_http(**kwargs)
+                else:
+                    _send_via_http(**kwargs)
+
+        after = REGISTRY.get_sample_value("posthog_email_send_total", failed_labels) or 0.0
+        self.assertEqual(after - before, 1.0)
 
     def test_sanitize_email_properties(self) -> None:
         # Test with various types of input including potential HTML injection

@@ -109,6 +109,23 @@ _TRANSIENT_SMTP_ERRORS = (
     ConnectionError,  # reset / refused / aborted
 )
 
+# Bound the Customer.io send (connect + read) the same way the SMTP socket is bounded: a remote that
+# goes silent mid-handshake must raise instead of pinning an email worker indefinitely. A read timeout
+# surfaces as requests.exceptions.Timeout, which is transient and re-raised into the task's autoretry.
+CUSTOMER_IO_SEND_TIMEOUT_IN_SECONDS = 30
+
+# Retryable network errors from the Customer.io HTTP call. requests wraps low-level ssl/socket
+# failures (e.g. SSLEOFError on a dropped TLS handshake) in ConnectionError, and read timeouts in
+# Timeout — both are transient, so they re-raise into autoretry instead of silently dropping the email.
+_TRANSIENT_HTTP_ERRORS = (
+    requests.exceptions.ConnectionError,  # includes SSLError (subclass) — dropped/reset TLS handshake
+    requests.exceptions.Timeout,
+)
+
+
+class _TransientEmailDeliveryError(Exception):
+    """A retryable Customer.io send failure (5xx / 429). Re-raised so the task's autoretry re-fires."""
+
 CUSTOMER_IO_TEMPLATE_ID_MAP = {
     # Set up in customer.io
     "2fa_enabled": "31",
@@ -199,10 +216,20 @@ def _send_via_http(
                     "message_data": properties,
                 }
 
-                response = requests.post(f"{settings.CUSTOMER_IO_API_URL}/v1/send/email", headers=headers, json=payload)
+                response = requests.post(
+                    f"{settings.CUSTOMER_IO_API_URL}/v1/send/email",
+                    headers=headers,
+                    json=payload,
+                    timeout=CUSTOMER_IO_SEND_TIMEOUT_IN_SECONDS,
+                )
 
                 if response.status_code != 200:
-                    raise Exception(f"Customer.io API error: {response.status_code} - {response.text}")
+                    message = f"Customer.io API error: {response.status_code} - {response.text}"
+                    # 5xx (overloaded) and 429 (rate limited) are transient → re-raise into autoretry;
+                    # other codes are permanent (bad request/template) → captured and dropped below.
+                    if response.status_code >= 500 or response.status_code == 429:
+                        raise _TransientEmailDeliveryError(message)
+                    raise Exception(message)
 
                 provider_response = response.json()
 
@@ -223,6 +250,15 @@ def _send_via_http(
                 EMAIL_SEND_COUNTER.labels(outcome="sent", transport="http").inc()
                 sent_count += 1
 
+    except (*_TRANSIENT_HTTP_ERRORS, _TransientEmailDeliveryError) as err:
+        # Re-raise so the task's autoretry (3x + backoff) retries instead of dropping the email; the
+        # `if record.sent_at` guard skips recipients already accepted, so a retry won't double-send.
+        # warning, not capture_exception: expected + auto-retried, capturing each attempt is noise.
+        logger.warning("email_send_http_transient_error", error=str(err))
+        # Count every recipient that did not get through (the failing one + any not yet attempted),
+        # so `failed` shares the per-recipient unit with `sent` instead of registering once per batch.
+        EMAIL_SEND_COUNTER.labels(outcome="failed", transport="http").inc(len(to) - already_sent_count - sent_count)
+        raise
     except Exception as err:
         capture_exception(err)  # already logs the traceback via logger.exception
         # Count every recipient that did not get through (the failing one + any not yet attempted),
