@@ -6,8 +6,9 @@ a ``DataProvider`` via ``provider_for``, and delegates to the engine's Django-fr
 a ``Team`` (query runners, product backends) keep working without each building a provider.
 
 This module lives OUTSIDE the engine package (``posthog/hogql/``) on purpose: the engine must
-not import Django, and these shims do (``provider_for`` / ``Database.create_for``). Keeping
-them here is what lets ``posthog/hogql/{property,filters,variables}.py`` stay import-clean.
+not import the ORM-backed provider or read the ORM mid-compile, and these shims do both
+(``provider_for`` / ``Database.create_for``). Keeping them here is what lets
+``posthog/hogql/{property,filters,variables}.py`` avoid importing the Django provider.
 The load-bearing logic is the ``*_core`` functions in those modules — this is the legacy
 surface in front of them.
 

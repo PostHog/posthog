@@ -204,7 +204,11 @@ class DataProvider(Protocol):
         ...
 
     def action_expr(self, action_id: int, events_alias: Optional[str] = None) -> Optional["ast.Expr"]:
-        """The action's step filters converted to an expression, or ``None`` if it doesn't exist."""
+        """The action's step filters converted to an expression, or ``None`` if it doesn't exist.
+
+        The action may belong to a sibling team in the project; its steps compile with the
+        owning team's settings (timezone, path cleaning, warehouse joins).
+        """
         ...
 
     def insight_variables(self, variable_ids: list[str]) -> list[InsightVariableInfo]:
