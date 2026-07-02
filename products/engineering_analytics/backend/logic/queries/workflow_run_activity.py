@@ -18,6 +18,7 @@ from posthog.hogql import ast
 
 from products.engineering_analytics.backend.facade.contracts import WorkflowRunActivity, WorkflowRunActivityPoint
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
+from products.engineering_analytics.backend.logic.queries._workflow_filters import branch_filter_clause
 
 # The chart plots a point per run and needs enough span to cover the window: an order of magnitude
 # above the run-detail table's cap (workflow_run_list._LIMIT = 200) so the scatter and focus-lens
@@ -56,12 +57,7 @@ def query_workflow_run_activity(
     if date_to is not None:
         date_to_clause = "AND run_started_at <= {date_to}"
         placeholders["date_to"] = ast.Constant(value=date_to)
-    # An empty/whitespace branch is "no filter", not a literal match on '' — mirrors workflow_run_list.
-    branch = branch.strip() if branch else None
-    branch_clause = ""
-    if branch:
-        branch_clause = "AND head_branch = {branch}"
-        placeholders["branch"] = ast.Constant(value=branch)
+    branch_clause = branch_filter_clause(branch, placeholders)
     response = curated.run(
         _SELECT.replace("__RUNS_SOURCE__", curated.run_source())
         .replace("__DATE_TO__", date_to_clause)

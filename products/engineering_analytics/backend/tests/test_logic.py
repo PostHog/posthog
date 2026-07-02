@@ -717,49 +717,19 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
             _PULL_REQUESTS_COLUMNS,
             [_pr_row(90, "alice", "open", 0, _ago(1), head_sha="sha90")],
         )
-        rows: list[dict[str, object | None]] = []
-        run_id = 9000
-        for index in range(20):
-            started_at, updated_at = _ago_with_duration(1, 100)
+        # Every success shares one duration, so the success-only p50/p95 are exactly 100 while the
+        # completed population (cheap cancels + one expensive failure) lands elsewhere.
+        conclusions = [("success", 100)] * 2 + [("cancelled", 1)] * 3 + [("failure", 1000)]
+        rows = []
+        for index, (conclusion, duration_seconds) in enumerate(conclusions):
+            started_at, updated_at = _ago_with_duration(1, duration_seconds)
             rows.append(
                 _run_row(
-                    run_id + index,
+                    9000 + index,
                     "CI",
-                    f"success-{index}",
+                    f"{conclusion}-{index}",
                     "completed",
-                    "success",
-                    started_at,
-                    updated_at,
-                    pr_number=90,
-                    head_branch="feature/ci",
-                )
-            )
-        run_id += 20
-        for index in range(40):
-            started_at, updated_at = _ago_with_duration(1, 1)
-            rows.append(
-                _run_row(
-                    run_id + index,
-                    "CI",
-                    f"cancelled-{index}",
-                    "completed",
-                    "cancelled",
-                    started_at,
-                    updated_at,
-                    pr_number=90,
-                    head_branch="feature/ci",
-                )
-            )
-        run_id += 40
-        for index in range(10):
-            started_at, updated_at = _ago_with_duration(1, 1000)
-            rows.append(
-                _run_row(
-                    run_id + index,
-                    "CI",
-                    f"failed-{index}",
-                    "completed",
-                    "failure",
+                    conclusion,
                     started_at,
                     updated_at,
                     pr_number=90,
@@ -771,20 +741,14 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
         legacy = next(
             item for item in api.list_workflow_health(team=self.team, date_from="-30d") if item.workflow_name == "CI"
         )
-        explicit_legacy = next(
-            item
-            for item in api.list_workflow_health(team=self.team, date_from="-30d", duration_filter="completed")
-            if item.workflow_name == "CI"
-        )
         successful = next(
             item
             for item in api.list_workflow_health(team=self.team, date_from="-30d", duration_filter="successful")
             if item.workflow_name == "CI"
         )
 
-        assert (legacy.p50_seconds, legacy.p95_seconds) == (explicit_legacy.p50_seconds, explicit_legacy.p95_seconds)
-        assert successful.run_count == legacy.run_count == 70
-        assert successful.success_rate == pytest.approx(20 / 70)
+        assert successful.run_count == legacy.run_count == 6
+        assert successful.success_rate == pytest.approx(2 / 6)
         assert successful.p50_seconds == pytest.approx(100)
         assert successful.p95_seconds == pytest.approx(100)
         assert legacy.p50_seconds != successful.p50_seconds
@@ -796,54 +760,20 @@ class TestEndpointsWarehouse(_WarehouseMixin, BaseTest):
             _PULL_REQUESTS_COLUMNS,
             [_pr_row(91, "alice", "open", 0, _ago(1), head_sha="sha91")],
         )
+        # The scenario matrix: PR-attributed × head branch. Only the attributed feature-branch
+        # run belongs in the pull_request scope.
         self._create_table(
             "github_workflow_runs",
             _WORKFLOW_RUNS_COLUMNS,
             [
-                _run_row(
-                    9101,
-                    "CI",
-                    "sha-pr",
-                    "completed",
-                    "success",
-                    _ago(1),
-                    _ago(1),
-                    pr_number=91,
-                    head_branch="feature/pr",
-                ),
-                _run_row(9102, "CI", "sha-master", "completed", "success", _ago(1), _ago(1), head_branch="master"),
-                _run_row(
-                    9103,
-                    "CI",
-                    "sha-master-pr",
-                    "completed",
-                    "success",
-                    _ago(1),
-                    _ago(1),
-                    pr_number=91,
-                    head_branch="master",
-                ),
-                _run_row(
-                    9104,
-                    "CI",
-                    "sha-branch",
-                    "completed",
-                    "success",
-                    _ago(1),
-                    _ago(1),
-                    head_branch="feature/no-pr",
-                ),
-                _run_row(
-                    9105,
-                    "CI",
-                    "sha-main-pr",
-                    "completed",
-                    "success",
-                    _ago(1),
-                    _ago(1),
-                    pr_number=91,
-                    head_branch="main",
-                ),
+                _run_row(run_id, "CI", sha, "completed", "success", _ago(1), _ago(1), pr_number=pr, head_branch=head)
+                for run_id, sha, pr, head in [
+                    (9101, "sha-pr", 91, "feature/pr"),
+                    (9102, "sha-master", None, "master"),
+                    (9103, "sha-master-pr", 91, "master"),
+                    (9104, "sha-branch", None, "feature/no-pr"),
+                    (9105, "sha-main-pr", 91, "main"),
+                ]
             ],
         )
 

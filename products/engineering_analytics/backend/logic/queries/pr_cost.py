@@ -26,7 +26,6 @@ from products.engineering_analytics.backend.logic.cost import PRCostAggregate, a
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
     branch_filter_clause,
-    normalized_branch,
     run_scope_filter_clause,
 )
 
@@ -187,16 +186,13 @@ def query_workflow_window_costs(
     jobs_source = curated.jobs_source()
     if jobs_source is None:
         return {}
-    branch = normalized_branch(branch)
     placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
     date_to_clause = ""
     if date_to is not None:
         date_to_clause = "AND r.run_started_at <= {date_to}"
         placeholders["date_to"] = ast.Constant(value=date_to)
-    branch_clause = branch_filter_clause(branch, alias="r")
-    if branch:
-        placeholders["branch"] = ast.Constant(value=branch)
-    run_scope_clause = run_scope_filter_clause(run_scope, alias="r")
+    branch_clause = branch_filter_clause(branch, placeholders)
+    run_scope_clause = run_scope_filter_clause(run_scope)
     sql = (
         _WINDOW_COST_SELECT.replace("__JOBS_SOURCE__", jobs_source)
         .replace("__RUNS_SOURCE__", curated.run_source())
@@ -257,12 +253,7 @@ def query_workflow_runner_costs(
     if date_to is not None:
         date_to_clause = "AND r.run_started_at <= {date_to}"
         placeholders["date_to"] = ast.Constant(value=date_to)
-    # An empty/whitespace branch is "no filter", not a literal match on '' — mirrors workflow_health.
-    branch = branch.strip() if branch else None
-    branch_clause = ""
-    if branch:
-        branch_clause = "AND r.head_branch = {branch}"
-        placeholders["branch"] = ast.Constant(value=branch)
+    branch_clause = branch_filter_clause(branch, placeholders)
     sql = (
         _RUNNER_COST_SELECT.replace("__JOBS_SOURCE__", jobs_source)
         .replace("__RUNS_SOURCE__", curated.run_source())

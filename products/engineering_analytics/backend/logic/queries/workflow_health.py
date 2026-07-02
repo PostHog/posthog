@@ -27,7 +27,6 @@ from products.engineering_analytics.backend.facade.contracts import (
 from products.engineering_analytics.backend.logic.queries._curated import CuratedGitHubSource
 from products.engineering_analytics.backend.logic.queries._workflow_filters import (
     branch_filter_clause,
-    normalized_branch,
     run_scope_filter_clause,
 )
 from products.engineering_analytics.backend.logic.queries.pr_cost import query_workflow_window_costs
@@ -48,6 +47,12 @@ _BUCKET_STEP: dict[Granularity, timedelta] = {
     "hour": timedelta(hours=1),
     "day": timedelta(days=1),
     "week": timedelta(weeks=1),
+}
+
+# Which runs feed the p50/p95 duration percentiles.
+_DURATION_CONDITION: dict[WorkflowHealthDurationFilter, str] = {
+    WorkflowHealthDurationFilter.COMPLETED: "status = 'completed'",
+    WorkflowHealthDurationFilter.SUCCESSFUL: "status = 'completed' AND conclusion = 'success'",
 }
 
 _SELECT = f"""
@@ -98,16 +103,12 @@ def query_workflow_health(
 ) -> list[WorkflowHealthItem]:
     granularity = _pick_granularity(date_from, date_to)
     date_to_clause = "AND run_started_at <= {date_to}" if date_to is not None else ""
-    # An empty/whitespace branch is "no filter", not a literal match on ''.
-    branch = normalized_branch(branch)
-    branch_clause = branch_filter_clause(branch)
-    run_scope_clause = run_scope_filter_clause(run_scope)
-    duration_condition = _duration_condition(duration_filter)
     placeholders: dict[str, ast.Expr] = {"date_from": ast.Constant(value=date_from)}
     if date_to is not None:
         placeholders["date_to"] = ast.Constant(value=date_to)
-    if branch:
-        placeholders["branch"] = ast.Constant(value=branch)
+    branch_clause = branch_filter_clause(branch, placeholders)
+    run_scope_clause = run_scope_filter_clause(run_scope)
+    duration_condition = _DURATION_CONDITION[duration_filter]
 
     runs_source = curated.run_source()
 
@@ -189,12 +190,6 @@ def _pick_granularity(date_from: datetime, date_to: datetime | None) -> Granular
     if span <= timedelta(days=90):
         return "day"
     return "week"
-
-
-def _duration_condition(duration_filter: WorkflowHealthDurationFilter) -> str:
-    if duration_filter == WorkflowHealthDurationFilter.SUCCESSFUL:
-        return "status = 'completed' AND conclusion = 'success'"
-    return "status = 'completed'"
 
 
 def _window_buckets(date_from: datetime, date_to: datetime | None, granularity: Granularity) -> list[datetime]:

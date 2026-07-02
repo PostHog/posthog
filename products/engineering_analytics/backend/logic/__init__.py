@@ -52,8 +52,6 @@ if TYPE_CHECKING:
 
 # Default recency window when a caller omits date_from. Relative strings (-30d) and
 # ISO8601 are both accepted and resolved against the team's timezone.
-_ChoiceT = TypeVar("_ChoiceT", bound=StrEnum)
-
 _DEFAULT_WINDOW = "-30d"
 
 # Workflow health defaults to a tighter window than the PR backlog — CI health is a "right now"
@@ -224,6 +222,9 @@ def build_workflow_health(
 
 def _parse_date(team: Team, value: str) -> datetime:
     return relative_date_parse(value, team.timezone_info)
+
+
+_ChoiceT = TypeVar("_ChoiceT", bound=StrEnum)
 
 
 def _parse_choice(param: str, value: str | None, default: _ChoiceT) -> _ChoiceT:
